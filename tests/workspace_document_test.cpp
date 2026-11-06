@@ -1,6 +1,9 @@
 #include "workspace_document.hpp"
 
+#include "archive_fixture.hpp"
 #include "track_edits.hpp"
+#include "tracker_archive.hpp"
+#include "workspace_storage.hpp"
 
 #include <QByteArray>
 #include <QFile>
@@ -106,17 +109,19 @@ TEST(WorkspaceDocument, MigratesVersionOneWithoutInventingSourceContent)
     document.project.description = "Old native document";
     motrack::writeWorkspaceDocument(path, document);
     auto object = QJsonDocument::fromJson(readBytes(path)).object();
-    EXPECT_EQ(object.value("version").toInt(), 4);
+    EXPECT_EQ(object.value("version").toInt(), 5);
     object.insert("version", 1);
     object.remove("trackerSource");
     object.remove("nextTrackId");
+    object.remove("embeddedArchive");
+    object.remove("archiveMember");
     ASSERT_TRUE(writeBytes(path, QJsonDocument(object).toJson()));
     const auto migrated = motrack::readWorkspaceDocument(path);
     EXPECT_FALSE(migrated.trackerSource);
     EXPECT_EQ(migrated.project.description, document.project.description);
     motrack::writeWorkspaceDocument(path, migrated);
     const auto updated = QJsonDocument::fromJson(readBytes(path)).object();
-    EXPECT_EQ(updated.value("version").toInt(), 4);
+    EXPECT_EQ(updated.value("version").toInt(), 5);
     EXPECT_TRUE(updated.value("trackerSource").isNull());
 }
 
@@ -150,14 +155,14 @@ TEST(WorkspaceDocument, RejectsMalformedOrAmbiguousSourceEnvelopes)
     object.insert("version", 1);
     ASSERT_TRUE(writeBytes(path, QJsonDocument(object).toJson()));
     EXPECT_THROW(static_cast<void>(motrack::readWorkspaceDocument(path)), motrack::ProjectError);
-    object.insert("version", 5);
+    object.insert("version", 6);
     EXPECT_TRUE(writeBytes(path, QJsonDocument(object).toJson()));
     EXPECT_THROW(static_cast<void>(motrack::readWorkspaceDocument(path)), motrack::ProjectError);
 }
 
 TEST(WorkspaceDocument, MigratesOldIdentitiesAndKeepsThemAcrossEditedNativeReopens)
 {
-    for (const int version : {1, 2, 3})
+    for (const int version : {1, 2, 3, 4})
     {
         SCOPED_TRACE(version);
         QTemporaryDir temporary;
@@ -171,6 +176,8 @@ TEST(WorkspaceDocument, MigratesOldIdentitiesAndKeepsThemAcrossEditedNativeReope
         motrack::writeWorkspaceDocument(path, document);
         auto old = QJsonDocument::fromJson(readBytes(path)).object();
         old.insert("version", version);
+        old.remove("embeddedArchive");
+        old.remove("archiveMember");
         if (version < 3)
         {
             old.remove("nextTrackId");
@@ -179,7 +186,7 @@ TEST(WorkspaceDocument, MigratesOldIdentitiesAndKeepsThemAcrossEditedNativeReope
         {
             old.remove("trackerSource");
         }
-        else
+        else if (version < 4)
         {
             auto source = old.value("trackerSource").toObject();
             source.remove("bindings");
@@ -260,6 +267,11 @@ TEST(WorkspaceDocument, RetainsSourceBindingsAfterRenameReorderDeleteUndoAndReop
     ASSERT_TRUE(edits.createVector(document.project, "same"));
     EXPECT_GT(document.project.vectors.front().id, expected.at(2).trackId);
     motrack::writeWorkspaceDocument(native, document);
+    auto versionFour = QJsonDocument::fromJson(readBytes(native)).object();
+    versionFour.insert("version", 4);
+    versionFour.remove("embeddedArchive");
+    versionFour.remove("archiveMember");
+    ASSERT_TRUE(writeBytes(native, QJsonDocument(versionFour).toJson()));
     ASSERT_TRUE(QFile::remove(original));
     auto reopened = motrack::readWorkspaceDocument(native);
     if (!reopened.trackerSource || !reopened.trackerSource->bindings)
@@ -423,6 +435,156 @@ TEST(WorkspaceDocument, RejectsInvalidOrOversizedSourceBeforeReplacingExistingFi
     document.trackerSource->xml.assign(motrack::MAX_TRACKER_XML_BYTES + 1, ' ');
     EXPECT_THROW(motrack::writeWorkspaceDocument(path, document), motrack::ProjectError);
     EXPECT_EQ(readBytes(path), original);
+}
+
+TEST(WorkspaceDocument, RetainsEveryArchiveByteAndSelectedTabAfterOriginalRemoval)
+{
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath(QString::fromUtf8("élève.trz"));
+    const auto native = temporary.filePath(QString::fromUtf8("élève.motrack"));
+    const QByteArray unknown(100000, '\xA5');
+    ASSERT_TRUE(motrack::test::writeArchive(original,
+                                            {{.name = "nested/selected.trk", .bytes = boundXml()},
+                                             {.name = "other.trk", .bytes = sourceXml()},
+                                             {.name = "media/opaque.bin", .bytes = unknown},
+                                             {.name = "source.trz", .bytes = "unrelated member with the snapshot filename"}}));
+    const auto bytes = readBytes(original);
+    auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(original));
+    auto document = motrack::importTrackerDocument(payload->projectPath("nested/selected.trk"));
+    const auto expectedBindings = document.trackerSource;
+    document.archivePayload = payload;
+    document.archiveMember = "nested/selected.trk";
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.renamePointMass(document.project, 0, "edited"));
+    ASSERT_TRUE(QFile::remove(original));
+    motrack::writeWorkspaceDocument(native, document);
+    // Release the import session: reopening must obtain an independent payload from the saved file.
+    document = {};
+    payload.reset();
+    auto reopened = motrack::readWorkspaceDocument(native);
+    ASSERT_TRUE(reopened.archivePayload);
+    EXPECT_TRUE(reopened.archiveReference.empty());
+    EXPECT_EQ(reopened.archiveMember, "nested/selected.trk");
+    EXPECT_EQ(reopened.project.pointMasses.front().name, "edited");
+    if (!expectedBindings || !reopened.trackerSource)
+    {
+        FAIL() << "Expected preserved original XML and bindings.";
+    }
+    EXPECT_EQ(reopened.trackerSource->xml, expectedBindings->xml);
+    EXPECT_EQ(reopened.trackerSource->bindings, expectedBindings->bindings);
+    EXPECT_EQ(readBytes(reopened.archivePayload->sourcePath()), bytes);
+    EXPECT_EQ(reopened.archivePayload->projects(), (QStringList{"nested/selected.trk", "other.trk"}));
+    EXPECT_EQ(readBytes(reopened.archivePayload->projectPath("other.trk")), sourceXml());
+    EXPECT_EQ(readBytes(reopened.archivePayload->root() + "/media/opaque.bin"), unknown);
+    EXPECT_EQ(readBytes(reopened.archivePayload->root() + "/source.trz"), "unrelated member with the snapshot filename");
+    const auto copy = temporary.filePath("resaved.motrack");
+    motrack::writeWorkspaceDocument(copy, reopened);
+    reopened = {};
+    ASSERT_TRUE(QFile::remove(native));
+    const auto resaved = motrack::readWorkspaceDocument(copy);
+    ASSERT_TRUE(resaved.archivePayload);
+    EXPECT_EQ(readBytes(resaved.archivePayload->sourcePath()), bytes);
+    EXPECT_EQ(resaved.project.pointMasses.front().name, "edited");
+    const std::atomic_bool cancelled{true};
+    EXPECT_THROW(static_cast<void>(motrack::readWorkspaceDocument(copy, &cancelled)), motrack::ProjectError);
+}
+
+TEST(WorkspaceDocument, RejectsMismatchedArchiveMetadataAndPreservesPreviousSave)
+{
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("original.trz");
+    const auto native = temporary.filePath("experiment.motrack");
+    ASSERT_TRUE(motrack::test::writeArchive(original,
+                                            {{.name = "selected.trk", .bytes = boundXml()}, {.name = "other.trk", .bytes = sourceXml()}}));
+    auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(original));
+    auto document = motrack::importTrackerDocument(payload->projectPath("selected.trk"));
+    document.archivePayload = payload;
+    document.archiveMember = "selected.trk";
+    motrack::writeWorkspaceDocument(native, document);
+    const auto saved = readBytes(native);
+    const auto storage = motrack::readWorkspaceStorage(native, nullptr);
+    const auto metadata = QJsonDocument::fromJson(storage.json).object();
+    const auto invalid = temporary.filePath("invalid.motrack");
+    const auto rejects = [&](const char* field, const QJsonValue& value)
+    {
+        auto object = metadata;
+        object.insert(field, value);
+        motrack::writeWorkspaceStorage(invalid, QJsonDocument(object).toJson(), payload);
+        EXPECT_THROW(static_cast<void>(motrack::readWorkspaceDocument(invalid)), motrack::ProjectError);
+    };
+    for (const auto& value : std::vector<QJsonValue>{QJsonValue::Undefined, false, 1, "true"})
+    {
+        rejects("embeddedArchive", value);
+    }
+    for (const auto& value : std::vector<QJsonValue>{QJsonValue::Undefined, 1, "", "../selected.trk", "missing.trk", "other.trk"})
+    {
+        rejects("archiveMember", value);
+    }
+    rejects("archive", "original.trz");
+    auto old = metadata;
+    old.insert("version", 4);
+    old.remove("embeddedArchive");
+    old.remove("archiveMember");
+    motrack::writeWorkspaceStorage(invalid, QJsonDocument(old).toJson(), payload);
+    EXPECT_THROW(static_cast<void>(motrack::readWorkspaceDocument(invalid)), motrack::ProjectError);
+    // A JSON document cannot promise a payload that is absent from its storage.
+    ASSERT_TRUE(writeBytes(invalid, storage.json));
+    EXPECT_THROW(static_cast<void>(motrack::readWorkspaceDocument(invalid)), motrack::ProjectError);
+    const std::atomic_bool cancelled{true};
+    EXPECT_THROW(static_cast<void>(motrack::readWorkspaceDocument(invalid, &cancelled)), motrack::ProjectError);
+
+    for (const auto* member : {"", "missing.trk", "other.trk"})
+    {
+        document.archiveMember = member;
+        EXPECT_THROW(motrack::writeWorkspaceDocument(native, document), motrack::ProjectError);
+        EXPECT_EQ(readBytes(native), saved);
+    }
+    document.archiveMember = "selected.trk";
+    document.archiveReference = "original.trz";
+    EXPECT_THROW(motrack::writeWorkspaceDocument(native, document), motrack::ProjectError);
+    EXPECT_EQ(readBytes(native), saved);
+    document.archiveReference.clear();
+    document.archivePayload.reset();
+    EXPECT_THROW(motrack::writeWorkspaceDocument(native, document), motrack::ProjectError);
+    EXPECT_EQ(readBytes(native), saved);
+    document.archivePayload = payload;
+    ASSERT_TRUE(QFile::remove(payload->sourcePath()));
+    EXPECT_THROW(motrack::writeWorkspaceDocument(native, document), motrack::ProjectError);
+    EXPECT_EQ(readBytes(native), saved);
+}
+
+TEST(WorkspaceDocument, RejectsMalformedNativeBundles)
+{
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("original.trz");
+    const auto native = temporary.filePath("invalid.motrack");
+    ASSERT_TRUE(motrack::test::writeArchive(original, {{.name = "selected.trk", .bytes = boundXml()}}));
+    motrack::writeWorkspaceDocument(native, {});
+    auto metadata = QJsonDocument::fromJson(readBytes(native)).object();
+    metadata.insert("embeddedArchive", true);
+    const auto json = QJsonDocument(metadata).toJson();
+    const auto source = readBytes(original);
+    using Entry = motrack::test::ArchiveEntry;
+    const std::vector<std::vector<Entry>> invalid{
+        {{.name = "project.json", .bytes = json}},
+        {{.name = "tracker/source.trz", .bytes = source}},
+        {{.name = "project.json", .bytes = json}, {.name = "tracker/source.trz", .bytes = source}, {.name = "unknown", .bytes = "extra"}},
+        {{.name = "project.json", .bytes = json}, {.name = "tracker/source.trz", .bytes = source}, {.name = "project.json", .bytes = json}},
+        {{.name = "project.json", .bytes = json},
+         {.name = "tracker/source.trz", .bytes = source},
+         {.name = "tracker/source.trz", .bytes = source}},
+        {{.name = "../project.json", .bytes = json}, {.name = "tracker/source.trz", .bytes = source}},
+        {{.name = "project.json", .bytes = {}, .symlink = true}, {.name = "tracker/source.trz", .bytes = source}},
+        {{.name = "project.json", .bytes = json}, {.name = "tracker/source.trz", .bytes = {}, .symlink = true}},
+        {{.name = "project.json", .bytes = json}, {.name = "tracker/source.trz", .bytes = "not an archive"}},
+        {{.name = "project.json", .bytes = "not JSON"}, {.name = "tracker/source.trz", .bytes = source}}};
+    for (const auto& members : invalid)
+    {
+        ASSERT_TRUE(motrack::test::writeArchive(native, members));
+        EXPECT_THROW(static_cast<void>(motrack::readWorkspaceDocument(native)), motrack::ProjectError);
+    }
+    ASSERT_TRUE(writeBytes(native, "PK truncated ZIP"));
+    EXPECT_THROW(static_cast<void>(motrack::readWorkspaceDocument(native)), motrack::ProjectError);
 }
 
 } // namespace

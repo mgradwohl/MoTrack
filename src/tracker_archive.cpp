@@ -47,19 +47,46 @@ bool safeMember(const QString& path)
                                 });
 }
 
+void snapshotArchive(const QString& path, const QString& destination, const std::atomic_bool* cancelled)
+{
+    require(!cancelled || !*cancelled);
+    QFile input(path);
+    require(QFileInfo(path).isFile() && input.open(QIODevice::ReadOnly));
+    const auto expected = input.size();
+    require(expected > 0 && expected <= MAX_TRACKER_ARCHIVE_BYTES);
+    QFile output(destination);
+    require(output.open(QIODevice::WriteOnly | QIODevice::NewOnly));
+    std::array<char, READ_BLOCK_BYTES> buffer{};
+    qint64 copied = 0;
+    for (;;)
+    {
+        require(!cancelled || !*cancelled);
+        const auto count = input.read(buffer.data(), static_cast<qint64>(buffer.size()));
+        require(count >= 0 && count <= MAX_TRACKER_ARCHIVE_BYTES - copied);
+        if (count == 0)
+        {
+            break;
+        }
+        require(output.write(buffer.data(), count) == count);
+        copied += count;
+    }
+    require(copied == expected && output.flush());
+}
+
 } // namespace
 
 TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool* cancelled)
 {
     TrackerArchive result;
-    require(result.m_Directory.isValid() && QFileInfo(path).isFile());
+    require(result.m_Directory.isValid() && result.m_SourceDirectory.isValid());
+    snapshotArchive(path, result.sourcePath(), cancelled);
     const std::unique_ptr<archive, decltype(&archive_read_free)> reader(archive_read_new(), &archive_read_free);
     require(reader && archive_read_support_format_zip_seekable(reader.get()) == ARCHIVE_OK);
 #ifdef _WIN32
-    require(archive_read_open_filename_w(reader.get(), QDir::toNativeSeparators(path).toStdWString().c_str(), READ_BLOCK_BYTES) ==
-            ARCHIVE_OK);
+    require(archive_read_open_filename_w(
+                reader.get(), QDir::toNativeSeparators(result.sourcePath()).toStdWString().c_str(), READ_BLOCK_BYTES) == ARCHIVE_OK);
 #else
-    require(archive_read_open_filename(reader.get(), QFile::encodeName(path).constData(), READ_BLOCK_BYTES) == ARCHIVE_OK);
+    require(archive_read_open_filename(reader.get(), QFile::encodeName(result.sourcePath()).constData(), READ_BLOCK_BYTES) == ARCHIVE_OK);
 #endif
     const QDir destination(result.m_Directory.path());
     QSet<QString> seen;
@@ -129,6 +156,11 @@ QString TrackerArchive::projectPath(const QString& member) const
 QString TrackerArchive::root() const
 {
     return m_Directory.path();
+}
+
+QString TrackerArchive::sourcePath() const
+{
+    return m_SourceDirectory.filePath("source.trz");
 }
 
 void TrackerArchive::resolveMedia(LegacyProject& project, const QString& projectMember) const

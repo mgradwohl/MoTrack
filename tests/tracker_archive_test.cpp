@@ -99,4 +99,32 @@ TEST(TrackerArchive, CancelsExtraction)
     EXPECT_THROW(std::ignore = motrack::TrackerArchive::open(fixturePath("archive.trz"), &cancelled), motrack::ProjectError);
 }
 
+TEST(TrackerArchive, OwnsTheOriginalSnapshotUntilTheLastOwnerIsDestroyed)
+{
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("original.trz");
+    ASSERT_TRUE(QFile::copy(fixturePath("archive.trz"), original));
+    QFile input(original);
+    ASSERT_TRUE(input.open(QIODevice::ReadOnly));
+    const auto bytes = input.readAll();
+    input.close();
+    QString source;
+    QString extracted;
+    {
+        auto archive = motrack::TrackerArchive::open(original);
+        source = archive.sourcePath();
+        extracted = archive.root();
+        ASSERT_TRUE(QFile::remove(original));
+        const auto moved = std::move(archive);
+        EXPECT_EQ(moved.sourcePath(), source);
+        EXPECT_EQ(moved.root(), extracted);
+        QFile snapshot(source);
+        ASSERT_TRUE(snapshot.open(QIODevice::ReadOnly));
+        EXPECT_EQ(snapshot.readAll(), bytes);
+        EXPECT_TRUE(QFileInfo(moved.projectPath("image-sequence.trk")).isFile());
+    }
+    EXPECT_FALSE(QFileInfo::exists(source));
+    EXPECT_FALSE(QFileInfo::exists(extracted));
+}
+
 } // namespace
