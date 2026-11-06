@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <numbers>
 #include <set>
 #include <unordered_map>
 
@@ -371,6 +372,46 @@ void patchMarks(QDomDocument& xml, const QDomElement& object, const std::vector<
     }
 }
 
+void patchFixedCalibration(QDomDocument& xml, const Calibration& original, const Calibration& current)
+{
+    // Start with the existing fixed coordinate system; keyed and moving frames need their own oracle.
+    require(original.fixedOrigin && original.fixedAngle && original.fixedScale && current.fixedOrigin && current.fixedAngle &&
+            current.fixedScale && original.keyframes.size() == 1 && current.keyframes.size() == 1 &&
+            original.keyframes.front().frame == 0 && current.keyframes.front().frame == 0);
+    const auto property = uniqueProperty(xml.documentElement(), "coords");
+    const auto object = property.firstChildElement("object");
+    require(property.attribute("type") == "object" && object.attribute("class") == "org.opensourcephysics.media.core.ImageCoordSystem" &&
+            object.nextSiblingElement().isNull());
+    const auto locked = uniqueProperty(object, "locked");
+    require(locked.isNull() ||
+            (locked.attribute("type") == "boolean" && locked.firstChildElement().isNull() && locked.text().trimmed() == "false"));
+    patchFrameData(xml,
+                   object,
+                   original.keyframes,
+                   current.keyframes,
+                   "org.opensourcephysics.media.core.ImageCoordSystem$FrameData",
+                   [](auto& document, const auto& frame, const CalibrationKey& key)
+                   {
+                       require(std::isfinite(key.originX) && std::isfinite(key.originY) && std::isfinite(key.angleDegrees) &&
+                               std::abs(key.angleDegrees) <= 180 && std::isfinite(key.scaleX) && std::isfinite(key.scaleY) &&
+                               key.scaleX != 0 && key.scaleY != 0);
+                       const auto determinant = key.scaleX * key.scaleY;
+                       require(std::isfinite(determinant) && determinant != 0);
+                       const auto angle = key.angleDegrees * (std::numbers::pi / 180.0);
+                       const auto cos = std::cos(angle);
+                       const auto sin = std::sin(angle);
+                       require(std::isfinite(cos / key.scaleX) && std::isfinite(sin / key.scaleX) && std::isfinite(cos / key.scaleY) &&
+                               std::isfinite(sin / key.scaleY) &&
+                               std::isfinite(cos * key.originX / key.scaleX - sin * key.originY / key.scaleY) &&
+                               std::isfinite(sin * key.originX / key.scaleX + cos * key.originY / key.scaleY));
+                       patchDouble(document, frame, "xorigin", key.originX);
+                       patchDouble(document, frame, "yorigin", key.originY);
+                       patchDouble(document, frame, "angle", key.angleDegrees);
+                       patchDouble(document, frame, "xscale", key.scaleX);
+                       patchDouble(document, frame, "yscale", key.scaleY);
+                   });
+}
+
 void sortTracks(LegacyProject& project)
 {
     std::ranges::sort(project.pointMasses, {}, &PointMass::id);
@@ -491,6 +532,19 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
         }
     }
     bool changed = false;
+    if (expected.calibration != baseline.project.calibration)
+    {
+        if (!expected.calibration || !baseline.project.calibration)
+        {
+            require(false); // Creating/removing coordinate systems is not covered by this writer slice.
+        }
+        else
+        {
+            patchFixedCalibration(xml, *baseline.project.calibration, *expected.calibration);
+            baseline.project.calibration = expected.calibration;
+            changed = true;
+        }
+    }
     if (expected.clip.firstFrame != baseline.project.clip.firstFrame || expected.clip.stepSize != baseline.project.clip.stepSize ||
         expected.clip.stepCount != baseline.project.clip.stepCount)
     {

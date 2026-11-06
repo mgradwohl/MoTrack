@@ -225,6 +225,25 @@ class CorpusTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 corpus.verify_vector_export_xml(original, exported, expected)
 
+    def test_calibration_export_retains_geometry_timing_and_unknown_content(self):
+        case = next(case for case in corpus.load_manifest()["cases"] if case["id"] == "independent-vectors")
+        original = corpus.local_fixture_path(case)
+        exported = self.root / "calibration.trk"
+        xml = original.read_text(encoding="utf-8")
+        edited = xml
+        for name, before, after in [("xorigin", "320.0", "100"), ("yorigin", "240.0", "120"),
+                                     ("angle", "0.0", "90"), ("xscale", "2.0", "4"), ("yscale", "4.0", "8")]:
+            edited = edited.replace(f'name="{name}" type="double">{before}', f'name="{name}" type="double">{after}', 1)
+        exported.write_text(edited, encoding="utf-8")
+        corpus.verify_calibration_export_xml(original, exported)
+        for invalid in [xml, edited.replace('name="xtail" type="double">10.0', 'name="xtail" type="double">11.0'),
+                        edited.replace('>Footprint.BoldArrow<', '>Footprint.Arrow<', 1)]:
+            exported.write_text(invalid, encoding="utf-8")
+            with self.assertRaises(ValueError):
+                corpus.verify_calibration_export_xml(original, exported)
+        expected = corpus.calibration_roundtrip_expected(case)
+        self.assertEqual([sample["world"] for sample in expected["coordinate_samples"]], [[12.84375, 21.625]] * 2)
+
     def test_clip_export_retains_tracks_timing_and_unknown_content(self):
         case = next(case for case in corpus.load_manifest()["cases"] if case["id"] == "independent-vectors")
         original = corpus.local_fixture_path(case)

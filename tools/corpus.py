@@ -309,6 +309,39 @@ def vector_roundtrip_expected(case, mode="vectors"):
     return expected
 
 
+def calibration_roundtrip_expected(case):
+    if case["id"] != "independent-vectors":
+        raise ValueError("The calibration oracle requires the fixed-coordinate vector fixture")
+    expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
+    # Independent 90-degree inverse transform: X = (120-y)/8, Y = (100-x)/4.
+    for sample in expected["coordinate_samples"]:
+        sample["world"] = [12.84375, 21.625]
+    return expected
+
+
+def verify_calibration_export_xml(original, exported):
+    expected = minidom.parse(str(original))
+    frames = [node for node in expected.getElementsByTagName("object")
+              if node.getAttribute("class") == "org.opensourcephysics.media.core.ImageCoordSystem$FrameData"]
+    if len(frames) != 1:
+        raise ValueError("Expected one fixed calibration frame")
+    for name, value in [("xorigin", "100"), ("yorigin", "120"), ("angle", "90"), ("xscale", "4"), ("yscale", "8")]:
+        properties = [node for node in frames[0].childNodes if node.nodeType == node.ELEMENT_NODE
+                      and node.tagName == "property" and node.getAttribute("name") == name]
+        if len(properties) != 1 or properties[0].getAttribute("type") != "double":
+            raise ValueError("Unexpected pinned calibration property: " + name)
+        nodes = [node for node in properties[0].childNodes if node.nodeType in {node.TEXT_NODE, node.CDATA_SECTION_NODE}]
+        if len(nodes) != 1:
+            raise ValueError("Unexpected pinned calibration scalar: " + name)
+        nodes[0].data = value
+    actual = minidom.parse(str(exported))
+    matches = canonical_tracker_xml(expected) == canonical_tracker_xml(actual)
+    expected.unlink()
+    actual.unlink()
+    if not matches:
+        raise ValueError("Standard export changed content beyond the requested calibration")
+
+
 def clip_roundtrip_expected(case):
     if case["id"] != "independent-vectors":
         raise ValueError("The clip oracle requires the fixed-coordinate vector fixture")
@@ -557,7 +590,8 @@ def check_sessions(manifest, cache, java, probe=None):
              ("empty-marks", "native_mark_roundtrip"), ("first-mark", "native_mark_roundtrip"),
              ("vectors", "native_vector_roundtrip"), ("empty-vectors", "native_vector_roundtrip"),
              ("first-vector", "native_vector_roundtrip"), ("clip", "native_clip_roundtrip"),
-             ("snap-origin", "native_vector_roundtrip"), ("snap-vector", "native_vector_roundtrip")] if probe else [("session", "session_tracks")]
+             ("snap-origin", "native_vector_roundtrip"), ("snap-vector", "native_vector_roundtrip"),
+             ("calibration", "native_calibration_roundtrip")] if probe else [("session", "session_tracks")]
     cases = [(case, mode) for case in manifest["cases"] if "session_tracks" in case
              for mode, flag in modes if case.get(flag)]
     if not cases:
@@ -603,6 +637,9 @@ def check_sessions(manifest, cache, java, probe=None):
                 if mode == "mass":
                     verify_mass_export_xml(project, exported)
                     expected = mass_roundtrip_expected(case)
+                elif mode == "calibration":
+                    expected = calibration_roundtrip_expected(case)
+                    verify_calibration_export_xml(project, exported)
                 elif mode == "clip":
                     expected = clip_roundtrip_expected(case)
                     verify_clip_export_xml(project, exported)

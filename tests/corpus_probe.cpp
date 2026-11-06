@@ -98,7 +98,7 @@ try
     if (args.size() == 4 && (args[1] == "--export-mass" || args[1] == "--export-marks" || args[1] == "--export-empty-marks" ||
                              args[1] == "--export-first-mark" || args[1] == "--export-vectors" || args[1] == "--export-empty-vectors" ||
                              args[1] == "--export-first-vector" || args[1] == "--export-clip" || args[1] == "--export-snap-origin" ||
-                             args[1] == "--export-snap-vector"))
+                             args[1] == "--export-snap-vector" || args[1] == "--export-calibration"))
     {
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trk");
@@ -115,6 +115,22 @@ try
                 !edits.setPointMassValue(document.project, 0, document.project.pointMasses.front().mass * 2.5))
             {
                 throw motrack::ProjectError("Could not edit round-trip mass.");
+            }
+        }
+        else if (args[1] == "--export-calibration")
+        {
+            if (!edits.calibrateDistance(document.project,
+                                         {.frame = 0,
+                                          .imageDeltaX = 8,
+                                          .imageDeltaY = 0,
+                                          .knownLength = 2,
+                                          .defaultOriginX = 320,
+                                          .defaultOriginY = 240,
+                                          .unit = document.project.lengthUnit}) ||
+                !edits.setCoordinateAxes(document.project,
+                                         {.frame = 0, .originX = 100, .originY = 120, .positiveX = 100, .positiveY = 112}))
+            {
+                throw motrack::ProjectError("Could not edit round-trip calibration.");
             }
         }
         else if (args[1] == "--export-clip")

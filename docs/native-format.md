@@ -135,8 +135,8 @@ and standard-file writers remain unfinished. An unknown object retained in this
 envelope is not an implemented track type.
 
 The initial internal standard writer can patch point-mass mass values, mark positions/additions/deletions,
-independent-vector tails/components/additions/deletions, and clip start/stride/count in media-free
-projects after a native reopen. Clip edits retain all measurements, including frames outside the clip.
+independent-vector tails/components/additions/deletions, clip start/stride/count, and existing fixed
+coordinate-system origin/rotation/scale in media-free projects after a native reopen. Clip edits retain all measurements, including frames outside the clip.
 Vector exports reject nonfinite endpoints and components that Tracker's endpoint subtraction would
 change beyond the reference tolerance (absolute `1e-10` image pixels or relative `1e-12`).
 Tracker also automatically snaps newly loaded arrows on their first draw. Changed files containing
@@ -148,7 +148,7 @@ geometry. Full dependent-vector/display semantics must replace these restriction
 It requires known source associations, preserves unknown XML objects/properties and
 normalizes changed output to a matching UTF-8 declaration. Unchanged output is byte-exact. It rejects
 every other changed domain field before opening its atomic replacement file, including name,
-clip timing, calibration and track-membership edits. Range exports require a known `VideoClip` without
+clip timing, units, keyed/moving calibration and track-membership edits. Range exports require a known `VideoClip` without
 video, frame-shift or saved-video-frame-count properties. They reject missing/invalid counts, endpoints
 beyond Tracker 6.3.5's media-free frame 500000 limit, and overflow in its temporary frame-count arithmetic.
 Media references are rejected until relocation
@@ -170,3 +170,11 @@ See the [full-port implementation order](migration-plan.md#implementation-order-
 [round-trip acceptance requirements](migration-plan.md#tracker-round-trip-compatibility). Tests exercise
 [native validation and migration](../tests/workspace_document_test.cpp) and
 [normal desktop import/edit/save/reopen](../tests/workspace_test.cpp).
+
+Fixed calibration export requires one original and edited key at frame 0, all three fixed flags, an
+unlocked `ImageCoordSystem`, finite values, nonzero scales, a finite nonzero scale product and finite
+inverse-transform coefficients/translation. Angles stay in the native editor's -180 to 180 degree range.
+Unknown fields and measured image positions are retained. Creating/removing a coordinate system,
+changing units or fixed flags, time-varying keys and moving reference frames require later reference cases.
+The vector snapping guard also runs after calibration changes, preventing an origin move from silently
+reattaching a previously independent vector when Tracker opens the export.

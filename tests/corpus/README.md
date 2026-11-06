@@ -153,3 +153,10 @@ The `snap-origin` and `snap-vector` cases instead verify rejected exports leave 
 unchanged. Java independently authors the same near-target geometry, then its actual application must
 demonstrate the expected first-draw snap and retain that snapped geometry through save/reopen. These are
 explicit rejection tests, not successful native exports or relaxed comparisons of requested geometry.
+
+The `calibration` case changes the vector fixture's existing fixed origin to (100, 120), rotation to
+90 degrees and scale to (4, 8) image pixels per world unit. The independent inverse-transform oracle
+maps image (13.5, 17.25) to world (12.84375, 21.625); Java's coordinate API and application must agree
+before and after resave. All vector image positions/components and unrelated XML remain unchanged.
+Native tests additionally exercise undo/redo, native reopen, locked/unsupported coordinate modes,
+nonfinite/singular transforms and destination preservation. Units and keyed/moving systems remain pending.
