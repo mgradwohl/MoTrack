@@ -918,7 +918,10 @@ TEST(TrackerWriter, ExportsAddedAndEditedCalibrationKeysThroughHistoryAndNativeR
     for (std::size_t index = 0; index < world.size(); ++index)
     {
         const auto actual = motrack::worldPosition(*document.project.calibration, document.project.pointMasses.front().marks[index]);
-        ASSERT_TRUE(actual.has_value());
+        if (!actual)
+        {
+            FAIL() << "Expected a world coordinate after keyed export.";
+        }
         EXPECT_NEAR(actual->x, world[index].x, 1e-10);
         EXPECT_NEAR(actual->y, world[index].y, 1e-10);
     }
@@ -957,6 +960,10 @@ TEST(TrackerWriter, RejectsUnsupportedOrUnstableCalibrationKeysWithoutReplacingF
     for (const auto& change : changes)
     {
         motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+        if (!document.project.calibration)
+        {
+            FAIL() << "Expected source calibration for the rejection case.";
+        }
         change(*document.project.calibration);
         // A mark after the changed key must be evaluated using that key, not frame zero.
         document.project.pointMasses.front().marks[3] = {.frame = 8, .x = std::nextafter(16.0, 17.0), .y = 16};
