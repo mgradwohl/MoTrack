@@ -90,17 +90,18 @@ exercise independent documents, cross-session/stale completions, replacement and
 outliving their session data. Desktop save/open/undo tests exercise the integration. Controllers and
 multi-tab UI remain later work; this change does not make multiple tabs editable.
 
-The initial phase-3 writer adds an internal `.trk` path for point-mass **mass values, marks, independent-vector samples, clip ranges, existing fixed or fully varying calibration, and length-unit labels**, in projects without media.
+The initial phase-3 writer adds an internal `.trk` path for point-mass **mass values, marks, independent-vector samples, clip ranges, existing fixed or fully varying calibration, and length/mass-unit labels**, in projects without media.
 It uses original object bindings, retains surrounding XML, rejects all other changed domain fields,
 checks its serialized model before atomic replacement, and does not expose a desktop Save action yet.
-The corpus adds mass, mark, vector, clip-range, fixed/keyed-calibration and length-unit round-trip cases: native edit/save/reopen after input removal, standard export,
+The corpus adds mass, mark, vector, clip-range, fixed/keyed-calibration and length/mass-unit round-trip cases: native edit/save/reopen after input removal, standard export,
 actual Tracker load/save/reopen and native reimport of the Java resave. Cases use the real protractor
 experiment and the Java-authored vector/keyed-calibration fixtures. Mark keyframes and vector tails/components are checked
 before and after Java resave, including empty tracks and first-sample additions. The clip case checks
 trim/stride while preserving measurements outside the selected range. The fixed-calibration case changes
 origin, rotation and nonuniform scale while retaining recorded image positions. A keyed case edits one
 existing key and adds another, checking world coordinates at each retained mark across transitions.
-Clip timing, mass/time units, partly fixed/moving calibration, key deletion, varying vector coordinates,
+A separate mass-unit case changes the project label without rescaling any stored masses.
+Clip timing, time units, partly fixed/moving calibration, key deletion, varying vector coordinates,
 media/archive and paired-save acceptance remain unfinished.
 Its CI evidence belongs to the writer PR, after the merged snapshot above.
 
@@ -120,13 +121,13 @@ and platform evidence before it can be marked complete.
 | --- | --- | --- | --- |
 | R01 | Reproducible native builds, CI, review, numerical tests, at least 90% combined C++ line coverage | Implemented foundation; continue applying gates to every new component. | 0, every phase |
 | R02 | Open `.trk`/`.trz`; preserve all supported and unknown content, references, metadata, and archive tabs | Partial: supported point masses/vectors/calibration import; one archive tab selected. Native documents retain that tab's original XML, editable-track IDs and source-object associations for new imports. Version 5 embeds the exact original archive, including all tabs/media/unknown files. Older native sources retain an explicit unknown-association state. | 1–3 |
-| R03 | Save edited standard files plus optional `.motrack`; reopen in both applications without data loss | Partial: native persistence and source/archive preservation. Initial internal `.trk` writer and actual-Tracker round-trip case cover mass values, marks, independent-vector samples, clip ranges, existing fixed/fully varying calibration and length-unit labels; other edits are rejected. Full standard writers, export UI, archive packaging and paired-save recovery remain. | 2–3, every feature |
+| R03 | Save edited standard files plus optional `.motrack`; reopen in both applications without data loss | Partial: native persistence and source/archive preservation. Initial internal `.trk` writer and actual-Tracker round-trip case cover mass values, marks, independent-vector samples, clip ranges, existing fixed/fully varying calibration and length/mass-unit labels; other edits are rejected. Full standard writers, export UI, archive packaging and paired-save recovery remain. | 2–3, every feature |
 | R04 | Multiple experiment tabs, independent undo/dirty state, tab/project Save As, cross-tab import and reusable views | Partial foundation: document sessions own independent data/history/save checkpoints, and native storage preserves unopened archive tabs. The desktop still has one active experiment; multi-tab controllers/UI, cross-tab import and reusable views remain. | 2–4 |
 | R05 | Movies, stills, image sequences and zipped sequences; accurate clip/time/frame controls and media properties | Partial: local movies/images, clip trim/stride, timestamp indexing, orientation, cache, and playback exist. Audit all baseline formats, rates, sequence operations, and properties controls. | 1, 4, 6 |
 | R06 | Complete point-mass editing and appearance: selection, dragging/nudging, numeric positions, multiselect, locks, labels, trails, paths, and vector overlays | Partial: manual marking/replacement, repeat, rename/delete, mass, and undo exist. Finish manipulation, appearance, path length, and selection behavior. | 4–5 |
 | R07 | Independent vectors, linked vectors, sums, their data, editing, and persistence | Partial: independent vectors import/display/edit/undo/native-save. Internal sample export has reference cases; links, sums, analysis and desktop standard saving remain. | 3–5 |
 | R08 | Center-of-mass tracks, constituents, dependent updates, and moving reference frames | Missing; persistent IDs exist for current editable types, but dependency evaluation and referenced-track semantics remain. | 2, 5 |
-| R09 | Fixed or varying calibration, axes, calibration sticks/points, offset origins, attachments, coordinate locks, and L/M/T/angle units | Partial: imported calibration keys, basic distance calibration and axes exist. Internal fixed-calibration and length-unit export have reference cases. A Java-authored varying-calibration case checks added/edited keys and world positions at boundaries. Finish partly fixed/moving calibration, key deletion, varying vectors, mass/time-unit export, tool tracks, units UI/defaults, attachments and reference frames. | 3–5 |
+| R09 | Fixed or varying calibration, axes, calibration sticks/points, offset origins, attachments, coordinate locks, and L/M/T/angle units | Partial: imported calibration keys, basic distance calibration and axes exist. Internal fixed-calibration and length/mass-unit export have reference cases. A Java-authored varying-calibration case checks added/edited keys and world positions at boundaries. Finish partly fixed/moving calibration, key deletion, varying vectors, time-unit export, tool tracks, units UI/defaults, attachments and reference frames. | 3–5 |
 | R10 | Persistent tape measures, protractors, circle fitting, attachments, and their changing measurements | Partial: temporary distance/angle tools only; these are not persisted Tracker track equivalents. | 5 |
 | R11 | Full AutoTracker: masks, search areas, keyframes, target offsets, match scores, subpixel positions, evolution/tethering, look-ahead, line search, stop/retry/skip, and live/fast modes | Partial: fixed grayscale patch and bounded search on a point mass, background operation, uncertainty stop. Reference algorithm and interaction parity remain. | 5–7 |
 | R12 | Ordered, editable video filter stack with saved parameters and reproducible filtered frames | Missing: enhancement, temporal, noise-reduction, geometric, and lens-correction filters; see the filter inventory below. | 6 |
@@ -256,8 +257,8 @@ so a consistently wrong resave cannot pass. The standard keyed writer uses this 
 partly fixed coordinates, attachments and moving reference frames still need separate cases.
 Media/archive session loading, broader requirement coverage, runtime/dependency provenance and exact
 source mapping remain unfinished. The initial phase-3 writer/reference path covers mass values, marks, independent-vector
-samples, clip ranges, existing fixed/fully varying calibration and length-unit labels, including native reopen and Java resave; expand it
-to names/mass-time units/partly fixed calibration/timing and archive/paired
+samples, clip ranges, existing fixed/fully varying calibration and length/mass-unit labels, including native reopen and Java resave; expand it
+to names/time units/partly fixed calibration/timing and archive/paired
 saving before exposing full standard Save. Phase 2 has an XML source envelope, persistent point-mass/vector
 IDs, original object associations, commands addressed by ID, native version migration and complete
 original archive preservation. `DocumentSession` now owns each document's data/history/native save state;
@@ -315,7 +316,7 @@ reopen the edited experiment in Tracker. A `.motrack` companion may be saved alo
 
 **Current status:** The desktop imports a supported subset of Tracker data and saves edits in its native
 format. New imports also retain the original XML bytes in the native source envelope. That baseline
-is patched by an initial internal standard writer for mass values, marks, independent-vector samples, clip ranges, existing fixed/fully varying calibration and length-unit labels; other edited fields are rejected.
+is patched by an initial internal standard writer for mass values, marks, independent-vector samples, clip ranges, existing fixed/fully varying calibration and length/mass-unit labels; other edited fields are rejected.
 The actual-Tracker corpus case exercises this limited export path after native reopen. Version 5 also embeds the entire original
 archive, preserving other tabs and media without yet making those tabs editable.
 Version-1 native documents cannot recover previously discarded content. Full writers, desktop export,

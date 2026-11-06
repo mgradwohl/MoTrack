@@ -138,7 +138,6 @@ TEST(TrackerWriter, RejectsUnsupportedOrInvalidEditsBeforeReplacingTheDestinatio
         [](auto& project) { project.vectors[0].name = "renamed"; },
         [](auto& project) { project.clip.firstFrame = 2; },
         [](auto& project) { project.description = "edited"; },
-        [](auto& project) { project.massUnit = "g"; },
         [](auto& project) { project.calibration = motrack::Calibration{}; },
         [](auto& project) { project.pointMasses[0].mass = std::numeric_limits<double>::quiet_NaN(); },
         [](auto& project)
@@ -775,6 +774,62 @@ TEST(TrackerWriter, ExportsLengthUnitsThroughCalibrationHistoryAndNativeReopen)
     EXPECT_EQ(motrack::parseLegacyProject(motrack::renderTrackerProject(saved.project, saved.source)), saved.project);
     saved.project.lengthUnit = "\xF0\x9D\x91\x8Em"; // Supplementary letter, not a decimal digit.
     EXPECT_EQ(motrack::parseLegacyProject(motrack::renderTrackerProject(saved.project, saved.source)), saved.project);
+}
+
+TEST(TrackerWriter, ExportsMassLabelsWithoutRescalingAfterNativeReopen)
+{
+    QTemporaryDir temporary;
+    const auto native = temporary.filePath("mass-units.motrack");
+    const auto output = temporary.filePath("mass-units.trk");
+    for (const bool existing : {false, true})
+    {
+        auto xml = std::string(sourceXml());
+        if (existing)
+        {
+            xml.insert(xml.find("<property name='tracks'>"), "<property name='mass_unit' type='string'>kg</property>");
+        }
+        const auto imported = motrack::parseTrackerProject(xml);
+        motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.setMassUnit(document.project, "\xC2\xB5g"));
+        const auto expected = document.project;
+        EXPECT_EQ(expected.pointMasses, imported.project.pointMasses);
+        EXPECT_EQ(expected.calibration, imported.project.calibration);
+        ASSERT_TRUE(edits.undo(document.project));
+        EXPECT_EQ(document.project, imported.project);
+        ASSERT_TRUE(edits.redo(document.project));
+        motrack::writeWorkspaceDocument(native, document);
+        document = motrack::readWorkspaceDocument(native);
+        if (!document.trackerSource)
+        {
+            FAIL() << "Expected unit source after native reopen.";
+        }
+        motrack::writeTrackerProject(output, document.project, *document.trackerSource);
+        EXPECT_EQ(motrack::parseLegacyProject(readBytes(output)), expected);
+    }
+}
+
+TEST(TrackerWriter, RejectsInvalidMassLabelsAndUnpreservableSourceNodes)
+{
+    const auto imported = motrack::parseTrackerProject(std::string(sourceXml()));
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("existing.trk");
+    motrack::writeTrackerProject(output, imported.project, imported.source);
+    for (const auto& unit :
+         std::vector<std::string>{"", " g", "g ", "g2", "g\n", "]]>g", "g\xC2\x81x", "g\xF0\x9D\x9F\x9A", "\xFF", std::string(257, 'g')})
+    {
+        auto project = imported.project;
+        project.massUnit = unit;
+        EXPECT_THROW(motrack::writeTrackerProject(output, project, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), sourceXml());
+    }
+    auto xml = std::string(sourceXml());
+    xml.insert(xml.find("<property name='tracks'>"), "<property name='mass_unit' type='string'>kg<!-- keep unit --></property>");
+    auto commented = motrack::parseTrackerProject(xml);
+    motrack::writeTrackerProject(output, commented.project, commented.source);
+    commented.project.massUnit = "g";
+    EXPECT_THROW(motrack::writeTrackerProject(output, commented.project, commented.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(output), xml);
 }
 
 TEST(TrackerWriter, RejectsInvalidUnitLabelsWithoutReplacingTheDestination)

@@ -282,6 +282,34 @@ def mass_roundtrip_expected(case):
     return expected
 
 
+def mass_unit_roundtrip_expected(case):
+    if case["id"] != "protractor":
+        raise ValueError("The mass-unit oracle requires the pinned protractor case")
+    expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
+    expected["mass_unit"] = "g"
+    return expected
+
+
+def verify_mass_unit_export_xml(original, exported):
+    expected = minidom.parse(str(original))
+    units = [node for node in expected.documentElement.childNodes if node.nodeType == node.ELEMENT_NODE
+             and node.tagName == "property" and node.getAttribute("name") == "mass_unit"]
+    if len(units) != 1 or units[0].getAttribute("type") != "string":
+        raise ValueError("Expected pinned kilogram label")
+    unit = units[0]
+    if len(unit.childNodes) != 1 or unit.firstChild.nodeType not in {unit.TEXT_NODE, unit.CDATA_SECTION_NODE}:
+        raise ValueError("Unexpected pinned unit contents")
+    if unit.firstChild.data != "kg":
+        raise ValueError("Expected pinned kilogram label")
+    unit.replaceChild(expected.createCDATASection("g"), unit.firstChild)
+    actual = minidom.parse(str(exported))
+    matches = canonical_tracker_xml(expected) == canonical_tracker_xml(actual)
+    expected.unlink()
+    actual.unlink()
+    if not matches:
+        raise ValueError("Standard export changed content beyond the requested mass unit")
+
+
 def mark_roundtrip_expected(case, mode="marks"):
     if case["id"] != "protractor":
         raise ValueError("The mark oracle is defined for the pinned protractor case")
@@ -684,7 +712,8 @@ def check_sessions(manifest, cache, java, probe=None):
              ("first-vector", "native_vector_roundtrip"), ("clip", "native_clip_roundtrip"), ("clip-boundary", "native_clip_roundtrip"),
              ("snap-origin", "native_vector_roundtrip"), ("snap-vector", "native_vector_roundtrip"),
              ("calibration", "native_calibration_roundtrip"), ("length-unit", "native_length_unit_roundtrip"),
-             ("keyed-calibration", "native_keyed_calibration_roundtrip")] if probe else [("session", "session_tracks")]
+             ("keyed-calibration", "native_keyed_calibration_roundtrip"),
+             ("mass-unit", "native_mass_unit_roundtrip")] if probe else [("session", "session_tracks")]
     cases = [(case, mode) for case in manifest["cases"] if "session_tracks" in case
              for mode, flag in modes if case.get(flag)]
     if not cases:
@@ -736,6 +765,9 @@ def check_sessions(manifest, cache, java, probe=None):
                 if mode == "mass":
                     verify_mass_export_xml(project, exported)
                     expected = mass_roundtrip_expected(case)
+                elif mode == "mass-unit":
+                    expected = mass_unit_roundtrip_expected(case)
+                    verify_mass_unit_export_xml(project, exported)
                 elif mode == "keyed-calibration":
                     expected = keyed_calibration_roundtrip_expected(case)
                     verify_keyed_calibration_export_xml(project, exported)

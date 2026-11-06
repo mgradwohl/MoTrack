@@ -33,6 +33,7 @@
     {
       "id": "protractor",
       "native_mass_roundtrip": true,
+      "native_mass_unit_roundtrip": true,
       "native_mark_roundtrip": true,
       "session_tracks": [
         {"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes", "name": "axes"},

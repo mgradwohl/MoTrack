@@ -190,6 +190,14 @@ comments or processing instructions reject without replacing a file because OSP 
 CDATA/property terminator; preserving an intervening comment can make its reader hang.
 The actual application round trip remains the final acceptance gate; this adapter fix alone is not GUI evidence.
 
+The `mass-unit` case changes the real protractor experiment's project label from `kg` to `g` with the
+native reversible command. A full-tree XML oracle permits only that string change; native/Java
+snapshots must retain every numerical mass, mark, calibration and unrelated object. The runner saves
+and reopens the native project, exports `.trk`, loads/saves/reopens it in actual Tracker, then reimports
+the Java resave. Native tests also cover Unicode labels, absent/existing properties, interleaved mass
+value edits and saved-state undo/redo. This verifies label semantics, not automatic unit conversion or
+the unfinished units UI.
+
 The `keyed-calibration` baseline has three fully varying keys: frame 0 has origin (320,240), angle 0,
 scale (2,4); frame 4 has origin (100,120), angle 90 degrees, scale (4,8); frame 9 has origin (110,130),
 angle -90 degrees, scale (2,8). A mark at image (10,20) maps to world (-155,55) at frames 0/3,

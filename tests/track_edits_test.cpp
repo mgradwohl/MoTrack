@@ -504,6 +504,45 @@ TEST(TrackEdits, InsertsReplacesAndRestoresMarksInFrameOrder)
     EXPECT_EQ(project.pointMasses.front().marks.size(), 2u);
 }
 
+TEST(TrackEdits, MassUnitHistoryInterleavesWithMassValuesWithoutRescaling)
+{
+    motrack::LegacyProject project;
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.createPointMass(project, "A"));
+    ASSERT_TRUE(edits.setPointMassValue(project, 0, 2.5));
+    edits.clear();
+    const auto original = project;
+    const auto revision = edits.revision();
+    EXPECT_FALSE(edits.setMassUnit(project, ""));
+    EXPECT_TRUE(edits.setMassUnit(project, project.massUnit));
+    EXPECT_EQ(edits.revision(), revision);
+    EXPECT_FALSE(edits.isModified());
+    ASSERT_TRUE(edits.setMassUnit(project, "g"));
+    EXPECT_EQ(project.massUnit, "g");
+    EXPECT_EQ(project.pointMasses, original.pointMasses);
+    edits.markSaved();
+    ASSERT_TRUE(edits.setPointMassValue(project, 0, 4));
+    ASSERT_TRUE(edits.setMassUnit(project, "mg"));
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_EQ(project.massUnit, "g");
+    EXPECT_DOUBLE_EQ(project.pointMasses.front().mass, 4);
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_FALSE(edits.isModified());
+    EXPECT_DOUBLE_EQ(project.pointMasses.front().mass, 2.5);
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_EQ(project, original);
+    EXPECT_TRUE(edits.isModified());
+    ASSERT_TRUE(edits.redo(project));
+    EXPECT_FALSE(edits.isModified());
+    ASSERT_TRUE(edits.redo(project));
+    ASSERT_TRUE(edits.redo(project));
+    EXPECT_EQ(project.massUnit, "mg");
+    EXPECT_DOUBLE_EQ(project.pointMasses.front().mass, 4);
+    ASSERT_TRUE(edits.undo(project));
+    ASSERT_TRUE(edits.setMassUnit(project, "tonne"));
+    EXPECT_FALSE(edits.canRedo());
+}
+
 TEST(TrackEdits, CreatesDistanceCalibrationAndRestoresThePriorUnit)
 {
     motrack::LegacyProject project;

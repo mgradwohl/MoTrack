@@ -54,6 +54,8 @@ class TrackEdits
     bool createPointMass(LegacyProject& project, std::string name);
     bool renamePointMass(LegacyProject& project, std::size_t track, std::string name);
     bool setPointMassValue(LegacyProject& project, std::size_t track, double mass);
+    /// Change the project-wide mass label without converting numerical mass values.
+    bool setMassUnit(LegacyProject& project, std::string unit);
     bool removePointMass(LegacyProject& project, std::size_t track);
     bool markPointMass(LegacyProject& project, std::size_t track, Mark mark);
     bool removeMark(LegacyProject& project, std::size_t track, int frame);
@@ -115,6 +117,12 @@ class TrackEdits
         std::string beforeUnit;
     };
 
+    struct ChangeMassUnit
+    {
+        std::string after;
+        std::string before;
+    };
+
     struct ChangeClip
     {
         ClipRange after;
@@ -150,6 +158,7 @@ class TrackEdits
                               RenameTrack,
                               RemoveTrack,
                               ChangeMass,
+                              ChangeMassUnit,
                               ChangeMark,
                               ChangeCalibration,
                               ChangeClip,
