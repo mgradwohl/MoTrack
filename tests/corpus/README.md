@@ -141,6 +141,18 @@ java -Djava.awt.headless=true -Xmx256m --class-path .dev-tools/tracker-reference
 Compare its bytes/hash with the committed fixture; the generator refuses to overwrite an existing file.
 The `roundtrip` command additionally exercises `vectors`, `empty-vectors` and `first-vector` exports
 through native save/reopen and separate Tracker application processes.
+
+The `clip` case trims that fixture to frames 2 through 8 with stride 2. Its independent oracle changes
+only the three range properties and the coordinate probe frame numbers; fixed calibration and all
+vector samples remain unchanged, including samples outside the selected steps. Full-tree comparison
+rejects unrelated changes before actual Tracker load/save/reopen and native reimport. Clip timing,
+media-backed clips and legacy frame-shift handling remain outside this writer slice. The media-free
+frame limit and loader arithmetic are checked against the pinned 6.3.5 JAR, not assumed from current OSP source.
+The `clip-boundary` case separately uses a Java-authored axes-only document and selects the single
+frame 500000. It exercises the same native persistence/export and actual-application save/reopen path
+at Tracker's media-free upper boundary. It retains the existing 256 MiB Java heap and process timeouts;
+no measurement/model arrays or long clip-step loops are needed for this boundary case.
+
 The `snap-origin` and `snap-vector` cases instead verify rejected exports leave an existing destination
 unchanged. Java independently authors the same near-target geometry, then its actual application must
 demonstrate the expected first-draw snap and retain that snapped geometry through save/reopen. These are

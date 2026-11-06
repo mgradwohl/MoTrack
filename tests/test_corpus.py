@@ -225,6 +225,31 @@ class CorpusTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 corpus.verify_vector_export_xml(original, exported, expected)
 
+    def test_clip_export_retains_tracks_timing_and_unknown_content(self):
+        case = next(case for case in corpus.load_manifest()["cases"] if case["id"] == "independent-vectors")
+        original = corpus.local_fixture_path(case)
+        exported = self.root / "clip.trk"
+        xml = original.read_text(encoding="utf-8")
+        edited = xml
+        for name, before, after in [("startframe", "0", "2"), ("stepsize", "1", "2"), ("stepcount", "10", "4")]:
+            edited = edited.replace(f'name="{name}" type="int">{before}', f'name="{name}" type="int">{after}', 1)
+        exported.write_text(edited, encoding="utf-8")
+        corpus.verify_clip_export_xml(original, exported)
+        for invalid in [xml, edited.replace('name="[0]"', 'name="[1]"'),
+                        edited.replace('>Footprint.BoldArrow<', '>Footprint.Arrow<', 1),
+                        edited.replace('name="starttime" type="double">0.0', 'name="starttime" type="double">10.0')]:
+            exported.write_text(invalid, encoding="utf-8")
+            with self.assertRaises(ValueError):
+                corpus.verify_clip_export_xml(original, exported)
+        expected = corpus.clip_roundtrip_expected(case)
+        self.assertEqual(expected["clip"], {"first_frame": 2, "step_size": 2, "step_count": 4, "start_ms": 0.0})
+        self.assertEqual([sample["frame"] for sample in expected["coordinate_samples"]], [2, 8])
+        self.assertEqual([sample["frame"] for sample in expected["vectors"][0]["samples"]], [0, 5])
+        boundary = corpus.clip_roundtrip_expected(case, boundary=True)
+        self.assertEqual(boundary["clip"], {"first_frame": 500000, "step_size": 1, "step_count": 1, "start_ms": 0.0})
+        self.assertEqual(boundary["vectors"], [])
+        self.assertEqual([sample["frame"] for sample in boundary["coordinate_samples"]], [500000, 500000])
+
     def test_mark_session_requires_edited_samples_and_manual_keys(self):
         manifest = corpus.load_manifest()
         case = next(case for case in manifest["cases"] if case["id"] == "protractor")

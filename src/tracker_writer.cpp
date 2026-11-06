@@ -7,6 +7,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <limits>
 #include <map>
 #include <set>
 #include <unordered_map>
@@ -38,43 +40,69 @@ QDomElement uniqueProperty(const QDomElement& object, const QString& name)
     return result;
 }
 
-void patchDouble(QDomDocument& xml, QDomElement object, const QString& name, double value)
+void patchScalar(QDomDocument& xml, QDomElement object, const QString& name, const QString& type, const QString& value)
 {
-    auto mass = uniqueProperty(object, name);
-    if (mass.isNull())
+    auto property = uniqueProperty(object, name);
+    if (property.isNull())
     {
-        mass = xml.createElement("property");
-        mass.setAttribute("name", name);
-        mass.setAttribute("type", "double");
+        property = xml.createElement("property");
+        property.setAttribute("name", name);
+        property.setAttribute("type", type);
         // Added fields need their own lines for OSP's reader; leave every existing text node alone.
         object.appendChild(xml.createTextNode("\n"));
-        object.appendChild(mass);
+        object.appendChild(property);
         object.appendChild(xml.createTextNode("\n"));
     }
-    require(mass.attribute("type") == "double" && mass.firstChildElement().isNull());
+    require(property.attribute("type") == type && property.firstChildElement().isNull());
     // Preserve comments and processing instructions within the scalar property.
     bool written = false;
-    for (auto child = mass.firstChild(); !child.isNull();)
+    for (auto child = property.firstChild(); !child.isNull();)
     {
         const auto next = child.nextSibling();
         if (child.isText() || child.isCDATASection())
         {
             if (!written)
             {
-                mass.replaceChild(xml.createTextNode(QString::number(value, 'g', 17)), child);
+                property.replaceChild(xml.createTextNode(value), child);
                 written = true;
             }
             else
             {
-                mass.removeChild(child);
+                property.removeChild(child);
             }
         }
         child = next;
     }
     if (!written)
     {
-        mass.appendChild(xml.createTextNode(QString::number(value, 'g', 17)));
+        property.appendChild(xml.createTextNode(value));
     }
+}
+
+void patchDouble(QDomDocument& xml, const QDomElement& object, const QString& name, double value)
+{
+    patchScalar(xml, object, name, "double", QString::number(value, 'g', 17));
+}
+
+void patchClipRange(QDomDocument& xml, const Clip& clip)
+{
+    const auto count = clip.stepCount.value_or(0);
+    require(clip.firstFrame >= 0 && clip.stepSize > 0 && count > 0);
+    const auto end = static_cast<std::int64_t>(clip.firstFrame) + static_cast<std::int64_t>(count - 1) * clip.stepSize;
+    // Tracker 6.3.5 clamps media-free clips at frame 500000 and loads a temporary frame count
+    // of start + count * stride. Reject values its Java int arithmetic cannot retain.
+    require(end <= 500000 && end + clip.stepSize <= std::numeric_limits<int>::max());
+    require(!clip.sourceFrameCount || end < *clip.sourceFrameCount);
+    const auto property = uniqueProperty(xml.documentElement(), "videoclip");
+    const auto object = property.firstChildElement("object");
+    require(property.attribute("type") == "object" && object.attribute("class") == "org.opensourcephysics.media.core.VideoClip" &&
+            object.nextSiblingElement().isNull());
+    // These legacy fields change the loader's frame mapping/bounds; audit them with media support.
+    require(uniqueProperty(object, "video").isNull() && uniqueProperty(object, "frameshift").isNull() &&
+            uniqueProperty(object, "video_framecount").isNull());
+    patchScalar(xml, object, "startframe", "int", QString::number(clip.firstFrame));
+    patchScalar(xml, object, "stepsize", "int", QString::number(clip.stepSize));
+    patchScalar(xml, object, "stepcount", "int", QString::number(count));
 }
 
 QDomElement arrayProperty(QDomDocument& xml, QDomElement object, const QString& name, const QString& type)
@@ -478,6 +506,15 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
         }
     }
     bool changed = false;
+    if (expected.clip.firstFrame != baseline.project.clip.firstFrame || expected.clip.stepSize != baseline.project.clip.stepSize ||
+        expected.clip.stepCount != baseline.project.clip.stepCount)
+    {
+        patchClipRange(xml, expected.clip);
+        baseline.project.clip.firstFrame = expected.clip.firstFrame;
+        baseline.project.clip.stepSize = expected.clip.stepSize;
+        baseline.project.clip.stepCount = expected.clip.stepCount;
+        changed = true;
+    }
     for (std::size_t index = 0; index < expected.pointMasses.size(); ++index)
     {
         const auto& current = expected.pointMasses[index];

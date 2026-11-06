@@ -20,7 +20,7 @@ public final class VectorFixture {
             if ((args.length != 1 && args.length != 2) || !OSPRuntime.VERSION.equals("6.3.5"))
                 throw new IllegalArgumentException("Expected Tracker 6.3.5 and one fresh output path");
             String mode = args.length == 2 ? args[1] : "normal";
-            if (!List.of("normal", "snap-origin", "snap-vector").contains(mode))
+            if (!List.of("normal", "snap-origin", "snap-vector", "clip-boundary").contains(mode))
                 throw new IllegalArgumentException("Unknown fixture mode");
             Path path = Path.of(args[0]).toAbsolutePath();
             if (Files.exists(path)) throw new IllegalArgumentException("Fixture output already exists");
@@ -41,7 +41,8 @@ public final class VectorFixture {
             root.setValue("semantic_version", OSPRuntime.VERSION);
             root.setValue("videoclip", clip);
             root.setValue("coords", coords);
-            root.setValue("tracks", new ArrayList<TTrack>(List.of(new CoordAxes(), first, second)));
+            root.setValue("tracks", new ArrayList<TTrack>(mode.equals("clip-boundary")
+                ? List.of(new CoordAxes()) : List.of(new CoordAxes(), first, second)));
             if (root.write(path.toString()) == null) throw new IllegalStateException("Could not write fixture");
             // The repository pins LF bytes on every host, independently of the Java host newline.
             Files.writeString(path, Files.readString(path, StandardCharsets.UTF_8).replace("\r\n", "\n"), StandardCharsets.UTF_8);
