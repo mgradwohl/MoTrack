@@ -19,7 +19,12 @@ Native reads and writes reject zero/duplicate IDs and a counter not greater than
 validate before replacing the existing file. Versions 1 and 2 receive fresh identities during migration;
 subsequent saves retain them and the counter, including after the highest-ID track is deleted.
 This migration does not infer associations with original Tracker XML from names or current list order.
-Commands addressed by IDs remain separate implementation work.
+
+Edit commands resolve the selected list position to an ID when recorded. Undo/redo look up that ID,
+including when removing a created track or reapplying a deletion; saved list positions are used only
+to restore insertion order. Missing, duplicate, wrong-type or colliding identities reject the operation
+without advancing history or the revision. A history belongs to one live document and is cleared on
+replacement. Native files retain project data and IDs, not a serialized undo log.
 
 ## Tracker import source
 

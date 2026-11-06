@@ -65,7 +65,9 @@ when migrating older native files. Bindings survive deletion/undo, rename/reorde
 archive limits. [Native tests](../tests/workspace_document_test.cpp) and desktop tests cover source-input
 removal, edits, repeated save/reopen, malformed envelopes and source replacement when switching media.
 Identity tests cover duplicate names, deletion/undo, creation/redo, non-reuse after branching history,
-old-native migration, strict validation and exact 64-bit persistence. Complete archive preservation remains open.
+old-native migration, strict validation and exact 64-bit persistence. Command tests also change track
+order between execution and replay and verify missing/ambiguous targets preserve history and other tracks.
+Complete archive preservation remains open.
 
 Major current limits: native-only writes; no complete archive preservation; older native imports cannot reconstruct lost source associations; one active tab; reduced track and
 coordinate models; basic AutoTracker and plotting; no particle models, persistent measurement tracks,
@@ -137,7 +139,8 @@ The shipped application must run without Java or Swift installed. Native C/C++ a
 libraries are allowed. Java is confined to development/reference tests, never the import/export runtime.
 The current [CMake targets](../CMakeLists.txt) are `motrack_project`, `motrack_media`,
 `motrack_workspace`, and the application. `MainWindow` currently owns much of the session orchestration;
-the generic model is still named `LegacyProject`, and edits address tracks by vector indices.
+the generic model is still named `LegacyProject`. GUI selections currently use list positions, but
+recorded edit commands address tracks by persistent ID and reject missing or ambiguous targets.
 
 ```mermaid
 flowchart TD
@@ -211,8 +214,8 @@ media through Tracker's normal application loader, saves them in Java, then reop
 loaded content. This is Java's own resave baseline, not MoTrack standard-file export acceptance.
 Media/archive session loading, broader requirement coverage, runtime/dependency provenance and exact
 source mapping remain unfinished. Phase 2 has an initial XML source envelope, persistent point-mass/vector
-IDs, original object associations and native version migration. Commands addressed by ID, complete archive
-preservation and session ownership remain. Extend the reference
+IDs, original object associations, commands addressed by ID and native version migration. Complete
+archive preservation and session ownership remain. Extend the reference
 evidence alongside these foundations before standard writers. Phase 3 has priority over adding particle-model
 editing. UI familiarity can improve while work progresses, but visual polish cannot replace correctness
 or standard-file compatibility gates.

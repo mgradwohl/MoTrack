@@ -39,7 +39,8 @@ struct AxesPlacement
 
 [[nodiscard]] ClipRange clipRange(const Clip& clip);
 
-/// An edit history for one project. Undo restores track order before earlier edits are replayed.
+/// An edit history for one project. GUI indices are resolved to persistent IDs when commands are recorded.
+/// Undo/redo reject missing or ambiguous targets without advancing history. Clear on document replacement.
 class TrackEdits
 {
   public:
@@ -75,11 +76,12 @@ class TrackEdits
     {
         std::string name;
         TrackId id;
+        std::size_t position;
     };
 
     struct ChangeMark
     {
-        std::size_t track;
+        TrackId id;
         int frame;
         std::optional<Mark> after;
         std::optional<Mark> before;
@@ -87,20 +89,20 @@ class TrackEdits
 
     struct RenameTrack
     {
-        std::size_t track;
+        TrackId id;
         std::string after;
         std::string before;
     };
 
     struct RemoveTrack
     {
-        std::size_t track;
+        std::size_t position;
         PointMass before;
     };
 
     struct ChangeMass
     {
-        std::size_t track;
+        TrackId id;
         double after;
         double before;
     };
@@ -123,21 +125,22 @@ class TrackEdits
     {
         std::string name;
         TrackId id;
+        std::size_t position;
     };
     struct RenameVector
     {
-        std::size_t track;
+        TrackId id;
         std::string after;
         std::string before;
     };
     struct RemoveVector
     {
-        std::size_t track;
+        std::size_t position;
         VectorTrack before;
     };
     struct ChangeVectorSample
     {
-        std::size_t track;
+        TrackId id;
         int frame;
         std::optional<VectorSample> after;
         std::optional<VectorSample> before;
@@ -154,8 +157,8 @@ class TrackEdits
                               RenameVector,
                               RemoveVector,
                               ChangeVectorSample>;
-    static void apply(LegacyProject& project, const Edit& edit, bool forward);
-    void append(LegacyProject& project, Edit edit);
+    static bool apply(LegacyProject& project, const Edit& edit, bool forward);
+    bool append(LegacyProject& project, Edit edit);
 
     std::vector<Edit> m_Commands;
     std::size_t m_Head = 0;
