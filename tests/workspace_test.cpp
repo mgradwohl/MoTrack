@@ -21,14 +21,20 @@ TEST(ImageSequence, ReportsMissingImagesAndRejectsOutOfRangeSteps)
     motrack::Clip clip;
     clip.mediaReferences = {"https://example.invalid/remote.ppm", "archive.trz!/frame.ppm", "missing.ppm"};
     const auto sequence = motrack::ImageSequence::open(fixturePath("image-sequence.trk"), clip);
-    ASSERT_TRUE(sequence.has_value());
+    if (!sequence)
+    {
+        FAIL() << "Could not open the test image sequence.";
+    }
     EXPECT_EQ(sequence->stepCount(), 3);
     EXPECT_FALSE(sequence->readStep(-1).has_value());
     EXPECT_FALSE(sequence->readStep(3).has_value());
     for (int step = 0; step < sequence->stepCount(); ++step)
     {
         const auto frame = sequence->readStep(step);
-        ASSERT_TRUE(frame.has_value());
+        if (!frame)
+        {
+            FAIL() << "Could not read test image sequence step " << step;
+        }
         EXPECT_EQ(frame->number, step);
         EXPECT_TRUE(frame->image.isNull());
     }
