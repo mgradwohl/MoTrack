@@ -35,7 +35,7 @@ scope decisions. Record deliberate behavior changes, including corrections to re
 ## Current implementation and evidence
 
 Snapshot: **2026-11-06**, merged `main` at
-[`7b89c4b`](https://github.com/mgradwohl/MoTrack/commit/7b89c4bb7ee83c6b4cfc1597fd295bccc3315038).
+[`bb6f340`](https://github.com/mgradwohl/MoTrack/commit/bb6f34095589ca88f49e8b5a4642a14a905b0714).
 [PR #34](https://github.com/mgradwohl/MoTrack/pull/34) added independent vector editing,
 [PR #36](https://github.com/mgradwohl/MoTrack/pull/36) the reference corpus,
 [PR #38](https://github.com/mgradwohl/MoTrack/pull/38) actual Java application resave checks,
@@ -53,10 +53,14 @@ Snapshot: **2026-11-06**, merged `main` at
 [PR #50](https://github.com/mgradwohl/MoTrack/pull/50) fixed-calibration export with evaluated-coordinate and
 vector-reconstruction safeguards,
 [PR #51](https://github.com/mgradwohl/MoTrack/pull/51) Unicode length-unit export, and
-[PR #52](https://github.com/mgradwohl/MoTrack/pull/52) varying-calibration reference and world-coordinate checks. Windows,
+[PR #52](https://github.com/mgradwohl/MoTrack/pull/52) varying-calibration reference and world-coordinate checks,
+[PR #53](https://github.com/mgradwohl/MoTrack/pull/53) verified added/edited calibration-key export,
+[PR #54](https://github.com/mgradwohl/MoTrack/pull/54) reversible mass-unit labels and standard export, and
+[PR #55](https://github.com/mgradwohl/MoTrack/pull/55) the proposed source-reference architecture. Windows,
 macOS, Linux, setup, and coverage checks passed in
-[CI run 42289180151](https://github.com/mgradwohl/MoTrack/actions/runs/42289180151): combined production
-line coverage **93.83% (4896/5218)**. This verifies the implemented slice, not full Tracker equivalence.
+[CI run 42294504084](https://github.com/mgradwohl/MoTrack/actions/runs/42294504084): combined production
+line coverage **93.92% (4973/5295)**. The keyed-calibration and mass-unit writer PRs also passed actual
+Tracker edited-file load/save/reopen and native reimport before merging. This verifies the implemented slice, not full Tracker equivalence.
 
 Implemented and tested workflows include local movie/image opening, playback and indexed stepping,
 clip limits, a reusable background decoder with a bounded cache, cancellation of superseded opens,
