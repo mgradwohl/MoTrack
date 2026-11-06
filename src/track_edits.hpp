@@ -47,6 +47,7 @@ class TrackEdits
     [[nodiscard]] bool isModified() const;
     void createPointMass(LegacyProject& project, std::string name);
     bool renamePointMass(LegacyProject& project, std::size_t track, std::string name);
+    bool setPointMassValue(LegacyProject& project, std::size_t track, double mass);
     bool removePointMass(LegacyProject& project, std::size_t track);
     bool markPointMass(LegacyProject& project, std::size_t track, Mark mark);
     bool removeMark(LegacyProject& project, std::size_t track, int frame);
@@ -85,6 +86,13 @@ class TrackEdits
         PointMass before;
     };
 
+    struct ChangeMass
+    {
+        std::size_t track;
+        double after;
+        double before;
+    };
+
     struct ChangeCalibration
     {
         Calibration after;
@@ -99,7 +107,7 @@ class TrackEdits
         ClipRange before;
     };
 
-    using Edit = std::variant<AddTrack, RenameTrack, RemoveTrack, ChangeMark, ChangeCalibration, ChangeClip>;
+    using Edit = std::variant<AddTrack, RenameTrack, RemoveTrack, ChangeMass, ChangeMark, ChangeCalibration, ChangeClip>;
     static void apply(LegacyProject& project, const Edit& edit, bool forward);
     void append(LegacyProject& project, Edit edit);
 

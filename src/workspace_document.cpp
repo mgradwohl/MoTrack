@@ -131,7 +131,7 @@ QJsonArray writeTracks(const std::vector<PointMass>& tracks)
         {
             marks.append(QJsonArray{mark.frame, mark.x, mark.y});
         }
-        result.append(QJsonObject{{"name", QString::fromStdString(track.name)}, {"marks", marks}});
+        result.append(QJsonObject{{"name", QString::fromStdString(track.name)}, {"marks", marks}, {"mass", track.mass}});
     }
     return result;
 }
@@ -144,6 +144,11 @@ std::vector<PointMass> readTracks(const QJsonValue& value)
     {
         const auto track = entry.toObject();
         PointMass mass{.name = string(track.value("name")), .marks = {}};
+        if (const auto savedMass = track.value("mass"); !savedMass.isUndefined())
+        {
+            mass.mass = number(savedMass);
+            require(mass.mass >= MIN_POINT_MASS);
+        }
         const auto marks = array(track.value("marks"), -1);
         for (const auto& item : marks)
         {
@@ -180,6 +185,10 @@ WorkspaceDocument readWorkspaceDocument(const QString& path)
     project.version = string(input.value("trackerVersion"));
     project.description = string(input.value("description"));
     project.lengthUnit = string(input.value("lengthUnit"));
+    if (const auto unit = input.value("massUnit"); !unit.isUndefined())
+    {
+        project.massUnit = string(unit);
+    }
     project.unsupportedTrackTypes = strings(input.value("unsupportedTrackTypes"));
     project.calibration = readCalibration(input.value("calibration"));
     project.pointMasses = readTracks(input.value("pointMasses"));
@@ -236,6 +245,7 @@ void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& docume
                              {"trackerVersion", QString::fromStdString(project.version)},
                              {"description", QString::fromStdString(project.description)},
                              {"lengthUnit", QString::fromStdString(project.lengthUnit)},
+                             {"massUnit", QString::fromStdString(project.massUnit)},
                              {"unsupportedTrackTypes", writeStrings(project.unsupportedTrackTypes)},
                              {"calibration", writeCalibration(project.calibration)},
                              {"pointMasses", writeTracks(project.pointMasses)},

@@ -44,6 +44,23 @@ TEST(TrackEdits, RestoresDeletedTracksAndMarksInTheirOriginalOrder)
     EXPECT_EQ(project.pointMasses.front().marks.back().frame, 3);
 }
 
+TEST(TrackEdits, ChangesMassWithUndoAndRejectsInvalidValues)
+{
+    motrack::LegacyProject project;
+    motrack::TrackEdits edits;
+    EXPECT_FALSE(edits.setPointMassValue(project, 0, 2.0));
+    edits.createPointMass(project, "Cart");
+    EXPECT_FALSE(edits.setPointMassValue(project, 0, 0.0));
+    EXPECT_FALSE(edits.setPointMassValue(project, 0, std::numeric_limits<double>::infinity()));
+    EXPECT_TRUE(edits.setPointMassValue(project, 0, 2.5));
+    EXPECT_TRUE(edits.setPointMassValue(project, 0, 2.5));
+    EXPECT_DOUBLE_EQ(project.pointMasses.front().mass, 2.5);
+    EXPECT_TRUE(edits.undo(project));
+    EXPECT_DOUBLE_EQ(project.pointMasses.front().mass, 1.0);
+    EXPECT_TRUE(edits.redo(project));
+    EXPECT_DOUBLE_EQ(project.pointMasses.front().mass, 2.5);
+}
+
 TEST(TrackEdits, ChangesTheClipWithoutRenumberingMarks)
 {
     motrack::LegacyProject project;

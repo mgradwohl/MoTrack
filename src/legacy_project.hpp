@@ -10,6 +10,8 @@
 namespace motrack
 {
 
+inline constexpr double MIN_POINT_MASS = 1e-30;
+
 struct Mark
 {
     int frame;
@@ -21,6 +23,7 @@ struct PointMass
 {
     std::string name;
     std::vector<Mark> marks;
+    double mass = 1.0;
 };
 
 struct Clip
@@ -60,6 +63,7 @@ struct LegacyProject
     Clip clip;
     std::optional<Calibration> calibration;
     std::string lengthUnit;
+    std::string massUnit = "kg";
     std::vector<PointMass> pointMasses;
     std::vector<std::string> unsupportedTrackTypes;
 };

@@ -140,6 +140,16 @@ TEST(MeasurementPlot, DifferentiatesAtTheCenterOfUnevenFrameTimes)
     const auto accelerationY = motrack::measurementPlot(project, 0, motrack::PlotQuantity::AccelerationY, frameTimes);
     ASSERT_EQ(accelerationY.samples.size(), 1u);
     EXPECT_DOUBLE_EQ(accelerationY.samples.front().vertical, 0.0);
+    project.pointMasses.front().mass = 4.0;
+    const auto momentumX = motrack::measurementPlot(project, 0, motrack::PlotQuantity::MomentumX, frameTimes);
+    ASSERT_EQ(momentumX.samples.size(), 1u);
+    EXPECT_DOUBLE_EQ(momentumX.samples.front().vertical, 8.0);
+    const auto momentumY = motrack::measurementPlot(project, 0, motrack::PlotQuantity::MomentumY, frameTimes);
+    ASSERT_EQ(momentumY.samples.size(), 1u);
+    EXPECT_DOUBLE_EQ(momentumY.samples.front().vertical, 8.0);
+    const auto energy = motrack::measurementPlot(project, 0, motrack::PlotQuantity::KineticEnergy, frameTimes);
+    ASSERT_EQ(energy.samples.size(), 1u);
+    EXPECT_NEAR(energy.samples.front().vertical, 16.0, 1e-12);
 }
 
 TEST(LinearFit, RetainsPrecisionWithALargeHorizontalOffset)

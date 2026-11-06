@@ -233,6 +233,10 @@ TEST(Workspace, PlotsPositionAndSeeksToASelectedMeasurement)
     EXPECT_EQ(plot->accessibleName(), "speed (m/s) versus Time (s)");
     quantities->setCurrentIndex(5);
     EXPECT_EQ(plot->accessibleName(), QString::fromUtf8("x acceleration (m/s²) versus Time (s)"));
+    quantities->setCurrentIndex(7);
+    EXPECT_EQ(plot->accessibleName(), QString::fromUtf8("x momentum (kg·m/s) versus Time (s)"));
+    quantities->setCurrentIndex(9);
+    EXPECT_EQ(plot->accessibleName(), QString::fromUtf8("kinetic energy (kg·m²/s²) versus Time (s)"));
 }
 
 TEST(Workspace, ShowsALinearFitForTheSelectedQuantity)
@@ -704,6 +708,34 @@ TEST(Workspace, RenamesAndRemovesPointMassDataWithUndo)
     undo->trigger();
     ASSERT_EQ(marks->rowCount(), 2);
     EXPECT_EQ(marks->item(0, 0)->text(), "Cart");
+}
+
+TEST(Workspace, EditsAndSavesTheSelectedMass)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    motrack::MainWindow window;
+    window.show();
+    ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
+    auto* action = window.findChild<QAction*>("setPointMassValue");
+    ASSERT_TRUE(action && action->isEnabled());
+    QTimer::singleShot(0,
+                       &window,
+                       []
+                       {
+                           if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget()))
+                           {
+                               dialog->setTextValue(QLocale().toString(250.25));
+                               dialog->accept();
+                           }
+                       });
+    action->trigger();
+    const auto path = temporary.filePath("mass.motrack");
+    ASSERT_TRUE(window.saveWorkspace(path));
+    const auto saved = motrack::readWorkspaceDocument(path);
+    EXPECT_EQ(saved.project.massUnit, "g");
+    ASSERT_EQ(saved.project.pointMasses.size(), 1u);
+    EXPECT_DOUBLE_EQ(saved.project.pointMasses.front().mass, 250.25);
 }
 
 TEST(Workspace, MarksASelectedPointMassAdvancesAndSupportsUndo)
