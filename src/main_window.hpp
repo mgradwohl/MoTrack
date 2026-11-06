@@ -35,6 +35,7 @@ class MainWindow final : public QMainWindow
     MainWindow();
     ~MainWindow() override;
     bool loadProject(const QString& path);
+    void openMovie(const QString& path);
     bool saveMeasurements(const QString& path);
 
   protected:
@@ -45,6 +46,8 @@ class MainWindow final : public QMainWindow
     void displayMarks();
     void displayFrame(const ImageFrame& frame, const QString& failureMessage);
     void requestMovieFrame(int frame);
+    void activateProject(const QString& path);
+    void cancelMovieOpen();
     void refreshEditViews(int track);
     void refreshPlot();
     void markAt(const QPointF& position);
@@ -73,6 +76,14 @@ class MainWindow final : public QMainWindow
     std::optional<ImageFrame> m_DisplayedFrame;
     std::optional<QPointF> m_CalibrationFirst;
     QString m_MoviePath;
+    struct MovieIndex
+    {
+        int frameCount = 0;
+        std::vector<double> frameTimes;
+    };
+    std::vector<double> m_MovieFrameTimes;
+    std::shared_ptr<std::atomic_bool> m_MovieOpenCancelled;
+    std::unique_ptr<QFutureWatcher<MovieIndex>> m_MovieOpenWatcher;
     QThreadPool m_MovieWorkers;
     std::unique_ptr<QFutureWatcher<QImage>> m_FrameWatcher;
     std::shared_ptr<std::atomic_uint64_t> m_RequestGeneration = std::make_shared<std::atomic_uint64_t>(0);

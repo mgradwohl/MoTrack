@@ -6,7 +6,12 @@
     <message><source>&amp;Open Tracker project…</source><translation>&amp;Abrir proyecto de Tracker…</translation></message>
     <message><source>&amp;File</source><translation>&amp;Archivo</translation></message>
     <message><source>Project</source><translation>Proyecto</translation></message>
-    <message><source>Open a Tracker project to inspect its saved marks.</source><translation>Abre un proyecto de Tracker para revisar sus marcas guardadas.</translation></message>
+    <message><source>Open a video or a Tracker project.</source><translation>Abre un vídeo o un proyecto de Tracker.</translation></message>
+    <message><source>Open &amp;video…</source><translation>Abrir &amp;vídeo…</translation></message>
+    <message><source>Open video</source><translation>Abrir vídeo</translation></message>
+    <message><source>Reading video frames…</source><translation>Leyendo los fotogramas del vídeo…</translation></message>
+    <message><source>Could not open this video.</source><translation>No se pudo abrir este vídeo.</translation></message>
+    <message><source>Opened video with %1 frames.</source><translation>Se abrió un vídeo con %1 fotogramas.</translation></message>
     <message><source>Track</source><translation>Trayectoria</translation></message>
     <message><source>Frame</source><translation>Fotograma</translation></message>
     <message><source>Image x (px)</source><translation>x de imagen (px)</translation></message>

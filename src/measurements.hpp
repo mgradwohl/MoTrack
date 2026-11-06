@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -48,7 +49,8 @@ struct PlotSeries
 /// Exports the saved point-mass marks that fall inside the clip. Unknown world coordinates stay blank.
 [[nodiscard]] std::string measurementsCsv(const LegacyProject& project);
 
-/// Uses saved constant timing when available. Velocity excludes clip edges and gaps in the marks.
-[[nodiscard]] PlotSeries measurementPlot(const LegacyProject& project, std::size_t track, PlotQuantity quantity);
+/// Frame times are seconds indexed by original frame number. Saved constant timing is the fallback.
+[[nodiscard]] PlotSeries
+measurementPlot(const LegacyProject& project, std::size_t track, PlotQuantity quantity, std::span<const double> frameTimes = {});
 
 } // namespace motrack

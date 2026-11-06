@@ -1,6 +1,7 @@
 #include "main_window.hpp"
 
 #include <QApplication>
+#include <QFileInfo>
 #include <QLocale>
 #include <QTranslator>
 
@@ -21,12 +22,19 @@ try
     motrack::MainWindow window;
     window.show();
     const bool smokeTest = args.size() == 3 && args[1] == "--smoke-test";
-    if (args.size() == 2 || smokeTest)
+    if (smokeTest)
     {
-        const bool opened = window.loadProject(args.last());
-        if (smokeTest)
+        return window.loadProject(args.last()) ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+    if (args.size() == 2)
+    {
+        if (QFileInfo(args.last()).suffix().compare("trk", Qt::CaseInsensitive) == 0)
         {
-            return opened ? EXIT_SUCCESS : EXIT_FAILURE;
+            window.loadProject(args.last());
+        }
+        else
+        {
+            window.openMovie(args.last());
         }
     }
     return app.exec();
