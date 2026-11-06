@@ -46,7 +46,10 @@ void patchDouble(QDomDocument& xml, QDomElement object, const QString& name, dou
         mass = xml.createElement("property");
         mass.setAttribute("name", name);
         mass.setAttribute("type", "double");
+        // Added fields need their own lines for OSP's reader; leave every existing text node alone.
+        object.appendChild(xml.createTextNode("\n"));
         object.appendChild(mass);
+        object.appendChild(xml.createTextNode("\n"));
     }
     require(mass.attribute("type") == "double" && mass.firstChildElement().isNull());
     // Preserve comments and processing instructions within the scalar property.
@@ -352,7 +355,8 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
             node.setNodeValue(R"(version="1.0" encoding="UTF-8")");
         }
     }
-    auto output = xml.toByteArray(0).toStdString();
+    // A nonnegative indent inserts newlines even inside untouched scalar/mixed/xml:space content.
+    auto output = xml.toByteArray(-1).toStdString();
     require(output.size() <= MAX_TRACKER_XML_BYTES);
     auto reparsed = parseLegacyProject(output);
     remapIds(reparsed, mapping, project.nextTrackId);
