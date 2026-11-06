@@ -5,11 +5,13 @@
 
 #include <QFile>
 #include <QTemporaryDir>
+#include <QXmlStreamReader>
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <functional>
 #include <limits>
+#include <map>
 #include <string_view>
 
 namespace
@@ -77,6 +79,39 @@ TEST(TrackerWriter, PatchesTheBoundMassAfterNativeReopenAndKeepsUnknownContent)
     EXPECT_EQ(result.description, "caf\xC3\xA9");
     EXPECT_EQ(result.unsupportedTrackTypes, imported.project.unsupportedTrackTypes);
     EXPECT_EQ(result.vectors, imported.project.vectors);
+}
+
+TEST(TrackerWriter, PreservesUntouchedScalarMixedAndExplicitWhitespace)
+{
+    std::string xml(sourceXml());
+    const auto position = xml.find("<property name='future'>");
+    ASSERT_NE(position, std::string::npos);
+    xml.insert(position,
+               "<property name='preserved'><object xml:space='preserve'><property name='nested'>value</property></object></property>"
+               "<property name='comment-first'><!-- keep -->  keep  </property>"
+               "<property name='mixed'> before <object/> after </property>"
+               "<property name='carriage' custom='left&#13;right'>left&#13;right</property>");
+    auto imported = motrack::parseTrackerProject(xml);
+    imported.project.pointMasses.front().mass = 2.5;
+    QXmlStreamReader result(QByteArray::fromStdString(motrack::renderTrackerProject(imported.project, imported.source)));
+    ASSERT_TRUE(result.readNextStartElement());
+    std::map<QString, QString> properties;
+    QString custom;
+    while (result.readNextStartElement())
+    {
+        const auto name = result.attributes().value("name").toString();
+        if (name == "carriage")
+        {
+            custom = result.attributes().value("custom").toString();
+        }
+        properties.emplace(name, result.readElementText(QXmlStreamReader::IncludeChildElements));
+    }
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(properties.at("preserved"), "value");
+    EXPECT_EQ(properties.at("comment-first"), "  keep  ");
+    EXPECT_EQ(properties.at("mixed"), " before  after ");
+    EXPECT_EQ(properties.at("carriage"), "left\rright");
+    EXPECT_EQ(custom, "left\rright");
 }
 
 TEST(TrackerWriter, LeavesAnUnchangedSourceByteExact)
