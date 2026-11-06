@@ -35,12 +35,14 @@ scope decisions. Record deliberate behavior changes, including corrections to re
 ## Current implementation and evidence
 
 Snapshot: **2026-11-06**, merged `main` at
-[`94a7806`](https://github.com/mgradwohl/MoTrack/commit/94a7806d5c28f25b3fb02b9fffca912b84c53691).
-[PR #34](https://github.com/mgradwohl/MoTrack/pull/34) added independent vector editing and
-[PR #36](https://github.com/mgradwohl/MoTrack/pull/36) added the reference corpus. Windows,
+[`e8f3f66`](https://github.com/mgradwohl/MoTrack/commit/e8f3f66cff3aff49a76d8e2b3927c1f3acdd4ebd).
+[PR #34](https://github.com/mgradwohl/MoTrack/pull/34) added independent vector editing,
+[PR #36](https://github.com/mgradwohl/MoTrack/pull/36) the reference corpus,
+[PR #38](https://github.com/mgradwohl/MoTrack/pull/38) actual Java application resave checks, and
+[PR #37](https://github.com/mgradwohl/MoTrack/pull/37) source preservation and safe background saving. Windows,
 macOS, Linux, setup, and coverage checks passed in
-[CI run 42240185409](https://github.com/mgradwohl/MoTrack/actions/runs/42240185409): combined production
-line coverage **92.72% (3631/3916)**. This verifies the implemented slice, not full Tracker equivalence.
+[CI run 42252608764](https://github.com/mgradwohl/MoTrack/actions/runs/42252608764): combined production
+line coverage **92.89% (3762/4050)**. This verifies the implemented slice, not full Tracker equivalence.
 
 Implemented and tested workflows include local movie/image opening, playback and indexed stepping,
 clip limits, a reusable background decoder with a bounded cache, cancellation of superseded opens,

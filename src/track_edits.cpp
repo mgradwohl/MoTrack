@@ -76,7 +76,10 @@ bool TrackEdits::createPointMass(LegacyProject& project, std::string name)
     {
         return false;
     }
-    append(project, AddTrack{.name = std::move(name), .id = allocateTrackId(project)});
+    append(project, AddTrack{.name = std::move(name), .id = project.nextTrackId});
+    ++project.nextTrackId; // Commit allocation only after the command succeeds.
+    // Undo removes the track, but the advanced allocation counter must still be saved.
+    invalidateSaved();
     return true;
 }
 
@@ -154,7 +157,9 @@ bool TrackEdits::createVector(LegacyProject& project, std::string name)
     {
         return false;
     }
-    append(project, AddVector{.name = std::move(name), .id = allocateTrackId(project)});
+    append(project, AddVector{.name = std::move(name), .id = project.nextTrackId});
+    ++project.nextTrackId;
+    invalidateSaved();
     return true;
 }
 
