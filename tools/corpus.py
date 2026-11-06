@@ -343,6 +343,17 @@ def verify_clip_export_xml(original, exported):
         raise ValueError("Standard export changed content beyond the requested clip range")
 
 
+def snapping_roundtrip_expected(case, mode):
+    if case["id"] != "independent-vectors" or mode not in {"snap-origin", "snap-vector"}:
+        raise ValueError("Unknown rejected snapping case")
+    expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
+    if mode == "snap-origin":
+        expected["vectors"][0]["samples"][0]["tail"] = [320.0, 240.0]
+    else:
+        expected["vectors"][1]["samples"][0]["tail"] = [13.0, 16.0]
+    return expected
+
+
 def canonical_tracker_xml(document):
     def normalize(node, preserve=False):
         if node.nodeType == node.ELEMENT_NODE:
@@ -545,7 +556,8 @@ def check_sessions(manifest, cache, java, probe=None):
     modes = [("mass", "native_mass_roundtrip"), ("marks", "native_mark_roundtrip"),
              ("empty-marks", "native_mark_roundtrip"), ("first-mark", "native_mark_roundtrip"),
              ("vectors", "native_vector_roundtrip"), ("empty-vectors", "native_vector_roundtrip"),
-             ("first-vector", "native_vector_roundtrip"), ("clip", "native_clip_roundtrip")] if probe else [("session", "session_tracks")]
+             ("first-vector", "native_vector_roundtrip"), ("clip", "native_clip_roundtrip"),
+             ("snap-origin", "native_vector_roundtrip"), ("snap-vector", "native_vector_roundtrip")] if probe else [("session", "session_tracks")]
     cases = [(case, mode) for case in manifest["cases"] if "session_tracks" in case
              for mode, flag in modes if case.get(flag)]
     if not cases:
@@ -563,7 +575,7 @@ def check_sessions(manifest, cache, java, probe=None):
         jar = cache / manifest["reference"]["file"]
         run([str(javac), "-cp", str(jar), "-d", str(classes),
              str(ROOT / "tools/reference/TrackerReference.java"),
-             str(ROOT / "tools/reference/TrackerSessionReference.java")])
+             str(ROOT / "tools/reference/TrackerSessionReference.java"), str(ROOT / "tools/reference/VectorFixture.java")])
         for case, mode in cases:
             output = root / (case["id"] + ("-" + mode if probe else ""))
             java_home = output / "java-home"
@@ -574,7 +586,18 @@ def check_sessions(manifest, cache, java, probe=None):
             elif mode == "first-vector":
                 project = root / (case["id"] + "-empty-vectors") / "tracker-resaved.trk"
             expected = None
-            if probe:
+            if probe and mode.startswith("snap-"):
+                # Rejected exports preserve their existing destination. Java independently authors
+                # the unstable geometry so the actual application proves why rejection is required.
+                destination = output / "rejected-destination.trk"
+                run([str(Path(probe).resolve()), "--export-" + mode, str(project), str(destination)])
+                if destination.read_bytes() != project.read_bytes():
+                    raise ValueError("Rejected snapping export changed the destination")
+                project = output / "java-snapping-source.trk"
+                run([str(java_path), "-Djava.awt.headless=true", f"-Duser.home={java_home}", "-Xmx256m",
+                     "-cp", os.pathsep.join([str(classes), str(jar)]), "VectorFixture", str(project), mode])
+                expected = snapping_roundtrip_expected(case, mode)
+            elif probe:
                 exported = output / "motrack-export.trk"
                 run([str(Path(probe).resolve()), "--export-" + mode, str(project), str(exported)])
                 if mode == "mass":
@@ -622,7 +645,11 @@ def check_sessions(manifest, cache, java, probe=None):
                 compare(expected, json.loads(reimport.read_text(encoding="utf-8")), manifest["tolerance"], case["id"] + ".reimport")
                 saved_report = {"verification_level": "motrack_" + mode + "_roundtrip", "tracker_session": report, "expected_reimport": expected}
                 suffix = "-" + mode + "-roundtrip.json"
-                print(f"{case['id']}/{mode}: passed (MoTrack edit/native reopen/TRK export; Tracker load/save/reopen; native reimport)")
+                if mode.startswith("snap-"):
+                    saved_report["verification_level"] = "motrack_rejected_" + mode
+                    print(f"{case['id']}/{mode}: passed (MoTrack rejected unsafe export; actual Tracker snapping confirmed; resave/reimport)")
+                else:
+                    print(f"{case['id']}/{mode}: passed (MoTrack edit/native reopen/TRK export; Tracker load/save/reopen; native reimport)")
             else:
                 saved_report, suffix = report, "-session.json"
                 print(f"{case['id']}: passed (Tracker application load/save/reopen; MoTrack export untested)")

@@ -387,6 +387,56 @@ bool retainsVectorComponent(double tail, double component)
     return std::isfinite(tip) && std::isfinite(reconstructed) && std::abs(reconstructed - component) <= tolerance;
 }
 
+void requireStableVectors(const LegacyProject& project, const std::unordered_map<TrackId, QDomElement>& objects)
+{
+    std::vector<const VectorSample*> samples;
+    for (const auto& vector : project.vectors)
+    {
+        for (const auto& sample : vector.samples)
+        {
+            require(samples.size() < 4096); // Bound the conservative all-visible-tip comparison below.
+            samples.push_back(&sample);
+        }
+        if (!vector.samples.empty())
+        {
+            const auto footprint = uniqueProperty(objects.at(vector.id), "footprint").text();
+            require(footprint == "Footprint.Arrow" || footprint == "Footprint.BoldArrow");
+        }
+    }
+    if (samples.empty())
+    {
+        return;
+    }
+    // Until dependencies and display scaling are modeled, only audit ordinary independent arrows
+    // with a fixed origin and no other tracks that could supply visible vector snap targets.
+    require(project.pointMasses.empty() &&
+            std::ranges::all_of(project.unsupportedTrackTypes,
+                                [](const auto& type) { return type == "org.opensourcephysics.cabrillo.tracker.CoordAxes"; }));
+    if (!project.calibration || !project.calibration->fixedOrigin || project.calibration->keyframes.empty())
+    {
+        require(false);
+        return;
+    }
+    const auto& origin = project.calibration->keyframes.back();
+    require(std::isfinite(origin.originX) && std::isfinite(origin.originY));
+    for (const auto* sample : samples)
+    {
+        require(std::isfinite(sample->tailX) && std::isfinite(sample->tailY) && std::isfinite(sample->componentX) &&
+                std::isfinite(sample->componentY) && retainsVectorComponent(sample->tailX, sample->componentX) &&
+                retainsVectorComponent(sample->tailY, sample->componentY));
+        // Tracker 6.3.5 snaps brand-new steps on first draw. Trails can expose steps from other frames.
+        require(std::hypot(sample->tailX - origin.originX, sample->tailY - origin.originY) > 8);
+        for (const auto* target : samples)
+        {
+            if (target != sample)
+            {
+                require(std::hypot(sample->tailX - (target->tailX + target->componentX),
+                                   sample->tailY - (target->tailY + target->componentY)) > 8);
+            }
+        }
+    }
+}
+
 void remapIds(LegacyProject& project, const std::unordered_map<TrackId, TrackId>& mapping, TrackId nextId)
 {
     for (auto& track : project.pointMasses)
@@ -500,6 +550,7 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
     {
         return source.xml;
     }
+    requireStableVectors(expected, objects);
     // QDom emits UTF-8 bytes; do not retain an input declaration for a different encoding.
     for (auto node = xml.firstChild(); !node.isNull(); node = node.nextSibling())
     {

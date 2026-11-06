@@ -175,6 +175,18 @@ class CorpusTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Invalid corpus artifact"):
             corpus.load_manifest(path)
 
+    def test_snapping_oracle_requires_the_actual_tracker_geometry_change(self):
+        manifest = corpus.load_manifest()
+        case = next(case for case in manifest["cases"] if case["id"] == "independent-vectors")
+        for mode, track, before, after in [("snap-origin", 0, [321.0, 240.0], [320.0, 240.0]),
+                                           ("snap-vector", 1, [14.0, 16.0], [13.0, 16.0])]:
+            expected = corpus.snapping_roundtrip_expected(case, mode)
+            self.assertEqual(expected["vectors"][track]["samples"][0]["tail"], after)
+            wrong = copy.deepcopy(expected)
+            wrong["vectors"][track]["samples"][0]["tail"] = before
+            with self.assertRaises(ValueError):
+                corpus.compare(expected, wrong, manifest["tolerance"])
+
     def test_vector_session_requires_loaded_tails_components_and_frames(self):
         manifest = corpus.load_manifest()
         case = next(case for case in manifest["cases"] if case["id"] == "independent-vectors")

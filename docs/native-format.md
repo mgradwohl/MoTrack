@@ -139,6 +139,12 @@ independent-vector tails/components/additions/deletions, and clip start/stride/c
 projects after a native reopen. Clip edits retain all measurements, including frames outside the clip.
 Vector exports reject nonfinite endpoints and components that Tracker's endpoint subtraction would
 change beyond the reference tolerance (absolute `1e-10` image pixels or relative `1e-12`).
+Tracker also automatically snaps newly loaded arrows on their first draw. Changed files containing
+vector samples currently require a known fixed origin, plain Arrow/BoldArrow footprints, no point-mass
+or unsupported vector providers, and at most 4096 samples. Tails within 8 image pixels of the origin or
+any other sample's tip are rejected before output replacement; the comparison includes other frames
+because trails can expose them. This conservative bound avoids silently introducing links or moving
+geometry. Full dependent-vector/display semantics must replace these restrictions before full parity.
 It requires known source associations, preserves unknown XML objects/properties and
 normalizes changed output to a matching UTF-8 declaration. Unchanged output is byte-exact. It rejects
 every other changed domain field before opening its atomic replacement file, including name,
