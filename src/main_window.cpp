@@ -95,6 +95,12 @@ MainWindow::MainWindow()
     m_NewPointMass = tracksMenu->addAction(tr("New &point mass"));
     m_NewPointMass->setObjectName("newPointMass");
     m_NewPointMass->setEnabled(false);
+    m_RenamePointMass = tracksMenu->addAction(tr("&Rename point mass…"));
+    m_RenamePointMass->setObjectName("renamePointMass");
+    m_RemovePointMass = tracksMenu->addAction(tr("&Delete point mass"));
+    m_RemovePointMass->setObjectName("removePointMass");
+    m_RemoveMark = tracksMenu->addAction(tr("Delete mark on this &frame"));
+    m_RemoveMark->setObjectName("removeMark");
     m_AutoTracker = tracksMenu->addAction(tr("&AutoTracker"));
     m_AutoTracker->setObjectName("autoTracker");
     m_AutoTracker->setCheckable(true);
@@ -313,10 +319,19 @@ MainWindow::MainWindow()
             {
                 stopAutoTracking();
                 const auto index = m_Project.pointMasses.size();
-                m_Edits.createPointMass(m_Project, tr("Point Mass %1").arg(index + 1).toStdString());
+                auto number = index + 1;
+                auto name = tr("Point Mass %1").arg(number).toStdString();
+                while (std::ranges::any_of(m_Project.pointMasses, [&name](const auto& mass) { return mass.name == name; }))
+                {
+                    name = tr("Point Mass %1").arg(++number).toStdString();
+                }
+                m_Edits.createPointMass(m_Project, std::move(name));
                 refreshEditViews(static_cast<int>(index));
                 statusBar()->showMessage(tr("Shift-click the image to mark the selected point mass."));
             });
+    connect(m_RenamePointMass, &QAction::triggered, this, &MainWindow::renameSelectedPointMass);
+    connect(m_RemovePointMass, &QAction::triggered, this, &MainWindow::removeSelectedPointMass);
+    connect(m_RemoveMark, &QAction::triggered, this, &MainWindow::removeCurrentMark);
     connect(m_Undo, &QAction::triggered, this, [this] { undoOrRedo(false); });
     connect(m_Redo, &QAction::triggered, this, [this] { undoOrRedo(true); });
     connect(m_ClipSettings, &QAction::triggered, this, &MainWindow::editClipSettings);
@@ -380,6 +395,7 @@ MainWindow::MainWindow()
             [this]
             {
                 stopAutoTracking();
+                updatePointMassActions();
                 refreshPlot();
             });
     connect(m_PlotQuantity, &QComboBox::currentIndexChanged, this, &MainWindow::refreshPlot);
@@ -877,6 +893,7 @@ void MainWindow::refreshEditViews(int track)
         displayFrame(*m_DisplayedFrame, {});
     }
     updateAutoTrackerAction();
+    updatePointMassActions();
 }
 
 void MainWindow::refreshPlot()
@@ -923,6 +940,70 @@ void MainWindow::markAt(const QPointF& position)
         refreshEditViews(track);
         m_StepSlider->triggerAction(QSlider::SliderSingleStepAdd);
     }
+}
+
+void MainWindow::renameSelectedPointMass()
+{
+    const auto selected = m_TrackPicker->currentIndex();
+    if (selected < 0)
+    {
+        return;
+    }
+    stopAutoTracking();
+    setPlaying(false);
+    const auto index = static_cast<std::size_t>(selected);
+    const auto before = QString::fromStdString(m_Project.pointMasses.at(index).name);
+    const auto request = m_RequestGeneration.load();
+    bool accepted = false;
+    const auto after =
+        QInputDialog::getText(this, tr("Rename point mass"), tr("Track name"), QLineEdit::Normal, before, &accepted).trimmed();
+    if (!accepted || request != m_RequestGeneration || before == after)
+    {
+        return;
+    }
+    if (m_Edits.renamePointMass(m_Project, index, after.toStdString()))
+    {
+        refreshEditViews(selected);
+    }
+    else
+    {
+        statusBar()->showMessage(tr("Choose a unique, nonempty track name."));
+    }
+}
+
+void MainWindow::removeSelectedPointMass()
+{
+    const auto selected = m_TrackPicker->currentIndex();
+    if (selected >= 0 && m_Edits.removePointMass(m_Project, static_cast<std::size_t>(selected)))
+    {
+        stopAutoTracking();
+        setPlaying(false);
+        refreshEditViews(selected);
+    }
+}
+
+void MainWindow::removeCurrentMark()
+{
+    const auto selected = m_TrackPicker->currentIndex();
+    if (selected >= 0 && m_DisplayedFrame && m_Edits.removeMark(m_Project, static_cast<std::size_t>(selected), m_DisplayedFrame->number))
+    {
+        stopAutoTracking();
+        setPlaying(false);
+        refreshEditViews(selected);
+    }
+}
+
+void MainWindow::updatePointMassActions()
+{
+    const auto selected = m_TrackPicker->currentIndex();
+    const bool hasTrack = selected >= 0;
+    m_RenamePointMass->setEnabled(hasTrack);
+    m_RemovePointMass->setEnabled(hasTrack);
+    const bool hasMark =
+        hasTrack && m_DisplayedFrame &&
+        std::ranges::binary_search(
+            m_Project.pointMasses.at(static_cast<std::size_t>(selected)).marks, m_DisplayedFrame->number, {}, &Mark::frame);
+    m_RemoveMark->setEnabled(hasMark);
 }
 
 void MainWindow::repeatPreviousMark()
@@ -1219,6 +1300,7 @@ void MainWindow::displayFrame(const ImageFrame& frame, const QString& failureMes
     }
     schedulePlayback();
     updateAutoTrackerAction();
+    updatePointMassActions();
     autoTrackFrame(frame);
 }
 
@@ -1341,6 +1423,7 @@ void MainWindow::requestMovieFrame(int frame)
     const auto generation = ++m_RequestGeneration;
     m_DisplayedFrame.reset();
     updateAutoTrackerAction();
+    updatePointMassActions();
     m_Calibrate->setChecked(false);
     m_Calibrate->setEnabled(false);
     m_EditAxes->setChecked(false);

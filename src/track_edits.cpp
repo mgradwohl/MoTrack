@@ -63,6 +63,27 @@ void TrackEdits::createPointMass(LegacyProject& project, std::string name)
     append(project, AddTrack{.name = std::move(name)});
 }
 
+bool TrackEdits::renamePointMass(LegacyProject& project, std::size_t track, std::string name)
+{
+    if (track >= project.pointMasses.size() || name.empty() ||
+        std::ranges::any_of(project.pointMasses, [&name](const auto& mass) { return mass.name == name; }))
+    {
+        return false;
+    }
+    append(project, RenameTrack{.track = track, .after = std::move(name), .before = project.pointMasses.at(track).name});
+    return true;
+}
+
+bool TrackEdits::removePointMass(LegacyProject& project, std::size_t track)
+{
+    if (track >= project.pointMasses.size())
+    {
+        return false;
+    }
+    append(project, RemoveTrack{.track = track, .before = project.pointMasses.at(track)});
+    return true;
+}
+
 bool TrackEdits::markPointMass(LegacyProject& project, std::size_t track, Mark mark)
 {
     if (track >= project.pointMasses.size() || mark.frame < 0 || !std::isfinite(mark.x) || !std::isfinite(mark.y))
@@ -74,8 +95,24 @@ bool TrackEdits::markPointMass(LegacyProject& project, std::size_t track, Mark m
     const auto before = previous != marks.end() && previous->frame == mark.frame ? std::optional(*previous) : std::nullopt;
     if (!before || before->x != mark.x || before->y != mark.y)
     {
-        append(project, ChangeMark{.track = track, .after = mark, .before = before});
+        append(project, ChangeMark{.track = track, .frame = mark.frame, .after = mark, .before = before});
     }
+    return true;
+}
+
+bool TrackEdits::removeMark(LegacyProject& project, std::size_t track, int frame)
+{
+    if (track >= project.pointMasses.size())
+    {
+        return false;
+    }
+    const auto& marks = project.pointMasses.at(track).marks;
+    const auto mark = std::ranges::lower_bound(marks, frame, {}, &Mark::frame);
+    if (mark == marks.end() || mark->frame != frame)
+    {
+        return false;
+    }
+    append(project, ChangeMark{.track = track, .frame = frame, .after = std::nullopt, .before = *mark});
     return true;
 }
 
@@ -242,6 +279,24 @@ void TrackEdits::apply(LegacyProject& project, const Edit& edit, bool forward)
         }
         return;
     }
+    if (const auto* rename = std::get_if<RenameTrack>(&edit))
+    {
+        project.pointMasses.at(rename->track).name = forward ? rename->after : rename->before;
+        return;
+    }
+    if (const auto* remove = std::get_if<RemoveTrack>(&edit))
+    {
+        const auto position = project.pointMasses.begin() + static_cast<std::ptrdiff_t>(remove->track);
+        if (forward)
+        {
+            project.pointMasses.erase(position);
+        }
+        else
+        {
+            project.pointMasses.insert(position, remove->before);
+        }
+        return;
+    }
     if (const auto* change = std::get_if<ChangeCalibration>(&edit))
     {
         auto calibration = forward ? std::optional(change->after) : change->before;
@@ -261,9 +316,9 @@ void TrackEdits::apply(LegacyProject& project, const Edit& edit, bool forward)
 
     const auto& change = std::get<ChangeMark>(edit);
     auto& marks = project.pointMasses.at(change.track).marks;
-    const auto position = std::ranges::lower_bound(marks, change.after.frame, {}, &Mark::frame);
-    const bool existing = position != marks.end() && position->frame == change.after.frame;
-    const auto replacement = forward ? std::optional(change.after) : change.before;
+    const auto position = std::ranges::lower_bound(marks, change.frame, {}, &Mark::frame);
+    const bool existing = position != marks.end() && position->frame == change.frame;
+    const auto& replacement = forward ? change.after : change.before;
     if (replacement && existing)
     {
         *position = *replacement;

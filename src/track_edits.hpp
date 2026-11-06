@@ -38,7 +38,7 @@ struct AxesPlacement
 
 [[nodiscard]] ClipRange clipRange(const Clip& clip);
 
-/// An edit history for one open project. Track slots stay stable until their creation is undone.
+/// An edit history for one project. Undo restores track order before earlier edits are replayed.
 class TrackEdits
 {
   public:
@@ -46,7 +46,10 @@ class TrackEdits
     void markSaved();
     [[nodiscard]] bool isModified() const;
     void createPointMass(LegacyProject& project, std::string name);
+    bool renamePointMass(LegacyProject& project, std::size_t track, std::string name);
+    bool removePointMass(LegacyProject& project, std::size_t track);
     bool markPointMass(LegacyProject& project, std::size_t track, Mark mark);
+    bool removeMark(LegacyProject& project, std::size_t track, int frame);
     bool calibrateDistance(LegacyProject& project, CalibrationDistance distance);
     bool setCoordinateAxes(LegacyProject& project, AxesPlacement axes);
     bool setClipRange(LegacyProject& project, int firstFrame, int lastFrame, int stepSize);
@@ -64,8 +67,22 @@ class TrackEdits
     struct ChangeMark
     {
         std::size_t track;
-        Mark after;
+        int frame;
+        std::optional<Mark> after;
         std::optional<Mark> before;
+    };
+
+    struct RenameTrack
+    {
+        std::size_t track;
+        std::string after;
+        std::string before;
+    };
+
+    struct RemoveTrack
+    {
+        std::size_t track;
+        PointMass before;
     };
 
     struct ChangeCalibration
@@ -82,7 +99,7 @@ class TrackEdits
         ClipRange before;
     };
 
-    using Edit = std::variant<AddTrack, ChangeMark, ChangeCalibration, ChangeClip>;
+    using Edit = std::variant<AddTrack, RenameTrack, RemoveTrack, ChangeMark, ChangeCalibration, ChangeClip>;
     static void apply(LegacyProject& project, const Edit& edit, bool forward);
     void append(LegacyProject& project, Edit edit);
 

@@ -643,6 +643,47 @@ TEST(Workspace, ReportsUnavailableMovieFrames)
     ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "This video frame could not be decoded."; }));
 }
 
+TEST(Workspace, RenamesAndRemovesPointMassDataWithUndo)
+{
+    motrack::MainWindow window;
+    window.show();
+    auto* rename = window.findChild<QAction*>("renamePointMass");
+    auto* removeTrack = window.findChild<QAction*>("removePointMass");
+    auto* removeMark = window.findChild<QAction*>("removeMark");
+    auto* undo = window.findChild<QAction*>("undoEdit");
+    auto* marks = window.findChild<QTableWidget*>("marksTable");
+    ASSERT_TRUE(rename && removeTrack && removeMark && undo && marks);
+    EXPECT_FALSE(rename->isEnabled());
+    ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
+    ASSERT_TRUE(rename->isEnabled());
+    QTimer::singleShot(0,
+                       &window,
+                       []
+                       {
+                           if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget()))
+                           {
+                               dialog->setTextValue("Cart");
+                               dialog->accept();
+                           }
+                       });
+    rename->trigger();
+    ASSERT_EQ(marks->rowCount(), 2);
+    EXPECT_EQ(marks->item(0, 0)->text(), "Cart");
+    ASSERT_TRUE(removeMark->isEnabled());
+    removeMark->trigger();
+    EXPECT_EQ(marks->rowCount(), 1);
+    EXPECT_FALSE(removeMark->isEnabled());
+    undo->trigger();
+    EXPECT_EQ(marks->rowCount(), 2);
+    ASSERT_TRUE(removeTrack->isEnabled());
+    removeTrack->trigger();
+    EXPECT_EQ(marks->rowCount(), 0);
+    EXPECT_FALSE(rename->isEnabled());
+    undo->trigger();
+    ASSERT_EQ(marks->rowCount(), 2);
+    EXPECT_EQ(marks->item(0, 0)->text(), "Cart");
+}
+
 TEST(Workspace, MarksASelectedPointMassAdvancesAndSupportsUndo)
 {
     motrack::MainWindow window;
