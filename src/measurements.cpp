@@ -47,10 +47,10 @@ void writeCsvField(std::ostream& output, std::string_view value)
 
 } // namespace
 
-std::optional<WorldPoint> worldPosition(const Calibration& calibration, const Mark& mark)
+std::optional<CalibrationKey> calibrationAt(const Calibration& calibration, int frame)
 {
     const auto& keys = calibration.keyframes;
-    const auto next = std::ranges::upper_bound(keys, mark.frame, {}, &CalibrationKey::frame);
+    const auto next = std::ranges::upper_bound(keys, frame, {}, &CalibrationKey::frame);
     if (next == keys.begin())
     {
         return std::nullopt;
@@ -59,17 +59,28 @@ std::optional<WorldPoint> worldPosition(const Calibration& calibration, const Ma
     const auto& origin = calibration.fixedOrigin ? keys.back() : active;
     const auto& rotation = calibration.fixedAngle ? keys.back() : active;
     const auto& scale = calibration.fixedScale ? keys.front() : active;
-    if (scale.scaleX == 0.0 || scale.scaleY == 0.0)
+    return CalibrationKey{.frame = frame,
+                          .originX = origin.originX,
+                          .originY = origin.originY,
+                          .angleDegrees = rotation.angleDegrees,
+                          .scaleX = scale.scaleX,
+                          .scaleY = scale.scaleY};
+}
+
+std::optional<WorldPoint> worldPosition(const Calibration& calibration, const Mark& mark)
+{
+    const auto key = calibrationAt(calibration, mark.frame);
+    if (!key || key->scaleX == 0.0 || key->scaleY == 0.0)
     {
         return std::nullopt;
     }
 
     // Invert OSP's world-to-image transform, including the downward image Y axis.
-    const auto angle = rotation.angleDegrees * (std::numbers::pi / 180.0);
+    const auto angle = key->angleDegrees * (std::numbers::pi / 180.0);
     const auto cosAngle = std::cos(angle);
     const auto sinAngle = std::sin(angle);
-    const auto x = (mark.x - origin.originX) / scale.scaleX;
-    const auto y = (mark.y - origin.originY) / scale.scaleY;
+    const auto x = (mark.x - key->originX) / key->scaleX;
+    const auto y = (mark.y - key->originY) / key->scaleY;
     const WorldPoint point{.x = cosAngle * x - sinAngle * y, .y = -sinAngle * x - cosAngle * y};
     if (!std::isfinite(point.x) || !std::isfinite(point.y))
     {

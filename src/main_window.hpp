@@ -7,6 +7,7 @@
 #include <QCoreApplication>
 #include <QFutureWatcher>
 #include <QMainWindow>
+#include <QPointF>
 #include <QThreadPool>
 
 #include <atomic>
@@ -48,6 +49,8 @@ class MainWindow final : public QMainWindow
     void refreshPlot();
     void markAt(const QPointF& position);
     void repeatPreviousMark();
+    void pickCalibrationPoint(const QPointF& position);
+    void clearCalibrationPoint();
     [[nodiscard]] bool confirmDiscard();
 
     VideoCanvas* m_Video;
@@ -60,6 +63,7 @@ class MainWindow final : public QMainWindow
     QAction* m_NewPointMass;
     QAction* m_Undo;
     QAction* m_Redo;
+    QAction* m_Calibrate;
     QComboBox* m_TrackPicker;
     QComboBox* m_PlotQuantity;
     PositionPlot* m_Plot;
@@ -67,6 +71,7 @@ class MainWindow final : public QMainWindow
     TrackEdits m_Edits;
     std::optional<ImageSequence> m_Sequence;
     std::optional<ImageFrame> m_DisplayedFrame;
+    std::optional<QPointF> m_CalibrationFirst;
     QString m_MoviePath;
     QThreadPool m_MovieWorkers;
     std::unique_ptr<QFutureWatcher<QImage>> m_FrameWatcher;

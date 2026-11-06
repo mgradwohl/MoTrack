@@ -4,7 +4,7 @@ MoTrack is a planned desktop application for measuring motion in video, plotting
 
 ## Project status
 
-MoTrack is in early development. The desktop prototype opens Tracker `.trk` files, steps through attached local movies and image sequences, and displays point-mass marks on the frame and in a table. It imports saved image calibration, supports manual marking and undo, plots position and velocity, and exports the selected clip's measurements to CSV. The first experiment milestone also calls for editing calibration. See the [migration plan](docs/migration-plan.md) for scope and acceptance criteria.
+MoTrack is in early development. The desktop prototype opens Tracker `.trk` files, steps through attached local movies and image sequences, and displays point-mass marks on the frame and in a table. It imports saved image calibration, supports distance calibration and manual marking with undo, plots position and velocity, and exports the selected clip's measurements to CSV. See the [migration plan](docs/migration-plan.md) for scope and acceptance criteria.
 
 ## Development
 
@@ -37,6 +37,8 @@ Run `build/dev/motrack` (`motrack.exe` on Windows) from an [activated developer 
 Choose a point mass from the toolbar or create one in the Tracks menu. Shift-click an image to mark the selected point mass and advance one clip step. Shift+Enter repeats the previous mark. Use File → Export measurements to save the current measurements as CSV. Project edits are kept in memory for this prototype.
 
 Choose a quantity above the plot. Select a plotted point to jump to its video frame. Position uses the frame number when the project has no known timebase. Velocity uses saved constant image-sequence timing and is left blank at the clip edges and across gaps in the marks.
+
+To set a known distance, select Calibration Stick, click two distinct points in the displayed image, and enter their distance and unit. Undo restores the previous scale and unit.
 
 ## License
 
