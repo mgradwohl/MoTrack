@@ -126,6 +126,8 @@ parity. Motion filters in R14 are a separate numerical-data pipeline.
 
 Keep the existing C++23 / Qt 6 Widgets / FFmpeg / libarchive choices. Evolve the tested components in
 small steps; this is a target architecture, not a description of layers already fully separated.
+The shipped application must run without Java or Swift installed. Native C/C++ and operating-system
+libraries are allowed. Java is confined to development/reference tests, never the import/export runtime.
 The current [CMake targets](../CMakeLists.txt) are `motrack_project`, `motrack_media`,
 `motrack_workspace`, and the application. `MainWindow` currently owns much of the session orchestration;
 the generic model is still named `LegacyProject`, and edits address tracks by vector indices.
@@ -201,8 +203,9 @@ native importer comparison. An additional Linux virtual-display probe opens the 
 media through Tracker's normal application loader, saves them in Java, then reopens and compares the
 loaded content. This is Java's own resave baseline, not MoTrack standard-file export acceptance.
 Media/archive session loading, broader requirement coverage, runtime/dependency provenance and exact
-source mapping remain unfinished. Phase 2 has an initial XML source envelope and native version
-migration; stable identities, archive preservation and session ownership remain. Extend the reference
+source mapping remain unfinished. Phase 2 has an initial XML source envelope, persistent point-mass/vector
+IDs and native version migration. Source-object associations, commands addressed by ID, complete archive
+preservation and session ownership remain. Extend the reference
 evidence alongside these foundations before standard writers. Phase 3 has priority over adding particle-model
 editing. UI familiarity can improve while work progresses, but visual polish cannot replace correctness
 or standard-file compatibility gates.
@@ -214,7 +217,7 @@ or standard-file compatibility gates.
 | Executable/source reference | Desktop 6.3.5's JAR URL, bytes and SHA-256 are pinned; its runtime version is checked. Initial XML/coordinate snapshots were produced with Temurin 17.0.21+9. Matching source mapping and the full GUI/media dependency stack remain to verify. | 1, before full-session golden results |
 | OS and CPU support | CI currently uses Windows 2025, macOS 15 and Ubuntu 24.04 runners. These are test environments, not declared minimum end-user OS versions. Specify release minimums and Intel/Arm coverage explicitly. | 1, finalized before 12 |
 | Codec coverage and export | FFmpeg import works for tested fixtures; pin a format/codec/container test matrix and identify any licensing or platform limitations. Do not label untested formats supported because FFmpeg recognizes their names. | 1, 6 and 10 |
-| Native preservation representation | Version 2 embeds bounded original XML bytes as Base64 and migrates version 1 without inventing lost source. See [native format](native-format.md). Extend with stable source associations and archive storage; unknown metadata must survive without the original import file. | 2 |
+| Native preservation representation | Version 3 retains version 2's bounded original XML and adds document-scoped track IDs with a non-reusing allocation counter. Versions 1/2 migrate without inventing lost source or source-object bindings. See [native format](native-format.md). Extend with source associations and archive storage. | 2 |
 | Pair-save recovery | Specify staging, backup/recovery and user-visible partial-success behavior; two independent filesystem replacements cannot be assumed atomic. | 3 |
 | Numerical equivalence | Freeze quantity-specific tolerances, derivative/solver choices, units and gap semantics from actual reference results, including boundary and near-zero values. | 1, extended per feature |
 | External-model exchange and supporting documents | Verify the reference's data protocols and choose native adapters/viewers without silently excluding those workflows or executing arbitrary document content. | 9–11 |

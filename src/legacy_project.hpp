@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <stdexcept>
@@ -13,6 +14,7 @@ namespace motrack
 
 inline constexpr double MIN_POINT_MASS = 1e-30;
 inline constexpr auto MAX_TRACKER_XML_BYTES = std::size_t{32} * 1024 * 1024;
+using TrackId = std::uint64_t;
 
 struct Mark
 {
@@ -26,6 +28,7 @@ struct PointMass
     std::string name;
     std::vector<Mark> marks;
     double mass = 1.0;
+    TrackId id = 0;
 };
 
 struct VectorSample
@@ -41,6 +44,7 @@ struct VectorTrack
 {
     std::string name;
     std::vector<VectorSample> samples;
+    TrackId id = 0;
 };
 
 struct Clip
@@ -84,6 +88,8 @@ struct LegacyProject
     std::vector<PointMass> pointMasses;
     std::vector<VectorTrack> vectors{};
     std::vector<std::string> unsupportedTrackTypes;
+    /// Document-scoped allocation counter. Never rewind after deleting or undoing a track.
+    TrackId nextTrackId = 1;
 };
 
 class ProjectError : public std::runtime_error

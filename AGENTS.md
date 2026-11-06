@@ -37,6 +37,9 @@ to it elsewhere. Do not describe planned functionality or unavailable tooling as
 
 - Use C++23, Clang, CMake, and Qt 6 on Windows, macOS, and Linux. Preserve the dependency pins in the
   setup tools unless changing them is part of the task.
+- Ship a native application without Java or Swift runtime requirements. Java belongs only to the
+  development/reference tests; it must not be needed for Tracker import, export, or normal application use.
+  Native Qt, FFmpeg, libarchive, C/C++ runtimes, and operating-system libraries remain valid dependencies.
 - Keep scientific analysis and the project data model independent of Qt Widgets, FFmpeg, and OS APIs.
   Translate at adapter boundaries; keep drawing and selection in the workspace.
 - Preserve the required [Tracker round-trip workflow](docs/migration-plan.md#tracker-round-trip-compatibility).

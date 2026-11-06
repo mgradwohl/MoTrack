@@ -1,5 +1,7 @@
 #include "workspace_document.hpp"
 
+#include "track_identity.hpp"
+
 #include <QByteArray>
 #include <QFile>
 #include <QJsonArray>
@@ -7,6 +9,7 @@
 #include <QJsonObject>
 #include <QSaveFile>
 
+#include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -18,7 +21,7 @@ namespace
 {
 
 constexpr qint64 MAX_DOCUMENT_BYTES = qint64{128} * 1024 * 1024;
-constexpr int DOCUMENT_VERSION = 2;
+constexpr int DOCUMENT_VERSION = 3;
 
 void require(bool valid)
 {
@@ -46,6 +49,15 @@ std::string string(const QJsonValue& value)
 {
     require(value.isString());
     return value.toString().toStdString();
+}
+
+TrackId identity(const QJsonValue& value)
+{
+    const auto text = string(value);
+    TrackId result = 0;
+    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), result);
+    require(parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() && result > 0 && std::to_string(result) == text);
+    return result;
 }
 
 QJsonArray array(const QJsonValue& value, qsizetype size)
@@ -164,12 +176,15 @@ QJsonArray writeTracks(const std::vector<PointMass>& tracks)
         {
             marks.append(QJsonArray{mark.frame, mark.x, mark.y});
         }
-        result.append(QJsonObject{{"name", QString::fromStdString(track.name)}, {"marks", marks}, {"mass", track.mass}});
+        result.append(QJsonObject{{"name", QString::fromStdString(track.name)},
+                                  {"marks", marks},
+                                  {"mass", track.mass},
+                                  {"id", QString::fromStdString(std::to_string(track.id))}});
     }
     return result;
 }
 
-std::vector<PointMass> readTracks(const QJsonValue& value)
+std::vector<PointMass> readTracks(const QJsonValue& value, int version)
 {
     const auto tracks = array(value, -1);
     std::vector<PointMass> result;
@@ -177,6 +192,14 @@ std::vector<PointMass> readTracks(const QJsonValue& value)
     {
         const auto track = entry.toObject();
         PointMass mass{.name = string(track.value("name")), .marks = {}};
+        if (version >= 3)
+        {
+            mass.id = identity(track.value("id"));
+        }
+        else
+        {
+            require(!track.contains("id"));
+        }
         if (const auto savedMass = track.value("mass"); !savedMass.isUndefined())
         {
             mass.mass = number(savedMass);
@@ -205,18 +228,27 @@ QJsonArray writeVectors(const std::vector<VectorTrack>& tracks)
         {
             samples.append(QJsonArray{sample.frame, sample.tailX, sample.tailY, sample.componentX, sample.componentY});
         }
-        result.append(QJsonObject{{"name", QString::fromStdString(track.name)}, {"samples", samples}});
+        result.append(QJsonObject{
+            {"name", QString::fromStdString(track.name)}, {"samples", samples}, {"id", QString::fromStdString(std::to_string(track.id))}});
     }
     return result;
 }
 
-std::vector<VectorTrack> readVectors(const QJsonValue& value)
+std::vector<VectorTrack> readVectors(const QJsonValue& value, int version)
 {
     std::vector<VectorTrack> result;
     for (const auto& entry : array(value, -1))
     {
         const auto track = entry.toObject();
         VectorTrack vector{.name = string(track.value("name")), .samples = {}};
+        if (version >= 3)
+        {
+            vector.id = identity(track.value("id"));
+        }
+        else
+        {
+            require(!track.contains("id"));
+        }
         for (const auto& item : array(track.value("samples"), -1))
         {
             const auto sample = array(item, 5);
@@ -247,7 +279,7 @@ WorkspaceDocument readWorkspaceDocument(const QString& path)
     require(file.open(QIODevice::ReadOnly) && file.size() <= MAX_DOCUMENT_BYTES);
     const auto input = QJsonDocument::fromJson(file.read(MAX_DOCUMENT_BYTES + 1)).object();
     const auto version = input.value("version").toInt();
-    require(input.value("format") == "MoTrack" && (version == 1 || version == DOCUMENT_VERSION));
+    require(input.value("format") == "MoTrack" && version >= 1 && version <= DOCUMENT_VERSION);
     WorkspaceDocument result;
     if (version >= 2)
     {
@@ -281,11 +313,28 @@ WorkspaceDocument readWorkspaceDocument(const QString& path)
     }
     project.unsupportedTrackTypes = strings(input.value("unsupportedTrackTypes"));
     project.calibration = readCalibration(input.value("calibration"));
-    project.pointMasses = readTracks(input.value("pointMasses"));
+    project.pointMasses = readTracks(input.value("pointMasses"), version);
     if (const auto vectors = input.value("vectors"); !vectors.isUndefined())
     {
-        project.vectors = readVectors(vectors);
+        project.vectors = readVectors(vectors, version);
     }
+    if (version >= 3)
+    {
+        project.nextTrackId = identity(input.value("nextTrackId"));
+    }
+    else
+    {
+        require(!input.contains("nextTrackId"));
+        for (auto& track : project.pointMasses)
+        {
+            track.id = allocateTrackId(project);
+        }
+        for (auto& track : project.vectors)
+        {
+            track.id = allocateTrackId(project);
+        }
+    }
+    validateTrackIdentities(project);
     const auto clip = input.value("clip").toObject();
     project.clip.firstFrame = integer(clip.value("firstFrame"), 0);
     project.clip.stepSize = integer(clip.value("stepSize"), 1);
@@ -321,6 +370,7 @@ WorkspaceDocument readWorkspaceDocument(const QString& path)
 void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& document)
 {
     const auto& project = document.project;
+    validateTrackIdentities(project);
     const auto& clip = project.clip;
     QJsonArray frameTimes;
     for (const auto time : document.movieFrameTimes)
@@ -336,6 +386,7 @@ void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& docume
                                  {"startTimeMs", clip.startTimeMs}};
     const QJsonObject output{{"format", "MoTrack"},
                              {"version", DOCUMENT_VERSION},
+                             {"nextTrackId", QString::fromStdString(std::to_string(project.nextTrackId))},
                              {"trackerSource", writeTrackerSource(document.trackerSource)},
                              {"trackerVersion", QString::fromStdString(project.version)},
                              {"description", QString::fromStdString(project.description)},

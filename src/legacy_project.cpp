@@ -1,5 +1,7 @@
 #include "legacy_project.hpp"
 
+#include "track_identity.hpp"
+
 #include <QByteArray>
 #include <QDomDocument>
 
@@ -256,12 +258,14 @@ LegacyProject parseLegacyProject(std::string_view xml)
         if (type == POINT_MASS_CLASS)
         {
             project.pointMasses.push_back(readPointMass(object));
+            project.pointMasses.back().id = allocateTrackId(project);
         }
         else if (type == VECTOR_CLASS)
         {
             try
             {
                 project.vectors.push_back(readVector(object));
+                project.vectors.back().id = allocateTrackId(project);
             }
             catch (const ProjectError&)
             {

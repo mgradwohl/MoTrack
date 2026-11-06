@@ -1,5 +1,6 @@
 #include "image_sequence.hpp"
 #include "main_window.hpp"
+#include "track_identity.hpp"
 #include "video_canvas.hpp"
 #include "workspace_document.hpp"
 
@@ -259,7 +260,8 @@ TEST(Workspace, PreservesAndDrawsVectorsAtTheirOriginalFrame)
     document.project.clip.mediaReferences.push_back(fixturePath("frames/frame00.ppm").toStdString());
     document.project.vectors.push_back({.name = "Vector A",
                                         .samples = {{.frame = 0, .tailX = 1, .tailY = 1, .componentX = 2, .componentY = 1},
-                                                    {.frame = 2, .tailX = 1, .tailY = 2, .componentX = 1, .componentY = 0}}});
+                                                    {.frame = 2, .tailX = 1, .tailY = 2, .componentX = 1, .componentY = 0}},
+                                        .id = motrack::allocateTrackId(document.project)});
     const auto input = temporary.filePath("vectors.motrack");
     motrack::writeWorkspaceDocument(input, document);
 
@@ -675,7 +677,8 @@ TEST(Workspace, AutoTracksATexturedMarkAndStopsWhenItDisappears)
     QTemporaryDir temporary;
     ASSERT_TRUE(temporary.isValid());
     motrack::WorkspaceDocument document;
-    document.project.pointMasses.push_back({.name = "Ball", .marks = {{.frame = 0, .x = 22, .y = 22}}});
+    document.project.pointMasses.push_back(
+        {.name = "Ball", .marks = {{.frame = 0, .x = 22, .y = 22}}, .id = motrack::allocateTrackId(document.project)});
     for (int frame = 0; frame < 3; ++frame)
     {
         const auto name = QString("frame%1.png").arg(frame);

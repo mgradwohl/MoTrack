@@ -19,6 +19,10 @@ architecture, implementation dependencies, and the tests required before claimin
 
 The project targets desktop workflows. Browser support is out of scope.
 
+The application runs without Java or Swift installed. It uses native Qt, FFmpeg, libarchive, and
+operating-system libraries. Java is used only in development tests against the original Tracker;
+it is not shipped with MoTrack or used to read and write experiments.
+
 ### Build the prototype
 
 Run the setup script after cloning. It installs build tools through the platform package manager, installs Qt, FFmpeg, and libarchive in the checkout's ignored `.dev-tools` directory, and builds and tests the app.

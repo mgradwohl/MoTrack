@@ -1,6 +1,7 @@
 #include "track_edits.hpp"
 
 #include "measurements.hpp"
+#include "track_identity.hpp"
 
 #include <gtest/gtest.h>
 
@@ -8,6 +9,62 @@
 
 namespace
 {
+
+TEST(TrackEdits, KeepsDistinctIdentitiesAcrossRenameDeleteUndoRedoAndNewHistory)
+{
+    motrack::LegacyProject project;
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.createPointMass(project, "same"));
+    ASSERT_TRUE(edits.createPointMass(project, "same"));
+    ASSERT_TRUE(edits.createVector(project, "same"));
+    const auto first = project.pointMasses.at(0).id;
+    const auto second = project.pointMasses.at(1).id;
+    const auto vector = project.vectors.at(0).id;
+    EXPECT_NE(first, second);
+    EXPECT_NE(second, vector);
+    EXPECT_NE(first, vector);
+    ASSERT_TRUE(edits.renamePointMass(project, 1, "renamed"));
+    ASSERT_TRUE(edits.removePointMass(project, 0));
+    EXPECT_EQ(project.pointMasses.front().id, second);
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_EQ(project.pointMasses.at(0).id, first);
+    EXPECT_EQ(project.pointMasses.at(1).id, second);
+    ASSERT_TRUE(edits.redo(project));
+    ASSERT_TRUE(edits.undo(project));
+    ASSERT_TRUE(edits.undo(project)); // Rename.
+    ASSERT_TRUE(edits.undo(project)); // Vector creation.
+    const auto counter = project.nextTrackId;
+    ASSERT_TRUE(edits.redo(project));
+    EXPECT_EQ(project.vectors.front().id, vector);
+    EXPECT_EQ(project.nextTrackId, counter);
+    ASSERT_TRUE(edits.undo(project));
+    ASSERT_TRUE(edits.createVector(project, "replacement"));
+    EXPECT_GT(project.vectors.front().id, vector);
+    EXPECT_FALSE(edits.canRedo());
+    edits.clear();
+    EXPECT_NO_THROW(motrack::validateTrackIdentities(project));
+    EXPECT_GT(project.nextTrackId, project.vectors.front().id);
+}
+
+TEST(TrackEdits, ExhaustedIdentitySpaceRejectsCreationWithoutChangingHistory)
+{
+    motrack::LegacyProject project;
+    project.nextTrackId = std::numeric_limits<motrack::TrackId>::max() - 1;
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.createPointMass(project, "last"));
+    const auto revision = edits.revision();
+    EXPECT_FALSE(edits.createPointMass(project, "overflow"));
+    EXPECT_FALSE(edits.createVector(project, "overflow"));
+    EXPECT_EQ(edits.revision(), revision);
+    EXPECT_NO_THROW(motrack::validateTrackIdentities(project));
+    EXPECT_THROW(static_cast<void>(motrack::allocateTrackId(project)), motrack::ProjectError);
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_FALSE(edits.createVector(project, "reused"));
+    ASSERT_TRUE(edits.redo(project));
+    EXPECT_EQ(project.pointMasses.front().id, std::numeric_limits<motrack::TrackId>::max() - 1);
+    project.nextTrackId = 0;
+    EXPECT_THROW(motrack::validateTrackIdentities(project), motrack::ProjectError);
+}
 
 TEST(TrackEdits, ChangesRevisionForEditsUndoRedoAndDocumentReset)
 {
