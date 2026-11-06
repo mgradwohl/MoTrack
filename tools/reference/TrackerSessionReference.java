@@ -17,6 +17,7 @@ import org.opensourcephysics.cabrillo.tracker.TFrame;
 import org.opensourcephysics.cabrillo.tracker.TTrack;
 import org.opensourcephysics.cabrillo.tracker.TrackerIO;
 import org.opensourcephysics.cabrillo.tracker.TrackerPanel;
+import org.opensourcephysics.controls.XMLControlElement;
 import org.opensourcephysics.display.OSPRuntime;
 import org.opensourcephysics.media.core.ImageCoordSystem;
 import org.opensourcephysics.media.core.TPoint;
@@ -122,10 +123,16 @@ public final class TrackerSessionReference {
                 for (TPoint point : step.getPoints()) points.add(point == null ? null : List.of(point.x, point.y));
                 samples.add(TrackerReference.map("frame", step.getFrameNumber(), "points", points));
             }
-            if (track instanceof PointMass && samples.isEmpty())
-                throw new IllegalStateException("Expected loaded point-mass/model samples");
+            if (track instanceof ParticleModel && samples.isEmpty())
+                throw new IllegalStateException("Expected evaluated model samples");
+            List<Integer> keys = null;
+            if (track.getClass() == PointMass.class) {
+                int[] values = (int[]) new XMLControlElement(track).getObject("keyFrames");
+                keys = new ArrayList<>();
+                if (values != null) for (int value : values) keys.add(value);
+            }
             tracks.add(TrackerReference.map("class", track.getClass().getName(), "name", track.getName(),
-                "mass", track instanceof PointMass mass ? mass.getMass() : null, "samples", samples));
+                "mass", track instanceof PointMass mass ? mass.getMass() : null, "samples", samples, "key_frames", keys));
         }
         List<Object> coordinates = new ArrayList<>();
         int first = clip.getStartFrameNumber();

@@ -134,12 +134,18 @@ Only the selected archive tab is editable today. Multi-document controllers, mul
 and standard-file writers remain unfinished. An unknown object retained in this
 envelope is not an implemented track type.
 
-The initial internal standard writer can patch point-mass mass values in media-free projects after a
+The initial internal standard writer can patch point-mass mass values and mark positions/additions/deletions in media-free projects after a
 native reopen. It requires known source associations, preserves unknown XML objects/properties and
 normalizes changed output to a matching UTF-8 declaration. Unchanged output is byte-exact. It rejects
-every other changed domain field before opening its atomic replacement file, including mark, name,
+every other changed domain field before opening its atomic replacement file, including name,
 clip, calibration, vector and track-membership edits. Media references are rejected until relocation
-and packaging are supported. This path is exercised by the reference corpus;
+and packaging are supported. Changed/new marks become manual keyframes; unchanged automatic marks
+retain their original key status. Deleting the last manual key while leaving automatic marks is rejected,
+because Tracker treats an empty key list as all remaining marks being manual. Unknown properties on
+retained frame objects survive; deleting a mark removes its frame object. Rewritten frame arrays omit
+structural blank lines because the OSP array reader stops at them. Empty key lists use Tracker's
+empty array container, and adding a first mark after Java has resaved that container is reference-tested.
+Explicitly preserved frame-array whitespace and comments that would stop OSP's reader cause rejection. This path is exercised by the reference corpus;
 it does not add a desktop export action or mark the native document saved. Standard export checkpoints,
 additional edit types, media relocation, `.trz` packaging and paired-save recovery remain phase-3 work.
 

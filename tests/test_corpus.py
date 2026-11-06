@@ -160,6 +160,70 @@ class CorpusTests(unittest.TestCase):
         with patch.object(corpus.sys, "platform", "win32"), self.assertRaisesRegex(ValueError, "Linux"):
             corpus.check_sessions({}, self.root, "java")
 
+    def test_mark_session_requires_edited_samples_and_manual_keys(self):
+        manifest = corpus.load_manifest()
+        case = next(case for case in manifest["cases"] if case["id"] == "protractor")
+        expected = corpus.mark_roundtrip_expected(case)
+        tracks = []
+        keys = [[0, 3], [7]]
+        for identity in case["session_tracks"]:
+            index = next((i for i, mass in enumerate(expected["point_masses"]) if mass["name"] == identity["name"]), None)
+            mass = expected["point_masses"][index] if index is not None else None
+            tracks.append({**identity, "mass": mass["mass"] if mass else None,
+                           "samples": [{"frame": sample["frame"], "points": [sample["image"]]}
+                                       for sample in mass["samples"]] if mass else [],
+                           "key_frames": keys[index] if mass else None})
+        before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"]}
+        valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                 "before": before, "after": copy.deepcopy(before)}
+        corpus.validate_session(case, valid, manifest, expected, keys)
+        for field, value in [("key_frames", [0]), ("samples", tracks[1]["samples"][:1])]:
+            invalid = copy.deepcopy(valid)
+            for state in ["before", "after"]:
+                invalid[state]["tracks"][1][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                corpus.validate_session(case, invalid, manifest, expected, keys)
+
+    def test_mark_export_checks_changes_and_preserves_unknown_content(self):
+        case = next(case for case in corpus.load_manifest()["cases"] if case["id"] == "protractor")
+        expected = corpus.mark_roundtrip_expected(case)
+        point_class = "org.opensourcephysics.cabrillo.tracker.PointMass"
+        def frame(number, x, y):
+            return (f"<property name='[{number}]' type='object'><object class='{point_class}$FrameData'>"
+                    f"<property name='x' type='double'>{x}</property><property name='y' type='double'>{y}</property>"
+                    "</object></property>")
+        def mass(frames, keys):
+            values = "" if keys is None else f"<property name='array' type='string'>{{{keys}}}</property>"
+            return (f"<property type='object'><object class='{point_class}'>"
+                    f"<property name='framedata' type='array' class='[L{point_class}$FrameData;'>{frames}</property>"
+                    f"<property name='keyFrames' type='array' class='[I'>{values}</property>"
+                    "<property name='unknown'>  keep  </property></object></property>")
+        def project(first, second):
+            return "<!-- before --><object><property name='tracks' type='collection'>" + first + second + "</property></object>"
+        original, exported = self.root / "original.trk", self.root / "exported.trk"
+        original.write_text(project(mass(frame(0, 1, 2), "0"), mass(frame(0, 3, 4), "0")), encoding="utf-8")
+        x, y = expected["point_masses"][0]["samples"][0]["image"]
+        edited = project(mass(frame(0, format(x, '.17g'), format(y, '.17g')) + frame(3, 100.125, 200.5), "0,3"),
+                         mass(frame(7, 50, 60), "7"))
+        exported.write_text(edited, encoding="utf-8")
+        corpus.verify_mark_export_xml(original, exported, expected)
+        for invalid in [edited.replace("{0,3}", "{0}"), edited.replace("[7]", "[6]"),
+                        edited.replace(">50<", ">51<"), edited.replace("  keep  ", "keep"),
+                        edited.replace("<!-- before -->", "")]:
+            exported.write_text(invalid, encoding="utf-8")
+            with self.assertRaises(ValueError):
+                corpus.verify_mark_export_xml(original, exported, expected)
+        empty = project(mass("\n ", None), mass(frame(0, 3, 4), "0"))
+        exported.write_text(empty, encoding="utf-8")
+        corpus.verify_mark_export_xml(original, exported, corpus.mark_roundtrip_expected(case, "empty-marks"), "empty-marks")
+        original.write_text(empty, encoding="utf-8")
+        first = project(mass(frame(4, 11.25, 22.5), "4"), mass(frame(0, 3, 4), "0"))
+        exported.write_text(first, encoding="utf-8")
+        corpus.verify_mark_export_xml(original, exported, corpus.mark_roundtrip_expected(case, "first-mark"), "first-mark")
+        exported.write_text(first.replace("{4}", "{}"), encoding="utf-8")
+        with self.assertRaises(ValueError):
+            corpus.verify_mark_export_xml(original, exported, corpus.mark_roundtrip_expected(case, "first-mark"), "first-mark")
+
     def test_mass_export_checks_unknown_content_and_the_requested_edit(self):
         original, exported = self.root / "original.trk", self.root / "exported.trk"
         xml = ("<!-- before --><?test keep?><object><property name='tracks'><property><object class='org.opensourcephysics.cabrillo.tracker.PointMass'>"

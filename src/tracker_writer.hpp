@@ -7,7 +7,7 @@
 namespace motrack
 {
 
-/// Initial standard-writer slice: patch point-mass mass values in media-free projects; reject every other edited domain field.
+/// Patch point-mass mass values and marks in media-free projects; reject every other edited domain field.
 /// Requires known source bindings. Unknown XML objects/properties are retained; the baseline stays unchanged.
 [[nodiscard]] std::string renderTrackerProject(const LegacyProject& project, const TrackerSource& source);
 /// Atomically write validated standard .trk XML. Does not write .trz or mark a native session saved.

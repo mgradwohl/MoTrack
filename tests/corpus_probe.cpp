@@ -95,7 +95,8 @@ try
 {
     const QCoreApplication application(argc, argv);
     const auto args = application.arguments();
-    if (args.size() == 4 && args[1] == "--export-mass")
+    if (args.size() == 4 && (args[1] == "--export-mass" || args[1] == "--export-marks" || args[1] == "--export-empty-marks" ||
+                             args[1] == "--export-first-mark"))
     {
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trk");
@@ -106,10 +107,50 @@ try
         }
         auto document = motrack::importTrackerDocument(source);
         motrack::TrackEdits edits;
-        if (document.project.pointMasses.empty() ||
-            !edits.setPointMassValue(document.project, 0, document.project.pointMasses.front().mass * 2.5))
+        if (args[1] == "--export-mass")
         {
-            throw motrack::ProjectError("Could not edit round-trip mass.");
+            if (document.project.pointMasses.empty() ||
+                !edits.setPointMassValue(document.project, 0, document.project.pointMasses.front().mass * 2.5))
+            {
+                throw motrack::ProjectError("Could not edit round-trip mass.");
+            }
+        }
+        else if (args[1] == "--export-marks")
+        {
+            if (document.project.pointMasses.size() != 2 || document.project.pointMasses.front().marks.empty())
+            {
+                throw motrack::ProjectError("Expected the pinned two-point-mass mark case.");
+            }
+            const auto original = document.project.pointMasses.front().marks.front();
+            if (!edits.markPointMass(document.project, 0, {.frame = original.frame, .x = original.x + 12.5, .y = original.y - 3.25}) ||
+                !edits.markPointMass(document.project, 0, {.frame = 3, .x = 100.125, .y = 200.5}) ||
+                !edits.removeMark(document.project, 1, 0) || !edits.markPointMass(document.project, 1, {.frame = 7, .x = 50, .y = 60}))
+            {
+                throw motrack::ProjectError("Could not edit round-trip marks.");
+            }
+        }
+        else
+        {
+            if (document.project.pointMasses.size() != 2)
+            {
+                throw motrack::ProjectError("Expected the pinned empty-mark case.");
+            }
+            if (args[1] == "--export-empty-marks")
+            {
+                const auto original = document.project.pointMasses.front().marks;
+                for (const auto& mark : original)
+                {
+                    if (!edits.removeMark(document.project, 0, mark.frame))
+                    {
+                        throw motrack::ProjectError("Could not clear round-trip marks.");
+                    }
+                }
+            }
+            else if (!document.project.pointMasses.front().marks.empty() ||
+                     !edits.markPointMass(document.project, 0, {.frame = 4, .x = 11.25, .y = 22.5}))
+            {
+                throw motrack::ProjectError("Could not add the first round-trip mark.");
+            }
         }
         motrack::writeWorkspaceDocument(native, document);
         document = {};
@@ -127,7 +168,7 @@ try
     }
     if (args.size() != 3)
     {
-        std::fputs("Usage: motrack_corpus_probe input.trk output.json | --export-mass input.trk output.trk\n", stderr);
+        std::fputs("Usage: motrack_corpus_probe input.trk output.json | --export-mass/--export-marks input.trk output.trk\n", stderr);
         return 1;
     }
 #ifdef _WIN32
