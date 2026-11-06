@@ -231,6 +231,8 @@ TEST(Workspace, StepsThroughAMovieOnABackgroundWorker)
     slider->setValue(1);
     ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 3"; }));
     slider->setValue(0);
+    ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 1"; }));
+    slider->setValue(1);
     ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
     QCoreApplication::processEvents();
     EXPECT_EQ(canvas->accessibleName(), "Frame 0");
@@ -250,6 +252,10 @@ TEST(Workspace, OpensStandaloneMovieAndKeepsTheWorkspaceAfterAFailedOpen)
     EXPECT_EQ(slider->maximum(), 3);
     slider->setValue(3);
     ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 3"; }));
+    slider->setValue(2);
+    ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 2"; }));
+    slider->setValue(3);
+    ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 3"; }));
     window.openMovie(fixturePath("missing.mp4"));
     ASSERT_TRUE(QTest::qWaitFor([status] { return status->currentMessage() == "Could not open this video."; }));
     EXPECT_EQ(canvas->accessibleName(), "Frame 3");
@@ -258,6 +264,33 @@ TEST(Workspace, OpensStandaloneMovieAndKeepsTheWorkspaceAfterAFailedOpen)
     ASSERT_TRUE(window.loadProject(destination));
     ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
     EXPECT_EQ(slider->maximum(), 3);
+}
+
+TEST(Workspace, PlaysTheClipAndStopsAtTheLastFrame)
+{
+    motrack::MainWindow window;
+    auto* canvas = window.findChild<QWidget*>("videoCanvas");
+    auto* slider = window.findChild<QSlider*>("stepSlider");
+    auto* play = window.findChild<QToolButton*>("playClip");
+    ASSERT_TRUE(canvas && slider && play);
+    EXPECT_FALSE(play->isEnabled());
+    window.openMovie(fixturePath("vfr.mp4"));
+    ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
+    play->click();
+    EXPECT_EQ(play->accessibleName(), "Pause");
+    play->click();
+    EXPECT_EQ(play->accessibleName(), "Play");
+    EXPECT_EQ(slider->value(), 0);
+    play->click();
+    ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 3"; }));
+    EXPECT_EQ(play->accessibleName(), "Play");
+    slider->setValue(1);
+    ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 1"; }));
+    slider->setValue(3);
+    ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 3"; }));
+    play->click();
+    ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
+    play->click();
 }
 
 TEST(Workspace, SavesEditsAndReopensMediaFromADifferentDirectory)
