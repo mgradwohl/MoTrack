@@ -146,7 +146,10 @@ TEST(Workspace, OpensATrackerArchiveAndReopensASavedCopy)
     const auto path = temporary.filePath("archived.motrack");
     ASSERT_TRUE(window.saveWorkspace(path));
     const auto source = motrack::readWorkspaceDocument(path).trackerSource;
-    ASSERT_TRUE(source.has_value());
+    if (!source.has_value())
+    {
+        FAIL() << "Expected preserved Tracker source.";
+    }
     EXPECT_EQ(motrack::parseLegacyProject(source->xml).pointMasses.size(), 1u);
     ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
     ASSERT_TRUE(window.loadProject(path));
@@ -154,7 +157,10 @@ TEST(Workspace, OpensATrackerArchiveAndReopensASavedCopy)
     EXPECT_EQ(marks->rowCount(), 2);
     ASSERT_TRUE(window.saveWorkspace(path));
     const auto resaved = motrack::readWorkspaceDocument(path);
-    ASSERT_TRUE(resaved.trackerSource.has_value());
+    if (!resaved.trackerSource.has_value())
+    {
+        FAIL() << "Expected preserved Tracker source.";
+    }
     EXPECT_EQ(resaved.trackerSource->xml, source->xml);
 }
 
@@ -1098,7 +1104,10 @@ TEST(Workspace, EditsAndSavesTheSelectedMass)
     const auto imported = temporary.filePath("imported.trk");
     ASSERT_TRUE(QFile::copy(fixturePath("point-mass.trk"), imported));
     const auto original = motrack::importTrackerDocument(imported).trackerSource;
-    ASSERT_TRUE(original.has_value());
+    if (!original.has_value())
+    {
+        FAIL() << "Expected preserved Tracker source.";
+    }
     ASSERT_TRUE(window.loadProject(imported));
     auto* action = window.findChild<QAction*>("setPointMassValue");
     ASSERT_TRUE(action && action->isEnabled());
@@ -1119,7 +1128,10 @@ TEST(Workspace, EditsAndSavesTheSelectedMass)
     EXPECT_EQ(saved.project.massUnit, "g");
     ASSERT_EQ(saved.project.pointMasses.size(), 1u);
     EXPECT_DOUBLE_EQ(saved.project.pointMasses.front().mass, 250.25);
-    ASSERT_TRUE(saved.trackerSource.has_value());
+    if (!saved.trackerSource.has_value())
+    {
+        FAIL() << "Expected preserved Tracker source.";
+    }
     EXPECT_EQ(saved.trackerSource->xml, original->xml);
     ASSERT_TRUE(QFile::remove(imported));
     motrack::MainWindow reopened;
@@ -1127,13 +1139,19 @@ TEST(Workspace, EditsAndSavesTheSelectedMass)
     const auto copy = temporary.filePath("reopened.motrack");
     ASSERT_TRUE(reopened.saveWorkspace(copy));
     const auto resaved = motrack::readWorkspaceDocument(copy);
-    ASSERT_TRUE(resaved.trackerSource.has_value());
+    if (!resaved.trackerSource.has_value())
+    {
+        FAIL() << "Expected preserved Tracker source.";
+    }
     EXPECT_EQ(resaved.trackerSource->xml, original->xml);
     EXPECT_DOUBLE_EQ(resaved.project.pointMasses.front().mass, 250.25);
     EXPECT_FALSE(reopened.loadProject(imported));
     ASSERT_TRUE(reopened.saveWorkspace(copy));
     const auto afterFailedOpen = motrack::readWorkspaceDocument(copy);
-    ASSERT_TRUE(afterFailedOpen.trackerSource.has_value());
+    if (!afterFailedOpen.trackerSource.has_value())
+    {
+        FAIL() << "Expected preserved Tracker source.";
+    }
     EXPECT_EQ(afterFailedOpen.trackerSource->xml, original->xml);
 }
 
