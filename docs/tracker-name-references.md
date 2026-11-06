@@ -1,6 +1,7 @@
 # Tracker track names and source references
 
-This is the proposed next phase-3 implementation slice, not an implemented rename exporter.
+This records the partial phase-3 source-reference implementation and proposed rename architecture.
+Standard-file rename export is not implemented.
 Native names already have undo/redo and persistent identities; standard export still rejects their
 changes. The [full-port plan](migration-plan.md) remains the requirements/status authority.
 
@@ -36,10 +37,31 @@ complete inventory of every name/reference field.
 | [CenterOfMass](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/CenterOfMass.java) | `masses` | Collection of constituent point-mass names. |
 | [VectorSum](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/VectorSum.java) | `vectors` | Collection of constituent vector names. |
 | [DynamicSystem](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/DynamicSystem.java) | `particles` | Array of component particle names. |
+| [DynamicParticle](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/DynamicParticle.java) | `booster` | Name of a point mass resolved through `getTrackByName(PointMass.class, boosterName)` during normal drawing. Its model-initialization behavior needs an actual-application case. |
 
-## Proposed architecture
+## Partial native index
 
-Build a source-reference index alongside the existing original-object bindings. Its source nodes
+The read-only [native index](../src/tracker_references.hpp) inventories original source track ordinals,
+Java classes and names, retaining unsupported track nodes. Known persistent IDs come only from
+validated original bindings; native rename/reorder/deletion does not change them. Old documents with
+unknown bindings retain source-node resolution without inventing native IDs.
+
+It currently reads root `selectedtrack`, `referenceframe` and exactly four plot/table pairs in
+`selected_track_views`. Resolution explicitly distinguishes one target, missing targets, duplicate
+names and packed `null` markers. Only the packed codec treats `null` as an empty slot. Malformed known
+fields have diagnostic paths; ordinary description text is ignored. Limits are 10000 source entries,
+4096 UTF-16 units per name and 65536 units for the packed value, within the existing XML byte cap.
+The original XML remains unchanged. Native tests cover ambiguity across supported/unknown types,
+malformed fields, bounds, Unicode, rename/reorder/delete/undo and native save/reopen. The protractor
+corpus checks the index against original source ordinals and the Java-verified selected mass/views.
+
+This is not a complete dependency graph or an export eligibility check. Nested table/plot settings,
+attachments, constituents and model boosters are not indexed yet; no malformed paths does not mean a rename is safe.
+The `referenceframe` scalar is indexed, but moving-coordinate behavior still lacks application cases.
+
+## Proposed rename architecture
+
+Extend the partial source-reference index alongside the existing original-object bindings. Its source nodes
 include the original collection position, Java class and original name. Editable nodes resolve to
 the existing persistent `TrackId`; unsupported tracks retain source nodes without being presented as
 implemented native track types. Names remain labels, not identity.
@@ -65,8 +87,10 @@ transient undo history.
 
 1. Complete the source-field audit and add actual-Tracker reference cases for named selections,
    table/plot owners, attachments and dependent-track constituents. Record scientific values as well
-   as reference targets; a successful parse alone cannot prove the connection survived.
-2. Implement the read-only source-reference index with explicit ambiguity/unresolved results. Test
+   as reference targets; a successful parse alone cannot prove the connection survived. Reference
+   coverage and read-only indexing may advance field by field; each writer still requires all affected
+   references and their application acceptance cases first.
+2. Complete the read-only source-reference index with explicit ambiguity/unresolved results. Test
    duplicate names across types, unknown tracks, missing targets, malformed nested arrays and bounded
    packed-string parsing. Keep ordinary description/column-label text separate from references.
 3. Enable selected and unselected point-mass/vector renames for the fully covered cases. Exercise
