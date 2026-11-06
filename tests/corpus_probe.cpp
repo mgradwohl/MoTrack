@@ -98,7 +98,7 @@ try
     if (args.size() == 4 && (args[1] == "--export-mass" || args[1] == "--export-marks" || args[1] == "--export-empty-marks" ||
                              args[1] == "--export-first-mark" || args[1] == "--export-vectors" || args[1] == "--export-empty-vectors" ||
                              args[1] == "--export-first-vector" || args[1] == "--export-clip" || args[1] == "--export-snap-origin" ||
-                             args[1] == "--export-snap-vector"))
+                             args[1] == "--export-snap-vector" || args[1] == "--export-clip-boundary"))
     {
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trk");
@@ -117,9 +117,10 @@ try
                 throw motrack::ProjectError("Could not edit round-trip mass.");
             }
         }
-        else if (args[1] == "--export-clip")
+        else if (args[1] == "--export-clip" || args[1] == "--export-clip-boundary")
         {
-            if (!edits.setClipRange(document.project, 2, 8, 2))
+            const bool boundary = args[1] == "--export-clip-boundary";
+            if (!edits.setClipRange(document.project, boundary ? 500000 : 2, boundary ? 500000 : 8, boundary ? 1 : 2))
             {
                 throw motrack::ProjectError("Could not edit round-trip clip range.");
             }
