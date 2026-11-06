@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="org.opensourcephysics.cabrillo.tracker.TrackerPanel">
+  <property name="videoclip" type="object">
+    <object class="org.opensourcephysics.media.core.VideoClip">
+      <property name="startframe" type="int">0</property>
+      <property name="stepsize" type="int">2</property>
+      <property name="stepcount" type="int">2</property>
+      <property name="video" type="object">
+        <object class="org.opensourcephysics.media.core.ImageVideo">
+          <property name="paths" type="array">
+            <property name="[0]" type="string">frames/frame00.ppm</property>
+            <property name="[1]" type="string">frames/skipped.ppm</property>
+            <property name="[2]" type="string">frames/frame02.ppm</property>
+          </property>
+        </object>
+      </property>
+    </object>
+  </property>
+  <property name="tracks" type="collection">
+    <property name="item" type="object">
+      <object class="org.opensourcephysics.cabrillo.tracker.PointMass">
+        <property name="name" type="string">Ball</property>
+        <property name="framedata" type="array">
+          <property name="[0]" type="object"><object>
+            <property name="x" type="double">1.5</property>
+            <property name="y" type="double">1.5</property>
+          </object></property>
+          <property name="[2]" type="object"><object>
+            <property name="x" type="double">2.5</property>
+            <property name="y" type="double">2.5</property>
+          </object></property>
+        </property>
+      </object>
+    </property>
+  </property>
+</object>

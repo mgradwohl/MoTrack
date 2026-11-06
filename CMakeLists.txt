@@ -38,13 +38,16 @@ target_include_directories(motrack_project PUBLIC src)
 target_link_libraries(motrack_project PUBLIC Qt6::Core PRIVATE Qt6::Xml)
 
 add_executable(motrack src/main.cpp)
-target_link_libraries(motrack PRIVATE motrack_project Qt6::Widgets)
+add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp)
+target_link_libraries(motrack_workspace PUBLIC motrack_project Qt6::Widgets)
+target_link_libraries(motrack PRIVATE motrack_workspace)
 qt_add_translations(motrack
     TS_FILES translations/motrack_es.ts
+    SOURCES src/main_window.cpp
     RESOURCE_PREFIX "/i18n"
 )
 
-set(motrack_targets motrack_project motrack)
+set(motrack_targets motrack_project motrack_workspace motrack)
 if(MOTRACK_BUILD_BENCHMARKS)
     add_executable(motrack_import_benchmark benchmarks/import_benchmark.cpp)
     target_link_libraries(motrack_import_benchmark PRIVATE motrack_project)
@@ -96,11 +99,16 @@ if(BUILD_TESTING)
     target_compile_definitions(motrack_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
     add_test(NAME legacy_project COMMAND motrack_tests)
+    add_executable(motrack_workspace_tests tests/workspace_test.cpp)
+    target_link_libraries(motrack_workspace_tests PRIVATE motrack_workspace GTest::gtest)
+    target_compile_definitions(motrack_workspace_tests PRIVATE
+        MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+    add_test(NAME workspace COMMAND motrack_workspace_tests)
     add_test(NAME desktop_smoke COMMAND motrack --smoke-test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/point-mass.trk")
     add_test(NAME desktop_invalid_project COMMAND motrack --smoke-test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/missing.trk")
-    set_tests_properties(desktop_smoke desktop_invalid_project PROPERTIES
+    set_tests_properties(workspace desktop_smoke desktop_invalid_project PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     set_tests_properties(desktop_invalid_project PROPERTIES WILL_FAIL TRUE)
     if(MOTRACK_BUILD_BENCHMARKS)
@@ -110,6 +118,6 @@ if(BUILD_TESTING)
 
     if(MOTRACK_COVERAGE)
         file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/coverage-objects.txt"
-            CONTENT "$<TARGET_FILE:motrack>\n$<TARGET_FILE:motrack_tests>\n")
+            CONTENT "$<TARGET_FILE:motrack>\n$<TARGET_FILE:motrack_tests>\n$<TARGET_FILE:motrack_workspace_tests>\n")
     endif()
 endif()

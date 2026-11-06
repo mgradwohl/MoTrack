@@ -17,5 +17,11 @@
     <message><source>Imported %1 marks. Unsupported tracks: %2.</source><translation>Marcas importadas: %1. Trayectorias no compatibles: %2.</translation></message>
     <message><source>Could not open this Tracker project.</source><translation>No se pudo abrir este proyecto de Tracker.</translation></message>
     <message><source>%1 — MoTrack</source><translation>%1 — MoTrack</translation></message>
+    <message><source>Previous frame</source><translation>Fotograma anterior</translation></message>
+    <message><source>Next frame</source><translation>Fotograma siguiente</translation></message>
+    <message><source>Clip position</source><translation>Posición en el clip</translation></message>
+    <message><source>Frame %1</source><translation>Fotograma %1</translation></message>
+    <message><source>No supported image sequence is attached to this project.</source><translation>Este proyecto no tiene una secuencia de imágenes compatible.</translation></message>
+    <message><source>This image frame could not be opened.</source><translation>No se pudo abrir este fotograma.</translation></message>
   </context>
 </TS>
