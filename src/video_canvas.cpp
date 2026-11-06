@@ -2,6 +2,8 @@
 
 #include <QMouseEvent>
 #include <QPainter>
+#include <QResizeEvent>
+#include <QWheelEvent>
 
 #include <algorithm>
 #include <cmath>
@@ -10,6 +12,13 @@
 
 namespace motrack
 {
+namespace
+{
+
+constexpr double ZOOM_STEP = 1.25;
+constexpr double MAX_ZOOM = 8.0;
+
+} // namespace
 
 void VideoCanvas::setCalibrationPoint(std::optional<QPointF> position)
 {
@@ -34,12 +43,26 @@ void VideoCanvas::display(QImage image, QList<QPointF> marks, const QString& mes
     m_Image = std::move(image);
     m_Marks = std::move(marks);
     m_Message = message;
+    if (!m_Image.isNull())
+    {
+        clampPan();
+    }
     setAccessibleName(message);
     update();
 }
 
 void VideoCanvas::mousePressEvent(QMouseEvent* event)
 {
+    const auto button = event->button();
+    const bool pan = button == Qt::MiddleButton || (button == Qt::LeftButton && event->modifiers().testFlag(Qt::AltModifier));
+    if (!m_Image.isNull() && m_Zoom > 1.0 && pan)
+    {
+        m_LastPanPoint = event->position();
+        m_PanButton = button;
+        setCursor(Qt::ClosedHandCursor);
+        event->accept();
+        return;
+    }
     if (!m_Image.isNull() && pick && event->button() == Qt::LeftButton)
     {
         const auto area = imageArea();
@@ -56,6 +79,71 @@ void VideoCanvas::mousePressEvent(QMouseEvent* event)
         }
     }
     QWidget::mousePressEvent(event);
+}
+
+void VideoCanvas::mouseMoveEvent(QMouseEvent* event)
+{
+    if (m_LastPanPoint)
+    {
+        const auto position = event->position();
+        m_Pan += position - *m_LastPanPoint;
+        m_LastPanPoint = position;
+        clampPan();
+        update();
+        event->accept();
+        return;
+    }
+    QWidget::mouseMoveEvent(event);
+}
+
+void VideoCanvas::mouseReleaseEvent(QMouseEvent* event)
+{
+    if (m_LastPanPoint && event->button() == m_PanButton)
+    {
+        m_LastPanPoint.reset();
+        m_PanButton = Qt::NoButton;
+        unsetCursor();
+        event->accept();
+        return;
+    }
+    QWidget::mouseReleaseEvent(event);
+}
+
+void VideoCanvas::wheelEvent(QWheelEvent* event)
+{
+    if (!m_Image.isNull() && event->modifiers().testFlag(Qt::ControlModifier) && event->angleDelta().y() != 0)
+    {
+        zoomAt(std::pow(ZOOM_STEP, event->angleDelta().y() / 120.0), event->position());
+        event->accept();
+        return;
+    }
+    QWidget::wheelEvent(event);
+}
+
+void VideoCanvas::resizeEvent(QResizeEvent* event)
+{
+    clampPan();
+    QWidget::resizeEvent(event);
+}
+
+void VideoCanvas::zoomIn()
+{
+    zoomAt(ZOOM_STEP, QRectF(rect()).center());
+}
+
+void VideoCanvas::zoomOut()
+{
+    zoomAt(1.0 / ZOOM_STEP, QRectF(rect()).center());
+}
+
+void VideoCanvas::resetZoom()
+{
+    m_Zoom = 1.0;
+    m_Pan = {};
+    m_LastPanPoint.reset();
+    m_PanButton = Qt::NoButton;
+    unsetCursor();
+    update();
 }
 
 void VideoCanvas::paintEvent(QPaintEvent* /*event*/)
@@ -97,8 +185,37 @@ void VideoCanvas::paintEvent(QPaintEvent* /*event*/)
 
 QRectF VideoCanvas::imageArea() const
 {
-    const auto scaled = m_Image.size().scaled(size(), Qt::KeepAspectRatio);
-    return {QPoint((width() - scaled.width()) / 2, (height() - scaled.height()) / 2), scaled};
+    const auto scaled = fittedImageSize() * m_Zoom;
+    return {QPointF((width() - scaled.width()) / 2.0, (height() - scaled.height()) / 2.0) + m_Pan, scaled};
+}
+
+QSizeF VideoCanvas::fittedImageSize() const
+{
+    return {m_Image.size().scaled(size(), Qt::KeepAspectRatio)};
+}
+
+void VideoCanvas::clampPan()
+{
+    const auto scaled = fittedImageSize() * m_Zoom;
+    const auto x = std::max(0.0, (scaled.width() - width()) / 2.0);
+    const auto y = std::max(0.0, (scaled.height() - height()) / 2.0);
+    m_Pan = {std::clamp(m_Pan.x(), -x, x), std::clamp(m_Pan.y(), -y, y)};
+}
+
+void VideoCanvas::zoomAt(double factor, const QPointF& anchor)
+{
+    const auto before = imageArea();
+    const auto zoom = std::clamp(m_Zoom * factor, 1.0, MAX_ZOOM);
+    if (before.isEmpty() || zoom == m_Zoom)
+    {
+        return;
+    }
+    const auto offset = anchor - before.topLeft();
+    m_Zoom = zoom;
+    const auto after = imageArea();
+    m_Pan += anchor - after.topLeft() - QPointF(offset.x() * after.width() / before.width(), offset.y() * after.height() / before.height());
+    clampPan();
+    update();
 }
 
 QPointF VideoCanvas::canvasPoint(const QPointF& pixel, const QRectF& area) const

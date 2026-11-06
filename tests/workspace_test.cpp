@@ -548,6 +548,45 @@ TEST(Workspace, MeasuresDistanceAndAngleOnTheDisplayedFrame)
     EXPECT_TRUE(window.statusBar()->currentMessage().isEmpty());
 }
 
+TEST(Workspace, KeepsMarkCoordinatesAccurateWhileZoomingAndPanning)
+{
+    motrack::MainWindow window;
+    window.show();
+    ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
+    auto* canvas = window.findChild<QWidget*>("videoCanvas");
+    auto* zoom = window.findChild<QAction*>("zoomVideoIn");
+    auto* zoomOut = window.findChild<QAction*>("zoomVideoOut");
+    auto* reset = window.findChild<QAction*>("resetVideoZoom");
+    auto* marks = window.findChild<QTableWidget*>("marksTable");
+    auto* slider = window.findChild<QSlider*>("stepSlider");
+    ASSERT_TRUE(canvas && zoom && zoomOut && reset && marks && slider);
+    const auto center = canvas->rect().center();
+    const auto click = center + QPoint(40, 0);
+    const auto mark = [&]
+    {
+        slider->setValue(0);
+        QTest::mouseClick(canvas, Qt::LeftButton, Qt::ShiftModifier, click);
+        return marks->item(0, 2)->text().toDouble();
+    };
+    const auto fitted = mark();
+    zoom->trigger();
+    EXPECT_LT(mark(), fitted);
+    zoomOut->trigger();
+    EXPECT_NEAR(mark(), fitted, 1e-9);
+    for (int level = 0; level < 4; ++level)
+    {
+        zoom->trigger();
+    }
+    const auto beforePan = mark();
+    slider->setValue(0);
+    QTest::mousePress(canvas, Qt::MiddleButton, Qt::NoModifier, center);
+    QTest::mouseMove(canvas, center + QPoint(32, 0));
+    QTest::mouseRelease(canvas, Qt::MiddleButton, Qt::NoModifier, center + QPoint(32, 0));
+    EXPECT_LT(mark(), beforePan);
+    reset->trigger();
+    EXPECT_NEAR(mark(), fitted, 1e-9);
+}
+
 TEST(Workspace, AutoTracksATexturedMarkAndStopsWhenItDisappears)
 {
     QTemporaryDir temporary;
