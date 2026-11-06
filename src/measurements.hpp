@@ -27,6 +27,9 @@ enum class PlotQuantity : std::uint8_t
     Speed,
     AccelerationX,
     AccelerationY,
+    MomentumX,
+    MomentumY,
+    KineticEnergy,
 };
 
 struct PlotSample

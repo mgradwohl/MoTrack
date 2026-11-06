@@ -76,6 +76,7 @@ class MainWindow final : public QMainWindow
     void refreshPlot();
     void markAt(const QPointF& position);
     void renameSelectedPointMass();
+    void setSelectedPointMassValue();
     void removeSelectedPointMass();
     void removeCurrentMark();
     void updatePointMassActions();
@@ -100,6 +101,7 @@ class MainWindow final : public QMainWindow
     QAction* m_Save;
     QAction* m_NewPointMass;
     QAction* m_RenamePointMass;
+    QAction* m_SetPointMass;
     QAction* m_RemovePointMass;
     QAction* m_RemoveMark;
     QAction* m_Undo;

@@ -24,6 +24,7 @@
 #include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLocale>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QSaveFile>
@@ -98,6 +99,8 @@ MainWindow::MainWindow()
     m_NewPointMass->setEnabled(false);
     m_RenamePointMass = tracksMenu->addAction(tr("&Rename point mass…"));
     m_RenamePointMass->setObjectName("renamePointMass");
+    m_SetPointMass = tracksMenu->addAction(tr("Set &mass…"));
+    m_SetPointMass->setObjectName("setPointMassValue");
     m_RemovePointMass = tracksMenu->addAction(tr("&Delete point mass"));
     m_RemovePointMass->setObjectName("removePointMass");
     m_RemoveMark = tracksMenu->addAction(tr("Delete mark on this &frame"));
@@ -206,6 +209,9 @@ MainWindow::MainWindow()
     m_PlotQuantity->addItem(tr("speed"), static_cast<int>(PlotQuantity::Speed));
     m_PlotQuantity->addItem(tr("x acceleration"), static_cast<int>(PlotQuantity::AccelerationX));
     m_PlotQuantity->addItem(tr("y acceleration"), static_cast<int>(PlotQuantity::AccelerationY));
+    m_PlotQuantity->addItem(tr("x momentum"), static_cast<int>(PlotQuantity::MomentumX));
+    m_PlotQuantity->addItem(tr("y momentum"), static_cast<int>(PlotQuantity::MomentumY));
+    m_PlotQuantity->addItem(tr("kinetic energy"), static_cast<int>(PlotQuantity::KineticEnergy));
     m_FitLine = new QCheckBox(tr("Linear fit"));
     m_FitLine->setObjectName("linearFit");
     m_FitSummary = new QLabel;
@@ -341,6 +347,7 @@ MainWindow::MainWindow()
                 statusBar()->showMessage(tr("Shift-click the image to mark the selected point mass."));
             });
     connect(m_RenamePointMass, &QAction::triggered, this, &MainWindow::renameSelectedPointMass);
+    connect(m_SetPointMass, &QAction::triggered, this, &MainWindow::setSelectedPointMassValue);
     connect(m_RemovePointMass, &QAction::triggered, this, &MainWindow::removeSelectedPointMass);
     connect(m_RemoveMark, &QAction::triggered, this, &MainWindow::removeCurrentMark);
     connect(m_Undo, &QAction::triggered, this, [this] { undoOrRedo(false); });
@@ -939,6 +946,13 @@ void MainWindow::refreshPlot()
         case PlotQuantity::AccelerationY:
             unit = tr("%1/s²").arg(unit);
             break;
+        case PlotQuantity::MomentumX:
+        case PlotQuantity::MomentumY:
+            unit = m_Project.massUnit.empty() ? QString{} : tr("%1·%2/s").arg(QString::fromStdString(m_Project.massUnit), unit);
+            break;
+        case PlotQuantity::KineticEnergy:
+            unit = m_Project.massUnit.empty() ? QString{} : tr("%1·%2²/s²").arg(QString::fromStdString(m_Project.massUnit), unit);
+            break;
         default:
             break;
         }
@@ -1009,6 +1023,40 @@ void MainWindow::removeSelectedPointMass()
     }
 }
 
+void MainWindow::setSelectedPointMassValue()
+{
+    const auto selected = m_TrackPicker->currentIndex();
+    if (selected < 0)
+    {
+        return;
+    }
+    stopAutoTracking();
+    setPlaying(false);
+    const auto index = static_cast<std::size_t>(selected);
+    const auto request = m_RequestGeneration.load();
+    const QLocale locale;
+    const auto before = locale.toString(m_Project.pointMasses.at(index).mass, 'g', 15);
+    const auto massUnit = QString::fromStdString(m_Project.massUnit);
+    const auto label = massUnit.isEmpty() ? tr("Mass") : tr("Mass (%1)").arg(massUnit);
+    bool accepted = false;
+    const auto text = QInputDialog::getText(
+        this, tr("Set point-mass value"), "<qt>" + label.toHtmlEscaped() + "</qt>", QLineEdit::Normal, before, &accepted);
+    if (!accepted || request != m_RequestGeneration || before == text)
+    {
+        return;
+    }
+    bool valid = false;
+    const auto mass = locale.toDouble(text, &valid);
+    if (valid && m_Edits.setPointMassValue(m_Project, index, mass))
+    {
+        refreshEditViews(selected);
+    }
+    else
+    {
+        statusBar()->showMessage(tr("Enter a finite, positive mass."));
+    }
+}
+
 void MainWindow::removeCurrentMark()
 {
     const auto selected = m_TrackPicker->currentIndex();
@@ -1025,6 +1073,7 @@ void MainWindow::updatePointMassActions()
     const auto selected = m_TrackPicker->currentIndex();
     const bool hasTrack = selected >= 0;
     m_RenamePointMass->setEnabled(hasTrack);
+    m_SetPointMass->setEnabled(hasTrack);
     m_RemovePointMass->setEnabled(hasTrack);
     const bool hasMark =
         hasTrack && m_DisplayedFrame &&

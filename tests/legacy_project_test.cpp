@@ -36,6 +36,8 @@ TEST(LegacyProject, ImportsMetadataAndSparseMarks)
     EXPECT_EQ(result.clip.mediaReferences[0], "media/ball.mp4");
     ASSERT_EQ(result.pointMasses.size(), 1u);
     EXPECT_EQ(result.pointMasses[0].name, "P\xC3\xA9ndulo");
+    EXPECT_EQ(result.massUnit, "g");
+    EXPECT_DOUBLE_EQ(result.pointMasses[0].mass, 125.5);
     const auto& marks = result.pointMasses[0].marks;
     ASSERT_EQ(marks.size(), 2u);
     EXPECT_EQ(marks[0].frame, 2);

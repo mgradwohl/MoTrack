@@ -3,6 +3,16 @@
 <TS version="2.1" language="de">
   <context>
     <name>MainWindow</name>
+    <message><source>Set &amp;mass…</source><translation>&amp;Masse festlegen…</translation></message>
+    <message><source>x momentum</source><translation>x-Impuls</translation></message>
+    <message><source>y momentum</source><translation>y-Impuls</translation></message>
+    <message><source>kinetic energy</source><translation>kinetische Energie</translation></message>
+    <message><source>Mass</source><translation>Masse</translation></message>
+    <message><source>Mass (%1)</source><translation>Masse (%1)</translation></message>
+    <message><source>Set point-mass value</source><translation>Wert der Punktmasse festlegen</translation></message>
+    <message><source>Enter a finite, positive mass.</source><translation>Geben Sie eine endliche, positive Masse ein.</translation></message>
+    <message><source>%1·%2/s</source><translation>%1·%2/s</translation></message>
+    <message><source>%1·%2²/s²</source><translation>%1·%2²/s²</translation></message>
     <message><source>Linear fit</source><translation>Lineare Anpassung</translation></message>
     <message><source>&amp;Open project…</source><translation>Projekt ö&amp;ffnen…</translation></message>
     <message><source>Save project &amp;as…</source><translation>Projekt speichern &amp;unter…</translation></message>

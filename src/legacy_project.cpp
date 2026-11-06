@@ -131,7 +131,8 @@ Clip readClip(const QDomElement& panel)
 
 PointMass readPointMass(const QDomElement& object)
 {
-    PointMass track{.name = value(object, "name"), .marks = {}};
+    const auto mass = std::max(MIN_POINT_MASS, std::abs(finiteNumber(object, "mass").value_or(1.0)));
+    PointMass track{.name = value(object, "name"), .marks = {}, .mass = mass};
     const auto data = property(object, "framedata");
     for (auto entry = data.firstChildElement("property"); !entry.isNull(); entry = entry.nextSiblingElement("property"))
     {
@@ -219,6 +220,10 @@ LegacyProject parseLegacyProject(std::string_view xml)
                           .lengthUnit = value(panel, "length_unit"),
                           .pointMasses = {},
                           .unsupportedTrackTypes = {}};
+    if (auto unit = value(panel, "mass_unit"); !unit.empty())
+    {
+        project.massUnit = std::move(unit);
+    }
     const auto tracks = property(panel, "tracks");
     for (auto item = tracks.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"))
     {

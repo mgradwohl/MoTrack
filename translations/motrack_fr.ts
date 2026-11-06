@@ -3,6 +3,16 @@
 <TS version="2.1" language="fr">
   <context>
     <name>MainWindow</name>
+    <message><source>Set &amp;mass…</source><translation>Définir la &amp;masse…</translation></message>
+    <message><source>x momentum</source><translation>quantité de mouvement x</translation></message>
+    <message><source>y momentum</source><translation>quantité de mouvement y</translation></message>
+    <message><source>kinetic energy</source><translation>énergie cinétique</translation></message>
+    <message><source>Mass</source><translation>Masse</translation></message>
+    <message><source>Mass (%1)</source><translation>Masse (%1)</translation></message>
+    <message><source>Set point-mass value</source><translation>Définir la valeur de la masse ponctuelle</translation></message>
+    <message><source>Enter a finite, positive mass.</source><translation>Saisissez une masse finie et positive.</translation></message>
+    <message><source>%1·%2/s</source><translation>%1·%2/s</translation></message>
+    <message><source>%1·%2²/s²</source><translation>%1·%2²/s²</translation></message>
     <message><source>Linear fit</source><translation>Ajustement linéaire</translation></message>
     <message><source>&amp;Open project…</source><translation>&amp;Ouvrir un projet…</translation></message>
     <message><source>Save project &amp;as…</source><translation>Enregistrer le projet &amp;sous…</translation></message>

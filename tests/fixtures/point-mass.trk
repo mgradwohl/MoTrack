@@ -2,6 +2,7 @@
 <object class="org.opensourcephysics.cabrillo.tracker.TrackerPanel">
   <property name="semantic_version" type="string">6.3.5</property>
   <property name="description" type="string"><![CDATA[Two marks & a gap.]]></property>
+  <property name="mass_unit" type="string">g</property>
   <property name="videoclip" type="object">
     <object class="org.opensourcephysics.media.core.VideoClip">
       <property name="startframe" type="int">2</property>
@@ -21,6 +22,7 @@
     <property name="item" type="object">
       <object class="org.opensourcephysics.cabrillo.tracker.PointMass">
         <property name="name" type="string">Péndulo</property>
+        <property name="mass" type="double">125.5</property>
         <property name="framedata" type="array">
           <property name="[2]" type="object">
             <object class="org.opensourcephysics.cabrillo.tracker.PointMass$FrameData">

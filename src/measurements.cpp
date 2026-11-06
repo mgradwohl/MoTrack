@@ -137,10 +137,11 @@ PlotSeries measurementPlot(const LegacyProject& project, std::size_t track, Plot
         return series;
     }
 
-    const bool vertical =
-        quantity == PlotQuantity::PositionY || quantity == PlotQuantity::VelocityY || quantity == PlotQuantity::AccelerationY;
+    const bool vertical = quantity == PlotQuantity::PositionY || quantity == PlotQuantity::VelocityY ||
+                          quantity == PlotQuantity::AccelerationY || quantity == PlotQuantity::MomentumY;
+    const auto& mass = project.pointMasses.at(track);
     std::vector<PositionSample> positions;
-    for (const auto& mark : project.pointMasses.at(track).marks)
+    for (const auto& mark : mass.marks)
     {
         if (!includesFrame(project.clip, mark.frame))
         {
@@ -197,8 +198,17 @@ PlotSeries measurementPlot(const LegacyProject& project, std::size_t track, Plot
             return acceleration ? 2.0 * (secondSlope - firstSlope) / elapsed
                                 : (after / elapsed) * firstSlope + (before / elapsed) * secondSlope;
         };
-        const auto value = quantity == PlotQuantity::Speed ? std::hypot(derivative(&WorldPoint::x), derivative(&WorldPoint::y))
-                                                           : derivative(vertical ? &WorldPoint::y : &WorldPoint::x);
+        const bool useSpeed = quantity == PlotQuantity::Speed || quantity == PlotQuantity::KineticEnergy;
+        auto value = useSpeed ? std::hypot(derivative(&WorldPoint::x), derivative(&WorldPoint::y))
+                              : derivative(vertical ? &WorldPoint::y : &WorldPoint::x);
+        if (quantity == PlotQuantity::KineticEnergy)
+        {
+            value = 0.5 * mass.mass * value * value;
+        }
+        else if (quantity == PlotQuantity::MomentumX || quantity == PlotQuantity::MomentumY)
+        {
+            value *= mass.mass;
+        }
         if (std::isfinite(value))
         {
             series.samples.push_back({.frame = center.frame, .horizontal = center.horizontal, .vertical = value});

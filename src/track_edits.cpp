@@ -84,6 +84,20 @@ bool TrackEdits::removePointMass(LegacyProject& project, std::size_t track)
     return true;
 }
 
+bool TrackEdits::setPointMassValue(LegacyProject& project, std::size_t track, double mass)
+{
+    if (track >= project.pointMasses.size() || !std::isfinite(mass) || mass < MIN_POINT_MASS)
+    {
+        return false;
+    }
+    const auto before = project.pointMasses.at(track).mass;
+    if (mass != before)
+    {
+        append(project, ChangeMass{.track = track, .after = mass, .before = before});
+    }
+    return true;
+}
+
 bool TrackEdits::markPointMass(LegacyProject& project, std::size_t track, Mark mark)
 {
     if (track >= project.pointMasses.size() || mark.frame < 0 || !std::isfinite(mark.x) || !std::isfinite(mark.y))
@@ -295,6 +309,11 @@ void TrackEdits::apply(LegacyProject& project, const Edit& edit, bool forward)
         {
             project.pointMasses.insert(position, remove->before);
         }
+        return;
+    }
+    if (const auto* mass = std::get_if<ChangeMass>(&edit))
+    {
+        project.pointMasses.at(mass->track).mass = forward ? mass->after : mass->before;
         return;
     }
     if (const auto* change = std::get_if<ChangeCalibration>(&edit))
