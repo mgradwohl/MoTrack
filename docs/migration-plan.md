@@ -55,10 +55,13 @@ Evidence is in [workspace tests](../tests/workspace_test.cpp),
 [media tests](../tests/video_reader_test.cpp), and [CI](../.github/workflows/ci.yml).
 The three OS builds and staged smoke tests do not replace interactive platform acceptance testing.
 
-The subsequent source-preservation slice retains original import XML in version-2 native documents;
+The subsequent source-preservation slice retains original import XML, introduced in version 2.
+Version 3 adds persistent document-scoped point-mass/vector IDs and migrates versions 1/2;
 [native-format.md](native-format.md) records its byte-preservation contract, version-1 migration and
 archive limits. [Native tests](../tests/workspace_document_test.cpp) and desktop tests cover source-input
 removal, edits, repeated save/reopen, malformed envelopes and source replacement when switching media.
+Identity tests cover duplicate names, deletion/undo, creation/redo, non-reuse after branching history,
+old-native migration, strict validation and exact 64-bit persistence. Source-object bindings remain open.
 
 Major current limits: native-only writes; no complete archive preservation or stable source associations; one active tab; reduced track and
 coordinate models; basic AutoTracker and plotting; no particle models, persistent measurement tracks,
@@ -75,13 +78,13 @@ and platform evidence before it can be marked complete.
 | ID | Required desktop behavior | Status at the snapshot and remaining work | Phase |
 | --- | --- | --- | --- |
 | R01 | Reproducible native builds, CI, review, numerical tests, at least 90% combined C++ line coverage | Implemented foundation; continue applying gates to every new component. | 0, every phase |
-| R02 | Open `.trk`/`.trz`; preserve all supported and unknown content, references, metadata, and archive tabs | Partial: supported point masses/vectors/calibration import; one archive tab selected. Version-2 native documents retain that tab's original XML bytes, including unknown objects. Full archive content and stable source associations remain. | 1–3 |
+| R02 | Open `.trk`/`.trz`; preserve all supported and unknown content, references, metadata, and archive tabs | Partial: supported point masses/vectors/calibration import; one archive tab selected. Native documents retain that tab's original XML bytes and persistent editable-track IDs. Full archive content and source-object associations remain. | 1–3 |
 | R03 | Save edited standard files plus optional `.motrack`; reopen in both applications without data loss | Partial: native persistence and original XML baseline only. Standard writers, complete archive preservation, paired-save recovery, and Java reopening are missing. | 2–3, every feature |
 | R04 | Multiple experiment tabs, independent undo/dirty state, tab/project Save As, cross-tab import and reusable views | Missing; currently one active experiment. Preserve unopened tabs before adding their UI. | 2–4 |
 | R05 | Movies, stills, image sequences and zipped sequences; accurate clip/time/frame controls and media properties | Partial: local movies/images, clip trim/stride, timestamp indexing, orientation, cache, and playback exist. Audit all baseline formats, rates, sequence operations, and properties controls. | 1, 4, 6 |
 | R06 | Complete point-mass editing and appearance: selection, dragging/nudging, numeric positions, multiselect, locks, labels, trails, paths, and vector overlays | Partial: manual marking/replacement, repeat, rename/delete, mass, and undo exist. Finish manipulation, appearance, path length, and selection behavior. | 4–5 |
 | R07 | Independent vectors, linked vectors, sums, their data, editing, and persistence | Partial: independent vectors import/display/edit/undo/native-save. Links, sums, analysis, and standard writes remain. | 3–5 |
-| R08 | Center-of-mass tracks, constituents, dependent updates, and moving reference frames | Missing; requires stable identities and dependency evaluation. | 2, 5 |
+| R08 | Center-of-mass tracks, constituents, dependent updates, and moving reference frames | Missing; persistent IDs exist for current editable types, but dependency evaluation and referenced-track semantics remain. | 2, 5 |
 | R09 | Fixed or varying calibration, axes, calibration sticks/points, offset origins, attachments, coordinate locks, and L/M/T/angle units | Partial: imported calibration keys, basic distance calibration and axes exist. Finish tool tracks, units UI/defaults, attachments, and reference frames. | 3–5 |
 | R10 | Persistent tape measures, protractors, circle fitting, attachments, and their changing measurements | Partial: temporary distance/angle tools only; these are not persisted Tracker track equivalents. | 5 |
 | R11 | Full AutoTracker: masks, search areas, keyframes, target offsets, match scores, subpixel positions, evolution/tethering, look-ahead, line search, stop/retry/skip, and live/fast modes | Partial: fixed grayscale patch and bounded search on a point mass, background operation, uncertainty stop. Reference algorithm and interaction parity remain. | 5–7 |
@@ -258,7 +261,7 @@ reopen the edited experiment in Tracker. A `.motrack` companion may be saved alo
 `.trk` project or `.trz` archive. Tracker must not need the companion to read the standard file.
 
 **Current status:** MoTrack imports a supported subset of Tracker data and saves edits in its native
-format. New imports also retain the original XML bytes in a version-2 source envelope. That baseline
+format. New imports also retain the original XML bytes in the native source envelope. That baseline
 does not yet carry edited values back into Tracker XML, and other archive members are not embedded.
 Version-1 native documents cannot recover previously discarded content. Standard writers and actual
 Java reopening remain unfinished. Treat round-trip support as a compatibility milestone, not a

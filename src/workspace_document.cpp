@@ -314,7 +314,7 @@ WorkspaceDocument readWorkspaceDocument(const QString& path)
     project.unsupportedTrackTypes = strings(input.value("unsupportedTrackTypes"));
     project.calibration = readCalibration(input.value("calibration"));
     project.pointMasses = readTracks(input.value("pointMasses"), version);
-    if (const auto vectors = input.value("vectors"); !vectors.isUndefined())
+    if (const auto vectors = input.value("vectors"); version >= 3 || !vectors.isUndefined())
     {
         project.vectors = readVectors(vectors, version);
     }

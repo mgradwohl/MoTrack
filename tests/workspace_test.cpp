@@ -34,6 +34,7 @@
 
 #include <algorithm>
 #include <array>
+#include <limits>
 #include <utility>
 
 namespace
@@ -836,6 +837,58 @@ TEST(Workspace, SavesEditsAndReopensMediaFromADifferentDirectory)
     invalid.close();
     EXPECT_FALSE(window.loadProject(invalid.fileName()));
     EXPECT_EQ(marks->rowCount(), 2);
+}
+
+TEST(Workspace, RetainsTrackIdentityThroughDesktopUndoAndReopen)
+{
+    QTemporaryDir temporary;
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
+    auto* create = window.findChild<QAction*>("newPointMass");
+    auto* vector = window.findChild<QAction*>("newVector");
+    auto* undo = window.findChild<QAction*>("undoEdit");
+    auto* redo = window.findChild<QAction*>("redoEdit");
+    ASSERT_TRUE(create && vector && undo && redo);
+    create->trigger();
+    vector->trigger();
+    const auto path = temporary.filePath("identities.motrack");
+    ASSERT_TRUE(window.saveWorkspace(path));
+    const auto saved = motrack::readWorkspaceDocument(path).project;
+    ASSERT_EQ(saved.pointMasses.size(), 2u);
+    ASSERT_EQ(saved.vectors.size(), 1u);
+    EXPECT_NE(saved.pointMasses.front().id, saved.pointMasses.back().id);
+    undo->trigger();
+    redo->trigger();
+    ASSERT_TRUE(window.saveWorkspace(path));
+    EXPECT_EQ(motrack::readWorkspaceDocument(path).project.vectors.front().id, saved.vectors.front().id);
+    ASSERT_TRUE(window.loadProject(path));
+    vector->trigger();
+    ASSERT_TRUE(window.saveWorkspace(path));
+    const auto reopened = motrack::readWorkspaceDocument(path).project;
+    EXPECT_EQ(reopened.pointMasses.front().id, saved.pointMasses.front().id);
+    EXPECT_EQ(reopened.pointMasses.back().id, saved.pointMasses.back().id);
+    ASSERT_EQ(reopened.vectors.size(), 2u);
+    EXPECT_EQ(reopened.vectors.front().id, saved.vectors.front().id);
+    EXPECT_GT(reopened.vectors.back().id, saved.vectors.front().id);
+}
+
+TEST(Workspace, DisablesCreationWhenTheSavedIdentityCounterIsExhausted)
+{
+    QTemporaryDir temporary;
+    motrack::WorkspaceDocument document;
+    document.project.nextTrackId = std::numeric_limits<motrack::TrackId>::max();
+    const auto path = temporary.filePath("exhausted.motrack");
+    motrack::writeWorkspaceDocument(path, document);
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(path));
+    auto* mass = window.findChild<QAction*>("newPointMass");
+    auto* vector = window.findChild<QAction*>("newVector");
+    ASSERT_TRUE(mass && vector);
+    EXPECT_FALSE(mass->isEnabled());
+    EXPECT_FALSE(vector->isEnabled());
+    ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
+    EXPECT_TRUE(mass->isEnabled());
+    EXPECT_TRUE(vector->isEnabled());
 }
 
 TEST(Workspace, ProcessesEventsDuringSaveWithoutMarkingNewerEditsSaved)
