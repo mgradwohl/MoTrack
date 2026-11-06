@@ -22,6 +22,7 @@ if(MOTRACK_CCACHE AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
 endif()
 
 option(MOTRACK_COVERAGE "Instrument MoTrack's production targets for LLVM coverage" OFF)
+option(MOTRACK_STAGE_DESKTOP "Enable a local install with desktop runtime dependencies" OFF)
 option(MOTRACK_BUILD_BENCHMARKS "Build the legacy import benchmark" OFF)
 option(MOTRACK_THIN_LTO "Enable Clang ThinLTO for MoTrack" OFF)
 option(MOTRACK_COMPATIBLE "Use the baseline desktop CPU instruction set" OFF)
@@ -50,6 +51,33 @@ qt_add_translations(motrack
     SOURCES src/main_window.cpp src/position_plot.cpp
     RESOURCE_PREFIX "/i18n"
 )
+
+if(MOTRACK_STAGE_DESKTOP)
+    include(GNUInstallDirs)
+    if(APPLE)
+        set_target_properties(motrack PROPERTIES
+            MACOSX_BUNDLE TRUE
+            MACOSX_BUNDLE_BUNDLE_NAME MoTrack
+            MACOSX_BUNDLE_GUI_IDENTIFIER com.github.mgradwohl.motrack
+            MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}")
+    elseif(WIN32)
+        file(GLOB ffmpeg_runtime "${MOTRACK_FFMPEG_ROOT}/bin/avcodec-*.dll"
+            "${MOTRACK_FFMPEG_ROOT}/bin/avformat-*.dll"
+            "${MOTRACK_FFMPEG_ROOT}/bin/avutil-*.dll"
+            "${MOTRACK_FFMPEG_ROOT}/bin/swscale-*.dll")
+        list(LENGTH ffmpeg_runtime ffmpeg_runtime_count)
+        if(NOT ffmpeg_runtime_count EQUAL 4)
+            message(FATAL_ERROR "Run MoTrack's setup scripts to install the four FFmpeg runtime DLLs.")
+        endif()
+        install(FILES ${ffmpeg_runtime} DESTINATION ${CMAKE_INSTALL_BINDIR})
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        set_target_properties(motrack PROPERTIES INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
+    endif()
+    install(TARGETS motrack BUNDLE DESTINATION . RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    qt_generate_deploy_app_script(TARGET motrack OUTPUT_SCRIPT motrack_deploy_script)
+    install(SCRIPT "${motrack_deploy_script}")
+    install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/motrack)
+endif()
 
 set(motrack_targets motrack_project motrack_media motrack_workspace motrack)
 if(MOTRACK_BUILD_BENCHMARKS)

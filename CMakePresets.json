@@ -79,6 +79,14 @@
       }
     },
     {
+      "name": "stage",
+      "inherits": "release",
+      "cacheVariables": {
+        "BUILD_TESTING": "OFF",
+        "MOTRACK_STAGE_DESKTOP": "ON"
+      }
+    },
+    {
       "name": "release-compatible",
       "inherits": "release",
       "cacheVariables": {
@@ -255,6 +263,7 @@
     { "name": "debug", "configurePreset": "debug" },
     { "name": "relwithdebinfo", "configurePreset": "relwithdebinfo" },
     { "name": "release", "configurePreset": "release" },
+    { "name": "stage", "configurePreset": "stage" },
     { "name": "optimized", "configurePreset": "optimized" },
     { "name": "release-compatible", "configurePreset": "release-compatible" },
     { "name": "coverage", "configurePreset": "coverage" },

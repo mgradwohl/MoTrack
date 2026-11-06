@@ -47,7 +47,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ccache clang-18 clang-format-18 clang-tidy-18 llvm-18 libgl1-mesa-dev libxkbcommon-dev
-          sudo apt-get install -y build-essential pkg-config autoconf automake libtool nasm
+          sudo apt-get install -y build-essential pkg-config autoconf automake libtool nasm patchelf
           echo /usr/lib/llvm-18/bin >> "$GITHUB_PATH"
           echo LLVM_BIN=/usr/lib/llvm-18/bin >> "$GITHUB_ENV"
       - name: Select Apple Clang
@@ -95,6 +95,32 @@ jobs:
       - name: Test and collect coverage
         shell: bash
         run: python tools/coverage.py collect build/coverage coverage.json --llvm-bin "$LLVM_BIN"
+      - name: Stage desktop build
+        shell: bash
+        run: |
+          cmake --preset stage
+          cmake --build --preset stage
+          cmake --install build/stage --prefix "$PWD/build/stage/installed"
+      - name: Smoke test staged Windows app
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:Path = "$env:SystemRoot\System32;$env:SystemRoot"
+          Remove-Item Env:QT_PLUGIN_PATH,Env:QT_QPA_PLATFORM_PLUGIN_PATH,Env:QT_QPA_PLATFORM -ErrorAction SilentlyContinue
+          & ./build/stage/installed/bin/motrack.exe --smoke-test tests/fixtures/image-sequence.trk
+          exit $LASTEXITCODE
+      - name: Smoke test staged Unix app
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          app=build/stage/installed/bin/motrack
+          unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH QT_QPA_PLATFORM LD_LIBRARY_PATH DYLD_LIBRARY_PATH DYLD_FRAMEWORK_PATH
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            app=build/stage/installed/motrack.app/Contents/MacOS/motrack
+          else
+            export QT_QPA_PLATFORM=offscreen
+          fi
+          PATH=/usr/bin:/bin "$app" --smoke-test tests/fixtures/image-sequence.trk
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ matrix.os }}

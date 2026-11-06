@@ -37,7 +37,7 @@ case "$(uname -s)" in
         run "${sudo_cmd[@]}" apt-get update
         run "${sudo_cmd[@]}" apt-get install -y git cmake ninja-build clang-18 clang-tidy-18 clangd-18 \
             llvm-18 lld-18 ccache python3 python3-venv libgl1-mesa-dev libxkbcommon-dev \
-            build-essential pkg-config autoconf automake libtool nasm \
+            build-essential pkg-config autoconf automake libtool nasm patchelf \
             libxcb-cursor0 libxcb-xinerama0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
             libxcb-render-util0 libxcb-xkb1 libxkbcommon-x11-0 libfontconfig1 libfreetype6
         ;;
