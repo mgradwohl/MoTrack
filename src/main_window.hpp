@@ -16,6 +16,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 
 class QLabel;
@@ -57,6 +58,8 @@ class MainWindow final : public QMainWindow
     [[nodiscard]] static PreparedProject prepareProject(const QString& path, const std::atomic_bool* cancelled);
     bool applyProject(const QString& path, PreparedProject prepared, const std::atomic_bool* cancelled);
     void cancelProjectOpen();
+    /// Defer owned open results during a save. Each completion must recheck its cancellation flag.
+    void completeAfterSave(std::function<void()> completion);
     void displayStep(int step);
     void displayMarks();
     void displayFrame(const ImageFrame& frame, const QString& failureMessage);
@@ -161,6 +164,7 @@ class MainWindow final : public QMainWindow
     QString m_SavePath;
     QThreadPool* m_SavePool;
     bool m_Saving = false;
+    std::vector<std::function<void()>> m_AfterSave;
     quint64 m_DocumentGeneration = 0;
     std::vector<double> m_MovieFrameTimes;
     std::vector<std::chrono::nanoseconds> m_MoviePresentationTimes;

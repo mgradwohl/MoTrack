@@ -873,6 +873,76 @@ TEST(Workspace, ProcessesEventsDuringSaveWithoutMarkingNewerEditsSaved)
     EXPECT_EQ(motrack::readWorkspaceDocument(path).project.pointMasses.size(), 1u);
 }
 
+TEST(Workspace, AppliesPreparedOpensAfterSavingAndRejectsCanceledResults)
+{
+    for (const bool movie : {false, true})
+    {
+        for (const bool cancel : {false, true})
+        {
+            for (const bool failSave : {false, true})
+            {
+                SCOPED_TRACE(::testing::Message() << "movie=" << movie << " cancel=" << cancel << " failSave=" << failSave);
+                QTemporaryDir temporary;
+                QSemaphore entered;
+                QSemaphore release;
+                motrack::MainWindow window;
+                ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
+                auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+                ASSERT_TRUE(pool);
+                pool->start(
+                    [&]
+                    {
+                        entered.release();
+                        static_cast<void>(release.tryAcquire(1, 5000));
+                    });
+                ASSERT_TRUE(entered.tryAcquire(1, 5000));
+                const auto target = movie ? "vfr.mp4" : "image-sequence.trk";
+                bool processed = false;
+                QTimer::singleShot(0,
+                                   &window,
+                                   [&]
+                                   {
+                                       if (movie)
+                                       {
+                                           window.openMovie(fixturePath(target));
+                                       }
+                                       else
+                                       {
+                                           window.openProject(fixturePath(target));
+                                       }
+                                       EXPECT_TRUE(QThreadPool::globalInstance()->waitForDone(5000));
+                                       QCoreApplication::sendPostedEvents(); // Deliver the prepared result while saving is held.
+                                       EXPECT_TRUE(window.windowTitle().contains("point-mass.trk"));
+                                       if (cancel)
+                                       {
+                                           window.openProject(temporary.filePath("missing.trk"));
+                                           EXPECT_TRUE(QThreadPool::globalInstance()->waitForDone(5000));
+                                           QCoreApplication::sendPostedEvents();
+                                       }
+                                       processed = true;
+                                       release.release();
+                                   });
+                const auto path = temporary.filePath(failSave ? "missing/saved.motrack" : "saved.motrack");
+                EXPECT_EQ(window.saveWorkspace(path), !failSave);
+                EXPECT_TRUE(processed);
+                if (cancel)
+                {
+                    ASSERT_TRUE(QTest::qWaitFor([&] { return window.statusBar()->currentMessage() == "Could not open this project."; }));
+                    EXPECT_TRUE(window.windowTitle().contains(failSave ? "point-mass.trk" : "saved.motrack"));
+                }
+                else
+                {
+                    ASSERT_TRUE(QTest::qWaitFor([&] { return window.windowTitle().contains(target); }));
+                }
+                if (!failSave)
+                {
+                    EXPECT_EQ(motrack::readWorkspaceDocument(path).project.pointMasses.front().mass, 125.5);
+                }
+            }
+        }
+    }
+}
+
 TEST(Workspace, DoesNotApplySaveCompletionToAReplacementDocument)
 {
     QTemporaryDir temporary;

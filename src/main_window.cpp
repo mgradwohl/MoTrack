@@ -617,22 +617,29 @@ void MainWindow::openProject(const QString& path)
             this,
             [this, path, watcher, cancelled]
             {
-                try
-                {
-                    auto result = watcher->result();
-                    if (!result)
+                completeAfterSave(
+                    [this, path, cancelled, result = watcher->result()]
                     {
-                        throw ProjectError("Could not prepare project.");
-                    }
-                    applyProject(path, std::move(*result), cancelled.get());
-                }
-                catch (const ProjectError&)
-                {
-                    if (!*cancelled)
-                    {
-                        statusBar()->showMessage(tr("Could not open this project."));
-                    }
-                }
+                        if (*cancelled)
+                        {
+                            return;
+                        }
+                        try
+                        {
+                            if (!result)
+                            {
+                                throw ProjectError("Could not prepare project.");
+                            }
+                            applyProject(path, std::move(*result), cancelled.get());
+                        }
+                        catch (const ProjectError&)
+                        {
+                            if (!*cancelled)
+                            {
+                                statusBar()->showMessage(tr("Could not open this project."));
+                            }
+                        }
+                    });
             });
     watcher->setFuture(QtConcurrent::run(
         [path, cancelled]() -> Result
@@ -646,6 +653,18 @@ void MainWindow::openProject(const QString& path)
                 return {};
             }
         }));
+}
+
+void MainWindow::completeAfterSave(std::function<void()> completion)
+{
+    if (m_Saving)
+    {
+        m_AfterSave.push_back(std::move(completion));
+    }
+    else
+    {
+        completion();
+    }
 }
 
 bool MainWindow::applyProject(const QString& path, PreparedProject prepared, const std::atomic_bool* cancelled)
@@ -822,42 +841,49 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
             this,
             [this, path, standalone, watcher, cancelled = m_MovieOpenCancelled]
             {
-                auto index = watcher->result();
-                if (!standalone)
-                {
-                    m_MoviePresentationTimes = std::move(index.presentationTimes);
-                    if (!index.frameTimes.empty())
+                completeAfterSave(
+                    [this, path, standalone, cancelled, index = watcher->result()]() mutable
                     {
+                        if (*cancelled)
+                        {
+                            return;
+                        }
+                        if (!standalone)
+                        {
+                            m_MoviePresentationTimes = std::move(index.presentationTimes);
+                            if (!index.frameTimes.empty())
+                            {
+                                m_MovieFrameTimes = std::move(index.frameTimes);
+                            }
+                            refreshPlot();
+                            return;
+                        }
+                        if (index.frameCount == 0)
+                        {
+                            statusBar()->showMessage(tr("Could not open this video."));
+                            return;
+                        }
+                        if (!confirmDiscard() || *cancelled)
+                        {
+                            statusBar()->clearMessage();
+                            return;
+                        }
+                        releaseArchive();
+                        m_MediaProjectPath = path;
+                        m_Project = {};
+                        m_TrackerSource.reset();
+                        m_Project.clip.stepCount = index.frameCount;
+                        m_Project.clip.sourceFrameCount = index.frameCount;
+                        m_Project.clip.mediaReferences.push_back(QFileInfo(path).fileName().toStdString());
+                        m_Sequence.reset();
+                        m_MoviePath = path;
+                        m_MovieUsesDisplayOrientation = true;
+                        m_MovieAlignsToClip = false;
+                        m_MoviePresentationTimes = std::move(index.presentationTimes);
                         m_MovieFrameTimes = std::move(index.frameTimes);
-                    }
-                    refreshPlot();
-                    return;
-                }
-                if (index.frameCount == 0)
-                {
-                    statusBar()->showMessage(tr("Could not open this video."));
-                    return;
-                }
-                if (!confirmDiscard() || *cancelled)
-                {
-                    statusBar()->clearMessage();
-                    return;
-                }
-                releaseArchive();
-                m_MediaProjectPath = path;
-                m_Project = {};
-                m_TrackerSource.reset();
-                m_Project.clip.stepCount = index.frameCount;
-                m_Project.clip.sourceFrameCount = index.frameCount;
-                m_Project.clip.mediaReferences.push_back(QFileInfo(path).fileName().toStdString());
-                m_Sequence.reset();
-                m_MoviePath = path;
-                m_MovieUsesDisplayOrientation = true;
-                m_MovieAlignsToClip = false;
-                m_MoviePresentationTimes = std::move(index.presentationTimes);
-                m_MovieFrameTimes = std::move(index.frameTimes);
-                activateProject(path);
-                statusBar()->showMessage(tr("Opened video with %1 frames.").arg(index.frameCount));
+                        activateProject(path);
+                        statusBar()->showMessage(tr("Opened video with %1 frames.").arg(index.frameCount));
+                    });
             });
     const auto orientation = standalone || m_MovieUsesDisplayOrientation ? VideoOrientation::Display : VideoOrientation::Encoded;
     watcher->setFuture(QtConcurrent::run(
@@ -1589,6 +1615,12 @@ bool MainWindow::saveWorkspace(const QString& path)
         return false;
     }
     m_Saving = false;
+    for (auto& completion : std::exchange(m_AfterSave, {}))
+    {
+        // Finish save bookkeeping and its caller (including close) before applying prepared opens.
+        // Another save may start first, so check the guard again when the queued callback runs.
+        QTimer::singleShot(0, this, [this, completion = std::move(completion)]() mutable { completeAfterSave(std::move(completion)); });
+    }
     if (generation != m_DocumentGeneration)
     {
         return false;

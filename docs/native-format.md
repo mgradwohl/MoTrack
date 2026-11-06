@@ -25,8 +25,9 @@ types are rejected. The writer validates source data before opening its atomic r
 an invalid or oversized envelope cannot overwrite an existing valid native document.
 
 Desktop saves validate and serialize an owned document snapshot on a single save worker. The GUI
-continues painting and processing worker completions while user input is deferred. Overlapping saves
-and closing during a save are rejected. A revision check prevents a background edit or replacement
+continues painting and processing worker completions while user input is deferred. Prepared project
+and movie opens wait until saving finishes, then recheck cancellation before applying their results.
+Overlapping saves and closing during a save are rejected. A revision check prevents a background edit or replacement
 document from being marked saved by an older snapshot; the caller must save the latest state again.
 A successful stale save invalidates the old saved checkpoint, so undo cannot falsely label the old
 file contents clean. It keeps the successfully written destination for the next save. A failed write
