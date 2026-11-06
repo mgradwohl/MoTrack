@@ -3,6 +3,8 @@
 <TS version="2.1" language="fr">
   <context>
     <name>MainWindow</name>
+    <message><source>Saving project…</source><translation>Enregistrement du projet…</translation></message>
+    <message><source>Project changed while saving. Save again to keep the latest edits.</source><translation>Le projet a changé pendant l’enregistrement. Enregistrez à nouveau pour conserver les dernières modifications.</translation></message>
     <message><source>New &amp;vector</source><translation>Nouveau &amp;vecteur</translation></message>
     <message><source>&amp;Rename track…</source><translation>&amp;Renommer la piste…</translation></message>
     <message><source>&amp;Delete track</source><translation>&amp;Supprimer la piste</translation></message>

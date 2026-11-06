@@ -35,10 +35,11 @@ scope decisions. Record deliberate behavior changes, including corrections to re
 ## Current implementation and evidence
 
 Snapshot: **2026-11-06**, merged `main` at
-[`2575106`](https://github.com/mgradwohl/MoTrack/commit/2575106254e460fc1517cfa4fb74b1d408b3aca2).
-[PR #34](https://github.com/mgradwohl/MoTrack/pull/34) added independent vector editing. Its Windows,
+[`94a7806`](https://github.com/mgradwohl/MoTrack/commit/94a7806d5c28f25b3fb02b9fffca912b84c53691).
+[PR #34](https://github.com/mgradwohl/MoTrack/pull/34) added independent vector editing and
+[PR #36](https://github.com/mgradwohl/MoTrack/pull/36) added the reference corpus. Windows,
 macOS, Linux, setup, and coverage checks passed in
-[CI run 42232137292](https://github.com/mgradwohl/MoTrack/actions/runs/42232137292): combined production
+[CI run 42240185409](https://github.com/mgradwohl/MoTrack/actions/runs/42240185409): combined production
 line coverage **92.72% (3631/3916)**. This verifies the implemented slice, not full Tracker equivalence.
 
 Implemented and tested workflows include local movie/image opening, playback and indexed stepping,
@@ -54,7 +55,12 @@ Evidence is in [workspace tests](../tests/workspace_test.cpp),
 [media tests](../tests/video_reader_test.cpp), and [CI](../.github/workflows/ci.yml).
 The three OS builds and staged smoke tests do not replace interactive platform acceptance testing.
 
-Major current limits: native-only writes; unknown XML is not retained; one active tab; reduced track and
+The subsequent source-preservation slice retains original import XML in version-2 native documents;
+[native-format.md](native-format.md) records its byte-preservation contract, version-1 migration and
+archive limits. [Native tests](../tests/workspace_document_test.cpp) and desktop tests cover source-input
+removal, edits, repeated save/reopen, malformed envelopes and source replacement when switching media.
+
+Major current limits: native-only writes; no complete archive preservation or stable source associations; one active tab; reduced track and
 coordinate models; basic AutoTracker and plotting; no particle models, persistent measurement tracks,
 video filter stack, Library Browser, or signed installers. The README describes available interactions.
 
@@ -69,8 +75,8 @@ and platform evidence before it can be marked complete.
 | ID | Required desktop behavior | Status at the snapshot and remaining work | Phase |
 | --- | --- | --- | --- |
 | R01 | Reproducible native builds, CI, review, numerical tests, at least 90% combined C++ line coverage | Implemented foundation; continue applying gates to every new component. | 0, every phase |
-| R02 | Open `.trk`/`.trz`; preserve all supported and unknown content, references, metadata, and archive tabs | Partial: supported point masses/vectors/calibration import; one archive tab selected. Unknown objects are not retained. | 1–3 |
-| R03 | Save edited standard files plus optional `.motrack`; reopen in both applications without data loss | Partial: native persistence only. Standard writers, preservation, paired-save recovery, and Java reopening are missing. | 2–3, every feature |
+| R02 | Open `.trk`/`.trz`; preserve all supported and unknown content, references, metadata, and archive tabs | Partial: supported point masses/vectors/calibration import; one archive tab selected. Version-2 native documents retain that tab's original XML bytes, including unknown objects. Full archive content and stable source associations remain. | 1–3 |
+| R03 | Save edited standard files plus optional `.motrack`; reopen in both applications without data loss | Partial: native persistence and original XML baseline only. Standard writers, complete archive preservation, paired-save recovery, and Java reopening are missing. | 2–3, every feature |
 | R04 | Multiple experiment tabs, independent undo/dirty state, tab/project Save As, cross-tab import and reusable views | Missing; currently one active experiment. Preserve unopened tabs before adding their UI. | 2–4 |
 | R05 | Movies, stills, image sequences and zipped sequences; accurate clip/time/frame controls and media properties | Partial: local movies/images, clip trim/stride, timestamp indexing, orientation, cache, and playback exist. Audit all baseline formats, rates, sequence operations, and properties controls. | 1, 4, 6 |
 | R06 | Complete point-mass editing and appearance: selection, dragging/nudging, numeric positions, multiselect, locks, labels, trails, paths, and vector overlays | Partial: manual marking/replacement, repeat, rename/delete, mass, and undo exist. Finish manipulation, appearance, path length, and selection behavior. | 4–5 |
@@ -195,8 +201,9 @@ native importer comparison. An additional Linux virtual-display probe opens the 
 media through Tracker's normal application loader, saves them in Java, then reopens and compares the
 loaded content. This is Java's own resave baseline, not MoTrack standard-file export acceptance.
 Media/archive session loading, broader requirement coverage, runtime/dependency provenance and exact
-source mapping remain unfinished. Extend that evidence, then proceed with source
-preservation and stable identities in phase 2. Phase 3 has priority over adding particle-model
+source mapping remain unfinished. Phase 2 has an initial XML source envelope and native version
+migration; stable identities, archive preservation and session ownership remain. Extend the reference
+evidence alongside these foundations before standard writers. Phase 3 has priority over adding particle-model
 editing. UI familiarity can improve while work progresses, but visual polish cannot replace correctness
 or standard-file compatibility gates.
 
@@ -207,7 +214,7 @@ or standard-file compatibility gates.
 | Executable/source reference | Desktop 6.3.5's JAR URL, bytes and SHA-256 are pinned; its runtime version is checked. Initial XML/coordinate snapshots were produced with Temurin 17.0.21+9. Matching source mapping and the full GUI/media dependency stack remain to verify. | 1, before full-session golden results |
 | OS and CPU support | CI currently uses Windows 2025, macOS 15 and Ubuntu 24.04 runners. These are test environments, not declared minimum end-user OS versions. Specify release minimums and Intel/Arm coverage explicitly. | 1, finalized before 12 |
 | Codec coverage and export | FFmpeg import works for tested fixtures; pin a format/codec/container test matrix and identify any licensing or platform limitations. Do not label untested formats supported because FFmpeg recognizes their names. | 1, 6 and 10 |
-| Native preservation representation | Choose a versioned source-envelope/storage design with migrations and bounded payload handling. Media may remain explicitly referenced; unknown project metadata must survive without the original import file. | 2 |
+| Native preservation representation | Version 2 embeds bounded original XML bytes as Base64 and migrates version 1 without inventing lost source. See [native format](native-format.md). Extend with stable source associations and archive storage; unknown metadata must survive without the original import file. | 2 |
 | Pair-save recovery | Specify staging, backup/recovery and user-visible partial-success behavior; two independent filesystem replacements cannot be assumed atomic. | 3 |
 | Numerical equivalence | Freeze quantity-specific tolerances, derivative/solver choices, units and gap semantics from actual reference results, including boundary and near-zero values. | 1, extended per feature |
 | External-model exchange and supporting documents | Verify the reference's data protocols and choose native adapters/viewers without silently excluding those workflows or executing arbitrary document content. | 9–11 |
@@ -247,10 +254,12 @@ The maintainer requires this workflow: open a Tracker experiment in MoTrack, edi
 reopen the edited experiment in Tracker. A `.motrack` companion may be saved alongside the standard
 `.trk` project or `.trz` archive. Tracker must not need the companion to read the standard file.
 
-**Current status:** MoTrack imports a supported subset of Tracker data and saves that subset in its
-native format. It does not yet write Tracker-compatible files or retain all unknown XML content.
-Existing native documents therefore cannot be assumed to contain enough information for a lossless
-Tracker export. Treat round-trip support as a compatibility milestone, not a completed capability.
+**Current status:** MoTrack imports a supported subset of Tracker data and saves edits in its native
+format. New imports also retain the original XML bytes in a version-2 source envelope. That baseline
+does not yet carry edited values back into Tracker XML, and other archive members are not embedded.
+Version-1 native documents cannot recover previously discarded content. Standard writers and actual
+Java reopening remain unfinished. Treat round-trip support as a compatibility milestone, not a
+completed capability.
 
 Tracker's XML object format and ZIP experiment packaging are workable. The main implementation risk
 is losing data or changing relationships when translating only the types MoTrack understands. The

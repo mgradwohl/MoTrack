@@ -3,6 +3,7 @@
 #include "legacy_project.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <variant>
 
 namespace motrack
@@ -44,7 +45,11 @@ class TrackEdits
   public:
     void clear();
     void markSaved();
+    /// The file no longer represents a known history state (for example, a completed stale save).
+    void invalidateSaved();
     [[nodiscard]] bool isModified() const;
+    /// Changes after each edit, undo, redo or document reset; detects stale asynchronous save snapshots.
+    [[nodiscard]] std::uint64_t revision() const;
     void createPointMass(LegacyProject& project, std::string name);
     bool renamePointMass(LegacyProject& project, std::size_t track, std::string name);
     bool setPointMassValue(LegacyProject& project, std::size_t track, double mass);
@@ -153,6 +158,7 @@ class TrackEdits
     std::vector<Edit> m_Commands;
     std::size_t m_Head = 0;
     std::optional<std::size_t> m_SavedHead = 0;
+    std::uint64_t m_Revision = 0;
 };
 
 } // namespace motrack

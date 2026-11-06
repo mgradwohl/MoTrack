@@ -45,6 +45,7 @@ void TrackEdits::clear()
 {
     m_Commands.clear();
     m_Head = 0;
+    ++m_Revision;
     markSaved();
 }
 
@@ -53,9 +54,19 @@ void TrackEdits::markSaved()
     m_SavedHead = m_Head;
 }
 
+void TrackEdits::invalidateSaved()
+{
+    m_SavedHead.reset();
+}
+
 bool TrackEdits::isModified() const
 {
     return m_SavedHead != m_Head;
+}
+
+std::uint64_t TrackEdits::revision() const
+{
+    return m_Revision;
 }
 
 void TrackEdits::createPointMass(LegacyProject& project, std::string name)
@@ -331,6 +342,7 @@ bool TrackEdits::undo(LegacyProject& project)
     }
     apply(project, m_Commands.at(m_Head - 1), false);
     --m_Head;
+    ++m_Revision;
     return true;
 }
 
@@ -342,6 +354,7 @@ bool TrackEdits::redo(LegacyProject& project)
     }
     apply(project, m_Commands.at(m_Head), true);
     ++m_Head;
+    ++m_Revision;
     return true;
 }
 
@@ -483,6 +496,7 @@ void TrackEdits::append(LegacyProject& project, Edit edit)
     m_Commands.resize(m_Head);
     m_Commands.push_back(std::move(edit));
     ++m_Head;
+    ++m_Revision;
 }
 
 } // namespace motrack

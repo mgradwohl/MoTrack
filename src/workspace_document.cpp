@@ -1,5 +1,6 @@
 #include "workspace_document.hpp"
 
+#include <QByteArray>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -17,7 +18,7 @@ namespace
 {
 
 constexpr qint64 MAX_DOCUMENT_BYTES = qint64{128} * 1024 * 1024;
-constexpr int DOCUMENT_VERSION = 1;
+constexpr int DOCUMENT_VERSION = 2;
 
 void require(bool valid)
 {
@@ -75,6 +76,38 @@ QJsonArray writeStrings(const std::vector<std::string>& values)
         result.append(QString::fromStdString(value));
     }
     return result;
+}
+
+std::optional<TrackerSource> readTrackerSource(const QJsonValue& value)
+{
+    if (value.isNull())
+    {
+        return std::nullopt;
+    }
+    require(value.isObject());
+    const auto encoded = value.toObject().value("xmlBase64");
+    require(encoded.isString());
+    const auto text = encoded.toString();
+    constexpr auto MAX_ENCODED_SIZE = (static_cast<qsizetype>(MAX_TRACKER_XML_BYTES) + 2) / 3 * 4;
+    require(text.size() <= MAX_ENCODED_SIZE);
+    const auto bytes = QByteArray::fromBase64Encoding(text.toLatin1(), QByteArray::AbortOnBase64DecodingErrors);
+    require(static_cast<bool>(bytes));
+    // Require the canonical ASCII encoding: rejects ignored characters and non-Latin text substitutions.
+    require(QString::fromLatin1(bytes.decoded.toBase64()) == text);
+    auto xml = bytes.decoded.toStdString();
+    static_cast<void>(parseLegacyProject(xml));
+    return TrackerSource{.xml = std::move(xml)};
+}
+
+QJsonValue writeTrackerSource(const std::optional<TrackerSource>& source)
+{
+    if (!source)
+    {
+        return QJsonValue::Null;
+    }
+    static_cast<void>(parseLegacyProject(source->xml));
+    const auto bytes = QByteArray::fromRawData(source->xml.data(), static_cast<qsizetype>(source->xml.size()));
+    return QJsonObject{{"xmlBase64", QString::fromLatin1(bytes.toBase64())}};
 }
 
 QJsonValue writeCalibration(const std::optional<Calibration>& calibration)
@@ -202,13 +235,29 @@ std::vector<VectorTrack> readVectors(const QJsonValue& value)
 
 } // namespace
 
+WorkspaceDocument importTrackerDocument(const QString& path)
+{
+    auto imported = readTrackerProject(std::filesystem::path(path.toStdU16String()));
+    return {.project = std::move(imported.project), .movieFrameTimes = {}, .trackerSource = std::move(imported.source)};
+}
+
 WorkspaceDocument readWorkspaceDocument(const QString& path)
 {
     QFile file(path);
     require(file.open(QIODevice::ReadOnly) && file.size() <= MAX_DOCUMENT_BYTES);
     const auto input = QJsonDocument::fromJson(file.read(MAX_DOCUMENT_BYTES + 1)).object();
-    require(input.value("format") == "MoTrack" && input.value("version").toInt() == DOCUMENT_VERSION);
+    const auto version = input.value("version").toInt();
+    require(input.value("format") == "MoTrack" && (version == 1 || version == DOCUMENT_VERSION));
     WorkspaceDocument result;
+    if (version >= 2)
+    {
+        result.trackerSource = readTrackerSource(input.value("trackerSource"));
+    }
+    else
+    {
+        // Version 1 did not preserve source XML. Never imply its lost content can be recovered.
+        require(!input.contains("trackerSource"));
+    }
     require(input.value("movie").isBool());
     result.movie = input.value("movie").toBool();
     const auto orientation = input.value("displayOrientation");
@@ -287,6 +336,7 @@ void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& docume
                                  {"startTimeMs", clip.startTimeMs}};
     const QJsonObject output{{"format", "MoTrack"},
                              {"version", DOCUMENT_VERSION},
+                             {"trackerSource", writeTrackerSource(document.trackerSource)},
                              {"trackerVersion", QString::fromStdString(project.version)},
                              {"description", QString::fromStdString(project.description)},
                              {"lengthUnit", QString::fromStdString(project.lengthUnit)},

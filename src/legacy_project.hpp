@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <filesystem>
 #include <optional>
 #include <stdexcept>
@@ -11,6 +12,7 @@ namespace motrack
 {
 
 inline constexpr double MIN_POINT_MASS = 1e-30;
+inline constexpr auto MAX_TRACKER_XML_BYTES = std::size_t{32} * 1024 * 1024;
 
 struct Mark
 {
@@ -90,7 +92,22 @@ class ProjectError : public std::runtime_error
     using std::runtime_error::runtime_error;
 };
 
+/// Immutable import baseline, kept separately from editable measurements. Bytes retain the XML encoding,
+/// comments, unknown objects and properties. This is not a serialization of subsequent edits.
+struct TrackerSource
+{
+    std::string xml;
+};
+
+struct ImportedTrackerProject
+{
+    LegacyProject project;
+    TrackerSource source;
+};
+
 LegacyProject parseLegacyProject(std::string_view xml);
 LegacyProject readLegacyProject(const std::filesystem::path& path);
+/// Reads and parses one bounded snapshot, retaining exactly the bytes that produced the project.
+ImportedTrackerProject readTrackerProject(const std::filesystem::path& path);
 
 } // namespace motrack

@@ -9,6 +9,46 @@
 namespace
 {
 
+TEST(TrackEdits, ChangesRevisionForEditsUndoRedoAndDocumentReset)
+{
+    motrack::LegacyProject project;
+    motrack::TrackEdits edits;
+    const auto initial = edits.revision();
+    edits.createPointMass(project, "A");
+    const auto created = edits.revision();
+    EXPECT_GT(created, initial);
+    edits.markSaved();
+    EXPECT_EQ(edits.revision(), created);
+    EXPECT_FALSE(edits.removePointMass(project, 5));
+    EXPECT_EQ(edits.revision(), created);
+    ASSERT_TRUE(edits.undo(project));
+    const auto undone = edits.revision();
+    EXPECT_GT(undone, created);
+    ASSERT_TRUE(edits.redo(project));
+    EXPECT_GT(edits.revision(), undone);
+    const auto redone = edits.revision();
+    edits.clear();
+    EXPECT_GT(edits.revision(), redone);
+}
+
+TEST(TrackEdits, InvalidatesASavedCheckpointWithoutChangingTheProjectRevision)
+{
+    motrack::LegacyProject project;
+    motrack::TrackEdits edits;
+    edits.createPointMass(project, "A");
+    edits.markSaved();
+    edits.createPointMass(project, "B");
+    const auto revision = edits.revision();
+    edits.invalidateSaved();
+    EXPECT_EQ(edits.revision(), revision);
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_TRUE(edits.isModified());
+    ASSERT_TRUE(edits.redo(project));
+    EXPECT_TRUE(edits.isModified());
+    edits.markSaved();
+    EXPECT_FALSE(edits.isModified());
+}
+
 TEST(TrackEdits, EditsVectorsAndRestoresSamplesAndTrackOrder)
 {
     motrack::LegacyProject project;

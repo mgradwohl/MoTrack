@@ -15,8 +15,11 @@ struct WorkspaceDocument
     bool useDisplayOrientation = false;
     bool alignMovieToClip = false;
     std::string archiveReference = {};
+    std::optional<TrackerSource> trackerSource = std::nullopt;
 };
 
+/// Imports a standalone Tracker XML file (or one already extracted archive member), retaining its source.
+[[nodiscard]] WorkspaceDocument importTrackerDocument(const QString& path);
 /// Reads a versioned MoTrack document. Media paths are relative to the document.
 [[nodiscard]] WorkspaceDocument readWorkspaceDocument(const QString& path);
 /// Writes atomically. The caller supplies media paths relative to the destination.

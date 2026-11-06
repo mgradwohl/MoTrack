@@ -3,6 +3,8 @@
 <TS version="2.1" language="de">
   <context>
     <name>MainWindow</name>
+    <message><source>Saving project…</source><translation>Projekt wird gespeichert…</translation></message>
+    <message><source>Project changed while saving. Save again to keep the latest edits.</source><translation>Das Projekt wurde während des Speicherns geändert. Speichern Sie erneut, um die neuesten Änderungen zu behalten.</translation></message>
     <message><source>New &amp;vector</source><translation>Neuer &amp;Vektor</translation></message>
     <message><source>&amp;Rename track…</source><translation>Spur &amp;umbenennen…</translation></message>
     <message><source>&amp;Delete track</source><translation>Spur &amp;löschen</translation></message>

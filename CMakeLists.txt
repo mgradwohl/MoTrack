@@ -149,7 +149,7 @@ if(BUILD_TESTING)
     add_test(NAME legacy_project COMMAND motrack_tests)
     add_executable(motrack_corpus_probe tests/corpus_probe.cpp)
     target_link_libraries(motrack_corpus_probe PRIVATE motrack_project)
-    add_executable(motrack_workspace_tests tests/workspace_test.cpp)
+    add_executable(motrack_workspace_tests tests/workspace_test.cpp tests/workspace_document_test.cpp)
     target_link_libraries(motrack_workspace_tests PRIVATE motrack_workspace GTest::gtest Qt6::Test)
     add_dependencies(motrack_workspace_tests motrack)
     target_compile_definitions(motrack_workspace_tests PRIVATE

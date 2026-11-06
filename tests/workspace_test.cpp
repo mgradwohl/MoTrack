@@ -18,6 +18,7 @@
 #include <QLocale>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSemaphore>
 #include <QSlider>
 #include <QSpinBox>
 #include <QStatusBar>
@@ -143,10 +144,23 @@ TEST(Workspace, OpensATrackerArchiveAndReopensASavedCopy)
     EXPECT_EQ(marks->rowCount(), 2);
     const auto path = temporary.filePath("archived.motrack");
     ASSERT_TRUE(window.saveWorkspace(path));
+    const auto source = motrack::readWorkspaceDocument(path).trackerSource;
+    if (!source.has_value())
+    {
+        FAIL() << "Expected preserved Tracker source.";
+    }
+    EXPECT_EQ(motrack::parseLegacyProject(source->xml).pointMasses.size(), 1u);
     ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
     ASSERT_TRUE(window.loadProject(path));
     EXPECT_EQ(canvas->accessibleName(), "Frame 0");
     EXPECT_EQ(marks->rowCount(), 2);
+    ASSERT_TRUE(window.saveWorkspace(path));
+    const auto resaved = motrack::readWorkspaceDocument(path);
+    if (!resaved.trackerSource.has_value())
+    {
+        FAIL() << "Expected preserved Tracker source.";
+    }
+    EXPECT_EQ(resaved.trackerSource->xml, source->xml);
 }
 
 TEST(Workspace, KeepsOnlyTheLatestBackgroundProjectRequest)
@@ -457,6 +471,7 @@ TEST(Workspace, OpensStandaloneMovieAndKeepsTheWorkspaceAfterAFailedOpen)
     auto* slider = window.findChild<QSlider*>("stepSlider");
     auto* status = window.statusBar();
     ASSERT_TRUE(canvas && slider && status);
+    ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
     window.openMovie(fixturePath("vfr.mp4"));
     ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
     EXPECT_EQ(slider->maximum(), 3);
@@ -472,6 +487,7 @@ TEST(Workspace, OpensStandaloneMovieAndKeepsTheWorkspaceAfterAFailedOpen)
     const auto destination = temporary.filePath("movie.motrack");
     ASSERT_TRUE(window.saveWorkspace(destination));
     EXPECT_TRUE(motrack::readWorkspaceDocument(destination).useDisplayOrientation);
+    EXPECT_FALSE(motrack::readWorkspaceDocument(destination).trackerSource);
     ASSERT_TRUE(window.loadProject(destination));
     ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
     EXPECT_EQ(slider->maximum(), 3);
@@ -485,6 +501,7 @@ TEST(Workspace, OpensStandaloneImagesAndSavesTheirTiming)
     auto* canvas = window.findChild<QWidget*>("videoCanvas");
     auto* slider = window.findChild<QSlider*>("stepSlider");
     ASSERT_TRUE(canvas && slider);
+    ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
     EXPECT_FALSE(window.openImageSequence({}, 0.0));
     EXPECT_FALSE(window.openImageSequence({fixturePath("frames/frame00.ppm")}, -1.0));
     ASSERT_TRUE(window.openImageSequence({fixturePath("frames/frame00.ppm"), fixturePath("frames/frame02.ppm")}, 4.0));
@@ -497,6 +514,7 @@ TEST(Workspace, OpensStandaloneImagesAndSavesTheirTiming)
     const auto destination = temporary.filePath("images.motrack");
     ASSERT_TRUE(window.saveWorkspace(destination));
     EXPECT_EQ(motrack::readWorkspaceDocument(destination).project.clip.frameDurationMs, 250.0);
+    EXPECT_FALSE(motrack::readWorkspaceDocument(destination).trackerSource);
     ASSERT_TRUE(window.loadProject(destination));
     EXPECT_EQ(canvas->accessibleName(), "Frame 0");
     EXPECT_EQ(slider->maximum(), 1);
@@ -817,6 +835,199 @@ TEST(Workspace, SavesEditsAndReopensMediaFromADifferentDirectory)
     EXPECT_EQ(marks->rowCount(), 2);
 }
 
+TEST(Workspace, ProcessesEventsDuringSaveWithoutMarkingNewerEditsSaved)
+{
+    QTemporaryDir temporary;
+    QSemaphore entered;
+    QSemaphore release;
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
+    auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+    auto* create = window.findChild<QAction*>("newPointMass");
+    auto* undo = window.findChild<QAction*>("undoEdit");
+    ASSERT_TRUE(pool && create && undo);
+    const auto path = temporary.filePath("snapshot.motrack");
+    ASSERT_TRUE(window.saveWorkspace(path)); // State A is the saved checkpoint.
+    create->trigger();                       // State B is the snapshot written by the upcoming save.
+    pool->start(
+        [&]
+        {
+            entered.release();
+            static_cast<void>(release.tryAcquire(1, 5000));
+        });
+    ASSERT_TRUE(entered.tryAcquire(1, 5000));
+    bool processed = false;
+    QTimer::singleShot(0,
+                       &window,
+                       [&]
+                       {
+                           processed = true;
+                           EXPECT_FALSE(window.saveWorkspace(path)); // Reject overlapping writes.
+                           EXPECT_FALSE(window.close());
+                           create->trigger(); // State C arrives while B is saving.
+                           release.release();
+                       });
+    EXPECT_FALSE(window.saveWorkspace(path));
+    EXPECT_TRUE(processed);
+    EXPECT_TRUE(window.isWindowModified());
+    EXPECT_EQ(motrack::readWorkspaceDocument(path).project.pointMasses.size(), 2u);
+    undo->trigger();
+    undo->trigger(); // Back to A, but the file now contains B: it must still be dirty.
+    EXPECT_TRUE(window.isWindowModified());
+    ASSERT_TRUE(window.saveWorkspace(path));
+    EXPECT_FALSE(window.isWindowModified());
+    EXPECT_EQ(motrack::readWorkspaceDocument(path).project.pointMasses.size(), 1u);
+}
+
+TEST(Workspace, AppliesPreparedOpensAfterSavingAndRejectsCanceledResults)
+{
+    for (const bool movie : {false, true})
+    {
+        for (const bool cancel : {false, true})
+        {
+            for (const bool failSave : {false, true})
+            {
+                SCOPED_TRACE(::testing::Message() << "movie=" << movie << " cancel=" << cancel << " failSave=" << failSave);
+                QTemporaryDir temporary;
+                QSemaphore entered;
+                QSemaphore release;
+                motrack::MainWindow window;
+                ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
+                auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+                ASSERT_TRUE(pool);
+                pool->start(
+                    [&]
+                    {
+                        entered.release();
+                        static_cast<void>(release.tryAcquire(1, 5000));
+                    });
+                ASSERT_TRUE(entered.tryAcquire(1, 5000));
+                const auto target = movie ? "vfr.mp4" : "image-sequence.trk";
+                bool processed = false;
+                QTimer::singleShot(0,
+                                   &window,
+                                   [&]
+                                   {
+                                       if (movie)
+                                       {
+                                           window.openMovie(fixturePath(target));
+                                       }
+                                       else
+                                       {
+                                           window.openProject(fixturePath(target));
+                                       }
+                                       EXPECT_TRUE(QThreadPool::globalInstance()->waitForDone(5000));
+                                       QCoreApplication::sendPostedEvents(); // Deliver the prepared result while saving is held.
+                                       EXPECT_TRUE(window.windowTitle().contains("point-mass.trk"));
+                                       if (cancel)
+                                       {
+                                           window.openProject(temporary.filePath("missing.trk"));
+                                           EXPECT_TRUE(QThreadPool::globalInstance()->waitForDone(5000));
+                                           QCoreApplication::sendPostedEvents();
+                                       }
+                                       processed = true;
+                                       release.release();
+                                   });
+                const auto path = temporary.filePath(failSave ? "missing/saved.motrack" : "saved.motrack");
+                EXPECT_EQ(window.saveWorkspace(path), !failSave);
+                EXPECT_TRUE(processed);
+                if (cancel)
+                {
+                    ASSERT_TRUE(QTest::qWaitFor([&] { return window.statusBar()->currentMessage() == "Could not open this project."; }));
+                    EXPECT_TRUE(window.windowTitle().contains(failSave ? "point-mass.trk" : "saved.motrack"));
+                }
+                else
+                {
+                    ASSERT_TRUE(QTest::qWaitFor([&] { return window.windowTitle().contains(target); }));
+                }
+                if (!failSave)
+                {
+                    EXPECT_EQ(motrack::readWorkspaceDocument(path).project.pointMasses.front().mass, 125.5);
+                }
+            }
+        }
+    }
+}
+
+TEST(Workspace, DoesNotApplySaveCompletionToAReplacementDocument)
+{
+    QTemporaryDir temporary;
+    QSemaphore entered;
+    QSemaphore release;
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
+    auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+    ASSERT_TRUE(pool);
+    pool->start(
+        [&]
+        {
+            entered.release();
+            static_cast<void>(release.tryAcquire(1, 5000));
+        });
+    ASSERT_TRUE(entered.tryAcquire(1, 5000));
+    QTimer::singleShot(0,
+                       &window,
+                       [&]
+                       {
+                           EXPECT_TRUE(window.loadProject(fixturePath("point-mass.trk"))); // Same path, new document instance.
+                           release.release();
+                       });
+    const auto path = temporary.filePath("old-project.motrack");
+    EXPECT_FALSE(window.saveWorkspace(path));
+    EXPECT_TRUE(window.windowTitle().contains("point-mass.trk"));
+    EXPECT_FALSE(window.isWindowModified());
+    EXPECT_EQ(motrack::readWorkspaceDocument(path).project.pointMasses.front().mass, 125.5);
+}
+
+TEST(Workspace, KeepsOnlySuccessfulSaveAsDestinationsAndCheckpoints)
+{
+    for (const bool failWrite : {false, true})
+    {
+        SCOPED_TRACE(failWrite);
+        QTemporaryDir temporary;
+        QSemaphore entered;
+        QSemaphore release;
+        motrack::MainWindow window;
+        ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
+        auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+        auto* create = window.findChild<QAction*>("newPointMass");
+        auto* undo = window.findChild<QAction*>("undoEdit");
+        auto* save = window.findChild<QAction*>("saveProject");
+        ASSERT_TRUE(pool && create && undo && save);
+        const auto original = temporary.filePath("original.motrack");
+        const auto destination = temporary.filePath(failWrite ? "missing/copy.motrack" : "copy.motrack");
+        ASSERT_TRUE(window.saveWorkspace(original));
+        create->trigger();
+        pool->start(
+            [&]
+            {
+                entered.release();
+                static_cast<void>(release.tryAcquire(1, 5000));
+            });
+        ASSERT_TRUE(entered.tryAcquire(1, 5000));
+        QTimer::singleShot(0,
+                           &window,
+                           [&]
+                           {
+                               create->trigger();
+                               release.release();
+                           });
+        EXPECT_FALSE(window.saveWorkspace(destination));
+        undo->trigger();
+        undo->trigger();
+        EXPECT_EQ(window.isWindowModified(), !failWrite);
+        EXPECT_EQ(QFile::exists(destination), !failWrite);
+        if (!failWrite)
+        {
+            EXPECT_EQ(motrack::readWorkspaceDocument(destination).project.pointMasses.size(), 2u);
+        }
+        save->trigger();
+        EXPECT_FALSE(window.isWindowModified());
+        EXPECT_EQ(motrack::readWorkspaceDocument(failWrite ? original : destination).project.pointMasses.size(), 1u);
+        EXPECT_EQ(motrack::readWorkspaceDocument(original).project.pointMasses.size(), 1u);
+    }
+}
+
 TEST(Workspace, ReportsUnavailableMovieFrames)
 {
     QTemporaryDir temporary;
@@ -887,7 +1098,14 @@ TEST(Workspace, EditsAndSavesTheSelectedMass)
     ASSERT_TRUE(temporary.isValid());
     motrack::MainWindow window;
     window.show();
-    ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
+    const auto imported = temporary.filePath("imported.trk");
+    ASSERT_TRUE(QFile::copy(fixturePath("point-mass.trk"), imported));
+    const auto original = motrack::importTrackerDocument(imported).trackerSource;
+    if (!original.has_value())
+    {
+        FAIL() << "Expected preserved Tracker source.";
+    }
+    ASSERT_TRUE(window.loadProject(imported));
     auto* action = window.findChild<QAction*>("setPointMassValue");
     ASSERT_TRUE(action && action->isEnabled());
     QTimer::singleShot(0,
@@ -907,6 +1125,31 @@ TEST(Workspace, EditsAndSavesTheSelectedMass)
     EXPECT_EQ(saved.project.massUnit, "g");
     ASSERT_EQ(saved.project.pointMasses.size(), 1u);
     EXPECT_DOUBLE_EQ(saved.project.pointMasses.front().mass, 250.25);
+    if (!saved.trackerSource.has_value())
+    {
+        FAIL() << "Expected preserved Tracker source.";
+    }
+    EXPECT_EQ(saved.trackerSource->xml, original->xml);
+    ASSERT_TRUE(QFile::remove(imported));
+    motrack::MainWindow reopened;
+    ASSERT_TRUE(reopened.loadProject(path));
+    const auto copy = temporary.filePath("reopened.motrack");
+    ASSERT_TRUE(reopened.saveWorkspace(copy));
+    const auto resaved = motrack::readWorkspaceDocument(copy);
+    if (!resaved.trackerSource.has_value())
+    {
+        FAIL() << "Expected preserved Tracker source.";
+    }
+    EXPECT_EQ(resaved.trackerSource->xml, original->xml);
+    EXPECT_DOUBLE_EQ(resaved.project.pointMasses.front().mass, 250.25);
+    EXPECT_FALSE(reopened.loadProject(imported));
+    ASSERT_TRUE(reopened.saveWorkspace(copy));
+    const auto afterFailedOpen = motrack::readWorkspaceDocument(copy);
+    if (!afterFailedOpen.trackerSource.has_value())
+    {
+        FAIL() << "Expected preserved Tracker source.";
+    }
+    EXPECT_EQ(afterFailedOpen.trackerSource->xml, original->xml);
 }
 
 TEST(Workspace, CreatesEditsRepeatsAndReopensVectorTracks)

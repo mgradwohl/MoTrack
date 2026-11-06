@@ -15,6 +15,7 @@
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QDoubleSpinBox>
+#include <QEventLoop>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
@@ -35,6 +36,7 @@
 #include <QStatusBar>
 #include <QStyle>
 #include <QTableWidget>
+#include <QThreadPool>
 #include <QToolBar>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -61,6 +63,9 @@ struct MainWindow::PreparedProject
 
 MainWindow::MainWindow()
 {
+    m_SavePool = new QThreadPool(this);
+    m_SavePool->setObjectName("workspaceSavePool");
+    m_SavePool->setMaxThreadCount(1);
     setWindowTitle("MoTrack");
     resize(1000, 650);
     auto* open = new QAction(tr("&Open project…"), this);
@@ -577,12 +582,12 @@ MainWindow::PreparedProject MainWindow::prepareProject(const QString& path, cons
         if (!prepared.chooseArchiveTab)
         {
             prepared.member = projects.front();
-            prepared.document.project = readLegacyProject(std::filesystem::path(archive.projectPath(prepared.member).toStdU16String()));
+            prepared.document = importTrackerDocument(archive.projectPath(prepared.member));
         }
     }
     else
     {
-        prepared.document.project = readLegacyProject(std::filesystem::path(path.toStdU16String()));
+        prepared.document = importTrackerDocument(path);
     }
     return prepared;
 }
@@ -612,22 +617,29 @@ void MainWindow::openProject(const QString& path)
             this,
             [this, path, watcher, cancelled]
             {
-                try
-                {
-                    auto result = watcher->result();
-                    if (!result)
+                completeAfterSave(
+                    [this, path, cancelled, result = watcher->result()]
                     {
-                        throw ProjectError("Could not prepare project.");
-                    }
-                    applyProject(path, std::move(*result), cancelled.get());
-                }
-                catch (const ProjectError&)
-                {
-                    if (!*cancelled)
-                    {
-                        statusBar()->showMessage(tr("Could not open this project."));
-                    }
-                }
+                        if (*cancelled)
+                        {
+                            return;
+                        }
+                        try
+                        {
+                            if (!result)
+                            {
+                                throw ProjectError("Could not prepare project.");
+                            }
+                            applyProject(path, std::move(*result), cancelled.get());
+                        }
+                        catch (const ProjectError&)
+                        {
+                            if (!*cancelled)
+                            {
+                                statusBar()->showMessage(tr("Could not open this project."));
+                            }
+                        }
+                    });
             });
     watcher->setFuture(QtConcurrent::run(
         [path, cancelled]() -> Result
@@ -641,6 +653,18 @@ void MainWindow::openProject(const QString& path)
                 return {};
             }
         }));
+}
+
+void MainWindow::completeAfterSave(std::function<void()> completion)
+{
+    if (m_Saving)
+    {
+        m_AfterSave.push_back(std::move(completion));
+    }
+    else
+    {
+        completion();
+    }
 }
 
 bool MainWindow::applyProject(const QString& path, PreparedProject prepared, const std::atomic_bool* cancelled)
@@ -658,7 +682,7 @@ bool MainWindow::applyProject(const QString& path, PreparedProject prepared, con
             }
             return false;
         }
-        document.project = readLegacyProject(std::filesystem::path(archive.projectPath(prepared.member).toStdU16String()));
+        document = importTrackerDocument(archive.projectPath(prepared.member));
     }
     if (cancelled)
     {
@@ -689,6 +713,7 @@ bool MainWindow::applyProject(const QString& path, PreparedProject prepared, con
         m_MediaProjectPath = QDir(m_Archive->root()).absoluteFilePath("archive.trk");
     }
     m_Project = std::move(document.project);
+    m_TrackerSource = std::move(document.trackerSource);
     m_Sequence = document.movie ? std::nullopt : ImageSequence::open(m_MediaProjectPath, m_Project.clip);
     m_MoviePath.clear();
     m_MoviePresentationTimes.clear();
@@ -786,6 +811,7 @@ bool MainWindow::openImageSequence(const QStringList& paths, double frameRate)
     releaseArchive();
     m_MediaProjectPath = path;
     m_Project = std::move(project);
+    m_TrackerSource.reset();
     m_Sequence = std::move(sequence);
     m_MoviePath.clear();
     m_MoviePresentationTimes.clear();
@@ -815,41 +841,49 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
             this,
             [this, path, standalone, watcher, cancelled = m_MovieOpenCancelled]
             {
-                auto index = watcher->result();
-                if (!standalone)
-                {
-                    m_MoviePresentationTimes = std::move(index.presentationTimes);
-                    if (!index.frameTimes.empty())
+                completeAfterSave(
+                    [this, path, standalone, cancelled, index = watcher->result()]() mutable
                     {
+                        if (*cancelled)
+                        {
+                            return;
+                        }
+                        if (!standalone)
+                        {
+                            m_MoviePresentationTimes = std::move(index.presentationTimes);
+                            if (!index.frameTimes.empty())
+                            {
+                                m_MovieFrameTimes = std::move(index.frameTimes);
+                            }
+                            refreshPlot();
+                            return;
+                        }
+                        if (index.frameCount == 0)
+                        {
+                            statusBar()->showMessage(tr("Could not open this video."));
+                            return;
+                        }
+                        if (!confirmDiscard() || *cancelled)
+                        {
+                            statusBar()->clearMessage();
+                            return;
+                        }
+                        releaseArchive();
+                        m_MediaProjectPath = path;
+                        m_Project = {};
+                        m_TrackerSource.reset();
+                        m_Project.clip.stepCount = index.frameCount;
+                        m_Project.clip.sourceFrameCount = index.frameCount;
+                        m_Project.clip.mediaReferences.push_back(QFileInfo(path).fileName().toStdString());
+                        m_Sequence.reset();
+                        m_MoviePath = path;
+                        m_MovieUsesDisplayOrientation = true;
+                        m_MovieAlignsToClip = false;
+                        m_MoviePresentationTimes = std::move(index.presentationTimes);
                         m_MovieFrameTimes = std::move(index.frameTimes);
-                    }
-                    refreshPlot();
-                    return;
-                }
-                if (index.frameCount == 0)
-                {
-                    statusBar()->showMessage(tr("Could not open this video."));
-                    return;
-                }
-                if (!confirmDiscard() || *cancelled)
-                {
-                    statusBar()->clearMessage();
-                    return;
-                }
-                releaseArchive();
-                m_MediaProjectPath = path;
-                m_Project = {};
-                m_Project.clip.stepCount = index.frameCount;
-                m_Project.clip.sourceFrameCount = index.frameCount;
-                m_Project.clip.mediaReferences.push_back(QFileInfo(path).fileName().toStdString());
-                m_Sequence.reset();
-                m_MoviePath = path;
-                m_MovieUsesDisplayOrientation = true;
-                m_MovieAlignsToClip = false;
-                m_MoviePresentationTimes = std::move(index.presentationTimes);
-                m_MovieFrameTimes = std::move(index.frameTimes);
-                activateProject(path);
-                statusBar()->showMessage(tr("Opened video with %1 frames.").arg(index.frameCount));
+                        activateProject(path);
+                        statusBar()->showMessage(tr("Opened video with %1 frames.").arg(index.frameCount));
+                    });
             });
     const auto orientation = standalone || m_MovieUsesDisplayOrientation ? VideoOrientation::Display : VideoOrientation::Encoded;
     watcher->setFuture(QtConcurrent::run(
@@ -863,6 +897,7 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
 
 void MainWindow::activateProject(const QString& path)
 {
+    ++m_DocumentGeneration;
     stopAutoTracking();
     cancelMeasurement();
     setPlaying(false);
@@ -973,6 +1008,10 @@ void MainWindow::editClipSettings()
 
 bool MainWindow::confirmDiscard()
 {
+    if (m_Saving)
+    {
+        return false;
+    }
     if (!m_Edits.isModified())
     {
         return true;
@@ -1515,6 +1554,10 @@ bool MainWindow::saveCurrentWorkspace()
 
 bool MainWindow::saveWorkspace(const QString& path)
 {
+    if (m_Saving)
+    {
+        return false;
+    }
     if (m_ProjectPath.isEmpty() || !path.endsWith(".motrack", Qt::CaseInsensitive))
     {
         statusBar()->showMessage(tr("Choose a project filename ending in .motrack."));
@@ -1524,7 +1567,8 @@ bool MainWindow::saveWorkspace(const QString& path)
                                .movieFrameTimes = m_MovieFrameTimes,
                                .movie = !m_MoviePath.isEmpty(),
                                .useDisplayOrientation = m_MovieUsesDisplayOrientation,
-                               .alignMovieToClip = m_MovieAlignsToClip};
+                               .alignMovieToClip = m_MovieAlignsToClip,
+                               .trackerSource = m_TrackerSource};
     const QDir destination(QFileInfo(path).absolutePath());
     if (m_Archive)
     {
@@ -1541,19 +1585,64 @@ bool MainWindow::saveWorkspace(const QString& path)
             }
         }
     }
-    try
+    // Keep the synchronous result used by Save-before-close, but let the GUI paint and process worker
+    // completions. User input is deferred while the owned snapshot is validated and serialized off-thread.
+    const auto revision = m_Edits.revision();
+    const auto generation = m_DocumentGeneration;
+    bool alive = true;
+    QEventLoop loop;
+    connect(this, &QObject::destroyed, &loop, [&alive] { alive = false; });
+    m_Saving = true;
+    statusBar()->showMessage(tr("Saving project…"));
+    QFutureWatcher<bool> watcher;
+    connect(&watcher, &QFutureWatcher<bool>::finished, &loop, &QEventLoop::quit);
+    watcher.setFuture(QtConcurrent::run(m_SavePool,
+                                        [path, document = std::move(document)]
+                                        {
+                                            try
+                                            {
+                                                writeWorkspaceDocument(path, document);
+                                                return true;
+                                            }
+                                            catch (const std::exception&)
+                                            {
+                                                return false;
+                                            }
+                                        }));
+    loop.exec(QEventLoop::ExcludeUserInputEvents);
+    if (!alive)
     {
-        writeWorkspaceDocument(path, document);
+        return false;
     }
-    catch (const ProjectError&)
+    m_Saving = false;
+    for (auto& completion : std::exchange(m_AfterSave, {}))
+    {
+        // Finish save bookkeeping and its caller (including close) before applying prepared opens.
+        // Another save may start first, so check the guard again when the queued callback runs.
+        QTimer::singleShot(0, this, [this, completion = std::move(completion)]() mutable { completeAfterSave(std::move(completion)); });
+    }
+    if (generation != m_DocumentGeneration)
+    {
+        return false;
+    }
+    if (!watcher.result())
     {
         statusBar()->showMessage(tr("Could not save this project."));
         return false;
     }
-    m_Edits.markSaved();
     m_SavePath = QFileInfo(path).absoluteFilePath();
-    setWindowModified(false);
     setWindowTitle(tr("%1[*] — MoTrack").arg(QFileInfo(path).fileName()));
+    if (revision != m_Edits.revision())
+    {
+        // The successful write replaced the previous checkpoint on disk. Undo must not label that
+        // old state clean. Keep the successful destination, including Save As, for the next save.
+        m_Edits.invalidateSaved();
+        setWindowModified(true);
+        statusBar()->showMessage(tr("Project changed while saving. Save again to keep the latest edits."));
+        return false;
+    }
+    m_Edits.markSaved();
+    setWindowModified(false);
     statusBar()->showMessage(tr("Project saved."));
     return true;
 }

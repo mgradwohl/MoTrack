@@ -13,7 +13,6 @@ namespace motrack
 namespace
 {
 
-constexpr auto MAX_PROJECT_BYTES = std::size_t{32} * 1024 * 1024;
 constexpr auto TRACKER_PANEL_CLASS = "org.opensourcephysics.cabrillo.tracker.TrackerPanel";
 constexpr auto VECTOR_CLASS = "org.opensourcephysics.cabrillo.tracker.Vector";
 constexpr auto POINT_MASS_CLASS = "org.opensourcephysics.cabrillo.tracker.PointMass";
@@ -220,7 +219,7 @@ std::optional<Calibration> readCalibration(const QDomElement& panel)
 
 LegacyProject parseLegacyProject(std::string_view xml)
 {
-    if (xml.size() > MAX_PROJECT_BYTES)
+    if (xml.size() > MAX_TRACKER_XML_BYTES)
     {
         throw ProjectError("Tracker project is too large.");
     }
@@ -279,13 +278,18 @@ LegacyProject parseLegacyProject(std::string_view xml)
 
 LegacyProject readLegacyProject(const std::filesystem::path& path)
 {
+    return readTrackerProject(path).project;
+}
+
+ImportedTrackerProject readTrackerProject(const std::filesystem::path& path)
+{
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     const std::streamoff length = file.tellg();
     if (length < 0)
     {
         throw ProjectError("Could not open the Tracker project.");
     }
-    if (std::cmp_greater(length, MAX_PROJECT_BYTES))
+    if (std::cmp_greater(length, MAX_TRACKER_XML_BYTES))
     {
         throw ProjectError("Tracker project is too large.");
     }
@@ -295,7 +299,8 @@ LegacyProject readLegacyProject(const std::filesystem::path& path)
     {
         throw ProjectError("Could not read the Tracker project.");
     }
-    return parseLegacyProject(xml);
+    auto project = parseLegacyProject(xml);
+    return {.project = std::move(project), .source = {.xml = std::move(xml)}};
 }
 
 } // namespace motrack
