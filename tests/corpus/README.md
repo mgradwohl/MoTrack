@@ -157,3 +157,8 @@ The `snap-origin` and `snap-vector` cases instead verify rejected exports leave 
 unchanged. Java independently authors the same near-target geometry, then its actual application must
 demonstrate the expected first-draw snap and retain that snapped geometry through save/reopen. These are
 explicit rejection tests, not successful native exports or relaxed comparisons of requested geometry.
+
+Vector session snapshots compare the scientific tip/tail positions and independently expected
+tail/components. Transient drag handles and display points are excluded: Tracker does not serialize
+them, and an automatic snap can leave the drag handle at its old location until a fresh reload.
+The numerical tolerance and checks on all saved vector geometry remain unchanged.
