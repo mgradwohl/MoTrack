@@ -106,6 +106,18 @@ void patchDouble(QDomDocument& xml, const QDomElement& object, const QString& na
     patchScalar(xml, object, name, "double", QString::number(value, 'g', 17));
 }
 
+void patchUnit(QDomDocument& xml, const QString& name, const std::string& unit)
+{
+    const auto label = QString::fromStdString(unit);
+    require(!label.isEmpty() && label.size() <= 256 && label == label.trimmed() && label.toStdString() == unit);
+    for (const auto codePoint : label.toUcs4())
+    {
+        const auto category = QChar::category(codePoint);
+        require(category != QChar::Other_Control && category != QChar::Other_Format && !QChar::isDigit(codePoint));
+    }
+    patchScalar(xml, xml.documentElement(), name, "string", label);
+}
+
 void patchClipRange(QDomDocument& xml, const Clip& clip)
 {
     const auto count = clip.stepCount.value_or(0);
@@ -746,16 +758,15 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
     }
     if (expected.lengthUnit != baseline.project.lengthUnit)
     {
-        const auto label = QString::fromStdString(expected.lengthUnit);
-        require(!label.isEmpty() && label.size() <= 256 && label == label.trimmed() && label.toStdString() == expected.lengthUnit);
-        for (const auto codePoint : label.toUcs4())
-        {
-            const auto category = QChar::category(codePoint);
-            require(category != QChar::Other_Control && category != QChar::Other_Format && !QChar::isDigit(codePoint));
-        }
         // A unit is a label; any requested rescaling belongs to the reversible calibration edit.
-        patchScalar(xml, xml.documentElement(), "length_unit", "string", label);
+        patchUnit(xml, "length_unit", expected.lengthUnit);
         baseline.project.lengthUnit = expected.lengthUnit;
+        changed = true;
+    }
+    if (expected.massUnit != baseline.project.massUnit)
+    {
+        patchUnit(xml, "mass_unit", expected.massUnit);
+        baseline.project.massUnit = expected.massUnit;
         changed = true;
     }
     if (expected.clip.firstFrame != baseline.project.clip.firstFrame || expected.clip.stepSize != baseline.project.clip.stepSize ||

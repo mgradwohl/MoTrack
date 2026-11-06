@@ -135,7 +135,7 @@ and standard-file writers remain unfinished. An unknown object retained in this
 envelope is not an implemented track type.
 
 The initial internal standard writer can patch point-mass mass values, mark positions/additions/deletions,
-independent-vector tails/components/additions/deletions, clip start/stride/count, length-unit labels,
+independent-vector tails/components/additions/deletions, clip start/stride/count, length/mass-unit labels,
 and supported fixed/fully varying coordinate-system keys in media-free projects after a native reopen.
 Clip edits retain all measurements, including frames outside the clip.
 Vector exports reject nonfinite endpoints and components that Tracker's endpoint subtraction would
@@ -203,14 +203,17 @@ The existing distance/axes commands own these changes with undo/redo and native 
 keys, partly fixed systems, varying vector coordinates and moving reference frames remain unsupported;
 failed validation leaves an existing destination unchanged.
 
-Length-unit labels can be exported independently or with a supported calibration edit. The current
-calibration command owns the label and scale together, including undo/redo. Changing only the label
-never converts numerical values. Labels must be nonempty, trimmed, valid UTF-8 and at most 256 UTF-16
+Length- and mass-unit labels can be exported independently or with other supported edits. The current
+calibration command owns the length label and scale together; a separate reversible command owns the
+project-wide mass label. Changing only a label never converts numerical scale or mass values, matching
+Tracker's unit setters. Both commands participate in saved/dirty history and undo/redo; existing native
+files already store both labels, so no format version change is needed. Labels must be nonempty,
+trimmed, valid UTF-8 and at most 256 UTF-16
 code units; Unicode control/format characters and decimal digits are rejected by code point,
 including C1 controls and supplementary digits. Supplementary letters remain valid labels.
 String labels use OSP-compatible CDATA because its string reader does not decode XML entities. Edits
 to a source unit containing comments or processing instructions are rejected: OSP requires the CDATA
 terminator immediately before the closing property tag and can hang on an intervening comment.
-The CDATA terminator in a label is also rejected before replacing a destination. Mass/time
-unit editing and unit defaults remain separate work. The corpus explicitly checks imported labels,
+The CDATA terminator in a label is also rejected before replacing a destination. Time-unit editing,
+the full units UI and unit defaults remain separate work. The corpus explicitly checks imported labels,
 Java's independently recorded default for an omitted label, and labels after Java resave/native reimport.

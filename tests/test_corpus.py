@@ -295,6 +295,24 @@ class CorpusTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(ValueError):
                 corpus.validate_session(case, invalid, manifest)
 
+    def test_mass_unit_export_preserves_mass_values_and_unknown_content(self):
+        original = self.root / "original.trk"
+        exported = self.root / "mass-unit.trk"
+        xml = ('<object><property name="mass_unit" type="string">kg</property>'
+               '<property name="mass" type="double">2.5</property><!-- keep --></object>')
+        original.write_text(xml, encoding="utf-8")
+        edited = xml.replace('>kg<', '><![CDATA[g]]><')
+        exported.write_text(edited, encoding="utf-8")
+        corpus.verify_mass_unit_export_xml(original, exported)
+        for invalid in [xml, edited.replace('[g]', '[kg]'), edited.replace('>2.5<', '>3.5<'), edited.replace('<!-- keep -->', '')]:
+            exported.write_text(invalid, encoding="utf-8")
+            with self.assertRaises(ValueError):
+                corpus.verify_mass_unit_export_xml(original, exported)
+        case = next(case for case in corpus.load_manifest()["cases"] if case["id"] == "protractor")
+        expected = corpus.mass_unit_roundtrip_expected(case)
+        original_project = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
+        self.assertEqual(expected, {**original_project, "mass_unit": "g"})
+
     def test_length_unit_export_preserves_calibration_and_geometry(self):
         case = next(case for case in corpus.load_manifest()["cases"] if case["id"] == "independent-vectors")
         original = corpus.local_fixture_path(case)
