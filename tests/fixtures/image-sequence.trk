@@ -5,8 +5,10 @@
       <property name="startframe" type="int">0</property>
       <property name="stepsize" type="int">2</property>
       <property name="stepcount" type="int">2</property>
+      <property name="starttime" type="double">-500</property>
       <property name="video" type="object">
         <object class="org.opensourcephysics.media.core.ImageVideo">
+          <property name="delta_t" type="double">250</property>
           <property name="paths" type="array">
             <property name="[0]" type="string">frames/frame00.ppm</property>
             <property name="[1]" type="string">frames/skipped.ppm</property>

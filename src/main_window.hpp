@@ -24,6 +24,7 @@ namespace motrack
 {
 
 class VideoCanvas;
+class PositionPlot;
 
 class MainWindow final : public QMainWindow
 {
@@ -44,6 +45,7 @@ class MainWindow final : public QMainWindow
     void displayFrame(const ImageFrame& frame, const QString& failureMessage);
     void requestMovieFrame(int frame);
     void refreshEditViews(int track);
+    void refreshPlot();
     void markAt(const QPointF& position);
     void repeatPreviousMark();
     [[nodiscard]] bool confirmDiscard();
@@ -59,6 +61,8 @@ class MainWindow final : public QMainWindow
     QAction* m_Undo;
     QAction* m_Redo;
     QComboBox* m_TrackPicker;
+    QComboBox* m_PlotQuantity;
+    PositionPlot* m_Plot;
     LegacyProject m_Project;
     TrackEdits m_Edits;
     std::optional<ImageSequence> m_Sequence;

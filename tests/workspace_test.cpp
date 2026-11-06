@@ -114,6 +114,26 @@ TEST(Workspace, DisplaysWorldCoordinatesAndExportsMeasurements)
     EXPECT_FALSE(window.saveMeasurements(temporary.filePath("missing/measurements.csv")));
 }
 
+TEST(Workspace, PlotsPositionAndSeeksToASelectedMeasurement)
+{
+    motrack::MainWindow window;
+    window.show();
+    ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
+    auto* plot = window.findChild<QWidget*>("positionPlot");
+    auto* quantities = window.findChild<QComboBox*>("plotQuantity");
+    auto* slider = window.findChild<QSlider*>("stepSlider");
+    ASSERT_TRUE(plot && quantities && slider);
+    EXPECT_EQ(plot->accessibleName(), "x position (m) versus Time (s)");
+    EXPECT_FALSE(plot->grab().isNull());
+    QTest::mouseClick(plot, Qt::LeftButton, Qt::NoModifier, QPoint(plot->width() - 17, 24));
+    EXPECT_EQ(slider->value(), 1);
+    quantities->setCurrentIndex(3);
+    EXPECT_EQ(plot->accessibleName(), "y velocity (m/s) versus Time (s)");
+    EXPECT_FALSE(plot->grab().isNull());
+    QTest::mouseClick(plot, Qt::LeftButton, Qt::NoModifier, plot->rect().center());
+    EXPECT_EQ(slider->value(), 1);
+}
+
 TEST(Workspace, StepsThroughImagesAndKeepsImportedMarks)
 {
     motrack::MainWindow window;

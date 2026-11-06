@@ -96,6 +96,8 @@ TEST(LegacyProject, ReadsCalibrationAndKeepsMarksWhenCalibrationIsUnsupported)
 {
     const auto result = motrack::readLegacyProject(std::filesystem::path(MOTRACK_FIXTURES) / "image-sequence.trk");
     EXPECT_EQ(result.lengthUnit, "m");
+    EXPECT_EQ(result.clip.frameDurationMs, 250.0);
+    EXPECT_DOUBLE_EQ(result.clip.startTimeMs, -500.0);
     if (!result.calibration)
     {
         FAIL() << "Missing saved image calibration.";
