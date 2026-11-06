@@ -175,7 +175,10 @@ See the [full-port implementation order](migration-plan.md#implementation-order-
 
 Fixed calibration export requires one original and edited key at frame 0, all three fixed flags, an
 unlocked `ImageCoordSystem`, finite values, nonzero scales, a finite nonzero scale product and finite
-inverse-transform coefficients/translation. Angles stay in the native editor's -180 to 180 degree range.
+inverse-transform coefficients/translation. Validation follows Tracker's normalized trigonometry and
+Java affine inversion arithmetic (including diagonal/shear special cases), rejects intermediate
+overflow/underflow, and compares the resulting coefficients with the native inverse within the corpus
+tolerance before opening an output file. Angles stay in the native editor's -180 to 180 degree range.
 Unknown fields and measured image positions are retained. Creating/removing a coordinate system,
 changing units or fixed flags, time-varying keys and moving reference frames require later reference cases.
 The vector snapping guard also runs after calibration changes, preventing an origin move from silently

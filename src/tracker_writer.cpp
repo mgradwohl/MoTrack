@@ -6,6 +6,7 @@
 #include <QStringList>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -372,6 +373,58 @@ void patchMarks(QDomDocument& xml, const QDomElement& object, const std::vector<
     }
 }
 
+void requireTrackerInverse(const CalibrationKey& key)
+{
+    // ImageCoordSystem normalizes sine/cosine, builds this image affine matrix, then uses
+    // Java 17 AffineTransform.createInverse(). Algebraically simplified translations can
+    // hide overflowing intermediate products; check the same diagonal/shear/general cases.
+    const auto angle = key.angleDegrees * std::numbers::pi / 180.0;
+    const auto rawCos = std::cos(angle);
+    const auto rawSin = std::sin(angle);
+    const auto norm = std::sqrt(rawCos * rawCos + rawSin * rawSin);
+    const auto cos = rawCos / norm;
+    const auto sin = rawSin / norm;
+    const auto a = key.scaleX * cos;
+    const auto b = -key.scaleY * sin;
+    const auto c = -key.scaleX * sin;
+    const auto d = -key.scaleY * cos;
+    std::array<double, 6> inverse{};
+    if (b == 0 && c == 0)
+    {
+        require(a != 0 && d != 0);
+        inverse = {1 / a, 0, 0, 1 / d, -key.originX / a, -key.originY / d};
+    }
+    else if (a == 0 && d == 0)
+    {
+        require(b != 0 && c != 0);
+        inverse = {0, 1 / c, 1 / b, 0, -key.originY / b, -key.originX / c};
+    }
+    else
+    {
+        // Keep multiplication and subtraction separate, as Java's strict floating point does.
+        const auto diagonal = a * d;
+        const auto shear = b * c;
+        const auto determinant = diagonal - shear;
+        require(std::isfinite(determinant) && std::abs(determinant) > std::numeric_limits<double>::denorm_min());
+        const auto cx = c * key.originY;
+        const auto dx = d * key.originX;
+        const auto by = b * key.originX;
+        const auto ay = a * key.originY;
+        inverse = {d / determinant, -b / determinant, -c / determinant, a / determinant, (cx - dx) / determinant, (by - ay) / determinant};
+    }
+    const std::array expected{cos / key.scaleX,
+                              -sin / key.scaleX,
+                              -sin / key.scaleY,
+                              -cos / key.scaleY,
+                              -cos * key.originX / key.scaleX + sin * key.originY / key.scaleY,
+                              sin * key.originX / key.scaleX + cos * key.originY / key.scaleY};
+    for (std::size_t index = 0; index < inverse.size(); ++index)
+    {
+        const auto tolerance = std::max(1e-10, 1e-12 * std::max(std::abs(inverse[index]), std::abs(expected[index])));
+        require(std::isfinite(inverse[index]) && std::isfinite(expected[index]) && std::abs(inverse[index] - expected[index]) <= tolerance);
+    }
+}
+
 void patchFixedCalibration(QDomDocument& xml, const Calibration& original, const Calibration& current)
 {
     // Start with the existing fixed coordinate system; keyed and moving frames need their own oracle.
@@ -397,13 +450,7 @@ void patchFixedCalibration(QDomDocument& xml, const Calibration& original, const
                                key.scaleX != 0 && key.scaleY != 0);
                        const auto determinant = key.scaleX * key.scaleY;
                        require(std::isfinite(determinant) && determinant != 0);
-                       const auto angle = key.angleDegrees * (std::numbers::pi / 180.0);
-                       const auto cos = std::cos(angle);
-                       const auto sin = std::sin(angle);
-                       require(std::isfinite(cos / key.scaleX) && std::isfinite(sin / key.scaleX) && std::isfinite(cos / key.scaleY) &&
-                               std::isfinite(sin / key.scaleY) &&
-                               std::isfinite(cos * key.originX / key.scaleX - sin * key.originY / key.scaleY) &&
-                               std::isfinite(sin * key.originX / key.scaleX + cos * key.originY / key.scaleY));
+                       requireTrackerInverse(key);
                        patchDouble(document, frame, "xorigin", key.originX);
                        patchDouble(document, frame, "yorigin", key.originY);
                        patchDouble(document, frame, "angle", key.angleDegrees);

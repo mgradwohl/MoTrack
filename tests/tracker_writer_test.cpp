@@ -583,6 +583,19 @@ TEST(TrackerWriter, RejectsUnsafeCalibrationModesTransformsAndSnapping)
         [](auto& value) { value.keyframes.front().scaleX = value.keyframes.front().scaleY = 1e200; },
         [](auto& value)
         {
+            value.keyframes.front().angleDegrees = 45;
+            value.keyframes.front().scaleX = value.keyframes.front().scaleY = 2e-162;
+        },
+        [](auto& value)
+        {
+            value.keyframes.front().angleDegrees = 45;
+            value.keyframes.front().scaleX = 4;
+            value.keyframes.front().scaleY = 8;
+            value.keyframes.front().originX = 1e308;
+            value.keyframes.front().originY = 0;
+        },
+        [](auto& value)
+        {
             value.keyframes.front().scaleX = 1e-100;
             value.keyframes.front().originX = 1e308;
         }};
@@ -595,6 +608,16 @@ TEST(TrackerWriter, RejectsUnsafeCalibrationModesTransformsAndSnapping)
         EXPECT_THROW(motrack::writeTrackerProject(output, project, imported.source), motrack::ProjectError);
         EXPECT_EQ(readBytes(output), original);
     }
+    // Java's diagonal special case divides before translating and safely accepts this value.
+    auto diagonal = imported.project;
+    auto calibration = *imported.project.calibration;
+    calibration.keyframes.front().originX = 1e308;
+    calibration.keyframes.front().originY = 0;
+    calibration.keyframes.front().scaleX = 4;
+    calibration.keyframes.front().scaleY = 8;
+    calibration.keyframes.front().angleDegrees = 0;
+    diagonal.calibration = calibration;
+    EXPECT_NO_THROW(static_cast<void>(motrack::renderTrackerProject(diagonal, imported.source)));
     auto locked = original;
     const std::string lockProperty = R"(name="locked" type="boolean">false)";
     locked.replace(locked.find(lockProperty), lockProperty.size(), R"(name="locked" type="boolean">true)");
