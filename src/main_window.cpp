@@ -26,6 +26,7 @@
 #include <QSaveFile>
 #include <QSignalBlocker>
 #include <QSlider>
+#include <QSpinBox>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QStyle>
@@ -39,6 +40,7 @@
 #include <cmath>
 #include <functional>
 #include <iterator>
+#include <limits>
 #include <utility>
 
 namespace motrack
@@ -167,6 +169,9 @@ MainWindow::MainWindow()
     repeat->setShortcuts({QKeySequence("Shift+Return"), QKeySequence("Shift+Enter")});
     auto* tools = addToolBar(tr("Project"));
     tools->addAction(open);
+    m_ClipSettings = tools->addAction(tr("Clip Settings"));
+    m_ClipSettings->setObjectName("clipSettings");
+    m_ClipSettings->setEnabled(false);
     m_Calibrate = tools->addAction(tr("Calibration Stick"));
     m_Calibrate->setObjectName("calibrationStick");
     m_Calibrate->setCheckable(true);
@@ -327,26 +332,9 @@ MainWindow::MainWindow()
                 refreshEditViews(static_cast<int>(index));
                 statusBar()->showMessage(tr("Shift-click the image to mark the selected point mass."));
             });
-    connect(m_Undo,
-            &QAction::triggered,
-            this,
-            [this]
-            {
-                if (m_Edits.undo(m_Project))
-                {
-                    refreshEditViews(m_TrackPicker->currentIndex());
-                }
-            });
-    connect(m_Redo,
-            &QAction::triggered,
-            this,
-            [this]
-            {
-                if (m_Edits.redo(m_Project))
-                {
-                    refreshEditViews(m_TrackPicker->currentIndex());
-                }
-            });
+    connect(m_Undo, &QAction::triggered, this, [this] { undoOrRedo(false); });
+    connect(m_Redo, &QAction::triggered, this, [this] { undoOrRedo(true); });
+    connect(m_ClipSettings, &QAction::triggered, this, &MainWindow::editClipSettings);
     connect(repeat, &QAction::triggered, this, &MainWindow::repeatPreviousMark);
     connect(m_Calibrate,
             &QAction::toggled,
@@ -402,12 +390,18 @@ bool MainWindow::loadProject(const QString& path)
     m_MoviePath.clear();
     m_MovieFrameTimes = std::move(document.movieFrameTimes);
     const auto& clip = m_Project.clip;
-    if (!m_Sequence && clip.mediaReferences.size() == 1 && clip.stepCount.value_or(0) > 0)
+    const auto steps = clip.stepCount.value_or(0);
+    if (!m_Sequence && clip.mediaReferences.size() == 1 && steps > 0)
     {
         const auto movie = resolveLocalMediaPath(path, clip.mediaReferences.front());
         if (QFileInfo(movie).isFile())
         {
             m_MoviePath = movie;
+            const auto last = static_cast<std::int64_t>(clip.firstFrame) + static_cast<std::int64_t>(steps - 1) * clip.stepSize;
+            if (!clip.sourceFrameCount && last < std::numeric_limits<int>::max())
+            {
+                m_Project.clip.sourceFrameCount = static_cast<int>(last + 1);
+            }
         }
     }
     activateProject(path);
@@ -455,6 +449,7 @@ void MainWindow::openMovie(const QString& path)
                 }
                 m_Project = {};
                 m_Project.clip.stepCount = index.frameCount;
+                m_Project.clip.sourceFrameCount = index.frameCount;
                 m_Project.clip.mediaReferences.push_back(QFileInfo(path).fileName().toStdString());
                 m_Sequence.reset();
                 m_MoviePath = path;
@@ -528,7 +523,19 @@ void MainWindow::activateProject(const QString& path)
     m_SaveAs->setEnabled(true);
     m_Save->setEnabled(true);
     refreshEditViews(0);
+    syncClipControls();
+    setWindowTitle(tr("%1[*] — MoTrack").arg(QFileInfo(path).fileName()));
+}
+
+void MainWindow::syncClipControls()
+{
+    setPlaying(false);
+    if (m_Sequence)
+    {
+        m_Sequence = ImageSequence::open(m_ProjectPath, m_Project.clip);
+    }
     const int stepCount = m_Sequence ? m_Sequence->stepCount() : (m_MoviePath.isEmpty() ? 0 : m_Project.clip.stepCount.value_or(0));
+    m_ClipSettings->setEnabled(stepCount > 0);
     {
         const QSignalBlocker blocker(m_StepSlider);
         m_StepSlider->setRange(0, std::max(0, stepCount - 1));
@@ -539,7 +546,61 @@ void MainWindow::activateProject(const QString& path)
         m_Video->display({}, {}, tr("No supported local video or image sequence is attached to this project."));
     }
     displayStep(0);
-    setWindowTitle(tr("%1[*] — MoTrack").arg(QFileInfo(path).fileName()));
+}
+
+void MainWindow::undoOrRedo(bool redo)
+{
+    const auto before = clipRange(m_Project.clip);
+    const bool changed = redo ? m_Edits.redo(m_Project) : m_Edits.undo(m_Project);
+    if (changed)
+    {
+        if (before != clipRange(m_Project.clip))
+        {
+            syncClipControls();
+        }
+        refreshEditViews(m_TrackPicker->currentIndex());
+    }
+}
+
+void MainWindow::editClipSettings()
+{
+    setPlaying(false);
+    const auto request = m_RequestGeneration.load();
+    const auto& clip = m_Project.clip;
+    const auto last = static_cast<std::int64_t>(clip.firstFrame) + static_cast<std::int64_t>(m_StepSlider->maximum()) * clip.stepSize;
+    const auto safeLast = static_cast<int>(std::min<std::int64_t>(last, std::numeric_limits<int>::max()));
+    const auto sourceLast = m_Sequence ? static_cast<int>(clip.mediaReferences.size()) - 1 : clip.sourceFrameCount.value_or(0) - 1;
+    const auto maxFrame = std::max(safeLast, sourceLast);
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Clip Settings"));
+    auto* layout = new QFormLayout(&dialog);
+    auto* first = new QSpinBox;
+    auto* end = new QSpinBox;
+    auto* stride = new QSpinBox;
+    first->setObjectName("clipStart");
+    end->setObjectName("clipEnd");
+    stride->setObjectName("clipStride");
+    first->setRange(0, safeLast);
+    first->setValue(clip.firstFrame);
+    end->setRange(clip.firstFrame, maxFrame);
+    end->setValue(safeLast);
+    stride->setRange(1, std::max({1, maxFrame, clip.stepSize}));
+    stride->setValue(clip.stepSize);
+    layout->addRow(tr("&Start frame"), first);
+    layout->addRow(tr("&End frame"), end);
+    layout->addRow(tr("Step si&ze"), stride);
+    connect(first, &QSpinBox::valueChanged, end, &QSpinBox::setMinimum);
+    connect(end, &QSpinBox::valueChanged, first, &QSpinBox::setMaximum);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    layout->addRow(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    if (dialog.exec() == QDialog::Accepted && request == m_RequestGeneration &&
+        m_Edits.setClipRange(m_Project, first->value(), end->value(), stride->value()))
+    {
+        syncClipControls();
+        refreshEditViews(m_TrackPicker->currentIndex());
+    }
 }
 
 bool MainWindow::confirmDiscard()

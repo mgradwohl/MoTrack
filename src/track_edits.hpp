@@ -19,6 +19,16 @@ struct CalibrationDistance
     std::string unit;
 };
 
+struct ClipRange
+{
+    int firstFrame;
+    int stepSize;
+    std::optional<int> stepCount;
+    bool operator==(const ClipRange&) const = default;
+};
+
+[[nodiscard]] ClipRange clipRange(const Clip& clip);
+
 /// An edit history for one open project. Track slots stay stable until their creation is undone.
 class TrackEdits
 {
@@ -29,6 +39,7 @@ class TrackEdits
     void createPointMass(LegacyProject& project, std::string name);
     bool markPointMass(LegacyProject& project, std::size_t track, Mark mark);
     bool calibrateDistance(LegacyProject& project, CalibrationDistance distance);
+    bool setClipRange(LegacyProject& project, int firstFrame, int lastFrame, int stepSize);
     [[nodiscard]] bool canUndo() const;
     [[nodiscard]] bool canRedo() const;
     bool undo(LegacyProject& project);
@@ -55,7 +66,13 @@ class TrackEdits
         std::string beforeUnit;
     };
 
-    using Edit = std::variant<AddTrack, ChangeMark, ChangeCalibration>;
+    struct ChangeClip
+    {
+        ClipRange after;
+        ClipRange before;
+    };
+
+    using Edit = std::variant<AddTrack, ChangeMark, ChangeCalibration, ChangeClip>;
     static void apply(LegacyProject& project, const Edit& edit, bool forward);
     void append(LegacyProject& project, Edit edit);
 

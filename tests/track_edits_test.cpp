@@ -9,6 +9,26 @@
 namespace
 {
 
+TEST(TrackEdits, ChangesTheClipWithoutRenumberingMarks)
+{
+    motrack::LegacyProject project;
+    motrack::TrackEdits edits;
+    EXPECT_FALSE(edits.setClipRange(project, 0, std::numeric_limits<int>::max(), 1));
+    project.clip.sourceFrameCount = 12;
+    project.pointMasses.push_back({.name = "Ball", .marks = {{.frame = 4, .x = 2, .y = 3}}});
+    EXPECT_FALSE(edits.setClipRange(project, 7, 6, 1));
+    EXPECT_FALSE(edits.setClipRange(project, 1, 12, 1));
+    EXPECT_TRUE(edits.setClipRange(project, 1, 10, 3));
+    EXPECT_EQ(project.clip.stepCount, 4);
+    EXPECT_FALSE(edits.setClipRange(project, 1, 10, 3));
+    EXPECT_EQ(project.pointMasses.front().marks.front().frame, 4);
+    EXPECT_TRUE(edits.undo(project));
+    EXPECT_EQ(project.clip.firstFrame, 0);
+    EXPECT_FALSE(project.clip.stepCount.has_value());
+    EXPECT_TRUE(edits.redo(project));
+    EXPECT_EQ(project.clip.firstFrame, 1);
+}
+
 TEST(TrackEdits, InsertsReplacesAndRestoresMarksInFrameOrder)
 {
     motrack::LegacyProject project;

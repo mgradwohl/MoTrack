@@ -52,6 +52,9 @@ class MainWindow final : public QMainWindow
     void setPlaying(bool playing);
     void schedulePlayback();
     void activateProject(const QString& path);
+    void syncClipControls();
+    void editClipSettings();
+    void undoOrRedo(bool redo);
     void cancelMovieOpen();
     bool chooseWorkspacePath();
     bool saveCurrentWorkspace();
@@ -79,6 +82,7 @@ class MainWindow final : public QMainWindow
     QAction* m_Undo;
     QAction* m_Redo;
     QAction* m_Calibrate;
+    QAction* m_ClipSettings;
     QComboBox* m_TrackPicker;
     QComboBox* m_PlotQuantity;
     PositionPlot* m_Plot;

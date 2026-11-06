@@ -38,6 +38,8 @@ Choose a point mass from the toolbar or create one in the Tracks menu. Shift-cli
 
 Choose a quantity above the plot. Select a plotted point to jump to its video frame. Position uses the frame number when the project has no known timebase. Velocity uses frame timestamps from directly opened movies or saved constant image-sequence timing, and is left blank at the clip edges and across gaps in the marks.
 
+Use Clip Settings to choose the starting frame, ending frame, and frame interval for an experiment. Existing marks keep their original frame numbers when the clip changes.
+
 To set a known distance, select Calibration Stick, click two distinct points in the displayed image, and enter their distance and unit. Undo restores the previous scale and unit.
 
 ### Stage a local desktop build
