@@ -1,5 +1,7 @@
 #include "tracker_writer.hpp"
 
+#include "measurements.hpp"
+
 #include <QByteArray>
 #include <QDomDocument>
 #include <QSaveFile>
@@ -373,7 +375,7 @@ void patchMarks(QDomDocument& xml, const QDomElement& object, const std::vector<
     }
 }
 
-void requireTrackerInverse(const CalibrationKey& key)
+std::array<double, 6> trackerInverse(const CalibrationKey& key)
 {
     // ImageCoordSystem normalizes sine/cosine, builds this image affine matrix, then uses
     // Java 17 AffineTransform.createInverse(). Algebraically simplified translations can
@@ -423,9 +425,54 @@ void requireTrackerInverse(const CalibrationKey& key)
         const auto tolerance = std::max(1e-10, 1e-12 * std::max(std::abs(inverse[index]), std::abs(expected[index])));
         require(std::isfinite(inverse[index]) && std::isfinite(expected[index]) && std::abs(inverse[index] - expected[index]) <= tolerance);
     }
+    return inverse;
 }
 
-void patchFixedCalibration(QDomDocument& xml, const Calibration& original, const Calibration& current)
+void requireTrackerCoordinates(const LegacyProject& project, const Calibration& calibration, const std::array<double, 6>& inverse)
+{
+    const auto check = [&](const Mark& point)
+    {
+        const auto native = worldPosition(calibration, point);
+        if (!native)
+        {
+            require(false);
+            return;
+        }
+        // AffineTransform evaluates products, their sum, then translation. Test coordinates,
+        // not just coefficients: cancellation can be large relative to a near-zero result.
+        const auto xx = inverse[0] * point.x;
+        const auto xy = inverse[2] * point.y;
+        const auto yx = inverse[1] * point.x;
+        const auto yy = inverse[3] * point.y;
+        const std::array actual{(xx + xy) + inverse[4], (yx + yy) + inverse[5]};
+        const std::array expected{native->x, native->y};
+        for (std::size_t axis = 0; axis < actual.size(); ++axis)
+        {
+            const auto tolerance = std::max(1e-10, 1e-12 * std::max(std::abs(actual[axis]), std::abs(expected[axis])));
+            require(std::isfinite(actual[axis]) && std::abs(actual[axis] - expected[axis]) <= tolerance);
+        }
+    };
+    const auto& key = calibration.keyframes.front();
+    check({.frame = 0, .x = key.originX, .y = key.originY});
+    check({.frame = 0, .x = 13.5, .y = 17.25}); // Independent corpus coordinate probe.
+    for (const auto& mass : project.pointMasses)
+    {
+        for (const auto& mark : mass.marks)
+        {
+            check(mark);
+        }
+    }
+    for (const auto& vector : project.vectors)
+    {
+        for (const auto& sample : vector.samples)
+        {
+            check({.frame = sample.frame, .x = sample.tailX, .y = sample.tailY});
+            check({.frame = sample.frame, .x = sample.tailX + sample.componentX, .y = sample.tailY + sample.componentY});
+        }
+    }
+}
+
+void patchFixedCalibration(QDomDocument& xml, const Calibration& original, const Calibration& current, const LegacyProject& project)
 {
     // Start with the existing fixed coordinate system; keyed and moving frames need their own oracle.
     require(original.fixedOrigin && original.fixedAngle && original.fixedScale && current.fixedOrigin && current.fixedAngle &&
@@ -443,14 +490,14 @@ void patchFixedCalibration(QDomDocument& xml, const Calibration& original, const
                    original.keyframes,
                    current.keyframes,
                    "org.opensourcephysics.media.core.ImageCoordSystem$FrameData",
-                   [](auto& document, const auto& frame, const CalibrationKey& key)
+                   [&](auto& document, const auto& frame, const CalibrationKey& key)
                    {
                        require(std::isfinite(key.originX) && std::isfinite(key.originY) && std::isfinite(key.angleDegrees) &&
                                std::abs(key.angleDegrees) <= 180 && std::isfinite(key.scaleX) && std::isfinite(key.scaleY) &&
                                key.scaleX != 0 && key.scaleY != 0);
                        const auto determinant = key.scaleX * key.scaleY;
                        require(std::isfinite(determinant) && determinant != 0);
-                       requireTrackerInverse(key);
+                       requireTrackerCoordinates(project, current, trackerInverse(key));
                        patchDouble(document, frame, "xorigin", key.originX);
                        patchDouble(document, frame, "yorigin", key.originY);
                        patchDouble(document, frame, "angle", key.angleDegrees);
@@ -602,7 +649,7 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
         }
         else
         {
-            patchFixedCalibration(xml, *baseline.project.calibration, *expected.calibration);
+            patchFixedCalibration(xml, *baseline.project.calibration, *expected.calibration, expected);
             baseline.project.calibration = expected.calibration;
             changed = true;
         }

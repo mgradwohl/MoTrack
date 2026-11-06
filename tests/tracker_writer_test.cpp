@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <limits>
 #include <map>
@@ -659,6 +660,53 @@ TEST(TrackerWriter, BoundsDenseVectorFrameArraysBeforeReplacingTheDestination)
     sparse.project.vectors.front().samples.front().tailX += 1;
     EXPECT_THROW(motrack::writeTrackerProject(output, sparse.project, sparse.source), motrack::ProjectError);
     EXPECT_EQ(readBytes(output), xml);
+}
+
+TEST(TrackerWriter, RejectsCalibrationCoordinateCancellationAtOriginAndRetainedMarks)
+{
+    const auto fixture = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk");
+    const auto start = fixture.find("<property name=\"coords\"");
+    const auto end = fixture.find("<property name=\"tracks\"");
+    ASSERT_NE(start, std::string::npos);
+    ASSERT_NE(end, std::string::npos);
+    ASSERT_LT(start, end);
+    auto xml = markedXml();
+    xml.insert(xml.find("<property name='tracks'>"), fixture.substr(start, end - start));
+    const auto imported = motrack::parseTrackerProject(xml);
+    if (!imported.project.calibration)
+    {
+        FAIL() << "Expected fixed source calibration.";
+    }
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("existing.trk");
+    const auto native = temporary.filePath("cancellation.motrack");
+    motrack::writeTrackerProject(output, imported.project, imported.source);
+    for (const bool rotated : {true, false})
+    {
+        motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+        auto calibration = *imported.project.calibration;
+        calibration.keyframes.front() = {.frame = 0,
+                                         .originX = rotated ? 13.5 : 16,
+                                         .originY = rotated ? 17.25 : 16,
+                                         .angleDegrees = rotated ? 45.0 : 0.0,
+                                         .scaleX = 1e-100,
+                                         .scaleY = 2e-100};
+        document.project.calibration = calibration;
+        document.project.pointMasses.front().marks.front() = {
+            .frame = 0, .x = rotated ? 13.5 : std::nextafter(16.0, 17.0), .y = rotated ? 17.25 : 16};
+        motrack::writeWorkspaceDocument(native, document);
+        document = motrack::readWorkspaceDocument(native);
+        if (!document.trackerSource)
+        {
+            FAIL() << "Expected preserved source after native reopen.";
+        }
+        EXPECT_THROW(motrack::writeTrackerProject(output, document.project, *document.trackerSource), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), xml);
+        calibration.keyframes.front().scaleX = 4;
+        calibration.keyframes.front().scaleY = 8;
+        document.project.calibration = calibration;
+        EXPECT_NO_THROW(static_cast<void>(motrack::renderTrackerProject(document.project, *document.trackerSource)));
+    }
 }
 
 } // namespace
