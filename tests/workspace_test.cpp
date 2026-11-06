@@ -145,7 +145,7 @@ TEST(Workspace, OpensATrackerArchiveAndReopensASavedCopy)
     const auto path = temporary.filePath("archived.motrack");
     ASSERT_TRUE(window.saveWorkspace(path));
     const auto source = motrack::readWorkspaceDocument(path).trackerSource;
-    ASSERT_TRUE(source);
+    ASSERT_TRUE(source.has_value());
     EXPECT_EQ(motrack::parseLegacyProject(source->xml).pointMasses.size(), 1u);
     ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
     ASSERT_TRUE(window.loadProject(path));
@@ -153,7 +153,7 @@ TEST(Workspace, OpensATrackerArchiveAndReopensASavedCopy)
     EXPECT_EQ(marks->rowCount(), 2);
     ASSERT_TRUE(window.saveWorkspace(path));
     const auto resaved = motrack::readWorkspaceDocument(path);
-    ASSERT_TRUE(resaved.trackerSource);
+    ASSERT_TRUE(resaved.trackerSource.has_value());
     EXPECT_EQ(resaved.trackerSource->xml, source->xml);
 }
 
@@ -838,7 +838,11 @@ TEST(Workspace, ProcessesEventsDuringSaveWithoutMarkingNewerEditsSaved)
     ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
     auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
     auto* create = window.findChild<QAction*>("newPointMass");
-    ASSERT_TRUE(pool && create);
+    auto* undo = window.findChild<QAction*>("undoEdit");
+    ASSERT_TRUE(pool && create && undo);
+    const auto path = temporary.filePath("snapshot.motrack");
+    ASSERT_TRUE(window.saveWorkspace(path)); // State A is the saved checkpoint.
+    create->trigger();                       // State B is the snapshot written by the upcoming save.
     pool->start(
         [&]
         {
@@ -846,7 +850,6 @@ TEST(Workspace, ProcessesEventsDuringSaveWithoutMarkingNewerEditsSaved)
             static_cast<void>(release.tryAcquire(1, 5000));
         });
     ASSERT_TRUE(entered.tryAcquire(1, 5000));
-    const auto path = temporary.filePath("snapshot.motrack");
     bool processed = false;
     QTimer::singleShot(0,
                        &window,
@@ -855,16 +858,19 @@ TEST(Workspace, ProcessesEventsDuringSaveWithoutMarkingNewerEditsSaved)
                            processed = true;
                            EXPECT_FALSE(window.saveWorkspace(path)); // Reject overlapping writes.
                            EXPECT_FALSE(window.close());
-                           create->trigger();
+                           create->trigger(); // State C arrives while B is saving.
                            release.release();
                        });
     EXPECT_FALSE(window.saveWorkspace(path));
     EXPECT_TRUE(processed);
     EXPECT_TRUE(window.isWindowModified());
-    EXPECT_EQ(motrack::readWorkspaceDocument(path).project.pointMasses.size(), 1u);
+    EXPECT_EQ(motrack::readWorkspaceDocument(path).project.pointMasses.size(), 2u);
+    undo->trigger();
+    undo->trigger(); // Back to A, but the file now contains B: it must still be dirty.
+    EXPECT_TRUE(window.isWindowModified());
     ASSERT_TRUE(window.saveWorkspace(path));
     EXPECT_FALSE(window.isWindowModified());
-    EXPECT_EQ(motrack::readWorkspaceDocument(path).project.pointMasses.size(), 2u);
+    EXPECT_EQ(motrack::readWorkspaceDocument(path).project.pointMasses.size(), 1u);
 }
 
 TEST(Workspace, DoesNotApplySaveCompletionToAReplacementDocument)
@@ -887,14 +893,63 @@ TEST(Workspace, DoesNotApplySaveCompletionToAReplacementDocument)
                        &window,
                        [&]
                        {
-                           EXPECT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
+                           EXPECT_TRUE(window.loadProject(fixturePath("point-mass.trk"))); // Same path, new document instance.
                            release.release();
                        });
     const auto path = temporary.filePath("old-project.motrack");
     EXPECT_FALSE(window.saveWorkspace(path));
-    EXPECT_TRUE(window.windowTitle().contains("image-sequence.trk"));
+    EXPECT_TRUE(window.windowTitle().contains("point-mass.trk"));
     EXPECT_FALSE(window.isWindowModified());
     EXPECT_EQ(motrack::readWorkspaceDocument(path).project.pointMasses.front().mass, 125.5);
+}
+
+TEST(Workspace, KeepsOnlySuccessfulSaveAsDestinationsAndCheckpoints)
+{
+    for (const bool failWrite : {false, true})
+    {
+        SCOPED_TRACE(failWrite);
+        QTemporaryDir temporary;
+        QSemaphore entered;
+        QSemaphore release;
+        motrack::MainWindow window;
+        ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
+        auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+        auto* create = window.findChild<QAction*>("newPointMass");
+        auto* undo = window.findChild<QAction*>("undoEdit");
+        auto* save = window.findChild<QAction*>("saveProject");
+        ASSERT_TRUE(pool && create && undo && save);
+        const auto original = temporary.filePath("original.motrack");
+        const auto destination = temporary.filePath(failWrite ? "missing/copy.motrack" : "copy.motrack");
+        ASSERT_TRUE(window.saveWorkspace(original));
+        create->trigger();
+        pool->start(
+            [&]
+            {
+                entered.release();
+                static_cast<void>(release.tryAcquire(1, 5000));
+            });
+        ASSERT_TRUE(entered.tryAcquire(1, 5000));
+        QTimer::singleShot(0,
+                           &window,
+                           [&]
+                           {
+                               create->trigger();
+                               release.release();
+                           });
+        EXPECT_FALSE(window.saveWorkspace(destination));
+        undo->trigger();
+        undo->trigger();
+        EXPECT_EQ(window.isWindowModified(), !failWrite);
+        EXPECT_EQ(QFile::exists(destination), !failWrite);
+        if (!failWrite)
+        {
+            EXPECT_EQ(motrack::readWorkspaceDocument(destination).project.pointMasses.size(), 2u);
+        }
+        save->trigger();
+        EXPECT_FALSE(window.isWindowModified());
+        EXPECT_EQ(motrack::readWorkspaceDocument(failWrite ? original : destination).project.pointMasses.size(), 1u);
+        EXPECT_EQ(motrack::readWorkspaceDocument(original).project.pointMasses.size(), 1u);
+    }
 }
 
 TEST(Workspace, ReportsUnavailableMovieFrames)
@@ -970,7 +1025,7 @@ TEST(Workspace, EditsAndSavesTheSelectedMass)
     const auto imported = temporary.filePath("imported.trk");
     ASSERT_TRUE(QFile::copy(fixturePath("point-mass.trk"), imported));
     const auto original = motrack::importTrackerDocument(imported).trackerSource;
-    ASSERT_TRUE(original);
+    ASSERT_TRUE(original.has_value());
     ASSERT_TRUE(window.loadProject(imported));
     auto* action = window.findChild<QAction*>("setPointMassValue");
     ASSERT_TRUE(action && action->isEnabled());
@@ -991,7 +1046,7 @@ TEST(Workspace, EditsAndSavesTheSelectedMass)
     EXPECT_EQ(saved.project.massUnit, "g");
     ASSERT_EQ(saved.project.pointMasses.size(), 1u);
     EXPECT_DOUBLE_EQ(saved.project.pointMasses.front().mass, 250.25);
-    ASSERT_TRUE(saved.trackerSource);
+    ASSERT_TRUE(saved.trackerSource.has_value());
     EXPECT_EQ(saved.trackerSource->xml, original->xml);
     ASSERT_TRUE(QFile::remove(imported));
     motrack::MainWindow reopened;
@@ -999,13 +1054,13 @@ TEST(Workspace, EditsAndSavesTheSelectedMass)
     const auto copy = temporary.filePath("reopened.motrack");
     ASSERT_TRUE(reopened.saveWorkspace(copy));
     const auto resaved = motrack::readWorkspaceDocument(copy);
-    ASSERT_TRUE(resaved.trackerSource);
+    ASSERT_TRUE(resaved.trackerSource.has_value());
     EXPECT_EQ(resaved.trackerSource->xml, original->xml);
     EXPECT_DOUBLE_EQ(resaved.project.pointMasses.front().mass, 250.25);
     EXPECT_FALSE(reopened.loadProject(imported));
     ASSERT_TRUE(reopened.saveWorkspace(copy));
     const auto afterFailedOpen = motrack::readWorkspaceDocument(copy);
-    ASSERT_TRUE(afterFailedOpen.trackerSource);
+    ASSERT_TRUE(afterFailedOpen.trackerSource.has_value());
     EXPECT_EQ(afterFailedOpen.trackerSource->xml, original->xml);
 }
 

@@ -88,7 +88,7 @@ std::optional<TrackerSource> readTrackerSource(const QJsonValue& value)
     const auto encoded = value.toObject().value("xmlBase64");
     require(encoded.isString());
     const auto text = encoded.toString();
-    constexpr auto MAX_ENCODED_SIZE = static_cast<qsizetype>((MAX_TRACKER_XML_BYTES + 2) / 3 * 4);
+    constexpr auto MAX_ENCODED_SIZE = (static_cast<qsizetype>(MAX_TRACKER_XML_BYTES) + 2) / 3 * 4;
     require(text.size() <= MAX_ENCODED_SIZE);
     const auto bytes = QByteArray::fromBase64Encoding(text.toLatin1(), QByteArray::AbortOnBase64DecodingErrors);
     require(static_cast<bool>(bytes));

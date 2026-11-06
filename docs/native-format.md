@@ -28,6 +28,9 @@ Desktop saves validate and serialize an owned document snapshot on a single save
 continues painting and processing worker completions while user input is deferred. Overlapping saves
 and closing during a save are rejected. A revision check prevents a background edit or replacement
 document from being marked saved by an older snapshot; the caller must save the latest state again.
+A successful stale save invalidates the old saved checkpoint, so undo cannot falsely label the old
+file contents clean. It keeps the successfully written destination for the next save. A failed write
+or a save completing after a document replacement does not change the active document's checkpoint.
 
 ## Version-1 migration and remaining work
 

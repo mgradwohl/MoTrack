@@ -50,7 +50,7 @@ TEST(WorkspaceDocument, RetainsEncodedUnknownXmlAfterImportRemovalAndRepeatedSav
     const auto xml = sourceXml();
     ASSERT_TRUE(writeBytes(original, xml));
     auto document = motrack::importTrackerDocument(original);
-    ASSERT_TRUE(document.trackerSource);
+    ASSERT_TRUE(document.trackerSource.has_value());
     EXPECT_EQ(document.trackerSource->xml, xml.toStdString());
     EXPECT_EQ(document.project.description, "caf\xC3\xA9 & data");
     EXPECT_EQ(document.project.unsupportedTrackTypes, std::vector<std::string>{"FutureTrack"});
@@ -58,12 +58,12 @@ TEST(WorkspaceDocument, RetainsEncodedUnknownXmlAfterImportRemovalAndRepeatedSav
     motrack::writeWorkspaceDocument(native, document);
     ASSERT_TRUE(QFile::remove(original));
     auto reopened = motrack::readWorkspaceDocument(native);
-    ASSERT_TRUE(reopened.trackerSource);
+    ASSERT_TRUE(reopened.trackerSource.has_value());
     EXPECT_EQ(reopened.trackerSource->xml, xml.toStdString());
     EXPECT_EQ(reopened.project.description, "Edited in MoTrack");
     motrack::writeWorkspaceDocument(native, reopened);
     const auto resaved = motrack::readWorkspaceDocument(native);
-    ASSERT_TRUE(resaved.trackerSource);
+    ASSERT_TRUE(resaved.trackerSource.has_value());
     EXPECT_EQ(resaved.trackerSource->xml, xml.toStdString());
 }
 

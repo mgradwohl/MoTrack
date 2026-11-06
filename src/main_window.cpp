@@ -28,7 +28,6 @@
 #include <QLocale>
 #include <QMenuBar>
 #include <QMessageBox>
-#include <QPointer>
 #include <QSaveFile>
 #include <QSignalBlocker>
 #include <QSlider>
@@ -872,6 +871,7 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
 
 void MainWindow::activateProject(const QString& path)
 {
+    ++m_DocumentGeneration;
     stopAutoTracking();
     cancelMeasurement();
     setPlaying(false);
@@ -1562,11 +1562,12 @@ bool MainWindow::saveWorkspace(const QString& path)
     // Keep the synchronous result used by Save-before-close, but let the GUI paint and process worker
     // completions. User input is deferred while the owned snapshot is validated and serialized off-thread.
     const auto revision = m_Edits.revision();
-    const auto projectPath = m_ProjectPath;
-    const QPointer<MainWindow> lifetime(this);
+    const auto generation = m_DocumentGeneration;
+    bool alive = true;
+    QEventLoop loop;
+    connect(this, &QObject::destroyed, &loop, [&alive] { alive = false; });
     m_Saving = true;
     statusBar()->showMessage(tr("Saving project…"));
-    QEventLoop loop;
     QFutureWatcher<bool> watcher;
     connect(&watcher, &QFutureWatcher<bool>::finished, &loop, &QEventLoop::quit);
     watcher.setFuture(QtConcurrent::run(m_SavePool,
@@ -1583,17 +1584,13 @@ bool MainWindow::saveWorkspace(const QString& path)
                                             }
                                         }));
     loop.exec(QEventLoop::ExcludeUserInputEvents);
-    if (!lifetime)
+    if (!alive)
     {
         return false;
     }
     m_Saving = false;
-    if (revision != m_Edits.revision())
+    if (generation != m_DocumentGeneration)
     {
-        if (projectPath == m_ProjectPath)
-        {
-            statusBar()->showMessage(tr("Project changed while saving. Save again to keep the latest edits."));
-        }
         return false;
     }
     if (!watcher.result())
@@ -1601,10 +1598,19 @@ bool MainWindow::saveWorkspace(const QString& path)
         statusBar()->showMessage(tr("Could not save this project."));
         return false;
     }
-    m_Edits.markSaved();
     m_SavePath = QFileInfo(path).absoluteFilePath();
-    setWindowModified(false);
     setWindowTitle(tr("%1[*] — MoTrack").arg(QFileInfo(path).fileName()));
+    if (revision != m_Edits.revision())
+    {
+        // The successful write replaced the previous checkpoint on disk. Undo must not label that
+        // old state clean. Keep the successful destination, including Save As, for the next save.
+        m_Edits.invalidateSaved();
+        setWindowModified(true);
+        statusBar()->showMessage(tr("Project changed while saving. Save again to keep the latest edits."));
+        return false;
+    }
+    m_Edits.markSaved();
+    setWindowModified(false);
     statusBar()->showMessage(tr("Project saved."));
     return true;
 }

@@ -54,6 +54,11 @@ void TrackEdits::markSaved()
     m_SavedHead = m_Head;
 }
 
+void TrackEdits::invalidateSaved()
+{
+    m_SavedHead.reset();
+}
+
 bool TrackEdits::isModified() const
 {
     return m_SavedHead != m_Head;

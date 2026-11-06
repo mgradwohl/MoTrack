@@ -161,6 +161,7 @@ class MainWindow final : public QMainWindow
     QString m_SavePath;
     QThreadPool* m_SavePool;
     bool m_Saving = false;
+    quint64 m_DocumentGeneration = 0;
     std::vector<double> m_MovieFrameTimes;
     std::vector<std::chrono::nanoseconds> m_MoviePresentationTimes;
     std::shared_ptr<std::atomic_bool> m_MovieOpenCancelled;

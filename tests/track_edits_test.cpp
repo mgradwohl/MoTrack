@@ -31,6 +31,24 @@ TEST(TrackEdits, ChangesRevisionForEditsUndoRedoAndDocumentReset)
     EXPECT_GT(edits.revision(), redone);
 }
 
+TEST(TrackEdits, InvalidatesASavedCheckpointWithoutChangingTheProjectRevision)
+{
+    motrack::LegacyProject project;
+    motrack::TrackEdits edits;
+    edits.createPointMass(project, "A");
+    edits.markSaved();
+    edits.createPointMass(project, "B");
+    const auto revision = edits.revision();
+    edits.invalidateSaved();
+    EXPECT_EQ(edits.revision(), revision);
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_TRUE(edits.isModified());
+    ASSERT_TRUE(edits.redo(project));
+    EXPECT_TRUE(edits.isModified());
+    edits.markSaved();
+    EXPECT_FALSE(edits.isModified());
+}
+
 TEST(TrackEdits, EditsVectorsAndRestoresSamplesAndTrackOrder)
 {
     motrack::LegacyProject project;
