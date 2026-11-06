@@ -2,6 +2,28 @@
 
 MoTrack starts from [TaskSmack's conventions](https://github.com/mgradwohl/tasksmack/blob/9d2a973/CONTRIBUTING.md), adapted to Qt and three desktop platforms. The [README](README.md) describes toolchain setup and the [migration plan](docs/migration-plan.md) defines the component boundaries.
 
+## Developer setup
+
+Follow the [setup commands in the README](README.md#build-the-prototype). Use `-DryRun` on Windows or `--dry-run` on Linux and macOS to preview installation. WinGet may ask for administrator access for Visual Studio Build Tools. Ubuntu uses APT and sudo when required. On macOS, install Homebrew if needed. The script opens Apple's Command Line Tools installer if the tools are missing. Rerun setup after the installer finishes.
+
+The setup scripts manage Qt 6.8.3, Qt Linguist Tools, and the LLVM 18 formatter under `.dev-tools`. CMake fetches GoogleTest during configuration. An existing Qt 6.8 or newer SDK can also be used through `CMAKE_PREFIX_PATH`.
+
+In each new shell, activate the toolchain and build:
+
+```powershell
+. .\tools\dev-env.ps1
+.\tools\check-prereqs.ps1
+cmake --workflow --preset dev
+```
+
+```sh
+source tools/dev-env.sh
+./tools/check-prereqs.sh
+cmake --workflow --preset dev
+```
+
+The checks locate the tools and compile and link a Qt probe without fetching project dependencies. Pass `-ToolsOnly` or `--tools-only` to skip the probe.
+
 ## C++ style
 
 - Use `PascalCase` for types and enum values, `camelCase` for functions, parameters, locals, and public record fields, `m_PascalCase` for private and protected fields, and `UPPER_SNAKE_CASE` for named `constexpr` variables. Use the lowercase `motrack` root namespace.
@@ -22,9 +44,9 @@ MoTrack starts from [TaskSmack's conventions](https://github.com/mgradwohl/tasks
 Run the CMake configure, build, and test commands in the README. Configure the benchmark target before linting all sources so the compilation database covers it too.
 
 ```sh
-git ls-files -z -- '*.cpp' '*.hpp' | xargs -0 clang-format-18 --dry-run --Werror
+git ls-files -z -- '*.cpp' '*.hpp' | xargs -0 clang-format --dry-run --Werror
 cmake --preset dev -DMOTRACK_BUILD_BENCHMARKS=ON
-git ls-files -z -- '*.cpp' | xargs -0 clang-tidy -p build/dev
+git ls-files -z -- 'src/*.cpp' 'tests/*.cpp' 'benchmarks/*.cpp' | xargs -0 clang-tidy -p build/dev
 ```
 
 CI builds and tests on all three OSes. New behavior needs tests through its normal entry points. Use exact comparisons where appropriate and explicit tolerances for scientific results. The combined production line coverage must stay at or above **90%**. Keep suppressions narrow, explain each in the code, and include known compatibility limits in the pull request.

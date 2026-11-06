@@ -3,4 +3,5 @@
 *.profdata
 /coverage.json
 /.ccache/
+/.dev-tools/
 /profiles/
