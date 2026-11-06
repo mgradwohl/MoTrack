@@ -51,11 +51,12 @@ public final class TrackerSessionReference {
                     Map<String, Object> before = snapshot(panel);
                     if (TrackerIO.save(saved.toFile(), panel) == null || !Files.isRegularFile(saved))
                         throw new IllegalStateException("Tracker did not save the loaded session");
+                    Map<String, Object> afterSave = snapshot(panel);
                     TFrame reopenedFrame = new TFrame();
                     TrackerIO.openURL(saved.toString(), reopenedFrame, guard(() -> whenEvaluated(reopenedFrame, () -> {
                         REPORT.set(TrackerReference.map("reference_version", OSPRuntime.VERSION,
                             "verification_level", "tracker_session_resave", "before", before,
-                            "after", snapshot(onlyPanel(reopenedFrame))));
+                            "after_save", afterSave, "after", snapshot(onlyPanel(reopenedFrame))));
                         DONE.countDown();
                     })));
                 })));

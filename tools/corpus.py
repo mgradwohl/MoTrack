@@ -470,7 +470,10 @@ def check_sessions(manifest, cache, java, probe=None):
                  str(project), str(output)], display=display)
             report = json.loads((output / "session.json").read_text(encoding="utf-8"))
             keys = {"marks": [[0, 3], [7]], "empty-marks": [[], [0]], "first-mark": [[4], [0]]}.get(mode)
-            validate_session(case, report, manifest, expected, keys)
+            try:
+                validate_session(case, report, manifest, expected, keys)
+            except ValueError as error:
+                raise ValueError(f"{error}\nTracker session snapshots (bounded): {json.dumps(report)[:24000]}") from error
             if probe:
                 reimport = output / "native-reimport.json"
                 run([str(Path(probe).resolve()), str(output / "tracker-resaved.trk"), str(reimport)])
