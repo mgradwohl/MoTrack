@@ -59,13 +59,15 @@ The three OS builds and staged smoke tests do not replace interactive platform a
 
 The subsequent source-preservation slice retains original import XML, introduced in version 2.
 Version 3 adds persistent document-scoped point-mass/vector IDs and migrates versions 1/2;
+version 4 records their original XML object associations and preserves unknown associations explicitly
+when migrating older native files. Bindings survive deletion/undo, rename/reorder and source-file removal;
 [native-format.md](native-format.md) records its byte-preservation contract, version-1 migration and
 archive limits. [Native tests](../tests/workspace_document_test.cpp) and desktop tests cover source-input
 removal, edits, repeated save/reopen, malformed envelopes and source replacement when switching media.
 Identity tests cover duplicate names, deletion/undo, creation/redo, non-reuse after branching history,
-old-native migration, strict validation and exact 64-bit persistence. Source-object bindings remain open.
+old-native migration, strict validation and exact 64-bit persistence. Complete archive preservation remains open.
 
-Major current limits: native-only writes; no complete archive preservation or stable source associations; one active tab; reduced track and
+Major current limits: native-only writes; no complete archive preservation; older native imports cannot reconstruct lost source associations; one active tab; reduced track and
 coordinate models; basic AutoTracker and plotting; no particle models, persistent measurement tracks,
 video filter stack, Library Browser, or signed installers. The README describes available interactions.
 
@@ -80,7 +82,7 @@ and platform evidence before it can be marked complete.
 | ID | Required desktop behavior | Status at the snapshot and remaining work | Phase |
 | --- | --- | --- | --- |
 | R01 | Reproducible native builds, CI, review, numerical tests, at least 90% combined C++ line coverage | Implemented foundation; continue applying gates to every new component. | 0, every phase |
-| R02 | Open `.trk`/`.trz`; preserve all supported and unknown content, references, metadata, and archive tabs | Partial: supported point masses/vectors/calibration import; one archive tab selected. Native documents retain that tab's original XML bytes and persistent editable-track IDs. Full archive content and source-object associations remain. | 1–3 |
+| R02 | Open `.trk`/`.trz`; preserve all supported and unknown content, references, metadata, and archive tabs | Partial: supported point masses/vectors/calibration import; one archive tab selected. Native documents retain that tab's original XML, editable-track IDs and source-object associations for new imports. Full archive content remains. Older native sources retain an explicit unknown-association state. | 1–3 |
 | R03 | Save edited standard files plus optional `.motrack`; reopen in both applications without data loss | Partial: native persistence and original XML baseline only. Standard writers, complete archive preservation, paired-save recovery, and Java reopening are missing. | 2–3, every feature |
 | R04 | Multiple experiment tabs, independent undo/dirty state, tab/project Save As, cross-tab import and reusable views | Missing; currently one active experiment. Preserve unopened tabs before adding their UI. | 2–4 |
 | R05 | Movies, stills, image sequences and zipped sequences; accurate clip/time/frame controls and media properties | Partial: local movies/images, clip trim/stride, timestamp indexing, orientation, cache, and playback exist. Audit all baseline formats, rates, sequence operations, and properties controls. | 1, 4, 6 |
@@ -209,7 +211,7 @@ media through Tracker's normal application loader, saves them in Java, then reop
 loaded content. This is Java's own resave baseline, not MoTrack standard-file export acceptance.
 Media/archive session loading, broader requirement coverage, runtime/dependency provenance and exact
 source mapping remain unfinished. Phase 2 has an initial XML source envelope, persistent point-mass/vector
-IDs and native version migration. Source-object associations, commands addressed by ID, complete archive
+IDs, original object associations and native version migration. Commands addressed by ID, complete archive
 preservation and session ownership remain. Extend the reference
 evidence alongside these foundations before standard writers. Phase 3 has priority over adding particle-model
 editing. UI familiarity can improve while work progresses, but visual polish cannot replace correctness
@@ -222,7 +224,7 @@ or standard-file compatibility gates.
 | Executable/source reference | Desktop 6.3.5's JAR URL, bytes and SHA-256 are pinned; its runtime version is checked. Initial XML/coordinate snapshots were produced with Temurin 17.0.21+9. Matching source mapping and the full GUI/media dependency stack remain to verify. | 1, before full-session golden results |
 | OS and CPU support | CI currently uses Windows 2025, macOS 15 and Ubuntu 24.04 runners. These are test environments, not declared minimum end-user OS versions. Specify release minimums and Intel/Arm coverage explicitly. | 1, finalized before 12 |
 | Codec coverage and export | FFmpeg import works for tested fixtures; pin a format/codec/container test matrix and identify any licensing or platform limitations. Do not label untested formats supported because FFmpeg recognizes their names. | 1, 6 and 10 |
-| Native preservation representation | Version 3 retains version 2's bounded original XML and adds document-scoped track IDs with a non-reusing allocation counter. Versions 1/2 migrate without inventing lost source or source-object bindings. See [native format](native-format.md). Extend with source associations and archive storage. | 2 |
+| Native preservation representation | Version 4 retains bounded original XML, document-scoped IDs, a non-reusing counter and original-object bindings for new imports. Versions 1–3 migrate without inventing lost source or bindings. See [native format](native-format.md). Complete archive storage remains. | 2 |
 | Pair-save recovery | Specify staging, backup/recovery and user-visible partial-success behavior; two independent filesystem replacements cannot be assumed atomic. | 3 |
 | Numerical equivalence | Freeze quantity-specific tolerances, derivative/solver choices, units and gap semantics from actual reference results, including boundary and near-zero values. | 1, extended per feature |
 | External-model exchange and supporting documents | Verify the reference's data protocols and choose native adapters/viewers without silently excluding those workflows or executing arbitrary document content. | 9–11 |

@@ -1,12 +1,12 @@
 # Native document compatibility
 
-MoTrack saves a bounded JSON document with `format: "MoTrack"`. The current writer emits version 3;
-the reader accepts versions 1, 2 and 3 and rejects unknown versions. Existing measurement, calibration,
+MoTrack saves a bounded JSON document with `format: "MoTrack"`. The current writer emits version 4;
+the reader accepts versions 1 through 4 and rejects unknown versions. Existing measurement, calibration,
 clip, media-reference and movie-time fields retain their version-1 meanings.
 
 ## Track identities
 
-Version 3 stores an `id` on every editable point mass and independent vector and a document-wide
+Versions 3 and 4 store an `id` on every editable point mass and independent vector and a document-wide
 `nextTrackId` counter. These are canonical positive decimal strings, preserving the full unsigned
 64-bit range without JSON floating-point rounding. IDs are unique across both track types, scoped to
 one document, and independent of names and list positions. Zero is reserved for uninitialized records.
@@ -17,13 +17,13 @@ modified until the advanced counter is saved, and closing still offers Save. An 
 
 Native reads and writes reject zero/duplicate IDs and a counter not greater than every live ID. Writes
 validate before replacing the existing file. Versions 1 and 2 receive fresh identities during migration;
-subsequent version-3 saves retain them and the counter, including after the highest-ID track is deleted.
+subsequent saves retain them and the counter, including after the highest-ID track is deleted.
 This migration does not infer associations with original Tracker XML from names or current list order.
-Source-object bindings and commands addressed by IDs remain separate implementation work.
+Commands addressed by IDs remain separate implementation work.
 
 ## Tracker import source
 
-Versions 2 and 3 require `trackerSource`, either `null` for a document without preserved source or an object
+Versions 2 through 4 require `trackerSource`, either `null` for a document without preserved source or an object
 with `xmlBase64`. This is canonical Base64 of the **original XML bytes**, not Unicode text reserialized
 from a DOM. The original encoding declaration, whitespace, comments, unknown objects, properties and
 references survive exactly. The source is the immutable import baseline; the editable project fields
@@ -50,15 +50,35 @@ A successful stale save invalidates the old saved checkpoint, so undo cannot fal
 file contents clean. It keeps the successfully written destination for the next save. A failed write
 or a save completing after a document replacement does not change the active document's checkpoint.
 
+## Original object associations
+
+Version 4 adds `trackerSource.bindings`: `null` when associations are unknown, or an array when they
+were recorded at import. An empty array means the source has no editable point masses or independent
+vectors. Each record contains a decimal-string `trackId`, integer `sourceIndex`, and `kind` (`pointMass`
+or `vector`). The index is the zero-based ordinal among **all direct property children** of the original
+`tracks` property, including unknown objects and empty entries. It is not a track name, current list
+position, or the numeric text inside an OSP property name such as `[10]`.
+
+Every originally editable object has exactly one binding. Bindings remain in the immutable source
+envelope after deletion; a future writer can distinguish a deleted imported object from a newly created
+track. Rename, reorder, undo/redo, native reopen and removal of the standalone source file leave these
+associations intact. Unknown objects remain byte-preserved in XML and are not given editable bindings.
+
+Validation reparses the baseline and checks complete, unique object positions, matching original/live
+types, unique IDs, and IDs below the saved allocation counter. A deleted object's ID must remain reserved.
+Malformed associations fail before an existing native file is replaced. Versions 2/3 retain their XML
+when migrated but get `bindings: null`; version 3 retains its existing IDs, while versions 1/2 receive
+new ones. Matching names or order cannot prove historical identity after earlier edits, so migration
+does not invent associations. Future additions to binding kinds require an explicit schema migration.
+
 ## Version-1 migration and remaining work
 
-Version 1 did not retain source XML. Reading it produces no source envelope; saving it emits version 3
+Version 1 did not retain source XML. Reading it produces no source envelope; saving it emits version 4
 with `trackerSource: null`. Migration preserves its editable data but cannot recover content previously
-discarded. Earlier MoTrack builds that only accept versions 1 or 2 cannot open version-3 documents.
+discarded. Earlier MoTrack builds that only accept versions 1 through 3 cannot open version-4 documents.
 
 For a `.trz` import, this first preservation slice retains the selected tab's XML. Media still depends
-on the referenced original archive, and other archive members/tabs are not embedded. Associations between
-edited records and original XML objects, complete archive preservation, per-document
+on the referenced original archive, and other archive members/tabs are not embedded. Complete archive preservation, per-document
 session ownership, and standard-file writers remain unfinished. An unknown object retained in this
 envelope is not an implemented track type.
 
