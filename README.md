@@ -18,10 +18,14 @@ The project targets desktop workflows. Browser support is out of scope.
 
 ### Build the prototype
 
-Install CMake 3.25 or later, Ninja, Clang, and Qt 6.8 with Linguist Tools. Set `CMAKE_PREFIX_PATH` to the Qt installation. On Windows, use an x64 Visual Studio Developer PowerShell with LLVM and the Qt `bin` directory on `PATH`. The configure step fetches GoogleTest.
+Install CMake 3.25 or later, Ninja, Clang, and Qt 6.8 with Linguist Tools. Install ccache for faster rebuilds. Set `CMAKE_PREFIX_PATH` to the Qt installation. On Windows, use an x64 Visual Studio Developer PowerShell with LLVM and the Qt `bin` directory on `PATH`. The configure step fetches GoogleTest.
 
 ```sh
 cmake --workflow --preset dev
 ```
 
 Run `build/dev/motrack` (`motrack.exe` on Windows) and open `tests/fixtures/point-mass.trk` from the File menu. The initial interface is available in English and Spanish.
+
+## License
+
+MoTrack is licensed under the GNU General Public License, version 3 or later. See [LICENSE](LICENSE). Dependencies and any materials reused from Tracker retain their applicable notices and terms.

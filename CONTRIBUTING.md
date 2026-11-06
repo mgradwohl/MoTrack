@@ -19,14 +19,27 @@ MoTrack starts from [TaskSmack's conventions](https://github.com/mgradwohl/tasks
 
 ## Checks before a pull request
 
-Run the CMake configure, build, and test commands in the README. The build exports a compilation database for clangd and clang-tidy. Run the LLVM tools against handwritten C++ sources.
+Run the CMake configure, build, and test commands in the README. Configure the benchmark target before linting all sources so the compilation database covers it too.
 
 ```sh
-clang-format --dry-run --Werror src/*.cpp src/*.hpp tests/*.cpp
-clang-tidy -p build/dev src/*.cpp tests/*.cpp
+git ls-files -z -- '*.cpp' '*.hpp' | xargs -0 clang-format-18 --dry-run --Werror
+cmake --preset dev -DMOTRACK_BUILD_BENCHMARKS=ON
+git ls-files -z -- '*.cpp' | xargs -0 clang-tidy -p build/dev
 ```
 
 CI builds and tests on all three OSes. New behavior needs tests through its normal entry points. Use exact comparisons where appropriate and explicit tolerances for scientific results. The combined production line coverage must stay at or above **90%**. Keep suppressions narrow, explain each in the code, and include known compatibility limits in the pull request.
+
+## Build presets
+
+Use `cmake --list-presets=all` for the available configure, build, test, and workflow names. The ordinary presets run on all three platforms. The `win-*` aliases match TaskSmack's Windows naming. CMake uses ccache when installed and respects a compiler launcher explicitly supplied by the developer. To disable automatic discovery, configure with `-DMOTRACK_CCACHE=OFF`.
+
+| Presets | Use |
+| --- | --- |
+| `debug`, `relwithdebinfo`, `release` | Development, investigation with symbols, and the ordinary release build. |
+| `optimized`, `release-compatible`, `unity` | ThinLTO (LLD required on Windows and Linux), a baseline desktop CPU target, and a combined translation-unit build. |
+| `coverage`, `asan-ubsan`, `ubsan`, `tsan`, `msan` | LLVM coverage and separate sanitizer builds. Sanitizers require matching Clang runtimes. MSan is Linux-only and requires an instrumented Qt and C++ standard library. |
+| `profile`, `benchmark` | A symbolized profiling build and an optimized legacy import benchmark. Run `motrack_import_benchmark <project.trk>` with representative fixtures. |
+| `pgo-generate`, `pgo-use`, `pgo-baseline` | Instrument a build, exercise real workloads, merge profiles with matching `llvm-profdata` into `profiles/motrack.profdata`, and compare the optimized build with the uninstrumented baseline. |
 
 ## What MoTrack takes from TaskSmack
 

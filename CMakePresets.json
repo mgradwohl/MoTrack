@@ -2,13 +2,87 @@
   "version": 6,
   "configurePresets": [
     {
-      "name": "dev",
+      "name": "base",
+      "hidden": true,
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
         "CMAKE_CXX_COMPILER": "clang++",
-        "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "windows",
+      "hidden": true,
+      "inherits": "base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "posix",
+      "hidden": true,
+      "inherits": "base",
+      "condition": {
+        "type": "notEquals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "linux",
+      "hidden": true,
+      "inherits": "base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
+      "name": "dev",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "debug",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS_DEBUG": "-g -ftrivial-auto-var-init=pattern"
+      }
+    },
+    {
+      "name": "relwithdebinfo",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+      }
+    },
+    {
+      "name": "release",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "optimized",
+      "inherits": "release",
+      "cacheVariables": {
+        "MOTRACK_THIN_LTO": "ON"
+      }
+    },
+    {
+      "name": "release-compatible",
+      "inherits": "release",
+      "cacheVariables": {
+        "MOTRACK_COMPATIBLE": "ON"
       }
     },
     {
@@ -17,15 +91,226 @@
       "cacheVariables": {
         "MOTRACK_COVERAGE": "ON"
       }
+    },
+    {
+      "name": "unity",
+      "inherits": "debug",
+      "cacheVariables": {
+        "CMAKE_UNITY_BUILD": "ON"
+      }
+    },
+    {
+      "name": "profile",
+      "inherits": "relwithdebinfo",
+      "cacheVariables": {
+        "CMAKE_CXX_FLAGS_RELWITHDEBINFO": "-O2 -g -DNDEBUG -fno-omit-frame-pointer",
+        "MOTRACK_BUILD_BENCHMARKS": "ON"
+      }
+    },
+    {
+      "name": "benchmark",
+      "inherits": "release",
+      "cacheVariables": {
+        "MOTRACK_BUILD_BENCHMARKS": "ON"
+      }
+    },
+    {
+      "name": "pgo-generate",
+      "inherits": "benchmark",
+      "cacheVariables": {
+        "MOTRACK_PGO_GENERATE": "ON"
+      }
+    },
+    {
+      "name": "pgo-use",
+      "inherits": "benchmark",
+      "cacheVariables": {
+        "MOTRACK_PGO_PROFILE": "${sourceDir}/profiles/motrack.profdata"
+      }
+    },
+    {
+      "name": "pgo-baseline",
+      "inherits": "benchmark"
+    },
+    {
+      "name": "asan-ubsan",
+      "inherits": "posix",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS_DEBUG": "-g -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer"
+      }
+    },
+    {
+      "name": "ubsan",
+      "inherits": "posix",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS_DEBUG": "-g -fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer"
+      }
+    },
+    {
+      "name": "tsan",
+      "inherits": "posix",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS_DEBUG": "-g -fsanitize=thread -fno-omit-frame-pointer"
+      }
+    },
+    {
+      "name": "msan",
+      "inherits": "linux",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS_DEBUG": "-g -stdlib=libc++ -fsanitize=memory -fsanitize-memory-track-origins=2 -fno-omit-frame-pointer -fPIE",
+        "CMAKE_EXE_LINKER_FLAGS": "-pie"
+      }
+    },
+    {
+      "name": "win-debug",
+      "inherits": [
+        "windows",
+        "debug"
+      ]
+    },
+    {
+      "name": "win-relwithdebinfo",
+      "inherits": [
+        "windows",
+        "relwithdebinfo"
+      ]
+    },
+    {
+      "name": "win-release",
+      "inherits": [
+        "windows",
+        "release"
+      ]
+    },
+    {
+      "name": "win-optimized",
+      "inherits": [
+        "windows",
+        "optimized"
+      ]
+    },
+    {
+      "name": "win-release-compatible",
+      "inherits": [
+        "windows",
+        "release-compatible"
+      ]
+    },
+    {
+      "name": "win-coverage",
+      "inherits": [
+        "windows",
+        "coverage"
+      ]
+    },
+    {
+      "name": "win-unity",
+      "inherits": [
+        "windows",
+        "unity"
+      ]
+    },
+    {
+      "name": "win-profile",
+      "inherits": [
+        "windows",
+        "profile"
+      ]
+    },
+    {
+      "name": "win-benchmark",
+      "inherits": [
+        "windows",
+        "benchmark"
+      ]
+    },
+    {
+      "name": "win-pgo-generate",
+      "inherits": [
+        "windows",
+        "pgo-generate"
+      ]
+    },
+    {
+      "name": "win-pgo-use",
+      "inherits": [
+        "windows",
+        "pgo-use"
+      ]
+    },
+    {
+      "name": "win-pgo-baseline",
+      "inherits": [
+        "windows",
+        "pgo-baseline"
+      ]
     }
   ],
   "buildPresets": [
     { "name": "dev", "configurePreset": "dev" },
-    { "name": "coverage", "configurePreset": "coverage" }
+    { "name": "debug", "configurePreset": "debug" },
+    { "name": "relwithdebinfo", "configurePreset": "relwithdebinfo" },
+    { "name": "release", "configurePreset": "release" },
+    { "name": "optimized", "configurePreset": "optimized" },
+    { "name": "release-compatible", "configurePreset": "release-compatible" },
+    { "name": "coverage", "configurePreset": "coverage" },
+    { "name": "unity", "configurePreset": "unity" },
+    { "name": "profile", "configurePreset": "profile" },
+    { "name": "benchmark", "configurePreset": "benchmark" },
+    { "name": "pgo-generate", "configurePreset": "pgo-generate" },
+    { "name": "pgo-use", "configurePreset": "pgo-use" },
+    { "name": "pgo-baseline", "configurePreset": "pgo-baseline" },
+    { "name": "asan-ubsan", "configurePreset": "asan-ubsan" },
+    { "name": "ubsan", "configurePreset": "ubsan" },
+    { "name": "tsan", "configurePreset": "tsan" },
+    { "name": "msan", "configurePreset": "msan" },
+    { "name": "win-debug", "configurePreset": "win-debug" },
+    { "name": "win-relwithdebinfo", "configurePreset": "win-relwithdebinfo" },
+    { "name": "win-release", "configurePreset": "win-release" },
+    { "name": "win-optimized", "configurePreset": "win-optimized" },
+    { "name": "win-release-compatible", "configurePreset": "win-release-compatible" },
+    { "name": "win-coverage", "configurePreset": "win-coverage" },
+    { "name": "win-unity", "configurePreset": "win-unity" },
+    { "name": "win-profile", "configurePreset": "win-profile" },
+    { "name": "win-benchmark", "configurePreset": "win-benchmark" },
+    { "name": "win-pgo-generate", "configurePreset": "win-pgo-generate" },
+    { "name": "win-pgo-use", "configurePreset": "win-pgo-use" },
+    { "name": "win-pgo-baseline", "configurePreset": "win-pgo-baseline" }
   ],
   "testPresets": [
     { "name": "dev", "configurePreset": "dev", "output": { "outputOnFailure": true } },
-    { "name": "coverage", "configurePreset": "coverage", "output": { "outputOnFailure": true } }
+    { "name": "debug", "configurePreset": "debug", "output": { "outputOnFailure": true } },
+    { "name": "relwithdebinfo", "configurePreset": "relwithdebinfo", "output": { "outputOnFailure": true } },
+    { "name": "release", "configurePreset": "release", "output": { "outputOnFailure": true } },
+    { "name": "optimized", "configurePreset": "optimized", "output": { "outputOnFailure": true } },
+    { "name": "release-compatible", "configurePreset": "release-compatible", "output": { "outputOnFailure": true } },
+    { "name": "coverage", "configurePreset": "coverage", "output": { "outputOnFailure": true } },
+    { "name": "unity", "configurePreset": "unity", "output": { "outputOnFailure": true } },
+    { "name": "profile", "configurePreset": "profile", "output": { "outputOnFailure": true } },
+    { "name": "benchmark", "configurePreset": "benchmark", "output": { "outputOnFailure": true } },
+    { "name": "pgo-generate", "configurePreset": "pgo-generate", "output": { "outputOnFailure": true } },
+    { "name": "pgo-use", "configurePreset": "pgo-use", "output": { "outputOnFailure": true } },
+    { "name": "pgo-baseline", "configurePreset": "pgo-baseline", "output": { "outputOnFailure": true } },
+    { "name": "asan-ubsan", "configurePreset": "asan-ubsan", "output": { "outputOnFailure": true } },
+    { "name": "ubsan", "configurePreset": "ubsan", "output": { "outputOnFailure": true } },
+    { "name": "tsan", "configurePreset": "tsan", "output": { "outputOnFailure": true } },
+    { "name": "msan", "configurePreset": "msan", "output": { "outputOnFailure": true } },
+    { "name": "win-debug", "configurePreset": "win-debug", "output": { "outputOnFailure": true } },
+    { "name": "win-relwithdebinfo", "configurePreset": "win-relwithdebinfo", "output": { "outputOnFailure": true } },
+    { "name": "win-release", "configurePreset": "win-release", "output": { "outputOnFailure": true } },
+    { "name": "win-optimized", "configurePreset": "win-optimized", "output": { "outputOnFailure": true } },
+    { "name": "win-release-compatible", "configurePreset": "win-release-compatible", "output": { "outputOnFailure": true } },
+    { "name": "win-coverage", "configurePreset": "win-coverage", "output": { "outputOnFailure": true } },
+    { "name": "win-unity", "configurePreset": "win-unity", "output": { "outputOnFailure": true } },
+    { "name": "win-profile", "configurePreset": "win-profile", "output": { "outputOnFailure": true } },
+    { "name": "win-benchmark", "configurePreset": "win-benchmark", "output": { "outputOnFailure": true } },
+    { "name": "win-pgo-generate", "configurePreset": "win-pgo-generate", "output": { "outputOnFailure": true } },
+    { "name": "win-pgo-use", "configurePreset": "win-pgo-use", "output": { "outputOnFailure": true } },
+    { "name": "win-pgo-baseline", "configurePreset": "win-pgo-baseline", "output": { "outputOnFailure": true } }
   ],
   "workflowPresets": [
     {
@@ -34,6 +319,62 @@
         { "type": "configure", "name": "dev" },
         { "type": "build", "name": "dev" },
         { "type": "test", "name": "dev" }
+      ]
+    },
+    {
+      "name": "win-dev",
+      "steps": [
+        { "type": "configure", "name": "win-debug" },
+        { "type": "build", "name": "win-debug" },
+        { "type": "test", "name": "win-debug" }
+      ]
+    },
+    {
+      "name": "asan-ubsan-cycle",
+      "steps": [
+        { "type": "configure", "name": "asan-ubsan" },
+        { "type": "build", "name": "asan-ubsan" },
+        { "type": "test", "name": "asan-ubsan" }
+      ]
+    },
+    {
+      "name": "ubsan-cycle",
+      "steps": [
+        { "type": "configure", "name": "ubsan" },
+        { "type": "build", "name": "ubsan" },
+        { "type": "test", "name": "ubsan" }
+      ]
+    },
+    {
+      "name": "tsan-cycle",
+      "steps": [
+        { "type": "configure", "name": "tsan" },
+        { "type": "build", "name": "tsan" },
+        { "type": "test", "name": "tsan" }
+      ]
+    },
+    {
+      "name": "coverage",
+      "steps": [
+        { "type": "configure", "name": "coverage" },
+        { "type": "build", "name": "coverage" },
+        { "type": "test", "name": "coverage" }
+      ]
+    },
+    {
+      "name": "benchmark",
+      "steps": [
+        { "type": "configure", "name": "benchmark" },
+        { "type": "build", "name": "benchmark" },
+        { "type": "test", "name": "benchmark" }
+      ]
+    },
+    {
+      "name": "win-benchmark",
+      "steps": [
+        { "type": "configure", "name": "win-benchmark" },
+        { "type": "build", "name": "win-benchmark" },
+        { "type": "test", "name": "win-benchmark" }
       ]
     }
   ]

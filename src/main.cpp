@@ -3,6 +3,7 @@
 #include <QApplication>
 #include <QCoreApplication>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QKeySequence>
 #include <QLabel>
 #include <QLocale>
@@ -82,6 +83,7 @@ class MainWindow final : public QMainWindow
             }
             statusBar()->showMessage(
                 tr("Imported %1 marks. Unsupported tracks: %2.").arg(m_Marks->rowCount()).arg(project.unsupportedTrackTypes.size()));
+            setWindowTitle(tr("%1 — MoTrack").arg(QFileInfo(path).fileName()));
             return true;
         }
         catch (const motrack::ProjectError&)
@@ -109,9 +111,14 @@ try
     const auto args = app.arguments();
     MainWindow window;
     window.show();
-    if (args.size() == 3 && args[1] == "--smoke-test")
+    const bool smokeTest = args.size() == 3 && args[1] == "--smoke-test";
+    if (args.size() == 2 || smokeTest)
     {
-        return window.loadProject(args[2]) ? 0 : 1;
+        const bool opened = window.loadProject(args.last());
+        if (smokeTest)
+        {
+            return opened ? EXIT_SUCCESS : EXIT_FAILURE;
+        }
     }
     return app.exec();
 }

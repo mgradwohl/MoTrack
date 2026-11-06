@@ -16,5 +16,6 @@
     <message><source>Tracker projects (*.trk)</source><translation>Proyectos de Tracker (*.trk)</translation></message>
     <message><source>Imported %1 marks. Unsupported tracks: %2.</source><translation>Marcas importadas: %1. Trayectorias no compatibles: %2.</translation></message>
     <message><source>Could not open this Tracker project.</source><translation>No se pudo abrir este proyecto de Tracker.</translation></message>
+    <message><source>%1 — MoTrack</source><translation>%1 — MoTrack</translation></message>
   </context>
 </TS>
