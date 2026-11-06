@@ -5,6 +5,7 @@
 #include "template_tracker.hpp"
 #include "track_edits.hpp"
 #include "tracker_archive.hpp"
+#include "video_reader.hpp"
 
 #include <QCoreApplication>
 #include <QFutureWatcher>
@@ -58,6 +59,7 @@ class MainWindow final : public QMainWindow
     void displayMarks();
     void displayFrame(const ImageFrame& frame, const QString& failureMessage);
     void requestMovieFrame(int frame);
+    void scheduleMovieIndex(const QString& path, bool standalone);
     void setPlaying(bool playing);
     void schedulePlayback();
     void startAutoTracking();
@@ -133,16 +135,12 @@ class MainWindow final : public QMainWindow
     QTimer m_AutoTrackTimer;
     QString m_MoviePath;
     bool m_MovieUsesDisplayOrientation = false;
+    bool m_MovieAlignsToClip = false;
     QString m_ProjectPath;
     QString m_MediaProjectPath;
     QString m_ArchiveSourcePath;
-    std::optional<TrackerArchive> m_Archive;
+    std::shared_ptr<TrackerArchive> m_Archive;
     QString m_SavePath;
-    struct MovieIndex
-    {
-        int frameCount = 0;
-        std::vector<double> frameTimes;
-    };
     std::vector<double> m_MovieFrameTimes;
     std::shared_ptr<std::atomic_bool> m_MovieOpenCancelled;
     std::unique_ptr<QFutureWatcher<MovieIndex>> m_MovieOpenWatcher;

@@ -5,11 +5,29 @@
       <property name="startframe" type="int">1</property>
       <property name="stepsize" type="int">2</property>
       <property name="stepcount" type="int">2</property>
+      <property name="starttime" type="double">-200</property>
       <property name="video" type="object">
         <object class="org.opensourcephysics.media.core.Video">
           <property name="path" type="string">vfr.mp4</property>
         </object>
       </property>
     </object>
+  </property>
+  <property name="tracks" type="collection">
+    <property name="item" type="object">
+      <object class="org.opensourcephysics.cabrillo.tracker.PointMass">
+        <property name="name" type="string">Cart</property>
+        <property name="framedata" type="array">
+          <property name="[1]" type="object"><object>
+            <property name="x" type="double">5.0</property>
+            <property name="y" type="double">6.0</property>
+          </object></property>
+          <property name="[3]" type="object"><object>
+            <property name="x" type="double">8.0</property>
+            <property name="y" type="double">7.0</property>
+          </object></property>
+        </property>
+      </object>
+    </property>
   </property>
 </object>

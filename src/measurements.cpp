@@ -120,7 +120,11 @@ std::string measurementsCsv(const LegacyProject& project)
     return output.str();
 }
 
-PlotSeries measurementPlot(const LegacyProject& project, std::size_t track, PlotQuantity quantity, std::span<const double> frameTimes)
+PlotSeries measurementPlot(const LegacyProject& project,
+                           std::size_t track,
+                           PlotQuantity quantity,
+                           std::span<const double> frameTimes,
+                           double presentationOffsetSeconds)
 {
     struct PositionSample
     {
@@ -130,6 +134,7 @@ PlotSeries measurementPlot(const LegacyProject& project, std::size_t track, Plot
     };
 
     const auto frameDurationMs = project.clip.frameDurationMs.value_or(0.0);
+    const auto displayOffset = frameTimes.empty() ? 0.0 : presentationOffsetSeconds;
     PlotSeries series{.samples = {}, .timed = !frameTimes.empty() || frameDurationMs > 0.0, .calibrated = project.calibration.has_value()};
     const bool position = quantity == PlotQuantity::PositionX || quantity == PlotQuantity::PositionY;
     if (track >= project.pointMasses.size() || (!position && !series.timed))
@@ -162,13 +167,14 @@ PlotSeries measurementPlot(const LegacyProject& project, std::size_t track, Plot
         {
             horizontal = (project.clip.startTimeMs + (mark.frame - project.clip.firstFrame) * frameDurationMs) / 1000.0;
         }
-        if (!point || !std::isfinite(horizontal) || !std::isfinite(point->x) || !std::isfinite(point->y))
+        if (!point || !std::isfinite(horizontal + displayOffset) || !std::isfinite(point->x) || !std::isfinite(point->y))
         {
             continue;
         }
         if (position)
         {
-            series.samples.push_back({.frame = mark.frame, .horizontal = horizontal, .vertical = vertical ? point->y : point->x});
+            series.samples.push_back(
+                {.frame = mark.frame, .horizontal = horizontal + displayOffset, .vertical = vertical ? point->y : point->x});
         }
         else
         {
@@ -211,7 +217,7 @@ PlotSeries measurementPlot(const LegacyProject& project, std::size_t track, Plot
         }
         if (std::isfinite(value))
         {
-            series.samples.push_back({.frame = center.frame, .horizontal = center.horizontal, .vertical = value});
+            series.samples.push_back({.frame = center.frame, .horizontal = center.horizontal + displayOffset, .vertical = value});
         }
     }
     return series;

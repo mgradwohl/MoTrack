@@ -358,6 +358,25 @@ TEST(Workspace, StepsThroughAMovieOnABackgroundWorker)
     EXPECT_EQ(canvas->accessibleName(), "Frame 0");
 }
 
+TEST(Workspace, IndexesAnImportedMoviesTimebase)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(fixturePath("movie.trk")));
+    auto* plot = window.findChild<QWidget*>("positionPlot");
+    ASSERT_NE(plot, nullptr);
+    ASSERT_TRUE(QTest::qWaitFor([plot] { return plot->accessibleName() == "x position (px) versus Time (s)"; }));
+    const auto path = temporary.filePath("timed-clip.motrack");
+    ASSERT_TRUE(window.saveWorkspace(path));
+    const auto saved = motrack::readWorkspaceDocument(path);
+    EXPECT_TRUE(saved.alignMovieToClip);
+    ASSERT_EQ(saved.movieFrameTimes.size(), 4u);
+    EXPECT_NEAR(saved.movieFrameTimes.at(1), 0.128, 1e-12);
+    EXPECT_NEAR(saved.movieFrameTimes.at(3), 0.328, 1e-12);
+    EXPECT_DOUBLE_EQ(saved.project.clip.startTimeMs, -200.0);
+}
+
 TEST(Workspace, OpensStandaloneMovieAndKeepsTheWorkspaceAfterAFailedOpen)
 {
     QTemporaryDir temporary;

@@ -575,9 +575,10 @@ bool MainWindow::applyProject(const QString& path, PreparedProject prepared, con
         }
     }
 
+    auto archive = prepared.archive ? std::make_shared<TrackerArchive>(std::move(*prepared.archive)) : nullptr;
     cancelMovieOpen();
     releaseArchive();
-    m_Archive = std::move(prepared.archive);
+    m_Archive = std::move(archive);
     m_ArchiveSourcePath = std::move(prepared.archivePath);
     m_MediaProjectPath = path;
     if (m_Archive)
@@ -589,6 +590,7 @@ bool MainWindow::applyProject(const QString& path, PreparedProject prepared, con
     m_Sequence = document.movie ? std::nullopt : ImageSequence::open(m_MediaProjectPath, m_Project.clip);
     m_MoviePath.clear();
     m_MovieUsesDisplayOrientation = document.useDisplayOrientation;
+    m_MovieAlignsToClip = document.alignMovieToClip || !path.endsWith(".motrack", Qt::CaseInsensitive);
     m_MovieFrameTimes = std::move(document.movieFrameTimes);
     const auto& clip = m_Project.clip;
     const auto steps = clip.stepCount.value_or(0);
@@ -612,6 +614,10 @@ bool MainWindow::applyProject(const QString& path, PreparedProject prepared, con
     }
     statusBar()->showMessage(
         tr("Opened %1 marks. Unsupported tracks: %2.").arg(m_Marks->rowCount()).arg(m_Project.unsupportedTrackTypes.size()));
+    if (!m_MoviePath.isEmpty() && m_MovieFrameTimes.empty())
+    {
+        scheduleMovieIndex(m_MoviePath, false);
+    }
     return true;
 }
 
@@ -680,6 +686,7 @@ bool MainWindow::openImageSequence(const QStringList& paths, double frameRate)
     m_Sequence = std::move(sequence);
     m_MoviePath.clear();
     m_MovieUsesDisplayOrientation = false;
+    m_MovieAlignsToClip = false;
     m_MovieFrameTimes.clear();
     activateProject(path);
     statusBar()->showMessage(tr("Opened %1 images.").arg(count));
@@ -689,17 +696,28 @@ bool MainWindow::openImageSequence(const QStringList& paths, double frameRate)
 void MainWindow::openMovie(const QString& path)
 {
     cancelProjectOpen();
-    cancelMovieOpen();
     statusBar()->showMessage(tr("Reading video frames…"));
+    scheduleMovieIndex(path, true);
+}
+
+void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
+{
+    cancelMovieOpen();
     m_MovieOpenCancelled = std::make_shared<std::atomic_bool>(false);
     m_MovieOpenWatcher = std::make_unique<QFutureWatcher<MovieIndex>>();
     auto* watcher = m_MovieOpenWatcher.get();
     connect(watcher,
             &QFutureWatcher<MovieIndex>::finished,
             this,
-            [this, path, watcher, cancelled = m_MovieOpenCancelled]
+            [this, path, standalone, watcher, cancelled = m_MovieOpenCancelled]
             {
                 auto index = watcher->result();
+                if (!standalone)
+                {
+                    m_MovieFrameTimes = std::move(index.frameTimes);
+                    refreshPlot();
+                    return;
+                }
                 if (index.frameCount == 0)
                 {
                     statusBar()->showMessage(tr("Could not open this video."));
@@ -719,55 +737,18 @@ void MainWindow::openMovie(const QString& path)
                 m_Sequence.reset();
                 m_MoviePath = path;
                 m_MovieUsesDisplayOrientation = true;
+                m_MovieAlignsToClip = false;
                 m_MovieFrameTimes = std::move(index.frameTimes);
                 activateProject(path);
                 statusBar()->showMessage(tr("Opened video with %1 frames.").arg(index.frameCount));
             });
+    const auto orientation = standalone || m_MovieUsesDisplayOrientation ? VideoOrientation::Display : VideoOrientation::Encoded;
     watcher->setFuture(QtConcurrent::run(
-        [path, cancelled = m_MovieOpenCancelled]() -> MovieIndex
+        [path, orientation, cancelled = m_MovieOpenCancelled, archive = standalone ? nullptr : m_Archive]
         {
-            constexpr int MAX_INDEXED_FRAMES = 2'000'000;
-            try
-            {
-                VideoReader reader(path);
-                MovieIndex index;
-                std::optional<double> start;
-                bool hasTiming = true;
-                while (!*cancelled)
-                {
-                    const auto frame = index.frameCount == 0 ? reader.readNext() : reader.skipNext();
-                    if (!frame)
-                    {
-                        return index;
-                    }
-                    if (index.frameCount == MAX_INDEXED_FRAMES)
-                    {
-                        return {};
-                    }
-                    ++index.frameCount;
-                    if (hasTiming && frame->presentationTime)
-                    {
-                        const auto seconds = std::chrono::duration<double>(*frame->presentationTime).count();
-                        start = start.value_or(seconds);
-                        const auto relative = seconds - *start;
-                        hasTiming = index.frameTimes.empty() || relative > index.frameTimes.back();
-                        index.frameTimes.push_back(relative);
-                    }
-                    else
-                    {
-                        hasTiming = false;
-                    }
-                    if (!hasTiming)
-                    {
-                        index.frameTimes.clear();
-                    }
-                }
-            }
-            catch (const VideoError&)
-            {
-                return {};
-            }
-            return {};
+            // Keep extracted media available until the indexer closes its input.
+            static_cast<void>(archive);
+            return buildMovieIndex(path, orientation, *cancelled);
         }));
 }
 
@@ -930,7 +911,11 @@ void MainWindow::refreshPlot()
 {
     const auto quantity = static_cast<PlotQuantity>(m_PlotQuantity->currentData().toInt());
     const auto track = m_TrackPicker->currentIndex();
-    auto series = track >= 0 ? measurementPlot(m_Project, static_cast<std::size_t>(track), quantity, m_MovieFrameTimes) : PlotSeries{};
+    const auto first = static_cast<std::size_t>(m_Project.clip.firstFrame);
+    const auto offset =
+        m_MovieAlignsToClip && first < m_MovieFrameTimes.size() ? m_Project.clip.startTimeMs / 1000.0 - m_MovieFrameTimes.at(first) : 0.0;
+    auto series =
+        track >= 0 ? measurementPlot(m_Project, static_cast<std::size_t>(track), quantity, m_MovieFrameTimes, offset) : PlotSeries{};
     const auto horizontal = series.timed ? tr("Time (s)") : tr("Frame");
     auto unit = series.calibrated ? QString::fromStdString(m_Project.lengthUnit) : tr("px");
     if (!unit.isEmpty())
@@ -1241,7 +1226,8 @@ bool MainWindow::saveWorkspace(const QString& path)
     WorkspaceDocument document{.project = m_Project,
                                .movieFrameTimes = m_MovieFrameTimes,
                                .movie = !m_MoviePath.isEmpty(),
-                               .useDisplayOrientation = m_MovieUsesDisplayOrientation};
+                               .useDisplayOrientation = m_MovieUsesDisplayOrientation,
+                               .alignMovieToClip = m_MovieAlignsToClip};
     const QDir destination(QFileInfo(path).absolutePath());
     if (m_Archive)
     {
