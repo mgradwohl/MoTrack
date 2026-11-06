@@ -7,6 +7,7 @@
 #include <QSaveFile>
 
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <utility>
 
@@ -188,6 +189,14 @@ WorkspaceDocument readWorkspaceDocument(const QString& path)
         project.clip.frameDurationMs = number(clip.value("frameDurationMs"));
         require(project.clip.frameDurationMs.value() > 0.0);
     }
+    const auto sourceCount = clip.value("sourceFrameCount");
+    if (!sourceCount.isNull() && !sourceCount.isUndefined())
+    {
+        project.clip.sourceFrameCount = integer(sourceCount, 1);
+        const auto steps = project.clip.stepCount.value_or(1);
+        const auto last = project.clip.firstFrame + static_cast<std::int64_t>(steps - 1) * project.clip.stepSize;
+        require(steps == 0 || last < project.clip.sourceFrameCount.value());
+    }
     const auto frameTimes = array(input.value("movieFrameTimes"), -1);
     for (const auto& entry : frameTimes)
     {
@@ -212,6 +221,7 @@ void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& docume
                                  {"stepCount", clip.stepCount ? QJsonValue(*clip.stepCount) : QJsonValue::Null},
                                  {"media", writeStrings(clip.mediaReferences)},
                                  {"frameDurationMs", clip.frameDurationMs ? QJsonValue(*clip.frameDurationMs) : QJsonValue::Null},
+                                 {"sourceFrameCount", clip.sourceFrameCount ? QJsonValue(*clip.sourceFrameCount) : QJsonValue::Null},
                                  {"startTimeMs", clip.startTimeMs}};
     const QJsonObject output{{"format", "MoTrack"},
                              {"version", DOCUMENT_VERSION},

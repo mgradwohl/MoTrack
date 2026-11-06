@@ -4,10 +4,16 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <utility>
 
 namespace motrack
 {
+
+ClipRange clipRange(const Clip& clip)
+{
+    return {.firstFrame = clip.firstFrame, .stepSize = clip.stepSize, .stepCount = clip.stepCount};
+}
 
 void TrackEdits::clear()
 {
@@ -116,6 +122,28 @@ bool TrackEdits::canUndo() const
     return m_Head != 0;
 }
 
+bool TrackEdits::setClipRange(LegacyProject& project, int firstFrame, int lastFrame, int stepSize)
+{
+    if (firstFrame < 0 || lastFrame < firstFrame || stepSize < 1 ||
+        (project.clip.sourceFrameCount && lastFrame >= project.clip.sourceFrameCount.value()))
+    {
+        return false;
+    }
+    const auto count = 1 + (static_cast<std::int64_t>(lastFrame) - firstFrame) / stepSize;
+    if (!std::in_range<int>(count))
+    {
+        return false;
+    }
+    const ClipRange after{.firstFrame = firstFrame, .stepSize = stepSize, .stepCount = static_cast<int>(count)};
+    const auto before = clipRange(project.clip);
+    if (after == before)
+    {
+        return false;
+    }
+    append(project, ChangeClip{.after = after, .before = before});
+    return true;
+}
+
 bool TrackEdits::canRedo() const
 {
     return m_Head < m_Commands.size();
@@ -163,6 +191,14 @@ void TrackEdits::apply(LegacyProject& project, const Edit& edit, bool forward)
         auto unit = forward ? change->afterUnit : change->beforeUnit;
         project.calibration = std::move(calibration);
         project.lengthUnit = std::move(unit);
+        return;
+    }
+    if (const auto* change = std::get_if<ChangeClip>(&edit))
+    {
+        const auto& range = forward ? change->after : change->before;
+        project.clip.firstFrame = range.firstFrame;
+        project.clip.stepSize = range.stepSize;
+        project.clip.stepCount = range.stepCount;
         return;
     }
 

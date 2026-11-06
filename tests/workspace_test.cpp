@@ -13,6 +13,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSlider>
+#include <QSpinBox>
 #include <QStatusBar>
 #include <QTableWidget>
 #include <QTemporaryDir>
@@ -264,6 +265,39 @@ TEST(Workspace, OpensStandaloneMovieAndKeepsTheWorkspaceAfterAFailedOpen)
     ASSERT_TRUE(window.loadProject(destination));
     ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
     EXPECT_EQ(slider->maximum(), 3);
+}
+
+TEST(Workspace, TrimsAnImageSequenceAndRestoresItWithUndo)
+{
+    motrack::MainWindow window;
+    window.show();
+    auto* settings = window.findChild<QAction*>("clipSettings");
+    auto* undo = window.findChild<QAction*>("undoEdit");
+    auto* redo = window.findChild<QAction*>("redoEdit");
+    auto* canvas = window.findChild<QWidget*>("videoCanvas");
+    auto* slider = window.findChild<QSlider*>("stepSlider");
+    ASSERT_TRUE(settings && undo && redo && canvas && slider);
+    EXPECT_FALSE(settings->isEnabled());
+    ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
+    ASSERT_TRUE(settings->isEnabled());
+    QTimer::singleShot(0,
+                       &window,
+                       []
+                       {
+                           if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
+                           {
+                               dialog->findChild<QSpinBox*>("clipStart")->setValue(2);
+                               dialog->accept();
+                           }
+                       });
+    settings->trigger();
+    EXPECT_EQ(canvas->accessibleName(), "Frame 2");
+    EXPECT_EQ(slider->maximum(), 0);
+    undo->trigger();
+    EXPECT_EQ(canvas->accessibleName(), "Frame 0");
+    EXPECT_EQ(slider->maximum(), 1);
+    redo->trigger();
+    EXPECT_EQ(canvas->accessibleName(), "Frame 2");
 }
 
 TEST(Workspace, PlaysTheClipAndStopsAtTheLastFrame)

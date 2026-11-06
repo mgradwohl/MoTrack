@@ -31,6 +31,7 @@ struct Clip
     std::vector<std::string> mediaReferences;
     std::optional<double> frameDurationMs;
     double startTimeMs = 0.0;
+    std::optional<int> sourceFrameCount = std::nullopt;
 };
 
 struct CalibrationKey
