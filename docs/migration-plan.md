@@ -255,6 +255,10 @@ The keyed case checks world positions before and at changes in origin, angle and
 Point-mass world coordinates from the loaded Java panel are compared with independent expected values,
 so a consistently wrong resave cannot pass. The standard keyed writer uses this baseline;
 partly fixed coordinates, attachments and moving reference frames still need separate cases.
+The protractor session also checks selected-track and plot/table selection targets against independent
+manifest expectations, using live objects and the normal packed-string serializer. This begins the
+[name-reference acceptance work](tracker-name-references.md); column/format owners, attachments,
+dependent constituents and standard rename export remain unfinished.
 Media/archive session loading, broader requirement coverage, runtime/dependency provenance and exact
 source mapping remain unfinished. The initial phase-3 writer/reference path covers mass values, marks, independent-vector
 samples, clip ranges, existing fixed/fully varying calibration and length/mass-unit labels, including native reopen and Java resave; expand it

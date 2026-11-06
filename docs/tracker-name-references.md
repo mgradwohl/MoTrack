@@ -4,6 +4,11 @@ This is the proposed next phase-3 implementation slice, not an implemented renam
 Native names already have undo/redo and persistent identities; standard export still rejects their
 changes. The [full-port plan](migration-plan.md) remains the requirements/status authority.
 
+The first reference-only slice records independent protractor selected-track and plot/table targets
+in the corpus manifest. Its actual-Tracker probe compares live selections and the normal packed-string
+serializer before saving, after saving and after reopening. The PR's CI result establishes whether
+this baseline passes; it does not yet cover table column/format owners, attachments or constituents.
+
 ## Why a name is more than one XML property
 
 The real protractor corpus stores `mass B` in its track object, the root `selectedtrack`, a table's

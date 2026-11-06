@@ -216,6 +216,8 @@ def validate_session(case, report, manifest, expected=None, key_frames=None, cal
     compare(before, report["after"], tolerance, case["id"] + ".resave")
     identities = [{"class": track["class"], "name": track["name"]} for track in before["tracks"]]
     compare(case["session_tracks"], identities, tolerance, case["id"] + ".tracks")
+    if "session_names" in case:
+        compare(case["session_names"], before.get("name_references"), tolerance, case["id"] + ".name_references")
     if expected is None:
         expected = json.loads(expected_path(case).read_text(encoding="utf-8"))["project"]
     compare(session_units(case, expected), {key: before[key] for key in ["length_unit", "mass_unit"]},
