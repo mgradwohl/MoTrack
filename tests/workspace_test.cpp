@@ -285,6 +285,7 @@ TEST(Workspace, OpensStandaloneMovieAndKeepsTheWorkspaceAfterAFailedOpen)
     EXPECT_EQ(canvas->accessibleName(), "Frame 3");
     const auto destination = temporary.filePath("movie.motrack");
     ASSERT_TRUE(window.saveWorkspace(destination));
+    EXPECT_TRUE(motrack::readWorkspaceDocument(destination).useDisplayOrientation);
     ASSERT_TRUE(window.loadProject(destination));
     ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
     EXPECT_EQ(slider->maximum(), 3);

@@ -12,6 +12,7 @@ struct WorkspaceDocument
     LegacyProject project;
     std::vector<double> movieFrameTimes;
     bool movie = false;
+    bool useDisplayOrientation = false;
     std::string archiveReference = {};
 };
 

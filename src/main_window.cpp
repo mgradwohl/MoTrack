@@ -402,6 +402,7 @@ bool MainWindow::loadProject(const QString& path)
     m_Project = std::move(document.project);
     m_Sequence = document.movie ? std::nullopt : ImageSequence::open(m_MediaProjectPath, m_Project.clip);
     m_MoviePath.clear();
+    m_MovieUsesDisplayOrientation = document.useDisplayOrientation;
     m_MovieFrameTimes = std::move(document.movieFrameTimes);
     const auto& clip = m_Project.clip;
     const auto steps = clip.stepCount.value_or(0);
@@ -484,6 +485,7 @@ void MainWindow::openMovie(const QString& path)
                 m_Project.clip.mediaReferences.push_back(QFileInfo(path).fileName().toStdString());
                 m_Sequence.reset();
                 m_MoviePath = path;
+                m_MovieUsesDisplayOrientation = true;
                 m_MovieFrameTimes = std::move(index.frameTimes);
                 activateProject(path);
                 statusBar()->showMessage(tr("Opened video with %1 frames.").arg(index.frameCount));
@@ -877,7 +879,10 @@ bool MainWindow::saveWorkspace(const QString& path)
         statusBar()->showMessage(tr("Choose a project filename ending in .motrack."));
         return false;
     }
-    WorkspaceDocument document{.project = m_Project, .movieFrameTimes = m_MovieFrameTimes, .movie = !m_MoviePath.isEmpty()};
+    WorkspaceDocument document{.project = m_Project,
+                               .movieFrameTimes = m_MovieFrameTimes,
+                               .movie = !m_MoviePath.isEmpty(),
+                               .useDisplayOrientation = m_MovieUsesDisplayOrientation};
     const QDir destination(QFileInfo(path).absolutePath());
     if (m_Archive)
     {
@@ -1161,7 +1166,8 @@ void MainWindow::requestMovieFrame(int frame)
                 });
         m_MovieThread.start();
     }
-    QMetaObject::invokeMethod(m_MovieWorker, "readFrame", Qt::QueuedConnection, m_MoviePath, frame, generation);
+    QMetaObject::invokeMethod(
+        m_MovieWorker, "readFrame", Qt::QueuedConnection, m_MoviePath, frame, generation, m_MovieUsesDisplayOrientation);
 }
 
 } // namespace motrack

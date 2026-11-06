@@ -114,6 +114,7 @@ class MainWindow final : public QMainWindow
     std::optional<AutoTrackSession> m_AutoTrack;
     QTimer m_AutoTrackTimer;
     QString m_MoviePath;
+    bool m_MovieUsesDisplayOrientation = false;
     QString m_ProjectPath;
     QString m_MediaProjectPath;
     QString m_ArchiveSourcePath;

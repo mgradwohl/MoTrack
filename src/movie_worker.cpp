@@ -14,15 +14,16 @@ void MovieWorker::clear()
     m_Reader.reset();
 }
 
-void MovieWorker::readFrame(const QString& path, int frame, quint64 request)
+void MovieWorker::readFrame(const QString& path, int frame, quint64 request, bool useDisplayOrientation)
 {
     if (m_CurrentRequest == request)
     {
-        Q_EMIT frameDecoded(frame, request, decodeFrame(path, frame, request));
+        const auto orientation = useDisplayOrientation ? VideoOrientation::Display : VideoOrientation::Encoded;
+        Q_EMIT frameDecoded(frame, request, decodeFrame(path, frame, request, orientation));
     }
 }
 
-QImage MovieWorker::decodeFrame(const QString& path, int frame, quint64 request)
+QImage MovieWorker::decodeFrame(const QString& path, int frame, quint64 request, VideoOrientation orientation)
 {
     if (const auto* cached = m_Cache.object(frame))
     {
@@ -33,7 +34,7 @@ QImage MovieWorker::decodeFrame(const QString& path, int frame, quint64 request)
         if (!m_Reader || std::cmp_greater(m_NextFrame, frame))
         {
             m_Reader.reset();
-            m_Reader = std::make_unique<VideoReader>(path);
+            m_Reader = std::make_unique<VideoReader>(path, orientation);
             m_NextFrame = 0;
         }
         while (m_CurrentRequest == request)

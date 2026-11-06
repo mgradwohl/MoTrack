@@ -1,6 +1,7 @@
 #include "video_reader.hpp"
 
 #include <QFile>
+#include <QTransform>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -15,6 +16,8 @@ extern "C" {
 #include <array>
 #include <cerrno>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -26,6 +29,33 @@ namespace
 
 constexpr int IO_BUFFER_SIZE = 32 * 1024;
 constexpr std::int64_t MAX_PIXELS = std::int64_t{32} * 1024 * 1024;
+
+std::optional<QTransform> displayOrientation(const std::uint8_t* data, std::size_t size)
+{
+    std::array<std::int32_t, 9> matrix{};
+    if (!data || size < sizeof(matrix))
+    {
+        return std::nullopt;
+    }
+    std::memcpy(matrix.data(), data, sizeof(matrix));
+    constexpr std::int32_t UNIT = 1 << 16;
+    const auto a = matrix.at(0);
+    const auto b = matrix.at(1);
+    const auto c = matrix.at(3);
+    const auto d = matrix.at(4);
+    const auto unitOrZero = [](std::int32_t value)
+    {
+        return value == 0 || value == UNIT || value == -UNIT;
+    };
+    // Quarter turns and reflections keep a one-to-one mapping of tracking pixels.
+    if (matrix.at(2) != 0 || matrix.at(5) != 0 || matrix.at(8) != (1 << 30) || !unitOrZero(a) || !unitOrZero(b) || !unitOrZero(c) ||
+        !unitOrZero(d) || std::abs(a) + std::abs(b) != UNIT || std::abs(c) + std::abs(d) != UNIT || std::abs(a) + std::abs(c) != UNIT)
+    {
+        return std::nullopt;
+    }
+    return QTransform(
+        static_cast<double>(a) / UNIT, static_cast<double>(b) / UNIT, static_cast<double>(c) / UNIT, static_cast<double>(d) / UNIT, 0, 0);
+}
 
 void requireSuccess(int result, std::string_view operation)
 {
@@ -111,7 +141,7 @@ std::int64_t seekBytes(void* opaque, std::int64_t offset, int whence)
 
 struct VideoReader::Impl
 {
-    explicit Impl(const QString& path) : file(path)
+    explicit Impl(const QString& path, VideoOrientation mode) : file(path)
     {
         if (!file.open(QIODevice::ReadOnly))
         {
@@ -153,12 +183,22 @@ struct VideoReader::Impl
         requireSuccess(streamIndex, "The file has no supported video stream");
         const auto* stream = format->streams[streamIndex];
         timeBase = stream->time_base;
+        const auto* parameters = stream->codecpar;
+        if (mode == VideoOrientation::Display)
+        {
+            orientation.emplace();
+            if (const auto* side =
+                    av_packet_side_data_get(parameters->coded_side_data, parameters->nb_coded_side_data, AV_PKT_DATA_DISPLAYMATRIX))
+            {
+                orientation = displayOrientation(side->data, side->size).value_or(QTransform{});
+            }
+        }
         codec.reset(avcodec_alloc_context3(decoder));
         if (!codec || !packet || !decoded)
         {
             throw VideoError("Could not allocate video decoding state.");
         }
-        requireSuccess(avcodec_parameters_to_context(codec.get(), stream->codecpar), "Could not read the video codec parameters");
+        requireSuccess(avcodec_parameters_to_context(codec.get(), parameters), "Could not read the video codec parameters");
         codec->max_pixels = MAX_PIXELS;
         requireSuccess(avcodec_open2(codec.get(), decoder, nullptr), "Could not open the video decoder");
     }
@@ -215,7 +255,16 @@ struct VideoReader::Impl
         requireSuccess(sws_scale(scale.get(), decoded->data, decoded->linesize, 0, height, destination.data(), strides.data()),
                        "Could not convert the video frame");
 
-        return image;
+        if (!orientation)
+        {
+            return image;
+        }
+        auto transform = *orientation;
+        if (const auto* side = av_frame_get_side_data(decoded.get(), AV_FRAME_DATA_DISPLAYMATRIX))
+        {
+            transform = displayOrientation(side->data, side->size).value_or(transform);
+        }
+        return transform.isIdentity() ? image : image.transformed(transform);
     }
 
     MovieFrame takeFrame(bool convertPixels)
@@ -236,12 +285,13 @@ struct VideoReader::Impl
     std::unique_ptr<AVFrame, FreeFrame> decoded{av_frame_alloc()};
     std::unique_ptr<SwsContext, decltype(&sws_freeContext)> scale{nullptr, &sws_freeContext};
     AVRational timeBase{};
+    std::optional<QTransform> orientation;
     int streamIndex = -1;
     std::uint64_t nextOrdinal = 0;
     bool draining = false;
 };
 
-VideoReader::VideoReader(const QString& path) : m_Impl(std::make_unique<Impl>(path))
+VideoReader::VideoReader(const QString& path, VideoOrientation orientation) : m_Impl(std::make_unique<Impl>(path, orientation))
 {}
 
 VideoReader::~VideoReader() = default;
