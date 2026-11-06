@@ -40,6 +40,18 @@ Choose a quantity above the plot. Select a plotted point to jump to its video fr
 
 To set a known distance, select Calibration Stick, click two distinct points in the displayed image, and enter their distance and unit. Undo restores the previous scale and unit.
 
+### Stage a local desktop build
+
+From the activated developer shell, run:
+
+```sh
+cmake --preset stage
+cmake --build --preset stage
+cmake --install build/stage --prefix "$PWD/build/stage/installed"
+```
+
+Launch `motrack.app` from the install directory on macOS or run `bin/motrack` (`bin/motrack.exe` on Windows). This is a local deployment for development and smoke testing.
+
 ## License
 
 MoTrack is licensed under the GNU General Public License, version 3 or later. See [LICENSE](LICENSE). Dependencies and any materials reused from Tracker retain their applicable notices and terms.
