@@ -1019,7 +1019,9 @@ TEST(Workspace, CancelsPartialVectorsOnFrameTrackToolAndEscapeChanges)
     window.findChild<QAction*>("measureDistance")->trigger();
     window.findChild<QAction*>("measureDistance")->trigger();
     canvas->pick({2, 2}, true);
-    QTest::keyClick(&window, Qt::Key_Escape);
+    // The stack-owned window stays alive across both events; avoid keyClick's QPointer analysis path.
+    QTest::keyPress(&window, Qt::Key_Escape);
+    QTest::keyRelease(&window, Qt::Key_Escape);
     EXPECT_TRUE(window.statusBar()->currentMessage().isEmpty());
     ASSERT_TRUE(window.saveWorkspace(path));
     auto saved = motrack::readWorkspaceDocument(path);
