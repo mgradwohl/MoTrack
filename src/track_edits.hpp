@@ -27,6 +27,15 @@ struct ClipRange
     bool operator==(const ClipRange&) const = default;
 };
 
+struct AxesPlacement
+{
+    int frame;
+    double originX;
+    double originY;
+    double positiveX;
+    double positiveY;
+};
+
 [[nodiscard]] ClipRange clipRange(const Clip& clip);
 
 /// An edit history for one open project. Track slots stay stable until their creation is undone.
@@ -39,6 +48,7 @@ class TrackEdits
     void createPointMass(LegacyProject& project, std::string name);
     bool markPointMass(LegacyProject& project, std::size_t track, Mark mark);
     bool calibrateDistance(LegacyProject& project, CalibrationDistance distance);
+    bool setCoordinateAxes(LegacyProject& project, AxesPlacement axes);
     bool setClipRange(LegacyProject& project, int firstFrame, int lastFrame, int stepSize);
     [[nodiscard]] bool canUndo() const;
     [[nodiscard]] bool canRedo() const;

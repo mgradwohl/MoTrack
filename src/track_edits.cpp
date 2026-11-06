@@ -5,10 +5,36 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <numbers>
 #include <utility>
 
 namespace motrack
 {
+namespace
+{
+
+Calibration initialCalibration(double x, double y)
+{
+    return {.keyframes = {{.frame = 0, .originX = x, .originY = y, .angleDegrees = 0.0, .scaleX = 1.0, .scaleY = 1.0}},
+            .fixedOrigin = true,
+            .fixedAngle = true,
+            .fixedScale = true};
+}
+
+void writeCalibrationKey(Calibration& calibration, const CalibrationKey& key)
+{
+    const auto position = std::ranges::lower_bound(calibration.keyframes, key.frame, {}, &CalibrationKey::frame);
+    if (position != calibration.keyframes.end() && position->frame == key.frame)
+    {
+        *position = key;
+    }
+    else
+    {
+        calibration.keyframes.insert(position, key);
+    }
+}
+
+} // namespace
 
 ClipRange clipRange(const Clip& clip)
 {
@@ -66,15 +92,7 @@ bool TrackEdits::calibrateDistance(LegacyProject& project, CalibrationDistance d
         {
             return false;
         }
-        next.fixedOrigin = true;
-        next.fixedAngle = true;
-        next.fixedScale = true;
-        next.keyframes.push_back({.frame = 0,
-                                  .originX = distance.defaultOriginX,
-                                  .originY = distance.defaultOriginY,
-                                  .angleDegrees = 0.0,
-                                  .scaleX = 1.0,
-                                  .scaleY = 1.0});
+        next = initialCalibration(distance.defaultOriginX, distance.defaultOriginY);
     }
     auto key = calibrationAt(next, distance.frame);
     if (!key || key->scaleX == 0.0 || key->scaleY == 0.0)
@@ -99,20 +117,59 @@ bool TrackEdits::calibrateDistance(LegacyProject& project, CalibrationDistance d
     }
     else
     {
-        const auto position = std::ranges::lower_bound(next.keyframes, distance.frame, {}, &CalibrationKey::frame);
-        if (position != next.keyframes.end() && position->frame == distance.frame)
-        {
-            *position = *key;
-        }
-        else
-        {
-            next.keyframes.insert(position, *key);
-        }
+        writeCalibrationKey(next, *key);
     }
     append(project,
            ChangeCalibration{.after = std::move(next),
                              .before = project.calibration,
                              .afterUnit = std::move(distance.unit),
+                             .beforeUnit = project.lengthUnit});
+    return true;
+}
+
+bool TrackEdits::setCoordinateAxes(LegacyProject& project, AxesPlacement axes)
+{
+    if (axes.frame < 0 || !std::isfinite(axes.originX) || !std::isfinite(axes.originY))
+    {
+        return false;
+    }
+    auto next = project.calibration.value_or(Calibration{});
+    const bool initial = next.keyframes.empty();
+    if (initial)
+    {
+        next = initialCalibration(axes.originX, axes.originY);
+    }
+    auto key = calibrationAt(next, axes.frame);
+    if (!key || key->scaleX == 0.0 || key->scaleY == 0.0)
+    {
+        return false;
+    }
+    const auto dx = (axes.positiveX - axes.originX) / key->scaleX;
+    const auto dy = (axes.originY - axes.positiveY) / key->scaleY;
+    if (!std::isfinite(dx) || !std::isfinite(dy) || (dx == 0.0 && dy == 0.0))
+    {
+        return false;
+    }
+    key->originX = axes.originX;
+    key->originY = axes.originY;
+    key->angleDegrees = std::atan2(dy, dx) * (180.0 / std::numbers::pi);
+    if (!next.fixedOrigin || !next.fixedAngle)
+    {
+        writeCalibrationKey(next, *key);
+    }
+    if (next.fixedOrigin)
+    {
+        next.keyframes.back().originX = key->originX;
+        next.keyframes.back().originY = key->originY;
+    }
+    if (next.fixedAngle)
+    {
+        next.keyframes.back().angleDegrees = key->angleDegrees;
+    }
+    append(project,
+           ChangeCalibration{.after = std::move(next),
+                             .before = project.calibration,
+                             .afterUnit = initial ? "px" : project.lengthUnit,
                              .beforeUnit = project.lengthUnit});
     return true;
 }

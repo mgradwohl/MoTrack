@@ -3,6 +3,7 @@
 #include "measurements.hpp"
 #include "movie_worker.hpp"
 #include "position_plot.hpp"
+#include "video_canvas.hpp"
 #include "video_reader.hpp"
 #include "workspace_document.hpp"
 
@@ -22,8 +23,6 @@
 #include <QLineEdit>
 #include <QMenuBar>
 #include <QMessageBox>
-#include <QMouseEvent>
-#include <QPainter>
 #include <QSaveFile>
 #include <QSignalBlocker>
 #include <QSlider>
@@ -39,98 +38,12 @@
 
 #include <algorithm>
 #include <cmath>
-#include <functional>
 #include <iterator>
 #include <limits>
 #include <utility>
 
 namespace motrack
 {
-
-class VideoCanvas final : public QWidget
-{
-  public:
-    std::function<bool(QPointF, bool)> pick;
-
-    void setCalibrationPoint(std::optional<QPointF> position)
-    {
-        m_CalibrationPoint = position;
-        update();
-    }
-
-    void display(QImage image, QList<QPointF> marks, const QString& message)
-    {
-        m_Image = std::move(image);
-        m_Marks = std::move(marks);
-        m_Message = message;
-        setAccessibleName(message);
-        update();
-    }
-
-  protected:
-    void mousePressEvent(QMouseEvent* event) override
-    {
-        if (!m_Image.isNull() && pick && event->button() == Qt::LeftButton)
-        {
-            const auto area = imageArea();
-            const auto position = event->position();
-            if (area.contains(position) && !area.isEmpty())
-            {
-                const QPointF pixel((position.x() - area.left()) * m_Image.width() / area.width(),
-                                    (position.y() - area.top()) * m_Image.height() / area.height());
-                if (pick(pixel, event->modifiers().testFlag(Qt::ShiftModifier)))
-                {
-                    event->accept();
-                    return;
-                }
-            }
-        }
-        QWidget::mousePressEvent(event);
-    }
-
-    void paintEvent(QPaintEvent* /*event*/) override
-    {
-        QPainter painter(this);
-        painter.fillRect(rect(), palette().base());
-        if (m_Image.isNull())
-        {
-            painter.setPen(palette().text().color());
-            painter.drawText(rect().adjusted(16, 16, -16, -16), Qt::AlignCenter | Qt::TextWordWrap, m_Message);
-            return;
-        }
-
-        const auto area = imageArea();
-        painter.drawImage(area, m_Image);
-        painter.setClipRect(area);
-        painter.setPen(QPen(Qt::yellow, 2));
-        for (const auto& mark : m_Marks)
-        {
-            painter.drawEllipse(canvasPoint(mark, area), 5, 5);
-        }
-        if (m_CalibrationPoint)
-        {
-            painter.setPen(QPen(Qt::cyan, 2));
-            painter.drawEllipse(canvasPoint(*m_CalibrationPoint, area), 6, 6);
-        }
-    }
-
-  private:
-    [[nodiscard]] QRectF imageArea() const
-    {
-        const auto scaled = m_Image.size().scaled(size(), Qt::KeepAspectRatio);
-        return {QPoint((width() - scaled.width()) / 2, (height() - scaled.height()) / 2), scaled};
-    }
-
-    [[nodiscard]] QPointF canvasPoint(const QPointF& pixel, const QRectF& area) const
-    {
-        return {area.left() + pixel.x() * area.width() / m_Image.width(), area.top() + pixel.y() * area.height() / m_Image.height()};
-    }
-
-    QImage m_Image;
-    QList<QPointF> m_Marks;
-    QString m_Message;
-    std::optional<QPointF> m_CalibrationPoint;
-};
 
 MainWindow::MainWindow()
 {
@@ -161,6 +74,10 @@ MainWindow::MainWindow()
     m_Redo = editMenu->addAction(tr("&Redo"));
     m_Redo->setObjectName("redoEdit");
     m_Redo->setShortcut(QKeySequence::Redo);
+    auto* viewMenu = menuBar()->addMenu(tr("&View"));
+    m_ShowAxes = viewMenu->addAction(tr("Show coordinate &axes"));
+    m_ShowAxes->setObjectName("showCoordinateAxes");
+    m_ShowAxes->setCheckable(true);
     auto* tracksMenu = menuBar()->addMenu(tr("&Tracks"));
     m_NewPointMass = tracksMenu->addAction(tr("New &point mass"));
     m_NewPointMass->setObjectName("newPointMass");
@@ -183,6 +100,10 @@ MainWindow::MainWindow()
     m_Calibrate->setEnabled(false);
     tools->addAction(m_NewPointMass);
     tools->addAction(m_AutoTracker);
+    m_EditAxes = tools->addAction(tr("Set Axes"));
+    m_EditAxes->setObjectName("setCoordinateAxes");
+    m_EditAxes->setCheckable(true);
+    m_EditAxes->setEnabled(false);
     m_TrackPicker = new QComboBox;
     m_TrackPicker->setObjectName("trackPicker");
     m_TrackPicker->setAccessibleName(tr("Selected point mass"));
@@ -197,6 +118,11 @@ MainWindow::MainWindow()
     m_Video->setToolTip(tr("Shift-click the image to mark the selected point mass."));
     m_Video->pick = [this](QPointF position, bool shift)
     {
+        if (m_EditAxes->isChecked())
+        {
+            pickAxesPoint(position);
+            return true;
+        }
         if (m_Calibrate->isChecked())
         {
             pickCalibrationPoint(position);
@@ -285,6 +211,7 @@ MainWindow::MainWindow()
             [this]
             {
                 stopAutoTracking();
+                m_EditAxes->setChecked(false);
                 setPlaying(!m_Playing);
                 if (m_Playing && m_StepSlider->value() == m_StepSlider->maximum())
                 {
@@ -370,7 +297,29 @@ MainWindow::MainWindow()
                 {
                     stopAutoTracking();
                     setPlaying(false);
+                    m_EditAxes->setChecked(false);
                     statusBar()->showMessage(tr("Click the first calibration endpoint."));
+                }
+                else
+                {
+                    statusBar()->clearMessage();
+                }
+            });
+    connect(m_ShowAxes, &QAction::toggled, this, &MainWindow::refreshAxesOverlay);
+    connect(m_EditAxes,
+            &QAction::toggled,
+            this,
+            [this](bool active)
+            {
+                m_AxesOrigin.reset();
+                m_Video->setCalibrationPoint(std::nullopt);
+                if (active)
+                {
+                    stopAutoTracking();
+                    setPlaying(false);
+                    m_Calibrate->setChecked(false);
+                    m_ShowAxes->setChecked(true);
+                    statusBar()->showMessage(tr("Click the coordinate origin."));
                 }
                 else
                 {
@@ -601,6 +550,9 @@ void MainWindow::activateProject(const QString& path)
     m_DisplayedFrame.reset();
     m_Calibrate->setChecked(false);
     m_Calibrate->setEnabled(false);
+    m_EditAxes->setChecked(false);
+    m_EditAxes->setEnabled(false);
+    refreshAxesOverlay();
     m_Edits.clear();
     m_NewPointMass->setEnabled(true);
     m_SaveAs->setEnabled(true);
@@ -789,6 +741,56 @@ void MainWindow::clearCalibrationPoint()
 {
     m_CalibrationFirst.reset();
     m_Video->setCalibrationPoint(std::nullopt);
+}
+
+void MainWindow::refreshAxesOverlay()
+{
+    if (!m_ShowAxes->isChecked() || !m_DisplayedFrame || m_DisplayedFrame->image.isNull())
+    {
+        m_Video->setAxes(std::nullopt);
+        return;
+    }
+    const auto& frame = *m_DisplayedFrame;
+    if (m_Project.calibration)
+    {
+        m_Video->setAxes(calibrationAt(*m_Project.calibration, frame.number));
+        return;
+    }
+    m_Video->setAxes(CalibrationKey{.frame = frame.number,
+                                    .originX = frame.image.width() / 2.0,
+                                    .originY = frame.image.height() / 2.0,
+                                    .angleDegrees = 0.0,
+                                    .scaleX = 1.0,
+                                    .scaleY = 1.0});
+}
+
+void MainWindow::pickAxesPoint(const QPointF& position)
+{
+    if (!m_DisplayedFrame)
+    {
+        return;
+    }
+    if (!m_AxesOrigin)
+    {
+        m_AxesOrigin = position;
+        m_Video->setCalibrationPoint(position);
+        statusBar()->showMessage(tr("Click a point along the positive x axis."));
+        return;
+    }
+    const auto origin = *m_AxesOrigin;
+    if (!m_Edits.setCoordinateAxes(m_Project,
+                                   {.frame = m_DisplayedFrame->number,
+                                    .originX = origin.x(),
+                                    .originY = origin.y(),
+                                    .positiveX = position.x(),
+                                    .positiveY = position.y()}))
+    {
+        statusBar()->showMessage(tr("Choose a different point for the positive x axis."));
+        return;
+    }
+    m_EditAxes->setChecked(false);
+    refreshEditViews(m_TrackPicker->currentIndex());
+    statusBar()->showMessage(tr("Coordinate axes updated."));
 }
 
 void MainWindow::pickCalibrationPoint(const QPointF& position)
@@ -985,9 +987,12 @@ void MainWindow::displayFrame(const ImageFrame& frame, const QString& failureMes
     if (!m_DisplayedFrame || m_DisplayedFrame->number != frame.number)
     {
         m_Calibrate->setChecked(false);
+        m_EditAxes->setChecked(false);
     }
     m_DisplayedFrame = frame;
     m_Calibrate->setEnabled(!frame.image.isNull());
+    m_EditAxes->setEnabled(!frame.image.isNull());
+    refreshAxesOverlay();
     m_Plot->selectFrame(frame.number);
     const auto label = tr("Frame %1").arg(frame.number);
     m_FrameLabel->setText(label);
@@ -1054,6 +1059,7 @@ void MainWindow::startAutoTracking()
         AutoTrackSession{.pattern = *pattern, .track = static_cast<std::size_t>(track), .lastFrame = frame.number, .predicted = center};
     setPlaying(false);
     m_Calibrate->setChecked(false);
+    m_EditAxes->setChecked(false);
     statusBar()->showMessage(tr("AutoTracker is following the selected point mass."));
     m_AutoTrackTimer.start(0);
 }
@@ -1130,6 +1136,8 @@ void MainWindow::requestMovieFrame(int frame)
     updateAutoTrackerAction();
     m_Calibrate->setChecked(false);
     m_Calibrate->setEnabled(false);
+    m_EditAxes->setChecked(false);
+    m_EditAxes->setEnabled(false);
     m_Plot->selectFrame(frame);
     m_FrameLabel->setText(tr("Frame %1").arg(frame));
     if (!m_Playing)

@@ -46,6 +46,8 @@ To start AutoTracker, return to a frame with a marked point mass and choose Auto
 
 To set a known distance, select Calibration Stick, click two distinct points in the displayed image, and enter their distance and unit. Undo restores the previous scale and unit.
 
+Use Set Axes to place the coordinate origin and choose the positive x direction. The existing distance scale is preserved. Toggle the overlay from the View menu.
+
 ### Stage a local desktop build
 
 From the activated developer shell, run:

@@ -323,6 +323,35 @@ TEST(Workspace, TrimsAnImageSequenceAndRestoresItWithUndo)
     EXPECT_EQ(canvas->accessibleName(), "Frame 2");
 }
 
+TEST(Workspace, PlacesCoordinateAxesAndUpdatesMeasurements)
+{
+    motrack::MainWindow window;
+    window.show();
+    auto* editAxes = window.findChild<QAction*>("setCoordinateAxes");
+    auto* showAxes = window.findChild<QAction*>("showCoordinateAxes");
+    auto* canvas = window.findChild<QWidget*>("videoCanvas");
+    auto* marks = window.findChild<QTableWidget*>("marksTable");
+    auto* undo = window.findChild<QAction*>("undoEdit");
+    ASSERT_TRUE(editAxes && showAxes && canvas && marks && undo);
+    EXPECT_FALSE(editAxes->isEnabled());
+    ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
+    const auto original = marks->item(0, 4)->text();
+    editAxes->trigger();
+    EXPECT_TRUE(showAxes->isChecked());
+    const auto origin = canvas->rect().center();
+    QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, origin);
+    QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, origin);
+    EXPECT_TRUE(editAxes->isChecked());
+    QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, origin + QPoint(30, 0));
+    EXPECT_FALSE(editAxes->isChecked());
+    EXPECT_NE(marks->item(0, 4)->text(), original);
+    EXPECT_FALSE(canvas->grab().isNull());
+    undo->trigger();
+    EXPECT_EQ(marks->item(0, 4)->text(), original);
+    showAxes->trigger();
+    EXPECT_FALSE(showAxes->isChecked());
+}
+
 TEST(Workspace, AutoTracksATexturedMarkAndStopsWhenItDisappears)
 {
     QTemporaryDir temporary;

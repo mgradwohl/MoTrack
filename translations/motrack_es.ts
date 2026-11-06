@@ -31,6 +31,13 @@
     <message><source>&amp;Start frame</source><translation>Fotograma &amp;inicial</translation></message>
     <message><source>&amp;End frame</source><translation>Fotograma &amp;final</translation></message>
     <message><source>Step si&amp;ze</source><translation>Tamaño del &amp;paso</translation></message>
+    <message><source>&amp;View</source><translation>&amp;Ver</translation></message>
+    <message><source>Show coordinate &amp;axes</source><translation>Mostrar &amp;ejes de coordenadas</translation></message>
+    <message><source>Set Axes</source><translation>Ajustar ejes</translation></message>
+    <message><source>Click the coordinate origin.</source><translation>Haz clic en el origen de coordenadas.</translation></message>
+    <message><source>Click a point along the positive x axis.</source><translation>Haz clic en un punto del eje x positivo.</translation></message>
+    <message><source>Choose a different point for the positive x axis.</source><translation>Elige un punto distinto para el eje x positivo.</translation></message>
+    <message><source>Coordinate axes updated.</source><translation>Se actualizaron los ejes de coordenadas.</translation></message>
     <message><source>Reading video frames…</source><translation>Leyendo los fotogramas del vídeo…</translation></message>
     <message><source>Could not open this video.</source><translation>No se pudo abrir este vídeo.</translation></message>
     <message><source>Opened video with %1 frames.</source><translation>Se abrió un vídeo con %1 fotogramas.</translation></message>
