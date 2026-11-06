@@ -32,7 +32,7 @@ try
         if (extension.compare("trk", Qt::CaseInsensitive) == 0 || extension.compare("trz", Qt::CaseInsensitive) == 0 ||
             extension.compare("motrack", Qt::CaseInsensitive) == 0)
         {
-            window.loadProject(args.last());
+            window.openProject(args.last());
         }
         else
         {

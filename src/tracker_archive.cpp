@@ -49,7 +49,7 @@ bool safeMember(const QString& path)
 
 } // namespace
 
-TrackerArchive TrackerArchive::open(const QString& path)
+TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool* cancelled)
 {
     TrackerArchive result;
     require(result.m_Directory.isValid() && QFileInfo(path).isFile());
@@ -70,8 +70,8 @@ TrackerArchive TrackerArchive::open(const QString& path)
     for (auto status = archive_read_next_header(reader.get(), &entry); status != ARCHIVE_EOF;
          status = archive_read_next_header(reader.get(), &entry))
     {
-        require(status == ARCHIVE_OK && ++members <= MAX_MEMBERS && entry && archive_entry_is_encrypted(entry) == 0 &&
-                !archive_entry_hardlink(entry));
+        require((!cancelled || !*cancelled) && status == ARCHIVE_OK && ++members <= MAX_MEMBERS && entry &&
+                archive_entry_is_encrypted(entry) == 0 && !archive_entry_hardlink(entry));
         const auto type = archive_entry_filetype(entry);
         require(type == AE_IFREG || type == AE_IFDIR);
         const auto* utf8 = archive_entry_pathname_utf8(entry);
@@ -94,6 +94,7 @@ TrackerArchive TrackerArchive::open(const QString& path)
         require(file.open(QIODevice::WriteOnly | QIODevice::NewOnly));
         for (;;)
         {
+            require(!cancelled || !*cancelled);
             const auto read = archive_read_data(reader.get(), buffer.data(), buffer.size());
             if (read == 0)
             {

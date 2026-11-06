@@ -6,6 +6,8 @@
 #include <QStringList>
 #include <QTemporaryDir>
 
+#include <atomic>
+
 namespace motrack
 {
 
@@ -13,7 +15,7 @@ namespace motrack
 class TrackerArchive
 {
   public:
-    [[nodiscard]] static TrackerArchive open(const QString& path);
+    [[nodiscard]] static TrackerArchive open(const QString& path, const std::atomic_bool* cancelled = nullptr);
     [[nodiscard]] const QStringList& projects() const;
     [[nodiscard]] QString projectPath(const QString& member) const;
     [[nodiscard]] QString root() const;

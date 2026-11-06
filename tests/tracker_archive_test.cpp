@@ -93,4 +93,10 @@ TEST(TrackerArchive, OpensAnArchiveWithAUnicodeFilename)
     EXPECT_EQ(archive.projects(), QStringList{"image-sequence.trk"});
 }
 
+TEST(TrackerArchive, CancelsExtraction)
+{
+    const std::atomic_bool cancelled{true};
+    EXPECT_THROW(std::ignore = motrack::TrackerArchive::open(fixturePath("archive.trz"), &cancelled), motrack::ProjectError);
+}
+
 } // namespace
