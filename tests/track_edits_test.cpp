@@ -29,6 +29,48 @@ TEST(TrackEdits, ChangesTheClipWithoutRenumberingMarks)
     EXPECT_EQ(project.clip.firstFrame, 1);
 }
 
+TEST(TrackEdits, PlacesAxesWithoutChangingAnisotropicScale)
+{
+    motrack::LegacyProject project;
+    project.lengthUnit = "m";
+    project.calibration =
+        motrack::Calibration{.keyframes = {{.frame = 0, .originX = 0, .originY = 0, .angleDegrees = 0, .scaleX = 2, .scaleY = 4}},
+                             .fixedOrigin = false,
+                             .fixedAngle = true,
+                             .fixedScale = true};
+    motrack::TrackEdits edits;
+    EXPECT_FALSE(edits.setCoordinateAxes(project, {.frame = 5, .originX = 10, .originY = 20, .positiveX = 10, .positiveY = 20}));
+    ASSERT_TRUE(edits.setCoordinateAxes(project, {.frame = 5, .originX = 10, .originY = 20, .positiveX = 12, .positiveY = 16}));
+    if (!project.calibration)
+    {
+        FAIL() << "Coordinate system was not recorded.";
+    }
+    const auto point = motrack::worldPosition(project.calibration.value(), {.frame = 5, .x = 12, .y = 16});
+    if (!point)
+    {
+        FAIL() << "No world position at the edited frame.";
+    }
+    EXPECT_NEAR(point->x, 1.4142135623730951, 1e-12);
+    EXPECT_NEAR(point->y, 0.0, 1e-12);
+    EXPECT_EQ(project.lengthUnit, "m");
+    EXPECT_EQ(project.calibration.value().keyframes.front().originX, 0.0);
+    EXPECT_TRUE(edits.undo(project));
+    if (!project.calibration)
+    {
+        FAIL() << "Undo did not restore the coordinate system.";
+    }
+    EXPECT_EQ(project.calibration.value().keyframes.size(), 1u);
+
+    project.calibration.reset();
+    ASSERT_TRUE(edits.setCoordinateAxes(project, {.frame = 0, .originX = 2, .originY = 2, .positiveX = 2, .positiveY = 1}));
+    if (!project.calibration)
+    {
+        FAIL() << "Default coordinate system was not recorded.";
+    }
+    EXPECT_EQ(project.lengthUnit, "px");
+    EXPECT_DOUBLE_EQ(project.calibration.value().keyframes.front().angleDegrees, 90.0);
+}
+
 TEST(TrackEdits, InsertsReplacesAndRestoresMarksInFrameOrder)
 {
     motrack::LegacyProject project;

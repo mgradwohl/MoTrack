@@ -70,6 +70,8 @@ class MainWindow final : public QMainWindow
     void markAt(const QPointF& position);
     void repeatPreviousMark();
     void pickCalibrationPoint(const QPointF& position);
+    void pickAxesPoint(const QPointF& position);
+    void refreshAxesOverlay();
     void clearCalibrationPoint();
     [[nodiscard]] bool confirmDiscard();
 
@@ -91,6 +93,8 @@ class MainWindow final : public QMainWindow
     QAction* m_Calibrate;
     QAction* m_ClipSettings;
     QAction* m_AutoTracker;
+    QAction* m_ShowAxes;
+    QAction* m_EditAxes;
     QComboBox* m_TrackPicker;
     QComboBox* m_PlotQuantity;
     PositionPlot* m_Plot;
@@ -99,6 +103,7 @@ class MainWindow final : public QMainWindow
     std::optional<ImageSequence> m_Sequence;
     std::optional<ImageFrame> m_DisplayedFrame;
     std::optional<QPointF> m_CalibrationFirst;
+    std::optional<QPointF> m_AxesOrigin;
     struct AutoTrackSession
     {
         TemplateTracker pattern;
