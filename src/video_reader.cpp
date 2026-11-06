@@ -41,7 +41,8 @@ struct CloseIo
 {
     void operator()(AVIOContext* context) const
     {
-        av_freep(static_cast<void*>(&context->buffer));
+        av_free(context->buffer);
+        context->buffer = nullptr;
         avio_context_free(&context);
     }
 };
