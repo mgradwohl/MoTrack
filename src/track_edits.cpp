@@ -130,6 +130,72 @@ bool TrackEdits::removeMark(LegacyProject& project, std::size_t track, int frame
     return true;
 }
 
+bool TrackEdits::createVector(LegacyProject& project, std::string name)
+{
+    if (name.empty() || std::ranges::any_of(project.vectors, [&name](const auto& track) { return track.name == name; }))
+    {
+        return false;
+    }
+    append(project, AddVector{.name = std::move(name)});
+    return true;
+}
+
+bool TrackEdits::renameVector(LegacyProject& project, std::size_t track, std::string name)
+{
+    if (track >= project.vectors.size() || name.empty() ||
+        std::ranges::any_of(project.vectors, [&name](const auto& vector) { return vector.name == name; }))
+    {
+        return false;
+    }
+    append(project, RenameVector{.track = track, .after = std::move(name), .before = project.vectors.at(track).name});
+    return true;
+}
+
+bool TrackEdits::removeVector(LegacyProject& project, std::size_t track)
+{
+    if (track >= project.vectors.size())
+    {
+        return false;
+    }
+    append(project, RemoveVector{.track = track, .before = project.vectors.at(track)});
+    return true;
+}
+
+bool TrackEdits::markVector(LegacyProject& project, std::size_t track, VectorSample sample)
+{
+    if (track >= project.vectors.size() || sample.frame < 0 || !std::isfinite(sample.tailX) || !std::isfinite(sample.tailY) ||
+        !std::isfinite(sample.componentX) || !std::isfinite(sample.componentY) || !std::isfinite(sample.tailX + sample.componentX) ||
+        !std::isfinite(sample.tailY + sample.componentY))
+    {
+        return false;
+    }
+    const auto& samples = project.vectors.at(track).samples;
+    const auto previous = std::ranges::lower_bound(samples, sample.frame, {}, &VectorSample::frame);
+    const auto before = previous != samples.end() && previous->frame == sample.frame ? std::optional(*previous) : std::nullopt;
+    if (!before || before->tailX != sample.tailX || before->tailY != sample.tailY || before->componentX != sample.componentX ||
+        before->componentY != sample.componentY)
+    {
+        append(project, ChangeVectorSample{.track = track, .frame = sample.frame, .after = sample, .before = before});
+    }
+    return true;
+}
+
+bool TrackEdits::removeVectorSample(LegacyProject& project, std::size_t track, int frame)
+{
+    if (track >= project.vectors.size())
+    {
+        return false;
+    }
+    const auto& samples = project.vectors.at(track).samples;
+    const auto sample = std::ranges::lower_bound(samples, frame, {}, &VectorSample::frame);
+    if (sample == samples.end() || sample->frame != frame)
+    {
+        return false;
+    }
+    append(project, ChangeVectorSample{.track = track, .frame = frame, .after = std::nullopt, .before = *sample});
+    return true;
+}
+
 bool TrackEdits::calibrateDistance(LegacyProject& project, CalibrationDistance distance)
 {
     if (distance.frame < 0 || !std::isfinite(distance.knownLength) || distance.knownLength <= 0.0)
@@ -281,6 +347,56 @@ bool TrackEdits::redo(LegacyProject& project)
 
 void TrackEdits::apply(LegacyProject& project, const Edit& edit, bool forward)
 {
+    if (const auto* track = std::get_if<AddVector>(&edit))
+    {
+        if (forward)
+        {
+            project.vectors.push_back({.name = track->name, .samples = {}});
+        }
+        else
+        {
+            project.vectors.pop_back();
+        }
+        return;
+    }
+    if (const auto* rename = std::get_if<RenameVector>(&edit))
+    {
+        project.vectors.at(rename->track).name = forward ? rename->after : rename->before;
+        return;
+    }
+    if (const auto* remove = std::get_if<RemoveVector>(&edit))
+    {
+        const auto position = project.vectors.begin() + static_cast<std::ptrdiff_t>(remove->track);
+        if (forward)
+        {
+            project.vectors.erase(position);
+        }
+        else
+        {
+            project.vectors.insert(position, remove->before);
+        }
+        return;
+    }
+    if (const auto* change = std::get_if<ChangeVectorSample>(&edit))
+    {
+        auto& samples = project.vectors.at(change->track).samples;
+        const auto position = std::ranges::lower_bound(samples, change->frame, {}, &VectorSample::frame);
+        const bool existing = position != samples.end() && position->frame == change->frame;
+        const auto& replacement = forward ? change->after : change->before;
+        if (replacement && existing)
+        {
+            *position = *replacement;
+        }
+        else if (replacement)
+        {
+            samples.insert(position, *replacement);
+        }
+        else if (existing)
+        {
+            samples.erase(position);
+        }
+        return;
+    }
     if (const auto* track = std::get_if<AddTrack>(&edit))
     {
         if (forward)

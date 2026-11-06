@@ -3,6 +3,16 @@
 <TS version="2.1" language="de">
   <context>
     <name>MainWindow</name>
+    <message><source>New &amp;vector</source><translation>Neuer &amp;Vektor</translation></message>
+    <message><source>&amp;Rename track…</source><translation>Spur &amp;umbenennen…</translation></message>
+    <message><source>&amp;Delete track</source><translation>Spur &amp;löschen</translation></message>
+    <message><source>Selected track</source><translation>Ausgewählte Spur</translation></message>
+    <message><source>Shift-click to mark a point mass. For a vector, Shift-click its tail, then its tip.</source><translation>Umschalt-Klick markiert einen Massenpunkt. Bei einem Vektor zuerst den Anfang, dann die Spitze mit Umschalt-Klick markieren.</translation></message>
+    <message><source>Vector %1</source><translation>Vektor %1</translation></message>
+    <message><source>Shift-click the vector tail, then its tip. Escape cancels.</source><translation>Mit Umschalt-Klick den Vektoranfang, dann die Spitze markieren. Escape bricht ab.</translation></message>
+    <message><source>%1 (vector)</source><translation>%1 (Vektor)</translation></message>
+    <message><source>Shift-click the vector tip. Escape cancels.</source><translation>Mit Umschalt-Klick die Vektorspitze markieren. Escape bricht ab.</translation></message>
+    <message><source>Rename track</source><translation>Spur umbenennen</translation></message>
     <message><source>Export &amp;plot data…</source><translation>&amp;Diagrammdaten exportieren…</translation></message>
     <message><source>Export plot data</source><translation>Diagrammdaten exportieren</translation></message>
     <message><source>Zoom &amp;in</source><translation>Heran&amp;zoomen</translation></message>
@@ -109,7 +119,6 @@
     <message><source>&amp;Tracks</source><translation>&amp;Tracks</translation></message>
     <message><source>New &amp;point mass</source><translation>Neue &amp;Punktmasse</translation></message>
     <message><source>Repeat previous mark</source><translation>Vorherige Markierung wiederholen</translation></message>
-    <message><source>Selected point mass</source><translation>Ausgewählte Punktmasse</translation></message>
     <message><source>Shift-click the image to mark the selected point mass.</source><translation>Klicken Sie bei gedrückter Umschalttaste auf das Bild, um die ausgewählte Punktmasse zu markieren.</translation></message>
     <message><source>Point Mass %1</source><translation>Punktmasse %1</translation></message>
     <message><source>Save tracking edits?</source><translation>Änderungen am Track speichern?</translation></message>
@@ -135,10 +144,7 @@
     <message><source>Length unit</source><translation>Längeneinheit</translation></message>
     <message><source>Calibration updated.</source><translation>Kalibrierung aktualisiert.</translation></message>
     <message><source>Could not apply this calibration.</source><translation>Diese Kalibrierung konnte nicht angewendet werden.</translation></message>
-    <message><source>&amp;Rename point mass…</source><translation>Punktmasse &amp;umbenennen…</translation></message>
-    <message><source>&amp;Delete point mass</source><translation>Punktmasse &amp;löschen</translation></message>
     <message><source>Delete mark on this &amp;frame</source><translation>Markierung in diesem &amp;Bild löschen</translation></message>
-    <message><source>Rename point mass</source><translation>Punktmasse umbenennen</translation></message>
     <message><source>Track name</source><translation>Trackname</translation></message>
     <message><source>Choose a unique, nonempty track name.</source><translation>Wählen Sie einen eindeutigen, nicht leeren Tracknamen.</translation></message>
   </context>

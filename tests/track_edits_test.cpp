@@ -9,6 +9,89 @@
 namespace
 {
 
+TEST(TrackEdits, EditsVectorsAndRestoresSamplesAndTrackOrder)
+{
+    motrack::LegacyProject project;
+    motrack::TrackEdits edits;
+    EXPECT_FALSE(edits.createVector(project, ""));
+    ASSERT_TRUE(edits.createVector(project, "A"));
+    ASSERT_TRUE(edits.createVector(project, "B"));
+    EXPECT_FALSE(edits.createVector(project, "A"));
+    EXPECT_FALSE(edits.renameVector(project, 4, "C"));
+    EXPECT_FALSE(edits.renameVector(project, 0, ""));
+    EXPECT_FALSE(edits.renameVector(project, 0, "B"));
+    ASSERT_TRUE(edits.renameVector(project, 1, "C"));
+    ASSERT_TRUE(edits.markVector(project, 0, {.frame = 2, .tailX = 10, .tailY = 20, .componentX = 3, .componentY = -4}));
+    ASSERT_TRUE(edits.markVector(project, 0, {.frame = 0, .tailX = 1, .tailY = 2, .componentX = 0, .componentY = 0}));
+    edits.markSaved();
+    ASSERT_TRUE(edits.markVector(project, 0, {.frame = 0, .tailX = 1, .tailY = 2, .componentX = 0, .componentY = 0}));
+    EXPECT_FALSE(edits.isModified());
+    ASSERT_TRUE(edits.markVector(project, 0, {.frame = 0, .tailX = 2, .tailY = 3, .componentX = -5, .componentY = 6}));
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_FALSE(edits.isModified());
+    EXPECT_DOUBLE_EQ(project.vectors.front().samples.front().tailX, 1);
+    ASSERT_TRUE(edits.redo(project));
+    EXPECT_DOUBLE_EQ(project.vectors.front().samples.front().componentX, -5);
+    EXPECT_FALSE(edits.removeVectorSample(project, 8, 0));
+    EXPECT_FALSE(edits.removeVectorSample(project, 0, 1));
+    ASSERT_TRUE(edits.removeVectorSample(project, 0, 0));
+    EXPECT_EQ(project.vectors.front().samples.front().frame, 2);
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_EQ(project.vectors.front().samples.front().frame, 0);
+    EXPECT_FALSE(edits.removeVector(project, 8));
+    ASSERT_TRUE(edits.removeVector(project, 0));
+    EXPECT_EQ(project.vectors.front().name, "C");
+    ASSERT_TRUE(edits.markVector(project, 0, {.frame = 9, .tailX = 0, .tailY = 0, .componentX = 1, .componentY = 1}));
+    ASSERT_TRUE(edits.undo(project));
+    ASSERT_TRUE(edits.undo(project));
+    ASSERT_EQ(project.vectors.size(), 2u);
+    EXPECT_EQ(project.vectors.front().name, "A");
+    EXPECT_EQ(project.vectors.front().samples.size(), 2u);
+    EXPECT_TRUE(project.vectors.back().samples.empty());
+    while (edits.undo(project))
+    {
+    }
+    EXPECT_TRUE(project.vectors.empty());
+    while (edits.redo(project))
+    {
+    }
+    ASSERT_EQ(project.vectors.size(), 1u);
+    EXPECT_EQ(project.vectors.front().name, "C");
+    EXPECT_EQ(project.vectors.front().samples.front().frame, 9);
+}
+
+TEST(TrackEdits, RejectsNonfiniteOrOverflowingVectorEndpointsWithoutAddingHistory)
+{
+    motrack::LegacyProject project;
+    project.vectors = {{.name = "Vector", .samples = {}}};
+    motrack::TrackEdits edits;
+    const motrack::VectorSample valid{.frame = 0, .tailX = 1, .tailY = 2, .componentX = 3, .componentY = 4};
+    EXPECT_FALSE(edits.markVector(project, 1, valid));
+    auto invalid = valid;
+    invalid.frame = -1;
+    EXPECT_FALSE(edits.markVector(project, 0, invalid));
+    for (auto member : {&motrack::VectorSample::tailX,
+                        &motrack::VectorSample::tailY,
+                        &motrack::VectorSample::componentX,
+                        &motrack::VectorSample::componentY})
+    {
+        invalid = valid;
+        invalid.*member = std::numeric_limits<double>::infinity();
+        EXPECT_FALSE(edits.markVector(project, 0, invalid));
+        invalid.*member = std::numeric_limits<double>::quiet_NaN();
+        EXPECT_FALSE(edits.markVector(project, 0, invalid));
+    }
+    invalid = valid;
+    invalid.tailX = invalid.componentX = std::numeric_limits<double>::max();
+    EXPECT_FALSE(edits.markVector(project, 0, invalid));
+    invalid = valid;
+    invalid.tailY = invalid.componentY = std::numeric_limits<double>::max();
+    EXPECT_FALSE(edits.markVector(project, 0, invalid));
+    EXPECT_FALSE(edits.canUndo());
+    EXPECT_FALSE(edits.isModified());
+    EXPECT_TRUE(project.vectors.front().samples.empty());
+}
+
 TEST(TrackEdits, RestoresDeletedTracksAndMarksInTheirOriginalOrder)
 {
     motrack::LegacyProject project;

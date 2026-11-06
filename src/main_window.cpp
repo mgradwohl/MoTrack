@@ -108,11 +108,14 @@ MainWindow::MainWindow()
     m_NewPointMass = tracksMenu->addAction(tr("New &point mass"));
     m_NewPointMass->setObjectName("newPointMass");
     m_NewPointMass->setEnabled(false);
-    m_RenamePointMass = tracksMenu->addAction(tr("&Rename point mass…"));
+    m_NewVector = tracksMenu->addAction(tr("New &vector"));
+    m_NewVector->setObjectName("newVector");
+    m_NewVector->setEnabled(false);
+    m_RenamePointMass = tracksMenu->addAction(tr("&Rename track…"));
     m_RenamePointMass->setObjectName("renamePointMass");
     m_SetPointMass = tracksMenu->addAction(tr("Set &mass…"));
     m_SetPointMass->setObjectName("setPointMassValue");
-    m_RemovePointMass = tracksMenu->addAction(tr("&Delete point mass"));
+    m_RemovePointMass = tracksMenu->addAction(tr("&Delete track"));
     m_RemovePointMass->setObjectName("removePointMass");
     m_RemoveMark = tracksMenu->addAction(tr("Delete mark on this &frame"));
     m_RemoveMark->setObjectName("removeMark");
@@ -142,6 +145,7 @@ MainWindow::MainWindow()
     m_Calibrate->setCheckable(true);
     m_Calibrate->setEnabled(false);
     tools->addAction(m_NewPointMass);
+    tools->addAction(m_NewVector);
     tools->addAction(m_AutoTracker);
     m_EditAxes = tools->addAction(tr("Set Axes"));
     m_EditAxes->setObjectName("setCoordinateAxes");
@@ -149,7 +153,7 @@ MainWindow::MainWindow()
     m_EditAxes->setEnabled(false);
     m_TrackPicker = new QComboBox;
     m_TrackPicker->setObjectName("trackPicker");
-    m_TrackPicker->setAccessibleName(tr("Selected point mass"));
+    m_TrackPicker->setAccessibleName(tr("Selected track"));
     tools->addWidget(m_TrackPicker);
 
     auto* workspace = new QSplitter;
@@ -161,7 +165,11 @@ MainWindow::MainWindow()
     connect(resetZoom, &QAction::triggered, m_Video, &VideoCanvas::resetZoom);
     m_Video->setObjectName("videoCanvas");
     m_Video->setMinimumSize(240, 160);
-    m_Video->setToolTip(tr("Shift-click the image to mark the selected point mass."));
+    m_Video->setToolTip(tr("Shift-click to mark a point mass. For a vector, Shift-click its tail, then its tip."));
+    auto* cancelVector = new QAction(this);
+    cancelVector->setShortcut(QKeySequence(Qt::Key_Escape));
+    addAction(cancelVector);
+    connect(cancelVector, &QAction::triggered, this, &MainWindow::cancelVectorMark);
     m_Video->pick = [this](QPointF position, bool shift)
     {
         if (m_MeasureDistance->isChecked() || m_MeasureAngle->isChecked())
@@ -387,6 +395,25 @@ MainWindow::MainWindow()
                 refreshEditViews(static_cast<int>(index));
                 statusBar()->showMessage(tr("Shift-click the image to mark the selected point mass."));
             });
+    connect(m_NewVector,
+            &QAction::triggered,
+            this,
+            [this]
+            {
+                stopAutoTracking();
+                setPlaying(false);
+                cancelMeasurement();
+                m_Calibrate->setChecked(false);
+                m_EditAxes->setChecked(false);
+                auto number = m_Project.vectors.size() + 1;
+                auto name = tr("Vector %1").arg(number).toStdString();
+                while (!m_Edits.createVector(m_Project, name))
+                {
+                    name = tr("Vector %1").arg(++number).toStdString();
+                }
+                refreshEditViews(static_cast<int>(m_Project.pointMasses.size() + m_Project.vectors.size() - 1));
+                statusBar()->showMessage(tr("Shift-click the vector tail, then its tip. Escape cancels."));
+            });
     connect(m_RenamePointMass, &QAction::triggered, this, &MainWindow::renameSelectedPointMass);
     connect(m_SetPointMass, &QAction::triggered, this, &MainWindow::setSelectedPointMassValue);
     connect(m_RemovePointMass, &QAction::triggered, this, &MainWindow::removeSelectedPointMass);
@@ -414,6 +441,7 @@ MainWindow::MainWindow()
             this,
             [this](bool active)
             {
+                cancelVectorMark();
                 clearCalibrationPoint();
                 if (active)
                 {
@@ -485,6 +513,7 @@ MainWindow::MainWindow()
             this,
             [this]
             {
+                cancelVectorMark();
                 stopAutoTracking();
                 updatePointMassActions();
                 refreshPlot();
@@ -855,6 +884,7 @@ void MainWindow::activateProject(const QString& path)
     refreshAxesOverlay();
     m_Edits.clear();
     m_NewPointMass->setEnabled(true);
+    m_NewVector->setEnabled(true);
     m_SaveAs->setEnabled(true);
     m_Save->setEnabled(true);
     refreshEditViews(0);
@@ -885,6 +915,7 @@ void MainWindow::syncClipControls()
 
 void MainWindow::undoOrRedo(bool redo)
 {
+    cancelVectorMark();
     stopAutoTracking();
     const auto before = clipRange(m_Project.clip);
     const bool changed = redo ? m_Edits.redo(m_Project) : m_Edits.undo(m_Project);
@@ -970,11 +1001,16 @@ void MainWindow::closeEvent(QCloseEvent* event)
 
 void MainWindow::refreshEditViews(int track)
 {
+    cancelVectorMark();
     const QSignalBlocker blocker(m_TrackPicker);
     m_TrackPicker->clear();
     for (const auto& mass : m_Project.pointMasses)
     {
         m_TrackPicker->addItem(QString::fromStdString(mass.name));
+    }
+    for (const auto& vector : m_Project.vectors)
+    {
+        m_TrackPicker->addItem(tr("%1 (vector)").arg(QString::fromStdString(vector.name)));
     }
     m_TrackPicker->setCurrentIndex(std::min(std::max(0, track), m_TrackPicker->count() - 1));
     m_Undo->setEnabled(m_Edits.canUndo());
@@ -993,6 +1029,9 @@ void MainWindow::refreshEditViews(int track)
 
 void MainWindow::refreshPlot()
 {
+    const bool vector = selectedVector().has_value();
+    m_PlotQuantity->setEnabled(!vector);
+    m_FitLine->setEnabled(!vector);
     const auto quantity = static_cast<PlotQuantity>(m_PlotQuantity->currentData().toInt());
     const auto track = m_TrackPicker->currentIndex();
     const auto first = static_cast<std::size_t>(m_Project.clip.firstFrame);
@@ -1043,12 +1082,67 @@ void MainWindow::markAt(const QPointF& position)
     {
         return;
     }
+    if (selectedVector())
+    {
+        markVectorAt(position);
+        return;
+    }
     const Mark mark{.frame = m_DisplayedFrame->number, .x = position.x(), .y = position.y()};
     stopAutoTracking();
     setPlaying(false);
     if (m_Edits.markPointMass(m_Project, static_cast<std::size_t>(track), mark))
     {
         refreshEditViews(track);
+        m_StepSlider->triggerAction(QSlider::SliderSingleStepAdd);
+    }
+}
+
+std::optional<std::size_t> MainWindow::selectedVector() const
+{
+    const auto index = m_TrackPicker->currentIndex();
+    if (index < 0 || static_cast<std::size_t>(index) < m_Project.pointMasses.size())
+    {
+        return std::nullopt;
+    }
+    const auto vector = static_cast<std::size_t>(index) - m_Project.pointMasses.size();
+    return vector < m_Project.vectors.size() ? std::optional(vector) : std::nullopt;
+}
+
+void MainWindow::cancelVectorMark()
+{
+    if (m_VectorTail)
+    {
+        m_VectorTail.reset();
+        m_Video->setCalibrationPoint(std::nullopt);
+        statusBar()->clearMessage();
+    }
+}
+
+void MainWindow::markVectorAt(const QPointF& position)
+{
+    const auto vector = selectedVector();
+    if (!vector || !m_DisplayedFrame)
+    {
+        return;
+    }
+    const auto frame = m_DisplayedFrame->number;
+    stopAutoTracking();
+    setPlaying(false);
+    if (!m_VectorTail)
+    {
+        m_VectorTail = position;
+        m_Video->setCalibrationPoint(position);
+        statusBar()->showMessage(tr("Shift-click the vector tip. Escape cancels."));
+        return;
+    }
+    const VectorSample sample{.frame = frame,
+                              .tailX = m_VectorTail->x(),
+                              .tailY = m_VectorTail->y(),
+                              .componentX = position.x() - m_VectorTail->x(),
+                              .componentY = position.y() - m_VectorTail->y()};
+    if (m_Edits.markVector(m_Project, *vector, sample))
+    {
+        refreshEditViews(m_TrackPicker->currentIndex());
         m_StepSlider->triggerAction(QSlider::SliderSingleStepAdd);
     }
 }
@@ -1063,16 +1157,17 @@ void MainWindow::renameSelectedPointMass()
     stopAutoTracking();
     setPlaying(false);
     const auto index = static_cast<std::size_t>(selected);
-    const auto before = QString::fromStdString(m_Project.pointMasses.at(index).name);
+    const auto vector = selectedVector();
+    const auto before = QString::fromStdString(vector ? m_Project.vectors.at(*vector).name : m_Project.pointMasses.at(index).name);
     const auto request = m_RequestGeneration.load();
     bool accepted = false;
-    const auto after =
-        QInputDialog::getText(this, tr("Rename point mass"), tr("Track name"), QLineEdit::Normal, before, &accepted).trimmed();
+    const auto after = QInputDialog::getText(this, tr("Rename track"), tr("Track name"), QLineEdit::Normal, before, &accepted).trimmed();
     if (!accepted || request != m_RequestGeneration || before == after)
     {
         return;
     }
-    if (m_Edits.renamePointMass(m_Project, index, after.toStdString()))
+    if (vector ? m_Edits.renameVector(m_Project, *vector, after.toStdString())
+               : m_Edits.renamePointMass(m_Project, index, after.toStdString()))
     {
         refreshEditViews(selected);
     }
@@ -1085,7 +1180,9 @@ void MainWindow::renameSelectedPointMass()
 void MainWindow::removeSelectedPointMass()
 {
     const auto selected = m_TrackPicker->currentIndex();
-    if (selected >= 0 && m_Edits.removePointMass(m_Project, static_cast<std::size_t>(selected)))
+    const auto vector = selectedVector();
+    if (selected >= 0 &&
+        (vector ? m_Edits.removeVector(m_Project, *vector) : m_Edits.removePointMass(m_Project, static_cast<std::size_t>(selected))))
     {
         stopAutoTracking();
         setPlaying(false);
@@ -1096,7 +1193,7 @@ void MainWindow::removeSelectedPointMass()
 void MainWindow::setSelectedPointMassValue()
 {
     const auto selected = m_TrackPicker->currentIndex();
-    if (selected < 0)
+    if (selected < 0 || selectedVector())
     {
         return;
     }
@@ -1130,7 +1227,10 @@ void MainWindow::setSelectedPointMassValue()
 void MainWindow::removeCurrentMark()
 {
     const auto selected = m_TrackPicker->currentIndex();
-    if (selected >= 0 && m_DisplayedFrame && m_Edits.removeMark(m_Project, static_cast<std::size_t>(selected), m_DisplayedFrame->number))
+    const auto vector = selectedVector();
+    if (selected >= 0 && m_DisplayedFrame &&
+        (vector ? m_Edits.removeVectorSample(m_Project, *vector, m_DisplayedFrame->number)
+                : m_Edits.removeMark(m_Project, static_cast<std::size_t>(selected), m_DisplayedFrame->number)))
     {
         stopAutoTracking();
         setPlaying(false);
@@ -1143,12 +1243,14 @@ void MainWindow::updatePointMassActions()
     const auto selected = m_TrackPicker->currentIndex();
     const bool hasTrack = selected >= 0;
     m_RenamePointMass->setEnabled(hasTrack);
-    m_SetPointMass->setEnabled(hasTrack);
+    const auto vector = selectedVector();
+    m_SetPointMass->setEnabled(hasTrack && !vector);
     m_RemovePointMass->setEnabled(hasTrack);
     const bool hasMark =
         hasTrack && m_DisplayedFrame &&
-        std::ranges::binary_search(
-            m_Project.pointMasses.at(static_cast<std::size_t>(selected)).marks, m_DisplayedFrame->number, {}, &Mark::frame);
+        (vector ? std::ranges::binary_search(m_Project.vectors.at(*vector).samples, m_DisplayedFrame->number, {}, &VectorSample::frame)
+                : std::ranges::binary_search(
+                      m_Project.pointMasses.at(static_cast<std::size_t>(selected)).marks, m_DisplayedFrame->number, {}, &Mark::frame));
     m_RemoveMark->setEnabled(hasMark);
 }
 
@@ -1157,6 +1259,24 @@ void MainWindow::repeatPreviousMark()
     const auto track = m_TrackPicker->currentIndex();
     if (track < 0 || !m_DisplayedFrame)
     {
+        return;
+    }
+    if (const auto vector = selectedVector())
+    {
+        const auto& samples = m_Project.vectors.at(*vector).samples;
+        const auto previous = std::ranges::lower_bound(samples, m_DisplayedFrame->number, {}, &VectorSample::frame);
+        if (previous != samples.begin() && !m_DisplayedFrame->image.isNull())
+        {
+            auto sample = *std::prev(previous);
+            sample.frame = m_DisplayedFrame->number;
+            stopAutoTracking();
+            setPlaying(false);
+            if (m_Edits.markVector(m_Project, *vector, sample))
+            {
+                refreshEditViews(track);
+                m_StepSlider->triggerAction(QSlider::SliderSingleStepAdd);
+            }
+        }
         return;
     }
     const auto& marks = m_Project.pointMasses.at(static_cast<std::size_t>(track)).marks;
@@ -1239,6 +1359,7 @@ void MainWindow::beginMeasurement(bool angle)
 
 void MainWindow::cancelMeasurement()
 {
+    cancelVectorMark();
     if (m_MeasureDistance->isChecked() || m_MeasureAngle->isChecked() || !m_MeasurementPoints.isEmpty())
     {
         const QSignalBlocker distance(m_MeasureDistance);
@@ -1480,6 +1601,7 @@ void MainWindow::displayMarks()
 
 void MainWindow::displayStep(int step)
 {
+    cancelVectorMark();
     if (m_AutoTrackMatch)
     {
         stopAutoTracking();
@@ -1574,14 +1696,14 @@ void MainWindow::setPlaying(bool playing)
 void MainWindow::updateAutoTrackerAction()
 {
     m_AutoTracker->setEnabled(m_AutoTrack.has_value() ||
-                              (m_TrackPicker->currentIndex() >= 0 && m_DisplayedFrame && !m_DisplayedFrame->image.isNull() &&
-                               m_StepSlider->value() < m_StepSlider->maximum()));
+                              (m_TrackPicker->currentIndex() >= 0 && !selectedVector() && m_DisplayedFrame &&
+                               !m_DisplayedFrame->image.isNull() && m_StepSlider->value() < m_StepSlider->maximum()));
 }
 
 void MainWindow::startAutoTracking()
 {
     const auto track = m_TrackPicker->currentIndex();
-    if (track < 0 || !m_DisplayedFrame || m_StepSlider->value() >= m_StepSlider->maximum())
+    if (track < 0 || selectedVector() || !m_DisplayedFrame || m_StepSlider->value() >= m_StepSlider->maximum())
     {
         stopAutoTracking();
         return;

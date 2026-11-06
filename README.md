@@ -42,6 +42,8 @@ Choose a point mass from the toolbar or create one in the Tracks menu. Shift-cli
 
 Open a Tracker `.trz` experiment archive from the same project chooser. If it contains several Tracker tabs, choose the one to open. A MoTrack project saved from an archive references that archive for its media.
 
+Choose Tracks → New vector to create an independent vector track, or select an imported vector in the toolbar. Shift-click the tail, then Shift-click the tip to create or replace its arrow on the current frame and advance one clip step. Escape cancels a pending tail; switching frames, tracks, or tools also cancels it. Shift+Enter copies the preceding arrow to the current frame. Rename track, Delete track, Delete mark on this frame, and Undo/Redo work with vectors as well as point masses. Vector tails and components are saved in image pixels and survive reopening a `.motrack` project. Motion plots and measurement CSV export still cover point masses; dependent vector sums are not yet supported.
+
 Choose position, velocity, speed, acceleration, momentum, or kinetic energy above the plot. Set the selected point mass’s value in the Tracks menu. Select a plotted point to jump to its video frame. Enable Linear fit to see the slope, intercept, and R² for the plotted samples. Position uses the frame number when the project has no known timebase. Derived quantities use frame timestamps or saved image-sequence timing, and are left blank at the clip edges and across gaps in the marks. Imported movies are indexed in the background and keep Tracker’s saved clip start time.
 
 Use Clip Settings to choose the starting frame, ending frame, and frame interval for an experiment. Existing marks keep their original frame numbers when the clip changes.
