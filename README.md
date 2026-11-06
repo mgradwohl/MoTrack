@@ -36,6 +36,8 @@ Run `build/dev/motrack` (`motrack.exe` on Windows) from an [activated developer 
 
 Directly opened movies use quarter-turn rotation and reflection metadata. Tracker project imports retain their encoded frame coordinates.
 
+Use File → Open images to start from an image sequence. Enter its frame rate when known, or enter zero to analyze by frame number.
+
 Choose a point mass from the toolbar or create one in the Tracks menu. Shift-click an image to mark the selected point mass and advance one clip step. Shift+Enter repeats the previous mark. Use File → Export measurements to save the current measurements as CSV. Use File → Save project to keep the current tracks, calibration, and media references in a MoTrack project. Keep the referenced media in place when reopening the saved project.
 
 Open a Tracker `.trz` experiment archive from the same project chooser. If it contains several Tracker tabs, choose the one to open. A MoTrack project saved from an archive references that archive for its media.

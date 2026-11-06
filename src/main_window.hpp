@@ -41,6 +41,7 @@ class MainWindow final : public QMainWindow
     bool loadProject(const QString& path);
     void openProject(const QString& path);
     void openMovie(const QString& path);
+    bool openImageSequence(const QStringList& paths, double frameRate);
     bool saveMeasurements(const QString& path);
     bool saveWorkspace(const QString& path);
 
