@@ -1,32 +1,239 @@
-# MoTrack migration plan
+# MoTrack full-port plan
 
-## Architecture
+This is the canonical scope, requirements, architecture, status, and execution order for completing
+the native desktop port. Update it with implementation evidence as work lands. It is not a claim that
+the port is complete. Contributor commands live in [CONTRIBUTING.md](../CONTRIBUTING.md), agent workflow
+in [AGENTS.md](../AGENTS.md), and per-change checks in [code-review.md](code-review.md).
 
-- **Project model.** Store clips, calibration, units, tracks, marks, and model definitions in plain C++ types. Keep the playhead, selection, and window layout in workspace state. Use stable track IDs and per-document undoable commands.
-- **Analysis.** Keep coordinate transforms, derivatives, filters, tracking, and model evaluation callable without a GUI. Preserve Tracker behavior during the port. Changes that affect scientific results need explicit decisions and reference tests.
-- **Media.** Reuse a background decoder for playback and stepping, with cancellation and a bounded cache. Track decoded frame ordinals, clip steps, and presentation timestamps separately. Add indexed keyframe seeking for long movies and run larger automatic tracking searches off the UI thread.
-- **Project I/O.** Read Tracker XML (`.trk`) and experiment archives (`.trz`) through an adapter that maps known legacy types, resolves relative and archive-local media, and reports missing or unsupported content. Saving a versioned MoTrack document alongside the standard Tracker file is acceptable; native persistence alone does not fulfill the required [round-trip workflow](#tracker-round-trip-compatibility). Validate legacy writes against the Java app before offering them.
-- **Desktop UI.** Use Qt 6 Widgets for the main window, canvas, tables, and plot controls. Keep view state and drawing outside the analysis library. Evaluate native camera capture separately.
-- **Familiar workflows.** Use Tracker's layout, tool names, and common interactions as the starting point. Change them where the existing workflow makes controls hard to find, unclear, or difficult to use. Record meaningful differences in the user guide.
-- **Localization.** Route user-facing strings through Qt Linguist from the start. Use Tracker's locale catalogs as a terminology reference where their license permits reuse. Grow translated coverage with each feature and check layouts with longer labels and right-to-left languages.
+## Goal and completion contract
 
-The C++ port uses Qt for desktop widgets, XML parsing, and localization, FFmpeg for video decoding, and libarchive for experiment archives. Port the OSP algorithms and behaviors needed for compatibility with reference tests.
+Deliver Tracker's desktop video-analysis and modeling workflows in a C++23 application on Windows,
+macOS, and Linux. Users must be able to open existing experiments, perform the corresponding edits and
+analysis, save standard Tracker files, and continue in Tracker. A `.motrack` companion alongside the
+standard files is acceptable; it cannot substitute for a usable `.trk` or `.trz` output.
 
-## Delivery milestones
+The scope baseline is **Tracker desktop 6.3.5**, listed in the official
+[change log](https://opensourcephysics.github.io/tracker-website/change_log.html) as released on
+2026-06-22. Include its filtered point-mass clones and per-tab/default units. Cover representative older
+files through the corpus; do not promise every historical codec or file variant without tests.
+Pin the actual reference executable, dependencies, and matching source in phase 1 before declaring
+behavior equivalent. The source inventory reviewed for this plan is upstream
+[020692a3d23781763dd8a7a19d73bf004c3faefe](https://github.com/OpenSourcePhysics/tracker/tree/020692a3d23781763dd8a7a19d73bf004c3faefe).
+That inventory snapshot is not yet proof of the exact source used to build the 6.3.5 binary.
 
-1. **Foundation.** Establish CMake presets, Clang/LLVM, GoogleTest, CTest, and native CI for Windows, macOS, and Linux. Add a small legacy `.trk` reader and fixtures so the first coverage gate exercises production code.
-2. **First experiment workflow.** Open a representative legacy experiment, step forward and backward, calibrate distance, mark a point mass, undo an edit, plot position and velocity, and export CSV. Run the packaged app on all three platforms.
-3. **Compatibility and feature parity.** Expand the experiment corpus. Archive import and template-based point-mass tracking have initial implementations. Continue with additional track and measurement tools, particle models, video filters, richer data analysis, multi-tab workspaces, and verified legacy project writes. Expand the language catalog and verify representative workflows across locales.
+Full completion requires every requirement below to be implemented and verified on the supported
+desktop platforms, or explicitly resolved by a maintainer-approved compatibility decision. A gap cannot
+be removed from scope merely by preserving its XML, hiding its control, documenting it as unsupported,
+or reaching the coverage threshold. Include the OSP services exposed by Tracker, such as Data Tool,
+function/model builders, and the Library Browser; porting only Tracker's own Java classes is insufficient.
 
-Independent vectors can be imported, created, marked, renamed, and deleted with undo/redo and native project persistence. Vector editing uses two Shift-clicks (tail and tip) and stores image-space components at the original frame number. Dependent vector sums and vector analysis remain pending.
+Browser execution remains outside the desktop-port scope. Replacing Swing, Java VM management, and
+Xuggle with native components is an implementation change, not permission to omit the user workflows
+they support. Experimental upstream branches and features added after the frozen baseline are separate
+scope decisions. Record deliberate behavior changes, including corrections to reference bugs.
 
-## Verification
+## Current implementation and evidence
 
-- Build and test with Clang on all three OSes. Choose minimum OS versions and CPU architectures before pinning the release toolchain.
-- Follow TaskSmack's LLVM instrumentation and reporting approach. Combine coverage from the three platforms by source line and enforce a hard 90% minimum on handwritten production C++, including UI and platform code. Exclude generated files, dependencies, and test sources. Include all production targets in the report so untested code counts.
-- Freeze a Java Tracker reference revision and record expected frame assignments, calibration, and exported measurements. Cover constant and variable frame rates, backward seeking, skipped clip steps, missing marks, rotated video, and missing media. Compare numerical results with explicit tolerances.
-- Land the documentation bootstrap on `main`. Use pull requests and required build, test, and coverage checks after CI is in place.
-- Before packaging, verify the license terms for Tracker and OSP code and assets carried forward, the chosen Qt modules, and the exact FFmpeg configuration.
+Snapshot: **2026-11-06**, merged `main` at
+[`2575106`](https://github.com/mgradwohl/MoTrack/commit/2575106254e460fc1517cfa4fb74b1d408b3aca2).
+[PR #34](https://github.com/mgradwohl/MoTrack/pull/34) added independent vector editing. Its Windows,
+macOS, Linux, setup, and coverage checks passed in
+[CI run 42232137292](https://github.com/mgradwohl/MoTrack/actions/runs/42232137292): combined production
+line coverage **92.72% (3631/3916)**. This verifies the implemented slice, not full Tracker equivalence.
+
+Implemented and tested workflows include local movie/image opening, playback and indexed stepping,
+clip limits, a reusable background decoder with a bounded cache, cancellation of superseded opens,
+point-mass creation/marking/rename/deletion, independent vector editing, undo/redo, distance calibration,
+axis placement, transient distance/angle measurements, position/velocity/speed/acceleration/momentum/
+energy plots, a straight-line fit, CSV export, and native save/reopen. Template-based AutoTracker runs
+off the UI thread. English, French, German, and Spanish UI catalogs and local desktop staging exist.
+
+Evidence is in [workspace tests](../tests/workspace_test.cpp),
+[edit tests](../tests/track_edits_test.cpp), [numerical tests](../tests/measurements_test.cpp),
+[import tests](../tests/legacy_project_test.cpp), [archive tests](../tests/tracker_archive_test.cpp),
+[media tests](../tests/video_reader_test.cpp), and [CI](../.github/workflows/ci.yml).
+The three OS builds and staged smoke tests do not replace interactive platform acceptance testing.
+
+Major current limits: native-only writes; unknown XML is not retained; one active tab; reduced track and
+coordinate models; basic AutoTracker and plotting; no particle models, persistent measurement tracks,
+video filter stack, Library Browser, or signed installers. The README describes available interactions.
+
+## Requirements and status matrix
+
+**Implemented** means the explicitly described slice is in merged code with tests. **Partial** means
+some of the complete requirement remains. **Missing** means there is no supported end-to-end workflow.
+Phase numbers identify the implementation order below, not estimated dates or percent completion.
+Each requirement needs a source/reference case, public-entry-point test, persistence test when relevant,
+and platform evidence before it can be marked complete.
+
+| ID | Required desktop behavior | Status at the snapshot and remaining work | Phase |
+| --- | --- | --- | --- |
+| R01 | Reproducible native builds, CI, review, numerical tests, at least 90% combined C++ line coverage | Implemented foundation; continue applying gates to every new component. | 0, every phase |
+| R02 | Open `.trk`/`.trz`; preserve all supported and unknown content, references, metadata, and archive tabs | Partial: supported point masses/vectors/calibration import; one archive tab selected. Unknown objects are not retained. | 1–3 |
+| R03 | Save edited standard files plus optional `.motrack`; reopen in both applications without data loss | Partial: native persistence only. Standard writers, preservation, paired-save recovery, and Java reopening are missing. | 2–3, every feature |
+| R04 | Multiple experiment tabs, independent undo/dirty state, tab/project Save As, cross-tab import and reusable views | Missing; currently one active experiment. Preserve unopened tabs before adding their UI. | 2–4 |
+| R05 | Movies, stills, image sequences and zipped sequences; accurate clip/time/frame controls and media properties | Partial: local movies/images, clip trim/stride, timestamp indexing, orientation, cache, and playback exist. Audit all baseline formats, rates, sequence operations, and properties controls. | 1, 4, 6 |
+| R06 | Complete point-mass editing and appearance: selection, dragging/nudging, numeric positions, multiselect, locks, labels, trails, paths, and vector overlays | Partial: manual marking/replacement, repeat, rename/delete, mass, and undo exist. Finish manipulation, appearance, path length, and selection behavior. | 4–5 |
+| R07 | Independent vectors, linked vectors, sums, their data, editing, and persistence | Partial: independent vectors import/display/edit/undo/native-save. Links, sums, analysis, and standard writes remain. | 3–5 |
+| R08 | Center-of-mass tracks, constituents, dependent updates, and moving reference frames | Missing; requires stable identities and dependency evaluation. | 2, 5 |
+| R09 | Fixed or varying calibration, axes, calibration sticks/points, offset origins, attachments, coordinate locks, and L/M/T/angle units | Partial: imported calibration keys, basic distance calibration and axes exist. Finish tool tracks, units UI/defaults, attachments, and reference frames. | 3–5 |
+| R10 | Persistent tape measures, protractors, circle fitting, attachments, and their changing measurements | Partial: temporary distance/angle tools only; these are not persisted Tracker track equivalents. | 5 |
+| R11 | Full AutoTracker: masks, search areas, keyframes, target offsets, match scores, subpixel positions, evolution/tethering, look-ahead, line search, stop/retry/skip, and live/fast modes | Partial: fixed grayscale patch and bounded search on a point mass, background operation, uncertainty stop. Reference algorithm and interaction parity remain. | 5–7 |
+| R12 | Ordered, editable video filter stack with saved parameters and reproducible filtered frames | Missing: enhancement, temporal, noise-reduction, geometric, and lens-correction filters; see the filter inventory below. | 6 |
+| R13 | RGB region and line-profile tracks, shapes/widths, changing image statistics, spatial/time data, and persistence | Missing; define sampling relative to the filter pipeline before implementing numerical kernels. | 6–7 |
+| R14 | Complete motion data and derivative choices, gaps/interpolation, motion smoothing, filtered clones, and correct units | Partial: several translational quantities with gap handling exist. Audit all variables/algorithms; add angular quantities, interpolation, Moving Average, Butterworth, and Savitzky-Golay clone behavior. | 5, 8 |
+| R15 | Plot/table parity: selectable axes/columns, synchronized plots, comparisons, ranges, selection, sorting, formatting, text columns, clipboard, and data refresh | Partial: one selected series and basic marks table. Full views and saved view settings remain. | 4, 8, 10 |
+| R16 | Data Builder expressions, parameters, custom variables, saved function sets, and autoloading | Missing; needs compatible expression evaluation and dependency tracking. | 8 |
+| R17 | Data Tool and Fit Builder workflows: statistics, automatic/manual/custom fits, uncertainty, residuals, integration and Fourier analysis, saved analysis state | Partial: straight-line slope/intercept/R² only. Inventory the bundled OSP tool and match its exposed operations. | 1, 8 |
+| R18 | Analytic/kinematic particle models, parameter editing/synchronization, initial conditions, model overlays, and stamping | Missing. | 8–9 |
+| R19 | Cartesian/polar dynamic particles and interacting two-body systems, numerical solvers, launch conditions, and model data | Missing. | 8–9 |
+| R20 | External multi-point models from text/clipboard and external modeling programs, time mapping, refresh/auto-paste, and stamping | Missing. Preserve EJS-style data-exchange workflows through a tested native adapter; do not assume loading a Java application into MoTrack is required. | 8–9 |
+| R21 | Main/world/plot/table/page views, layouts, track controls, notes, drawings, labels, and supporting documents | Partial: main video, table, plot, zoom/pan and axes only. World/page views, annotations, notes and layout persistence remain. | 4, 10 |
+| R22 | Data export with track/column selection, formatting, raw precision, delimiters and clipboard; image/plot/print export | Partial: point-mass measurement and selected-series CSV. Other data/graphics/print workflows remain. | 8, 10 |
+| R23 | Video/clip export and transcoding, image sequences, overlays, correct output timing, thumbnails and portable experiment packaging | Partial: local app staging is unrelated to media export; video encoding/export UI is missing. Archive packaging belongs to R03. | 3, 6, 10 |
+| R24 | Library Browser: local/remote collections, metadata/search, recent resources, cache management, downloads and authoring/sharing collection files | Missing; offline/cancel/error behavior and collection-format compatibility required. | 11 |
+| R25 | Preferences, shortcuts, accessible focus/labels, font/icon sizing, locale-aware numbers, all baseline language catalogs, searchable help and diagnostics | Partial: four UI languages and basic keyboard controls. Broader translation, RTL/accessibility, preferences and help remain. | every phase, 10–12 |
+| R26 | Robust desktop lifecycle: open/drop/file association, close/cancel, recovery, resource limits, responsive long tasks, and clean shutdown | Partial: several worker/cancel/dirty-state paths tested. Multi-document recovery, associations and resource regression tests remain. | 2–4, 12 |
+| R27 | Installable releases for supported OS/CPU combinations, runtime deployment, signing/notarization, upgrades, notices, SBOM and provenance | Partial: developer setup and staged local smoke tests only. Define minimum OS/CPU matrix and complete installer/release validation. | 1, 12 |
+
+The reference inventory is grounded in Tracker's
+[desktop feature overview](https://opensourcephysics.github.io/tracker-website/),
+[point-mass help](https://opensourcephysics.github.io/tracker-website/help/pointmass.html),
+[AutoTracker help](https://opensourcephysics.github.io/tracker-website/help/autotracker.html),
+[coordinates](https://opensourcephysics.github.io/tracker-website/help/coords.html),
+[tables](https://opensourcephysics.github.io/tracker-website/help/tableview.html),
+[plots](https://opensourcephysics.github.io/tracker-website/help/plotview.html),
+[models](https://opensourcephysics.github.io/tracker-website/help/particles.html),
+[two-body systems](https://opensourcephysics.github.io/tracker-website/help/systems.html),
+[external models](https://opensourcephysics.github.io/tracker-website/help/datatrack.html), and
+[Library Browser](https://opensourcephysics.github.io/tracker-website/help/library_browser.html).
+Phase 1 reconciles every menu, track class, saved property, and bundled OSP tool against this matrix;
+newly discovered baseline requirements extend it rather than disappearing between broad categories.
+
+The [video-filter inventory](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/resources/help/video_filters.html)
+includes brightness/contrast, highlight/shadow, deinterlace, strobe, ghost/dark ghost, grayscale,
+negative, baseline subtraction, sum/average, perspective, radial distortion, resize, and rotate/reflect.
+Parameters, ordering, enable/disable, copy/paste, temporal reset behavior, and saved state are part of
+parity. Motion filters in R14 are a separate numerical-data pipeline.
+
+## Proposed architecture
+
+Keep the existing C++23 / Qt 6 Widgets / FFmpeg / libarchive choices. Evolve the tested components in
+small steps; this is a target architecture, not a description of layers already fully separated.
+The current [CMake targets](../CMakeLists.txt) are `motrack_project`, `motrack_media`,
+`motrack_workspace`, and the application. `MainWindow` currently owns much of the session orchestration;
+the generic model is still named `LegacyProject`, and edits address tracks by vector indices.
+
+```mermaid
+flowchart TD
+    UI[Qt desktop views and inspectors] --> App[Application commands and document sessions]
+    App --> Core[Project model and undo history]
+    App --> IO[Native and Tracker I/O adapters]
+    App --> Jobs[Cancelable job coordinator]
+    IO --> Core
+    Jobs --> Media[Media decoding and filter pipeline]
+    Jobs --> Analysis[Tracking, expressions, models and analysis]
+    Analysis --> Core
+    UI --> Results[Immutable view data and results]
+    Jobs --> Results
+    Reference[Java reference and corpus harness] -. verifies .-> IO
+    Reference -. verifies .-> Analysis
+```
+
+| Boundary | Design and migration from current code |
+| --- | --- |
+| Project/domain | Replace the reduced legacy-shaped model incrementally with a format-independent experiment model: stable document/track IDs, typed track records, clip/timebase, coordinate keys, units, dependencies and annotations. Keep numerical records free of Widgets/FFmpeg. Distinguish original frame number, clip step, media timestamp and physical/model time. |
+| Source preservation | The I/O adapter owns a source envelope: original XML, association of domain IDs to source objects, archive member inventory and preserved payloads. Unknown fields are retained here, not treated as editable domain features. Persist enough of the envelope for native reopen and later standard export. |
+| Track capabilities | Use a typed registry/dispatch boundary for creation, editing, rendering, measurement columns and serialization. Start with existing point masses/vectors, then add tools and dependent/model tracks. Keep type-specific editors out of a growing `MainWindow` switch. Avoid a speculative plugin ABI before the built-in types work. |
+| Commands/history | Route changes through per-document commands with stable IDs and reversible values. Track dirty/saved revisions independently for native and standard outputs. Batch an AutoTracker run or multi-selection edit coherently; preserve dependent state across undo/redo and failed allocations. |
+| Dependency evaluation | Explicit references and a checked dependency graph drive sums, centers of mass, reference frames, attachments, custom functions, filtered clones and models. Recompute only affected results, reject cycles and dangling references, and invalidate by document revision. Names are labels, not identity. |
+| Session/application | Extract a `DocumentSession` and controllers for open/save, playback, tools and jobs. A workspace owns multiple sessions; switching tabs preserves each document's history and cancels or isolates its in-flight work. View layout/selection/playhead are workspace state, with Tracker-compatible view state persisted where required. |
+| Media pipeline | Evolve `VideoReader`, `MovieWorker` and `ImageSequence` behind media-source contracts. Keep encoded pixels, metadata orientation, user filters, image/world transforms and presentation output explicit. Stateful filters define history/reset/seek rules. Use bounded decode/filter caches with complete cache keys. |
+| Scientific services | Extend `measurements` into coordinate, quantity, derivative, fit and statistics services. Build one validated expression engine for data/model/fit builders; use explicit syntax and function compatibility, dependency errors and finite-value handling. Integrators operate on physical time independently of rendering cadence. |
+| Tracking and models | Separate numerical search/solver kernels from UI controls and undo commands. Advance results on immutable document snapshots, return revision-tagged results, then commit accepted edits on the UI thread. Match the reference algorithms/tolerances before adding different algorithms. |
+| I/O and saves | Separate bounded XML/archive parsing, domain mapping, native schema migrations and Tracker writers. Patch preserved known objects for supported edits. Stage/validate both outputs, retain recoverable valid files and report partial failures. Standard exports cannot depend on a `.motrack` reader. |
+| Views | Qt views consume shared measurement/selection models and immutable frame/results data. Render overlays in explicit image/world coordinates. Shared inspector and plot/table models keep values, labels, units and exports consistent; use Qt translation throughout. |
+| Platform/services | Keep filesystem dialogs, clipboard, network/library access, printing and release integration at adapters. User documents do not execute imported code. External-model interoperability uses a documented data boundary. Java is a validation dependency, not a planned MoTrack runtime. |
+
+All long I/O, decoding, search, filtering and model work needs cancellation, bounded memory and
+request/document generation checks. Only the UI thread modifies widgets or commits live document
+edits. Keep RAII for non-Qt resources and Qt parent ownership for widgets. Do not run local system
+stress tests as routine feature validation; use representative bounded workloads.
+
+## Implementation order and exit gates
+
+Complete the following dependency sequence. Within a phase, land small vertical slices with numerical
+tests, UI where applicable, native and standard serialization, translations and documentation together.
+Do not build out many new editable types while the project model still drops their source data.
+The listed exit gates are required results, not statements that their harnesses already exist.
+
+| Phase | Work in order and prerequisites | Exit gate |
+| --- | --- | --- |
+| 0 — Stabilize the existing slice | Foundation and independent vector editing are merged. Keep regression tests green; resolve data-loss/crash/scientific defects before extending features. | Three-platform builds/tests/static analysis and coverage pass; the current supported workflow remains usable. |
+| 1 — Freeze reference and corpus | Audit 6.3.5 menus/classes/OSP tools; pin executable/dependencies/source and hashes; define platform/codec matrix; build corpus manifest and Java reference runner. Start with real point-mass/vector projects plus unsupported models and multi-tab archives. | Reproducible baseline report with provenance, expected values/tolerances, every requirement mapped to a case, and explicit gaps. No claims based only on synthetic XML. |
+| 2 — Preserve documents and identities | Introduce stable IDs, source envelopes, native schema migration and per-document commands/session ownership before dependent tracks or multi-tab editing. Preserve original content and all archive members, including those not editable. | Native save/close/reopen retains unknown objects and associations; duplicate names, reorder/delete/undo, old-native migration and cancellation tests pass. Source-input removal does not break future export metadata. |
+| 3 — Make standard round trips real | Implement `.trk` patch/write for current supported edits, then `.trz` packaging and paired saving. Cover edits to marks/vectors/mass/calibration/clip, creation/rename/deletion and dependency handling. Add relocation and failed-save recovery. | The round-trip suite below passes in actual Java Tracker, including untouched objects and other tabs. Reopen after native close/reload, and reimport Tracker's resave. No silent loss. |
+| 4 — Establish multi-document and shared UI foundations | Build on sessions/IDs and tested I/O. Add tabs, per-tab dirty/history/media state, reusable track/inspector/selection models, cross-tab import and core view/layout persistence. | Two experiments with different timing/units can be edited, switched, saved, canceled and reopened without state or worker results crossing documents. |
+| 5 — Complete coordinates and mechanical tracks | Complete base point-mass manipulation and quantities, calibration tools/units/locks, persistent tape/protractor/circle fitter, vectors/sums and centers of mass; then moving reference frames and attachments. Build dependency evaluation first. | Every mechanical type is creatable/editable/undoable, produces reference numerical data, and round-trips with relationships intact. Interleaved edits and frame changes update all views correctly. |
+| 6 — Complete media and image transformations | Finish format/sequence/property/control matrix and ordered filter infrastructure. Implement stateless filters, geometric transforms, then temporal filters with deterministic seek/reset behavior. Define the sampling stage used by tracking and RGB analysis. | Reference image/coordinate tests and playback/seek tests pass for ordered filter combinations; repeated seeking gives the defined result within memory/time budgets. Filter settings round-trip. |
+| 7 — Complete automated and image-based measurement | Extend AutoTracker to its reference controls/algorithms and attached targets using the established filter/coordinate pipeline. Add RGB regions and line profiles with track data and temporal/spatial views. | Golden tracking/statistics cases cover subpixel matches, occlusion/low confidence, template evolution, keyframes, stop/retry/cancel and calibrated sampling. UI stays responsive and results round-trip. |
+| 8 — Complete analysis and expression infrastructure | Finish derivative/gap algorithms and filtered clones, shared data columns, Data Builder, function persistence/autoload, full plot/table selection/formatting, and Data Tool/Fit Builder operations. Reuse the expression engine in phase 9. | Reference quantities, smoothing, expression errors, fits/uncertainties and analysis results match declared tolerances. Saved functions and analysis/view state reopen correctly. |
+| 9 — Complete modeling | Add analytic models first, then Cartesian/polar dynamic models and two-body systems; finish external multi-point models, parameter synchronization, launch conditions, stamping and exchange adapters. | Reference projectile, oscillator, collision/two-body and externally supplied trajectories agree at original frame times. Parameters, dependencies and solver settings survive both save formats. |
+| 10 — Complete presentation and output | Finish world/page views, notes/drawings/documents, preferences, layout controls, full data/image/print export, then video/clip export with filtered images and overlays. Depends on the final rendering and scientific pipelines. | Representative lessons can be authored, annotated, exported and reopened; rendered/exported timing, coordinates, units and saved layouts remain correct. |
+| 11 — Complete library workflows | Add local collection reading, metadata/search and cache, then remote browsing/download/cancel/offline behavior, collection editing and portable sharing. Reuse tested archive I/O and document presentation. | Reference collections and portable experiments open with relative paths and documents intact; offline and interrupted transfers preserve existing local work. |
+| 12 — Close parity and ship readiness | Finish every baseline locale, keyboard/accessibility/RTL checks, diagnostics/help, file associations, installer/upgrades and clean-machine verification. Review licenses/notices, dependencies, signing/notarization, SBOM and provenance. | All requirements closed with evidence; full corpus and interactive acceptance pass on the supported OS/CPU matrix; release artifacts verified with no development SDK on the machine. |
+
+Critical dependencies are **reference → preservation/IDs → standard round trips → sessions/shared
+editing → full track/media/analysis/model behavior → complete output/library UX → release acceptance**.
+Coordinate and dependency semantics precede dependent tracks; filters precede RGB and final AutoTracker;
+expression evaluation precedes models and custom fits; complete rendering precedes overlay video export.
+Localization, accessibility, performance checks and serialization accompany every phase, not just phase 12.
+
+The next concrete implementation slice is phase 1's versioned corpus/reference harness, followed by
+source preservation and stable identities in phase 2. Phase 3 has priority over adding particle-model
+editing. UI familiarity can improve while work progresses, but visual polish cannot replace correctness
+or standard-file compatibility gates.
+
+### Decisions that must be closed before their dependent phase
+
+| Decision | Current position | Needed by |
+| --- | --- | --- |
+| Executable/source reference | Desktop 6.3.5 is the scope baseline; exact binary/JRE/dependency hashes and matching source mapping still need verification. | 1, before golden results |
+| OS and CPU support | CI currently uses Windows 2025, macOS 15 and Ubuntu 24.04 runners. These are test environments, not declared minimum end-user OS versions. Specify release minimums and Intel/Arm coverage explicitly. | 1, finalized before 12 |
+| Codec coverage and export | FFmpeg import works for tested fixtures; pin a format/codec/container test matrix and identify any licensing or platform limitations. Do not label untested formats supported because FFmpeg recognizes their names. | 1, 6 and 10 |
+| Native preservation representation | Choose a versioned source-envelope/storage design with migrations and bounded payload handling. Media may remain explicitly referenced; unknown project metadata must survive without the original import file. | 2 |
+| Pair-save recovery | Specify staging, backup/recovery and user-visible partial-success behavior; two independent filesystem replacements cannot be assumed atomic. | 3 |
+| Numerical equivalence | Freeze quantity-specific tolerances, derivative/solver choices, units and gap semantics from actual reference results, including boundary and near-zero values. | 1, extended per feature |
+| External-model exchange and supporting documents | Verify the reference's data protocols and choose native adapters/viewers without silently excluding those workflows or executing arbitrary document content. | 9–11 |
+
+Unresolved decisions stay visible in the plan. Routine implementation choices can be made within the
+authorized port scope; any change to required behavior or declared compatibility must be recorded.
+
+## Verification and definition of done
+
+- Keep the hard **90% combined handwritten production-C++ line coverage** gate, Clang formatting/static
+  analysis, numerical/unit tests, public workflow tests and staged smoke tests on all three platforms.
+  Exclude generated/dependency/test sources, not inconvenient production modules. A reference runner's
+  results and real interoperability checks are additional evidence, not substitutes for these gates.
+- Use exact comparisons for identities/frame assignments and explicit per-quantity absolute/relative
+  tolerances for scientific results. Reference differences must be explained; do not increase a tolerance
+  merely to hide an error. Test absent data, invalid units/expressions, gaps, singular fits and solver failure.
+- Test failures and lifecycle operations: cancel/supersede, reopen, undo/redo, mixed-document edits,
+  missing/relocated media, read-only destinations, interrupted paired writes, corrupt/truncated archives,
+  oversized input and shutdown. Keep parsing and archive resource limits explicit and fuzz those boundaries.
+- Use small deterministic CI fixtures, a separately fetched real corpus, and bounded longer scenarios.
+  Record machine/workload/time/memory when measuring performance. Establish budgets in phase 1 and keep
+  regression baselines; never infer safety from an unbounded local stress test.
+- For each requirement, record merged PR/commit, reference version/case, tests/tolerances, platform results
+  and known differences in this plan or a linked checked-in acceptance report. Update status when code lands;
+  an open PR or local demonstration is not a completed main-branch feature.
+- Before declaring the **full port complete**, reconcile the pinned upstream inventory again, close every
+  row and subfeature, pass real Tracker round trips, verify representative interactive teaching workflows,
+  finish supported translations, and validate distributable installers on clean supported systems.
+  Any exception needs an explicit maintainer decision recorded with its effect on the parity claim.
+- Under the maintainer's standing authorization, reviewed PRs with green current-revision CI may be merged
+  autonomously. Then fast-forward local `main`, remove verified merged branches locally/remotely, and remove
+  obsolete task-owned outputs while retaining active builds, caches, SDKs and useful corpus samples.
 
 ## Tracker round-trip compatibility
 
@@ -41,7 +248,7 @@ Tracker export. Treat round-trip support as a compatibility milestone, not a com
 
 Tracker's XML object format and ZIP experiment packaging are workable. The main implementation risk
 is losing data or changing relationships when translating only the types MoTrack understands. The
-[Tracker I/O source](https://github.com/mgradwohl/tracker/blob/SwingJS/src/org/opensourcephysics/cabrillo/tracker/TrackerIO.java)
+[Tracker I/O source](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/TrackerIO.java)
 is a reference for project saving and archive discovery; pin the actual tested desktop release and
 its source revision in the compatibility corpus.
 
@@ -69,6 +276,20 @@ its source revision in the compatibility corpus.
   limits before an operation would lose data; never advertise a successful open as proof of fidelity.
 
 ### Corpus and acceptance tests
+
+Current inventory, checked on 2026-11-06:
+
+| Material | Availability | What it proves today |
+| --- | --- | --- |
+| `point-mass.trk`, `image-sequence.trk`, `movie.trk` and `archive.trz` | Committed under [tests/fixtures](../tests/fixtures), with tiny generated media and additional inline XML tests. | Targeted parser, timing, path and application regressions; not reference-app round-trip proof. |
+| `binary_star.trz` | Local development sample; project records Tracker 6.2.0 and contains `DynamicSystem` and `DynamicParticle` objects. | Useful future model/preservation case; no automated corpus baseline yet. |
+| `bouncing_cart.trz` | Local development sample; project records Tracker 6.1.1 and contains `DynamicParticle` and `TapeMeasure` objects. | Useful future model/tool/preservation case; displaying its media does not implement those tracks. |
+| `tab_video.trz` | Local development sample; project records Tracker 4.62 and contains a `TapeMeasure`. | Useful older-format case; despite its name, the inspected archive contains only one `.trk`. |
+
+The three downloaded samples are not yet a reproducible committed corpus. Record provenance,
+redistribution terms, download location and hashes before promoting them into automated reference tests.
+Add real point-mass/vector experiments and a genuinely multi-tab archive; the existing samples cannot
+stand in for those cases.
 
 The existing small synthetic fixtures test importer behavior, not broad Tracker compatibility. Build
 a versioned corpus with source URL, redistribution permission, checksum, producing Tracker version,

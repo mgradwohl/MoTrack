@@ -8,6 +8,9 @@ MoTrack is in early development. The desktop prototype opens local movies direct
 
 ## Development
 
+The [full-port plan](docs/migration-plan.md) records requirements, current completion status, proposed
+architecture, implementation dependencies, and the tests required before claiming Tracker parity.
+
 - C++23 and CMake, with Clang/LLVM on Windows, macOS, and Linux.
 - Qt 6 Widgets for the desktop interface, FFmpeg for video decoding, and libarchive for Tracker experiment archives.
 - GoogleTest and CTest, with a 90% minimum line coverage gate for handwritten production C++ from the first code change.

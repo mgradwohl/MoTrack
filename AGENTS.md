@@ -27,9 +27,11 @@ to it elsewhere. Do not describe planned functionality or unavailable tooling as
   or skip failing checks to get a change through.
 - Apply the review checklist and resolve findings with evidence. Report actionable defects and their
   impact; avoid formatter-enforced style nits and speculative claims.
-- Merge only within the user's authorization and repository protections, with required checks passing
-  on the current revision and blocking review discussions addressed. Never use an administrator bypass
-  or rewrite shared branch history. This guide does not grant new merge or release authority.
+- The maintainer authorized autonomous MoTrack PR merges on 2026-11-06 until the full port is complete:
+  merge when required CI is green on the current revision and code review passes, with blocking findings
+  and discussions resolved. Apply this standing authorization without asking again for each eligible PR.
+  Respect repository protections; never use an administrator bypass or rewrite shared branch history.
+  This authorization does not grant new release-publication or signing authority.
 
 ## MoTrack-specific constraints
 
@@ -40,6 +42,9 @@ to it elsewhere. Do not describe planned functionality or unavailable tooling as
 - Preserve the required [Tracker round-trip workflow](docs/migration-plan.md#tracker-round-trip-compatibility).
   A `.motrack` companion is allowed alongside standard files; native-only saving is not the compatibility
   target. Retain unknown source content and validate exported edits by reopening them in Java Tracker.
+- Follow the [full-port implementation order](docs/migration-plan.md#implementation-order-and-exit-gates).
+  Update its requirement/status matrix and evidence with each completed slice. A working prototype,
+  preserved unknown object, or green coverage result does not by itself establish full Tracker parity.
 - Document coordinate spaces, units, original frame numbers, clip steps, and timestamps. Changes to
   scientific results need explicit reasoning and numerical reference tests against the pinned Tracker
   behavior. Do not silently substitute zero for missing or unsupported measurements.
