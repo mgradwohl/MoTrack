@@ -164,3 +164,8 @@ maps image (13.5, 17.25) to world (12.84375, 21.625); Java's coordinate API and 
 before and after resave. All vector image positions/components and unrelated XML remain unchanged.
 Native tests additionally exercise undo/redo, native reopen, locked/unsupported coordinate modes,
 nonfinite/singular transforms and destination preservation. Units and keyed/moving systems remain pending.
+
+Vector session snapshots compare the scientific tip/tail positions and independently expected
+tail/components. Transient drag handles and display points are excluded: Tracker does not serialize
+them, and an automatic snap can leave the drag handle at its old location until a fresh reload.
+The numerical tolerance and checks on all saved vector geometry remain unchanged.
