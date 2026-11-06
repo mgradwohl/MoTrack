@@ -1,5 +1,6 @@
 #include "image_sequence.hpp"
 #include "main_window.hpp"
+#include "workspace_document.hpp"
 
 #include <QAction>
 #include <QApplication>
@@ -298,6 +299,79 @@ TEST(Workspace, TrimsAnImageSequenceAndRestoresItWithUndo)
     EXPECT_EQ(slider->maximum(), 1);
     redo->trigger();
     EXPECT_EQ(canvas->accessibleName(), "Frame 2");
+}
+
+TEST(Workspace, AutoTracksATexturedMarkAndStopsWhenItDisappears)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    motrack::WorkspaceDocument document;
+    document.project.pointMasses.push_back({.name = "Ball", .marks = {{.frame = 0, .x = 22, .y = 22}}});
+    for (int frame = 0; frame < 3; ++frame)
+    {
+        const auto name = QString("frame%1.png").arg(frame);
+        document.project.clip.mediaReferences.push_back(name.toStdString());
+        QImage image(64, 48, QImage::Format_Grayscale8);
+        image.fill(30);
+        if (frame < 2)
+        {
+            const int center = 22 + frame * 6;
+            for (int y = -5; y <= 5; ++y)
+            {
+                for (int x = -5; x <= 5; ++x)
+                {
+                    const int value = ((x + 5) * 71 + (y + 5) * 103 + (x * y + 25) * 19) % 190 + 30;
+                    image.scanLine(22 + y)[center + x] = static_cast<uchar>(value);
+                }
+            }
+        }
+        ASSERT_TRUE(image.save(temporary.filePath(name)));
+    }
+    const auto path = temporary.filePath("autotrack.motrack");
+    motrack::writeWorkspaceDocument(path, document);
+    motrack::MainWindow window;
+    auto* action = window.findChild<QAction*>("autoTracker");
+    auto* marks = window.findChild<QTableWidget*>("marksTable");
+    auto* slider = window.findChild<QSlider*>("stepSlider");
+    auto* undo = window.findChild<QAction*>("undoEdit");
+    ASSERT_TRUE(action && marks && slider && undo);
+    EXPECT_FALSE(action->isEnabled());
+    ASSERT_TRUE(window.loadProject(path));
+    ASSERT_TRUE(action->isEnabled());
+    slider->setValue(1);
+    action->trigger();
+    EXPECT_FALSE(action->isChecked());
+    EXPECT_EQ(window.statusBar()->currentMessage(), "Mark a point mass on this frame to start AutoTracker.");
+    slider->setValue(0);
+    action->trigger();
+    EXPECT_TRUE(action->isChecked());
+    action->trigger();
+    QCoreApplication::processEvents();
+    EXPECT_EQ(slider->value(), 0);
+    action->trigger();
+    ASSERT_TRUE(QTest::qWaitFor([slider, action] { return slider->value() == 2 && !action->isChecked(); }));
+    ASSERT_EQ(marks->rowCount(), 2);
+    EXPECT_EQ(marks->item(1, 1)->text(), "1");
+    EXPECT_EQ(marks->item(1, 2)->text(), "28");
+    EXPECT_EQ(window.statusBar()->currentMessage(), "AutoTracker could not find a reliable match. Mark this frame to continue.");
+    undo->trigger();
+    EXPECT_EQ(marks->rowCount(), 1);
+
+    document.project.clip.stepCount = 2;
+    motrack::writeWorkspaceDocument(path, document);
+    ASSERT_TRUE(window.loadProject(path));
+    action->trigger();
+    ASSERT_TRUE(QTest::qWaitFor([slider, action] { return slider->value() == 1 && !action->isChecked(); }));
+    EXPECT_EQ(window.statusBar()->currentMessage(), "AutoTracker reached the end of the clip.");
+
+    document.project.pointMasses.front().marks.push_back({.frame = 1, .x = 30, .y = 22});
+    motrack::writeWorkspaceDocument(path, document);
+    ASSERT_TRUE(window.loadProject(path));
+    action->trigger();
+    ASSERT_TRUE(QTest::qWaitFor([slider, action] { return slider->value() == 1 && !action->isChecked(); }));
+    ASSERT_EQ(marks->rowCount(), 2);
+    EXPECT_EQ(marks->item(1, 2)->text(), "30");
+    EXPECT_EQ(window.statusBar()->currentMessage(), "AutoTracker stopped at an existing mark.");
 }
 
 TEST(Workspace, PlaysTheClipAndStopsAtTheLastFrame)

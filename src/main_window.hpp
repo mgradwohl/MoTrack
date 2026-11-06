@@ -2,6 +2,7 @@
 
 #include "image_sequence.hpp"
 #include "legacy_project.hpp"
+#include "template_tracker.hpp"
 #include "track_edits.hpp"
 
 #include <QCoreApplication>
@@ -51,6 +52,10 @@ class MainWindow final : public QMainWindow
     void requestMovieFrame(int frame);
     void setPlaying(bool playing);
     void schedulePlayback();
+    void startAutoTracking();
+    void stopAutoTracking(const QString& message = {});
+    void updateAutoTrackerAction();
+    void autoTrackFrame(const ImageFrame& frame);
     void activateProject(const QString& path);
     void syncClipControls();
     void editClipSettings();
@@ -83,6 +88,7 @@ class MainWindow final : public QMainWindow
     QAction* m_Redo;
     QAction* m_Calibrate;
     QAction* m_ClipSettings;
+    QAction* m_AutoTracker;
     QComboBox* m_TrackPicker;
     QComboBox* m_PlotQuantity;
     PositionPlot* m_Plot;
@@ -91,6 +97,15 @@ class MainWindow final : public QMainWindow
     std::optional<ImageSequence> m_Sequence;
     std::optional<ImageFrame> m_DisplayedFrame;
     std::optional<QPointF> m_CalibrationFirst;
+    struct AutoTrackSession
+    {
+        TemplateTracker pattern;
+        std::size_t track;
+        int lastFrame;
+        QPoint predicted;
+    };
+    std::optional<AutoTrackSession> m_AutoTrack;
+    QTimer m_AutoTrackTimer;
     QString m_MoviePath;
     QString m_ProjectPath;
     QString m_SavePath;
