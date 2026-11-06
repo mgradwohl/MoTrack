@@ -23,6 +23,12 @@ void VideoCanvas::setAxes(std::optional<CalibrationKey> axes)
     update();
 }
 
+void VideoCanvas::setMeasurementPolyline(QList<QPointF> points)
+{
+    m_MeasurementPolyline = std::move(points);
+    update();
+}
+
 void VideoCanvas::display(QImage image, QList<QPointF> marks, const QString& message)
 {
     m_Image = std::move(image);
@@ -67,6 +73,16 @@ void VideoCanvas::paintEvent(QPaintEvent* /*event*/)
     painter.drawImage(area, m_Image);
     painter.setClipRect(area);
     drawAxes(painter, area);
+    painter.setPen(QPen(Qt::magenta, 2));
+    for (qsizetype index = 0; index < m_MeasurementPolyline.size(); ++index)
+    {
+        const auto point = canvasPoint(m_MeasurementPolyline.at(index), area);
+        if (index > 0)
+        {
+            painter.drawLine(canvasPoint(m_MeasurementPolyline.at(index - 1), area), point);
+        }
+        painter.drawEllipse(point, 4, 4);
+    }
     painter.setPen(QPen(Qt::yellow, 2));
     for (const auto& mark : m_Marks)
     {
