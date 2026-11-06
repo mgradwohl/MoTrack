@@ -18,6 +18,14 @@ The C++ port uses Qt for desktop widgets, XML parsing, and localization, FFmpeg 
 2. **First experiment workflow.** Open a representative legacy experiment, step forward and backward, calibrate distance, mark a point mass, undo an edit, plot position and velocity, and export CSV. Run the packaged app on all three platforms.
 3. **Compatibility and feature parity.** Expand the experiment corpus. Archive import and template-based point-mass tracking have initial implementations. Continue with additional track and measurement tools, particle models, video filters, richer data analysis, multi-tab workspaces, and verified legacy project writes. Expand the language catalog and verify representative workflows across locales.
 
+## Verification
+
+- Build and test with Clang on all three OSes. Choose minimum OS versions and CPU architectures before pinning the release toolchain.
+- Follow TaskSmack's LLVM instrumentation and reporting approach. Combine coverage from the three platforms by source line and enforce a hard 90% minimum on handwritten production C++, including UI and platform code. Exclude generated files, dependencies, and test sources. Include all production targets in the report so untested code counts.
+- Freeze a Java Tracker reference revision and record expected frame assignments, calibration, and exported measurements. Cover constant and variable frame rates, backward seeking, skipped clip steps, missing marks, rotated video, and missing media. Compare numerical results with explicit tolerances.
+- Land the documentation bootstrap on `main`. Use pull requests and required build, test, and coverage checks after CI is in place.
+- Before packaging, verify the license terms for Tracker and OSP code and assets carried forward, the chosen Qt modules, and the exact FFmpeg configuration.
+
 ## Tracker round-trip compatibility
 
 The maintainer requires this workflow: open a Tracker experiment in MoTrack, edit it, save it, and
@@ -76,11 +84,3 @@ Include multiple Tracker versions, variable frame rates, calibration keyframes, 
 paths, missing media, multiple archive tabs, unknown properties, and failed paired writes. Run the
 corpus through the public import/save paths on all three platforms; record the tested Tracker versions
 and known gaps instead of making an unqualified claim of compatibility with every Tracker file.
-
-## Verification
-
-- Build and test with Clang on all three OSes. Choose minimum OS versions and CPU architectures before pinning the release toolchain.
-- Follow TaskSmack's LLVM instrumentation and reporting approach. Combine coverage from the three platforms by source line and enforce a hard 90% minimum on handwritten production C++, including UI and platform code. Exclude generated files, dependencies, and test sources. Include all production targets in the report so untested code counts.
-- Freeze a Java Tracker reference revision and record expected frame assignments, calibration, and exported measurements. Cover constant and variable frame rates, backward seeking, skipped clip steps, missing marks, rotated video, and missing media. Compare numerical results with explicit tolerances.
-- Land the documentation bootstrap on `main`. Use pull requests and required build, test, and coverage checks after CI is in place.
-- Before packaging, verify the license terms for Tracker and OSP code and assets carried forward, the chosen Qt modules, and the exact FFmpeg configuration.
