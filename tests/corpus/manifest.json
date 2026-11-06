@@ -104,6 +104,37 @@
         }
       ],
       "provenance": "Authored by tools/reference/VectorFixture.java using the checksum-pinned Tracker 6.3.5 serializers; LF normalized; no MoTrack output used."
+    },
+    {
+      "id": "keyed-calibration",
+      "local_file": "fixtures/keyed-calibration.trk",
+      "file": "keyed-calibration.trk",
+      "bytes": 6638,
+      "sha256": "f05e70d5382b226c7fa2021bbe58db25f101223245ca68b6897d010303790326",
+      "tracker_version": "6.3.5",
+      "features": [
+        "varying-origin",
+        "varying-rotation",
+        "varying-nonuniform-scale",
+        "key-boundaries",
+        "java-authored-synthetic"
+      ],
+      "requirements": [
+        "R02",
+        "R09"
+      ],
+      "expected": "expected/keyed-calibration.json",
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "calibration probe"
+        }
+      ],
+      "provenance": "Authored by tools/reference/KeyedCalibrationFixture.java using checksum-pinned Tracker 6.3.5 serializers; reproduced byte-for-byte; no MoTrack output used."
     }
   ]
 }

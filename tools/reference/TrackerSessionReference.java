@@ -127,7 +127,14 @@ public final class TrackerSessionReference {
                 TPoint[] savedPoints = track.getClass() == Vector.class
                     ? new TPoint[] {((VectorStep) step).getTip(), ((VectorStep) step).getTail()} : step.getPoints();
                 for (TPoint point : savedPoints) points.add(point == null ? null : List.of(point.x, point.y));
-                samples.add(TrackerReference.map("frame", step.getFrameNumber(), "points", points));
+                int frame = step.getFrameNumber();
+                List<Double> world = null;
+                if (track.getClass() == PointMass.class) {
+                    TPoint point = savedPoints[0];
+                    world = List.of(coords.imageToWorldX(frame, point.x, point.y),
+                                    coords.imageToWorldY(frame, point.x, point.y));
+                }
+                samples.add(TrackerReference.map("frame", frame, "points", points, "world", world));
                 if (track.getClass() == Vector.class) {
                     VectorStep vector = (VectorStep) step;
                     vectorSamples.add(TrackerReference.map("frame", step.getFrameNumber(),

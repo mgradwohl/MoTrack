@@ -33,7 +33,8 @@ actual Tracker loader, saver and native reimport. Empty point masses are allowed
 and keyframes still have to match exactly.
 The vector cases change tails/components, insert/delete samples, clear a vector, then add its first
 sample after Java resaves the empty vector. They compare unchanged XML, image-space tails/components,
-loaded Java vectors and native reimport. Names, clip/calibration and track-membership edits, media/archive
+loaded Java vectors and native reimport. Clip ranges, fixed calibration and length labels have additional
+cases described below. Names, keyed calibration and track-membership edits, media/archive
 round trips, desktop export UI and paired saves remain unfinished.
 
 ## Sources and cases
@@ -46,18 +47,22 @@ The fourth case is a small committed synthetic fixture authored by Tracker 6.3.5
 [VectorFixture.java](../../tools/reference/VectorFixture.java), with LF-normalized bytes and a pinned
 checksum. Its expected snapshot comes from the Java reference, never from MoTrack. Local fixtures are
 verified in place and restricted to this corpus's `fixtures` directory; they are never fetched or replaced.
+The fifth case uses [KeyedCalibrationFixture.java](../../tools/reference/KeyedCalibrationFixture.java)
+to author a varying coordinate system and point-mass samples at calibration-key boundaries. Its bytes
+are likewise pinned and reproducible; expected values come only from the Java reference.
 
 | Case | Producing version | Checked imported content | Unsupported content retained in the source fixture |
 | --- | --- | --- | --- |
 | Ball toss | 5.1.5 | Eleven marks at frames 2–12, mass, clip bounds/time origin and world coordinates | Tape measure, display settings and archive media |
 | Protractor | 6.0.7 | Two named point masses, their marks/calibration; mass-value and mark edits through the standard round-trip runner | Protractor and its saved settings |
 | Independent vectors (synthetic) | 6.3.5 | Two independent vectors, sparse frames, a zero vector, nonuniform scale; actual Java session resave | Track colors/footprints and coordinate axes |
+| Keyed calibration (synthetic) | 6.3.5 | Origin, rotation and nonuniform scale vary at frames 0/4/9; marks before and at each transition; import and Java session resave | Coordinate axes and display settings |
 | Dynamic sine | 5.1.2 | Clip and calibration; dynamic particle is reported as unsupported | Model parameters, functions and plot settings |
 
 The probe reads the `.trk` member selected by the manifest from BallToss's `.trz`. It does not exercise
 MoTrack's archive extractor, so the existing archive/workspace tests remain necessary. No archive member
 paths are extracted by the corpus script. Add genuine multi-tab archives, upstream vector examples/dependent vectors,
-current 6.3.5 features, varying calibration, media/timing cases and failure cases next.
+current 6.3.5 features, partly fixed/reference-frame calibration, media/timing cases and failure cases next.
 
 The executable's SHA-256 is verified and its runtime version reports 6.3.5. The June 22, 2026 upstream
 commit is recorded as a **source candidate**, not a verified binary-to-source mapping. Full source and
@@ -163,7 +168,7 @@ The `calibration` case changes the vector fixture's existing fixed origin to (10
 maps image (13.5, 17.25) to world (12.84375, 21.625); Java's coordinate API and application must agree
 before and after resave. All vector image positions/components and unrelated XML remain unchanged.
 Native tests additionally exercise undo/redo, native reopen, locked/unsupported coordinate modes,
-nonfinite/singular transforms and destination preservation. Units and keyed/moving systems remain pending.
+nonfinite/singular transforms and destination preservation. Keyed/moving system export remains pending.
 
 Vector session snapshots compare the scientific tip/tail positions and independently expected
 tail/components. Transient drag handles and display points are excluded: Tracker does not serialize
@@ -180,5 +185,22 @@ that default on save, while the original native import still represents an absen
 The XML reference uses Tracker's normal resource-path reader. OSP's alternate `File` constructor uses
 the platform default charset and misdecodes UTF-8 on Java 17 Windows; a bounded comparison confirmed
 that the resource reader preserves the micro sign without changing VM-wide encoding settings. Native
-string writes use CDATA for XML-sensitive characters rather than entities, matching OSP's string reader.
+string writes use CDATA rather than entities, matching OSP's string reader. Edited unit properties with
+comments or processing instructions reject without replacing a file because OSP requires an adjacent
+CDATA/property terminator; preserving an intervening comment can make its reader hang.
 The actual application round trip remains the final acceptance gate; this adapter fix alone is not GUI evidence.
+
+The `keyed-calibration` baseline has three fully varying keys: frame 0 has origin (320,240), angle 0,
+scale (2,4); frame 4 has origin (100,120), angle 90 degrees, scale (4,8); frame 9 has origin (110,130),
+angle -90 degrees, scale (2,8). A mark at image (10,20) maps to world (-155,55) at frames 0/3,
+(12.5,22.5) at frames 4/8, and (-13.75,-50) at frame 9 within the unchanged corpus tolerance.
+All point-mass session samples now include world coordinates evaluated by the loaded Tracker panel;
+the harness checks these against the independent baseline before save, after save and after reopening.
+Matching wrong values across all three stages must still fail. This establishes a reference for future
+keyed-calibration export; it does not yet claim that MoTrack can export those edits.
+
+Regenerate the fixture only to a fresh temporary path and compare bytes before proposing a baseline change:
+
+```sh
+java -Djava.awt.headless=true -Xmx256m --class-path .dev-tools/tracker-reference/tracker-6.3.5.jar tools/reference/KeyedCalibrationFixture.java /temporary/path/keyed-calibration.trk
+```

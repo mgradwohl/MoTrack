@@ -125,7 +125,7 @@ class CorpusTests(unittest.TestCase):
         for identity in case["session_tracks"]:
             mass = next((mass for mass in expected["point_masses"] if mass["name"] == identity["name"]), None)
             tracks.append({**identity, "mass": mass["mass"] if mass else None,
-                           "samples": [{"frame": sample["frame"], "points": [sample["image"]]}
+                           "samples": [{"frame": sample["frame"], "points": [sample["image"]], "world": sample["world"]}
                                        for sample in mass["samples"]] if mass else []})
         before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   **corpus.session_units(case, expected)}
@@ -160,6 +160,31 @@ class CorpusTests(unittest.TestCase):
     def test_session_checks_reject_non_linux_hosts(self):
         with patch.object(corpus.sys, "platform", "win32"), self.assertRaisesRegex(ValueError, "Linux"):
             corpus.check_sessions({}, self.root, "java")
+
+    def test_keyed_calibration_requires_independent_world_coordinates_at_each_boundary(self):
+        manifest = corpus.load_manifest()
+        case = next(case for case in manifest["cases"] if case["id"] == "keyed-calibration")
+        corpus.verify_file(corpus.local_fixture_path(case), case)
+        expected = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
+        mass = expected["point_masses"][0]
+        corpus.compare([[s["frame"], *s["world"]] for s in mass["samples"]],
+                       [[0, -155, 55], [3, -155, 55], [4, 12.5, 22.5], [8, 12.5, 22.5], [9, -13.75, -50]],
+                       manifest["tolerance"])
+        tracks = [{**case["session_tracks"][0], "samples": []},
+                  {**case["session_tracks"][1], "mass": mass["mass"],
+                   "samples": [{"frame": s["frame"], "points": [s["image"]], "world": s["world"]}
+                               for s in mass["samples"]]}]
+        before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                  **corpus.session_units(case, expected)}
+        valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                 "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
+        corpus.validate_session(case, valid, manifest)
+        for index in range(len(mass["samples"])):
+            invalid = copy.deepcopy(valid)
+            for stage in ["before", "after_save", "after"]:
+                invalid[stage]["tracks"][1]["samples"][index]["world"][0] += 1
+            with self.subTest(frame=mass["samples"][index]["frame"]), self.assertRaises(ValueError):
+                corpus.validate_session(case, invalid, manifest)
 
     def test_local_vector_fixture_is_pinned_and_cannot_escape_the_corpus(self):
         manifest = corpus.load_manifest()
@@ -307,7 +332,7 @@ class CorpusTests(unittest.TestCase):
             index = next((i for i, mass in enumerate(expected["point_masses"]) if mass["name"] == identity["name"]), None)
             mass = expected["point_masses"][index] if index is not None else None
             tracks.append({**identity, "mass": mass["mass"] if mass else None,
-                           "samples": [{"frame": sample["frame"], "points": [sample["image"]]}
+                           "samples": [{"frame": sample["frame"], "points": [sample["image"]], "world": sample["world"]}
                                        for sample in mass["samples"]] if mass else [],
                            "key_frames": keys[index] if mass else None})
         before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
