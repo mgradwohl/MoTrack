@@ -18,13 +18,21 @@ The project targets desktop workflows. Browser support is out of scope.
 
 ### Build the prototype
 
-Install CMake 3.25 or later, Ninja, Clang, and Qt 6.8 with Linguist Tools. Install ccache for faster rebuilds. Set `CMAKE_PREFIX_PATH` to the Qt installation. On Windows, use an x64 Visual Studio Developer PowerShell with LLVM and the Qt `bin` directory on `PATH`. The configure step fetches GoogleTest.
+Run the setup script after cloning. It installs build tools through the platform package manager, downloads Qt into the checkout's ignored `.dev-tools` directory, and builds and tests the app.
 
-```sh
-cmake --workflow --preset dev
+**Windows x64** (PowerShell with WinGet available)
+
+```powershell
+.\tools\setup-dev.ps1 -Build
 ```
 
-Run `build/dev/motrack` (`motrack.exe` on Windows) and open `tests/fixtures/point-mass.trk` from the File menu. The initial interface is available in English and Spanish.
+**Ubuntu 24.04 x64 or macOS** (Bash, with Homebrew on macOS)
+
+```sh
+./tools/setup-dev.sh --build
+```
+
+Run `build/dev/motrack` (`motrack.exe` on Windows) from an [activated developer shell](CONTRIBUTING.md#developer-setup) and open `tests/fixtures/point-mass.trk` from the File menu. The initial interface is available in English and Spanish.
 
 ## License
 

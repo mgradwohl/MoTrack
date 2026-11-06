@@ -71,7 +71,13 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           git ls-files -z -- '*.cpp' '*.hpp' | xargs -0 clang-format --dry-run --Werror
-          git ls-files -z -- '*.cpp' | xargs -0 clang-tidy -p build/coverage
+          git ls-files -z -- 'src/*.cpp' 'tests/*.cpp' 'benchmarks/*.cpp' | xargs -0 clang-tidy -p build/coverage
+      - name: Check Windows setup scripts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          tools/setup-dev.ps1 -DryRun -Build
+          tools/check-prereqs.ps1
       - name: Test and collect coverage
         shell: bash
         run: python tools/coverage.py collect build/coverage coverage.json --llvm-bin "$LLVM_BIN"
@@ -91,3 +97,16 @@ jobs:
           pattern: coverage-*
           path: reports
       - run: python3 tools/coverage.py check reports/*/coverage.json
+  setup:
+    name: Contributor setup (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preview and run setup
+        run: |
+          tools/setup-dev.sh --dry-run --build
+          tools/setup-dev.sh --build
