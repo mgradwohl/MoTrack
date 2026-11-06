@@ -21,6 +21,7 @@ class PositionPlot final : public QWidget
     void selectFrame(std::optional<int> frame);
     void setFitVisible(bool visible);
     [[nodiscard]] QString fitSummary() const;
+    [[nodiscard]] std::string csv() const;
     std::function<void(int)> seekFrame;
 
   protected:

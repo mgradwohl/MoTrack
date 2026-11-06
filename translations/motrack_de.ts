@@ -3,6 +3,8 @@
 <TS version="2.1" language="de">
   <context>
     <name>MainWindow</name>
+    <message><source>Export &amp;plot data…</source><translation>&amp;Diagrammdaten exportieren…</translation></message>
+    <message><source>Export plot data</source><translation>Diagrammdaten exportieren</translation></message>
     <message><source>Zoom &amp;in</source><translation>Heran&amp;zoomen</translation></message>
     <message><source>Zoom &amp;out</source><translation>Heraus&amp;zoomen</translation></message>
     <message><source>&amp;Fit video to view</source><translation>Video an Ansicht &amp;anpassen</translation></message>

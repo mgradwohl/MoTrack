@@ -240,6 +240,30 @@ TEST(Workspace, PlotsPositionAndSeeksToASelectedMeasurement)
     EXPECT_EQ(plot->accessibleName(), QString::fromUtf8("kinetic energy (kg·m²/s²) versus Time (s)"));
 }
 
+TEST(Workspace, ExportsTheSelectedPlotWithItsUnitsAndTimebase)
+{
+    motrack::MainWindow window;
+    window.show();
+    auto* exportPlot = window.findChild<QAction*>("exportPlotData");
+    auto* quantities = window.findChild<QComboBox*>("plotQuantity");
+    ASSERT_TRUE(exportPlot && quantities);
+    EXPECT_FALSE(exportPlot->isEnabled());
+    ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
+    quantities->setCurrentIndex(3);
+    EXPECT_FALSE(exportPlot->isEnabled());
+    quantities->setCurrentIndex(1);
+    EXPECT_TRUE(exportPlot->isEnabled());
+
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    triggerFileDialog(*exportPlot, window, temporary.filePath("series"));
+    QFile csv(temporary.filePath("series.csv"));
+    ASSERT_TRUE(csv.open(QIODevice::ReadOnly));
+    const auto rows = csv.readAll();
+    EXPECT_TRUE(rows.startsWith("frame,time_s,y position (m)\r\n"));
+    EXPECT_TRUE(rows.contains("\r\n0,-0.5,0.625\r\n"));
+}
+
 TEST(Workspace, ShowsALinearFitForTheSelectedQuantity)
 {
     motrack::MainWindow window;

@@ -244,6 +244,26 @@ PlotSeries measurementPlot(const LegacyProject& project,
     return series;
 }
 
+std::string plotCsv(const PlotSeries& series, std::string_view quantity)
+{
+    std::ostringstream output;
+    output.imbue(std::locale::classic());
+    output << std::setprecision(std::numeric_limits<double>::max_digits10);
+    output << (series.timed ? "frame,time_s," : "frame,");
+    writeCsvField(output, quantity);
+    output << "\r\n";
+    for (const auto& sample : series.samples)
+    {
+        output << sample.frame << ',';
+        if (series.timed)
+        {
+            output << sample.horizontal << ',';
+        }
+        output << sample.vertical << "\r\n";
+    }
+    return output.str();
+}
+
 std::optional<LinearFit> fitStraightLine(std::span<const PlotSample> samples)
 {
     std::size_t count = 0;

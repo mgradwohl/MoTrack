@@ -7,6 +7,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace motrack
@@ -70,6 +71,9 @@ struct LinearFit
                                          PlotQuantity quantity,
                                          std::span<const double> frameTimes = {},
                                          double presentationOffsetSeconds = 0.0);
+
+/// Exports the exact samples displayed in a plot, including the source frame.
+[[nodiscard]] std::string plotCsv(const PlotSeries& series, std::string_view quantity);
 
 /// Fits a straight line to finite plotted samples with at least two distinct horizontal values.
 [[nodiscard]] std::optional<LinearFit> fitStraightLine(std::span<const PlotSample> samples);

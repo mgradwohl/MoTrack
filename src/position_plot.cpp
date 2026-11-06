@@ -68,6 +68,11 @@ QString PositionPlot::fitSummary() const
     return tr("Slope %1 · intercept %2 · R² %3").arg(locale.toString(fit.slope, 'g', 6), locale.toString(fit.intercept, 'g', 6), rSquared);
 }
 
+std::string PositionPlot::csv() const
+{
+    return plotCsv(m_Series, m_VerticalLabel.toStdString());
+}
+
 QRectF PositionPlot::plotArea() const
 {
     return QRectF(rect()).adjusted(56, 24, -16, -40);
