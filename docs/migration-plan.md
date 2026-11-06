@@ -18,6 +18,8 @@ The C++ port uses Qt for desktop widgets, XML parsing, and localization, FFmpeg 
 2. **First experiment workflow.** Open a representative legacy experiment, step forward and backward, calibrate distance, mark a point mass, undo an edit, plot position and velocity, and export CSV. Run the packaged app on all three platforms.
 3. **Compatibility and feature parity.** Expand the experiment corpus. Archive import and template-based point-mass tracking have initial implementations. Continue with additional track and measurement tools, particle models, video filters, richer data analysis, multi-tab workspaces, and verified legacy project writes. Expand the language catalog and verify representative workflows across locales.
 
+Independent vectors can be imported, created, marked, renamed, and deleted with undo/redo and native project persistence. Vector editing uses two Shift-clicks (tail and tip) and stores image-space components at the original frame number. Dependent vector sums and vector analysis remain pending.
+
 ## Verification
 
 - Build and test with Clang on all three OSes. Choose minimum OS versions and CPU architectures before pinning the release toolchain.

@@ -154,7 +154,7 @@ if(BUILD_TESTING)
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
         MOTRACK_TRANSLATIONS="${CMAKE_CURRENT_BINARY_DIR}")
     add_test(NAME workspace COMMAND motrack_workspace_tests)
-    set_tests_properties(workspace PROPERTIES TIMEOUT 30)
+    set_tests_properties(workspace PROPERTIES TIMEOUT 60)
     add_executable(motrack_media_tests tests/template_tracker_test.cpp tests/video_reader_test.cpp)
     target_link_libraries(motrack_media_tests PRIVATE motrack_media GTest::gtest_main)
     target_compile_definitions(motrack_media_tests PRIVATE

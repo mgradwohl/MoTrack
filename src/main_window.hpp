@@ -80,6 +80,9 @@ class MainWindow final : public QMainWindow
     void refreshEditViews(int track);
     void refreshPlot();
     void markAt(const QPointF& position);
+    [[nodiscard]] std::optional<std::size_t> selectedVector() const;
+    void cancelVectorMark();
+    void markVectorAt(const QPointF& position);
     void renameSelectedPointMass();
     void setSelectedPointMassValue();
     void removeSelectedPointMass();
@@ -109,6 +112,7 @@ class MainWindow final : public QMainWindow
     QAction* m_SaveAs;
     QAction* m_Save;
     QAction* m_NewPointMass;
+    QAction* m_NewVector;
     QAction* m_RenamePointMass;
     QAction* m_SetPointMass;
     QAction* m_RemovePointMass;
@@ -132,6 +136,7 @@ class MainWindow final : public QMainWindow
     std::optional<ImageSequence> m_Sequence;
     std::optional<ImageFrame> m_DisplayedFrame;
     std::optional<QPointF> m_CalibrationFirst;
+    std::optional<QPointF> m_VectorTail;
     std::optional<QPointF> m_AxesOrigin;
     QList<QPointF> m_MeasurementPoints;
     struct AutoTrackSession
