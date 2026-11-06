@@ -9,6 +9,7 @@
 #include <QDoubleSpinBox>
 #include <QFile>
 #include <QFileDialog>
+#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -330,6 +331,54 @@ TEST(Workspace, OpensStandaloneMovieAndKeepsTheWorkspaceAfterAFailedOpen)
     ASSERT_TRUE(window.loadProject(destination));
     ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
     EXPECT_EQ(slider->maximum(), 3);
+}
+
+TEST(Workspace, OpensStandaloneImagesAndSavesTheirTiming)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    motrack::MainWindow window;
+    auto* canvas = window.findChild<QWidget*>("videoCanvas");
+    auto* slider = window.findChild<QSlider*>("stepSlider");
+    ASSERT_TRUE(canvas && slider);
+    EXPECT_FALSE(window.openImageSequence({}, 0.0));
+    EXPECT_FALSE(window.openImageSequence({fixturePath("frames/frame00.ppm")}, -1.0));
+    ASSERT_TRUE(window.openImageSequence({fixturePath("frames/frame00.ppm"), fixturePath("frames/frame02.ppm")}, 4.0));
+    EXPECT_EQ(canvas->accessibleName(), "Frame 0");
+    EXPECT_EQ(slider->maximum(), 1);
+    slider->setValue(1);
+    EXPECT_EQ(canvas->accessibleName(), "Frame 1");
+    EXPECT_FALSE(window.openImageSequence({fixturePath("frames/missing.ppm")}, 0.0));
+    EXPECT_EQ(canvas->accessibleName(), "Frame 1");
+    const auto destination = temporary.filePath("images.motrack");
+    ASSERT_TRUE(window.saveWorkspace(destination));
+    EXPECT_EQ(motrack::readWorkspaceDocument(destination).project.clip.frameDurationMs, 250.0);
+    ASSERT_TRUE(window.loadProject(destination));
+    EXPECT_EQ(canvas->accessibleName(), "Frame 0");
+    EXPECT_EQ(slider->maximum(), 1);
+}
+
+TEST(Workspace, OpensAnImageThroughTheFileMenu)
+{
+    motrack::MainWindow window;
+    window.show();
+    auto* open = window.findChild<QAction*>("openImages");
+    ASSERT_NE(open, nullptr);
+    QTimer timing;
+    QObject::connect(&timing,
+                     &QTimer::timeout,
+                     &window,
+                     []
+                     {
+                         if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget()))
+                         {
+                             dialog->setDoubleValue(5.0);
+                             dialog->accept();
+                         }
+                     });
+    timing.start(10);
+    triggerFileDialog(*open, window, fixturePath("frames/frame00.ppm"));
+    EXPECT_TRUE(window.windowTitle().contains("frame00.ppm"));
 }
 
 TEST(Workspace, TrimsAnImageSequenceAndRestoresItWithUndo)

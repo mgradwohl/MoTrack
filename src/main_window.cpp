@@ -8,6 +8,7 @@
 #include "workspace_document.hpp"
 
 #include <QCloseEvent>
+#include <QCollator>
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -17,6 +18,7 @@
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QHBoxLayout>
+#include <QImageReader>
 #include <QInputDialog>
 #include <QKeySequence>
 #include <QLabel>
@@ -64,6 +66,8 @@ MainWindow::MainWindow()
     auto* fileMenu = menuBar()->addMenu(tr("&File"));
     fileMenu->addAction(open);
     auto* openMovieAction = fileMenu->addAction(tr("Open &video…"));
+    auto* openImagesAction = fileMenu->addAction(tr("Open &images…"));
+    openImagesAction->setObjectName("openImages");
     m_Save = fileMenu->addAction(tr("&Save project"));
     m_Save->setObjectName("saveProject");
     m_Save->setShortcut(QKeySequence::Save);
@@ -252,6 +256,38 @@ MainWindow::MainWindow()
                 if (!path.isEmpty())
                 {
                     openMovie(path);
+                }
+            });
+    connect(openImagesAction,
+            &QAction::triggered,
+            this,
+            [this]
+            {
+                QStringList patterns;
+                const auto formats = QImageReader::supportedImageFormats();
+                for (const auto& format : formats)
+                {
+                    patterns.append("*." + QString::fromLatin1(format));
+                }
+                auto paths = QFileDialog::getOpenFileNames(this, tr("Open image sequence"), {}, tr("Images (%1)").arg(patterns.join(' ')));
+                if (paths.isEmpty())
+                {
+                    return;
+                }
+                bool accepted = false;
+                const auto rate = QInputDialog::getDouble(
+                    this, tr("Image sequence timing"), tr("Frames per second (0 if unknown)"), 0.0, 0.0, 1000.0, 3, &accepted);
+                if (accepted)
+                {
+                    QCollator collator;
+                    collator.setNumericMode(true);
+                    std::ranges::sort(paths,
+                                      [&collator](const auto& left, const auto& right)
+                                      {
+                                          const auto order = collator.compare(left, right);
+                                          return order < 0 || (order == 0 && left < right);
+                                      });
+                    openImageSequence(paths, rate);
                 }
             });
     connect(m_SaveAs, &QAction::triggered, this, &MainWindow::chooseWorkspacePath);
@@ -553,6 +589,52 @@ void MainWindow::cancelMovieOpen()
         m_MovieOpenCancelled.reset();
         m_MovieOpenWatcher.reset();
     }
+}
+
+bool MainWindow::openImageSequence(const QStringList& paths, double frameRate)
+{
+    const auto duration = frameRate > 0.0 ? 1000.0 / frameRate : 0.0;
+    if (paths.isEmpty() || !std::in_range<int>(paths.size()) || !std::isfinite(frameRate) || frameRate < 0.0 || !std::isfinite(duration))
+    {
+        statusBar()->showMessage(tr("Could not open this image sequence."));
+        return false;
+    }
+    LegacyProject project;
+    const auto count = static_cast<int>(paths.size());
+    project.clip.stepCount = count;
+    project.clip.sourceFrameCount = count;
+    if (duration > 0.0)
+    {
+        project.clip.frameDurationMs = duration;
+    }
+    for (const auto& path : paths)
+    {
+        project.clip.mediaReferences.push_back(QFileInfo(path).absoluteFilePath().toStdString());
+    }
+    const auto path = QFileInfo(paths.front()).absoluteFilePath();
+    auto sequence = ImageSequence::open(path, project.clip);
+    const auto first = sequence ? sequence->readStep(0) : std::nullopt;
+    if (!first || first->image.isNull())
+    {
+        statusBar()->showMessage(tr("Could not open this image sequence."));
+        return false;
+    }
+    cancelProjectOpen();
+    cancelMovieOpen();
+    if (!confirmDiscard())
+    {
+        return false;
+    }
+    releaseArchive();
+    m_MediaProjectPath = path;
+    m_Project = std::move(project);
+    m_Sequence = std::move(sequence);
+    m_MoviePath.clear();
+    m_MovieUsesDisplayOrientation = false;
+    m_MovieFrameTimes.clear();
+    activateProject(path);
+    statusBar()->showMessage(tr("Opened %1 images.").arg(count));
+    return true;
 }
 
 void MainWindow::openMovie(const QString& path)

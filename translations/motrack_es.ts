@@ -16,6 +16,13 @@
     <message><source>Open a video or a Tracker project.</source><translation>Abre un vídeo o un proyecto de Tracker.</translation></message>
     <message><source>Open &amp;video…</source><translation>Abrir &amp;vídeo…</translation></message>
     <message><source>Open video</source><translation>Abrir vídeo</translation></message>
+    <message><source>Open &amp;images…</source><translation>Abrir &amp;imágenes…</translation></message>
+    <message><source>Open image sequence</source><translation>Abrir secuencia de imágenes</translation></message>
+    <message><source>Images (%1)</source><translation>Imágenes (%1)</translation></message>
+    <message><source>Image sequence timing</source><translation>Tiempo de la secuencia de imágenes</translation></message>
+    <message><source>Frames per second (0 if unknown)</source><translation>Fotogramas por segundo (0 si se desconoce)</translation></message>
+    <message><source>Could not open this image sequence.</source><translation>No se pudo abrir esta secuencia de imágenes.</translation></message>
+    <message><source>Opened %1 images.</source><translation>Imágenes abiertas: %1.</translation></message>
     <message><source>Play</source><translation>Reproducir</translation></message>
     <message><source>Pause</source><translation>Pausar</translation></message>
     <message><source>&amp;AutoTracker</source><translation>Seguimiento &amp;automático</translation></message>
