@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="org.opensourcephysics.cabrillo.tracker.TrackerPanel">
+  <property name="semantic_version" type="string">6.3.5</property>
+  <property name="description" type="string"><![CDATA[Two marks & a gap.]]></property>
+  <property name="videoclip" type="object">
+    <object class="org.opensourcephysics.media.core.VideoClip">
+      <property name="startframe" type="int">2</property>
+      <property name="stepsize" type="int">2</property>
+      <property name="stepcount" type="int">3</property>
+      <property name="video" type="object">
+        <object class="org.opensourcephysics.media.core.Video">
+          <property name="path" type="string">media/ball.mp4</property>
+        </object>
+      </property>
+    </object>
+  </property>
+  <property name="tracks" type="collection">
+    <property name="item" type="object">
+      <object class="org.opensourcephysics.cabrillo.tracker.CoordAxes"/>
+    </property>
+    <property name="item" type="object">
+      <object class="org.opensourcephysics.cabrillo.tracker.PointMass">
+        <property name="name" type="string">Péndulo</property>
+        <property name="framedata" type="array">
+          <property name="[2]" type="object">
+            <object class="org.opensourcephysics.cabrillo.tracker.PointMass$FrameData">
+              <property name="x" type="double">120.5</property>
+              <property name="y" type="double">85.25</property>
+            </object>
+          </property>
+          <property name="[4]" type="object">null</property>
+          <property name="[6]" type="object">
+            <object class="org.opensourcephysics.cabrillo.tracker.PointMass$FrameData">
+              <property name="x" type="double">122.0</property>
+              <property name="y" type="double">92.75</property>
+            </object>
+          </property>
+        </property>
+      </object>
+    </property>
+  </property>
+</object>

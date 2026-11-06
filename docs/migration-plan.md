@@ -7,6 +7,10 @@
 - **Media.** Use one frame source for playback, stepping, and analysis. Track the decoded frame ordinal, clip step, presentation timestamp, and any analysis timing override separately. For random access, seek to an appropriate keyframe and decode forward. Run decoding and auto-tracking off the UI thread with cancellation and a bounded cache.
 - **Project I/O.** Read Tracker XML (`.trk`) and experiment archives (`.trz`) through an adapter that maps known legacy types, resolves relative and archive-local media, and reports missing or unsupported content. Validate legacy writes against the Java app before offering them.
 - **Desktop UI.** Use Qt 6 Widgets for the main window, canvas, tables, and plot controls. Keep view state and drawing outside the analysis library. Evaluate native camera capture separately.
+- **Familiar workflows.** Use Tracker's layout, tool names, and common interactions as the starting point. Change them where the existing workflow makes controls hard to find, unclear, or difficult to use. Record meaningful differences in the user guide.
+- **Localization.** Route user-facing strings through Qt Linguist from the start. Use Tracker's locale catalogs as a terminology reference where their license permits reuse. Grow translated coverage with each feature and check layouts with longer labels and right-to-left languages.
+
+The C++ port replaces Java-only dependencies with native equivalents. Qt supplies desktop widgets, XML parsing, and localization. FFmpeg is the planned video decoder. Port the OSP algorithms and behaviors needed for compatibility with reference tests. Choose additional libraries when a workflow calls for them.
 
 ## Delivery milestones
 

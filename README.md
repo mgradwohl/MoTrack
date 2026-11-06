@@ -4,7 +4,7 @@ MoTrack is a planned desktop application for measuring motion in video, plotting
 
 ## Project status
 
-MoTrack is in planning. The first milestone will open a representative Tracker experiment, step through its video, calibrate distances, mark a point mass, and export measurements. See the [migration plan](docs/migration-plan.md) for scope and acceptance criteria.
+MoTrack is in early development. The desktop prototype opens Tracker `.trk` files and displays saved point-mass marks in image coordinates. The first experiment milestone adds video stepping, distance calibration, manual marking, plotting, and CSV export. See the [migration plan](docs/migration-plan.md) for scope and acceptance criteria.
 
 ## Development
 
@@ -14,3 +14,15 @@ MoTrack is in planning. The first milestone will open a representative Tracker e
 - [TaskSmack](https://github.com/mgradwohl/tasksmack) is the reference for build presets, test organization, and LLVM coverage reporting.
 
 The project targets desktop workflows. Browser support is out of scope.
+
+### Build the prototype
+
+Install CMake 3.25 or later, Ninja, Clang, and Qt 6.8 with Linguist Tools. Set `CMAKE_PREFIX_PATH` to the Qt installation. On Windows, use an x64 Visual Studio Developer PowerShell with LLVM and the Qt `bin` directory on `PATH`. The configure step fetches GoogleTest.
+
+```sh
+cmake --preset dev
+cmake --build --preset dev
+ctest --preset dev
+```
+
+Run `build/dev/motrack` (`motrack.exe` on Windows) and open `tests/fixtures/point-mass.trk` from the File menu. The initial interface is available in English and Spanish.
