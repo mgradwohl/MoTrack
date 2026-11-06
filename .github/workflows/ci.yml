@@ -47,7 +47,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ccache clang-18 clang-format-18 clang-tidy-18 llvm-18 libgl1-mesa-dev libxkbcommon-dev
-          sudo apt-get install -y build-essential pkg-config autoconf automake libtool nasm patchelf
+          sudo apt-get install -y build-essential pkg-config autoconf automake libtool nasm patchelf libxcb-cursor0
           echo /usr/lib/llvm-18/bin >> "$GITHUB_PATH"
           echo LLVM_BIN=/usr/lib/llvm-18/bin >> "$GITHUB_ENV"
       - name: Select Apple Clang
@@ -120,6 +120,7 @@ jobs:
             test -f "$bundle/Frameworks/QtXml.framework/QtXml"
             app="$bundle/MacOS/motrack"
           else
+            test -f build/stage/installed/plugins/platforms/libqxcb.so
             export QT_QPA_PLATFORM=offscreen
           fi
           PATH=/usr/bin:/bin "$app" --smoke-test tests/fixtures/image-sequence.trk
