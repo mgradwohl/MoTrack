@@ -349,6 +349,16 @@ void sortTracks(LegacyProject& project)
     std::ranges::sort(project.vectors, {}, &VectorTrack::id);
 }
 
+bool retainsVectorComponent(double tail, double component)
+{
+    // Tracker stores endpoints internally, then reconstructs components by subtraction on save.
+    // Use the independent corpus tolerance in image-pixel units, including cancellation error.
+    const auto tip = tail + component;
+    const auto reconstructed = tip - tail;
+    const auto tolerance = std::max(1e-10, 1e-12 * std::max(std::abs(component), std::abs(reconstructed)));
+    return std::isfinite(tip) && std::isfinite(reconstructed) && std::abs(reconstructed - component) <= tolerance;
+}
+
 void remapIds(LegacyProject& project, const std::unordered_map<TrackId, TrackId>& mapping, TrackId nextId)
 {
     for (auto& track : project.pointMasses)
@@ -436,8 +446,8 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
                            [](auto& document, const auto& step, const VectorSample& sample)
                            {
                                require(std::isfinite(sample.tailX) && std::isfinite(sample.tailY) && std::isfinite(sample.componentX) &&
-                                       std::isfinite(sample.componentY) && std::isfinite(sample.tailX + sample.componentX) &&
-                                       std::isfinite(sample.tailY + sample.componentY));
+                                       std::isfinite(sample.componentY) && retainsVectorComponent(sample.tailX, sample.componentX) &&
+                                       retainsVectorComponent(sample.tailY, sample.componentY));
                                patchDouble(document, step, "xtail", sample.tailX);
                                patchDouble(document, step, "ytail", sample.tailY);
                                patchDouble(document, step, "xcomponent", sample.componentX);

@@ -315,7 +315,10 @@ TEST(TrackerWriter, ExportsBoundVectorEditsAfterNativeReopenAndUndoRedo)
     const auto native = temporary.filePath("vectors.motrack");
     motrack::writeWorkspaceDocument(native, document);
     document = motrack::readWorkspaceDocument(native);
-    ASSERT_TRUE(document.trackerSource);
+    if (!document.trackerSource)
+    {
+        FAIL() << "Expected preserved Tracker source.";
+    }
     const auto path = temporary.filePath("vectors.trk");
     motrack::writeTrackerProject(path, document.project, *document.trackerSource);
     const auto saved = readBytes(path);
@@ -342,7 +345,7 @@ TEST(TrackerWriter, ExportsEmptyVectorsAndTheirFirstNewSample)
     EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(imported.project, imported.source)), motrack::ProjectError);
 }
 
-TEST(TrackerWriter, RejectsFiniteVectorFieldsWithOverflowingEndpointsAfterNativeReopen)
+TEST(TrackerWriter, RejectsLossyVectorReconstructionAfterNativeReopen)
 {
     const auto imported =
         motrack::parseTrackerProject(readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk"));
@@ -351,17 +354,26 @@ TEST(TrackerWriter, RejectsFiniteVectorFieldsWithOverflowingEndpointsAfterNative
     const auto output = temporary.filePath("existing.trk");
     for (const auto& sample :
          std::vector<motrack::VectorSample>{{.frame = 0, .tailX = 1e308, .tailY = 0, .componentX = 1e308, .componentY = 0},
-                                            {.frame = 0, .tailX = 0, .tailY = -1e308, .componentX = 0, .componentY = -1e308}})
+                                            {.frame = 0, .tailX = 0, .tailY = -1e308, .componentX = 0, .componentY = -1e308},
+                                            {.frame = 0, .tailX = 1e16, .tailY = 0, .componentX = 1, .componentY = 0},
+                                            {.frame = 0, .tailX = 0, .tailY = -1e16, .componentX = 0, .componentY = -1}})
     {
         motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
         document.project.vectors.front().samples.front() = sample;
         motrack::writeWorkspaceDocument(native, document);
         document = motrack::readWorkspaceDocument(native);
-        ASSERT_TRUE(document.trackerSource);
+        if (!document.trackerSource)
+        {
+            FAIL() << "Expected preserved Tracker source.";
+        }
         motrack::writeTrackerProject(output, imported.project, imported.source);
         EXPECT_THROW(motrack::writeTrackerProject(output, document.project, *document.trackerSource), motrack::ProjectError);
         EXPECT_EQ(readBytes(output), imported.source.xml);
     }
+    auto project = imported.project;
+    project.vectors.front().samples.front() = {.frame = 0, .tailX = 1000, .tailY = 1e12, .componentX = 0.1, .componentY = 1e10 + 0.1};
+    EXPECT_NO_THROW(motrack::writeTrackerProject(output, project, imported.source));
+    EXPECT_EQ(motrack::parseLegacyProject(readBytes(output)).vectors, project.vectors);
 }
 
 } // namespace
