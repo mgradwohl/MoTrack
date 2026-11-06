@@ -85,7 +85,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           git ls-files -z -- '*.cpp' '*.hpp' | xargs -0 clang-format --dry-run --Werror
-          git ls-files -z -- 'src/*.cpp' 'tests/*.cpp' 'benchmarks/*.cpp' | xargs -0 clang-tidy -p build/coverage
+          git ls-files -z -- 'src/*.cpp' 'tests/*.cpp' 'benchmarks/*.cpp' | xargs -0 -n 1 -P 2 clang-tidy -p build/coverage
       - name: Check Windows setup scripts
         if: runner.os == 'Windows'
         shell: pwsh
