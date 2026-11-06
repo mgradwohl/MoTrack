@@ -150,7 +150,7 @@ geometry. Full dependent-vector/display semantics must replace these restriction
 It requires known source associations, preserves unknown XML objects/properties and
 normalizes changed output to a matching UTF-8 declaration. Unchanged output is byte-exact. It rejects
 every other changed domain field before opening its atomic replacement file, including name,
-clip timing, units, keyed/moving calibration and track-membership edits. Range exports require a known `VideoClip` without
+clip timing, mass/time units, keyed/moving calibration and track-membership edits. Range exports require a known `VideoClip` without
 video, frame-shift or saved-video-frame-count properties. They reject missing/invalid counts, endpoints
 beyond Tracker 6.3.5's media-free frame 500000 limit, and overflow in its temporary frame-count arithmetic.
 Media references are rejected until relocation
@@ -186,6 +186,18 @@ reconstructed `(tail + component) - tail` values, so scale amplification cannot 
 tolerance. Changed vector files receive these checks even when the calibration itself is unchanged;
 keyed and partly fixed vector-coordinate systems need their own reference cases before export. Angles stay in the native editor's -180 to 180 degree range.
 Unknown fields and measured image positions are retained. Creating/removing a coordinate system,
-changing units or fixed flags, time-varying keys and moving reference frames require later reference cases.
+changing fixed flags, time-varying keys and moving reference frames require later reference cases.
 The vector snapping guard also runs after calibration changes, preventing an origin move from silently
 reattaching a previously independent vector when Tracker opens the export.
+
+Length-unit labels can be exported independently or with a supported calibration edit. The current
+calibration command owns the label and scale together, including undo/redo. Changing only the label
+never converts numerical values. Labels must be nonempty, trimmed, valid UTF-8 and at most 256 UTF-16
+code units; Unicode control/format characters and decimal digits are rejected by code point,
+including C1 controls and supplementary digits. Supplementary letters remain valid labels.
+String labels use OSP-compatible CDATA because its string reader does not decode XML entities. Edits
+to a source unit containing comments or processing instructions are rejected: OSP requires the CDATA
+terminator immediately before the closing property tag and can hang on an intervening comment.
+The CDATA terminator in a label is also rejected before replacing a destination. Mass/time
+unit editing and unit defaults remain separate work. The corpus explicitly checks imported labels,
+Java's independently recorded default for an omitted label, and labels after Java resave/native reimport.

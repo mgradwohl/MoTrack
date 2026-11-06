@@ -58,7 +58,25 @@ void patchScalar(QDomDocument& xml, QDomElement object, const QString& name, con
         object.appendChild(xml.createTextNode("\n"));
     }
     require(property.attribute("type") == type && property.firstChildElement().isNull());
-    // Preserve comments and processing instructions within the scalar property.
+    // OSP requires the CDATA terminator immediately before </property>. It does not decode
+    // entities in ordinary strings, and preserving adjacent comments can make its reader hang.
+    if (type == "string")
+    {
+        for (auto child = property.firstChild(); !child.isNull(); child = child.nextSibling())
+        {
+            require(child.isText() || child.isCDATASection());
+        }
+    }
+    const auto scalar = [&]() -> QDomNode
+    {
+        if (type == "string")
+        {
+            require(!value.contains("]]>"));
+            return xml.createCDATASection(value);
+        }
+        return xml.createTextNode(value);
+    };
+    // Preserve comments and processing instructions within numeric scalar properties.
     bool written = false;
     for (auto child = property.firstChild(); !child.isNull();)
     {
@@ -67,7 +85,7 @@ void patchScalar(QDomDocument& xml, QDomElement object, const QString& name, con
         {
             if (!written)
             {
-                property.replaceChild(xml.createTextNode(value), child);
+                property.replaceChild(scalar(), child);
                 written = true;
             }
             else
@@ -79,7 +97,7 @@ void patchScalar(QDomDocument& xml, QDomElement object, const QString& name, con
     }
     if (!written)
     {
-        property.appendChild(xml.createTextNode(value));
+        property.appendChild(scalar());
     }
 }
 
@@ -671,6 +689,20 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
             baseline.project.calibration = expected.calibration;
             changed = true;
         }
+    }
+    if (expected.lengthUnit != baseline.project.lengthUnit)
+    {
+        const auto label = QString::fromStdString(expected.lengthUnit);
+        require(!label.isEmpty() && label.size() <= 256 && label == label.trimmed() && label.toStdString() == expected.lengthUnit);
+        for (const auto codePoint : label.toUcs4())
+        {
+            const auto category = QChar::category(codePoint);
+            require(category != QChar::Other_Control && category != QChar::Other_Format && !QChar::isDigit(codePoint));
+        }
+        // A unit is a label; any requested rescaling belongs to the reversible calibration edit.
+        patchScalar(xml, xml.documentElement(), "length_unit", "string", label);
+        baseline.project.lengthUnit = expected.lengthUnit;
+        changed = true;
     }
     if (expected.clip.firstFrame != baseline.project.clip.firstFrame || expected.clip.stepSize != baseline.project.clip.stepSize ||
         expected.clip.stepCount != baseline.project.clip.stepCount)

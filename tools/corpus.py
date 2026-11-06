@@ -199,6 +199,13 @@ def check_cases(manifest, cache, *, java=None, probe=None, record=False):
               f" ({'Java XML/coordinate API' if java else 'MoTrack import/coordinates'}; full round trip untested)")
 
 
+def session_units(case, expected):
+    # Java materializes the pinned application's default when the original XML omits a label.
+    # The corpus records that default independently; do not infer expectations from resaved output.
+    return {"length_unit": expected["length_unit"] or case["session_default_length_unit"],
+            "mass_unit": expected["mass_unit"]}
+
+
 def validate_session(case, report, manifest, expected=None, key_frames=None):
     if (report["reference_version"] != manifest["reference"]["version"]
             or report["verification_level"] != "tracker_session_resave"):
@@ -211,6 +218,8 @@ def validate_session(case, report, manifest, expected=None, key_frames=None):
     compare(case["session_tracks"], identities, tolerance, case["id"] + ".tracks")
     if expected is None:
         expected = json.loads(expected_path(case).read_text(encoding="utf-8"))["project"]
+    compare(session_units(case, expected), {key: before[key] for key in ["length_unit", "mass_unit"]},
+            tolerance, case["id"] + ".units")
     for key in ["clip", "coordinate_samples"]:
         compare(expected[key], before[key], tolerance, case["id"] + "." + key)
     masses = []
@@ -300,6 +309,7 @@ def vector_roundtrip_expected(case, mode="vectors"):
     if mode == "empty-vectors":
         expected["vectors"][0]["samples"] = []
     elif mode == "first-vector":
+        expected.update(session_units(case, expected))
         expected["vectors"][0]["samples"] = [{"frame": 4, "tail": [11.25, 22.5], "components": [0.0, 0.0]}]
     else:
         expected["vectors"][0]["samples"] = [
@@ -307,6 +317,34 @@ def vector_roundtrip_expected(case, mode="vectors"):
             {"frame": 3, "tail": [100.125, 200.5], "components": [0.0, -2.5]}]
         expected["vectors"][1]["samples"] = [{"frame": 7, "tail": [50.0, 60.0], "components": [-10.0, 20.0]}]
     return expected
+
+
+def length_unit_roundtrip_expected(case):
+    if case["id"] != "independent-vectors":
+        raise ValueError("The length-unit oracle requires the fixed-coordinate vector fixture")
+    expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
+    expected["length_unit"] = "\u00b5m"
+    return expected
+
+
+def verify_length_unit_export_xml(original, exported):
+    expected = minidom.parse(str(original))
+    root = expected.documentElement
+    properties = [node for node in root.childNodes if node.nodeType == node.ELEMENT_NODE
+                  and node.tagName == "property" and node.getAttribute("name") == "length_unit"]
+    if properties:
+        raise ValueError("Pinned fixture must have no explicit length unit")
+    unit = expected.createElement("property")
+    unit.setAttribute("name", "length_unit")
+    unit.setAttribute("type", "string")
+    unit.appendChild(expected.createCDATASection("\u00b5m"))
+    root.appendChild(unit)
+    actual = minidom.parse(str(exported))
+    matches = canonical_tracker_xml(expected) == canonical_tracker_xml(actual)
+    expected.unlink()
+    actual.unlink()
+    if not matches:
+        raise ValueError("Standard export changed content beyond the requested length unit")
 
 
 def calibration_roundtrip_expected(case):
@@ -594,7 +632,7 @@ def check_sessions(manifest, cache, java, probe=None):
              ("vectors", "native_vector_roundtrip"), ("empty-vectors", "native_vector_roundtrip"),
              ("first-vector", "native_vector_roundtrip"), ("clip", "native_clip_roundtrip"), ("clip-boundary", "native_clip_roundtrip"),
              ("snap-origin", "native_vector_roundtrip"), ("snap-vector", "native_vector_roundtrip"),
-             ("calibration", "native_calibration_roundtrip")] if probe else [("session", "session_tracks")]
+             ("calibration", "native_calibration_roundtrip"), ("length-unit", "native_length_unit_roundtrip")] if probe else [("session", "session_tracks")]
     cases = [(case, mode) for case in manifest["cases"] if "session_tracks" in case
              for mode, flag in modes if case.get(flag)]
     if not cases:
@@ -646,6 +684,9 @@ def check_sessions(manifest, cache, java, probe=None):
                 if mode == "mass":
                     verify_mass_export_xml(project, exported)
                     expected = mass_roundtrip_expected(case)
+                elif mode == "length-unit":
+                    expected = length_unit_roundtrip_expected(case)
+                    verify_length_unit_export_xml(project, exported)
                 elif mode == "calibration":
                     expected = calibration_roundtrip_expected(case)
                     verify_calibration_export_xml(project, exported)
@@ -688,6 +729,7 @@ def check_sessions(manifest, cache, java, probe=None):
                 reimport = output / "native-reimport.json"
                 run([str(Path(probe).resolve()), str(output / "tracker-resaved.trk"), str(reimport)])
                 expected["source_version"] = manifest["reference"]["version"]
+                expected.update(session_units(case, expected))
                 compare(expected, json.loads(reimport.read_text(encoding="utf-8")), manifest["tolerance"], case["id"] + ".reimport")
                 saved_report = {"verification_level": "motrack_" + mode + "_roundtrip", "tracker_session": report, "expected_reimport": expected}
                 suffix = "-" + mode + "-roundtrip.json"
