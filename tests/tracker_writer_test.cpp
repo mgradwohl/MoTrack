@@ -342,4 +342,26 @@ TEST(TrackerWriter, ExportsEmptyVectorsAndTheirFirstNewSample)
     EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(imported.project, imported.source)), motrack::ProjectError);
 }
 
+TEST(TrackerWriter, RejectsFiniteVectorFieldsWithOverflowingEndpointsAfterNativeReopen)
+{
+    const auto imported =
+        motrack::parseTrackerProject(readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk"));
+    QTemporaryDir temporary;
+    const auto native = temporary.filePath("overflow.motrack");
+    const auto output = temporary.filePath("existing.trk");
+    for (const auto& sample :
+         std::vector<motrack::VectorSample>{{.frame = 0, .tailX = 1e308, .tailY = 0, .componentX = 1e308, .componentY = 0},
+                                            {.frame = 0, .tailX = 0, .tailY = -1e308, .componentX = 0, .componentY = -1e308}})
+    {
+        motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+        document.project.vectors.front().samples.front() = sample;
+        motrack::writeWorkspaceDocument(native, document);
+        document = motrack::readWorkspaceDocument(native);
+        ASSERT_TRUE(document.trackerSource);
+        motrack::writeTrackerProject(output, imported.project, imported.source);
+        EXPECT_THROW(motrack::writeTrackerProject(output, document.project, *document.trackerSource), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), imported.source.xml);
+    }
+}
+
 } // namespace

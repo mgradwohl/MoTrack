@@ -436,7 +436,8 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
                            [](auto& document, const auto& step, const VectorSample& sample)
                            {
                                require(std::isfinite(sample.tailX) && std::isfinite(sample.tailY) && std::isfinite(sample.componentX) &&
-                                       std::isfinite(sample.componentY));
+                                       std::isfinite(sample.componentY) && std::isfinite(sample.tailX + sample.componentX) &&
+                                       std::isfinite(sample.tailY + sample.componentY));
                                patchDouble(document, step, "xtail", sample.tailX);
                                patchDouble(document, step, "ytail", sample.tailY);
                                patchDouble(document, step, "xcomponent", sample.componentX);
