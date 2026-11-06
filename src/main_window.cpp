@@ -262,7 +262,7 @@ MainWindow::MainWindow()
     m_Plot = new PositionPlot;
     m_Plot->seekFrame = [this](int frame)
     {
-        m_StepSlider->setValue((frame - m_Project.clip.firstFrame) / m_Project.clip.stepSize);
+        m_StepSlider->setValue((frame - m_Session.document.project.clip.firstFrame) / m_Session.document.project.clip.stepSize);
     };
     auto* plotControls = new QHBoxLayout;
     plotControls->addWidget(m_PlotQuantity, 1);
@@ -389,14 +389,14 @@ MainWindow::MainWindow()
             [this]
             {
                 stopAutoTracking();
-                const auto index = m_Project.pointMasses.size();
+                const auto index = m_Session.document.project.pointMasses.size();
                 auto number = index + 1;
                 auto name = tr("Point Mass %1").arg(number).toStdString();
-                while (std::ranges::any_of(m_Project.pointMasses, [&name](const auto& mass) { return mass.name == name; }))
+                while (std::ranges::any_of(m_Session.document.project.pointMasses, [&name](const auto& mass) { return mass.name == name; }))
                 {
                     name = tr("Point Mass %1").arg(++number).toStdString();
                 }
-                if (!m_Edits.createPointMass(m_Project, std::move(name)))
+                if (!m_Session.history.createPointMass(m_Session.document.project, std::move(name)))
                 {
                     return;
                 }
@@ -413,17 +413,18 @@ MainWindow::MainWindow()
                 cancelMeasurement();
                 m_Calibrate->setChecked(false);
                 m_EditAxes->setChecked(false);
-                auto number = m_Project.vectors.size() + 1;
+                auto number = m_Session.document.project.vectors.size() + 1;
                 auto name = tr("Vector %1").arg(number).toStdString();
-                while (std::ranges::any_of(m_Project.vectors, [&name](const auto& track) { return track.name == name; }))
+                while (std::ranges::any_of(m_Session.document.project.vectors, [&name](const auto& track) { return track.name == name; }))
                 {
                     name = tr("Vector %1").arg(++number).toStdString();
                 }
-                if (!m_Edits.createVector(m_Project, name))
+                if (!m_Session.history.createVector(m_Session.document.project, name))
                 {
                     return;
                 }
-                refreshEditViews(static_cast<int>(m_Project.pointMasses.size() + m_Project.vectors.size() - 1));
+                refreshEditViews(
+                    static_cast<int>(m_Session.document.project.pointMasses.size() + m_Session.document.project.vectors.size() - 1));
                 statusBar()->showMessage(tr("Shift-click the vector tail, then its tip. Escape cancels."));
             });
     connect(m_RenamePointMass, &QAction::triggered, this, &MainWindow::renameSelectedPointMass);
@@ -713,27 +714,25 @@ bool MainWindow::applyProject(const QString& path, PreparedProject prepared, con
         }
     }
 
-    auto archive = std::move(prepared.archive);
     cancelMovieOpen();
     releaseArchive();
-    m_Archive = std::move(archive);
-    m_ArchiveMember = prepared.member;
     m_MediaProjectPath = path;
-    if (m_Archive)
+    document.archivePayload = std::move(prepared.archive);
+    document.archiveMember = prepared.member.isEmpty() ? std::nullopt : std::optional(prepared.member.toStdString());
+    if (document.archivePayload)
     {
+        document.archiveReference.clear();
         // Native media paths were already resolved relative to the archive root when imported.
-        m_Archive->resolveMedia(document.project, path.endsWith(".motrack", Qt::CaseInsensitive) ? QString{} : prepared.member);
-        m_MediaProjectPath = QDir(m_Archive->root()).absoluteFilePath("archive.trk");
+        document.archivePayload->resolveMedia(document.project,
+                                              path.endsWith(".motrack", Qt::CaseInsensitive) ? QString{} : prepared.member);
+        m_MediaProjectPath = QDir(document.archivePayload->root()).absoluteFilePath("archive.trk");
     }
-    m_Project = std::move(document.project);
-    m_TrackerSource = std::move(document.trackerSource);
-    m_Sequence = document.movie ? std::nullopt : ImageSequence::open(m_MediaProjectPath, m_Project.clip);
+    document.alignMovieToClip = document.alignMovieToClip || !path.endsWith(".motrack", Qt::CaseInsensitive);
+    m_Session.replace(std::move(document), path);
+    m_Sequence = m_Session.document.movie ? std::nullopt : ImageSequence::open(m_MediaProjectPath, m_Session.document.project.clip);
     m_MoviePath.clear();
     m_MoviePresentationTimes.clear();
-    m_MovieUsesDisplayOrientation = document.useDisplayOrientation;
-    m_MovieAlignsToClip = document.alignMovieToClip || !path.endsWith(".motrack", Qt::CaseInsensitive);
-    m_MovieFrameTimes = std::move(document.movieFrameTimes);
-    const auto& clip = m_Project.clip;
+    const auto& clip = m_Session.document.project.clip;
     const auto steps = clip.stepCount.value_or(0);
     if (!m_Sequence && clip.mediaReferences.size() == 1 && steps > 0)
     {
@@ -744,17 +743,15 @@ bool MainWindow::applyProject(const QString& path, PreparedProject prepared, con
             const auto last = static_cast<std::int64_t>(clip.firstFrame) + static_cast<std::int64_t>(steps - 1) * clip.stepSize;
             if (!clip.sourceFrameCount && last < std::numeric_limits<int>::max())
             {
-                m_Project.clip.sourceFrameCount = static_cast<int>(last + 1);
+                m_Session.document.project.clip.sourceFrameCount = static_cast<int>(last + 1);
             }
         }
     }
+    m_Session.document.movie = !m_MoviePath.isEmpty();
     activateProject(path);
-    if (path.endsWith(".motrack", Qt::CaseInsensitive))
-    {
-        m_SavePath = m_ProjectPath;
-    }
-    statusBar()->showMessage(
-        tr("Opened %1 marks. Unsupported tracks: %2.").arg(m_Marks->rowCount()).arg(m_Project.unsupportedTrackTypes.size()));
+    statusBar()->showMessage(tr("Opened %1 marks. Unsupported tracks: %2.")
+                                 .arg(m_Marks->rowCount())
+                                 .arg(m_Session.document.project.unsupportedTrackTypes.size()));
     if (!m_MoviePath.isEmpty())
     {
         scheduleMovieIndex(m_MoviePath, false);
@@ -764,7 +761,7 @@ bool MainWindow::applyProject(const QString& path, PreparedProject prepared, con
 
 void MainWindow::releaseArchive()
 {
-    if (m_Archive)
+    if (m_Session.document.archivePayload)
     {
         ++m_RequestGeneration;
         if (m_MovieWorker)
@@ -772,8 +769,8 @@ void MainWindow::releaseArchive()
             // Release the decoder's file handle before removing extracted media on Windows.
             QMetaObject::invokeMethod(m_MovieWorker, "clear", Qt::BlockingQueuedConnection);
         }
-        m_Archive.reset();
-        m_ArchiveMember.clear();
+        m_Session.document.archivePayload.reset();
+        m_Session.document.archiveMember.reset();
     }
 }
 
@@ -823,14 +820,10 @@ bool MainWindow::openImageSequence(const QStringList& paths, double frameRate)
     }
     releaseArchive();
     m_MediaProjectPath = path;
-    m_Project = std::move(project);
-    m_TrackerSource.reset();
+    m_Session.replace({.project = std::move(project), .movieFrameTimes = {}}, path);
     m_Sequence = std::move(sequence);
     m_MoviePath.clear();
     m_MoviePresentationTimes.clear();
-    m_MovieUsesDisplayOrientation = false;
-    m_MovieAlignsToClip = false;
-    m_MovieFrameTimes.clear();
     activateProject(path);
     statusBar()->showMessage(tr("Opened %1 images.").arg(count));
     return true;
@@ -866,7 +859,7 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
                             m_MoviePresentationTimes = std::move(index.presentationTimes);
                             if (!index.frameTimes.empty())
                             {
-                                m_MovieFrameTimes = std::move(index.frameTimes);
+                                m_Session.document.movieFrameTimes = std::move(index.frameTimes);
                             }
                             refreshPlot();
                             return;
@@ -883,24 +876,24 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
                         }
                         releaseArchive();
                         m_MediaProjectPath = path;
-                        m_Project = {};
-                        m_TrackerSource.reset();
-                        m_Project.clip.stepCount = index.frameCount;
-                        m_Project.clip.sourceFrameCount = index.frameCount;
-                        m_Project.clip.mediaReferences.push_back(QFileInfo(path).fileName().toStdString());
+                        m_Session.replace({}, path);
+                        m_Session.document.project.clip.stepCount = index.frameCount;
+                        m_Session.document.project.clip.sourceFrameCount = index.frameCount;
+                        m_Session.document.project.clip.mediaReferences.push_back(QFileInfo(path).fileName().toStdString());
                         m_Sequence.reset();
                         m_MoviePath = path;
-                        m_MovieUsesDisplayOrientation = true;
-                        m_MovieAlignsToClip = false;
+                        m_Session.document.movie = true;
+                        m_Session.document.useDisplayOrientation = true;
+                        m_Session.document.alignMovieToClip = false;
                         m_MoviePresentationTimes = std::move(index.presentationTimes);
-                        m_MovieFrameTimes = std::move(index.frameTimes);
+                        m_Session.document.movieFrameTimes = std::move(index.frameTimes);
                         activateProject(path);
                         statusBar()->showMessage(tr("Opened video with %1 frames.").arg(index.frameCount));
                     });
             });
-    const auto orientation = standalone || m_MovieUsesDisplayOrientation ? VideoOrientation::Display : VideoOrientation::Encoded;
+    const auto orientation = standalone || m_Session.document.useDisplayOrientation ? VideoOrientation::Display : VideoOrientation::Encoded;
     watcher->setFuture(QtConcurrent::run(
-        [path, orientation, cancelled = m_MovieOpenCancelled, archive = standalone ? nullptr : m_Archive]
+        [path, orientation, cancelled = m_MovieOpenCancelled, archive = standalone ? nullptr : m_Session.document.archivePayload]
         {
             // Keep extracted media available until the indexer closes its input.
             static_cast<void>(archive);
@@ -910,13 +903,10 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
 
 void MainWindow::activateProject(const QString& path)
 {
-    ++m_DocumentGeneration;
     stopAutoTracking();
     cancelMeasurement();
     setPlaying(false);
     m_Video->resetZoom();
-    m_ProjectPath = QFileInfo(path).absoluteFilePath();
-    m_SavePath.clear();
     ++m_RequestGeneration;
     if (m_MovieWorker)
     {
@@ -930,7 +920,6 @@ void MainWindow::activateProject(const QString& path)
     m_MeasureDistance->setEnabled(false);
     m_MeasureAngle->setEnabled(false);
     refreshAxesOverlay();
-    m_Edits.clear();
     m_NewPointMass->setEnabled(true);
     m_NewVector->setEnabled(true);
     m_SaveAs->setEnabled(true);
@@ -945,9 +934,10 @@ void MainWindow::syncClipControls()
     setPlaying(false);
     if (m_Sequence)
     {
-        m_Sequence = ImageSequence::open(m_MediaProjectPath, m_Project.clip);
+        m_Sequence = ImageSequence::open(m_MediaProjectPath, m_Session.document.project.clip);
     }
-    const int stepCount = m_Sequence ? m_Sequence->stepCount() : (m_MoviePath.isEmpty() ? 0 : m_Project.clip.stepCount.value_or(0));
+    const int stepCount =
+        m_Sequence ? m_Sequence->stepCount() : (m_MoviePath.isEmpty() ? 0 : m_Session.document.project.clip.stepCount.value_or(0));
     m_ClipSettings->setEnabled(stepCount > 0);
     {
         const QSignalBlocker blocker(m_StepSlider);
@@ -965,11 +955,11 @@ void MainWindow::undoOrRedo(bool redo)
 {
     cancelVectorMark();
     stopAutoTracking();
-    const auto before = clipRange(m_Project.clip);
-    const bool changed = redo ? m_Edits.redo(m_Project) : m_Edits.undo(m_Project);
+    const auto before = clipRange(m_Session.document.project.clip);
+    const bool changed = redo ? m_Session.history.redo(m_Session.document.project) : m_Session.history.undo(m_Session.document.project);
     if (changed)
     {
-        if (before != clipRange(m_Project.clip))
+        if (before != clipRange(m_Session.document.project.clip))
         {
             syncClipControls();
         }
@@ -982,7 +972,7 @@ void MainWindow::editClipSettings()
     stopAutoTracking();
     setPlaying(false);
     const auto request = m_RequestGeneration.load();
-    const auto& clip = m_Project.clip;
+    const auto& clip = m_Session.document.project.clip;
     const auto last = static_cast<std::int64_t>(clip.firstFrame) + static_cast<std::int64_t>(m_StepSlider->maximum()) * clip.stepSize;
     const auto safeLast = static_cast<int>(std::min<std::int64_t>(last, std::numeric_limits<int>::max()));
     const auto sourceLast = m_Sequence ? static_cast<int>(clip.mediaReferences.size()) - 1 : clip.sourceFrameCount.value_or(0) - 1;
@@ -1012,7 +1002,7 @@ void MainWindow::editClipSettings()
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     if (dialog.exec() == QDialog::Accepted && request == m_RequestGeneration &&
-        m_Edits.setClipRange(m_Project, first->value(), end->value(), stride->value()))
+        m_Session.history.setClipRange(m_Session.document.project, first->value(), end->value(), stride->value()))
     {
         syncClipControls();
         refreshEditViews(m_TrackPicker->currentIndex());
@@ -1025,7 +1015,7 @@ bool MainWindow::confirmDiscard()
     {
         return false;
     }
-    if (!m_Edits.isModified())
+    if (!m_Session.history.isModified())
     {
         return true;
     }
@@ -1053,23 +1043,23 @@ void MainWindow::closeEvent(QCloseEvent* event)
 
 void MainWindow::refreshEditViews(int track)
 {
-    m_NewPointMass->setEnabled(!m_ProjectPath.isEmpty() && hasTrackIdCapacity(m_Project));
-    m_NewVector->setEnabled(!m_ProjectPath.isEmpty() && hasTrackIdCapacity(m_Project));
+    m_NewPointMass->setEnabled(!m_Session.sourcePath().isEmpty() && hasTrackIdCapacity(m_Session.document.project));
+    m_NewVector->setEnabled(!m_Session.sourcePath().isEmpty() && hasTrackIdCapacity(m_Session.document.project));
     cancelVectorMark();
     const QSignalBlocker blocker(m_TrackPicker);
     m_TrackPicker->clear();
-    for (const auto& mass : m_Project.pointMasses)
+    for (const auto& mass : m_Session.document.project.pointMasses)
     {
         m_TrackPicker->addItem(QString::fromStdString(mass.name));
     }
-    for (const auto& vector : m_Project.vectors)
+    for (const auto& vector : m_Session.document.project.vectors)
     {
         m_TrackPicker->addItem(tr("%1 (vector)").arg(QString::fromStdString(vector.name)));
     }
     m_TrackPicker->setCurrentIndex(std::min(std::max(0, track), m_TrackPicker->count() - 1));
-    m_Undo->setEnabled(m_Edits.canUndo());
-    m_Redo->setEnabled(m_Edits.canRedo());
-    setWindowModified(m_Edits.isModified());
+    m_Undo->setEnabled(m_Session.history.canUndo());
+    m_Redo->setEnabled(m_Session.history.canRedo());
+    setWindowModified(m_Session.history.isModified());
     displayMarks();
     refreshPlot();
     m_Export->setEnabled(m_Marks->rowCount() > 0);
@@ -1088,13 +1078,16 @@ void MainWindow::refreshPlot()
     m_FitLine->setEnabled(!vector);
     const auto quantity = static_cast<PlotQuantity>(m_PlotQuantity->currentData().toInt());
     const auto track = m_TrackPicker->currentIndex();
-    const auto first = static_cast<std::size_t>(m_Project.clip.firstFrame);
-    const auto offset =
-        m_MovieAlignsToClip && first < m_MovieFrameTimes.size() ? m_Project.clip.startTimeMs / 1000.0 - m_MovieFrameTimes.at(first) : 0.0;
+    const auto first = static_cast<std::size_t>(m_Session.document.project.clip.firstFrame);
+    const auto offset = m_Session.document.alignMovieToClip && first < m_Session.document.movieFrameTimes.size()
+                            ? m_Session.document.project.clip.startTimeMs / 1000.0 - m_Session.document.movieFrameTimes.at(first)
+                            : 0.0;
     auto series =
-        track >= 0 ? measurementPlot(m_Project, static_cast<std::size_t>(track), quantity, m_MovieFrameTimes, offset) : PlotSeries{};
+        track >= 0 ? measurementPlot(
+                         m_Session.document.project, static_cast<std::size_t>(track), quantity, m_Session.document.movieFrameTimes, offset)
+                   : PlotSeries{};
     const auto horizontal = series.timed ? tr("Time (s)") : tr("Frame");
-    auto unit = series.calibrated ? QString::fromStdString(m_Project.lengthUnit) : tr("px");
+    auto unit = series.calibrated ? QString::fromStdString(m_Session.document.project.lengthUnit) : tr("px");
     if (!unit.isEmpty())
     {
         switch (quantity)
@@ -1110,10 +1103,14 @@ void MainWindow::refreshPlot()
             break;
         case PlotQuantity::MomentumX:
         case PlotQuantity::MomentumY:
-            unit = m_Project.massUnit.empty() ? QString{} : tr("%1·%2/s").arg(QString::fromStdString(m_Project.massUnit), unit);
+            unit = m_Session.document.project.massUnit.empty()
+                       ? QString{}
+                       : tr("%1·%2/s").arg(QString::fromStdString(m_Session.document.project.massUnit), unit);
             break;
         case PlotQuantity::KineticEnergy:
-            unit = m_Project.massUnit.empty() ? QString{} : tr("%1·%2²/s²").arg(QString::fromStdString(m_Project.massUnit), unit);
+            unit = m_Session.document.project.massUnit.empty()
+                       ? QString{}
+                       : tr("%1·%2²/s²").arg(QString::fromStdString(m_Session.document.project.massUnit), unit);
             break;
         default:
             break;
@@ -1144,7 +1141,7 @@ void MainWindow::markAt(const QPointF& position)
     const Mark mark{.frame = m_DisplayedFrame->number, .x = position.x(), .y = position.y()};
     stopAutoTracking();
     setPlaying(false);
-    if (m_Edits.markPointMass(m_Project, static_cast<std::size_t>(track), mark))
+    if (m_Session.history.markPointMass(m_Session.document.project, static_cast<std::size_t>(track), mark))
     {
         refreshEditViews(track);
         m_StepSlider->triggerAction(QSlider::SliderSingleStepAdd);
@@ -1154,12 +1151,12 @@ void MainWindow::markAt(const QPointF& position)
 std::optional<std::size_t> MainWindow::selectedVector() const
 {
     const auto index = m_TrackPicker->currentIndex();
-    if (index < 0 || static_cast<std::size_t>(index) < m_Project.pointMasses.size())
+    if (index < 0 || static_cast<std::size_t>(index) < m_Session.document.project.pointMasses.size())
     {
         return std::nullopt;
     }
-    const auto vector = static_cast<std::size_t>(index) - m_Project.pointMasses.size();
-    return vector < m_Project.vectors.size() ? std::optional(vector) : std::nullopt;
+    const auto vector = static_cast<std::size_t>(index) - m_Session.document.project.pointMasses.size();
+    return vector < m_Session.document.project.vectors.size() ? std::optional(vector) : std::nullopt;
 }
 
 void MainWindow::cancelVectorMark()
@@ -1194,7 +1191,7 @@ void MainWindow::markVectorAt(const QPointF& position)
                               .tailY = m_VectorTail->y(),
                               .componentX = position.x() - m_VectorTail->x(),
                               .componentY = position.y() - m_VectorTail->y()};
-    if (m_Edits.markVector(m_Project, *vector, sample))
+    if (m_Session.history.markVector(m_Session.document.project, *vector, sample))
     {
         refreshEditViews(m_TrackPicker->currentIndex());
         m_StepSlider->triggerAction(QSlider::SliderSingleStepAdd);
@@ -1212,7 +1209,8 @@ void MainWindow::renameSelectedPointMass()
     setPlaying(false);
     const auto index = static_cast<std::size_t>(selected);
     const auto vector = selectedVector();
-    const auto before = QString::fromStdString(vector ? m_Project.vectors.at(*vector).name : m_Project.pointMasses.at(index).name);
+    const auto before = QString::fromStdString(vector ? m_Session.document.project.vectors.at(*vector).name
+                                                      : m_Session.document.project.pointMasses.at(index).name);
     const auto request = m_RequestGeneration.load();
     bool accepted = false;
     const auto after = QInputDialog::getText(this, tr("Rename track"), tr("Track name"), QLineEdit::Normal, before, &accepted).trimmed();
@@ -1220,8 +1218,8 @@ void MainWindow::renameSelectedPointMass()
     {
         return;
     }
-    if (vector ? m_Edits.renameVector(m_Project, *vector, after.toStdString())
-               : m_Edits.renamePointMass(m_Project, index, after.toStdString()))
+    if (vector ? m_Session.history.renameVector(m_Session.document.project, *vector, after.toStdString())
+               : m_Session.history.renamePointMass(m_Session.document.project, index, after.toStdString()))
     {
         refreshEditViews(selected);
     }
@@ -1235,8 +1233,8 @@ void MainWindow::removeSelectedPointMass()
 {
     const auto selected = m_TrackPicker->currentIndex();
     const auto vector = selectedVector();
-    if (selected >= 0 &&
-        (vector ? m_Edits.removeVector(m_Project, *vector) : m_Edits.removePointMass(m_Project, static_cast<std::size_t>(selected))))
+    if (selected >= 0 && (vector ? m_Session.history.removeVector(m_Session.document.project, *vector)
+                                 : m_Session.history.removePointMass(m_Session.document.project, static_cast<std::size_t>(selected))))
     {
         stopAutoTracking();
         setPlaying(false);
@@ -1256,8 +1254,8 @@ void MainWindow::setSelectedPointMassValue()
     const auto index = static_cast<std::size_t>(selected);
     const auto request = m_RequestGeneration.load();
     const QLocale locale;
-    const auto before = locale.toString(m_Project.pointMasses.at(index).mass, 'g', 15);
-    const auto massUnit = QString::fromStdString(m_Project.massUnit);
+    const auto before = locale.toString(m_Session.document.project.pointMasses.at(index).mass, 'g', 15);
+    const auto massUnit = QString::fromStdString(m_Session.document.project.massUnit);
     const auto label = massUnit.isEmpty() ? tr("Mass") : tr("Mass (%1)").arg(massUnit);
     bool accepted = false;
     const auto text = QInputDialog::getText(
@@ -1268,7 +1266,7 @@ void MainWindow::setSelectedPointMassValue()
     }
     bool valid = false;
     const auto mass = locale.toDouble(text, &valid);
-    if (valid && m_Edits.setPointMassValue(m_Project, index, mass))
+    if (valid && m_Session.history.setPointMassValue(m_Session.document.project, index, mass))
     {
         refreshEditViews(selected);
     }
@@ -1283,8 +1281,8 @@ void MainWindow::removeCurrentMark()
     const auto selected = m_TrackPicker->currentIndex();
     const auto vector = selectedVector();
     if (selected >= 0 && m_DisplayedFrame &&
-        (vector ? m_Edits.removeVectorSample(m_Project, *vector, m_DisplayedFrame->number)
-                : m_Edits.removeMark(m_Project, static_cast<std::size_t>(selected), m_DisplayedFrame->number)))
+        (vector ? m_Session.history.removeVectorSample(m_Session.document.project, *vector, m_DisplayedFrame->number)
+                : m_Session.history.removeMark(m_Session.document.project, static_cast<std::size_t>(selected), m_DisplayedFrame->number)))
     {
         stopAutoTracking();
         setPlaying(false);
@@ -1302,9 +1300,12 @@ void MainWindow::updatePointMassActions()
     m_RemovePointMass->setEnabled(hasTrack);
     const bool hasMark =
         hasTrack && m_DisplayedFrame &&
-        (vector ? std::ranges::binary_search(m_Project.vectors.at(*vector).samples, m_DisplayedFrame->number, {}, &VectorSample::frame)
-                : std::ranges::binary_search(
-                      m_Project.pointMasses.at(static_cast<std::size_t>(selected)).marks, m_DisplayedFrame->number, {}, &Mark::frame));
+        (vector ? std::ranges::binary_search(
+                      m_Session.document.project.vectors.at(*vector).samples, m_DisplayedFrame->number, {}, &VectorSample::frame)
+                : std::ranges::binary_search(m_Session.document.project.pointMasses.at(static_cast<std::size_t>(selected)).marks,
+                                             m_DisplayedFrame->number,
+                                             {},
+                                             &Mark::frame));
     m_RemoveMark->setEnabled(hasMark);
 }
 
@@ -1317,7 +1318,7 @@ void MainWindow::repeatPreviousMark()
     }
     if (const auto vector = selectedVector())
     {
-        const auto& samples = m_Project.vectors.at(*vector).samples;
+        const auto& samples = m_Session.document.project.vectors.at(*vector).samples;
         const auto previous = std::ranges::lower_bound(samples, m_DisplayedFrame->number, {}, &VectorSample::frame);
         if (previous != samples.begin() && !m_DisplayedFrame->image.isNull())
         {
@@ -1325,7 +1326,7 @@ void MainWindow::repeatPreviousMark()
             sample.frame = m_DisplayedFrame->number;
             stopAutoTracking();
             setPlaying(false);
-            if (m_Edits.markVector(m_Project, *vector, sample))
+            if (m_Session.history.markVector(m_Session.document.project, *vector, sample))
             {
                 refreshEditViews(track);
                 m_StepSlider->triggerAction(QSlider::SliderSingleStepAdd);
@@ -1333,7 +1334,7 @@ void MainWindow::repeatPreviousMark()
         }
         return;
     }
-    const auto& marks = m_Project.pointMasses.at(static_cast<std::size_t>(track)).marks;
+    const auto& marks = m_Session.document.project.pointMasses.at(static_cast<std::size_t>(track)).marks;
     const auto previous = std::ranges::lower_bound(marks, m_DisplayedFrame->number, {}, &Mark::frame);
     if (previous != marks.begin())
     {
@@ -1356,9 +1357,9 @@ void MainWindow::refreshAxesOverlay()
         return;
     }
     const auto& frame = *m_DisplayedFrame;
-    if (m_Project.calibration)
+    if (m_Session.document.project.calibration)
     {
-        m_Video->setAxes(calibrationAt(*m_Project.calibration, frame.number));
+        m_Video->setAxes(calibrationAt(*m_Session.document.project.calibration, frame.number));
         return;
     }
     m_Video->setAxes(CalibrationKey{.frame = frame.number,
@@ -1383,12 +1384,12 @@ void MainWindow::pickAxesPoint(const QPointF& position)
         return;
     }
     const auto origin = *m_AxesOrigin;
-    if (!m_Edits.setCoordinateAxes(m_Project,
-                                   {.frame = m_DisplayedFrame->number,
-                                    .originX = origin.x(),
-                                    .originY = origin.y(),
-                                    .positiveX = position.x(),
-                                    .positiveY = position.y()}))
+    if (!m_Session.history.setCoordinateAxes(m_Session.document.project,
+                                             {.frame = m_DisplayedFrame->number,
+                                              .originX = origin.x(),
+                                              .originY = origin.y(),
+                                              .positiveX = position.x(),
+                                              .positiveY = position.y()}))
     {
         statusBar()->showMessage(tr("Choose a different point for the positive x axis."));
         return;
@@ -1455,15 +1456,16 @@ void MainWindow::pickMeasurementPoint(const QPointF& point)
 
     std::array<WorldPoint, 3> pixels{};
     std::array<WorldPoint, 3> world{};
-    bool calibrated = m_Project.calibration.has_value();
+    bool calibrated = m_Session.document.project.calibration.has_value();
     for (qsizetype index = 0; index < required; ++index)
     {
         const auto coordinate = m_MeasurementPoints.at(index);
         const auto slot = static_cast<std::size_t>(index);
         pixels.at(slot) = {.x = coordinate.x(), .y = coordinate.y()};
-        if (m_Project.calibration)
+        if (m_Session.document.project.calibration)
         {
-            const auto converted = worldPosition(*m_Project.calibration, {.frame = frame, .x = coordinate.x(), .y = coordinate.y()});
+            const auto converted =
+                worldPosition(*m_Session.document.project.calibration, {.frame = frame, .x = coordinate.x(), .y = coordinate.y()});
             if (converted)
             {
                 world.at(slot) = *converted;
@@ -1486,7 +1488,7 @@ void MainWindow::pickMeasurementPoint(const QPointF& point)
         return;
     }
     const auto value = QLocale().toString(*result, 'g', 6);
-    const auto unit = calibrated ? QString::fromStdString(m_Project.lengthUnit) : tr("px");
+    const auto unit = calibrated ? QString::fromStdString(m_Session.document.project.lengthUnit) : tr("px");
     statusBar()->showMessage(angle ? tr("Angle %1°").arg(value) : tr("Distance %1 %2").arg(value, unit).trimmed());
 }
 
@@ -1521,7 +1523,9 @@ void MainWindow::pickCalibrationPoint(const QPointF& position)
     length->setDecimals(6);
     length->setRange(0.000001, 1'000'000'000.0);
     length->setValue(1.0);
-    auto* unit = new QLineEdit(m_Project.lengthUnit.empty() ? QStringLiteral("m") : QString::fromStdString(m_Project.lengthUnit));
+    auto* unit =
+        new QLineEdit(m_Session.document.project.lengthUnit.empty() ? QStringLiteral("m")
+                                                                    : QString::fromStdString(m_Session.document.project.lengthUnit));
     unit->setObjectName("lengthUnit");
     layout->addRow(tr("Known distance"), length);
     layout->addRow(tr("Length unit"), unit);
@@ -1536,14 +1540,14 @@ void MainWindow::pickCalibrationPoint(const QPointF& position)
         return;
     }
 
-    if (m_Edits.calibrateDistance(m_Project,
-                                  {.frame = frame,
-                                   .imageDeltaX = delta.x(),
-                                   .imageDeltaY = delta.y(),
-                                   .knownLength = length->value(),
-                                   .defaultOriginX = imageSize.width() / 2.0,
-                                   .defaultOriginY = imageSize.height() / 2.0,
-                                   .unit = unit->text().trimmed().toStdString()}))
+    if (m_Session.history.calibrateDistance(m_Session.document.project,
+                                            {.frame = frame,
+                                             .imageDeltaX = delta.x(),
+                                             .imageDeltaY = delta.y(),
+                                             .knownLength = length->value(),
+                                             .defaultOriginX = imageSize.width() / 2.0,
+                                             .defaultOriginY = imageSize.height() / 2.0,
+                                             .unit = unit->text().trimmed().toStdString()}))
     {
         refreshEditViews(m_TrackPicker->currentIndex());
         statusBar()->showMessage(tr("Calibration updated."));
@@ -1564,7 +1568,7 @@ bool MainWindow::chooseWorkspacePath()
 
 bool MainWindow::saveCurrentWorkspace()
 {
-    return m_SavePath.isEmpty() ? chooseWorkspacePath() : saveWorkspace(m_SavePath);
+    return m_Session.nativeSavePath().isEmpty() ? chooseWorkspacePath() : saveWorkspace(m_Session.nativeSavePath());
 }
 
 bool MainWindow::saveWorkspace(const QString& path)
@@ -1573,27 +1577,14 @@ bool MainWindow::saveWorkspace(const QString& path)
     {
         return false;
     }
-    if (m_ProjectPath.isEmpty() || !path.endsWith(".motrack", Qt::CaseInsensitive))
+    if (m_Session.sourcePath().isEmpty() || !path.endsWith(".motrack", Qt::CaseInsensitive))
     {
         statusBar()->showMessage(tr("Choose a project filename ending in .motrack."));
         return false;
     }
-    WorkspaceDocument document{.project = m_Project,
-                               .movieFrameTimes = m_MovieFrameTimes,
-                               .movie = !m_MoviePath.isEmpty(),
-                               .useDisplayOrientation = m_MovieUsesDisplayOrientation,
-                               .alignMovieToClip = m_MovieAlignsToClip,
-                               .trackerSource = m_TrackerSource};
+    auto document = m_Session.document;
     const QDir destination(QFileInfo(path).absolutePath());
-    if (m_Archive)
-    {
-        document.archivePayload = m_Archive;
-        if (!m_ArchiveMember.isEmpty())
-        {
-            document.archiveMember = m_ArchiveMember.toStdString();
-        }
-    }
-    else
+    if (!document.archivePayload)
     {
         for (auto& reference : document.project.clip.mediaReferences)
         {
@@ -1606,8 +1597,7 @@ bool MainWindow::saveWorkspace(const QString& path)
     }
     // Keep the synchronous result used by Save-before-close, but let the GUI paint and process worker
     // completions. User input is deferred while the owned snapshot is validated and serialized off-thread.
-    const auto revision = m_Edits.revision();
-    const auto generation = m_DocumentGeneration;
+    const auto checkpoint = m_Session.saveCheckpoint();
     bool alive = true;
     QEventLoop loop;
     connect(this, &QObject::destroyed, &loop, [&alive] { alive = false; });
@@ -1640,27 +1630,23 @@ bool MainWindow::saveWorkspace(const QString& path)
         // Another save may start first, so check the guard again when the queued callback runs.
         QTimer::singleShot(0, this, [this, completion = std::move(completion)]() mutable { completeAfterSave(std::move(completion)); });
     }
-    if (generation != m_DocumentGeneration)
+    const auto outcome = m_Session.completeSave(checkpoint, path, watcher.result());
+    if (outcome == SaveOutcome::Replaced)
     {
         return false;
     }
-    if (!watcher.result())
+    if (outcome == SaveOutcome::Failed)
     {
         statusBar()->showMessage(tr("Could not save this project."));
         return false;
     }
-    m_SavePath = QFileInfo(path).absoluteFilePath();
     setWindowTitle(tr("%1[*] — MoTrack").arg(QFileInfo(path).fileName()));
-    if (revision != m_Edits.revision())
+    if (outcome == SaveOutcome::Stale)
     {
-        // The successful write replaced the previous checkpoint on disk. Undo must not label that
-        // old state clean. Keep the successful destination, including Save As, for the next save.
-        m_Edits.invalidateSaved();
         setWindowModified(true);
         statusBar()->showMessage(tr("Project changed while saving. Save again to keep the latest edits."));
         return false;
     }
-    m_Edits.markSaved();
     setWindowModified(false);
     statusBar()->showMessage(tr("Project saved."));
     return true;
@@ -1668,7 +1654,7 @@ bool MainWindow::saveWorkspace(const QString& path)
 
 bool MainWindow::saveMeasurements(const QString& path)
 {
-    return saveCsv(path, measurementsCsv(m_Project));
+    return saveCsv(path, measurementsCsv(m_Session.document.project));
 }
 
 bool MainWindow::saveCsv(const QString& path, const std::string& csv)
@@ -1687,7 +1673,7 @@ bool MainWindow::saveCsv(const QString& path, const std::string& csv)
 void MainWindow::displayMarks()
 {
     m_Marks->setRowCount(0);
-    for (const auto& track : m_Project.pointMasses)
+    for (const auto& track : m_Session.document.project.pointMasses)
     {
         for (const auto& mark : track.marks)
         {
@@ -1697,7 +1683,8 @@ void MainWindow::displayMarks()
             m_Marks->setItem(row, 1, new QTableWidgetItem(QString::number(mark.frame)));
             m_Marks->setItem(row, 2, new QTableWidgetItem(QString::number(mark.x, 'g', 12)));
             m_Marks->setItem(row, 3, new QTableWidgetItem(QString::number(mark.y, 'g', 12)));
-            const auto world = m_Project.calibration ? worldPosition(*m_Project.calibration, mark) : std::nullopt;
+            const auto world =
+                m_Session.document.project.calibration ? worldPosition(*m_Session.document.project.calibration, mark) : std::nullopt;
             if (world)
             {
                 m_Marks->setItem(row, 4, new QTableWidgetItem(QString::number(world->x, 'g', 12)));
@@ -1726,7 +1713,8 @@ void MainWindow::displayStep(int step)
     }
     else if (!m_MoviePath.isEmpty())
     {
-        const auto number = m_Project.clip.firstFrame + static_cast<std::int64_t>(step) * m_Project.clip.stepSize;
+        const auto number =
+            m_Session.document.project.clip.firstFrame + static_cast<std::int64_t>(step) * m_Session.document.project.clip.stepSize;
         if (std::in_range<int>(number))
         {
             requestMovieFrame(static_cast<int>(number));
@@ -1764,7 +1752,7 @@ void MainWindow::displayFrame(const ImageFrame& frame, const QString& failureMes
     const auto label = tr("Frame %1").arg(frame.number);
     m_FrameLabel->setText(label);
     QList<QPointF> points;
-    for (const auto& track : m_Project.pointMasses)
+    for (const auto& track : m_Session.document.project.pointMasses)
     {
         const auto mark = std::ranges::lower_bound(track.marks, frame.number, {}, &Mark::frame);
         if (mark != track.marks.end() && mark->frame == frame.number)
@@ -1773,7 +1761,7 @@ void MainWindow::displayFrame(const ImageFrame& frame, const QString& failureMes
         }
     }
     QList<QLineF> vectors;
-    for (const auto& track : m_Project.vectors)
+    for (const auto& track : m_Session.document.project.vectors)
     {
         const auto sample = std::ranges::lower_bound(track.samples, frame.number, {}, &VectorSample::frame);
         if (sample != track.samples.end() && sample->frame == frame.number)
@@ -1817,7 +1805,7 @@ void MainWindow::startAutoTracking()
         return;
     }
     const auto& frame = *m_DisplayedFrame;
-    const auto& marks = m_Project.pointMasses.at(static_cast<std::size_t>(track)).marks;
+    const auto& marks = m_Session.document.project.pointMasses.at(static_cast<std::size_t>(track)).marks;
     const auto mark = std::ranges::lower_bound(marks, frame.number, {}, &Mark::frame);
     if (mark == marks.end() || mark->frame != frame.number || mark->x < 0.0 || mark->x >= frame.image.width() || mark->y < 0.0 ||
         mark->y >= frame.image.height())
@@ -1866,12 +1854,12 @@ void MainWindow::autoTrackFrame(const ImageFrame& frame)
         return;
     }
     auto& session = *m_AutoTrack;
-    if (frame.image.isNull() || frame.number - session.lastFrame != m_Project.clip.stepSize)
+    if (frame.image.isNull() || frame.number - session.lastFrame != m_Session.document.project.clip.stepSize)
     {
         stopAutoTracking(tr("AutoTracker stopped because the next clip frame was unavailable."));
         return;
     }
-    const auto& marks = m_Project.pointMasses.at(session.track).marks;
+    const auto& marks = m_Session.document.project.pointMasses.at(session.track).marks;
     if (std::ranges::binary_search(marks, frame.number, {}, &Mark::frame))
     {
         stopAutoTracking(tr("AutoTracker stopped at an existing mark."));
@@ -1909,8 +1897,9 @@ void MainWindow::applyAutoTrackMatch(int frame, const std::optional<QPoint>& poi
     auto& session = *m_AutoTrack;
     session.lastFrame = frame;
     session.predicted = *point;
-    m_Edits.markPointMass(
-        m_Project, session.track, {.frame = frame, .x = static_cast<double>(point->x()), .y = static_cast<double>(point->y())});
+    m_Session.history.markPointMass(m_Session.document.project,
+                                    session.track,
+                                    {.frame = frame, .x = static_cast<double>(point->x()), .y = static_cast<double>(point->y())});
     refreshEditViews(static_cast<int>(session.track));
     if (m_StepSlider->value() == m_StepSlider->maximum())
     {
@@ -1929,9 +1918,10 @@ void MainWindow::schedulePlayback()
         return;
     }
     const auto frame = static_cast<std::size_t>(m_DisplayedFrame->number);
-    const auto next = frame + static_cast<std::size_t>(m_Project.clip.stepSize);
-    const auto delayMs = next < m_MovieFrameTimes.size() ? 1000.0 * (m_MovieFrameTimes.at(next) - m_MovieFrameTimes.at(frame))
-                                                         : m_Project.clip.frameDurationMs.value_or(40.0) * m_Project.clip.stepSize;
+    const auto next = frame + static_cast<std::size_t>(m_Session.document.project.clip.stepSize);
+    const auto delayMs = next < m_Session.document.movieFrameTimes.size()
+                             ? 1000.0 * (m_Session.document.movieFrameTimes.at(next) - m_Session.document.movieFrameTimes.at(frame))
+                             : m_Session.document.project.clip.frameDurationMs.value_or(40.0) * m_Session.document.project.clip.stepSize;
     m_PlayTimer.start(static_cast<int>(std::lround(std::clamp(delayMs, 1.0, 60'000.0))));
 }
 
@@ -1979,7 +1969,7 @@ void MainWindow::requestMovieFrame(int frame)
                               m_MoviePath,
                               frame,
                               generation,
-                              m_MovieUsesDisplayOrientation,
+                              m_Session.document.useDisplayOrientation,
                               hasTimestamp,
                               timestamp);
 }
