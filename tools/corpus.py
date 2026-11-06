@@ -34,6 +34,8 @@ def load_manifest(path=CORPUS / "manifest.json"):
             raise ValueError("Invalid or duplicate corpus case ID")
         seen.add(case["id"])
         expected_path(case)
+        if "native_reference_index" in case:
+            expected_path({"expected": case["native_reference_index"]})
     for artifact in [manifest["reference"], *manifest["cases"]]:
         local = "local_file" in artifact
         if (not re.fullmatch(r"[A-Za-z0-9_.-]+", artifact["file"])
@@ -197,6 +199,14 @@ def check_cases(manifest, cache, *, java=None, probe=None, record=False):
             compare(expected if java else expected["project"], actual, manifest["tolerance"], case["id"])
         print(f"{case['id']}: {'recorded reference' if record else 'passed'}"
               f" ({'Java XML/coordinate API' if java else 'MoTrack import/coordinates'}; full round trip untested)")
+        if not java and "native_reference_index" in case:
+            reference_output = reports / (case["id"] + "-native-references.json")
+            reference_output.unlink(missing_ok=True)
+            run([str(Path(probe).resolve()), "--references", str(project), str(reference_output)])
+            reference_expected = expected_path({"expected": case["native_reference_index"]})
+            compare(json.loads(reference_expected.read_text(encoding="utf-8")),
+                    json.loads(reference_output.read_text(encoding="utf-8")), manifest["tolerance"], case["id"] + ".reference_index")
+            print(f"{case['id']}: passed (partial native source-reference index; rename export untested)")
 
 
 def session_units(case, expected):

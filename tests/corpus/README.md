@@ -254,3 +254,17 @@ coverage for R08 and named relationships, not native dependent-track implementat
 rename/export acceptance. Moving reference frames, nested centers and edited constituent updates
 still need their own cases. Run the generator with the same bounded Java settings as the keyed
 fixture, substituting `CenterOfMassFixture.java` and a new `.trk` output path.
+
+## Partial native reference index
+
+The protractor case also runs the native probe with `--references`. Its separate
+`expected/protractor-references.json` records the original track ordinals and names from the pinned
+XML, native point-mass IDs 1/2, and selection targets already verified in the Java session. These
+expectations were authored independently of the native index output. They require selected `mass B`
+and its plot/table references to target source node 3; axes and the unsupported protractor retain
+source identities with no native editable ID. Description text is not treated as a relationship.
+
+This check covers the current partial, read-only index, not standard rename export, nested view
+settings, attachments or dependent constituents. The runner compares exact paths, names, states and
+target lists; it rejects consistently wrong source identities and does not regenerate this expected
+file with `reference --record`.

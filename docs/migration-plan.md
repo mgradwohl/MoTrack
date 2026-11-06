@@ -124,7 +124,7 @@ and platform evidence before it can be marked complete.
 | ID | Required desktop behavior | Status at the snapshot and remaining work | Phase |
 | --- | --- | --- | --- |
 | R01 | Reproducible native builds, CI, review, numerical tests, at least 90% combined C++ line coverage | Implemented foundation; continue applying gates to every new component. | 0, every phase |
-| R02 | Open `.trk`/`.trz`; preserve all supported and unknown content, references, metadata, and archive tabs | Partial: supported point masses/vectors/calibration import; one archive tab selected. Native documents retain that tab's original XML, editable-track IDs and source-object associations for new imports. Version 5 embeds the exact original archive, including all tabs/media/unknown files. Older native sources retain an explicit unknown-association state. | 1–3 |
+| R02 | Open `.trk`/`.trz`; preserve all supported and unknown content, references, metadata, and archive tabs | Partial: supported point masses/vectors/calibration import; one archive tab selected. Native documents retain that tab's original XML, editable-track IDs and source-object associations for new imports. Version 5 embeds the exact original archive, including all tabs/media/unknown files. A partial read-only reference index maps original track names and panel selections to source nodes and known IDs; nested/dependent references remain. Older native sources retain an explicit unknown-association state. | 1–3 |
 | R03 | Save edited standard files plus optional `.motrack`; reopen in both applications without data loss | Partial: native persistence and source/archive preservation. Initial internal `.trk` writer and actual-Tracker round-trip case cover mass values, marks, independent-vector samples, clip ranges, existing fixed/fully varying calibration and length/mass-unit labels; other edits are rejected. Full standard writers, export UI, archive packaging and paired-save recovery remain. | 2–3, every feature |
 | R04 | Multiple experiment tabs, independent undo/dirty state, tab/project Save As, cross-tab import and reusable views | Partial foundation: document sessions own independent data/history/save checkpoints, and native storage preserves unopened archive tabs. The desktop still has one active experiment; multi-tab controllers/UI, cross-tab import and reusable views remain. | 2–4 |
 | R05 | Movies, stills, image sequences and zipped sequences; accurate clip/time/frame controls and media properties | Partial: local movies/images, clip trim/stride, timestamp indexing, orientation, cache, and playback exist. Audit all baseline formats, rates, sequence operations, and properties controls. | 1, 4, 6 |
@@ -262,7 +262,9 @@ partly fixed coordinates, attachments and moving reference frames still need sep
 The protractor session also checks selected-track and plot/table selection targets against independent
 manifest expectations, using live objects and the normal packed-string serializer. This begins the
 [name-reference acceptance work](tracker-name-references.md); column/format owners, attachments and
-standard rename export remain unfinished. A separate center-of-mass fixture checks named membership,
+standard rename export remain unfinished. The read-only native index now resolves original track nodes
+and panel selection fields, retaining missing/ambiguous targets and unknown native bindings explicitly;
+it is not yet a complete graph or permission to export renames. A separate center-of-mass fixture checks named membership,
 total mass and independently calculated image/world positions at sparse frames; native dependent-track
 behavior and edited dependency round trips remain unfinished.
 Media/archive session loading, broader requirement coverage, runtime/dependency provenance and exact

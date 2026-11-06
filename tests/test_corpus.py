@@ -116,6 +116,34 @@ class CorpusTests(unittest.TestCase):
             corpus.load_manifest(path)
         with self.assertRaisesRegex(ValueError, "inside"):
             corpus.expected_path({"expected": "../../outside.json"})
+        manifest = corpus.load_manifest()
+        manifest["cases"][0]["native_reference_index"] = "../../outside.json"
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "inside"):
+            corpus.load_manifest(path)
+
+    def test_native_reference_case_requires_exact_source_targets(self):
+        manifest = corpus.load_manifest()
+        case = next(case for case in manifest["cases"] if case["id"] == "protractor")
+        manifest["cases"] = [case]
+        project = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
+        expected = json.loads(corpus.expected_path({"expected": case["native_reference_index"]}).read_text(encoding="utf-8"))
+        corrupt = False
+        def probe(command):
+            if "--references" in command:
+                report = copy.deepcopy(expected)
+                if corrupt:
+                    report["references"][0]["targets"] = [1]
+            else:
+                report = project
+            Path(command[-1]).write_text(json.dumps(report), encoding="utf-8")
+        with patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "project_path", return_value=self.root / "unused.trk"), \
+                patch.object(corpus, "run", side_effect=probe) as run:
+            corpus.check_cases(manifest, self.root, probe="unused-probe")
+            self.assertIn("--references", run.call_args.args[0])
+            corrupt = True
+            with self.assertRaisesRegex(ValueError, "reference_index"):
+                corpus.check_cases(manifest, self.root, probe="unused-probe")
 
     def test_session_validation_checks_loaded_content_and_java_resave(self):
         manifest = corpus.load_manifest()

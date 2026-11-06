@@ -1,6 +1,7 @@
 #include "legacy_project.hpp"
 #include "measurements.hpp"
 #include "track_edits.hpp"
+#include "tracker_references.hpp"
 #include "tracker_writer.hpp"
 #include "workspace_document.hpp"
 
@@ -10,6 +11,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
+#include <QStringList>
 #include <QTemporaryDir>
 
 #include <cstdint>
@@ -20,6 +22,41 @@
 
 namespace
 {
+
+QJsonObject referenceSnapshot(const motrack::ImportedTrackerProject& imported)
+{
+    const auto index = motrack::indexTrackerReferences(imported.source, imported.project);
+    QJsonArray tracks;
+    for (const auto& track : index.tracks)
+    {
+        tracks.append(QJsonObject{{"source_index", static_cast<qint64>(track.sourceIndex)},
+                                  {"class", QString::fromStdString(track.className)},
+                                  {"name", track.originalName ? QJsonValue(QString::fromStdString(*track.originalName)) : QJsonValue::Null},
+                                  {"native_id", track.nativeId ? QJsonValue(QString::number(*track.nativeId)) : QJsonValue::Null}});
+    }
+    QJsonArray references;
+    const QStringList kinds{"selected_track", "reference_frame", "plot", "table"};
+    const QStringList states{"resolved", "missing", "ambiguous", "no_target"};
+    for (const auto& reference : index.references)
+    {
+        QJsonArray targets;
+        for (const auto target : reference.candidateSourceIndices)
+        {
+            targets.append(static_cast<qint64>(target));
+        }
+        references.append(QJsonObject{{"kind", kinds.at(static_cast<int>(reference.kind))},
+                                      {"path", QString::fromStdString(reference.path)},
+                                      {"name", QString::fromStdString(reference.originalName)},
+                                      {"resolution", states.at(static_cast<int>(reference.resolution))},
+                                      {"targets", targets}});
+    }
+    QJsonArray malformed;
+    for (const auto& path : index.malformedPaths)
+    {
+        malformed.append(QString::fromStdString(path));
+    }
+    return {{"tracks", tracks}, {"references", references}, {"malformed_paths", malformed}};
+}
 
 QJsonValue world(const motrack::LegacyProject& project, int frame, double x, double y)
 {
@@ -305,18 +342,22 @@ try
         }
         return 0;
     }
-    if (args.size() != 3)
+    const bool references = args.size() == 4 && args[1] == "--references";
+    if (args.size() != 3 && !references)
     {
-        std::fputs("Usage: motrack_corpus_probe input.trk output.json | --export-<case> input.trk output.trk\n", stderr);
+        std::fputs("Usage: motrack_corpus_probe [--references] input.trk output.json | --export-<case> input.trk output.trk\n", stderr);
         return 1;
     }
+    const auto& inputArgument = args[references ? 2 : 1];
 #ifdef _WIN32
-    const std::filesystem::path input(args[1].toStdWString());
+    const std::filesystem::path input(inputArgument.toStdWString());
 #else
-    const std::filesystem::path input(args[1].toStdString());
+    const std::filesystem::path input(inputArgument.toStdString());
 #endif
-    const auto bytes = QJsonDocument(snapshot(motrack::readLegacyProject(input))).toJson();
-    QSaveFile output(args[2]);
+    const auto bytes =
+        QJsonDocument(references ? referenceSnapshot(motrack::readTrackerProject(input)) : snapshot(motrack::readLegacyProject(input)))
+            .toJson();
+    QSaveFile output(args[references ? 3 : 2]);
     if (!output.open(QIODevice::WriteOnly) || output.write(bytes) != bytes.size() || !output.commit())
     {
         throw motrack::ProjectError("Could not write corpus snapshot.");
