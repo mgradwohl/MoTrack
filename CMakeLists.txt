@@ -56,11 +56,13 @@ qt_add_translations(motrack
 if(MOTRACK_STAGE_DESKTOP)
     include(GNUInstallDirs)
     if(APPLE)
+        # macdeployqt uses the SDK runpath to locate frameworks and rewrites it for the bundle.
         set_target_properties(motrack PROPERTIES
             MACOSX_BUNDLE TRUE
             MACOSX_BUNDLE_BUNDLE_NAME MoTrack
             MACOSX_BUNDLE_GUI_IDENTIFIER com.github.mgradwohl.motrack
-            MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}")
+            MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+            INSTALL_RPATH "@executable_path/../Frameworks;${QT6_INSTALL_PREFIX}/${QT6_INSTALL_LIBS}")
     elseif(WIN32)
         file(GLOB ffmpeg_runtime "${MOTRACK_FFMPEG_ROOT}/bin/avcodec-*.dll"
             "${MOTRACK_FFMPEG_ROOT}/bin/avformat-*.dll"

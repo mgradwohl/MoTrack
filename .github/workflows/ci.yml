@@ -116,7 +116,9 @@ jobs:
           app=build/stage/installed/bin/motrack
           unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH QT_QPA_PLATFORM LD_LIBRARY_PATH DYLD_LIBRARY_PATH DYLD_FRAMEWORK_PATH
           if [[ "$RUNNER_OS" == macOS ]]; then
-            app=build/stage/installed/motrack.app/Contents/MacOS/motrack
+            bundle=build/stage/installed/motrack.app/Contents
+            test -f "$bundle/Frameworks/QtXml.framework/QtXml"
+            app="$bundle/MacOS/motrack"
           else
             export QT_QPA_PLATFORM=offscreen
           fi
