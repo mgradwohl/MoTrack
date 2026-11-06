@@ -206,7 +206,7 @@ def session_units(case, expected):
             "mass_unit": expected["mass_unit"]}
 
 
-def validate_session(case, report, manifest, expected=None, key_frames=None):
+def validate_session(case, report, manifest, expected=None, key_frames=None, calibration=None):
     if (report["reference_version"] != manifest["reference"]["version"]
             or report["verification_level"] != "tracker_session_resave"):
         raise ValueError("Unexpected session reference version or verification level")
@@ -229,6 +229,8 @@ def validate_session(case, report, manifest, expected=None, key_frames=None):
                 {"frame": sample["frame"], "image": sample["points"][0], "world": sample["world"]}
                 for sample in track["samples"]]})
     compare(expected["point_masses"], masses, tolerance, case["id"] + ".point_masses")
+    if calibration is not None:
+        compare(calibration, before["calibration"], tolerance, case["id"] + ".calibration")
     vectors = [{"name": track["name"], "samples": track["vector_samples"]} for track in before["tracks"]
                if track["class"] == "org.opensourcephysics.cabrillo.tracker.Vector"]
     compare(expected["vectors"], vectors, tolerance, case["id"] + ".vectors")
@@ -377,6 +379,56 @@ def verify_calibration_export_xml(original, exported):
     actual.unlink()
     if not matches:
         raise ValueError("Standard export changed content beyond the requested calibration")
+
+
+def keyed_calibration_expected(edited=False):
+    keys = [{"frame": 0, "origin": [320, 240], "angle": 0, "scale": [2, 4]},
+            {"frame": 4, "origin": [100, 120], "angle": 90, "scale": [4, 8]},
+            {"frame": 9, "origin": [110, 130], "angle": -90, "scale": [2, 8]}]
+    if edited:
+        keys[1] = {"frame": 4, "origin": [120, 140], "angle": 0, "scale": [8, 16]}
+        keys.insert(1, {"frame": 3, "origin": [80, 90], "angle": -90, "scale": [2, 4]})
+    return {"fixed_origin": False, "fixed_angle": False, "fixed_scale": False, "keys": keys}
+
+
+def keyed_calibration_roundtrip_expected(case):
+    if case["id"] != "keyed-calibration":
+        raise ValueError("The keyed-calibration oracle requires its Java-authored fixture")
+    expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
+    # New key 3: origin (80,90), -90 degrees, scales (2,4).
+    # Edited key 4: origin (120,140), 0 degrees, scales (8,16). Keys 0/9 remain unchanged.
+    world = {0: [-155, 55], 3: [-17.5, -35], 4: [-13.75, 7.5], 8: [-13.75, 7.5], 9: [-13.75, -50]}
+    for sample in expected["point_masses"][0]["samples"]:
+        sample["world"] = world[sample["frame"]]
+    return expected
+
+
+def verify_keyed_calibration_export_xml(original, exported):
+    expected = minidom.parse(str(original))
+    frames = [node for node in expected.getElementsByTagName("object")
+              if node.getAttribute("class") == "org.opensourcephysics.media.core.ImageCoordSystem$FrameData"]
+    if [node.parentNode.getAttribute("name") for node in frames] != ["[0]", "[4]", "[9]"]:
+        raise ValueError("Expected pinned calibration keys 0/4/9")
+    added = frames[0].parentNode.cloneNode(True)
+    added.setAttribute("name", "[3]")
+    frames[1].parentNode.parentNode.insertBefore(added, frames[1].parentNode)
+    new_frame = added.getElementsByTagName("object")[0]
+    for frame, values in [(new_frame, [80, 90, -90, 2, 4]), (frames[1], [120, 140, 0, 8, 16])]:
+        for name, value in zip(["xorigin", "yorigin", "angle", "xscale", "yscale"], values):
+            properties = [node for node in frame.childNodes if node.nodeType == node.ELEMENT_NODE
+                          and node.tagName == "property" and node.getAttribute("name") == name]
+            if len(properties) != 1 or properties[0].getAttribute("type") != "double":
+                raise ValueError("Unexpected pinned keyed scalar: " + name)
+            nodes = [node for node in properties[0].childNodes if node.nodeType in {node.TEXT_NODE, node.CDATA_SECTION_NODE}]
+            if len(nodes) != 1:
+                raise ValueError("Unexpected pinned keyed scalar contents: " + name)
+            nodes[0].data = str(value)
+    actual = minidom.parse(str(exported))
+    matches = canonical_tracker_xml(expected) == canonical_tracker_xml(actual)
+    expected.unlink()
+    actual.unlink()
+    if not matches:
+        raise ValueError("Standard export changed content beyond the requested calibration keys")
 
 
 def clip_roundtrip_expected(case, boundary=False):
@@ -631,7 +683,8 @@ def check_sessions(manifest, cache, java, probe=None):
              ("vectors", "native_vector_roundtrip"), ("empty-vectors", "native_vector_roundtrip"),
              ("first-vector", "native_vector_roundtrip"), ("clip", "native_clip_roundtrip"), ("clip-boundary", "native_clip_roundtrip"),
              ("snap-origin", "native_vector_roundtrip"), ("snap-vector", "native_vector_roundtrip"),
-             ("calibration", "native_calibration_roundtrip"), ("length-unit", "native_length_unit_roundtrip")] if probe else [("session", "session_tracks")]
+             ("calibration", "native_calibration_roundtrip"), ("length-unit", "native_length_unit_roundtrip"),
+             ("keyed-calibration", "native_keyed_calibration_roundtrip")] if probe else [("session", "session_tracks")]
     cases = [(case, mode) for case in manifest["cases"] if "session_tracks" in case
              for mode, flag in modes if case.get(flag)]
     if not cases:
@@ -683,6 +736,9 @@ def check_sessions(manifest, cache, java, probe=None):
                 if mode == "mass":
                     verify_mass_export_xml(project, exported)
                     expected = mass_roundtrip_expected(case)
+                elif mode == "keyed-calibration":
+                    expected = keyed_calibration_roundtrip_expected(case)
+                    verify_keyed_calibration_export_xml(project, exported)
                 elif mode == "length-unit":
                     expected = length_unit_roundtrip_expected(case)
                     verify_length_unit_export_xml(project, exported)
@@ -720,8 +776,9 @@ def check_sessions(manifest, cache, java, probe=None):
                       "before": stages["save"]["loaded"], "after_save": stages["save"]["after_save"],
                       "after": stages["reopen"]["loaded"]}
             keys = {"marks": [[0, 3], [7]], "empty-marks": [[], [0]], "first-mark": [[4], [0]]}.get(mode)
+            calibration = keyed_calibration_expected(mode == "keyed-calibration") if case["id"] == "keyed-calibration" else None
             try:
-                validate_session(case, report, manifest, expected, keys)
+                validate_session(case, report, manifest, expected, keys, calibration)
             except ValueError as error:
                 raise ValueError(f"{error}\nTracker session snapshots (bounded): {json.dumps(report)[:24000]}") from error
             if probe:

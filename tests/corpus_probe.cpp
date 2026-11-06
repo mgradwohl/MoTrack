@@ -101,7 +101,7 @@ try
                              args[1] == "--export-first-mark" || args[1] == "--export-vectors" || args[1] == "--export-empty-vectors" ||
                              args[1] == "--export-first-vector" || args[1] == "--export-clip" || args[1] == "--export-snap-origin" ||
                              args[1] == "--export-snap-vector" || args[1] == "--export-length-unit" || args[1] == "--export-calibration" ||
-                             args[1] == "--export-clip-boundary"))
+                             args[1] == "--export-clip-boundary" || args[1] == "--export-keyed-calibration"))
     {
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trk");
@@ -132,6 +132,23 @@ try
                                           .unit = "\xC2\xB5m"}))
             {
                 throw motrack::ProjectError("Could not edit round-trip length unit.");
+            }
+        }
+        else if (args[1] == "--export-keyed-calibration")
+        {
+            if (!edits.calibrateDistance(document.project,
+                                         {.frame = 4,
+                                          .imageDeltaX = 8,
+                                          .imageDeltaY = 0,
+                                          .knownLength = 1,
+                                          .defaultOriginX = 0,
+                                          .defaultOriginY = 0,
+                                          .unit = document.project.lengthUnit}) ||
+                !edits.setCoordinateAxes(document.project,
+                                         {.frame = 4, .originX = 120, .originY = 140, .positiveX = 128, .positiveY = 140}) ||
+                !edits.setCoordinateAxes(document.project, {.frame = 3, .originX = 80, .originY = 90, .positiveX = 80, .positiveY = 98}))
+            {
+                throw motrack::ProjectError("Could not edit round-trip calibration keys.");
             }
         }
         else if (args[1] == "--export-calibration")

@@ -186,6 +186,55 @@ class CorpusTests(unittest.TestCase):
             with self.subTest(frame=mass["samples"][index]["frame"]), self.assertRaises(ValueError):
                 corpus.validate_session(case, invalid, manifest)
 
+    def test_keyed_calibration_export_preserves_other_keys_and_recorded_marks(self):
+        case = next(case for case in corpus.load_manifest()["cases"] if case["id"] == "keyed-calibration")
+        original = corpus.local_fixture_path(case)
+        xml = original.read_text(encoding="utf-8")
+        edited = xml
+        for name, before, after in [("xorigin", "100.0", "120"), ("yorigin", "120.0", "140"),
+                                   ("angle", "90.0", "0"), ("xscale", "4.0", "8"), ("yscale", "8.0", "16")]:
+            edited = edited.replace(f'name="{name}" type="double">{before}<', f'name="{name}" type="double">{after}<', 1)
+        added = ('<property name="[3]" type="object">'
+                 '<object class="org.opensourcephysics.media.core.ImageCoordSystem$FrameData">'
+                 '<property name="xorigin" type="double">80</property><property name="yorigin" type="double">90</property>'
+                 '<property name="angle" type="double">-90</property><property name="xscale" type="double">2</property>'
+                 '<property name="yscale" type="double">4</property></object></property>\n')
+        pos = edited.index('<property name="[4]"')
+        edited = edited[:pos] + added + edited[pos:]
+        output = self.root / "keyed.trk"
+        output.write_text(edited, encoding="utf-8")
+        corpus.verify_keyed_calibration_export_xml(original, output)
+        for invalid in [xml, edited.replace('name="[3]"', 'name="[2]"', 1),
+                        edited.replace('name="xorigin" type="double">110.0', 'name="xorigin" type="double">111'),
+                        edited.replace('name="x" type="double">10.0', 'name="x" type="double">11', 1)]:
+            output.write_text(invalid, encoding="utf-8")
+            with self.assertRaises(ValueError):
+                corpus.verify_keyed_calibration_export_xml(original, output)
+        expected = corpus.keyed_calibration_roundtrip_expected(case)
+        self.assertEqual([s["world"] for s in expected["point_masses"][0]["samples"]],
+                         [[-155, 55], [-17.5, -35], [-13.75, 7.5], [-13.75, 7.5], [-13.75, -50]])
+
+    def test_keyed_session_rejects_consistently_wrong_calibration_even_when_sample_positions_match(self):
+        manifest = corpus.load_manifest()
+        case = next(case for case in manifest["cases"] if case["id"] == "keyed-calibration")
+        expected = corpus.keyed_calibration_roundtrip_expected(case)
+        mass = expected["point_masses"][0]
+        calibration = corpus.keyed_calibration_expected(edited=True)
+        before = {"tracks": [{**case["session_tracks"][0]}, {**case["session_tracks"][1], "mass": mass["mass"],
+                             "samples": [{"frame": s["frame"], "points": [s["image"]], "world": s["world"]}
+                                         for s in mass["samples"]]}],
+                  "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                  "calibration": calibration, **corpus.session_units(case, expected)}
+        valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                 "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
+        corpus.validate_session(case, valid, manifest, expected, calibration=calibration)
+        for field, value in [("frame", 2), ("origin", [81, 90]), ("scale", [3, 4]), ("angle", 90)]:
+            invalid = copy.deepcopy(valid)
+            for stage in ["before", "after_save", "after"]:
+                invalid[stage]["calibration"]["keys"][1][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                corpus.validate_session(case, invalid, manifest, expected, calibration=calibration)
+
     def test_local_vector_fixture_is_pinned_and_cannot_escape_the_corpus(self):
         manifest = corpus.load_manifest()
         case = next(case for case in manifest["cases"] if case["id"] == "independent-vectors")

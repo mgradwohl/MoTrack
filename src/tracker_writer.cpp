@@ -446,13 +446,29 @@ std::array<double, 6> trackerInverse(const CalibrationKey& key)
     return inverse;
 }
 
-void requireTrackerCoordinates(const LegacyProject& project, const Calibration& calibration, const std::array<double, 6>& inverse)
+void requireTrackerCoordinates(const LegacyProject& project, const Calibration& calibration)
 {
+    require(!calibration.keyframes.empty() && calibration.keyframes.front().frame == 0);
+    std::vector<std::array<double, 6>> inverses;
+    int previous = -1;
     auto componentCalibration = calibration;
-    componentCalibration.keyframes.front().originX = 0;
-    componentCalibration.keyframes.front().originY = 0;
+    for (auto& key : componentCalibration.keyframes)
+    {
+        require(key.frame > previous && key.frame <= 500000 && std::isfinite(key.originX) && std::isfinite(key.originY) &&
+                std::isfinite(key.angleDegrees) && std::abs(key.angleDegrees) <= 180 && std::isfinite(key.scaleX) &&
+                std::isfinite(key.scaleY) && key.scaleX != 0 && key.scaleY != 0);
+        const auto determinant = key.scaleX * key.scaleY;
+        require(std::isfinite(determinant) && determinant != 0);
+        inverses.push_back(trackerInverse(key));
+        previous = key.frame;
+        key.originX = 0;
+        key.originY = 0;
+    }
     const auto check = [&](const Mark& point, bool component = false, const Mark* reconstructed = nullptr)
     {
+        const auto next = std::ranges::upper_bound(calibration.keyframes, point.frame, {}, &CalibrationKey::frame);
+        require(next != calibration.keyframes.begin());
+        const auto& inverse = inverses[static_cast<std::size_t>(next - calibration.keyframes.begin() - 1)];
         const auto native = worldPosition(component ? componentCalibration : calibration, point);
         if (!native)
         {
@@ -479,9 +495,11 @@ void requireTrackerCoordinates(const LegacyProject& project, const Calibration& 
             require(std::isfinite(actual[axis]) && std::abs(actual[axis] - expected[axis]) <= tolerance);
         }
     };
-    const auto& key = calibration.keyframes.front();
-    check({.frame = 0, .x = key.originX, .y = key.originY});
-    check({.frame = 0, .x = 13.5, .y = 17.25}); // Independent corpus coordinate probe.
+    for (const auto& key : calibration.keyframes)
+    {
+        check({.frame = key.frame, .x = key.originX, .y = key.originY});
+        check({.frame = key.frame, .x = 13.5, .y = 17.25}); // Independent corpus coordinate probe.
+    }
     for (const auto& mass : project.pointMasses)
     {
         for (const auto& mark : mass.marks)
@@ -503,12 +521,21 @@ void requireTrackerCoordinates(const LegacyProject& project, const Calibration& 
     }
 }
 
-void patchFixedCalibration(QDomDocument& xml, const Calibration& original, const Calibration& current, const LegacyProject& project)
+void patchCalibration(QDomDocument& xml, const Calibration& original, const Calibration& current, const LegacyProject& project)
 {
-    // Start with the existing fixed coordinate system; keyed and moving frames need their own oracle.
-    require(original.fixedOrigin && original.fixedAngle && original.fixedScale && current.fixedOrigin && current.fixedAngle &&
-            current.fixedScale && original.keyframes.size() == 1 && current.keyframes.size() == 1 &&
-            original.keyframes.front().frame == 0 && current.keyframes.front().frame == 0);
+    const bool fixed = original.fixedOrigin && original.fixedAngle && original.fixedScale && current.fixedOrigin && current.fixedAngle &&
+                       current.fixedScale && original.keyframes.size() == 1 && current.keyframes.size() == 1 &&
+                       original.keyframes.front().frame == 0 && current.keyframes.front().frame == 0;
+    const bool varying = !original.fixedOrigin && !original.fixedAngle && !original.fixedScale && !current.fixedOrigin &&
+                         !current.fixedAngle && !current.fixedScale && !original.keyframes.empty() &&
+                         original.keyframes.front().frame == 0 && project.vectors.empty();
+    require(fixed || varying); // Mixed fixed flags and varying vector coordinates need separate reference cases.
+    requireTrackerCoordinates(project, current);
+    // Existing commands add or edit calibration keys. Key removal needs its own reversible command/oracle.
+    for (const auto& key : original.keyframes)
+    {
+        require(std::ranges::binary_search(current.keyframes, key.frame, {}, &CalibrationKey::frame));
+    }
     const auto property = uniqueProperty(xml.documentElement(), "coords");
     const auto object = property.firstChildElement("object");
     require(property.attribute("type") == "object" && object.attribute("class") == "org.opensourcephysics.media.core.ImageCoordSystem" &&
@@ -516,19 +543,46 @@ void patchFixedCalibration(QDomDocument& xml, const Calibration& original, const
     const auto locked = uniqueProperty(object, "locked");
     require(locked.isNull() ||
             (locked.attribute("type") == "boolean" && locked.firstChildElement().isNull() && locked.text().trimmed() == "false"));
+    const auto data = uniqueProperty(object, "framedata");
+    int lastFrame = current.keyframes.back().frame;
+    for (auto item = data.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"))
+    {
+        const auto frame = frameIndex(item.attribute("name"));
+        require(frame <= 500000); // Includes null entries in OSP's dense array allocation.
+        lastFrame = std::max(lastFrame, frame);
+    }
+    if (varying)
+    {
+        const auto count = project.clip.stepCount.value_or(1);
+        require(project.clip.firstFrame >= 0 && project.clip.stepSize > 0 && count > 0);
+        const auto lastClipFrame =
+            static_cast<std::int64_t>(project.clip.firstFrame) + static_cast<std::int64_t>(count - 1) * project.clip.stepSize;
+        require(lastClipFrame <= 500000);
+        lastFrame = std::max(lastFrame, static_cast<int>(lastClipFrame));
+        for (const auto& mass : project.pointMasses)
+        {
+            for (const auto& mark : mass.marks)
+            {
+                require(mark.frame <= 500000);
+                lastFrame = std::max(lastFrame, mark.frame);
+            }
+        }
+        // OSP updates the remaining dense transform range for each loaded key. A bound on
+        // the final index alone still permits quadratic work on many closely spaced keys.
+        std::size_t frameUpdates = 0;
+        for (const auto& key : current.keyframes)
+        {
+            frameUpdates += static_cast<std::size_t>(lastFrame - key.frame) + 1;
+            require(frameUpdates <= 1000000);
+        }
+    }
     patchFrameData(xml,
                    object,
                    original.keyframes,
                    current.keyframes,
                    "org.opensourcephysics.media.core.ImageCoordSystem$FrameData",
-                   [&](auto& document, const auto& frame, const CalibrationKey& key)
+                   [](auto& document, const auto& frame, const CalibrationKey& key)
                    {
-                       require(std::isfinite(key.originX) && std::isfinite(key.originY) && std::isfinite(key.angleDegrees) &&
-                               std::abs(key.angleDegrees) <= 180 && std::isfinite(key.scaleX) && std::isfinite(key.scaleY) &&
-                               key.scaleX != 0 && key.scaleY != 0);
-                       const auto determinant = key.scaleX * key.scaleY;
-                       require(std::isfinite(determinant) && determinant != 0);
-                       requireTrackerCoordinates(project, current, trackerInverse(key));
                        patchDouble(document, frame, "xorigin", key.originX);
                        patchDouble(document, frame, "yorigin", key.originY);
                        patchDouble(document, frame, "angle", key.angleDegrees);
@@ -620,7 +674,7 @@ void requireStableVectors(const LegacyProject& project, const std::unordered_map
     }
     // Also validate edits made under an existing calibration: image-pixel tolerance alone can
     // hide reconstruction errors that a small scale amplifies in calibrated vector components.
-    requireTrackerCoordinates(project, *project.calibration, trackerInverse(origin));
+    requireTrackerCoordinates(project, *project.calibration);
 }
 
 void remapIds(LegacyProject& project, const std::unordered_map<TrackId, TrackId>& mapping, TrackId nextId)
@@ -685,7 +739,7 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
         }
         else
         {
-            patchFixedCalibration(xml, *baseline.project.calibration, *expected.calibration, expected);
+            patchCalibration(xml, *baseline.project.calibration, *expected.calibration, expected);
             baseline.project.calibration = expected.calibration;
             changed = true;
         }
