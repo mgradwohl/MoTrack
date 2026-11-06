@@ -35,14 +35,17 @@ scope decisions. Record deliberate behavior changes, including corrections to re
 ## Current implementation and evidence
 
 Snapshot: **2026-11-06**, merged `main` at
-[`e8f3f66`](https://github.com/mgradwohl/MoTrack/commit/e8f3f66cff3aff49a76d8e2b3927c1f3acdd4ebd).
+[`4977980`](https://github.com/mgradwohl/MoTrack/commit/49779800e49d77cf301efde36bab45d18e806b7a).
 [PR #34](https://github.com/mgradwohl/MoTrack/pull/34) added independent vector editing,
 [PR #36](https://github.com/mgradwohl/MoTrack/pull/36) the reference corpus,
-[PR #38](https://github.com/mgradwohl/MoTrack/pull/38) actual Java application resave checks, and
-[PR #37](https://github.com/mgradwohl/MoTrack/pull/37) source preservation and safe background saving. Windows,
+[PR #38](https://github.com/mgradwohl/MoTrack/pull/38) actual Java application resave checks,
+[PR #37](https://github.com/mgradwohl/MoTrack/pull/37) source preservation and safe background saving,
+[PR #40](https://github.com/mgradwohl/MoTrack/pull/40) persistent track IDs,
+[PR #41](https://github.com/mgradwohl/MoTrack/pull/41) original XML associations, and
+[PR #42](https://github.com/mgradwohl/MoTrack/pull/42) commands addressed by ID. Windows,
 macOS, Linux, setup, and coverage checks passed in
-[CI run 42252608764](https://github.com/mgradwohl/MoTrack/actions/runs/42252608764): combined production
-line coverage **92.89% (3762/4050)**. This verifies the implemented slice, not full Tracker equivalence.
+[CI run 42257678459](https://github.com/mgradwohl/MoTrack/actions/runs/42257678459): combined production
+line coverage **92.93% (3984/4287)**. This verifies the implemented slice, not full Tracker equivalence.
 
 Implemented and tested workflows include local movie/image opening, playback and indexed stepping,
 clip limits, a reusable background decoder with a bounded cache, cancellation of superseded opens,
@@ -67,9 +70,12 @@ removal, edits, repeated save/reopen, malformed envelopes and source replacement
 Identity tests cover duplicate names, deletion/undo, creation/redo, non-reuse after branching history,
 old-native migration, strict validation and exact 64-bit persistence. Command tests also change track
 order between execution and replay and verify missing/ambiguous targets preserve history and other tracks.
-Complete archive preservation remains open.
+The next preservation slice (native version 5) stores the entire original `.trz` alongside native
+metadata in a bounded ZIP container. Tests cover all-member byte preservation, nested-tab media paths,
+source-input removal, repeated reopen, older external-archive migration and rejected malformed bundles.
+Its CI/review evidence belongs to the corresponding PR; the snapshot above predates this slice.
 
-Major current limits: native-only writes; no complete archive preservation; older native imports cannot reconstruct lost source associations; one active tab; reduced track and
+Major current limits: native-only writes; older native imports cannot reconstruct lost source associations; one active tab; reduced track and
 coordinate models; basic AutoTracker and plotting; no particle models, persistent measurement tracks,
 video filter stack, Library Browser, or signed installers. The README describes available interactions.
 
@@ -84,8 +90,8 @@ and platform evidence before it can be marked complete.
 | ID | Required desktop behavior | Status at the snapshot and remaining work | Phase |
 | --- | --- | --- | --- |
 | R01 | Reproducible native builds, CI, review, numerical tests, at least 90% combined C++ line coverage | Implemented foundation; continue applying gates to every new component. | 0, every phase |
-| R02 | Open `.trk`/`.trz`; preserve all supported and unknown content, references, metadata, and archive tabs | Partial: supported point masses/vectors/calibration import; one archive tab selected. Native documents retain that tab's original XML, editable-track IDs and source-object associations for new imports. Full archive content remains. Older native sources retain an explicit unknown-association state. | 1–3 |
-| R03 | Save edited standard files plus optional `.motrack`; reopen in both applications without data loss | Partial: native persistence and original XML baseline only. Standard writers, complete archive preservation, paired-save recovery, and Java reopening are missing. | 2–3, every feature |
+| R02 | Open `.trk`/`.trz`; preserve all supported and unknown content, references, metadata, and archive tabs | Partial: supported point masses/vectors/calibration import; one archive tab selected. Native documents retain that tab's original XML, editable-track IDs and source-object associations for new imports. Version 5 embeds the exact original archive, including all tabs/media/unknown files. Older native sources retain an explicit unknown-association state. | 1–3 |
+| R03 | Save edited standard files plus optional `.motrack`; reopen in both applications without data loss | Partial: native persistence, original XML baseline and complete original archive payload. Standard writers, paired-save recovery, and Java reopening of MoTrack edits are missing. | 2–3, every feature |
 | R04 | Multiple experiment tabs, independent undo/dirty state, tab/project Save As, cross-tab import and reusable views | Missing; currently one active experiment. Preserve unopened tabs before adding their UI. | 2–4 |
 | R05 | Movies, stills, image sequences and zipped sequences; accurate clip/time/frame controls and media properties | Partial: local movies/images, clip trim/stride, timestamp indexing, orientation, cache, and playback exist. Audit all baseline formats, rates, sequence operations, and properties controls. | 1, 4, 6 |
 | R06 | Complete point-mass editing and appearance: selection, dragging/nudging, numeric positions, multiselect, locks, labels, trails, paths, and vector overlays | Partial: manual marking/replacement, repeat, rename/delete, mass, and undo exist. Finish manipulation, appearance, path length, and selection behavior. | 4–5 |
@@ -214,8 +220,8 @@ media through Tracker's normal application loader, saves them in Java, then reop
 loaded content. This is Java's own resave baseline, not MoTrack standard-file export acceptance.
 Media/archive session loading, broader requirement coverage, runtime/dependency provenance and exact
 source mapping remain unfinished. Phase 2 has an initial XML source envelope, persistent point-mass/vector
-IDs, original object associations, commands addressed by ID and native version migration. Complete
-archive preservation and session ownership remain. Extend the reference
+IDs, original object associations, commands addressed by ID, native version migration and complete
+original archive preservation. Per-document session ownership remains. Extend the reference
 evidence alongside these foundations before standard writers. Phase 3 has priority over adding particle-model
 editing. UI familiarity can improve while work progresses, but visual polish cannot replace correctness
 or standard-file compatibility gates.
@@ -227,7 +233,7 @@ or standard-file compatibility gates.
 | Executable/source reference | Desktop 6.3.5's JAR URL, bytes and SHA-256 are pinned; its runtime version is checked. Initial XML/coordinate snapshots were produced with Temurin 17.0.21+9. Matching source mapping and the full GUI/media dependency stack remain to verify. | 1, before full-session golden results |
 | OS and CPU support | CI currently uses Windows 2025, macOS 15 and Ubuntu 24.04 runners. These are test environments, not declared minimum end-user OS versions. Specify release minimums and Intel/Arm coverage explicitly. | 1, finalized before 12 |
 | Codec coverage and export | FFmpeg import works for tested fixtures; pin a format/codec/container test matrix and identify any licensing or platform limitations. Do not label untested formats supported because FFmpeg recognizes their names. | 1, 6 and 10 |
-| Native preservation representation | Version 4 retains bounded original XML, document-scoped IDs, a non-reusing counter and original-object bindings for new imports. Versions 1–3 migrate without inventing lost source or bindings. See [native format](native-format.md). Complete archive storage remains. | 2 |
+| Native preservation representation | Version 5 retains bounded original XML, document-scoped IDs, a non-reusing counter and original-object bindings, plus a streamed ZIP with native metadata and the exact original `.trz` payload. Versions 1–4 migrate without inventing lost source, bindings or selected archive tabs. See [native format](native-format.md). | 2 |
 | Pair-save recovery | Specify staging, backup/recovery and user-visible partial-success behavior; two independent filesystem replacements cannot be assumed atomic. | 3 |
 | Numerical equivalence | Freeze quantity-specific tolerances, derivative/solver choices, units and gap semantics from actual reference results, including boundary and near-zero values. | 1, extended per feature |
 | External-model exchange and supporting documents | Verify the reference's data protocols and choose native adapters/viewers without silently excluding those workflows or executing arbitrary document content. | 9–11 |
@@ -269,7 +275,8 @@ reopen the edited experiment in Tracker. A `.motrack` companion may be saved alo
 
 **Current status:** MoTrack imports a supported subset of Tracker data and saves edits in its native
 format. New imports also retain the original XML bytes in the native source envelope. That baseline
-does not yet carry edited values back into Tracker XML, and other archive members are not embedded.
+does not yet carry edited values back into Tracker XML. Version 5 also embeds the entire original
+archive, preserving other tabs and media without yet making those tabs editable.
 Version-1 native documents cannot recover previously discarded content. Standard writers and actual
 Java reopening remain unfinished. Treat round-trip support as a compatibility milestone, not a
 completed capability.

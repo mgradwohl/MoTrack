@@ -159,8 +159,8 @@ class MainWindow final : public QMainWindow
     bool m_MovieAlignsToClip = false;
     QString m_ProjectPath;
     QString m_MediaProjectPath;
-    QString m_ArchiveSourcePath;
-    std::shared_ptr<TrackerArchive> m_Archive;
+    QString m_ArchiveMember;
+    std::shared_ptr<const TrackerArchive> m_Archive;
     QString m_SavePath;
     QThreadPool* m_SavePool;
     bool m_Saving = false;

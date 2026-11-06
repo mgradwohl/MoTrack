@@ -1,13 +1,14 @@
 #include "workspace_document.hpp"
 
 #include "track_identity.hpp"
+#include "tracker_archive.hpp"
+#include "workspace_storage.hpp"
 
 #include <QByteArray>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QSaveFile>
 
 #include <charconv>
 #include <cmath>
@@ -20,8 +21,7 @@ namespace motrack
 namespace
 {
 
-constexpr qint64 MAX_DOCUMENT_BYTES = qint64{128} * 1024 * 1024;
-constexpr int DOCUMENT_VERSION = 4;
+constexpr int DOCUMENT_VERSION = 5;
 
 void require(bool valid)
 {
@@ -310,6 +310,24 @@ std::vector<VectorTrack> readVectors(const QJsonValue& value, int version)
     return result;
 }
 
+void validateArchive(const WorkspaceDocument& document)
+{
+    require(!document.archivePayload || document.archiveReference.empty());
+    if (!document.archiveMember)
+    {
+        return;
+    }
+    require(document.archivePayload && !document.archiveMember->empty());
+    const auto member = QString::fromStdString(*document.archiveMember);
+    const auto path = document.archivePayload->projectPath(member);
+    if (document.trackerSource)
+    {
+        QFile original(path);
+        require(original.open(QIODevice::ReadOnly) && original.size() <= static_cast<qint64>(MAX_TRACKER_XML_BYTES));
+        require(original.read(static_cast<qint64>(MAX_TRACKER_XML_BYTES) + 1).toStdString() == document.trackerSource->xml);
+    }
+}
+
 } // namespace
 
 WorkspaceDocument importTrackerDocument(const QString& path)
@@ -318,14 +336,28 @@ WorkspaceDocument importTrackerDocument(const QString& path)
     return {.project = std::move(imported.project), .movieFrameTimes = {}, .trackerSource = std::move(imported.source)};
 }
 
-WorkspaceDocument readWorkspaceDocument(const QString& path)
+WorkspaceDocument readWorkspaceDocument(const QString& path, const std::atomic_bool* cancelled)
 {
-    QFile file(path);
-    require(file.open(QIODevice::ReadOnly) && file.size() <= MAX_DOCUMENT_BYTES);
-    const auto input = QJsonDocument::fromJson(file.read(MAX_DOCUMENT_BYTES + 1)).object();
+    auto storage = readWorkspaceStorage(path, cancelled);
+    const auto input = QJsonDocument::fromJson(storage.json).object();
     const auto version = input.value("version").toInt();
     require(input.value("format") == "MoTrack" && version >= 1 && version <= DOCUMENT_VERSION);
     WorkspaceDocument result;
+    if (version >= 5)
+    {
+        const auto embedded = input.value("embeddedArchive");
+        require(embedded.isBool() && embedded.toBool() == static_cast<bool>(storage.archive));
+        result.archivePayload = std::move(storage.archive);
+        const auto member = input.value("archiveMember");
+        if (!member.isNull())
+        {
+            result.archiveMember = string(member);
+        }
+    }
+    else
+    {
+        require(!storage.archive && !input.contains("embeddedArchive") && !input.contains("archiveMember"));
+    }
     if (version >= 2)
     {
         result.trackerSource = readTrackerSource(input.value("trackerSource"), version);
@@ -413,6 +445,7 @@ WorkspaceDocument readWorkspaceDocument(const QString& path)
         require(result.movieFrameTimes.empty() ? time == 0.0 : time > result.movieFrameTimes.back());
         result.movieFrameTimes.push_back(time);
     }
+    validateArchive(result);
     return result;
 }
 
@@ -420,6 +453,7 @@ void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& docume
 {
     const auto& project = document.project;
     validateTrackIdentities(project);
+    validateArchive(document);
     const auto& clip = project.clip;
     QJsonArray frameTimes;
     for (const auto time : document.movieFrameTimes)
@@ -433,27 +467,29 @@ void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& docume
                                  {"frameDurationMs", clip.frameDurationMs ? QJsonValue(*clip.frameDurationMs) : QJsonValue::Null},
                                  {"sourceFrameCount", clip.sourceFrameCount ? QJsonValue(*clip.sourceFrameCount) : QJsonValue::Null},
                                  {"startTimeMs", clip.startTimeMs}};
-    const QJsonObject output{{"format", "MoTrack"},
-                             {"version", DOCUMENT_VERSION},
-                             {"nextTrackId", QString::fromStdString(std::to_string(project.nextTrackId))},
-                             {"trackerSource", writeTrackerSource(document.trackerSource, project)},
-                             {"trackerVersion", QString::fromStdString(project.version)},
-                             {"description", QString::fromStdString(project.description)},
-                             {"lengthUnit", QString::fromStdString(project.lengthUnit)},
-                             {"massUnit", QString::fromStdString(project.massUnit)},
-                             {"unsupportedTrackTypes", writeStrings(project.unsupportedTrackTypes)},
-                             {"calibration", writeCalibration(project.calibration)},
-                             {"pointMasses", writeTracks(project.pointMasses)},
-                             {"vectors", writeVectors(project.vectors)},
-                             {"movie", document.movie},
-                             {"displayOrientation", document.useDisplayOrientation},
-                             {"alignMovieToClip", document.alignMovieToClip},
-                             {"archive", QString::fromStdString(document.archiveReference)},
-                             {"movieFrameTimes", frameTimes},
-                             {"clip", clipObject}};
+    const QJsonObject output{
+        {"format", "MoTrack"},
+        {"version", DOCUMENT_VERSION},
+        {"nextTrackId", QString::fromStdString(std::to_string(project.nextTrackId))},
+        {"trackerSource", writeTrackerSource(document.trackerSource, project)},
+        {"trackerVersion", QString::fromStdString(project.version)},
+        {"description", QString::fromStdString(project.description)},
+        {"lengthUnit", QString::fromStdString(project.lengthUnit)},
+        {"massUnit", QString::fromStdString(project.massUnit)},
+        {"unsupportedTrackTypes", writeStrings(project.unsupportedTrackTypes)},
+        {"calibration", writeCalibration(project.calibration)},
+        {"pointMasses", writeTracks(project.pointMasses)},
+        {"vectors", writeVectors(project.vectors)},
+        {"movie", document.movie},
+        {"displayOrientation", document.useDisplayOrientation},
+        {"alignMovieToClip", document.alignMovieToClip},
+        {"archive", QString::fromStdString(document.archiveReference)},
+        {"embeddedArchive", static_cast<bool>(document.archivePayload)},
+        {"archiveMember", document.archiveMember ? QJsonValue(QString::fromStdString(*document.archiveMember)) : QJsonValue::Null},
+        {"movieFrameTimes", frameTimes},
+        {"clip", clipObject}};
     const auto bytes = QJsonDocument(output).toJson(QJsonDocument::Compact);
-    QSaveFile file(path);
-    require(bytes.size() <= MAX_DOCUMENT_BYTES && file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size() && file.commit());
+    writeWorkspaceStorage(path, bytes, document.archivePayload);
 }
 
 } // namespace motrack

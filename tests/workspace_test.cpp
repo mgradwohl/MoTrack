@@ -1,3 +1,4 @@
+#include "archive_fixture.hpp"
 #include "image_sequence.hpp"
 #include "main_window.hpp"
 #include "track_identity.hpp"
@@ -14,6 +15,8 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QInputDialog>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
 #include <QLocale>
@@ -137,13 +140,17 @@ TEST(Workspace, OpensATrackerArchiveAndReopensASavedCopy)
     motrack::MainWindow window;
     window.show();
     auto* open = window.findChild<QAction*>("openProject");
-    auto* canvas = window.findChild<QWidget*>("videoCanvas");
+    auto* canvas = dynamic_cast<motrack::VideoCanvas*>(window.findChild<QWidget*>("videoCanvas"));
     auto* marks = window.findChild<QTableWidget*>("marksTable");
     ASSERT_TRUE(open && canvas && marks);
-    triggerFileDialog(*open, window, fixturePath("archive.trz"));
+    const auto original = temporary.filePath("archive.trz");
+    ASSERT_TRUE(QFile::copy(fixturePath("archive.trz"), original));
+    triggerFileDialog(*open, window, original);
     ASSERT_TRUE(QTest::qWaitFor([&window] { return window.windowTitle().contains("archive.trz"); }));
     EXPECT_EQ(canvas->accessibleName(), "Frame 0");
     EXPECT_EQ(marks->rowCount(), 2);
+    ASSERT_TRUE(QFile::remove(original));
+    ASSERT_TRUE(canvas->pick({1, 2}, true));
     const auto path = temporary.filePath("archived.motrack");
     ASSERT_TRUE(window.saveWorkspace(path));
     const auto source = motrack::readWorkspaceDocument(path).trackerSource;
@@ -163,6 +170,80 @@ TEST(Workspace, OpensATrackerArchiveAndReopensASavedCopy)
         FAIL() << "Expected preserved Tracker source.";
     }
     EXPECT_EQ(resaved.trackerSource->xml, source->xml);
+    ASSERT_TRUE(resaved.archivePayload);
+    EXPECT_EQ(resaved.archiveMember, "image-sequence.trk");
+    EXPECT_EQ(resaved.project.pointMasses.front().marks.front().x, 1);
+    EXPECT_EQ(resaved.project.pointMasses.front().marks.front().y, 2);
+}
+
+TEST(Workspace, ReopensEmbeddedMediaRelativeToTheArchiveRootForANestedTab)
+{
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("nested.trz");
+    const auto native = temporary.filePath("nested.motrack");
+    const auto fixtureBytes = [](const QString& name)
+    {
+        QFile input(fixturePath(name));
+        return input.open(QIODevice::ReadOnly) ? input.readAll() : QByteArray{};
+    };
+    ASSERT_TRUE(motrack::test::writeArchive(original,
+                                            {{.name = "nested/tab.trk", .bytes = fixtureBytes("image-sequence.trk")},
+                                             {.name = "nested/frames/frame00.ppm", .bytes = fixtureBytes("frames/frame00.ppm")},
+                                             {.name = "nested/frames/frame02.ppm", .bytes = fixtureBytes("frames/frame02.ppm")}}));
+    motrack::MainWindow window;
+    window.show();
+    ASSERT_TRUE(window.loadProject(original));
+    auto* canvas = dynamic_cast<motrack::VideoCanvas*>(window.findChild<QWidget*>("videoCanvas"));
+    ASSERT_NE(canvas, nullptr);
+    ASSERT_EQ(canvas->accessibleName(), "Frame 0");
+    ASSERT_TRUE(window.saveWorkspace(native));
+    ASSERT_TRUE(QFile::remove(original));
+    ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
+    ASSERT_TRUE(window.loadProject(native));
+    EXPECT_EQ(canvas->accessibleName(), "Frame 0");
+    auto* slider = window.findChild<QSlider*>("stepSlider");
+    ASSERT_NE(slider, nullptr);
+    slider->setValue(1);
+    EXPECT_EQ(canvas->accessibleName(), "Frame 2");
+    const auto reopened = motrack::readWorkspaceDocument(native);
+    EXPECT_EQ(reopened.archiveMember, "nested/tab.trk");
+    EXPECT_EQ(reopened.project.clip.mediaReferences.front(), "nested/frames/frame00.ppm");
+}
+
+TEST(Workspace, MigratesAnExternalArchiveWithoutInventingASelectedTab)
+{
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("archive.trz");
+    const auto native = temporary.filePath("legacy.motrack");
+    ASSERT_TRUE(QFile::copy(fixturePath("archive.trz"), original));
+    auto document = motrack::importTrackerDocument(fixturePath("image-sequence.trk"));
+    document.archiveReference = "archive.trz";
+    motrack::writeWorkspaceDocument(native, document);
+    QFile input(native);
+    ASSERT_TRUE(input.open(QIODevice::ReadOnly));
+    auto old = QJsonDocument::fromJson(input.readAll()).object();
+    input.close();
+    old.insert("version", 4);
+    old.remove("embeddedArchive");
+    old.remove("archiveMember");
+    ASSERT_TRUE(input.open(QIODevice::WriteOnly));
+    const auto bytes = QJsonDocument(old).toJson();
+    ASSERT_EQ(input.write(bytes), bytes.size());
+    input.close();
+    motrack::MainWindow window;
+    window.show();
+    ASSERT_TRUE(window.loadProject(native));
+    ASSERT_TRUE(window.saveWorkspace(native));
+    ASSERT_TRUE(QFile::remove(original));
+    ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
+    ASSERT_TRUE(window.loadProject(native));
+    auto* canvas = dynamic_cast<motrack::VideoCanvas*>(window.findChild<QWidget*>("videoCanvas"));
+    ASSERT_NE(canvas, nullptr);
+    EXPECT_EQ(canvas->accessibleName(), "Frame 0");
+    const auto migrated = motrack::readWorkspaceDocument(native);
+    EXPECT_TRUE(migrated.archivePayload);
+    EXPECT_FALSE(migrated.archiveMember);
+    EXPECT_TRUE(migrated.archiveReference.empty());
 }
 
 TEST(Workspace, KeepsOnlyTheLatestBackgroundProjectRequest)

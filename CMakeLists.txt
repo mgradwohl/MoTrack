@@ -37,7 +37,7 @@ include(cmake/MoTrackFFmpeg.cmake)
 include(cmake/MoTrackArchive.cmake)
 
 add_library(motrack_project STATIC src/legacy_project.cpp src/measurements.cpp src/track_edits.cpp src/track_identity.cpp
-    src/tracker_archive.cpp src/workspace_document.cpp)
+    src/tracker_archive.cpp src/workspace_document.cpp src/workspace_storage.cpp)
 target_include_directories(motrack_project PUBLIC src)
 target_link_libraries(motrack_project PUBLIC Qt6::Core PRIVATE Qt6::Xml motrack_archive)
 
@@ -151,7 +151,7 @@ if(BUILD_TESTING)
     add_executable(motrack_corpus_probe tests/corpus_probe.cpp)
     target_link_libraries(motrack_corpus_probe PRIVATE motrack_project)
     add_executable(motrack_workspace_tests tests/workspace_test.cpp tests/workspace_document_test.cpp)
-    target_link_libraries(motrack_workspace_tests PRIVATE motrack_workspace GTest::gtest Qt6::Test)
+    target_link_libraries(motrack_workspace_tests PRIVATE motrack_workspace GTest::gtest Qt6::Test motrack_archive)
     add_dependencies(motrack_workspace_tests motrack)
     target_compile_definitions(motrack_workspace_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"

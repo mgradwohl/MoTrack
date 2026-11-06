@@ -1,12 +1,13 @@
 # Native document compatibility
 
-MoTrack saves a bounded JSON document with `format: "MoTrack"`. The current writer emits version 4;
-the reader accepts versions 1 through 4 and rejects unknown versions. Existing measurement, calibration,
+MoTrack saves bounded JSON metadata with `format: "MoTrack"`. The current writer emits version 5;
+the reader accepts versions 1 through 5 and rejects unknown versions. Archive-backed documents use
+the native ZIP container described below; other documents remain plain JSON. Existing measurement, calibration,
 clip, media-reference and movie-time fields retain their version-1 meanings.
 
 ## Track identities
 
-Versions 3 and 4 store an `id` on every editable point mass and independent vector and a document-wide
+Versions 3 through 5 store an `id` on every editable point mass and independent vector and a document-wide
 `nextTrackId` counter. These are canonical positive decimal strings, preserving the full unsigned
 64-bit range without JSON floating-point rounding. IDs are unique across both track types, scoped to
 one document, and independent of names and list positions. Zero is reserved for uninitialized records.
@@ -28,7 +29,7 @@ replacement. Native files retain project data and IDs, not a serialized undo log
 
 ## Tracker import source
 
-Versions 2 through 4 require `trackerSource`, either `null` for a document without preserved source or an object
+Versions 2 through 5 require `trackerSource`, either `null` for a document without preserved source or an object
 with `xmlBase64`. This is canonical Base64 of the **original XML bytes**, not Unicode text reserialized
 from a DOM. The original encoding declaration, whitespace, comments, unknown objects, properties and
 references survive exactly. The source is the immutable import baseline; the editable project fields
@@ -41,7 +42,7 @@ Opening a different project replaces the source; opening standalone media clears
 new media successfully opens. Failed and canceled opens leave the existing document intact.
 
 Source XML is limited to 32 MiB, including when read from the native envelope. The native document
-limit remains 128 MiB. The reader checks the encoded length before decoding, requires strict canonical
+metadata limit remains 128 MiB. The reader checks the encoded length before decoding, requires strict canonical
 Base64, and validates decoded XML with the same bounded Tracker parser used for import. Document
 types are rejected. The writer validates source data before opening its atomic replacement file, so
 an invalid or oversized envelope cannot overwrite an existing valid native document.
@@ -76,15 +77,48 @@ when migrated but get `bindings: null`; version 3 retains its existing IDs, whil
 new ones. Matching names or order cannot prove historical identity after earlier edits, so migration
 does not invent associations. Future additions to binding kinds require an explicit schema migration.
 
+## Complete original archive payload
+
+Version 5 adds a native ZIP container for archive-backed documents, with exactly two regular entries:
+
+- `project.json`: the editable native model and preserved XML/associations, limited to 128 MiB.
+- `tracker/source.trz`: the exact original compressed archive bytes, limited to 544 MiB.
+
+The writer stores both entries without another compression pass, streams the payload in 64 KiB blocks,
+and atomically replaces the destination only after the container is complete. The reader rejects extra
+or duplicate entries, links, encryption, malformed/truncated storage and declared/actual size violations.
+The outer file is bounded to the two payload limits plus 8 MiB of ZIP overhead. The retained Tracker archive
+still passes the existing safe-name, 4096-member and 512 MiB expanded-content checks before use.
+
+On import, the archive adapter first copies the input to an owned, bounded snapshot and extracts from
+that snapshot. The model, original XML and archive payload therefore come from the same copied bytes.
+All tabs, embedded media and unknown members remain byte-for-byte preserved, including after the
+original `.trz` is replaced or removed. An archive member named `source.trz` cannot collide with the
+snapshot because extraction and source storage use separate temporary directories. Shared ownership
+keeps both alive while an open/save worker or document uses them; the final owner removes the temporary files.
+Copying and extraction honor cancellation. Native reopen creates its own independent archive owner.
+
+Version-5 metadata requires `embeddedArchive` to agree with the actual container. `archiveMember` is
+the selected original `.trk` path or `null` when that association is unknown. A known member must exist,
+and any preserved source XML must exactly match that original member. Native media references are
+already relative to the archive root, even when the original selected tab lives in a nested directory.
+The edited model remains separate from the unchanged original payload; the payload is not an edited export.
+
+Versions 1–4 remain readable as plain JSON. Their external `archive` reference is opened by the desktop
+loader and embedded on the next successful native save, provided the referenced archive is available.
+Older files did not record the selected archive member, so migration keeps it unknown rather than
+guessing from names or XML. Embedded and external archive sources cannot coexist in one document.
+Standalone media outside an archive still uses external references; version 5 does not copy all local
+movies or image sequences into the native document.
+
 ## Version-1 migration and remaining work
 
-Version 1 did not retain source XML. Reading it produces no source envelope; saving it emits version 4
+Version 1 did not retain source XML. Reading it produces no source envelope; saving it emits version 5
 with `trackerSource: null`. Migration preserves its editable data but cannot recover content previously
-discarded. Earlier MoTrack builds that only accept versions 1 through 3 cannot open version-4 documents.
+discarded. Earlier MoTrack builds that only accept versions 1 through 4 cannot open version-5 documents.
 
-For a `.trz` import, this first preservation slice retains the selected tab's XML. Media still depends
-on the referenced original archive, and other archive members/tabs are not embedded. Complete archive preservation, per-document
-session ownership, and standard-file writers remain unfinished. An unknown object retained in this
+Only the selected archive tab is editable today. Per-document session ownership, multi-tab editing,
+and standard-file writers remain unfinished. An unknown object retained in this
 envelope is not an implemented track type.
 
 See the [full-port implementation order](migration-plan.md#implementation-order-and-exit-gates) and

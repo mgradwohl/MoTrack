@@ -56,8 +56,7 @@ namespace motrack
 struct MainWindow::PreparedProject
 {
     WorkspaceDocument document;
-    std::optional<TrackerArchive> archive;
-    QString archivePath;
+    std::shared_ptr<const TrackerArchive> archive;
     QString member;
     bool chooseArchiveTab = false;
 };
@@ -574,17 +573,22 @@ MainWindow::PreparedProject MainWindow::prepareProject(const QString& path, cons
     PreparedProject prepared;
     if (path.endsWith(".motrack", Qt::CaseInsensitive))
     {
-        prepared.document = readWorkspaceDocument(path);
-        if (!prepared.document.archiveReference.empty())
+        prepared.document = readWorkspaceDocument(path, cancelled);
+        prepared.archive = prepared.document.archivePayload;
+        if (prepared.document.archiveMember)
         {
-            prepared.archivePath = resolveLocalMediaPath(path, prepared.document.archiveReference);
-            prepared.archive.emplace(TrackerArchive::open(prepared.archivePath, cancelled));
+            prepared.member = QString::fromStdString(*prepared.document.archiveMember);
+        }
+        if (!prepared.archive && !prepared.document.archiveReference.empty())
+        {
+            const auto source = resolveLocalMediaPath(path, prepared.document.archiveReference);
+            prepared.archive = std::make_shared<TrackerArchive>(TrackerArchive::open(source, cancelled));
         }
     }
     else if (path.endsWith(".trz", Qt::CaseInsensitive))
     {
-        prepared.archivePath = QFileInfo(path).absoluteFilePath();
-        auto& archive = prepared.archive.emplace(TrackerArchive::open(prepared.archivePath, cancelled));
+        prepared.archive = std::make_shared<TrackerArchive>(TrackerArchive::open(path, cancelled));
+        const auto& archive = *prepared.archive;
         const auto& projects = archive.projects();
         prepared.chooseArchiveTab = projects.size() > 1;
         if (!prepared.chooseArchiveTab)
@@ -709,15 +713,16 @@ bool MainWindow::applyProject(const QString& path, PreparedProject prepared, con
         }
     }
 
-    auto archive = prepared.archive ? std::make_shared<TrackerArchive>(std::move(*prepared.archive)) : nullptr;
+    auto archive = std::move(prepared.archive);
     cancelMovieOpen();
     releaseArchive();
     m_Archive = std::move(archive);
-    m_ArchiveSourcePath = std::move(prepared.archivePath);
+    m_ArchiveMember = prepared.member;
     m_MediaProjectPath = path;
     if (m_Archive)
     {
-        m_Archive->resolveMedia(document.project, prepared.member);
+        // Native media paths were already resolved relative to the archive root when imported.
+        m_Archive->resolveMedia(document.project, path.endsWith(".motrack", Qt::CaseInsensitive) ? QString{} : prepared.member);
         m_MediaProjectPath = QDir(m_Archive->root()).absoluteFilePath("archive.trk");
     }
     m_Project = std::move(document.project);
@@ -768,7 +773,7 @@ void MainWindow::releaseArchive()
             QMetaObject::invokeMethod(m_MovieWorker, "clear", Qt::BlockingQueuedConnection);
         }
         m_Archive.reset();
-        m_ArchiveSourcePath.clear();
+        m_ArchiveMember.clear();
     }
 }
 
@@ -1582,7 +1587,11 @@ bool MainWindow::saveWorkspace(const QString& path)
     const QDir destination(QFileInfo(path).absolutePath());
     if (m_Archive)
     {
-        document.archiveReference = destination.relativeFilePath(m_ArchiveSourcePath).toStdString();
+        document.archivePayload = m_Archive;
+        if (!m_ArchiveMember.isEmpty())
+        {
+            document.archiveMember = m_ArchiveMember.toStdString();
+        }
     }
     else
     {
