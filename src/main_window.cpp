@@ -15,6 +15,7 @@
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QDoubleSpinBox>
+#include <QEventLoop>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
@@ -27,6 +28,7 @@
 #include <QLocale>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPointer>
 #include <QSaveFile>
 #include <QSignalBlocker>
 #include <QSlider>
@@ -35,6 +37,7 @@
 #include <QStatusBar>
 #include <QStyle>
 #include <QTableWidget>
+#include <QThreadPool>
 #include <QToolBar>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -61,6 +64,9 @@ struct MainWindow::PreparedProject
 
 MainWindow::MainWindow()
 {
+    m_SavePool = new QThreadPool(this);
+    m_SavePool->setObjectName("workspaceSavePool");
+    m_SavePool->setMaxThreadCount(1);
     setWindowTitle("MoTrack");
     resize(1000, 650);
     auto* open = new QAction(tr("&Open project…"), this);
@@ -976,6 +982,10 @@ void MainWindow::editClipSettings()
 
 bool MainWindow::confirmDiscard()
 {
+    if (m_Saving)
+    {
+        return false;
+    }
     if (!m_Edits.isModified())
     {
         return true;
@@ -1518,6 +1528,10 @@ bool MainWindow::saveCurrentWorkspace()
 
 bool MainWindow::saveWorkspace(const QString& path)
 {
+    if (m_Saving)
+    {
+        return false;
+    }
     if (m_ProjectPath.isEmpty() || !path.endsWith(".motrack", Qt::CaseInsensitive))
     {
         statusBar()->showMessage(tr("Choose a project filename ending in .motrack."));
@@ -1545,11 +1559,44 @@ bool MainWindow::saveWorkspace(const QString& path)
             }
         }
     }
-    try
+    // Keep the synchronous result used by Save-before-close, but let the GUI paint and process worker
+    // completions. User input is deferred while the owned snapshot is validated and serialized off-thread.
+    const auto revision = m_Edits.revision();
+    const auto projectPath = m_ProjectPath;
+    const QPointer<MainWindow> lifetime(this);
+    m_Saving = true;
+    statusBar()->showMessage(tr("Saving project…"));
+    QEventLoop loop;
+    QFutureWatcher<bool> watcher;
+    connect(&watcher, &QFutureWatcher<bool>::finished, &loop, &QEventLoop::quit);
+    watcher.setFuture(QtConcurrent::run(m_SavePool,
+                                        [path, document = std::move(document)]
+                                        {
+                                            try
+                                            {
+                                                writeWorkspaceDocument(path, document);
+                                                return true;
+                                            }
+                                            catch (const std::exception&)
+                                            {
+                                                return false;
+                                            }
+                                        }));
+    loop.exec(QEventLoop::ExcludeUserInputEvents);
+    if (!lifetime)
     {
-        writeWorkspaceDocument(path, document);
+        return false;
     }
-    catch (const ProjectError&)
+    m_Saving = false;
+    if (revision != m_Edits.revision())
+    {
+        if (projectPath == m_ProjectPath)
+        {
+            statusBar()->showMessage(tr("Project changed while saving. Save again to keep the latest edits."));
+        }
+        return false;
+    }
+    if (!watcher.result())
     {
         statusBar()->showMessage(tr("Could not save this project."));
         return false;

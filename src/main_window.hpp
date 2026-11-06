@@ -26,6 +26,7 @@ class QComboBox;
 class QSlider;
 class QTableWidget;
 class QToolButton;
+class QThreadPool;
 
 namespace motrack
 {
@@ -158,6 +159,8 @@ class MainWindow final : public QMainWindow
     QString m_ArchiveSourcePath;
     std::shared_ptr<TrackerArchive> m_Archive;
     QString m_SavePath;
+    QThreadPool* m_SavePool;
+    bool m_Saving = false;
     std::vector<double> m_MovieFrameTimes;
     std::vector<std::chrono::nanoseconds> m_MoviePresentationTimes;
     std::shared_ptr<std::atomic_bool> m_MovieOpenCancelled;

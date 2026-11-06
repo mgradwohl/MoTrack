@@ -24,6 +24,11 @@ Base64, and validates decoded XML with the same bounded Tracker parser used for 
 types are rejected. The writer validates source data before opening its atomic replacement file, so
 an invalid or oversized envelope cannot overwrite an existing valid native document.
 
+Desktop saves validate and serialize an owned document snapshot on a single save worker. The GUI
+continues painting and processing worker completions while user input is deferred. Overlapping saves
+and closing during a save are rejected. A revision check prevents a background edit or replacement
+document from being marked saved by an older snapshot; the caller must save the latest state again.
+
 ## Version-1 migration and remaining work
 
 Version 1 did not retain source XML. Reading it produces no source envelope; saving it emits version 2

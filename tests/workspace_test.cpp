@@ -18,6 +18,7 @@
 #include <QLocale>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSemaphore>
 #include <QSlider>
 #include <QSpinBox>
 #include <QStatusBar>
@@ -826,6 +827,74 @@ TEST(Workspace, SavesEditsAndReopensMediaFromADifferentDirectory)
     invalid.close();
     EXPECT_FALSE(window.loadProject(invalid.fileName()));
     EXPECT_EQ(marks->rowCount(), 2);
+}
+
+TEST(Workspace, ProcessesEventsDuringSaveWithoutMarkingNewerEditsSaved)
+{
+    QTemporaryDir temporary;
+    QSemaphore entered;
+    QSemaphore release;
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
+    auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+    auto* create = window.findChild<QAction*>("newPointMass");
+    ASSERT_TRUE(pool && create);
+    pool->start(
+        [&]
+        {
+            entered.release();
+            static_cast<void>(release.tryAcquire(1, 5000));
+        });
+    ASSERT_TRUE(entered.tryAcquire(1, 5000));
+    const auto path = temporary.filePath("snapshot.motrack");
+    bool processed = false;
+    QTimer::singleShot(0,
+                       &window,
+                       [&]
+                       {
+                           processed = true;
+                           EXPECT_FALSE(window.saveWorkspace(path)); // Reject overlapping writes.
+                           EXPECT_FALSE(window.close());
+                           create->trigger();
+                           release.release();
+                       });
+    EXPECT_FALSE(window.saveWorkspace(path));
+    EXPECT_TRUE(processed);
+    EXPECT_TRUE(window.isWindowModified());
+    EXPECT_EQ(motrack::readWorkspaceDocument(path).project.pointMasses.size(), 1u);
+    ASSERT_TRUE(window.saveWorkspace(path));
+    EXPECT_FALSE(window.isWindowModified());
+    EXPECT_EQ(motrack::readWorkspaceDocument(path).project.pointMasses.size(), 2u);
+}
+
+TEST(Workspace, DoesNotApplySaveCompletionToAReplacementDocument)
+{
+    QTemporaryDir temporary;
+    QSemaphore entered;
+    QSemaphore release;
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
+    auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+    ASSERT_TRUE(pool);
+    pool->start(
+        [&]
+        {
+            entered.release();
+            static_cast<void>(release.tryAcquire(1, 5000));
+        });
+    ASSERT_TRUE(entered.tryAcquire(1, 5000));
+    QTimer::singleShot(0,
+                       &window,
+                       [&]
+                       {
+                           EXPECT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
+                           release.release();
+                       });
+    const auto path = temporary.filePath("old-project.motrack");
+    EXPECT_FALSE(window.saveWorkspace(path));
+    EXPECT_TRUE(window.windowTitle().contains("image-sequence.trk"));
+    EXPECT_FALSE(window.isWindowModified());
+    EXPECT_EQ(motrack::readWorkspaceDocument(path).project.pointMasses.front().mass, 125.5);
 }
 
 TEST(Workspace, ReportsUnavailableMovieFrames)
