@@ -37,6 +37,7 @@ complete inventory of every name/reference field.
 | [CenterOfMass](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/CenterOfMass.java) | `masses` | Collection of constituent point-mass names. |
 | [VectorSum](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/VectorSum.java) | `vectors` | Collection of constituent vector names. |
 | [DynamicSystem](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/DynamicSystem.java) | `particles` | Array of component particle names. |
+| [DynamicParticle](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/DynamicParticle.java) | `booster` | Name of a point mass resolved through `getTrackByName(PointMass.class, boosterName)` during normal drawing. Its model-initialization behavior needs an actual-application case. |
 
 ## Partial native index
 
@@ -55,7 +56,7 @@ malformed fields, bounds, Unicode, rename/reorder/delete/undo and native save/re
 corpus checks the index against original source ordinals and the Java-verified selected mass/views.
 
 This is not a complete dependency graph or an export eligibility check. Nested table/plot settings,
-attachments and constituents are not indexed yet; no malformed paths does not mean a rename is safe.
+attachments, constituents and model boosters are not indexed yet; no malformed paths does not mean a rename is safe.
 The `referenceframe` scalar is indexed, but moving-coordinate behavior still lacks application cases.
 
 ## Proposed rename architecture

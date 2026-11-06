@@ -35,7 +35,7 @@ scope decisions. Record deliberate behavior changes, including corrections to re
 ## Current implementation and evidence
 
 Snapshot: **2026-11-06**, merged `main` at
-[`bb6f340`](https://github.com/mgradwohl/MoTrack/commit/bb6f34095589ca88f49e8b5a4642a14a905b0714).
+[`0c2dd2a`](https://github.com/mgradwohl/MoTrack/commit/0c2dd2a5f4c03aa7c70c123fc924ac2364be8bde).
 [PR #34](https://github.com/mgradwohl/MoTrack/pull/34) added independent vector editing,
 [PR #36](https://github.com/mgradwohl/MoTrack/pull/36) the reference corpus,
 [PR #38](https://github.com/mgradwohl/MoTrack/pull/38) actual Java application resave checks,
@@ -56,9 +56,11 @@ vector-reconstruction safeguards,
 [PR #52](https://github.com/mgradwohl/MoTrack/pull/52) varying-calibration reference and world-coordinate checks,
 [PR #53](https://github.com/mgradwohl/MoTrack/pull/53) verified added/edited calibration-key export,
 [PR #54](https://github.com/mgradwohl/MoTrack/pull/54) reversible mass-unit labels and standard export, and
-[PR #55](https://github.com/mgradwohl/MoTrack/pull/55) the proposed source-reference architecture. Windows,
+[PR #55](https://github.com/mgradwohl/MoTrack/pull/55) the proposed source-reference architecture,
+[PR #56](https://github.com/mgradwohl/MoTrack/pull/56) live selected-track/plot/table reference checks, and
+[PR #57](https://github.com/mgradwohl/MoTrack/pull/57) the named center-of-mass reference baseline. Windows,
 macOS, Linux, setup, and coverage checks passed in
-[CI run 42294504084](https://github.com/mgradwohl/MoTrack/actions/runs/42294504084): combined production
+[CI run 42297386593](https://github.com/mgradwohl/MoTrack/actions/runs/42297386593): combined production
 line coverage **93.92% (4973/5295)**. The keyed-calibration and mass-unit writer PRs also passed actual
 Tracker edited-file load/save/reopen and native reimport before merging. This verifies the implemented slice, not full Tracker equivalence.
 
