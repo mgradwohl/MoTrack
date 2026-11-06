@@ -52,6 +52,8 @@ To set a known distance, select Calibration Stick, click two distinct points in 
 
 Use Set Axes to place the coordinate origin and choose the positive x direction. The existing distance scale is preserved. Toggle the overlay from the View menu.
 
+Use Tools → Measure distance or Measure angle to make a measurement on the current frame. The tools use calibrated coordinates when available and otherwise measure in image pixels.
+
 ### Stage a local desktop build
 
 From the activated developer shell, run:

@@ -3,6 +3,17 @@
 <TS version="2.1" language="es">
   <context>
     <name>MainWindow</name>
+    <message><source>T&amp;ools</source><translation>&amp;Herramientas</translation></message>
+    <message><source>Measure &amp;distance</source><translation>Medir &amp;distancia</translation></message>
+    <message><source>Measure &amp;angle</source><translation>Medir á&amp;ngulo</translation></message>
+    <message><source>Click the vertex of the angle.</source><translation>Haz clic en el vértice del ángulo.</translation></message>
+    <message><source>Click the first distance point.</source><translation>Haz clic en el primer punto de la distancia.</translation></message>
+    <message><source>Choose a different measurement point.</source><translation>Elige otro punto de medición.</translation></message>
+    <message><source>Click a point on the next side of the angle.</source><translation>Haz clic en un punto del siguiente lado del ángulo.</translation></message>
+    <message><source>Click the second distance point.</source><translation>Haz clic en el segundo punto de la distancia.</translation></message>
+    <message><source>Could not measure these points.</source><translation>No se pudieron medir estos puntos.</translation></message>
+    <message><source>Angle %1°</source><translation>Ángulo %1°</translation></message>
+    <message><source>Distance %1 %2</source><translation>Distancia %1 %2</translation></message>
     <message><source>Set &amp;mass…</source><translation>Definir &amp;masa…</translation></message>
     <message><source>x momentum</source><translation>momento lineal x</translation></message>
     <message><source>y momentum</source><translation>momento lineal y</translation></message>

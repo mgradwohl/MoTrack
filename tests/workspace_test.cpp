@@ -516,6 +516,38 @@ TEST(Workspace, PlacesCoordinateAxesAndUpdatesMeasurements)
     EXPECT_FALSE(showAxes->isChecked());
 }
 
+TEST(Workspace, MeasuresDistanceAndAngleOnTheDisplayedFrame)
+{
+    motrack::MainWindow window;
+    window.show();
+    auto* distance = window.findChild<QAction*>("measureDistance");
+    auto* angle = window.findChild<QAction*>("measureAngle");
+    auto* canvas = window.findChild<QWidget*>("videoCanvas");
+    auto* slider = window.findChild<QSlider*>("stepSlider");
+    ASSERT_TRUE(distance && angle && canvas && slider);
+    EXPECT_FALSE(distance->isEnabled());
+    ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
+    ASSERT_TRUE(distance->isEnabled());
+    const auto center = canvas->rect().center();
+    distance->trigger();
+    QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, center);
+    QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, center + QPoint(40, 0));
+    EXPECT_FALSE(distance->isChecked());
+    EXPECT_TRUE(window.statusBar()->currentMessage().startsWith("Distance "));
+    EXPECT_TRUE(window.statusBar()->currentMessage().endsWith(" m"));
+    angle->trigger();
+    QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, center);
+    QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, center);
+    EXPECT_EQ(window.statusBar()->currentMessage(), "Choose a different measurement point.");
+    QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, center + QPoint(40, 0));
+    QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, center - QPoint(0, 40));
+    EXPECT_FALSE(angle->isChecked());
+    EXPECT_EQ(window.statusBar()->currentMessage(), QString::fromUtf8("Angle 90°"));
+    EXPECT_FALSE(canvas->grab().isNull());
+    slider->setValue(1);
+    EXPECT_TRUE(window.statusBar()->currentMessage().isEmpty());
+}
+
 TEST(Workspace, AutoTracksATexturedMarkAndStopsWhenItDisappears)
 {
     QTemporaryDir temporary;

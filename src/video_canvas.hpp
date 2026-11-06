@@ -19,6 +19,7 @@ class VideoCanvas final : public QWidget
 
     void setCalibrationPoint(std::optional<QPointF> position);
     void setAxes(std::optional<CalibrationKey> axes);
+    void setMeasurementPolyline(QList<QPointF> points);
     void display(QImage image, QList<QPointF> marks, const QString& message);
 
   protected:
@@ -35,6 +36,7 @@ class VideoCanvas final : public QWidget
     QString m_Message;
     std::optional<QPointF> m_CalibrationPoint;
     std::optional<CalibrationKey> m_Axes;
+    QList<QPointF> m_MeasurementPolyline;
 };
 
 } // namespace motrack

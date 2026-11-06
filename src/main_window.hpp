@@ -86,6 +86,9 @@ class MainWindow final : public QMainWindow
     void pickCalibrationPoint(const QPointF& position);
     void pickAxesPoint(const QPointF& position);
     void refreshAxesOverlay();
+    void beginMeasurement(bool angle);
+    void cancelMeasurement();
+    void pickMeasurementPoint(const QPointF& point);
     void clearCalibrationPoint();
     [[nodiscard]] bool confirmDiscard();
 
@@ -113,6 +116,8 @@ class MainWindow final : public QMainWindow
     QAction* m_AutoTracker;
     QAction* m_ShowAxes;
     QAction* m_EditAxes;
+    QAction* m_MeasureDistance;
+    QAction* m_MeasureAngle;
     QComboBox* m_TrackPicker;
     QComboBox* m_PlotQuantity;
     QCheckBox* m_FitLine;
@@ -124,6 +129,7 @@ class MainWindow final : public QMainWindow
     std::optional<ImageFrame> m_DisplayedFrame;
     std::optional<QPointF> m_CalibrationFirst;
     std::optional<QPointF> m_AxesOrigin;
+    QList<QPointF> m_MeasurementPoints;
     struct AutoTrackSession
     {
         TemplateTracker pattern;

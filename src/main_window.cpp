@@ -41,6 +41,7 @@
 #include <QtConcurrentRun>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iterator>
 #include <limits>
@@ -112,6 +113,15 @@ MainWindow::MainWindow()
     auto* repeat = tracksMenu->addAction(tr("Repeat previous mark"));
     repeat->setObjectName("repeatMark");
     repeat->setShortcuts({QKeySequence("Shift+Return"), QKeySequence("Shift+Enter")});
+    auto* toolsMenu = menuBar()->addMenu(tr("T&ools"));
+    m_MeasureDistance = toolsMenu->addAction(tr("Measure &distance"));
+    m_MeasureDistance->setObjectName("measureDistance");
+    m_MeasureDistance->setCheckable(true);
+    m_MeasureDistance->setEnabled(false);
+    m_MeasureAngle = toolsMenu->addAction(tr("Measure &angle"));
+    m_MeasureAngle->setObjectName("measureAngle");
+    m_MeasureAngle->setCheckable(true);
+    m_MeasureAngle->setEnabled(false);
     auto* tools = addToolBar(tr("Project"));
     tools->addAction(open);
     m_ClipSettings = tools->addAction(tr("Clip Settings"));
@@ -141,6 +151,11 @@ MainWindow::MainWindow()
     m_Video->setToolTip(tr("Shift-click the image to mark the selected point mass."));
     m_Video->pick = [this](QPointF position, bool shift)
     {
+        if (m_MeasureDistance->isChecked() || m_MeasureAngle->isChecked())
+        {
+            pickMeasurementPoint(position);
+            return true;
+        }
         if (m_EditAxes->isChecked())
         {
             pickAxesPoint(position);
@@ -250,6 +265,7 @@ MainWindow::MainWindow()
             [this]
             {
                 stopAutoTracking();
+                cancelMeasurement();
                 m_EditAxes->setChecked(false);
                 setPlaying(!m_Playing);
                 if (m_Playing && m_StepSlider->value() == m_StepSlider->maximum())
@@ -378,6 +394,7 @@ MainWindow::MainWindow()
                 {
                     stopAutoTracking();
                     setPlaying(false);
+                    cancelMeasurement();
                     m_EditAxes->setChecked(false);
                     statusBar()->showMessage(tr("Click the first calibration endpoint."));
                 }
@@ -398,12 +415,43 @@ MainWindow::MainWindow()
                 {
                     stopAutoTracking();
                     setPlaying(false);
+                    cancelMeasurement();
                     m_Calibrate->setChecked(false);
                     m_ShowAxes->setChecked(true);
                     statusBar()->showMessage(tr("Click the coordinate origin."));
                 }
                 else
                 {
+                    statusBar()->clearMessage();
+                }
+            });
+    connect(m_MeasureDistance,
+            &QAction::toggled,
+            this,
+            [this](bool active)
+            {
+                if (active)
+                {
+                    beginMeasurement(false);
+                }
+                else
+                {
+                    cancelMeasurement();
+                    statusBar()->clearMessage();
+                }
+            });
+    connect(m_MeasureAngle,
+            &QAction::toggled,
+            this,
+            [this](bool active)
+            {
+                if (active)
+                {
+                    beginMeasurement(true);
+                }
+                else
+                {
+                    cancelMeasurement();
                     statusBar()->clearMessage();
                 }
             });
@@ -755,6 +803,7 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
 void MainWindow::activateProject(const QString& path)
 {
     stopAutoTracking();
+    cancelMeasurement();
     setPlaying(false);
     m_ProjectPath = QFileInfo(path).absoluteFilePath();
     m_SavePath.clear();
@@ -768,6 +817,8 @@ void MainWindow::activateProject(const QString& path)
     m_Calibrate->setEnabled(false);
     m_EditAxes->setChecked(false);
     m_EditAxes->setEnabled(false);
+    m_MeasureDistance->setEnabled(false);
+    m_MeasureAngle->setEnabled(false);
     refreshAxesOverlay();
     m_Edits.clear();
     m_NewPointMass->setEnabled(true);
@@ -1139,6 +1190,97 @@ void MainWindow::pickAxesPoint(const QPointF& position)
     statusBar()->showMessage(tr("Coordinate axes updated."));
 }
 
+void MainWindow::beginMeasurement(bool angle)
+{
+    cancelMeasurement();
+    auto* action = angle ? m_MeasureAngle : m_MeasureDistance;
+    const QSignalBlocker blocker(action);
+    action->setChecked(true);
+    stopAutoTracking();
+    setPlaying(false);
+    m_Calibrate->setChecked(false);
+    m_EditAxes->setChecked(false);
+    statusBar()->showMessage(angle ? tr("Click the vertex of the angle.") : tr("Click the first distance point."));
+}
+
+void MainWindow::cancelMeasurement()
+{
+    if (m_MeasureDistance->isChecked() || m_MeasureAngle->isChecked() || !m_MeasurementPoints.isEmpty())
+    {
+        const QSignalBlocker distance(m_MeasureDistance);
+        const QSignalBlocker angle(m_MeasureAngle);
+        m_MeasureDistance->setChecked(false);
+        m_MeasureAngle->setChecked(false);
+        m_MeasurementPoints.clear();
+        m_Video->setMeasurementPolyline({});
+        statusBar()->clearMessage();
+    }
+}
+
+void MainWindow::pickMeasurementPoint(const QPointF& point)
+{
+    if (!m_DisplayedFrame)
+    {
+        return;
+    }
+    const auto frame = m_DisplayedFrame->number;
+    const bool angle = m_MeasureAngle->isChecked();
+    if (!m_MeasurementPoints.isEmpty() && point == m_MeasurementPoints.front())
+    {
+        statusBar()->showMessage(tr("Choose a different measurement point."));
+        return;
+    }
+    m_MeasurementPoints.append(point);
+    auto polyline = m_MeasurementPoints;
+    if (angle && polyline.size() > 1)
+    {
+        polyline.swapItemsAt(0, 1);
+    }
+    m_Video->setMeasurementPolyline(std::move(polyline));
+    const qsizetype required = angle ? 3 : 2;
+    if (m_MeasurementPoints.size() < required)
+    {
+        statusBar()->showMessage(angle ? tr("Click a point on the next side of the angle.") : tr("Click the second distance point."));
+        return;
+    }
+
+    std::array<WorldPoint, 3> pixels{};
+    std::array<WorldPoint, 3> world{};
+    bool calibrated = m_Project.calibration.has_value();
+    for (qsizetype index = 0; index < required; ++index)
+    {
+        const auto coordinate = m_MeasurementPoints.at(index);
+        const auto slot = static_cast<std::size_t>(index);
+        pixels.at(slot) = {.x = coordinate.x(), .y = coordinate.y()};
+        if (m_Project.calibration)
+        {
+            const auto converted = worldPosition(*m_Project.calibration, {.frame = frame, .x = coordinate.x(), .y = coordinate.y()});
+            if (converted)
+            {
+                world.at(slot) = *converted;
+            }
+            else
+            {
+                calibrated = false;
+            }
+        }
+    }
+    const auto& coordinates = calibrated ? world : pixels;
+    const auto result = angle ? interiorAngleDegrees(coordinates.at(0), coordinates.at(1), coordinates.at(2))
+                              : pointDistance(coordinates.at(0), coordinates.at(1));
+    auto* action = angle ? m_MeasureAngle : m_MeasureDistance;
+    const QSignalBlocker blocker(action);
+    action->setChecked(false);
+    if (!result)
+    {
+        statusBar()->showMessage(tr("Could not measure these points."));
+        return;
+    }
+    const auto value = QLocale().toString(*result, 'g', 6);
+    const auto unit = calibrated ? QString::fromStdString(m_Project.lengthUnit) : tr("px");
+    statusBar()->showMessage(angle ? tr("Angle %1°").arg(value) : tr("Distance %1 %2").arg(value, unit).trimmed());
+}
+
 void MainWindow::pickCalibrationPoint(const QPointF& position)
 {
     if (!m_DisplayedFrame)
@@ -1336,12 +1478,15 @@ void MainWindow::displayFrame(const ImageFrame& frame, const QString& failureMes
 {
     if (!m_DisplayedFrame || m_DisplayedFrame->number != frame.number)
     {
+        cancelMeasurement();
         m_Calibrate->setChecked(false);
         m_EditAxes->setChecked(false);
     }
     m_DisplayedFrame = frame;
     m_Calibrate->setEnabled(!frame.image.isNull());
     m_EditAxes->setEnabled(!frame.image.isNull());
+    m_MeasureDistance->setEnabled(!frame.image.isNull());
+    m_MeasureAngle->setEnabled(!frame.image.isNull());
     refreshAxesOverlay();
     m_Plot->selectFrame(frame.number);
     const auto label = tr("Frame %1").arg(frame.number);
@@ -1408,6 +1553,7 @@ void MainWindow::startAutoTracking()
     }
     m_AutoTrack =
         AutoTrackSession{.pattern = *pattern, .track = static_cast<std::size_t>(track), .lastFrame = frame.number, .predicted = center};
+    cancelMeasurement();
     setPlaying(false);
     m_Calibrate->setChecked(false);
     m_EditAxes->setChecked(false);
@@ -1483,6 +1629,7 @@ void MainWindow::schedulePlayback()
 void MainWindow::requestMovieFrame(int frame)
 {
     const auto generation = ++m_RequestGeneration;
+    cancelMeasurement();
     m_DisplayedFrame.reset();
     updateAutoTrackerAction();
     updatePointMassActions();
@@ -1490,6 +1637,8 @@ void MainWindow::requestMovieFrame(int frame)
     m_Calibrate->setEnabled(false);
     m_EditAxes->setChecked(false);
     m_EditAxes->setEnabled(false);
+    m_MeasureDistance->setEnabled(false);
+    m_MeasureAngle->setEnabled(false);
     m_Plot->selectFrame(frame);
     m_FrameLabel->setText(tr("Frame %1").arg(frame));
     if (!m_Playing)

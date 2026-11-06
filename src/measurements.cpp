@@ -88,6 +88,27 @@ std::optional<WorldPoint> worldPosition(const Calibration& calibration, const Ma
     return point;
 }
 
+std::optional<double> pointDistance(WorldPoint first, WorldPoint second)
+{
+    const auto distance = std::hypot(second.x - first.x, second.y - first.y);
+    return std::isfinite(distance) ? std::optional(distance) : std::nullopt;
+}
+
+std::optional<double> interiorAngleDegrees(WorldPoint vertex, WorldPoint first, WorldPoint second)
+{
+    const auto firstLength = pointDistance(vertex, first);
+    const auto secondLength = pointDistance(vertex, second);
+    if (!firstLength || !secondLength || *firstLength == 0.0 || *secondLength == 0.0)
+    {
+        return std::nullopt;
+    }
+    const auto ax = (first.x - vertex.x) / *firstLength;
+    const auto ay = (first.y - vertex.y) / *firstLength;
+    const auto bx = (second.x - vertex.x) / *secondLength;
+    const auto by = (second.y - vertex.y) / *secondLength;
+    return std::atan2(std::abs(ax * by - ay * bx), ax * bx + ay * by) * (180.0 / std::numbers::pi);
+}
+
 std::string measurementsCsv(const LegacyProject& project)
 {
     std::ostringstream output;

@@ -3,6 +3,17 @@
 <TS version="2.1" language="fr">
   <context>
     <name>MainWindow</name>
+    <message><source>T&amp;ools</source><translation>&amp;Outils</translation></message>
+    <message><source>Measure &amp;distance</source><translation>Mesurer la &amp;distance</translation></message>
+    <message><source>Measure &amp;angle</source><translation>Mesurer l’&amp;angle</translation></message>
+    <message><source>Click the vertex of the angle.</source><translation>Cliquez sur le sommet de l’angle.</translation></message>
+    <message><source>Click the first distance point.</source><translation>Cliquez sur le premier point de la distance.</translation></message>
+    <message><source>Choose a different measurement point.</source><translation>Choisissez un autre point de mesure.</translation></message>
+    <message><source>Click a point on the next side of the angle.</source><translation>Cliquez sur un point du côté suivant de l’angle.</translation></message>
+    <message><source>Click the second distance point.</source><translation>Cliquez sur le second point de la distance.</translation></message>
+    <message><source>Could not measure these points.</source><translation>Impossible de mesurer ces points.</translation></message>
+    <message><source>Angle %1°</source><translation>Angle %1°</translation></message>
+    <message><source>Distance %1 %2</source><translation>Distance %1 %2</translation></message>
     <message><source>Set &amp;mass…</source><translation>Définir la &amp;masse…</translation></message>
     <message><source>x momentum</source><translation>quantité de mouvement x</translation></message>
     <message><source>y momentum</source><translation>quantité de mouvement y</translation></message>

@@ -58,6 +58,18 @@ TEST(Calibration, SkipsUndefinedWorldPositions)
     EXPECT_FALSE(motrack::worldPosition(calibration, {.frame = 0, .x = 100, .y = 2}).has_value());
 }
 
+TEST(SpatialMeasurement, MeasuresDistanceAndInteriorAngles)
+{
+    const motrack::WorldPoint origin{.x = 0.0, .y = 0.0};
+    const motrack::WorldPoint right{.x = 3.0, .y = 0.0};
+    const motrack::WorldPoint up{.x = 0.0, .y = 4.0};
+    EXPECT_EQ(motrack::pointDistance(right, up), 5.0);
+    EXPECT_EQ(motrack::interiorAngleDegrees(origin, right, up), 90.0);
+    EXPECT_EQ(motrack::interiorAngleDegrees(origin, right, {.x = -3.0, .y = 0.0}), 180.0);
+    EXPECT_FALSE(motrack::interiorAngleDegrees(origin, origin, up));
+    EXPECT_FALSE(motrack::pointDistance(origin, {.x = std::numeric_limits<double>::infinity(), .y = 0.0}));
+}
+
 TEST(MeasurementsCsv, UsesClipFramesAndEscapesTextFields)
 {
     motrack::LegacyProject project;
