@@ -114,13 +114,13 @@ public final class TrackerReference {
     private static int integer(XMLControl c, String name, int fallback) { return has(c, name) ? c.getInt(name) : fallback; }
     private static double number(XMLControl c, String name, double fallback) { return has(c, name) ? c.getDouble(name) : fallback; }
 
-    private static Map<String, Object> map(Object... entries) {
+    static Map<String, Object> map(Object... entries) {
         Map<String, Object> result = new LinkedHashMap<>();
         for (int i = 0; i < entries.length; i += 2) result.put((String) entries[i], entries[i + 1]);
         return result;
     }
 
-    private static String json(Object value) {
+    static String json(Object value) {
         if (value == null) return "null";
         if (value instanceof Number n) {
             if (!Double.isFinite(n.doubleValue())) throw new IllegalArgumentException("Nonfinite reference value");
