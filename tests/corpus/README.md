@@ -50,7 +50,8 @@ python -m unittest discover -s tests -p test_corpus.py
 On Windows, use `build/coverage/motrack_corpus_probe.exe` and the path to `java.exe`. Python 3.10 or newer
 is supported. The reference command uses Java source-file mode and therefore needs a JDK, not just a
 JRE. The first `fetch` needs network access; later checks are offline against verified cached files.
-`--cache PATH` changes the cache location. Downloads have time/size limits, subprocesses have a timeout
+`--cache PATH` changes the cache location. The reference JVM uses a private home inside that cache for
+any preferences or helper files. Downloads have time/size limits, subprocesses have a timeout
 and the Java heap is bounded. A corrupt existing cache entry is reported and preserved, never silently
 replaced or treated as success.
 

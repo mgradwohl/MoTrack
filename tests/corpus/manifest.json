@@ -26,7 +26,7 @@
       "bytes": 72239,
       "project_member": "BallToss_BallToss.trk",
       "tracker_version": "5.1.5",
-      "features": ["point-mass", "calibration", "clip-offset", "embedded-media", "unsupported-tape-measure"],
+      "features": ["point-mass", "calibration", "leading-unmarked-frames", "embedded-media", "unsupported-tape-measure"],
       "requirements": ["R02", "R05", "R06", "R09", "R10"],
       "expected": "expected/ball-toss.json"
     },

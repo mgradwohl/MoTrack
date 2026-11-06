@@ -146,12 +146,15 @@ def check_cases(manifest, cache, *, java=None, probe=None, record=False):
         verify_file(path, artifact)
     reports = cache / "reports"
     reports.mkdir(parents=True, exist_ok=True)
+    reference_home = cache / "java-home"
+    if java:
+        reference_home.mkdir(parents=True, exist_ok=True)
     for case in manifest["cases"]:
         project = project_path(case, cache)
         output = reports / (case["id"] + ("-java.json" if java else "-native.json"))
         output.unlink(missing_ok=True)
         if java:
-            run([java, "-Djava.awt.headless=true", "-Xmx256m", "--class-path",
+            run([java, "-Djava.awt.headless=true", f"-Duser.home={reference_home}", "-Xmx256m", "--class-path",
                  str(cache / manifest["reference"]["file"]), str(ROOT / "tools/reference/TrackerReference.java"),
                  str(project), str(output)])
         else:
