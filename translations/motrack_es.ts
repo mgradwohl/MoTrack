@@ -40,7 +40,9 @@
     <message><source>Image y (px)</source><translation>y de imagen (px)</translation></message>
     <message><source>Ready</source><translation>Listo</translation></message>
     <message><source>Open project</source><translation>Abrir proyecto</translation></message>
-    <message><source>MoTrack and Tracker projects (*.motrack *.trk)</source><translation>Proyectos de MoTrack y Tracker (*.motrack *.trk)</translation></message>
+    <message><source>MoTrack and Tracker projects (*.motrack *.trk *.trz)</source><translation>Proyectos de MoTrack y Tracker (*.motrack *.trk *.trz)</translation></message>
+    <message><source>Open Tracker archive</source><translation>Abrir archivo de Tracker</translation></message>
+    <message><source>Choose a Tracker tab</source><translation>Elige una pestaña de Tracker</translation></message>
     <message><source>Opened %1 marks. Unsupported tracks: %2.</source><translation>Marcas cargadas: %1. Trayectorias no compatibles: %2.</translation></message>
     <message><source>Could not open this project.</source><translation>No se pudo abrir este proyecto.</translation></message>
     <message><source>%1[*] — MoTrack</source><translation>%1[*] — MoTrack</translation></message>

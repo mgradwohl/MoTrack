@@ -1,0 +1,11 @@
+if(MOTRACK_FFMPEG_ROOT)
+    list(PREPEND CMAKE_PREFIX_PATH "${MOTRACK_FFMPEG_ROOT}")
+endif()
+find_package(LibArchive 3.6 REQUIRED)
+find_package(ZLIB REQUIRED)
+if(MOTRACK_FFMPEG_ROOT)
+    list(POP_FRONT CMAKE_PREFIX_PATH)
+endif()
+
+add_library(motrack_archive INTERFACE)
+target_link_libraries(motrack_archive INTERFACE LibArchive::LibArchive ZLIB::ZLIB)

@@ -12,6 +12,7 @@ struct WorkspaceDocument
     LegacyProject project;
     std::vector<double> movieFrameTimes;
     bool movie = false;
+    std::string archiveReference = {};
 };
 
 /// Reads a versioned MoTrack document. Media paths are relative to the document.

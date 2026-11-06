@@ -9,7 +9,7 @@ MoTrack is in early development. The desktop prototype opens local movies direct
 ## Development
 
 - C++23 and CMake, with Clang/LLVM on Windows, macOS, and Linux.
-- Qt 6 Widgets for the desktop interface and FFmpeg for indexed video decoding.
+- Qt 6 Widgets for the desktop interface, FFmpeg for video decoding, and libarchive for Tracker experiment archives.
 - GoogleTest and CTest, with a 90% minimum line coverage gate for handwritten production C++ from the first code change.
 - [TaskSmack](https://github.com/mgradwohl/tasksmack) is the reference for build presets, test organization, and LLVM coverage reporting.
 - See [Contributing](CONTRIBUTING.md) for coding conventions and LLVM checks.
@@ -18,7 +18,7 @@ The project targets desktop workflows. Browser support is out of scope.
 
 ### Build the prototype
 
-Run the setup script after cloning. It installs build tools through the platform package manager, downloads Qt into the checkout's ignored `.dev-tools` directory, and builds and tests the app.
+Run the setup script after cloning. It installs build tools through the platform package manager, installs Qt, FFmpeg, and libarchive in the checkout's ignored `.dev-tools` directory, and builds and tests the app.
 
 **Windows x64** (PowerShell with WinGet available)
 
@@ -35,6 +35,8 @@ Run the setup script after cloning. It installs build tools through the platform
 Run `build/dev/motrack` (`motrack.exe` on Windows) from an [activated developer shell](CONTRIBUTING.md#developer-setup) and open `tests/fixtures/image-sequence.trk` or `tests/fixtures/movie.trk` from the File menu. Use the controls below the image to play, pause, or step through the clip. The initial interface is available in English and Spanish.
 
 Choose a point mass from the toolbar or create one in the Tracks menu. Shift-click an image to mark the selected point mass and advance one clip step. Shift+Enter repeats the previous mark. Use File → Export measurements to save the current measurements as CSV. Use File → Save project to keep the current tracks, calibration, and media references in a MoTrack project. Keep the referenced media in place when reopening the saved project.
+
+Open a Tracker `.trz` experiment archive from the same project chooser. If it contains several Tracker tabs, choose the one to open. A MoTrack project saved from an archive references that archive for its media.
 
 Choose a quantity above the plot. Select a plotted point to jump to its video frame. Position uses the frame number when the project has no known timebase. Velocity uses frame timestamps from directly opened movies or saved constant image-sequence timing, and is left blank at the clip edges and across gaps in the marks.
 

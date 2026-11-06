@@ -98,6 +98,28 @@ TEST(Workspace, OpensAProjectThroughTheFileMenu)
     EXPECT_TRUE(window.windowTitle().contains("image-sequence.trk"));
 }
 
+TEST(Workspace, OpensATrackerArchiveAndReopensASavedCopy)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    motrack::MainWindow window;
+    window.show();
+    auto* open = window.findChild<QAction*>("openProject");
+    auto* canvas = window.findChild<QWidget*>("videoCanvas");
+    auto* marks = window.findChild<QTableWidget*>("marksTable");
+    ASSERT_TRUE(open && canvas && marks);
+    triggerFileDialog(*open, window, fixturePath("archive.trz"));
+    EXPECT_TRUE(window.windowTitle().contains("archive.trz"));
+    EXPECT_EQ(canvas->accessibleName(), "Frame 0");
+    EXPECT_EQ(marks->rowCount(), 2);
+    const auto path = temporary.filePath("archived.motrack");
+    ASSERT_TRUE(window.saveWorkspace(path));
+    ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
+    ASSERT_TRUE(window.loadProject(path));
+    EXPECT_EQ(canvas->accessibleName(), "Frame 0");
+    EXPECT_EQ(marks->rowCount(), 2);
+}
+
 TEST(Workspace, DisplaysWorldCoordinatesAndExportsMeasurements)
 {
     motrack::MainWindow window;

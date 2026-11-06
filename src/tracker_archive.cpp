@@ -1,0 +1,158 @@
+#include "tracker_archive.hpp"
+
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QRegularExpression>
+
+#include <algorithm>
+#include <array>
+#include <memory>
+
+#include <archive.h>
+#include <archive_entry.h>
+
+namespace motrack
+{
+namespace
+{
+
+constexpr std::size_t READ_BLOCK_BYTES = std::size_t{64} * 1024;
+constexpr qint64 MAX_EXTRACTED_BYTES = qint64{512} * 1024 * 1024;
+constexpr int MAX_MEMBERS = 4096;
+
+void require(bool valid)
+{
+    if (!valid)
+    {
+        throw ProjectError("Invalid or unsupported Tracker archive.");
+    }
+}
+
+bool safeMember(const QString& path)
+{
+    static const QRegularExpression forbidden(R"([\\:*?"<>|])");
+    static const QRegularExpression device(R"(^(CON|CONIN\$|CONOUT\$|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³])$)",
+                                           QRegularExpression::CaseInsensitiveOption);
+    if (path.size() > 512 || path.contains(QChar::ReplacementCharacter) || path.contains(forbidden) ||
+        std::ranges::any_of(path, [](QChar character) { return character.unicode() < 32; }))
+    {
+        return false;
+    }
+    const auto parts = path.split('/');
+    return std::ranges::none_of(parts,
+                                [](const QString& part) {
+                                    return part.isEmpty() || part.endsWith('.') || part.endsWith(' ') ||
+                                           part.section('.', 0, 0).trimmed().contains(device);
+                                });
+}
+
+} // namespace
+
+TrackerArchive TrackerArchive::open(const QString& path)
+{
+    TrackerArchive result;
+    require(result.m_Directory.isValid() && QFileInfo(path).isFile());
+    const std::unique_ptr<archive, decltype(&archive_read_free)> reader(archive_read_new(), &archive_read_free);
+    require(reader && archive_read_support_format_zip_seekable(reader.get()) == ARCHIVE_OK);
+#ifdef _WIN32
+    require(archive_read_open_filename_w(reader.get(), QDir::toNativeSeparators(path).toStdWString().c_str(), READ_BLOCK_BYTES) ==
+            ARCHIVE_OK);
+#else
+    require(archive_read_open_filename(reader.get(), QFile::encodeName(path).constData(), READ_BLOCK_BYTES) == ARCHIVE_OK);
+#endif
+    const QDir destination(result.m_Directory.path());
+    QSet<QString> seen;
+    std::array<char, READ_BLOCK_BYTES> buffer{};
+    qint64 remaining = MAX_EXTRACTED_BYTES;
+    int members = 0;
+    archive_entry* entry = nullptr;
+    for (auto status = archive_read_next_header(reader.get(), &entry); status != ARCHIVE_EOF;
+         status = archive_read_next_header(reader.get(), &entry))
+    {
+        require(status == ARCHIVE_OK && ++members <= MAX_MEMBERS && entry && archive_entry_is_encrypted(entry) == 0 &&
+                !archive_entry_hardlink(entry));
+        const auto type = archive_entry_filetype(entry);
+        require(type == AE_IFREG || type == AE_IFDIR);
+        const auto* utf8 = archive_entry_pathname_utf8(entry);
+        auto member = QString::fromUtf8(utf8 ? utf8 : archive_entry_pathname(entry));
+        if (type == AE_IFDIR && member.endsWith('/'))
+        {
+            member.chop(1);
+        }
+        const auto key = member.normalized(QString::NormalizationForm_C).toCaseFolded();
+        require(safeMember(member) && !seen.contains(key));
+        seen.insert(key);
+        if (type == AE_IFDIR)
+        {
+            require(destination.mkpath(member));
+            continue;
+        }
+        require(archive_entry_size(entry) >= 0 && archive_entry_size(entry) <= remaining);
+        require(destination.mkpath(QFileInfo(member).path()));
+        QFile file(destination.absoluteFilePath(member));
+        require(file.open(QIODevice::WriteOnly | QIODevice::NewOnly));
+        for (;;)
+        {
+            const auto read = archive_read_data(reader.get(), buffer.data(), buffer.size());
+            if (read == 0)
+            {
+                break;
+            }
+            require(read > 0 && read <= remaining && file.write(buffer.data(), read) == read);
+            remaining -= read;
+        }
+        require(file.flush());
+        result.m_Files.insert(member);
+        if (member.endsWith(".trk", Qt::CaseInsensitive))
+        {
+            result.m_Projects.append(member);
+        }
+    }
+    require(!result.m_Projects.isEmpty());
+    result.m_Projects.sort();
+    return result;
+}
+
+const QStringList& TrackerArchive::projects() const
+{
+    return m_Projects;
+}
+
+QString TrackerArchive::projectPath(const QString& member) const
+{
+    require(m_Projects.contains(member));
+    return m_Directory.filePath(member);
+}
+
+QString TrackerArchive::root() const
+{
+    return m_Directory.path();
+}
+
+void TrackerArchive::resolveMedia(LegacyProject& project, const QString& projectMember) const
+{
+    const auto parent = projectMember.isEmpty() ? QString(".") : QFileInfo(projectMember).path();
+    for (auto& reference : project.clip.mediaReferences)
+    {
+        auto value = QString::fromStdString(reference).replace('\\', '/');
+        const auto separator = value.lastIndexOf("!/");
+        if (separator >= 0)
+        {
+            value = value.mid(separator + 2);
+        }
+        else if (value.startsWith('/') || value.contains(':'))
+        {
+            reference.clear();
+            continue;
+        }
+        else
+        {
+            value = parent + '/' + value;
+        }
+        const auto member = QDir::cleanPath(value);
+        reference = m_Files.contains(member) ? member.toStdString() : std::string{};
+    }
+}
+
+} // namespace motrack

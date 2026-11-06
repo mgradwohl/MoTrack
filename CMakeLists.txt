@@ -34,10 +34,11 @@ endif()
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Widgets Xml LinguistTools Concurrent)
 include(cmake/MoTrackFFmpeg.cmake)
+include(cmake/MoTrackArchive.cmake)
 
-add_library(motrack_project STATIC src/legacy_project.cpp src/measurements.cpp src/track_edits.cpp src/workspace_document.cpp)
+add_library(motrack_project STATIC src/legacy_project.cpp src/measurements.cpp src/track_edits.cpp src/tracker_archive.cpp src/workspace_document.cpp)
 target_include_directories(motrack_project PUBLIC src)
-target_link_libraries(motrack_project PUBLIC Qt6::Core PRIVATE Qt6::Xml)
+target_link_libraries(motrack_project PUBLIC Qt6::Core PRIVATE Qt6::Xml motrack_archive)
 
 qt_add_executable(motrack src/main.cpp)
 add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp src/movie_worker.cpp src/position_plot.cpp)
@@ -73,6 +74,8 @@ if(MOTRACK_STAGE_DESKTOP)
             message(FATAL_ERROR "Run MoTrack's setup scripts to install the four FFmpeg runtime DLLs.")
         endif()
         install(FILES ${ffmpeg_runtime} DESTINATION ${CMAKE_INSTALL_BINDIR})
+        install(FILES "${MOTRACK_FFMPEG_ROOT}/bin/archive.dll" "${MOTRACK_FFMPEG_ROOT}/bin/z.dll"
+            DESTINATION ${CMAKE_INSTALL_BINDIR})
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         set_target_properties(motrack PROPERTIES INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
         qt_import_plugins(motrack INCLUDE Qt6::QXcbIntegrationPlugin Qt6::QOffscreenIntegrationPlugin)
@@ -131,8 +134,9 @@ if(BUILD_TESTING)
     )
     FetchContent_MakeAvailable(googletest)
 
-    add_executable(motrack_tests tests/legacy_project_test.cpp tests/measurements_test.cpp tests/track_edits_test.cpp)
-    target_link_libraries(motrack_tests PRIVATE motrack_project GTest::gtest_main)
+    add_executable(motrack_tests tests/legacy_project_test.cpp tests/measurements_test.cpp tests/track_edits_test.cpp
+        tests/tracker_archive_test.cpp)
+    target_link_libraries(motrack_tests PRIVATE motrack_project GTest::gtest_main motrack_archive)
     target_compile_definitions(motrack_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
     add_test(NAME legacy_project COMMAND motrack_tests)

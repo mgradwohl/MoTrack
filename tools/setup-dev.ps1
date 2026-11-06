@@ -46,7 +46,7 @@ if ($DryRun -or -not (Get-Command ccache.exe -ErrorAction SilentlyContinue)) { I
 if ($DryRun -or -not (Get-MoTrackPython)) { Install-MoTrackPackage 'Python.Python.3.12' }
 
 if ($DryRun) {
-    Write-Host '[dry-run] Install the project-local Qt and FFmpeg SDKs and LLVM 18 formatter, then check prerequisites.'
+    Write-Host '[dry-run] Install project-local Qt, FFmpeg, libarchive, and the LLVM 18 formatter, then check prerequisites.'
     if ($Build) { Write-Host '[dry-run] cmake --workflow --preset dev' }
 } else {
     Initialize-MoTrackEnvironment
@@ -55,7 +55,7 @@ if ($DryRun) {
     & $python (Join-Path $PSScriptRoot 'dev_sdk.py') install
     if ($LASTEXITCODE -ne 0) { throw 'MoTrack SDK installation failed.' }
     & $python (Join-Path $PSScriptRoot 'media_sdk.py') install
-    if ($LASTEXITCODE -ne 0) { throw 'MoTrack FFmpeg SDK installation failed.' }
+    if ($LASTEXITCODE -ne 0) { throw 'MoTrack media SDK installation failed.' }
     & (Join-Path $PSScriptRoot 'check-prereqs.ps1')
     if ($LASTEXITCODE -ne 0) { throw 'MoTrack prerequisites check failed.' }
     if ($Build) {

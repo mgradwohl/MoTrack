@@ -1,4 +1,4 @@
-"""Build MoTrack's pinned FFmpeg libraries into the ignored developer SDK."""
+"""Build MoTrack's pinned media and archive libraries into the ignored developer SDK."""
 
 import argparse
 import os
@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1] / ".dev-tools" / "vcpkg"
 VCPKG_RELEASE = "2026.10.16"
 VCPKG_COMMIT = "9eec002df1cd109f8f104cd966a763daf9751489"
 FFMPEG_FEATURES = "ffmpeg[core,avcodec,avformat,swscale]"
+LIBARCHIVE_FEATURES = "libarchive[core]"
 
 
 def triplet():
@@ -49,7 +50,11 @@ def install(target):
         kept = env.get("VCPKG_KEEP_ENV_VARS", "")
         env["VCPKG_KEEP_ENV_VARS"] = ";".join(filter(None, (kept, "SDKROOT")))
     env.setdefault("VCPKG_MAX_CONCURRENCY", str(min(os.cpu_count() or 1, 8)))
-    subprocess.run([binary, "install", f"{FFMPEG_FEATURES}:{target}", "--classic"], env=env, check=True)
+    subprocess.run(
+        [binary, "install", f"{FFMPEG_FEATURES}:{target}", f"{LIBARCHIVE_FEATURES}:{target}", "--classic"],
+        env=env,
+        check=True,
+    )
 
 
 def main():
