@@ -29,7 +29,8 @@ try
     if (args.size() == 2)
     {
         const auto extension = QFileInfo(args.last()).suffix();
-        if (extension.compare("trk", Qt::CaseInsensitive) == 0 || extension.compare("motrack", Qt::CaseInsensitive) == 0)
+        if (extension.compare("trk", Qt::CaseInsensitive) == 0 || extension.compare("trz", Qt::CaseInsensitive) == 0 ||
+            extension.compare("motrack", Qt::CaseInsensitive) == 0)
         {
             window.loadProject(args.last());
         }

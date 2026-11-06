@@ -62,7 +62,7 @@ jobs:
           path: .dev-tools/vcpkg-binary-cache
           key: ffmpeg-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/media_sdk.py') }}
           restore-keys: ffmpeg-sdk-${{ runner.os }}-${{ runner.arch }}-
-      - name: Set up pinned FFmpeg
+      - name: Set up pinned media libraries
         shell: bash
         run: |
           python tools/media_sdk.py install

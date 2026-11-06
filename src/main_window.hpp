@@ -4,6 +4,7 @@
 #include "legacy_project.hpp"
 #include "template_tracker.hpp"
 #include "track_edits.hpp"
+#include "tracker_archive.hpp"
 
 #include <QCoreApplication>
 #include <QFutureWatcher>
@@ -61,6 +62,7 @@ class MainWindow final : public QMainWindow
     void editClipSettings();
     void undoOrRedo(bool redo);
     void cancelMovieOpen();
+    void releaseArchive();
     bool chooseWorkspacePath();
     bool saveCurrentWorkspace();
     void refreshEditViews(int track);
@@ -108,6 +110,9 @@ class MainWindow final : public QMainWindow
     QTimer m_AutoTrackTimer;
     QString m_MoviePath;
     QString m_ProjectPath;
+    QString m_MediaProjectPath;
+    QString m_ArchiveSourcePath;
+    std::optional<TrackerArchive> m_Archive;
     QString m_SavePath;
     struct MovieIndex
     {

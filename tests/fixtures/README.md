@@ -2,6 +2,8 @@
 
 `point-mass.trk` and `image-sequence.trk` are small, synthetic Tracker-format projects.
 
+`archive.trz` is a ZIP fixture containing `image-sequence.trk`, `frames/frame00.ppm`, and `frames/frame02.ppm`. The saved clip skips the missing middle image.
+
 `vfr.mp4` contains four generated H.264 frames with presentation times of 40, 168, 288, and 368 milliseconds. A B-frame exercises the distinction between decode and presentation order. The AAC stream exercises non-video packet handling. Regenerate it with:
 
 ```sh

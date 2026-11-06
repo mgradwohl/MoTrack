@@ -16,6 +16,7 @@
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QHBoxLayout>
+#include <QInputDialog>
 #include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
@@ -300,7 +301,7 @@ MainWindow::MainWindow()
             [this]
             {
                 const auto path =
-                    QFileDialog::getOpenFileName(this, tr("Open project"), {}, tr("MoTrack and Tracker projects (*.motrack *.trk)"));
+                    QFileDialog::getOpenFileName(this, tr("Open project"), {}, tr("MoTrack and Tracker projects (*.motrack *.trk *.trz)"));
                 if (!path.isEmpty() && confirmDiscard())
                 {
                     loadProject(path);
@@ -398,11 +399,35 @@ MainWindow::~MainWindow()
 bool MainWindow::loadProject(const QString& path)
 {
     WorkspaceDocument document;
+    std::optional<TrackerArchive> archive;
+    QString archivePath;
+    QString member;
     try
     {
         if (path.endsWith(".motrack", Qt::CaseInsensitive))
         {
             document = readWorkspaceDocument(path);
+            if (!document.archiveReference.empty())
+            {
+                archivePath = resolveLocalMediaPath(path, document.archiveReference);
+                archive.emplace(TrackerArchive::open(archivePath));
+            }
+        }
+        else if (path.endsWith(".trz", Qt::CaseInsensitive))
+        {
+            archivePath = QFileInfo(path).absoluteFilePath();
+            archive.emplace(TrackerArchive::open(archivePath));
+            const auto& projects = archive->projects();
+            member = projects.front();
+            if (projects.size() > 1)
+            {
+                member = QInputDialog::getItem(this, tr("Open Tracker archive"), tr("Choose a Tracker tab"), projects, 0, false);
+                if (member.isEmpty())
+                {
+                    return false;
+                }
+            }
+            document.project = readLegacyProject(std::filesystem::path(archive->projectPath(member).toStdU16String()));
         }
         else
         {
@@ -416,15 +441,24 @@ bool MainWindow::loadProject(const QString& path)
     }
 
     cancelMovieOpen();
+    releaseArchive();
+    m_Archive = std::move(archive);
+    m_ArchiveSourcePath = std::move(archivePath);
+    m_MediaProjectPath = path;
+    if (m_Archive)
+    {
+        m_Archive->resolveMedia(document.project, member);
+        m_MediaProjectPath = QDir(m_Archive->root()).absoluteFilePath("archive.trk");
+    }
     m_Project = std::move(document.project);
-    m_Sequence = document.movie ? std::nullopt : ImageSequence::open(path, m_Project.clip);
+    m_Sequence = document.movie ? std::nullopt : ImageSequence::open(m_MediaProjectPath, m_Project.clip);
     m_MoviePath.clear();
     m_MovieFrameTimes = std::move(document.movieFrameTimes);
     const auto& clip = m_Project.clip;
     const auto steps = clip.stepCount.value_or(0);
     if (!m_Sequence && clip.mediaReferences.size() == 1 && steps > 0)
     {
-        const auto movie = resolveLocalMediaPath(path, clip.mediaReferences.front());
+        const auto movie = resolveLocalMediaPath(m_MediaProjectPath, clip.mediaReferences.front());
         if (QFileInfo(movie).isFile())
         {
             m_MoviePath = movie;
@@ -443,6 +477,21 @@ bool MainWindow::loadProject(const QString& path)
     statusBar()->showMessage(
         tr("Opened %1 marks. Unsupported tracks: %2.").arg(m_Marks->rowCount()).arg(m_Project.unsupportedTrackTypes.size()));
     return true;
+}
+
+void MainWindow::releaseArchive()
+{
+    if (m_Archive)
+    {
+        ++m_RequestGeneration;
+        if (m_MovieWorker)
+        {
+            // Release the decoder's file handle before removing extracted media on Windows.
+            QMetaObject::invokeMethod(m_MovieWorker, "clear", Qt::BlockingQueuedConnection);
+        }
+        m_Archive.reset();
+        m_ArchiveSourcePath.clear();
+    }
 }
 
 void MainWindow::cancelMovieOpen()
@@ -478,6 +527,8 @@ void MainWindow::openMovie(const QString& path)
                     statusBar()->clearMessage();
                     return;
                 }
+                releaseArchive();
+                m_MediaProjectPath = path;
                 m_Project = {};
                 m_Project.clip.stepCount = index.frameCount;
                 m_Project.clip.sourceFrameCount = index.frameCount;
@@ -564,7 +615,7 @@ void MainWindow::syncClipControls()
     setPlaying(false);
     if (m_Sequence)
     {
-        m_Sequence = ImageSequence::open(m_ProjectPath, m_Project.clip);
+        m_Sequence = ImageSequence::open(m_MediaProjectPath, m_Project.clip);
     }
     const int stepCount = m_Sequence ? m_Sequence->stepCount() : (m_MoviePath.isEmpty() ? 0 : m_Project.clip.stepCount.value_or(0));
     m_ClipSettings->setEnabled(stepCount > 0);
@@ -826,12 +877,19 @@ bool MainWindow::saveWorkspace(const QString& path)
     }
     WorkspaceDocument document{.project = m_Project, .movieFrameTimes = m_MovieFrameTimes, .movie = !m_MoviePath.isEmpty()};
     const QDir destination(QFileInfo(path).absolutePath());
-    for (auto& reference : document.project.clip.mediaReferences)
+    if (m_Archive)
     {
-        const auto source = resolveLocalMediaPath(m_ProjectPath, reference);
-        if (!source.isEmpty())
+        document.archiveReference = destination.relativeFilePath(m_ArchiveSourcePath).toStdString();
+    }
+    else
+    {
+        for (auto& reference : document.project.clip.mediaReferences)
         {
-            reference = destination.relativeFilePath(source).toStdString();
+            const auto source = resolveLocalMediaPath(m_MediaProjectPath, reference);
+            if (!source.isEmpty())
+            {
+                reference = destination.relativeFilePath(source).toStdString();
+            }
         }
     }
     try

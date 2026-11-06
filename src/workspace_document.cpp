@@ -168,6 +168,11 @@ WorkspaceDocument readWorkspaceDocument(const QString& path)
     WorkspaceDocument result;
     require(input.value("movie").isBool());
     result.movie = input.value("movie").toBool();
+    const auto archive = input.value("archive");
+    if (!archive.isUndefined())
+    {
+        result.archiveReference = string(archive);
+    }
     auto& project = result.project;
     project.version = string(input.value("trackerVersion"));
     project.description = string(input.value("description"));
@@ -232,6 +237,7 @@ void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& docume
                              {"calibration", writeCalibration(project.calibration)},
                              {"pointMasses", writeTracks(project.pointMasses)},
                              {"movie", document.movie},
+                             {"archive", QString::fromStdString(document.archiveReference)},
                              {"movieFrameTimes", frameTimes},
                              {"clip", clipObject}};
     const auto bytes = QJsonDocument(output).toJson(QJsonDocument::Compact);
