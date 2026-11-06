@@ -430,9 +430,12 @@ std::array<double, 6> trackerInverse(const CalibrationKey& key)
 
 void requireTrackerCoordinates(const LegacyProject& project, const Calibration& calibration, const std::array<double, 6>& inverse)
 {
-    const auto check = [&](const Mark& point)
+    auto componentCalibration = calibration;
+    componentCalibration.keyframes.front().originX = 0;
+    componentCalibration.keyframes.front().originY = 0;
+    const auto check = [&](const Mark& point, bool component = false)
     {
-        const auto native = worldPosition(calibration, point);
+        const auto native = worldPosition(component ? componentCalibration : calibration, point);
         if (!native)
         {
             require(false);
@@ -444,7 +447,12 @@ void requireTrackerCoordinates(const LegacyProject& project, const Calibration& 
         const auto xy = inverse[2] * point.y;
         const auto yx = inverse[1] * point.x;
         const auto yy = inverse[3] * point.y;
-        const std::array actual{(xx + xy) + inverse[4], (yx + yy) + inverse[5]};
+        const std::array actual{(xx + xy) + (component ? 0 : inverse[4]), (yx + yy) + (component ? 0 : inverse[5])};
+        if (component)
+        {
+            // Vector.refreshData transforms the components separately and squares them for magnitude.
+            require(std::isfinite(actual[0] * actual[0] + actual[1] * actual[1]));
+        }
         const std::array expected{native->x, native->y};
         for (std::size_t axis = 0; axis < actual.size(); ++axis)
         {
@@ -468,6 +476,7 @@ void requireTrackerCoordinates(const LegacyProject& project, const Calibration& 
         {
             check({.frame = sample.frame, .x = sample.tailX, .y = sample.tailY});
             check({.frame = sample.frame, .x = sample.tailX + sample.componentX, .y = sample.tailY + sample.componentY});
+            check({.frame = sample.frame, .x = sample.componentX, .y = sample.componentY}, true);
         }
     }
 }

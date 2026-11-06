@@ -709,4 +709,33 @@ TEST(TrackerWriter, RejectsCalibrationCoordinateCancellationAtOriginAndRetainedM
     }
 }
 
+TEST(TrackerWriter, RejectsCalibratedVectorComponentAndMagnitudeOverflow)
+{
+    auto imported =
+        motrack::parseTrackerProject(readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk"));
+    imported.project.vectors.front().samples = {{.frame = 0, .tailX = -10, .tailY = 20, .componentX = 20, .componentY = -4}};
+    imported.project.vectors.back().samples.clear();
+    imported = motrack::parseTrackerProject(motrack::renderTrackerProject(imported.project, imported.source));
+    if (!imported.project.calibration)
+    {
+        FAIL() << "Expected fixed source calibration.";
+    }
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("existing.trk");
+    motrack::writeTrackerProject(output, imported.project, imported.source);
+    for (const auto scale : {1e-307, 1e-200})
+    {
+        auto project = imported.project;
+        auto calibration = *imported.project.calibration;
+        calibration.keyframes.front() = {.frame = 0, .originX = 0, .originY = 0, .angleDegrees = 0, .scaleX = scale, .scaleY = 1 / scale};
+        project.calibration = calibration;
+        EXPECT_THROW(motrack::writeTrackerProject(output, project, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), imported.source.xml);
+        calibration.keyframes.front().scaleX = 4;
+        calibration.keyframes.front().scaleY = 8;
+        project.calibration = calibration;
+        EXPECT_NO_THROW(static_cast<void>(motrack::renderTrackerProject(project, imported.source)));
+    }
+}
+
 } // namespace
