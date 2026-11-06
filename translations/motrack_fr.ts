@@ -3,6 +3,9 @@
 <TS version="2.1" language="fr">
   <context>
     <name>MainWindow</name>
+    <message><source>Zoom &amp;in</source><translation>Zoom a&amp;vant</translation></message>
+    <message><source>Zoom &amp;out</source><translation>Zoom a&amp;rrière</translation></message>
+    <message><source>&amp;Fit video to view</source><translation>Ajuster la vidéo à la &amp;vue</translation></message>
     <message><source>T&amp;ools</source><translation>&amp;Outils</translation></message>
     <message><source>Measure &amp;distance</source><translation>Mesurer la &amp;distance</translation></message>
     <message><source>Measure &amp;angle</source><translation>Mesurer l’&amp;angle</translation></message>

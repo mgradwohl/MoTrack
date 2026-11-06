@@ -94,6 +94,14 @@ MainWindow::MainWindow()
     m_ShowAxes = viewMenu->addAction(tr("Show coordinate &axes"));
     m_ShowAxes->setObjectName("showCoordinateAxes");
     m_ShowAxes->setCheckable(true);
+    auto* zoomIn = viewMenu->addAction(tr("Zoom &in"));
+    zoomIn->setObjectName("zoomVideoIn");
+    zoomIn->setShortcut(QKeySequence::ZoomIn);
+    auto* zoomOut = viewMenu->addAction(tr("Zoom &out"));
+    zoomOut->setObjectName("zoomVideoOut");
+    zoomOut->setShortcut(QKeySequence::ZoomOut);
+    auto* resetZoom = viewMenu->addAction(tr("&Fit video to view"));
+    resetZoom->setObjectName("resetVideoZoom");
     auto* tracksMenu = menuBar()->addMenu(tr("&Tracks"));
     m_NewPointMass = tracksMenu->addAction(tr("New &point mass"));
     m_NewPointMass->setObjectName("newPointMass");
@@ -146,6 +154,9 @@ MainWindow::MainWindow()
     auto* videoPane = new QWidget;
     auto* layout = new QVBoxLayout(videoPane);
     m_Video = new VideoCanvas;
+    connect(zoomIn, &QAction::triggered, m_Video, &VideoCanvas::zoomIn);
+    connect(zoomOut, &QAction::triggered, m_Video, &VideoCanvas::zoomOut);
+    connect(resetZoom, &QAction::triggered, m_Video, &VideoCanvas::resetZoom);
     m_Video->setObjectName("videoCanvas");
     m_Video->setMinimumSize(240, 160);
     m_Video->setToolTip(tr("Shift-click the image to mark the selected point mass."));
@@ -805,6 +816,7 @@ void MainWindow::activateProject(const QString& path)
     stopAutoTracking();
     cancelMeasurement();
     setPlaying(false);
+    m_Video->resetZoom();
     m_ProjectPath = QFileInfo(path).absoluteFilePath();
     m_SavePath.clear();
     ++m_RequestGeneration;

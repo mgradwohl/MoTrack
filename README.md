@@ -54,6 +54,8 @@ Use Set Axes to place the coordinate origin and choose the positive x direction.
 
 Use Tools → Measure distance or Measure angle to make a measurement on the current frame. The tools use calibrated coordinates when available and otherwise measure in image pixels.
 
+Zoom from the View menu or hold Ctrl while scrolling over the video. Drag with the middle mouse button or hold Alt while dragging to pan. Fit video to view resets the display.
+
 ### Stage a local desktop build
 
 From the activated developer shell, run:
