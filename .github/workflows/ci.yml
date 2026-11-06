@@ -38,7 +38,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-18 llvm-18 libgl1-mesa-dev libxkbcommon-dev
+          sudo apt-get install -y clang-18 clang-format-18 clang-tidy-18 llvm-18 libgl1-mesa-dev libxkbcommon-dev
           echo /usr/lib/llvm-18/bin >> "$GITHUB_PATH"
           echo LLVM_BIN=/usr/lib/llvm-18/bin >> "$GITHUB_ENV"
       - name: Select Apple Clang
@@ -51,6 +51,11 @@ jobs:
         run: |
           cmake --preset coverage
           cmake --build --preset coverage
+      - name: Check C++ format and static analysis
+        if: runner.os == 'Linux'
+        run: |
+          git ls-files -z -- '*.cpp' '*.hpp' | xargs -0 clang-format --dry-run --Werror
+          git ls-files -z -- '*.cpp' | xargs -0 clang-tidy -p build/coverage
       - name: Test and collect coverage
         shell: bash
         run: python tools/coverage.py collect build/coverage coverage.json --llvm-bin "$LLVM_BIN"

@@ -14,12 +14,18 @@
 #include <QToolBar>
 #include <QTranslator>
 
-namespace {
+#include <cstdio>
+#include <cstdlib>
+#include <exception>
 
-class MainWindow final : public QMainWindow {
+namespace
+{
+
+class MainWindow final : public QMainWindow
+{
     Q_DECLARE_TR_FUNCTIONS(MainWindow)
 
-public:
+  public:
     MainWindow()
     {
         setWindowTitle("MoTrack");
@@ -34,68 +40,85 @@ public:
         video->setAlignment(Qt::AlignCenter);
         video->setWordWrap(true);
         workspace->addWidget(video);
-        marks_ = new QTableWidget(0, 4);
-        marks_->setHorizontalHeaderLabels({tr("Track"), tr("Frame"), tr("Image x (px)"),
-                                           tr("Image y (px)")});
-        marks_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-        workspace->addWidget(marks_);
+        m_Marks = new QTableWidget(0, 4);
+        m_Marks->setHorizontalHeaderLabels({tr("Track"), tr("Frame"), tr("Image x (px)"), tr("Image y (px)")});
+        m_Marks->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        workspace->addWidget(m_Marks);
         workspace->setStretchFactor(0, 2);
         workspace->setStretchFactor(1, 1);
         setCentralWidget(workspace);
         statusBar()->showMessage(tr("Ready"));
 
-        connect(open, &QAction::triggered, this, [this] {
-            const auto path = QFileDialog::getOpenFileName(
-                this, tr("Open Tracker project"), {}, tr("Tracker projects (*.trk)"));
-            if (!path.isEmpty()) {
-                loadProject(path);
-            }
-        });
+        connect(open,
+                &QAction::triggered,
+                this,
+                [this]
+                {
+                    const auto path = QFileDialog::getOpenFileName(this, tr("Open Tracker project"), {}, tr("Tracker projects (*.trk)"));
+                    if (!path.isEmpty())
+                    {
+                        loadProject(path);
+                    }
+                });
     }
 
     bool loadProject(const QString& path)
     {
-        try {
+        try
+        {
             const auto project = motrack::readLegacyProject(std::filesystem::path(path.toStdU16String()));
-            marks_->setRowCount(0);
-            for (const auto& track : project.pointMasses) {
-                for (const auto& mark : track.marks) {
-                    const auto row = marks_->rowCount();
-                    marks_->insertRow(row);
-                    marks_->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(track.name)));
-                    marks_->setItem(row, 1, new QTableWidgetItem(QString::number(mark.frame)));
-                    marks_->setItem(row, 2, new QTableWidgetItem(QString::number(mark.x, 'g', 12)));
-                    marks_->setItem(row, 3, new QTableWidgetItem(QString::number(mark.y, 'g', 12)));
+            m_Marks->setRowCount(0);
+            for (const auto& track : project.pointMasses)
+            {
+                for (const auto& mark : track.marks)
+                {
+                    const auto row = m_Marks->rowCount();
+                    m_Marks->insertRow(row);
+                    m_Marks->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(track.name)));
+                    m_Marks->setItem(row, 1, new QTableWidgetItem(QString::number(mark.frame)));
+                    m_Marks->setItem(row, 2, new QTableWidgetItem(QString::number(mark.x, 'g', 12)));
+                    m_Marks->setItem(row, 3, new QTableWidgetItem(QString::number(mark.y, 'g', 12)));
                 }
             }
-            statusBar()->showMessage(tr("Imported %1 marks. Unsupported tracks: %2.")
-                                         .arg(marks_->rowCount())
-                                         .arg(project.unsupportedTrackTypes.size()));
+            statusBar()->showMessage(
+                tr("Imported %1 marks. Unsupported tracks: %2.").arg(m_Marks->rowCount()).arg(project.unsupportedTrackTypes.size()));
             return true;
-        } catch (const motrack::ProjectError&) {
+        }
+        catch (const motrack::ProjectError&)
+        {
             statusBar()->showMessage(tr("Could not open this Tracker project."));
             return false;
         }
     }
 
-private:
-    QTableWidget* marks_;
+  private:
+    QTableWidget* m_Marks;
 };
 
 } // namespace
 
 int main(int argc, char** argv)
+try
 {
     QApplication app(argc, argv);
     QTranslator translator;
-    if (translator.load(QLocale(), "motrack", "_", ":/i18n")) {
+    if (translator.load(QLocale(), "motrack", "_", ":/i18n"))
+    {
         app.installTranslator(&translator);
     }
     const auto args = app.arguments();
     MainWindow window;
     window.show();
-    if (args.size() == 3 && args[1] == "--smoke-test") {
+    if (args.size() == 3 && args[1] == "--smoke-test")
+    {
         return window.loadProject(args[2]) ? 0 : 1;
     }
     return app.exec();
+}
+catch (const std::exception& error)
+{
+    std::fputs("MoTrack: ", stderr);
+    std::fputs(error.what(), stderr);
+    std::fputc('\n', stderr);
+    return EXIT_FAILURE;
 }

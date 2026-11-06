@@ -8,10 +8,11 @@ MoTrack is in early development. The desktop prototype opens Tracker `.trk` file
 
 ## Development
 
-- C++20 and CMake, with Clang/LLVM on Windows, macOS, and Linux.
+- C++23 and CMake, with Clang/LLVM on Windows, macOS, and Linux.
 - Qt 6 Widgets for the desktop interface and FFmpeg for indexed video decoding.
 - GoogleTest and CTest, with a 90% minimum line coverage gate for handwritten production C++ from the first code change.
 - [TaskSmack](https://github.com/mgradwohl/tasksmack) is the reference for build presets, test organization, and LLVM coverage reporting.
+- See [Contributing](CONTRIBUTING.md) for coding conventions and LLVM checks.
 
 The project targets desktop workflows. Browser support is out of scope.
 
@@ -20,9 +21,7 @@ The project targets desktop workflows. Browser support is out of scope.
 Install CMake 3.25 or later, Ninja, Clang, and Qt 6.8 with Linguist Tools. Set `CMAKE_PREFIX_PATH` to the Qt installation. On Windows, use an x64 Visual Studio Developer PowerShell with LLVM and the Qt `bin` directory on `PATH`. The configure step fetches GoogleTest.
 
 ```sh
-cmake --preset dev
-cmake --build --preset dev
-ctest --preset dev
+cmake --workflow --preset dev
 ```
 
 Run `build/dev/motrack` (`motrack.exe` on Windows) and open `tests/fixtures/point-mass.trk` from the File menu. The initial interface is available in English and Spanish.

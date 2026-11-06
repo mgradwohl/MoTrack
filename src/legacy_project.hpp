@@ -7,27 +7,32 @@
 #include <string_view>
 #include <vector>
 
-namespace motrack {
+namespace motrack
+{
 
-struct Mark {
+struct Mark
+{
     int frame;
     double x;
     double y;
 };
 
-struct PointMass {
+struct PointMass
+{
     std::string name;
     std::vector<Mark> marks;
 };
 
-struct Clip {
+struct Clip
+{
     int firstFrame = 0;
     int stepSize = 1;
     std::optional<int> stepCount;
     std::vector<std::string> mediaReferences;
 };
 
-struct LegacyProject {
+struct LegacyProject
+{
     std::string version;
     std::string description;
     Clip clip;
@@ -35,8 +40,9 @@ struct LegacyProject {
     std::vector<std::string> unsupportedTrackTypes;
 };
 
-class ProjectError : public std::runtime_error {
-public:
+class ProjectError : public std::runtime_error
+{
+  public:
     using std::runtime_error::runtime_error;
 };
 

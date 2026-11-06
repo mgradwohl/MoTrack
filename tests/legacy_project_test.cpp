@@ -2,32 +2,30 @@
 
 #include <gtest/gtest.h>
 
-namespace {
+namespace
+{
 
 std::string projectXml(std::string_view properties)
 {
-    return R"(<object class="org.opensourcephysics.cabrillo.tracker.TrackerPanel">)"
-        + std::string(properties) + "</object>";
+    return R"(<object class="org.opensourcephysics.cabrillo.tracker.TrackerPanel">)" + std::string(properties) + "</object>";
 }
 
 std::string projectWithClip(std::string_view properties)
 {
-    return projectXml("<property name='videoclip'><object>" + std::string(properties)
-                      + "</object></property>");
+    return projectXml("<property name='videoclip'><object>" + std::string(properties) + "</object></property>");
 }
 
 std::string projectWithMarks(std::string_view properties)
 {
     return projectXml(R"(<property name="tracks"><property name="item">
         <object class="org.opensourcephysics.cabrillo.tracker.PointMass">
-        <property name="framedata">)" + std::string(properties)
-        + "</property></object></property></property>");
+        <property name="framedata">)" +
+                      std::string(properties) + "</property></object></property></property>");
 }
 
 TEST(LegacyProject, ImportsMetadataAndSparseMarks)
 {
-    const auto result = motrack::readLegacyProject(
-        std::filesystem::path(MOTRACK_FIXTURES) / "point-mass.trk");
+    const auto result = motrack::readLegacyProject(std::filesystem::path(MOTRACK_FIXTURES) / "point-mass.trk");
     EXPECT_EQ(result.version, "6.3.5");
     EXPECT_EQ(result.description, "Two marks & a gap.");
     EXPECT_EQ(result.clip.firstFrame, 2);
@@ -43,8 +41,7 @@ TEST(LegacyProject, ImportsMetadataAndSparseMarks)
     EXPECT_DOUBLE_EQ(marks[0].x, 120.5);
     EXPECT_DOUBLE_EQ(marks[0].y, 85.25);
     EXPECT_EQ(marks[1].frame, 6);
-    EXPECT_EQ(result.unsupportedTrackTypes,
-              std::vector<std::string>{"org.opensourcephysics.cabrillo.tracker.CoordAxes"});
+    EXPECT_EQ(result.unsupportedTrackTypes, std::vector<std::string>{"org.opensourcephysics.cabrillo.tracker.CoordAxes"});
 }
 
 TEST(LegacyProject, OpensBlankSession)
@@ -67,28 +64,22 @@ TEST(LegacyProject, KeepsImageSequenceInArrayOrder)
           </property>
           <property name="path">fallback.jpg</property>
         </object></property>)"));
-    EXPECT_EQ(result.clip.mediaReferences,
-              (std::vector<std::string>{"legacy.trz!/videos/ball00.jpg",
-                                        "legacy.trz!/videos/ball01.jpg"}));
+    EXPECT_EQ(result.clip.mediaReferences, (std::vector<std::string>{"legacy.trz!/videos/ball00.jpg", "legacy.trz!/videos/ball01.jpg"}));
 }
 
 TEST(LegacyProject, RejectsInvalidInput)
 {
-    EXPECT_THROW(motrack::readLegacyProject("motrack-nonexistent-project.trk"),
-                 motrack::ProjectError);
+    EXPECT_THROW(motrack::readLegacyProject("motrack-nonexistent-project.trk"), motrack::ProjectError);
     EXPECT_THROW(motrack::parseLegacyProject("<object"), motrack::ProjectError);
-    EXPECT_THROW(motrack::parseLegacyProject("<object class='java.lang.String'/>"),
-                 motrack::ProjectError);
-    EXPECT_THROW(motrack::parseLegacyProject("<!DOCTYPE object>" + projectXml("")),
-                 motrack::ProjectError);
-    EXPECT_THROW(motrack::parseLegacyProject(std::string(32 * 1024 * 1024 + 1, ' ')),
-                 motrack::ProjectError);
-    EXPECT_THROW(motrack::parseLegacyProject(projectWithClip("<property name='stepsize'>0</property>")),
-                 motrack::ProjectError);
+    EXPECT_THROW(motrack::parseLegacyProject("<object class='java.lang.String'/>"), motrack::ProjectError);
+    EXPECT_THROW(motrack::parseLegacyProject("<!DOCTYPE object>" + projectXml("")), motrack::ProjectError);
+    EXPECT_THROW(motrack::parseLegacyProject(std::string(32 * 1024 * 1024 + 1, ' ')), motrack::ProjectError);
+    EXPECT_THROW(motrack::parseLegacyProject(projectWithClip("<property name='stepsize'>0</property>")), motrack::ProjectError);
     EXPECT_THROW(motrack::parseLegacyProject(projectWithClip(R"(
         <property name="video"><object><property name="paths">
           <property name="[1]">missing-zero.jpg</property>
-        </property></object></property>)")), motrack::ProjectError);
+        </property></object></property>)")),
+                 motrack::ProjectError);
 }
 
 TEST(LegacyProject, RejectsInvalidMarks)
@@ -96,13 +87,10 @@ TEST(LegacyProject, RejectsInvalidMarks)
     const std::string position = "<object><property name='x'>1</property>"
                                  "<property name='y'>2</property></object>";
     const auto duplicate = "<property name='[1]'>" + position + "</property>";
-    EXPECT_THROW(motrack::parseLegacyProject(projectWithMarks(duplicate + duplicate)),
+    EXPECT_THROW(motrack::parseLegacyProject(projectWithMarks(duplicate + duplicate)), motrack::ProjectError);
+    EXPECT_THROW(motrack::parseLegacyProject(projectWithMarks("<property name='invalid'>" + position + "</property>")),
                  motrack::ProjectError);
-    EXPECT_THROW(motrack::parseLegacyProject(projectWithMarks(
-                     "<property name='invalid'>" + position + "</property>")),
-                 motrack::ProjectError);
-    EXPECT_THROW(motrack::parseLegacyProject(projectWithMarks(
-                     "<property name='[1]'><object/></property>")), motrack::ProjectError);
+    EXPECT_THROW(motrack::parseLegacyProject(projectWithMarks("<property name='[1]'><object/></property>")), motrack::ProjectError);
 }
 
 } // namespace
