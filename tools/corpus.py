@@ -226,10 +226,9 @@ def validate_session(case, report, manifest, expected=None, key_frames=None):
     for track in before["tracks"]:
         if track["class"] == "org.opensourcephysics.cabrillo.tracker.PointMass":
             masses.append({"name": track["name"], "mass": track["mass"], "samples": [
-                {"frame": sample["frame"], "image": sample["points"][0]} for sample in track["samples"]]})
-    expected_masses = [{**mass, "samples": [{"frame": sample["frame"], "image": sample["image"]}
-                       for sample in mass["samples"]]} for mass in expected["point_masses"]]
-    compare(expected_masses, masses, tolerance, case["id"] + ".point_masses")
+                {"frame": sample["frame"], "image": sample["points"][0], "world": sample["world"]}
+                for sample in track["samples"]]})
+    compare(expected["point_masses"], masses, tolerance, case["id"] + ".point_masses")
     vectors = [{"name": track["name"], "samples": track["vector_samples"]} for track in before["tracks"]
                if track["class"] == "org.opensourcephysics.cabrillo.tracker.Vector"]
     compare(expected["vectors"], vectors, tolerance, case["id"] + ".vectors")
