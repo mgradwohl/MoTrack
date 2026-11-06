@@ -96,7 +96,6 @@ TEST(TrackerWriter, RejectsUnsupportedOrInvalidEditsBeforeReplacingTheDestinatio
     motrack::writeTrackerProject(output, imported.project, imported.source);
     const std::vector<std::function<void(motrack::LegacyProject&)>> changes{
         [](auto& project) { project.pointMasses[0].name = "renamed"; },
-        [](auto& project) { project.pointMasses[0].marks.push_back({.frame = 0, .x = 1, .y = 2}); },
         [](auto& project) { project.pointMasses.pop_back(); },
         [](auto& project) { project.vectors[0].name = "renamed"; },
         [](auto& project) { project.clip.firstFrame = 2; },
@@ -147,6 +146,87 @@ TEST(TrackerWriter, RejectsMediaUntilRelocationAndPackagingAreSupported)
         FAIL() << "Expected import source.";
     }
     EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(document.project, *document.trackerSource)), motrack::ProjectError);
+}
+
+std::string markedXml(const std::string& keys = "{0}")
+{
+    return "<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'><property name='tracks'>"
+           "<property name='item' type='object'><object class='org.opensourcephysics.cabrillo.tracker.PointMass'>"
+           "<property name='name' type='string'>mass</property>"
+           "<property name='framedata' type='array' class='[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;'>"
+           "<property name='[0]' type='object'><object class='org.opensourcephysics.cabrillo.tracker.PointMass$FrameData'>"
+           "<property name='x' type='double'>1</property><property name='y' type='double'>2</property></object></property>"
+           "<property name='[2]' type='object'><object class='org.opensourcephysics.cabrillo.tracker.PointMass$FrameData'>"
+           "<property name='x' type='double'>3</property><property name='y' type='double'>4</property>"
+           "<property name='future'>keep-step</property></object></property>"
+           "<property name='[3]' type='object'>null<!-- keep placeholder comment --></property>"
+           "</property><property name='keyFrames' type='array' class='[I'><property name='array' type='string'>" +
+           keys + "</property></property></object></property></property></object>";
+}
+
+TEST(TrackerWriter, UpdatesAddsAndDeletesMarksWithManualKeysAndUnknownStepProperties)
+{
+    auto imported = motrack::parseTrackerProject(markedXml());
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.markPointMass(imported.project, 0, {.frame = 2, .x = 30.125, .y = -40.5}));
+    ASSERT_TRUE(edits.markPointMass(imported.project, 0, {.frame = 3, .x = 50, .y = 60}));
+    ASSERT_TRUE(edits.markPointMass(imported.project, 0, {.frame = 1, .x = 10, .y = 20}));
+    ASSERT_TRUE(edits.markPointMass(imported.project, 0, {.frame = 5, .x = 70, .y = 80}));
+    ASSERT_TRUE(edits.removeMark(imported.project, 0, 0));
+    const auto output = motrack::renderTrackerProject(imported.project, imported.source);
+    const auto reopened = motrack::parseLegacyProject(output);
+    EXPECT_EQ(reopened.pointMasses.front().marks, imported.project.pointMasses.front().marks);
+    EXPECT_NE(output.find("{1,2,3,5}"), std::string::npos);
+    EXPECT_NE(output.find("keep-step"), std::string::npos);
+    EXPECT_NE(output.find("keep placeholder comment"), std::string::npos);
+    ASSERT_TRUE(edits.undo(imported.project));
+    const auto undone = motrack::renderTrackerProject(imported.project, imported.source);
+    EXPECT_NE(undone.find("{0,1,2,3,5}"), std::string::npos);
+    ASSERT_TRUE(edits.redo(imported.project));
+    EXPECT_EQ(motrack::renderTrackerProject(imported.project, imported.source), output);
+}
+
+TEST(TrackerWriter, RetainsUnchangedAutomaticMarkKeysAndSupportsEmptyOrNewFrameArrays)
+{
+    auto imported = motrack::parseTrackerProject(markedXml());
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.markPointMass(imported.project, 0, {.frame = 0, .x = 12, .y = 24}));
+    const auto output = motrack::renderTrackerProject(imported.project, imported.source);
+    EXPECT_NE(output.find("{0}"), std::string::npos);
+    EXPECT_NE(output.find("keep-step"), std::string::npos);
+    ASSERT_TRUE(edits.removeMark(imported.project, 0, 0));
+    EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(imported.project, imported.source)), motrack::ProjectError);
+    ASSERT_TRUE(edits.removeMark(imported.project, 0, 2));
+    const auto empty = motrack::renderTrackerProject(imported.project, imported.source);
+    EXPECT_TRUE(motrack::parseLegacyProject(empty).pointMasses.front().marks.empty());
+    EXPECT_NE(empty.find("{}"), std::string::npos);
+
+    imported = motrack::parseTrackerProject(std::string(sourceXml()));
+    edits.clear();
+    ASSERT_TRUE(edits.markPointMass(imported.project, 0, {.frame = 2, .x = 1.25, .y = 2.5}));
+    const auto created = motrack::renderTrackerProject(imported.project, imported.source);
+    EXPECT_EQ(motrack::parseLegacyProject(created).pointMasses.front().marks, imported.project.pointMasses.front().marks);
+    EXPECT_NE(created.find("{2}"), std::string::npos);
+}
+
+TEST(TrackerWriter, TreatsAnEmptyKeyArrayAsManualMarksAndRejectsInvalidMarkData)
+{
+    auto imported = motrack::parseTrackerProject(markedXml("{}"));
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.markPointMass(imported.project, 0, {.frame = 3, .x = 1, .y = 2}));
+    EXPECT_NE(motrack::renderTrackerProject(imported.project, imported.source).find("{0,2,3}"), std::string::npos);
+    for (const auto* keys : {"0", "{oops}", "{-1}", "{0,,2}"})
+    {
+        imported = motrack::parseTrackerProject(markedXml(keys));
+        imported.project.pointMasses.front().marks.front().x += 1;
+        EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(imported.project, imported.source)), motrack::ProjectError);
+    }
+    imported = motrack::parseTrackerProject(markedXml());
+    imported.project.pointMasses.front().marks.front().x = std::numeric_limits<double>::infinity();
+    EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(imported.project, imported.source)), motrack::ProjectError);
+    imported = motrack::parseTrackerProject(markedXml());
+    std::ranges::reverse(imported.project.pointMasses.front().marks);
+    EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(imported.project, imported.source)), motrack::ProjectError);
 }
 
 } // namespace

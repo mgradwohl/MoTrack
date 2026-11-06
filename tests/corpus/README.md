@@ -15,14 +15,18 @@ Neither check proves MoTrack `.trk`/`.trz` export, complete model/function param
 media decoding, cross-platform Java UI behavior or the required paired-file round trip. A successful
 parser or Java-only resave check must never be reported as a complete MoTrack round trip.
 
-A third command, `roundtrip`, adds the first **limited** MoTrack standard-export case, labeled
-`motrack_mass_roundtrip`. It changes the first point mass's mass in the real protractor experiment,
+A third command, `roundtrip`, adds **limited** MoTrack standard-export cases. The mass case, labeled
+`motrack_mass_roundtrip`, changes the first point mass's mass in the real protractor experiment,
 saves/reopens native data after removing its input copy, exports `.trk`, opens/resaves/reopens through
 Tracker's application, then reimports Tracker's resave in MoTrack. The expected mass is derived from
-the committed Java baseline, independently of the native probe's output. A canonical XML-tree comparison
+the committed Java baseline, independently of the native probe's output. A normalized DOM-tree comparison
 checks that no other source content changed, including unknown objects, comments and processing instructions.
 The loaded mass, classes/names, samples, coordinates and clip are checked against that expected edit.
-This covers mass values only; other edits, media/archive round trips, desktop export UI and paired saves remain unfinished.
+The second case, `motrack_marks_roundtrip`, moves the first mass's original mark, adds a mark at frame 3,
+and replaces the second mass's original mark with one at frame 7. It independently checks image/world
+coordinates and Java's loaded manual keyframe lists `{0,3}` and `{7}`, before and after resave. Sparse
+frames also exercise OSP's line-oriented array reader: an accidental blank line must not hide later marks.
+Other edits, media/archive round trips, desktop export UI and paired saves remain unfinished.
 
 ## Sources and cases
 
@@ -34,7 +38,7 @@ vendored. The manifest links the upstream license and records the unaudited medi
 | Case | Producing version | Checked imported content | Unsupported content retained in the source fixture |
 | --- | --- | --- | --- |
 | Ball toss | 5.1.5 | Eleven marks at frames 2–12, mass, clip bounds/time origin and world coordinates | Tape measure, display settings and archive media |
-| Protractor | 6.0.7 | Two named point masses, their marks/calibration; first mass-value edit through the standard round-trip runner | Protractor and its saved settings |
+| Protractor | 6.0.7 | Two named point masses, their marks/calibration; mass-value and mark edits through the standard round-trip runner | Protractor and its saved settings |
 | Dynamic sine | 5.1.2 | Clip and calibration; dynamic particle is reported as unsupported | Model parameters, functions and plot settings |
 
 The probe reads the `.trk` member selected by the manifest from BallToss's `.trz`. It does not exercise
@@ -108,7 +112,7 @@ Inspect the diff and explain every change; CI never records or silently updates 
 reference version and source-file checksums pinned. Add provenance, expected behavior and requirement
 coverage with each case. Never regenerate from MoTrack's output to make a failing comparison pass.
 
-Extend the initial mass-only test to every editable type and operation, media, archives and paired-save
+Extend the initial mass/mark tests to every editable type and operation, media, archives and paired-save
 failures. Preservation of unsupported objects and other archive tabs remains mandatory. The writer's
-mass property follows the pinned upstream [PointMass loader](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/PointMass.java);
+mass, framedata and keyFrames properties follow the pinned upstream [PointMass loader](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/PointMass.java);
 the actual 6.3.5 application check, not source inspection alone, determines acceptance.
