@@ -181,6 +181,25 @@ class CorpusTests(unittest.TestCase):
         with patch.object(corpus.sys, "platform", "linux"), self.assertRaisesRegex(ValueError, "No applicable"):
             corpus.check_sessions({"cases": []}, self.root, "java", "probe")
 
+    def test_mass_export_preserves_scalar_mixed_and_explicit_content_whitespace(self):
+        original, exported = self.root / "original.trk", self.root / "exported.trk"
+        xml = ("<object><property name='tracks' type='collection'><property type='object'>"
+               "<object class='org.opensourcephysics.cabrillo.tracker.PointMass'>"
+               "<property name='mass' type='double'>1</property></object></property></property>"
+               "<property name='unknown' type='string'>  keep  </property>"
+               "<property name='blank' type='string'>   </property>"
+               "<property name='mixed'> before <object/> after </property>"
+               "<object xml:space='preserve'> <property name='nested'>value</property> </object></object>")
+        original.write_text(xml, encoding="utf-8")
+        edited = xml.replace(">1<", ">2.5<")
+        exported.write_text(edited.replace("<object>", "<object>\n  ", 1), encoding="utf-8")
+        corpus.verify_mass_export_xml(original, exported)
+        for before, after in [("  keep  ", "keep"), (">   <", "><"), (" before ", "before"),
+                              ("preserve'> <property", "preserve'><property")]:
+            exported.write_text(edited.replace(before, after), encoding="utf-8")
+            with self.subTest(before=before), self.assertRaises(ValueError):
+                corpus.verify_mass_export_xml(original, exported)
+
     def test_ordinary_desktop_display_is_replaced_by_an_owned_server(self):
         server = Mock()
         server.poll.return_value = None

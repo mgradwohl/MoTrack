@@ -254,6 +254,27 @@ def mass_roundtrip_expected(case):
     return expected
 
 
+def canonical_tracker_xml(document):
+    def normalize(node, preserve=False):
+        if node.nodeType == node.ELEMENT_NODE:
+            space = node.getAttribute("xml:space")
+            preserve = True if space == "preserve" else False if space == "default" else preserve
+            structural = node.tagName == "object" or (node.tagName == "property" and
+                         node.getAttribute("type") in {"object", "array", "collection"})
+            children = list(node.childNodes)
+            if (structural and not preserve and any(child.nodeType == child.ELEMENT_NODE for child in children)
+                    and all(child.nodeType != child.ELEMENT_NODE or child.tagName in {"object", "property"} for child in children)
+                    and not any(child.nodeType == child.CDATA_SECTION_NODE or
+                                (child.nodeType == child.TEXT_NODE and child.data.strip()) for child in children)):
+                for child in children:
+                    if child.nodeType == child.TEXT_NODE:
+                        node.removeChild(child)
+        for child in list(node.childNodes):
+            normalize(child, preserve)
+    normalize(document)
+    return ET.canonicalize(document.toxml(), with_comments=True)
+
+
 def verify_mass_export_xml(original, exported):
     # Compare the complete source tree, including unknown objects/comments/PIs, allowing only one mass edit.
     def elements(node, tag):
@@ -274,9 +295,12 @@ def verify_mass_export_xml(original, exported):
     values[0].data = value
     for node in values[1:]:
         mass[0].removeChild(node)
-    canonical = ET.canonicalize(expected.toxml(), strip_text=True, with_comments=True)
+    canonical = canonical_tracker_xml(expected)
     expected.unlink()
-    if canonical != ET.canonicalize(from_file=exported, strip_text=True, with_comments=True):
+    actual = minidom.parse(str(exported))
+    actual_canonical = canonical_tracker_xml(actual)
+    actual.unlink()
+    if canonical != actual_canonical:
         raise ValueError("Standard export changed content beyond the requested mass edit")
 
 
