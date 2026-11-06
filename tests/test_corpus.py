@@ -1,6 +1,7 @@
 """Integrity and failure-path tests for the compatibility corpus runner (no network)."""
 
 import hashlib
+import copy
 import io
 import json
 from pathlib import Path
@@ -114,6 +115,66 @@ class CorpusTests(unittest.TestCase):
             corpus.load_manifest(path)
         with self.assertRaisesRegex(ValueError, "inside"):
             corpus.expected_path({"expected": "../../outside.json"})
+
+    def test_session_validation_checks_loaded_content_and_java_resave(self):
+        manifest = corpus.load_manifest()
+        case = next(case for case in manifest["cases"] if case["id"] == "protractor")
+        expected = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
+        tracks = []
+        for identity in case["session_tracks"]:
+            mass = next((mass for mass in expected["point_masses"] if mass["name"] == identity["name"]), None)
+            tracks.append({**identity, "mass": mass["mass"] if mass else None,
+                           "samples": [{"frame": sample["frame"], "points": [sample["image"]]}
+                                       for sample in mass["samples"]] if mass else []})
+        before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"]}
+        valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                 "before": before, "after": copy.deepcopy(before)}
+        corpus.validate_session(case, valid, manifest)
+        invalid = copy.deepcopy(valid)
+        invalid["after"]["tracks"][1]["mass"] = 2.0
+        with self.assertRaises(ValueError):
+            corpus.validate_session(case, invalid, manifest)
+        invalid = copy.deepcopy(valid)
+        for key in ["before", "after"]:
+            invalid[key]["tracks"][2]["class"] = "MissingProtractor"
+        with self.assertRaises(ValueError):
+            corpus.validate_session(case, invalid, manifest)
+        invalid = copy.deepcopy(valid)
+        for key in ["before", "after"]:
+            invalid[key]["tracks"][1]["samples"][0]["points"][0][0] += 1.0
+        with self.assertRaises(ValueError):
+            corpus.validate_session(case, invalid, manifest)
+        for key, value in [("reference_version", "6.3.4"), ("verification_level", "xml_and_coordinate_api")]:
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                corpus.validate_session(case, {**valid, key: value}, manifest)
+
+    def test_session_checks_require_an_isolated_linux_display(self):
+        for platform, display in [("win32", ":1"), ("linux", "")]:
+            with patch.object(corpus.sys, "platform", platform), patch.dict(corpus.os.environ, DISPLAY=display):
+                with self.assertRaisesRegex(ValueError, "virtual display"):
+                    corpus.check_sessions({}, self.root, "java")
+
+    def test_failed_session_cleans_its_private_home_and_outputs(self):
+        manifest = corpus.load_manifest()
+        calls = []
+        (self.root / "fixtures").mkdir()
+        (self.root / "fixtures/protractor.trk").write_text("<object/>", encoding="utf-8")
+
+        def fail_session(command):
+            calls.append(command)
+            if "TrackerSessionReference" in command:
+                private_home = Path(next(arg.split("=", 1)[1] for arg in command if arg.startswith("-Duser.home=")))
+                self.assertTrue(private_home.is_relative_to(self.root))
+                self.assertTrue(private_home.is_dir())
+                (private_home / "preferences.xml").write_text("private", encoding="utf-8")
+                raise ValueError("session failure")
+
+        with patch.object(corpus.sys, "platform", "linux"), patch.dict(corpus.os.environ, DISPLAY=":99"), \
+                patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "run", side_effect=fail_session):
+            with self.assertRaisesRegex(ValueError, "session failure"):
+                corpus.check_sessions(manifest, self.root, "java")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(list(self.root.glob("session-*")), [])
 
 
 if __name__ == "__main__":

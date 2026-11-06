@@ -191,8 +191,11 @@ Localization, accessibility, performance checks and serialization accompany ever
 
 Phase 1 now has a [versioned seed corpus and reference harness](../tests/corpus/README.md): three real
 upstream experiments, checksum-pinned Tracker 6.3.5, independent Java XML/coordinate snapshots and a
-native importer comparison. Full GUI reference loading, broader requirement coverage, runtime/dependency
-provenance and exact source mapping remain unfinished. Extend that evidence, then proceed with source
+native importer comparison. An additional Linux virtual-display probe opens the two experiments without
+media through Tracker's normal application loader, saves them in Java, then reopens and compares the
+loaded content. This is Java's own resave baseline, not MoTrack standard-file export acceptance.
+Media/archive session loading, broader requirement coverage, runtime/dependency provenance and exact
+source mapping remain unfinished. Extend that evidence, then proceed with source
 preservation and stable identities in phase 2. Phase 3 has priority over adding particle-model
 editing. UI familiarity can improve while work progresses, but visual polish cannot replace correctness
 or standard-file compatibility gates.
