@@ -1,11 +1,16 @@
 #include "legacy_project.hpp"
 #include "measurements.hpp"
+#include "track_edits.hpp"
+#include "tracker_writer.hpp"
+#include "workspace_document.hpp"
 
 #include <QCoreApplication>
+#include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
+#include <QTemporaryDir>
 
 #include <cstdint>
 #include <cstdio>
@@ -90,9 +95,39 @@ try
 {
     const QCoreApplication application(argc, argv);
     const auto args = application.arguments();
+    if (args.size() == 4 && args[1] == "--export-mass")
+    {
+        QTemporaryDir temporary;
+        const auto source = temporary.filePath("input.trk");
+        const auto native = temporary.filePath("saved.motrack");
+        if (!temporary.isValid() || !QFile::copy(args[2], source))
+        {
+            throw motrack::ProjectError("Could not prepare round-trip source.");
+        }
+        auto document = motrack::importTrackerDocument(source);
+        motrack::TrackEdits edits;
+        if (document.project.pointMasses.empty() ||
+            !edits.setPointMassValue(document.project, 0, document.project.pointMasses.front().mass * 2.5))
+        {
+            throw motrack::ProjectError("Could not edit round-trip mass.");
+        }
+        motrack::writeWorkspaceDocument(native, document);
+        document = {};
+        if (!QFile::remove(source))
+        {
+            throw motrack::ProjectError("Could not remove round-trip source copy.");
+        }
+        document = motrack::readWorkspaceDocument(native);
+        if (!document.trackerSource)
+        {
+            throw motrack::ProjectError("Native reopen lost Tracker source.");
+        }
+        motrack::writeTrackerProject(args[3], document.project, *document.trackerSource);
+        return 0;
+    }
     if (args.size() != 3)
     {
-        std::fputs("Usage: motrack_corpus_probe input.trk output.json\n", stderr);
+        std::fputs("Usage: motrack_corpus_probe input.trk output.json | --export-mass input.trk output.trk\n", stderr);
         return 1;
     }
 #ifdef _WIN32

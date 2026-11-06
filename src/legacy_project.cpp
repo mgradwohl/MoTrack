@@ -321,6 +321,11 @@ ImportedTrackerProject readTrackerProject(const std::filesystem::path& path)
     {
         throw ProjectError("Could not read the Tracker project.");
     }
+    return parseTrackerProject(std::move(xml));
+}
+
+ImportedTrackerProject parseTrackerProject(std::string xml)
+{
     auto parsed = parseProject(xml);
     return {.project = std::move(parsed.project), .source = {.xml = std::move(xml), .bindings = std::move(parsed.bindings)}};
 }

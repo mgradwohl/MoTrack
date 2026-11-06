@@ -109,6 +109,10 @@ jobs:
           probe=build/coverage/motrack_corpus_probe
           if [[ "$RUNNER_OS" == Windows ]]; then probe="$probe.exe"; fi
           python tools/corpus.py check --probe "$probe"
+      - name: Check edited Tracker round trip
+        if: runner.os == 'Linux'
+        shell: bash
+        run: python tools/corpus.py roundtrip --probe build/coverage/motrack_corpus_probe --java "$JAVA_HOME_17_X64/bin/java"
       - name: Stage desktop build
         shell: bash
         run: |

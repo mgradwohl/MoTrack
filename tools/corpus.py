@@ -1,6 +1,7 @@
 """Fetch pinned Tracker examples and compare native imports with Java reference snapshots."""
 
 import argparse
+import copy
 from contextlib import contextmanager
 import hashlib
 import json
@@ -14,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+import xml.dom.minidom as minidom
 import zipfile
 
 
@@ -186,7 +188,7 @@ def check_cases(manifest, cache, *, java=None, probe=None, record=False):
               f" ({'Java XML/coordinate API' if java else 'MoTrack import/coordinates'}; full round trip untested)")
 
 
-def validate_session(case, report, manifest):
+def validate_session(case, report, manifest, expected=None):
     if (report["reference_version"] != manifest["reference"]["version"]
             or report["verification_level"] != "tracker_session_resave"):
         raise ValueError("Unexpected session reference version or verification level")
@@ -195,7 +197,8 @@ def validate_session(case, report, manifest):
     compare(before, report["after"], tolerance, case["id"] + ".resave")
     identities = [{"class": track["class"], "name": track["name"]} for track in before["tracks"]]
     compare(case["session_tracks"], identities, tolerance, case["id"] + ".tracks")
-    expected = json.loads(expected_path(case).read_text(encoding="utf-8"))["project"]
+    if expected is None:
+        expected = json.loads(expected_path(case).read_text(encoding="utf-8"))["project"]
     for key in ["clip", "coordinate_samples"]:
         compare(expected[key], before[key], tolerance, case["id"] + "." + key)
     masses = []
@@ -242,9 +245,84 @@ def private_display():
                 server.wait(timeout=5)
 
 
-def check_sessions(manifest, cache, java):
+def mass_roundtrip_expected(case):
+    expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
+    if not expected["point_masses"]:
+        raise ValueError("Mass round trip needs a point-mass baseline")
+    expected["point_masses"][0]["mass"] *= 2.5
+    return expected
+
+
+def canonical_tracker_xml(document):
+    def normalize(node, preserve=False):
+        if node.nodeType == node.ELEMENT_NODE:
+            space = node.getAttribute("xml:space")
+            preserve = True if space == "preserve" else False if space == "default" else preserve
+            structural = node.tagName == "object" or (node.tagName == "property" and
+                         node.getAttribute("type") in {"object", "array", "collection"})
+            children = list(node.childNodes)
+            if (structural and not preserve and any(child.nodeType == child.ELEMENT_NODE for child in children)
+                    and all(child.nodeType != child.ELEMENT_NODE or child.tagName in {"object", "property"} for child in children)
+                    and not any(child.nodeType == child.CDATA_SECTION_NODE or
+                                (child.nodeType == child.TEXT_NODE and child.data.strip(" \t\r\n")) for child in children)):
+                for child in children:
+                    if child.nodeType == child.TEXT_NODE:
+                        node.removeChild(child)
+        for child in list(node.childNodes):
+            normalize(child, preserve)
+    normalize(document)
+    # Compare decoded DOM values directly: serializing and reparsing would normalize a decoded
+    # character-reference CR to LF and hide a change to an untouched scalar or attribute.
+    def snapshot(node):
+        attributes = tuple(sorted(node.attributes.items())) if node.attributes else ()
+        children = []
+        for child in node.childNodes:
+            if child.nodeType in {child.TEXT_NODE, child.CDATA_SECTION_NODE}:
+                if children and children[-1][0] == "text":
+                    children[-1] = ("text", children[-1][1] + child.data)
+                else:
+                    children.append(("text", child.data))
+            else:
+                children.append(snapshot(child))
+        return (node.nodeType, node.nodeName, node.nodeValue, attributes, tuple(children))
+    return snapshot(document)
+
+
+def verify_mass_export_xml(original, exported):
+    # Compare the complete source tree, including unknown objects/comments/PIs, allowing only one mass edit.
+    def elements(node, tag):
+        return [child for child in node.childNodes if child.nodeType == child.ELEMENT_NODE and child.tagName == tag]
+    expected = minidom.parse(str(original))
+    tracks = [prop for prop in elements(expected.documentElement, "property") if prop.getAttribute("name") == "tracks"]
+    masses = [obj for track in tracks for prop in elements(track, "property") for obj in elements(prop, "object")
+              if obj.getAttribute("class") == "org.opensourcephysics.cabrillo.tracker.PointMass"]
+    if not masses:
+        raise ValueError("Mass round trip needs a source point mass")
+    mass = [prop for prop in elements(masses[0], "property") if prop.getAttribute("name") == "mass"]
+    if len(mass) != 1:
+        raise ValueError("Mass reference requires an explicit original mass")
+    values = [node for node in mass[0].childNodes if node.nodeType in {node.TEXT_NODE, node.CDATA_SECTION_NODE}]
+    if not values:
+        raise ValueError("Mass reference has no numeric value")
+    value = format(float("".join(node.data for node in values)) * 2.5, ".17g")
+    values[0].data = value
+    for node in values[1:]:
+        mass[0].removeChild(node)
+    canonical = canonical_tracker_xml(expected)
+    expected.unlink()
+    actual = minidom.parse(str(exported))
+    actual_canonical = canonical_tracker_xml(actual)
+    actual.unlink()
+    if canonical != actual_canonical:
+        raise ValueError("Standard export changed content beyond the requested mass edit")
+
+
+def check_sessions(manifest, cache, java, probe=None):
     if sys.platform != "linux":
         raise ValueError("Session checks currently require Linux with Xvfb")
+    cases = [case for case in manifest["cases"] if "session_tracks" in case and (not probe or case.get("native_mass_roundtrip"))]
+    if not cases:
+        raise ValueError("No applicable Tracker session cases")
     for path, artifact in artifacts(manifest, cache):
         verify_file(path, artifact)
     java_path = Path(shutil.which(java) or java).resolve()
@@ -259,42 +337,61 @@ def check_sessions(manifest, cache, java):
         run([str(javac), "-cp", str(jar), "-d", str(classes),
              str(ROOT / "tools/reference/TrackerReference.java"),
              str(ROOT / "tools/reference/TrackerSessionReference.java")])
-        for case in manifest["cases"]:
-            if "session_tracks" not in case:
-                continue
+        for case in cases:
             output = root / case["id"]
             java_home = output / "java-home"
             java_home.mkdir(parents=True)
+            project = project_path(case, cache)
+            expected = None
+            if probe:
+                exported = output / "motrack-export.trk"
+                run([str(Path(probe).resolve()), "--export-mass", str(project), str(exported)])
+                verify_mass_export_xml(project, exported)
+                expected = mass_roundtrip_expected(case)
+                native_report = output / "native-export.json"
+                run([str(Path(probe).resolve()), str(exported), str(native_report)])
+                compare(expected, json.loads(native_report.read_text(encoding="utf-8")), manifest["tolerance"], case["id"] + ".export")
+                project = exported
             run([str(java_path), f"-Duser.home={java_home}", "-Duser.language=en", "-Duser.country=US",
                  "-Xmx256m", "-cp", os.pathsep.join([str(classes), str(jar)]), "TrackerSessionReference",
-                 str(project_path(case, cache)), str(output)], display=display)
+                 str(project), str(output)], display=display)
             report = json.loads((output / "session.json").read_text(encoding="utf-8"))
-            validate_session(case, report, manifest)
-            (reports / (case["id"] + "-session.json")).write_text(
-                json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-            print(f"{case['id']}: passed (Tracker application load/save/reopen; MoTrack export untested)")
+            validate_session(case, report, manifest, expected)
+            if probe:
+                reimport = output / "native-reimport.json"
+                run([str(Path(probe).resolve()), str(output / "tracker-resaved.trk"), str(reimport)])
+                expected["source_version"] = manifest["reference"]["version"]
+                compare(expected, json.loads(reimport.read_text(encoding="utf-8")), manifest["tolerance"], case["id"] + ".reimport")
+                saved_report = {"verification_level": "motrack_mass_roundtrip", "tracker_session": report, "expected_reimport": expected}
+                suffix = "-mass-roundtrip.json"
+                print(f"{case['id']}: passed (MoTrack edit/native reopen/TRK export; Tracker load/save/reopen; native reimport; mass only)")
+            else:
+                saved_report, suffix = report, "-session.json"
+                print(f"{case['id']}: passed (Tracker application load/save/reopen; MoTrack export untested)")
+            (reports / (case["id"] + suffix)).write_text(
+                json.dumps(saved_report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["fetch", "verify", "reference", "check", "session"])
+    parser.add_argument("command", choices=["fetch", "verify", "reference", "check", "session", "roundtrip"])
     parser.add_argument("--cache", type=Path, default=ROOT / ".dev-tools/tracker-reference")
-    parser.add_argument("--java", default="java", help="Java 17+ JDK executable (reference/session commands)")
-    parser.add_argument("--probe", help="Built motrack_corpus_probe executable (check command)")
+    parser.add_argument("--java", default="java", help="Java 17+ JDK executable (reference/session/roundtrip commands)")
+    parser.add_argument("--probe", help="Built motrack_corpus_probe executable (check/roundtrip commands)")
     parser.add_argument("--record", action="store_true", help="Explicitly replace committed Java baselines for review")
     args = parser.parse_args()
     if args.record and args.command != "reference":
         parser.error("--record is only valid for the reference command")
-    if args.command == "check" and not args.probe:
-        parser.error("check requires --probe")
+    if args.command in {"check", "roundtrip"} and not args.probe:
+        parser.error(f"{args.command} requires --probe")
     manifest = load_manifest()
     cache = args.cache.resolve()
     if args.command in {"fetch", "verify"}:
         for path, artifact in artifacts(manifest, cache):
             (fetch_file if args.command == "fetch" else verify_file)(path, artifact)
         print(f"Verified {len(manifest['cases'])} cases and Tracker {manifest['reference']['version']}")
-    elif args.command == "session":
-        check_sessions(manifest, cache, args.java)
+    elif args.command in {"session", "roundtrip"}:
+        check_sessions(manifest, cache, args.java, args.probe if args.command == "roundtrip" else None)
     else:
         check_cases(manifest, cache, java=args.java if args.command == "reference" else None,
                     probe=args.probe, record=args.record)
