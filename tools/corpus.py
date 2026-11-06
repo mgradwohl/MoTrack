@@ -205,6 +205,7 @@ def validate_session(case, report, manifest, expected=None, key_frames=None):
         raise ValueError("Unexpected session reference version or verification level")
     before = report["before"]
     tolerance = manifest["tolerance"]
+    compare(before, report["after_save"], tolerance, case["id"] + ".save")
     compare(before, report["after"], tolerance, case["id"] + ".resave")
     identities = [{"class": track["class"], "name": track["name"]} for track in before["tracks"]]
     compare(case["session_tracks"], identities, tolerance, case["id"] + ".tracks")
@@ -465,10 +466,23 @@ def check_sessions(manifest, cache, java, probe=None):
                 run([str(Path(probe).resolve()), str(exported), str(native_report)])
                 compare(expected, json.loads(native_report.read_text(encoding="utf-8")), manifest["tolerance"], case["id"] + ".export")
                 project = exported
-            run([str(java_path), f"-Duser.home={java_home}", "-Duser.language=en", "-Duser.country=US",
-                 "-Xmx256m", "-cp", os.pathsep.join([str(classes), str(jar)]), "TrackerSessionReference",
-                 str(project), str(output)], display=display)
-            report = json.loads((output / "session.json").read_text(encoding="utf-8"))
+            stages = {}
+            # Tracker has static per-panel drawing state but allocates IDs separately in each TFrame.
+            # A fresh JVM prevents two windows' vector snapping registries from sharing the same IDs.
+            for stage in ["save", "reopen"]:
+                home = java_home if stage == "save" else output / "java-reopen-home"
+                home.mkdir(exist_ok=True)
+                source = project if stage == "save" else output / "tracker-resaved.trk"
+                run([str(java_path), f"-Duser.home={home}", "-Duser.language=en", "-Duser.country=US",
+                     "-Xmx256m", "-cp", os.pathsep.join([str(classes), str(jar)]), "TrackerSessionReference",
+                     str(source), str(output), stage], display=display)
+                stages[stage] = json.loads((output / ("session-" + stage + ".json")).read_text(encoding="utf-8"))
+                if (stages[stage]["reference_version"] != manifest["reference"]["version"]
+                        or stages[stage]["verification_level"] != "tracker_session_" + stage):
+                    raise ValueError("Unexpected Tracker session stage")
+            report = {"reference_version": stages["save"]["reference_version"], "verification_level": "tracker_session_resave",
+                      "before": stages["save"]["loaded"], "after_save": stages["save"]["after_save"],
+                      "after": stages["reopen"]["loaded"]}
             keys = {"marks": [[0, 3], [7]], "empty-marks": [[], [0]], "first-mark": [[4], [0]]}.get(mode)
             try:
                 validate_session(case, report, manifest, expected, keys)

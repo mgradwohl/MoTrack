@@ -6,7 +6,7 @@ XML loader and `ImageCoordSystem` implementation bundled in the official **Track
 
 The original report names its verification level `xml_and_coordinate_api`. A separate session probe
 uses Tracker's actual application/async-loader lifecycle to open the three experiments without media,
-save through Tracker's normal saver and reopen in a fresh application frame. Its report is labeled
+save through Tracker's normal saver and reopen in a fresh Java process. Its report is labeled
 `tracker_session_resave`. It checks loaded track classes/names, mass values, step points, clip bounds,
 units and coordinate probes before/after Java's own resave, and compares available point-mass/coordinate
 data with the independent XML baseline. Independent vectors are checked by their loaded tails,
@@ -90,8 +90,10 @@ the adjacent JDK `javac`. It starts and owns a new Xvfb server using `-displayfd
 Java always uses that display, even when the contributor already has a desktop `DISPLAY`. The runner
 terminates only its own server on success or failure, with bounded startup/shutdown waits. It refuses
 to run on Windows. CI's Ubuntu runner supplies Xvfb and Java 17. Each case gets a fresh private Java home
-and output directory, a 30-second loader
-deadline inside the 45-second subprocess limit, and a 256 MiB heap. Temporary compiled classes,
+and output directory. Save and reopen each get a fresh JVM/private home, a 30-second loader
+deadline inside the 45-second subprocess limit, and a 256 MiB heap. This avoids collisions between
+Tracker's static drawing/snapping registries when distinct application windows reuse panel IDs.
+Snapshots must agree before saving, immediately after saving, and after the separate process reopens. Temporary compiled classes,
 preferences and Java-resaved experiments are removed on success or failure; successful comparison
 reports remain under the cache's `reports` directory. MoTrack itself does not use Java at runtime.
 
