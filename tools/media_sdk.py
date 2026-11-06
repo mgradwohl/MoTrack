@@ -42,6 +42,12 @@ def install(target):
     binary_cache.mkdir(exist_ok=True)
     env = {**os.environ, "VCPKG_DEFAULT_BINARY_CACHE": str(binary_cache),
            "VCPKG_DOWNLOADS": str(ROOT / "downloads"), "VCPKG_DISABLE_METRICS": "1"}
+    if sys.platform == "darwin":
+        env["SDKROOT"] = subprocess.check_output(
+            ["xcrun", "--sdk", "macosx", "--show-sdk-path"], text=True
+        ).strip()
+        kept = env.get("VCPKG_KEEP_ENV_VARS", "")
+        env["VCPKG_KEEP_ENV_VARS"] = ";".join(filter(None, (kept, "SDKROOT")))
     env.setdefault("VCPKG_MAX_CONCURRENCY", str(min(os.cpu_count() or 1, 8)))
     subprocess.run([binary, "install", f"{FFMPEG_FEATURES}:{target}", "--classic"], env=env, check=True)
 
