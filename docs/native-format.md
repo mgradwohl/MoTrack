@@ -140,7 +140,7 @@ coordinate-system origin/rotation/scale in media-free projects after a native re
 Vector exports reject nonfinite endpoints and components that Tracker's endpoint subtraction would
 change beyond the reference tolerance (absolute `1e-10` image pixels or relative `1e-12`).
 Tracker also automatically snaps newly loaded arrows on their first draw. Changed files containing
-vector samples currently require a known fixed origin, plain Arrow/BoldArrow footprints, no point-mass
+vector samples currently require one fixed calibration key at frame 0, plain Arrow/BoldArrow footprints, no point-mass
 or unsupported vector providers, and at most 4096 samples. Vector frame indices (including retained
 null XML entries) cannot exceed 500000, and the sum of dense frame-array lengths across vectors cannot
 exceed 500001 slots; this bounds Tracker's allocation for sparse high-frame samples. Tails within 8 image pixels of the origin or
@@ -181,7 +181,10 @@ overflow/underflow, and compares the resulting coefficients with the native inve
 tolerance before opening an output file. Evaluated world coordinates must also agree at the origin,
 the independent corpus probe, every point-mass mark and every vector endpoint; coefficient agreement
 alone cannot detect cancellation near zero. Translation-free vector components must also agree, and
-Tracker's squared-component magnitude calculation must remain finite. Angles stay in the native editor's -180 to 180 degree range.
+Tracker's squared-component magnitude calculation must remain finite. Component checks use Tracker's
+reconstructed `(tail + component) - tail` values, so scale amplification cannot hide behind the image-pixel
+tolerance. Changed vector files receive these checks even when the calibration itself is unchanged;
+keyed and partly fixed vector-coordinate systems need their own reference cases before export. Angles stay in the native editor's -180 to 180 degree range.
 Unknown fields and measured image positions are retained. Creating/removing a coordinate system,
 changing fixed flags, time-varying keys and moving reference frames require later reference cases.
 The vector snapping guard also runs after calibration changes, preventing an origin move from silently

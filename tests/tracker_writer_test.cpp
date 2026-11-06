@@ -795,4 +795,43 @@ TEST(TrackerWriter, RejectsInvalidUnitLabelsWithoutReplacingTheDestination)
     EXPECT_NE(result.find("<!-- keep unit -->"), std::string::npos);
 }
 
+TEST(TrackerWriter, RejectsVectorReconstructionErrorsAmplifiedByNewOrExistingCalibration)
+{
+    auto fixture =
+        motrack::parseTrackerProject(readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk"));
+    fixture.project.vectors.front().samples = {{.frame = 0, .tailX = 10, .tailY = 20, .componentX = 0, .componentY = -4}};
+    fixture.project.vectors.back().samples.clear();
+    fixture = motrack::parseTrackerProject(motrack::renderTrackerProject(fixture.project, fixture.source));
+    if (!fixture.project.calibration)
+    {
+        FAIL() << "Expected fixed source calibration.";
+    }
+    auto calibration = *fixture.project.calibration;
+    calibration.keyframes.front() = {.frame = 0, .originX = 0, .originY = 0, .angleDegrees = 0, .scaleX = 1e-100, .scaleY = 1e100};
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("existing.trk");
+    const auto native = temporary.filePath("reconstruction.motrack");
+    for (const bool existing : {false, true})
+    {
+        auto imported = fixture;
+        if (existing)
+        {
+            imported.project.calibration = calibration;
+            imported = motrack::parseTrackerProject(motrack::renderTrackerProject(imported.project, imported.source));
+        }
+        motrack::writeTrackerProject(output, imported.project, imported.source);
+        motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+        document.project.calibration = calibration;
+        document.project.vectors.front().samples.front().componentX = 1e-20;
+        motrack::writeWorkspaceDocument(native, document);
+        document = motrack::readWorkspaceDocument(native);
+        if (!document.trackerSource)
+        {
+            FAIL() << "Expected preserved source after native reopen.";
+        }
+        EXPECT_THROW(motrack::writeTrackerProject(output, document.project, *document.trackerSource), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), imported.source.xml);
+    }
+}
+
 } // namespace

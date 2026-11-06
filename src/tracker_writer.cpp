@@ -443,7 +443,7 @@ void requireTrackerCoordinates(const LegacyProject& project, const Calibration& 
     auto componentCalibration = calibration;
     componentCalibration.keyframes.front().originX = 0;
     componentCalibration.keyframes.front().originY = 0;
-    const auto check = [&](const Mark& point, bool component = false)
+    const auto check = [&](const Mark& point, bool component = false, const Mark* reconstructed = nullptr)
     {
         const auto native = worldPosition(component ? componentCalibration : calibration, point);
         if (!native)
@@ -453,10 +453,11 @@ void requireTrackerCoordinates(const LegacyProject& project, const Calibration& 
         }
         // AffineTransform evaluates products, their sum, then translation. Test coordinates,
         // not just coefficients: cancellation can be large relative to a near-zero result.
-        const auto xx = inverse[0] * point.x;
-        const auto xy = inverse[2] * point.y;
-        const auto yx = inverse[1] * point.x;
-        const auto yy = inverse[3] * point.y;
+        const auto& image = reconstructed ? *reconstructed : point;
+        const auto xx = inverse[0] * image.x;
+        const auto xy = inverse[2] * image.y;
+        const auto yx = inverse[1] * image.x;
+        const auto yy = inverse[3] * image.y;
         const std::array actual{(xx + xy) + (component ? 0 : inverse[4]), (yx + yy) + (component ? 0 : inverse[5])};
         if (component)
         {
@@ -486,7 +487,10 @@ void requireTrackerCoordinates(const LegacyProject& project, const Calibration& 
         {
             check({.frame = sample.frame, .x = sample.tailX, .y = sample.tailY});
             check({.frame = sample.frame, .x = sample.tailX + sample.componentX, .y = sample.tailY + sample.componentY});
-            check({.frame = sample.frame, .x = sample.componentX, .y = sample.componentY}, true);
+            const Mark reconstructed{.frame = sample.frame,
+                                     .x = (sample.tailX + sample.componentX) - sample.tailX,
+                                     .y = (sample.tailY + sample.componentY) - sample.tailY};
+            check({.frame = sample.frame, .x = sample.componentX, .y = sample.componentY}, true, &reconstructed);
         }
     }
 }
@@ -586,7 +590,9 @@ void requireStableVectors(const LegacyProject& project, const std::unordered_map
         require(false);
         return;
     }
-    const auto& origin = project.calibration->keyframes.back();
+    require(project.calibration->fixedAngle && project.calibration->fixedScale && project.calibration->keyframes.size() == 1 &&
+            project.calibration->keyframes.front().frame == 0);
+    const auto& origin = project.calibration->keyframes.front();
     require(std::isfinite(origin.originX) && std::isfinite(origin.originY));
     for (const auto* sample : samples)
     {
@@ -604,6 +610,9 @@ void requireStableVectors(const LegacyProject& project, const std::unordered_map
             }
         }
     }
+    // Also validate edits made under an existing calibration: image-pixel tolerance alone can
+    // hide reconstruction errors that a small scale amplifies in calibrated vector components.
+    requireTrackerCoordinates(project, *project.calibration, trackerInverse(origin));
 }
 
 void remapIds(LegacyProject& project, const std::unordered_map<TrackId, TrackId>& mapping, TrackId nextId)
