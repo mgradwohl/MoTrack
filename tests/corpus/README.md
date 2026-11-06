@@ -31,7 +31,10 @@ Two further mark cases delete every mark from the first mass, resave that empty 
 then add its first mark in MoTrack. They verify empty key arrays and newly created frame data in the
 actual Tracker loader, saver and native reimport. Empty point masses are allowed; expected samples
 and keyframes still have to match exactly.
-Other edits, media/archive round trips, desktop export UI and paired saves remain unfinished.
+The vector cases change tails/components, insert/delete samples, clear a vector, then add its first
+sample after Java resaves the empty vector. They compare unchanged XML, image-space tails/components,
+loaded Java vectors and native reimport. Names, clip/calibration and track-membership edits, media/archive
+round trips, desktop export UI and paired saves remain unfinished.
 
 ## Sources and cases
 
@@ -124,7 +127,7 @@ Inspect the diff and explain every change; CI never records or silently updates 
 reference version and source-file checksums pinned. Add provenance, expected behavior and requirement
 coverage with each case. Never regenerate from MoTrack's output to make a failing comparison pass.
 
-Extend the initial mass/mark tests to every editable type and operation, media, archives and paired-save
+Extend the mass/mark/vector tests to every editable type and operation, media, archives and paired-save
 failures. Preservation of unsupported objects and other archive tabs remains mandatory. The writer's
 mass, framedata and keyFrames properties follow the pinned upstream [PointMass loader](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/PointMass.java);
 the actual 6.3.5 application check, not source inspection alone, determines acceptance.
@@ -136,4 +139,5 @@ java -Djava.awt.headless=true -Xmx256m --class-path .dev-tools/tracker-reference
 ```
 
 Compare its bytes/hash with the committed fixture; the generator refuses to overwrite an existing file.
-This establishes vector import and Java's own resave behavior, not native vector export acceptance.
+The `roundtrip` command additionally exercises `vectors`, `empty-vectors` and `first-vector` exports
+through native save/reopen and separate Tracker application processes.

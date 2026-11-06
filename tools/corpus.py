@@ -293,6 +293,22 @@ def mark_roundtrip_expected(case, mode="marks"):
     return expected
 
 
+def vector_roundtrip_expected(case, mode="vectors"):
+    if case["id"] != "independent-vectors":
+        raise ValueError("The vector oracle is defined for the Java-authored two-vector case")
+    expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
+    if mode == "empty-vectors":
+        expected["vectors"][0]["samples"] = []
+    elif mode == "first-vector":
+        expected["vectors"][0]["samples"] = [{"frame": 4, "tail": [11.25, 22.5], "components": [0.0, 0.0]}]
+    else:
+        expected["vectors"][0]["samples"] = [
+            {"frame": 0, "tail": [22.5, 16.75], "components": [-6.5, 8.25]},
+            {"frame": 3, "tail": [100.125, 200.5], "components": [0.0, -2.5]}]
+        expected["vectors"][1]["samples"] = [{"frame": 7, "tail": [50.0, 60.0], "components": [-10.0, 20.0]}]
+    return expected
+
+
 def canonical_tracker_xml(document):
     def normalize(node, preserve=False):
         if node.nodeType == node.ELEMENT_NODE:
@@ -422,11 +438,80 @@ def verify_mark_export_xml(original, exported, expected_project, mode="marks"):
         raise ValueError("Standard export changed content beyond the requested mark edits")
 
 
+def verify_vector_export_xml(original, exported, expected_project):
+    expected = minidom.parse(str(original))
+    def elements(node, tag):
+        return [child for child in node.childNodes if child.nodeType == child.ELEMENT_NODE and child.tagName == tag]
+    def prop(node, name):
+        matches = [child for child in elements(node, "property") if child.getAttribute("name") == name]
+        if len(matches) != 1:
+            raise ValueError("Unexpected pinned vector fixture structure: " + name)
+        return matches[0]
+    vectors = [obj for item in elements(prop(expected.documentElement, "tracks"), "property")
+               for obj in elements(item, "object") if obj.getAttribute("class") == "org.opensourcephysics.cabrillo.tracker.Vector"]
+    if len(vectors) != 2 or len(expected_project["vectors"]) != 2:
+        raise ValueError("Expected the pinned two-vector experiment")
+    for vector, desired in zip(vectors, expected_project["vectors"]):
+        data = prop(vector, "framedata")
+        entries = {int(item.getAttribute("name")[1:-1]): item for item in elements(data, "property")}
+        samples = {sample["frame"]: sample for sample in desired["samples"]}
+        for frame, item in list(entries.items()):
+            if frame not in samples and elements(item, "object"):
+                data.removeChild(item)
+                del entries[frame]
+        for frame, sample in samples.items():
+            item = entries.get(frame)
+            if item is None:
+                item = expected.createElement("property")
+                item.setAttribute("name", f"[{frame}]")
+                item.setAttribute("type", "object")
+                following = next((entry for number, entry in sorted(entries.items()) if number > frame), None)
+                data.insertBefore(item, following)
+                entries[frame] = item
+            objects = elements(item, "object")
+            if objects:
+                obj = objects[0]
+                old_values = []
+                for name in ["xtail", "ytail", "xcomponent", "ycomponent"]:
+                    old_values.append(float("".join(child.data for child in prop(obj, name).childNodes
+                                                    if child.nodeType in {child.TEXT_NODE, child.CDATA_SECTION_NODE})))
+                if old_values == sample["tail"] + sample["components"]:
+                    continue
+            else:
+                for child in list(item.childNodes):
+                    item.removeChild(child)
+                obj = expected.createElement("object")
+                obj.setAttribute("class", "org.opensourcephysics.cabrillo.tracker.Vector$FrameData")
+                item.appendChild(obj)
+            for name, value in zip(["xtail", "ytail", "xcomponent", "ycomponent"], sample["tail"] + sample["components"]):
+                matches = [child for child in elements(obj, "property") if child.getAttribute("name") == name]
+                if matches:
+                    coordinate = matches[0]
+                    values = [child for child in coordinate.childNodes if child.nodeType in {child.TEXT_NODE, child.CDATA_SECTION_NODE}]
+                    if len(values) != 1:
+                        raise ValueError("Unexpected pinned vector scalar")
+                    values[0].data = format(value, ".17g")
+                else:
+                    coordinate = expected.createElement("property")
+                    coordinate.setAttribute("name", name)
+                    coordinate.setAttribute("type", "double")
+                    coordinate.appendChild(expected.createTextNode(format(value, ".17g")))
+                    obj.appendChild(coordinate)
+    actual = minidom.parse(str(exported))
+    matches = canonical_tracker_xml(expected) == canonical_tracker_xml(actual)
+    expected.unlink()
+    actual.unlink()
+    if not matches:
+        raise ValueError("Standard export changed content beyond the requested vector edits")
+
+
 def check_sessions(manifest, cache, java, probe=None):
     if sys.platform != "linux":
         raise ValueError("Session checks currently require Linux with Xvfb")
     modes = [("mass", "native_mass_roundtrip"), ("marks", "native_mark_roundtrip"),
-             ("empty-marks", "native_mark_roundtrip"), ("first-mark", "native_mark_roundtrip")] if probe else [("session", "session_tracks")]
+             ("empty-marks", "native_mark_roundtrip"), ("first-mark", "native_mark_roundtrip"),
+             ("vectors", "native_vector_roundtrip"), ("empty-vectors", "native_vector_roundtrip"),
+             ("first-vector", "native_vector_roundtrip")] if probe else [("session", "session_tracks")]
     cases = [(case, mode) for case in manifest["cases"] if "session_tracks" in case
              for mode, flag in modes if case.get(flag)]
     if not cases:
@@ -452,6 +537,8 @@ def check_sessions(manifest, cache, java, probe=None):
             project = project_path(case, cache)
             if mode == "first-mark":
                 project = root / (case["id"] + "-empty-marks") / "tracker-resaved.trk"
+            elif mode == "first-vector":
+                project = root / (case["id"] + "-empty-vectors") / "tracker-resaved.trk"
             expected = None
             if probe:
                 exported = output / "motrack-export.trk"
@@ -459,6 +546,9 @@ def check_sessions(manifest, cache, java, probe=None):
                 if mode == "mass":
                     verify_mass_export_xml(project, exported)
                     expected = mass_roundtrip_expected(case)
+                elif "vector" in mode:
+                    expected = vector_roundtrip_expected(case, mode)
+                    verify_vector_export_xml(project, exported, expected)
                 else:
                     expected = mark_roundtrip_expected(case, mode)
                     verify_mark_export_xml(project, exported, expected, mode)

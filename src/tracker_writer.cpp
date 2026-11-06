@@ -145,19 +145,30 @@ std::set<int> readKeys(const QDomElement& object, const std::vector<Mark>& origi
     return result;
 }
 
-void patchMarks(QDomDocument& xml, const QDomElement& object, const std::vector<Mark>& original, const std::vector<Mark>& current)
+struct FrameChanges
 {
-    std::map<int, const Mark*> marks;
+    std::vector<int> updated;
+    std::vector<int> removed;
+};
+
+template <typename Sample, typename Update>
+FrameChanges patchFrameData(QDomDocument& xml,
+                            const QDomElement& object,
+                            const std::vector<Sample>& original,
+                            const std::vector<Sample>& current,
+                            const QString& className,
+                            Update update)
+{
+    std::map<int, const Sample*> marks;
     int previous = -1;
     for (const auto& mark : current)
     {
-        require(mark.frame > previous && std::isfinite(mark.x) && std::isfinite(mark.y));
+        require(mark.frame > previous);
         marks.emplace(mark.frame, &mark);
         previous = mark.frame;
     }
-    auto keys = readKeys(object, original);
-    const auto oldKeys = keys;
-    const auto data = arrayProperty(xml, object, "framedata", "[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;");
+    FrameChanges changes;
+    const auto data = arrayProperty(xml, object, "framedata", "[L" + className + ';');
     std::map<int, QDomElement> entries;
     int lastEntry = -1;
     for (auto item = data.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"))
@@ -174,7 +185,7 @@ void patchMarks(QDomDocument& xml, const QDomElement& object, const std::vector<
             auto parent = data;
             parent.removeChild(entries.at(mark.frame));
             entries.erase(mark.frame);
-            keys.erase(mark.frame);
+            changes.removed.push_back(mark.frame);
         }
         else if (*found->second == mark)
         {
@@ -226,13 +237,10 @@ void patchMarks(QDomDocument& xml, const QDomElement& object, const std::vector<
             item.appendChild(step);
             item.appendChild(xml.createTextNode("\n"));
         }
-        require(
-            step.nextSiblingElement("object").isNull() &&
-            (step.attribute("class").isEmpty() || step.attribute("class") == "org.opensourcephysics.cabrillo.tracker.PointMass$FrameData"));
-        step.setAttribute("class", "org.opensourcephysics.cabrillo.tracker.PointMass$FrameData");
-        patchDouble(xml, step, "x", mark->x);
-        patchDouble(xml, step, "y", mark->y);
-        keys.insert(frame);
+        require(step.nextSiblingElement("object").isNull() && (step.attribute("class").isEmpty() || step.attribute("class") == className));
+        step.setAttribute("class", className);
+        update(xml, step, *mark);
+        changes.updated.push_back(frame);
     }
     // OSP's array reader consumes consecutive property lines. Deleting an entry can leave a blank
     // line in preserved formatting that makes it stop early. Format only this known structural array,
@@ -270,6 +278,29 @@ void patchMarks(QDomDocument& xml, const QDomElement& object, const std::vector<
     {
         array.appendChild(xml.createTextNode("\n"));
     }
+    return changes;
+}
+
+void patchMarks(QDomDocument& xml, const QDomElement& object, const std::vector<Mark>& original, const std::vector<Mark>& current)
+{
+    auto keys = readKeys(object, original);
+    const auto oldKeys = keys;
+    const auto changes = patchFrameData(xml,
+                                        object,
+                                        original,
+                                        current,
+                                        "org.opensourcephysics.cabrillo.tracker.PointMass$FrameData",
+                                        [](auto& document, const auto& step, const Mark& mark)
+                                        {
+                                            require(std::isfinite(mark.x) && std::isfinite(mark.y));
+                                            patchDouble(document, step, "x", mark.x);
+                                            patchDouble(document, step, "y", mark.y);
+                                        });
+    for (const auto frame : changes.removed)
+    {
+        keys.erase(frame);
+    }
+    keys.insert(changes.updated.begin(), changes.updated.end());
     // An empty key list makes Tracker promote every remaining automatic mark to a manual key.
     // Until that distinction is in the editable model, reject edits that cannot retain it.
     require(!keys.empty() || current.empty());
@@ -357,6 +388,7 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
     auto expected = project;
     sortTracks(expected);
     require(expected.pointMasses.size() == baseline.project.pointMasses.size());
+    require(expected.vectors.size() == baseline.project.vectors.size());
 
     QDomDocument xml;
     require(static_cast<bool>(xml.setContent(QByteArray::fromStdString(source.xml), QDomDocument::ParseOption::PreserveSpacingOnlyNodes)));
@@ -386,6 +418,31 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
         {
             patchMarks(xml, objects.at(current.id), original.marks, current.marks);
             original.marks = current.marks;
+            changed = true;
+        }
+    }
+    for (std::size_t index = 0; index < expected.vectors.size(); ++index)
+    {
+        const auto& current = expected.vectors[index];
+        auto& original = baseline.project.vectors[index];
+        require(current.id == original.id);
+        if (current.samples != original.samples)
+        {
+            patchFrameData(xml,
+                           objects.at(current.id),
+                           original.samples,
+                           current.samples,
+                           "org.opensourcephysics.cabrillo.tracker.Vector$FrameData",
+                           [](auto& document, const auto& step, const VectorSample& sample)
+                           {
+                               require(std::isfinite(sample.tailX) && std::isfinite(sample.tailY) && std::isfinite(sample.componentX) &&
+                                       std::isfinite(sample.componentY));
+                               patchDouble(document, step, "xtail", sample.tailX);
+                               patchDouble(document, step, "ytail", sample.tailY);
+                               patchDouble(document, step, "xcomponent", sample.componentX);
+                               patchDouble(document, step, "ycomponent", sample.componentY);
+                           });
+            original.samples = current.samples;
             changed = true;
         }
     }

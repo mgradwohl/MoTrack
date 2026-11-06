@@ -96,7 +96,8 @@ try
     const QCoreApplication application(argc, argv);
     const auto args = application.arguments();
     if (args.size() == 4 && (args[1] == "--export-mass" || args[1] == "--export-marks" || args[1] == "--export-empty-marks" ||
-                             args[1] == "--export-first-mark"))
+                             args[1] == "--export-first-mark" || args[1] == "--export-vectors" || args[1] == "--export-empty-vectors" ||
+                             args[1] == "--export-first-vector"))
     {
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trk");
@@ -113,6 +114,41 @@ try
                 !edits.setPointMassValue(document.project, 0, document.project.pointMasses.front().mass * 2.5))
             {
                 throw motrack::ProjectError("Could not edit round-trip mass.");
+            }
+        }
+        else if (args[1].contains("vector"))
+        {
+            if (document.project.vectors.size() != 2)
+            {
+                throw motrack::ProjectError("Expected the pinned two-vector case.");
+            }
+            if (args[1] == "--export-vectors")
+            {
+                if (!edits.markVector(
+                        document.project, 0, {.frame = 0, .tailX = 22.5, .tailY = 16.75, .componentX = -6.5, .componentY = 8.25}) ||
+                    !edits.markVector(
+                        document.project, 0, {.frame = 3, .tailX = 100.125, .tailY = 200.5, .componentX = 0, .componentY = -2.5}) ||
+                    !edits.removeVectorSample(document.project, 0, 5) || !edits.removeVectorSample(document.project, 1, 2) ||
+                    !edits.markVector(document.project, 1, {.frame = 7, .tailX = 50, .tailY = 60, .componentX = -10, .componentY = 20}))
+                {
+                    throw motrack::ProjectError("Could not edit round-trip vectors.");
+                }
+            }
+            else if (args[1] == "--export-empty-vectors")
+            {
+                const auto original = document.project.vectors.front().samples;
+                for (const auto& sample : original)
+                {
+                    if (!edits.removeVectorSample(document.project, 0, sample.frame))
+                    {
+                        throw motrack::ProjectError("Could not clear round-trip vector samples.");
+                    }
+                }
+            }
+            else if (!document.project.vectors.front().samples.empty() ||
+                     !edits.markVector(document.project, 0, {.frame = 4, .tailX = 11.25, .tailY = 22.5, .componentX = 0, .componentY = 0}))
+            {
+                throw motrack::ProjectError("Could not add the first round-trip vector sample.");
             }
         }
         else if (args[1] == "--export-marks")
@@ -168,7 +204,7 @@ try
     }
     if (args.size() != 3)
     {
-        std::fputs("Usage: motrack_corpus_probe input.trk output.json | --export-mass/--export-marks input.trk output.trk\n", stderr);
+        std::fputs("Usage: motrack_corpus_probe input.trk output.json | --export-<case> input.trk output.trk\n", stderr);
         return 1;
     }
 #ifdef _WIN32
