@@ -131,6 +131,10 @@ TEST(MeasurementPlot, DifferentiatesAtTheCenterOfUnevenFrameTimes)
     ASSERT_EQ(velocity.samples.size(), 1u);
     EXPECT_DOUBLE_EQ(velocity.samples.front().horizontal, 1.0);
     EXPECT_DOUBLE_EQ(velocity.samples.front().vertical, 2.0);
+    const auto shifted = motrack::measurementPlot(project, 0, motrack::PlotQuantity::VelocityX, frameTimes, -0.75);
+    ASSERT_EQ(shifted.samples.size(), 1u);
+    EXPECT_DOUBLE_EQ(shifted.samples.front().horizontal, 0.25);
+    EXPECT_DOUBLE_EQ(shifted.samples.front().vertical, 2.0);
     const auto speed = motrack::measurementPlot(project, 0, motrack::PlotQuantity::Speed, frameTimes);
     ASSERT_EQ(speed.samples.size(), 1u);
     EXPECT_NEAR(speed.samples.front().vertical, 2.0 * std::numbers::sqrt2, 1e-12);

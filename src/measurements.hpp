@@ -63,8 +63,11 @@ struct LinearFit
 [[nodiscard]] std::string measurementsCsv(const LegacyProject& project);
 
 /// Frame times are seconds indexed by original frame number. Saved constant timing is the fallback.
-[[nodiscard]] PlotSeries
-measurementPlot(const LegacyProject& project, std::size_t track, PlotQuantity quantity, std::span<const double> frameTimes = {});
+[[nodiscard]] PlotSeries measurementPlot(const LegacyProject& project,
+                                         std::size_t track,
+                                         PlotQuantity quantity,
+                                         std::span<const double> frameTimes = {},
+                                         double presentationOffsetSeconds = 0.0);
 
 /// Fits a straight line to finite plotted samples with at least two distinct horizontal values.
 [[nodiscard]] std::optional<LinearFit> fitStraightLine(std::span<const PlotSample> samples);

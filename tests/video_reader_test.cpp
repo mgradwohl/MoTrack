@@ -44,6 +44,19 @@ TEST(VideoReader, RejectsMissingFilesAndUnknownFormats)
     EXPECT_THROW(motrack::VideoReader{fixturePath("point-mass.trk")}, motrack::VideoError);
 }
 
+TEST(VideoReader, IndexesRelativeTimestampsAndHonorsCancellation)
+{
+    std::atomic_bool cancelled = false;
+    const auto path = fixturePath("vfr.mp4");
+    const auto index = motrack::buildMovieIndex(path, motrack::VideoOrientation::Encoded, cancelled);
+    EXPECT_EQ(index.frameCount, 4);
+    ASSERT_EQ(index.frameTimes.size(), 4u);
+    EXPECT_DOUBLE_EQ(index.frameTimes.front(), 0.0);
+    EXPECT_NEAR(index.frameTimes.back(), 0.328, 1e-12);
+    cancelled = true;
+    EXPECT_EQ(motrack::buildMovieIndex(path, motrack::VideoOrientation::Encoded, cancelled).frameCount, 0);
+}
+
 TEST(VideoReader, AppliesOrthogonalDisplayMetadataWithoutChangingTimestamps)
 {
     QFile original(fixturePath("vfr.mp4"));

@@ -13,6 +13,7 @@ struct WorkspaceDocument
     std::vector<double> movieFrameTimes;
     bool movie = false;
     bool useDisplayOrientation = false;
+    bool alignMovieToClip = false;
     std::string archiveReference = {};
 };
 

@@ -2,11 +2,13 @@
 
 #include <QImage>
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <vector>
 
 namespace motrack
 {
@@ -30,6 +32,12 @@ enum class VideoOrientation : std::uint8_t
     Display,
 };
 
+struct MovieIndex
+{
+    int frameCount = 0;
+    std::vector<double> frameTimes;
+};
+
 /// Decodes a local movie in presentation order. Each reader belongs to a single thread.
 class VideoReader
 {
@@ -50,5 +58,8 @@ class VideoReader
     struct Impl;
     std::unique_ptr<Impl> m_Impl;
 };
+
+/// Indexes presentation-order frames and monotonic timestamps in seconds from the movie's first frame.
+[[nodiscard]] MovieIndex buildMovieIndex(const QString& path, VideoOrientation orientation, const std::atomic_bool& cancelled);
 
 } // namespace motrack

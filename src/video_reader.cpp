@@ -324,4 +324,57 @@ std::optional<MovieFrame> VideoReader::decodeNext(bool convertPixels)
     }
 }
 
+MovieIndex buildMovieIndex(const QString& path, VideoOrientation orientation, const std::atomic_bool& cancelled)
+{
+    constexpr int MAX_INDEXED_FRAMES = 2'000'000;
+    if (cancelled)
+    {
+        return {};
+    }
+    try
+    {
+        VideoReader reader(path, orientation);
+        MovieIndex index;
+        std::optional<double> start;
+        bool hasTiming = true;
+        while (!cancelled)
+        {
+            const auto frame = index.frameCount == 0 ? reader.readNext() : reader.skipNext();
+            if (!frame)
+            {
+                return index;
+            }
+            if (index.frameCount == MAX_INDEXED_FRAMES)
+            {
+                return {};
+            }
+            ++index.frameCount;
+            if (hasTiming)
+            {
+                if (frame->presentationTime)
+                {
+                    const auto seconds = std::chrono::duration<double>(*frame->presentationTime).count();
+                    start = start.value_or(seconds);
+                    const auto relative = seconds - *start;
+                    hasTiming = index.frameTimes.empty() || relative > index.frameTimes.back();
+                    index.frameTimes.push_back(relative);
+                }
+                else
+                {
+                    hasTiming = false;
+                }
+                if (!hasTiming)
+                {
+                    index.frameTimes.clear();
+                }
+            }
+        }
+    }
+    catch (const VideoError&)
+    {
+        return {};
+    }
+    return {};
+}
+
 } // namespace motrack
