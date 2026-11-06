@@ -3,12 +3,16 @@
 #include "measurements.hpp"
 #include "video_reader.hpp"
 
+#include <QCloseEvent>
+#include <QComboBox>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QKeySequence>
 #include <QLabel>
 #include <QMenuBar>
+#include <QMessageBox>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QSaveFile>
 #include <QSignalBlocker>
@@ -23,6 +27,8 @@
 #include <QtConcurrentRun>
 
 #include <algorithm>
+#include <functional>
+#include <iterator>
 #include <utility>
 
 namespace motrack
@@ -31,6 +37,8 @@ namespace motrack
 class VideoCanvas final : public QWidget
 {
   public:
+    std::function<void(QPointF)> mark;
+
     void display(QImage image, QList<QPointF> marks, const QString& message)
     {
         m_Image = std::move(image);
@@ -41,6 +49,23 @@ class VideoCanvas final : public QWidget
     }
 
   protected:
+    void mousePressEvent(QMouseEvent* event) override
+    {
+        if (!m_Image.isNull() && mark && event->button() == Qt::LeftButton && event->modifiers().testFlag(Qt::ShiftModifier))
+        {
+            const auto area = imageArea();
+            const auto position = event->position();
+            if (area.contains(position) && !area.isEmpty())
+            {
+                mark({(position.x() - area.left()) * m_Image.width() / area.width(),
+                      (position.y() - area.top()) * m_Image.height() / area.height()});
+                event->accept();
+                return;
+            }
+        }
+        QWidget::mousePressEvent(event);
+    }
+
     void paintEvent(QPaintEvent* /*event*/) override
     {
         QPainter painter(this);
@@ -52,8 +77,7 @@ class VideoCanvas final : public QWidget
             return;
         }
 
-        const auto scaled = m_Image.size().scaled(size(), Qt::KeepAspectRatio);
-        const QRectF area(QPoint((width() - scaled.width()) / 2, (height() - scaled.height()) / 2), scaled);
+        const auto area = imageArea();
         painter.drawImage(area, m_Image);
         painter.setClipRect(area);
         painter.setPen(QPen(Qt::yellow, 2));
@@ -66,6 +90,12 @@ class VideoCanvas final : public QWidget
     }
 
   private:
+    [[nodiscard]] QRectF imageArea() const
+    {
+        const auto scaled = m_Image.size().scaled(size(), Qt::KeepAspectRatio);
+        return {QPoint((width() - scaled.width()) / 2, (height() - scaled.height()) / 2), scaled};
+    }
+
     QImage m_Image;
     QList<QPointF> m_Marks;
     QString m_Message;
@@ -84,7 +114,27 @@ MainWindow::MainWindow()
     m_Export->setObjectName("exportMeasurements");
     m_Export->setEnabled(false);
     fileMenu->addAction(m_Export);
-    addToolBar(tr("Project"))->addAction(open);
+    auto* editMenu = menuBar()->addMenu(tr("&Edit"));
+    m_Undo = editMenu->addAction(tr("&Undo"));
+    m_Undo->setObjectName("undoEdit");
+    m_Undo->setShortcut(QKeySequence::Undo);
+    m_Redo = editMenu->addAction(tr("&Redo"));
+    m_Redo->setObjectName("redoEdit");
+    m_Redo->setShortcut(QKeySequence::Redo);
+    auto* tracksMenu = menuBar()->addMenu(tr("&Tracks"));
+    m_NewPointMass = tracksMenu->addAction(tr("New &point mass"));
+    m_NewPointMass->setObjectName("newPointMass");
+    m_NewPointMass->setEnabled(false);
+    auto* repeat = tracksMenu->addAction(tr("Repeat previous mark"));
+    repeat->setObjectName("repeatMark");
+    repeat->setShortcuts({QKeySequence("Shift+Return"), QKeySequence("Shift+Enter")});
+    auto* tools = addToolBar(tr("Project"));
+    tools->addAction(open);
+    tools->addAction(m_NewPointMass);
+    m_TrackPicker = new QComboBox;
+    m_TrackPicker->setObjectName("trackPicker");
+    m_TrackPicker->setAccessibleName(tr("Selected point mass"));
+    tools->addWidget(m_TrackPicker);
 
     auto* workspace = new QSplitter;
     auto* videoPane = new QWidget;
@@ -92,6 +142,11 @@ MainWindow::MainWindow()
     m_Video = new VideoCanvas;
     m_Video->setObjectName("videoCanvas");
     m_Video->setMinimumSize(240, 160);
+    m_Video->setToolTip(tr("Shift-click the image to mark the selected point mass."));
+    m_Video->mark = [this](QPointF position)
+    {
+        markAt(position);
+    };
     m_Video->display({}, {}, tr("Open a Tracker project to inspect its saved marks."));
     layout->addWidget(m_Video, 1);
 
@@ -131,6 +186,7 @@ MainWindow::MainWindow()
     m_MovieWorkers.setMaxThreadCount(1);
 
     displayStep(0);
+    refreshEditViews(0);
     connect(m_StepSlider, &QSlider::valueChanged, this, &MainWindow::displayStep);
     connect(m_Previous, &QToolButton::clicked, m_StepSlider, [this] { m_StepSlider->triggerAction(QSlider::SliderSingleStepSub); });
     connect(m_Next, &QToolButton::clicked, m_StepSlider, [this] { m_StepSlider->triggerAction(QSlider::SliderSingleStepAdd); });
@@ -140,7 +196,7 @@ MainWindow::MainWindow()
             [this]
             {
                 const auto path = QFileDialog::getOpenFileName(this, tr("Open Tracker project"), {}, tr("Tracker projects (*.trk)"));
-                if (!path.isEmpty())
+                if (!path.isEmpty() && confirmDiscard())
                 {
                     loadProject(path);
                 }
@@ -156,6 +212,37 @@ MainWindow::MainWindow()
                     saveMeasurements(path.endsWith(".csv", Qt::CaseInsensitive) ? path : path + ".csv");
                 }
             });
+    connect(m_NewPointMass,
+            &QAction::triggered,
+            this,
+            [this]
+            {
+                const auto index = m_Project.pointMasses.size();
+                m_Edits.createPointMass(m_Project, tr("Point Mass %1").arg(index + 1).toStdString());
+                refreshEditViews(static_cast<int>(index));
+                statusBar()->showMessage(tr("Shift-click the image to mark the selected point mass."));
+            });
+    connect(m_Undo,
+            &QAction::triggered,
+            this,
+            [this]
+            {
+                if (m_Edits.undo(m_Project))
+                {
+                    refreshEditViews(m_TrackPicker->currentIndex());
+                }
+            });
+    connect(m_Redo,
+            &QAction::triggered,
+            this,
+            [this]
+            {
+                if (m_Edits.redo(m_Project))
+                {
+                    refreshEditViews(m_TrackPicker->currentIndex());
+                }
+            });
+    connect(repeat, &QAction::triggered, this, &MainWindow::repeatPreviousMark);
 }
 
 MainWindow::~MainWindow()
@@ -177,8 +264,10 @@ bool MainWindow::loadProject(const QString& path)
 
     ++*m_RequestGeneration;
     m_FrameWatcher.reset();
-    displayMarks();
-    m_Export->setEnabled(m_Marks->rowCount() > 0);
+    m_DisplayedFrame.reset();
+    m_Edits.clear();
+    m_NewPointMass->setEnabled(true);
+    refreshEditViews(0);
     m_Sequence = ImageSequence::open(path, m_Project.clip);
     m_MoviePath.clear();
     const auto& clip = m_Project.clip;
@@ -203,8 +292,80 @@ bool MainWindow::loadProject(const QString& path)
     displayStep(0);
     statusBar()->showMessage(
         tr("Imported %1 marks. Unsupported tracks: %2.").arg(m_Marks->rowCount()).arg(m_Project.unsupportedTrackTypes.size()));
-    setWindowTitle(tr("%1 — MoTrack").arg(QFileInfo(path).fileName()));
+    setWindowTitle(tr("%1[*] — MoTrack").arg(QFileInfo(path).fileName()));
     return true;
+}
+
+bool MainWindow::confirmDiscard()
+{
+    return !m_Edits.canUndo() || QMessageBox::question(this,
+                                                       tr("Discard tracking edits?"),
+                                                       tr("Your tracking edits are only stored in this session."),
+                                                       QMessageBox::Discard | QMessageBox::Cancel,
+                                                       QMessageBox::Cancel) == QMessageBox::Discard;
+}
+
+void MainWindow::closeEvent(QCloseEvent* event)
+{
+    if (confirmDiscard())
+    {
+        event->accept();
+    }
+    else
+    {
+        event->ignore();
+    }
+}
+
+void MainWindow::refreshEditViews(int track)
+{
+    const QSignalBlocker blocker(m_TrackPicker);
+    m_TrackPicker->clear();
+    for (const auto& mass : m_Project.pointMasses)
+    {
+        m_TrackPicker->addItem(QString::fromStdString(mass.name));
+    }
+    m_TrackPicker->setCurrentIndex(std::min(std::max(0, track), m_TrackPicker->count() - 1));
+    m_Undo->setEnabled(m_Edits.canUndo());
+    m_Redo->setEnabled(m_Edits.canRedo());
+    setWindowModified(m_Edits.canUndo());
+    displayMarks();
+    m_Export->setEnabled(m_Marks->rowCount() > 0);
+    if (m_DisplayedFrame && !m_DisplayedFrame->image.isNull())
+    {
+        displayFrame(*m_DisplayedFrame, {});
+    }
+}
+
+void MainWindow::markAt(const QPointF& position)
+{
+    const auto track = m_TrackPicker->currentIndex();
+    if (track < 0 || !m_DisplayedFrame || m_DisplayedFrame->image.isNull())
+    {
+        return;
+    }
+    const Mark mark{.frame = m_DisplayedFrame->number, .x = position.x(), .y = position.y()};
+    if (m_Edits.markPointMass(m_Project, static_cast<std::size_t>(track), mark))
+    {
+        refreshEditViews(track);
+        m_StepSlider->triggerAction(QSlider::SliderSingleStepAdd);
+    }
+}
+
+void MainWindow::repeatPreviousMark()
+{
+    const auto track = m_TrackPicker->currentIndex();
+    if (track < 0 || !m_DisplayedFrame)
+    {
+        return;
+    }
+    const auto& marks = m_Project.pointMasses.at(static_cast<std::size_t>(track)).marks;
+    const auto previous = std::ranges::lower_bound(marks, m_DisplayedFrame->number, {}, &Mark::frame);
+    if (previous != marks.begin())
+    {
+        const auto& mark = *std::prev(previous);
+        markAt({mark.x, mark.y});
+    }
 }
 
 bool MainWindow::saveMeasurements(const QString& path)
@@ -274,6 +435,7 @@ void MainWindow::displayStep(int step)
 
 void MainWindow::displayFrame(const ImageFrame& frame, const QString& failureMessage)
 {
+    m_DisplayedFrame = frame;
     const auto label = tr("Frame %1").arg(frame.number);
     m_FrameLabel->setText(label);
     QList<QPointF> points;
@@ -291,6 +453,7 @@ void MainWindow::displayFrame(const ImageFrame& frame, const QString& failureMes
 void MainWindow::requestMovieFrame(int frame)
 {
     const auto generation = ++*m_RequestGeneration;
+    m_DisplayedFrame.reset();
     m_FrameLabel->setText(tr("Frame %1").arg(frame));
     m_Video->display({}, {}, tr("Decoding frame…"));
     m_FrameWatcher = std::make_unique<QFutureWatcher<QImage>>();

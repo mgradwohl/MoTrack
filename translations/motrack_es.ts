@@ -16,7 +16,7 @@
     <message><source>Tracker projects (*.trk)</source><translation>Proyectos de Tracker (*.trk)</translation></message>
     <message><source>Imported %1 marks. Unsupported tracks: %2.</source><translation>Marcas importadas: %1. Trayectorias no compatibles: %2.</translation></message>
     <message><source>Could not open this Tracker project.</source><translation>No se pudo abrir este proyecto de Tracker.</translation></message>
-    <message><source>%1 — MoTrack</source><translation>%1 — MoTrack</translation></message>
+    <message><source>%1[*] — MoTrack</source><translation>%1[*] — MoTrack</translation></message>
     <message><source>Previous frame</source><translation>Fotograma anterior</translation></message>
     <message><source>Next frame</source><translation>Fotograma siguiente</translation></message>
     <message><source>Clip position</source><translation>Posición en el clip</translation></message>
@@ -32,5 +32,16 @@
     <message><source>Measurements exported.</source><translation>Mediciones exportadas.</translation></message>
     <message><source>World x</source><translation>x del mundo</translation></message>
     <message><source>World y</source><translation>y del mundo</translation></message>
+    <message><source>&amp;Edit</source><translation>&amp;Editar</translation></message>
+    <message><source>&amp;Undo</source><translation>&amp;Deshacer</translation></message>
+    <message><source>&amp;Redo</source><translation>&amp;Rehacer</translation></message>
+    <message><source>&amp;Tracks</source><translation>&amp;Trayectorias</translation></message>
+    <message><source>New &amp;point mass</source><translation>Nueva &amp;masa puntual</translation></message>
+    <message><source>Repeat previous mark</source><translation>Repetir la marca anterior</translation></message>
+    <message><source>Selected point mass</source><translation>Masa puntual seleccionada</translation></message>
+    <message><source>Shift-click the image to mark the selected point mass.</source><translation>Haz clic en la imagen con Mayús para marcar la masa puntual seleccionada.</translation></message>
+    <message><source>Point Mass %1</source><translation>Masa puntual %1</translation></message>
+    <message><source>Discard tracking edits?</source><translation>¿Descartar los cambios de seguimiento?</translation></message>
+    <message><source>Your tracking edits are only stored in this session.</source><translation>Los cambios de seguimiento solo se conservan durante esta sesión.</translation></message>
   </context>
 </TS>

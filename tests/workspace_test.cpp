@@ -3,9 +3,12 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QComboBox>
 #include <QFile>
 #include <QFileDialog>
 #include <QLabel>
+#include <QMessageBox>
+#include <QPushButton>
 #include <QSlider>
 #include <QTableWidget>
 #include <QTemporaryDir>
@@ -186,6 +189,69 @@ TEST(Workspace, ReportsUnavailableMovieFrames)
     ASSERT_TRUE(slider && canvas);
     slider->setValue(2);
     ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "This video frame could not be decoded."; }));
+}
+
+TEST(Workspace, MarksASelectedPointMassAdvancesAndSupportsUndo)
+{
+    motrack::MainWindow window;
+    window.show();
+    ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
+    auto* canvas = window.findChild<QWidget*>("videoCanvas");
+    auto* slider = window.findChild<QSlider*>("stepSlider");
+    auto* picker = window.findChild<QComboBox*>("trackPicker");
+    auto* marks = window.findChild<QTableWidget*>("marksTable");
+    auto* add = window.findChild<QAction*>("newPointMass");
+    auto* undo = window.findChild<QAction*>("undoEdit");
+    auto* redo = window.findChild<QAction*>("redoEdit");
+    auto* repeat = window.findChild<QAction*>("repeatMark");
+    ASSERT_TRUE(canvas && slider && picker && marks && add && undo && redo && repeat);
+    EXPECT_FALSE(undo->isEnabled());
+    add->trigger();
+    EXPECT_EQ(picker->count(), 2);
+    EXPECT_EQ(picker->currentText(), "Point Mass 2");
+    EXPECT_TRUE(window.isWindowModified());
+    QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, canvas->rect().center());
+    EXPECT_EQ(marks->rowCount(), 2);
+    QTest::mouseClick(canvas, Qt::LeftButton, Qt::ShiftModifier, canvas->rect().center());
+    EXPECT_EQ(marks->rowCount(), 3);
+    EXPECT_EQ(slider->value(), 1);
+    repeat->trigger();
+    EXPECT_EQ(marks->rowCount(), 4);
+    EXPECT_EQ(marks->item(2, 2)->text(), marks->item(3, 2)->text());
+    EXPECT_EQ(marks->item(2, 3)->text(), marks->item(3, 3)->text());
+
+    undo->trigger();
+    EXPECT_EQ(marks->rowCount(), 3);
+    EXPECT_TRUE(redo->isEnabled());
+    redo->trigger();
+    EXPECT_EQ(marks->rowCount(), 4);
+}
+
+TEST(Workspace, LetsTheUserCancelOrDiscardUnsavedTrackingEdits)
+{
+    motrack::MainWindow window;
+    window.show();
+    ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
+    auto* add = window.findChild<QAction*>("newPointMass");
+    ASSERT_NE(add, nullptr);
+    add->trigger();
+
+    const auto choose = [&window](QMessageBox::StandardButton choice)
+    {
+        QTimer::singleShot(0,
+                           &window,
+                           [choice]
+                           {
+                               if (auto* dialog = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
+                               {
+                                   dialog->button(choice)->click();
+                               }
+                           });
+        return window.close();
+    };
+    EXPECT_FALSE(choose(QMessageBox::Cancel));
+    EXPECT_TRUE(window.isWindowModified());
+    EXPECT_TRUE(choose(QMessageBox::Discard));
 }
 
 } // namespace

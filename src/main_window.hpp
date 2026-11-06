@@ -2,6 +2,7 @@
 
 #include "image_sequence.hpp"
 #include "legacy_project.hpp"
+#include "track_edits.hpp"
 
 #include <QCoreApplication>
 #include <QFutureWatcher>
@@ -13,6 +14,8 @@
 
 class QLabel;
 class QAction;
+class QCloseEvent;
+class QComboBox;
 class QSlider;
 class QTableWidget;
 class QToolButton;
@@ -32,11 +35,18 @@ class MainWindow final : public QMainWindow
     bool loadProject(const QString& path);
     bool saveMeasurements(const QString& path);
 
+  protected:
+    void closeEvent(QCloseEvent* event) override;
+
   private:
     void displayStep(int step);
     void displayMarks();
     void displayFrame(const ImageFrame& frame, const QString& failureMessage);
     void requestMovieFrame(int frame);
+    void refreshEditViews(int track);
+    void markAt(const QPointF& position);
+    void repeatPreviousMark();
+    [[nodiscard]] bool confirmDiscard();
 
     VideoCanvas* m_Video;
     QLabel* m_FrameLabel;
@@ -45,8 +55,14 @@ class MainWindow final : public QMainWindow
     QToolButton* m_Next;
     QTableWidget* m_Marks;
     QAction* m_Export;
+    QAction* m_NewPointMass;
+    QAction* m_Undo;
+    QAction* m_Redo;
+    QComboBox* m_TrackPicker;
     LegacyProject m_Project;
+    TrackEdits m_Edits;
     std::optional<ImageSequence> m_Sequence;
+    std::optional<ImageFrame> m_DisplayedFrame;
     QString m_MoviePath;
     QThreadPool m_MovieWorkers;
     std::unique_ptr<QFutureWatcher<QImage>> m_FrameWatcher;
