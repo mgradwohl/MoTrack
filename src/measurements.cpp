@@ -207,4 +207,47 @@ PlotSeries measurementPlot(const LegacyProject& project, std::size_t track, Plot
     return series;
 }
 
+std::optional<LinearFit> fitStraightLine(std::span<const PlotSample> samples)
+{
+    std::size_t count = 0;
+    double meanX = 0.0;
+    double meanY = 0.0;
+    double varianceX = 0.0;
+    double varianceY = 0.0;
+    double covariance = 0.0;
+    // Update the centered sums directly to preserve precision when coordinates have a large offset.
+    for (const auto& sample : samples)
+    {
+        if (!std::isfinite(sample.horizontal) || !std::isfinite(sample.vertical))
+        {
+            continue;
+        }
+        const auto deltaX = sample.horizontal - meanX;
+        const auto deltaY = sample.vertical - meanY;
+        const auto size = static_cast<double>(++count);
+        meanX += deltaX / size;
+        meanY += deltaY / size;
+        varianceX += deltaX * (sample.horizontal - meanX);
+        varianceY += deltaY * (sample.vertical - meanY);
+        covariance += deltaX * (sample.vertical - meanY);
+    }
+    if (count < 2 || varianceX <= 0.0 || !std::isfinite(varianceX) || !std::isfinite(varianceY) || !std::isfinite(covariance))
+    {
+        return std::nullopt;
+    }
+    const auto slope = covariance / varianceX;
+    const auto intercept = std::fma(-slope, meanX, meanY);
+    if (!std::isfinite(slope) || !std::isfinite(intercept))
+    {
+        return std::nullopt;
+    }
+    std::optional<double> rSquared;
+    if (varianceY > 0.0)
+    {
+        const auto correlation = covariance / std::sqrt(varianceX) / std::sqrt(varianceY);
+        rSquared = std::clamp(correlation * correlation, 0.0, 1.0);
+    }
+    return LinearFit{.slope = slope, .intercept = intercept, .rSquared = rSquared};
+}
+
 } // namespace motrack

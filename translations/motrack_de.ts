@@ -3,6 +3,7 @@
 <TS version="2.1" language="de">
   <context>
     <name>MainWindow</name>
+    <message><source>Linear fit</source><translation>Lineare Anpassung</translation></message>
     <message><source>&amp;Open project…</source><translation>Projekt ö&amp;ffnen…</translation></message>
     <message><source>Save project &amp;as…</source><translation>Projekt speichern &amp;unter…</translation></message>
     <message><source>&amp;Save project</source><translation>Projekt &amp;speichern</translation></message>
@@ -117,6 +118,8 @@
   </context>
   <context>
     <name>PositionPlot</name>
+    <message><source>Linear fit needs two distinct horizontal values.</source><translation>Für die lineare Anpassung sind zwei unterschiedliche horizontale Werte erforderlich.</translation></message>
+    <message><source>Slope %1 · intercept %2 · R² %3</source><translation>Steigung %1 · Achsenabschnitt %2 · R² %3</translation></message>
     <message><source>%1 versus %2</source><translation>%1 in Abhängigkeit von %2</translation></message>
     <message><source>No measurements to plot.</source><translation>Keine Messwerte für das Diagramm.</translation></message>
   </context>

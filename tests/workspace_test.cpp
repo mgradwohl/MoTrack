@@ -4,6 +4,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
 #include <QDoubleSpinBox>
@@ -232,6 +233,27 @@ TEST(Workspace, PlotsPositionAndSeeksToASelectedMeasurement)
     EXPECT_EQ(plot->accessibleName(), "speed (m/s) versus Time (s)");
     quantities->setCurrentIndex(5);
     EXPECT_EQ(plot->accessibleName(), QString::fromUtf8("x acceleration (m/s²) versus Time (s)"));
+}
+
+TEST(Workspace, ShowsALinearFitForTheSelectedQuantity)
+{
+    motrack::MainWindow window;
+    window.show();
+    ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
+    auto* fit = window.findChild<QCheckBox*>("linearFit");
+    auto* summary = window.findChild<QLabel*>("linearFitSummary");
+    auto* quantities = window.findChild<QComboBox*>("plotQuantity");
+    auto* plot = window.findChild<QWidget*>("positionPlot");
+    ASSERT_TRUE(fit && summary && quantities && plot);
+    EXPECT_FALSE(summary->isVisible());
+    fit->click();
+    EXPECT_TRUE(summary->isVisible());
+    EXPECT_TRUE(summary->text().contains(QString::fromUtf8("R² 1")));
+    EXPECT_FALSE(plot->grab().isNull());
+    quantities->setCurrentIndex(2);
+    EXPECT_EQ(summary->text(), "Linear fit needs two distinct horizontal values.");
+    fit->click();
+    EXPECT_FALSE(summary->isVisible());
 }
 
 TEST(Workspace, CalibratesAFrameUsingTwoClickedEndpoints)
