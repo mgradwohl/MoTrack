@@ -264,6 +264,10 @@ class CorpusTests(unittest.TestCase):
         self.assertEqual(expected["clip"], {"first_frame": 2, "step_size": 2, "step_count": 4, "start_ms": 0.0})
         self.assertEqual([sample["frame"] for sample in expected["coordinate_samples"]], [2, 8])
         self.assertEqual([sample["frame"] for sample in expected["vectors"][0]["samples"]], [0, 5])
+        boundary = corpus.clip_roundtrip_expected(case, boundary=True)
+        self.assertEqual(boundary["clip"], {"first_frame": 500000, "step_size": 1, "step_count": 1, "start_ms": 0.0})
+        self.assertEqual(boundary["vectors"], [])
+        self.assertEqual([sample["frame"] for sample in boundary["coordinate_samples"]], [500000, 500000])
 
     def test_mark_session_requires_edited_samples_and_manual_keys(self):
         manifest = corpus.load_manifest()

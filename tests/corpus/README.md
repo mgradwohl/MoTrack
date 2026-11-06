@@ -148,6 +148,10 @@ vector samples remain unchanged, including samples outside the selected steps. F
 rejects unrelated changes before actual Tracker load/save/reopen and native reimport. Clip timing,
 media-backed clips and legacy frame-shift handling remain outside this writer slice. The media-free
 frame limit and loader arithmetic are checked against the pinned 6.3.5 JAR, not assumed from current OSP source.
+The `clip-boundary` case separately uses a Java-authored axes-only document and selects the single
+frame 500000. It exercises the same native persistence/export and actual-application save/reopen path
+at Tracker's media-free upper boundary. It retains the existing 256 MiB Java heap and process timeouts;
+no measurement/model arrays or long clip-step loops are needed for this boundary case.
 
 The `snap-origin` and `snap-vector` cases instead verify rejected exports leave an existing destination
 unchanged. Java independently authors the same near-target geometry, then its actual application must

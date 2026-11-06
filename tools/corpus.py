@@ -342,24 +342,27 @@ def verify_calibration_export_xml(original, exported):
         raise ValueError("Standard export changed content beyond the requested calibration")
 
 
-def clip_roundtrip_expected(case):
+def clip_roundtrip_expected(case, boundary=False):
     if case["id"] != "independent-vectors":
         raise ValueError("The clip oracle requires the fixed-coordinate vector fixture")
     expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
-    expected["clip"].update(first_frame=2, step_size=2, step_count=4)
+    expected["clip"].update(first_frame=500000 if boundary else 2, step_size=1 if boundary else 2, step_count=1 if boundary else 4)
+    if boundary:
+        expected["vectors"] = []  # Independently authored axes-only boundary fixture.
     # Fixed calibration: changing the sampled frame leaves both independent coordinate values intact.
-    for sample, frame in zip(expected["coordinate_samples"], [2, 8]):
+    for sample, frame in zip(expected["coordinate_samples"], [500000, 500000] if boundary else [2, 8]):
         sample["frame"] = frame
     return expected
 
 
-def verify_clip_export_xml(original, exported):
+def verify_clip_export_xml(original, exported, boundary=False):
     expected = minidom.parse(str(original))
     clips = [node for node in expected.getElementsByTagName("object")
              if node.getAttribute("class") == "org.opensourcephysics.media.core.VideoClip"]
     if len(clips) != 1:
         raise ValueError("Expected one pinned clip")
-    for name, value in [("startframe", "2"), ("stepsize", "2"), ("stepcount", "4")]:
+    values = [("startframe", "500000"), ("stepsize", "1"), ("stepcount", "1")] if boundary else [("startframe", "2"), ("stepsize", "2"), ("stepcount", "4")]
+    for name, value in values:
         properties = [node for node in clips[0].childNodes if node.nodeType == node.ELEMENT_NODE
                       and node.tagName == "property" and node.getAttribute("name") == name]
         if len(properties) != 1 or properties[0].getAttribute("type") != "int":
@@ -589,7 +592,7 @@ def check_sessions(manifest, cache, java, probe=None):
     modes = [("mass", "native_mass_roundtrip"), ("marks", "native_mark_roundtrip"),
              ("empty-marks", "native_mark_roundtrip"), ("first-mark", "native_mark_roundtrip"),
              ("vectors", "native_vector_roundtrip"), ("empty-vectors", "native_vector_roundtrip"),
-             ("first-vector", "native_vector_roundtrip"), ("clip", "native_clip_roundtrip"),
+             ("first-vector", "native_vector_roundtrip"), ("clip", "native_clip_roundtrip"), ("clip-boundary", "native_clip_roundtrip"),
              ("snap-origin", "native_vector_roundtrip"), ("snap-vector", "native_vector_roundtrip"),
              ("calibration", "native_calibration_roundtrip")] if probe else [("session", "session_tracks")]
     cases = [(case, mode) for case in manifest["cases"] if "session_tracks" in case
@@ -619,6 +622,12 @@ def check_sessions(manifest, cache, java, probe=None):
                 project = root / (case["id"] + "-empty-marks") / "tracker-resaved.trk"
             elif mode == "first-vector":
                 project = root / (case["id"] + "-empty-vectors") / "tracker-resaved.trk"
+            elif mode == "clip-boundary":
+                project = output / "java-boundary-source.trk"
+                run([str(java_path), "-Djava.awt.headless=true", f"-Duser.home={java_home}", "-Xmx256m",
+                     "-cp", os.pathsep.join([str(classes), str(jar)]), "VectorFixture", str(project), mode])
+                case = {**case, "session_tracks": [track for track in case["session_tracks"]
+                                                   if track["class"] == "org.opensourcephysics.cabrillo.tracker.CoordAxes"]}
             expected = None
             if probe and mode.startswith("snap-"):
                 # Rejected exports preserve their existing destination. Java independently authors
@@ -640,9 +649,9 @@ def check_sessions(manifest, cache, java, probe=None):
                 elif mode == "calibration":
                     expected = calibration_roundtrip_expected(case)
                     verify_calibration_export_xml(project, exported)
-                elif mode == "clip":
-                    expected = clip_roundtrip_expected(case)
-                    verify_clip_export_xml(project, exported)
+                elif mode in {"clip", "clip-boundary"}:
+                    expected = clip_roundtrip_expected(case, mode == "clip-boundary")
+                    verify_clip_export_xml(project, exported, mode == "clip-boundary")
                 elif "vector" in mode:
                     expected = vector_roundtrip_expected(case, mode)
                     verify_vector_export_xml(project, exported, expected)
