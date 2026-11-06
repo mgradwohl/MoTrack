@@ -136,8 +136,9 @@ TEST(WorkspaceDocument, RejectsMalformedOrAmbiguousSourceEnvelopes)
         QJsonObject{{"xmlBase64", "%%%="}},
         QJsonObject{{"xmlBase64", encoded + "\n"}},
         QJsonObject{{"xmlBase64", QString::fromUtf8("\xE2\x98\x83")}},
-        QJsonObject{{"xmlBase64", QString::fromLatin1(QByteArray("<object/>").toBase64())}},
-        QJsonObject{{"xmlBase64", QString::fromLatin1((QByteArray("<!DOCTYPE object>") + sourceXml()).toBase64())}}};
+        QJsonObject{{"xmlBase64", QString::fromLatin1(QByteArray("<object/>").toBase64())}, {"bindings", QJsonValue::Null}},
+        QJsonObject{{"xmlBase64", QString::fromLatin1((QByteArray("<!DOCTYPE object>") + sourceXml()).toBase64())},
+                    {"bindings", QJsonValue::Null}}};
     for (const auto& source : invalid)
     {
         auto object = valid;
@@ -306,6 +307,7 @@ TEST(WorkspaceDocument, RejectsIncompleteAmbiguousAndWrongTypeSourceBindings)
                                                             QJsonObject{{"trackId", "1"}, {"sourceIndex", 1}, {"kind", "pointMass"}},
                                                             QJsonObject{{"trackId", "1"}, {"sourceIndex", 999}, {"kind", "pointMass"}},
                                                             QJsonObject{{"trackId", "1"}, {"sourceIndex", -1}, {"kind", "pointMass"}},
+                                                            QJsonObject{{"trackId", "1"}, {"sourceIndex", 0.5}, {"kind", "pointMass"}},
                                                             QJsonObject{{"trackId", "1"}, {"sourceIndex", 0}, {"kind", "vector"}},
                                                             QJsonObject{{"trackId", "2"}, {"sourceIndex", 0}, {"kind", "pointMass"}},
                                                             QJsonObject{{"trackId", "4"}, {"sourceIndex", 0}, {"kind", "pointMass"}},

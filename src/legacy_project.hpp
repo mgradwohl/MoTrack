@@ -98,7 +98,7 @@ class ProjectError : public std::runtime_error
     using std::runtime_error::runtime_error;
 };
 
-enum class TrackKind
+enum class TrackKind : std::uint8_t
 {
     PointMass,
     Vector

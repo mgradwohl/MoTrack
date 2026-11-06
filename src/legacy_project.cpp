@@ -327,6 +327,7 @@ ImportedTrackerProject readTrackerProject(const std::filesystem::path& path)
 
 void validateTrackerSource(const TrackerSource& source, const LegacyProject& project)
 {
+    validateTrackIdentities(project);
     const auto original = parseProject(source.xml);
     if (!source.bindings)
     {
