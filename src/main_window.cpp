@@ -6,11 +6,16 @@
 
 #include <QCloseEvent>
 #include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFormLayout>
 #include <QHBoxLayout>
 #include <QKeySequence>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMouseEvent>
@@ -38,7 +43,13 @@ namespace motrack
 class VideoCanvas final : public QWidget
 {
   public:
-    std::function<void(QPointF)> mark;
+    std::function<bool(QPointF, bool)> pick;
+
+    void setCalibrationPoint(std::optional<QPointF> position)
+    {
+        m_CalibrationPoint = position;
+        update();
+    }
 
     void display(QImage image, QList<QPointF> marks, const QString& message)
     {
@@ -52,16 +63,19 @@ class VideoCanvas final : public QWidget
   protected:
     void mousePressEvent(QMouseEvent* event) override
     {
-        if (!m_Image.isNull() && mark && event->button() == Qt::LeftButton && event->modifiers().testFlag(Qt::ShiftModifier))
+        if (!m_Image.isNull() && pick && event->button() == Qt::LeftButton)
         {
             const auto area = imageArea();
             const auto position = event->position();
             if (area.contains(position) && !area.isEmpty())
             {
-                mark({(position.x() - area.left()) * m_Image.width() / area.width(),
-                      (position.y() - area.top()) * m_Image.height() / area.height()});
-                event->accept();
-                return;
+                const QPointF pixel((position.x() - area.left()) * m_Image.width() / area.width(),
+                                    (position.y() - area.top()) * m_Image.height() / area.height());
+                if (pick(pixel, event->modifiers().testFlag(Qt::ShiftModifier)))
+                {
+                    event->accept();
+                    return;
+                }
             }
         }
         QWidget::mousePressEvent(event);
@@ -84,9 +98,12 @@ class VideoCanvas final : public QWidget
         painter.setPen(QPen(Qt::yellow, 2));
         for (const auto& mark : m_Marks)
         {
-            const QPointF point(area.left() + mark.x() * area.width() / m_Image.width(),
-                                area.top() + mark.y() * area.height() / m_Image.height());
-            painter.drawEllipse(point, 5, 5);
+            painter.drawEllipse(canvasPoint(mark, area), 5, 5);
+        }
+        if (m_CalibrationPoint)
+        {
+            painter.setPen(QPen(Qt::cyan, 2));
+            painter.drawEllipse(canvasPoint(*m_CalibrationPoint, area), 6, 6);
         }
     }
 
@@ -97,9 +114,15 @@ class VideoCanvas final : public QWidget
         return {QPoint((width() - scaled.width()) / 2, (height() - scaled.height()) / 2), scaled};
     }
 
+    [[nodiscard]] QPointF canvasPoint(const QPointF& pixel, const QRectF& area) const
+    {
+        return {area.left() + pixel.x() * area.width() / m_Image.width(), area.top() + pixel.y() * area.height() / m_Image.height()};
+    }
+
     QImage m_Image;
     QList<QPointF> m_Marks;
     QString m_Message;
+    std::optional<QPointF> m_CalibrationPoint;
 };
 
 MainWindow::MainWindow()
@@ -131,6 +154,10 @@ MainWindow::MainWindow()
     repeat->setShortcuts({QKeySequence("Shift+Return"), QKeySequence("Shift+Enter")});
     auto* tools = addToolBar(tr("Project"));
     tools->addAction(open);
+    m_Calibrate = tools->addAction(tr("Calibration Stick"));
+    m_Calibrate->setObjectName("calibrationStick");
+    m_Calibrate->setCheckable(true);
+    m_Calibrate->setEnabled(false);
     tools->addAction(m_NewPointMass);
     m_TrackPicker = new QComboBox;
     m_TrackPicker->setObjectName("trackPicker");
@@ -144,9 +171,19 @@ MainWindow::MainWindow()
     m_Video->setObjectName("videoCanvas");
     m_Video->setMinimumSize(240, 160);
     m_Video->setToolTip(tr("Shift-click the image to mark the selected point mass."));
-    m_Video->mark = [this](QPointF position)
+    m_Video->pick = [this](QPointF position, bool shift)
     {
-        markAt(position);
+        if (m_Calibrate->isChecked())
+        {
+            pickCalibrationPoint(position);
+            return true;
+        }
+        if (shift)
+        {
+            markAt(position);
+            return true;
+        }
+        return false;
     };
     m_Video->display({}, {}, tr("Open a Tracker project to inspect its saved marks."));
     layout->addWidget(m_Video, 1);
@@ -263,6 +300,21 @@ MainWindow::MainWindow()
                 }
             });
     connect(repeat, &QAction::triggered, this, &MainWindow::repeatPreviousMark);
+    connect(m_Calibrate,
+            &QAction::toggled,
+            this,
+            [this](bool active)
+            {
+                clearCalibrationPoint();
+                if (active)
+                {
+                    statusBar()->showMessage(tr("Click the first calibration endpoint."));
+                }
+                else
+                {
+                    statusBar()->clearMessage();
+                }
+            });
     connect(m_TrackPicker, &QComboBox::currentIndexChanged, this, &MainWindow::refreshPlot);
     connect(m_PlotQuantity, &QComboBox::currentIndexChanged, this, &MainWindow::refreshPlot);
 }
@@ -287,6 +339,8 @@ bool MainWindow::loadProject(const QString& path)
     ++*m_RequestGeneration;
     m_FrameWatcher.reset();
     m_DisplayedFrame.reset();
+    m_Calibrate->setChecked(false);
+    m_Calibrate->setEnabled(false);
     m_Edits.clear();
     m_NewPointMass->setEnabled(true);
     refreshEditViews(0);
@@ -407,6 +461,76 @@ void MainWindow::repeatPreviousMark()
     }
 }
 
+void MainWindow::clearCalibrationPoint()
+{
+    m_CalibrationFirst.reset();
+    m_Video->setCalibrationPoint(std::nullopt);
+}
+
+void MainWindow::pickCalibrationPoint(const QPointF& position)
+{
+    if (!m_DisplayedFrame)
+    {
+        return;
+    }
+    if (!m_CalibrationFirst)
+    {
+        m_CalibrationFirst = position;
+        m_Video->setCalibrationPoint(position);
+        statusBar()->showMessage(tr("Click the second calibration endpoint."));
+        return;
+    }
+    const auto delta = position - *m_CalibrationFirst;
+    if (delta.isNull())
+    {
+        statusBar()->showMessage(tr("Choose a different calibration endpoint."));
+        return;
+    }
+    const auto frame = m_DisplayedFrame->number;
+    const auto imageSize = m_DisplayedFrame->image.size();
+
+    QDialog dialog(this);
+    dialog.setObjectName("calibrationDialog");
+    dialog.setWindowTitle(tr("Calibration Stick"));
+    auto* layout = new QFormLayout(&dialog);
+    auto* length = new QDoubleSpinBox;
+    length->setObjectName("knownDistance");
+    length->setDecimals(6);
+    length->setRange(0.000001, 1'000'000'000.0);
+    length->setValue(1.0);
+    auto* unit = new QLineEdit(m_Project.lengthUnit.empty() ? QStringLiteral("m") : QString::fromStdString(m_Project.lengthUnit));
+    unit->setObjectName("lengthUnit");
+    layout->addRow(tr("Known distance"), length);
+    layout->addRow(tr("Length unit"), unit);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    layout->addRow(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    const bool accepted = dialog.exec() == QDialog::Accepted;
+    m_Calibrate->setChecked(false);
+    if (!accepted)
+    {
+        return;
+    }
+
+    if (m_Edits.calibrateDistance(m_Project,
+                                  {.frame = frame,
+                                   .imageDeltaX = delta.x(),
+                                   .imageDeltaY = delta.y(),
+                                   .knownLength = length->value(),
+                                   .defaultOriginX = imageSize.width() / 2.0,
+                                   .defaultOriginY = imageSize.height() / 2.0,
+                                   .unit = unit->text().trimmed().toStdString()}))
+    {
+        refreshEditViews(m_TrackPicker->currentIndex());
+        statusBar()->showMessage(tr("Calibration updated."));
+    }
+    else
+    {
+        statusBar()->showMessage(tr("Could not apply this calibration."));
+    }
+}
+
 bool MainWindow::saveMeasurements(const QString& path)
 {
     QSaveFile file(path);
@@ -475,7 +599,12 @@ void MainWindow::displayStep(int step)
 
 void MainWindow::displayFrame(const ImageFrame& frame, const QString& failureMessage)
 {
+    if (!m_DisplayedFrame || m_DisplayedFrame->number != frame.number)
+    {
+        m_Calibrate->setChecked(false);
+    }
     m_DisplayedFrame = frame;
+    m_Calibrate->setEnabled(!frame.image.isNull());
     m_Plot->selectFrame(frame.number);
     const auto label = tr("Frame %1").arg(frame.number);
     m_FrameLabel->setText(label);
@@ -495,6 +624,8 @@ void MainWindow::requestMovieFrame(int frame)
 {
     const auto generation = ++*m_RequestGeneration;
     m_DisplayedFrame.reset();
+    m_Calibrate->setChecked(false);
+    m_Calibrate->setEnabled(false);
     m_Plot->selectFrame(frame);
     m_FrameLabel->setText(tr("Frame %1").arg(frame));
     m_Video->display({}, {}, tr("Decoding frame…"));

@@ -1,5 +1,7 @@
 #include "track_edits.hpp"
 
+#include "measurements.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <utility>
@@ -31,6 +33,70 @@ bool TrackEdits::markPointMass(LegacyProject& project, std::size_t track, Mark m
     {
         append(project, ChangeMark{.track = track, .after = mark, .before = before});
     }
+    return true;
+}
+
+bool TrackEdits::calibrateDistance(LegacyProject& project, CalibrationDistance distance)
+{
+    if (distance.frame < 0 || !std::isfinite(distance.knownLength) || distance.knownLength <= 0.0)
+    {
+        return false;
+    }
+    auto next = project.calibration.value_or(Calibration{});
+    if (next.keyframes.empty())
+    {
+        if (!std::isfinite(distance.defaultOriginX) || !std::isfinite(distance.defaultOriginY))
+        {
+            return false;
+        }
+        next.fixedOrigin = true;
+        next.fixedAngle = true;
+        next.fixedScale = true;
+        next.keyframes.push_back({.frame = 0,
+                                  .originX = distance.defaultOriginX,
+                                  .originY = distance.defaultOriginY,
+                                  .angleDegrees = 0.0,
+                                  .scaleX = 1.0,
+                                  .scaleY = 1.0});
+    }
+    auto key = calibrationAt(next, distance.frame);
+    if (!key || key->scaleX == 0.0 || key->scaleY == 0.0)
+    {
+        return false;
+    }
+    const auto factor = std::hypot(distance.imageDeltaX / key->scaleX, distance.imageDeltaY / key->scaleY) / distance.knownLength;
+    key->scaleX *= factor;
+    key->scaleY *= factor;
+    if (!std::isfinite(key->scaleX) || !std::isfinite(key->scaleY) || key->scaleX == 0.0 || key->scaleY == 0.0)
+    {
+        return false;
+    }
+
+    if (next.fixedScale)
+    {
+        for (auto& entry : next.keyframes)
+        {
+            entry.scaleX = key->scaleX;
+            entry.scaleY = key->scaleY;
+        }
+    }
+    else
+    {
+        const auto position = std::ranges::lower_bound(next.keyframes, distance.frame, {}, &CalibrationKey::frame);
+        if (position != next.keyframes.end() && position->frame == distance.frame)
+        {
+            *position = *key;
+        }
+        else
+        {
+            next.keyframes.insert(position, *key);
+        }
+    }
+    append(project,
+           ChangeCalibration{.after = std::move(next),
+                             .before = project.calibration,
+                             .afterUnit = std::move(distance.unit),
+                             .beforeUnit = project.lengthUnit});
     return true;
 }
 
@@ -78,6 +144,14 @@ void TrackEdits::apply(LegacyProject& project, const Edit& edit, bool forward)
         {
             project.pointMasses.pop_back();
         }
+        return;
+    }
+    if (const auto* change = std::get_if<ChangeCalibration>(&edit))
+    {
+        auto calibration = forward ? std::optional(change->after) : change->before;
+        auto unit = forward ? change->afterUnit : change->beforeUnit;
+        project.calibration = std::move(calibration);
+        project.lengthUnit = std::move(unit);
         return;
     }
 

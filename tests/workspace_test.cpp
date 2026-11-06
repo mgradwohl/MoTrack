@@ -4,9 +4,12 @@
 #include <QAction>
 #include <QApplication>
 #include <QComboBox>
+#include <QDialog>
+#include <QDoubleSpinBox>
 #include <QFile>
 #include <QFileDialog>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSlider>
@@ -16,6 +19,8 @@
 #include <QTimer>
 #include <QToolButton>
 #include <gtest/gtest.h>
+
+#include <algorithm>
 
 namespace
 {
@@ -132,6 +137,48 @@ TEST(Workspace, PlotsPositionAndSeeksToASelectedMeasurement)
     EXPECT_FALSE(plot->grab().isNull());
     QTest::mouseClick(plot, Qt::LeftButton, Qt::NoModifier, plot->rect().center());
     EXPECT_EQ(slider->value(), 1);
+}
+
+TEST(Workspace, CalibratesAFrameUsingTwoClickedEndpoints)
+{
+    motrack::MainWindow window;
+    window.show();
+    ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
+    auto* canvas = window.findChild<QWidget*>("videoCanvas");
+    auto* plot = window.findChild<QWidget*>("positionPlot");
+    auto* marks = window.findChild<QTableWidget*>("marksTable");
+    auto* action = window.findChild<QAction*>("calibrationStick");
+    auto* undo = window.findChild<QAction*>("undoEdit");
+    ASSERT_TRUE(canvas && plot && marks && action && undo);
+    ASSERT_TRUE(action->isEnabled());
+
+    const auto center = canvas->rect().center();
+    const auto edge = std::min(canvas->width(), canvas->height());
+    const QPoint first = center - QPoint(edge / 4, 0);
+    const QPoint second = center + QPoint(edge / 4, 0);
+    action->trigger();
+    QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, first);
+    QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, first);
+    EXPECT_FALSE(canvas->grab().isNull());
+    QTimer::singleShot(0,
+                       &window,
+                       []
+                       {
+                           if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
+                           {
+                               dialog->findChild<QDoubleSpinBox*>("knownDistance")->setValue(2);
+                               dialog->findChild<QLineEdit*>("lengthUnit")->setText("cm");
+                               dialog->accept();
+                           }
+                       });
+    QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, second);
+    EXPECT_FALSE(action->isChecked());
+    EXPECT_TRUE(undo->isEnabled());
+    EXPECT_TRUE(plot->accessibleName().contains("(cm)"));
+    const auto pixelDistance = 4.0 * (second.x() - first.x()) / edge;
+    EXPECT_NEAR(marks->item(0, 4)->text().toDouble(), 3.0 / pixelDistance, 1e-8);
+    undo->trigger();
+    EXPECT_EQ(marks->item(0, 4)->text(), "0.75");
 }
 
 TEST(Workspace, StepsThroughImagesAndKeepsImportedMarks)

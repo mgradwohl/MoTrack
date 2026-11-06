@@ -39,6 +39,9 @@ struct PlotSeries
     bool calibrated = false;
 };
 
+/// Resolves the effective calibration for an original frame, including fixed fields.
+[[nodiscard]] std::optional<CalibrationKey> calibrationAt(const Calibration& calibration, int frame);
+
 /// Transforms a saved image-pixel mark to world coordinates at its original frame.
 [[nodiscard]] std::optional<WorldPoint> worldPosition(const Calibration& calibration, const Mark& mark);
 

@@ -52,6 +52,14 @@
     <message><source>px</source><translation>px</translation></message>
     <message><source>%1/s</source><translation>%1/s</translation></message>
     <message><source>%1 (%2)</source><translation>%1 (%2)</translation></message>
+    <message><source>Calibration Stick</source><translation>Vara de calibración</translation></message>
+    <message><source>Click the first calibration endpoint.</source><translation>Haz clic en el primer extremo de calibración.</translation></message>
+    <message><source>Click the second calibration endpoint.</source><translation>Haz clic en el segundo extremo de calibración.</translation></message>
+    <message><source>Choose a different calibration endpoint.</source><translation>Elige otro extremo de calibración.</translation></message>
+    <message><source>Known distance</source><translation>Distancia conocida</translation></message>
+    <message><source>Length unit</source><translation>Unidad de longitud</translation></message>
+    <message><source>Calibration updated.</source><translation>Se actualizó la calibración.</translation></message>
+    <message><source>Could not apply this calibration.</source><translation>No se pudo aplicar esta calibración.</translation></message>
   </context>
   <context>
     <name>PositionPlot</name>
