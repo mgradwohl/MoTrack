@@ -234,6 +234,12 @@ class CorpusTests(unittest.TestCase):
                 invalid[stage]["calibration"]["keys"][1][field] = value
             with self.subTest(field=field), self.assertRaises(ValueError):
                 corpus.validate_session(case, invalid, manifest, expected, calibration=calibration)
+        for value in [True, "false"]:
+            invalid = copy.deepcopy(valid)
+            for stage in ["before", "after_save", "after"]:
+                invalid[stage]["calibration"]["fixed_origin"] = value
+            with self.subTest(flag=value), self.assertRaises(ValueError):
+                corpus.validate_session(case, invalid, manifest, expected, calibration=calibration)
 
     def test_local_vector_fixture_is_pinned_and_cannot_escape_the_corpus(self):
         manifest = corpus.load_manifest()

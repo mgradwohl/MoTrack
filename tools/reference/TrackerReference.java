@@ -125,6 +125,7 @@ public final class TrackerReference {
 
     static String json(Object value) {
         if (value == null) return "null";
+        if (value instanceof Boolean b) return b.toString();
         if (value instanceof Number n) {
             if (!Double.isFinite(n.doubleValue())) throw new IllegalArgumentException("Nonfinite reference value");
             return n.toString();

@@ -382,12 +382,12 @@ def verify_calibration_export_xml(original, exported):
 
 
 def keyed_calibration_expected(edited=False):
-    keys = [{"frame": 0, "origin": [320, 240], "angle": 0, "scale": [2, 4]},
-            {"frame": 4, "origin": [100, 120], "angle": 90, "scale": [4, 8]},
-            {"frame": 9, "origin": [110, 130], "angle": -90, "scale": [2, 8]}]
+    keys = [{"frame": 0, "origin": [320.0, 240.0], "angle": 0.0, "scale": [2.0, 4.0]},
+            {"frame": 4, "origin": [100.0, 120.0], "angle": 90.0, "scale": [4.0, 8.0]},
+            {"frame": 9, "origin": [110.0, 130.0], "angle": -90.0, "scale": [2.0, 8.0]}]
     if edited:
-        keys[1] = {"frame": 4, "origin": [120, 140], "angle": 0, "scale": [8, 16]}
-        keys.insert(1, {"frame": 3, "origin": [80, 90], "angle": -90, "scale": [2, 4]})
+        keys[1] = {"frame": 4, "origin": [120.0, 140.0], "angle": 0.0, "scale": [8.0, 16.0]}
+        keys.insert(1, {"frame": 3, "origin": [80.0, 90.0], "angle": -90.0, "scale": [2.0, 4.0]})
     return {"fixed_origin": False, "fixed_angle": False, "fixed_scale": False, "keys": keys}
 
 
@@ -397,7 +397,7 @@ def keyed_calibration_roundtrip_expected(case):
     expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
     # New key 3: origin (80,90), -90 degrees, scales (2,4).
     # Edited key 4: origin (120,140), 0 degrees, scales (8,16). Keys 0/9 remain unchanged.
-    world = {0: [-155, 55], 3: [-17.5, -35], 4: [-13.75, 7.5], 8: [-13.75, 7.5], 9: [-13.75, -50]}
+    world = {0: [-155.0, 55.0], 3: [-17.5, -35.0], 4: [-13.75, 7.5], 8: [-13.75, 7.5], 9: [-13.75, -50.0]}
     for sample in expected["point_masses"][0]["samples"]:
         sample["world"] = world[sample["frame"]]
     return expected
