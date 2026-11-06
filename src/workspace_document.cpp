@@ -162,6 +162,44 @@ std::vector<PointMass> readTracks(const QJsonValue& value)
     return result;
 }
 
+QJsonArray writeVectors(const std::vector<VectorTrack>& tracks)
+{
+    QJsonArray result;
+    for (const auto& track : tracks)
+    {
+        QJsonArray samples;
+        for (const auto& sample : track.samples)
+        {
+            samples.append(QJsonArray{sample.frame, sample.tailX, sample.tailY, sample.componentX, sample.componentY});
+        }
+        result.append(QJsonObject{{"name", QString::fromStdString(track.name)}, {"samples", samples}});
+    }
+    return result;
+}
+
+std::vector<VectorTrack> readVectors(const QJsonValue& value)
+{
+    std::vector<VectorTrack> result;
+    for (const auto& entry : array(value, -1))
+    {
+        const auto track = entry.toObject();
+        VectorTrack vector{.name = string(track.value("name")), .samples = {}};
+        for (const auto& item : array(track.value("samples"), -1))
+        {
+            const auto sample = array(item, 5);
+            const auto frame = integer(sample.at(0), 0);
+            require(vector.samples.empty() || vector.samples.back().frame < frame);
+            vector.samples.push_back({.frame = frame,
+                                      .tailX = number(sample.at(1)),
+                                      .tailY = number(sample.at(2)),
+                                      .componentX = number(sample.at(3)),
+                                      .componentY = number(sample.at(4))});
+        }
+        result.push_back(std::move(vector));
+    }
+    return result;
+}
+
 } // namespace
 
 WorkspaceDocument readWorkspaceDocument(const QString& path)
@@ -195,6 +233,10 @@ WorkspaceDocument readWorkspaceDocument(const QString& path)
     project.unsupportedTrackTypes = strings(input.value("unsupportedTrackTypes"));
     project.calibration = readCalibration(input.value("calibration"));
     project.pointMasses = readTracks(input.value("pointMasses"));
+    if (const auto vectors = input.value("vectors"); !vectors.isUndefined())
+    {
+        project.vectors = readVectors(vectors);
+    }
     const auto clip = input.value("clip").toObject();
     project.clip.firstFrame = integer(clip.value("firstFrame"), 0);
     project.clip.stepSize = integer(clip.value("stepSize"), 1);
@@ -252,6 +294,7 @@ void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& docume
                              {"unsupportedTrackTypes", writeStrings(project.unsupportedTrackTypes)},
                              {"calibration", writeCalibration(project.calibration)},
                              {"pointMasses", writeTracks(project.pointMasses)},
+                             {"vectors", writeVectors(project.vectors)},
                              {"movie", document.movie},
                              {"displayOrientation", document.useDisplayOrientation},
                              {"alignMovieToClip", document.alignMovieToClip},

@@ -38,10 +38,11 @@ void VideoCanvas::setMeasurementPolyline(QList<QPointF> points)
     update();
 }
 
-void VideoCanvas::display(QImage image, QList<QPointF> marks, const QString& message)
+void VideoCanvas::display(QImage image, QList<QPointF> marks, const QString& message, QList<QLineF> vectors)
 {
     m_Image = std::move(image);
     m_Marks = std::move(marks);
+    m_Vectors = std::move(vectors);
     m_Message = message;
     if (!m_Image.isNull())
     {
@@ -170,6 +171,22 @@ void VideoCanvas::paintEvent(QPaintEvent* /*event*/)
             painter.drawLine(canvasPoint(m_MeasurementPolyline.at(index - 1), area), point);
         }
         painter.drawEllipse(point, 4, 4);
+    }
+    painter.setPen(QPen(Qt::green, 2));
+    for (const auto& vector : m_Vectors)
+    {
+        const auto tail = canvasPoint(vector.p1(), area);
+        const auto tip = canvasPoint(vector.p2(), area);
+        const auto offset = tip - tail;
+        const auto length = std::hypot(offset.x(), offset.y());
+        if (length > 0.0 && std::isfinite(length))
+        {
+            const auto back = offset * (std::min(length, 10.0) / length);
+            const QPointF wing(-back.y() / 2.0, back.x() / 2.0);
+            painter.drawLine(tail, tip);
+            painter.drawLine(tip, tip - back + wing);
+            painter.drawLine(tip, tip - back - wing);
+        }
     }
     painter.setPen(QPen(Qt::yellow, 2));
     for (const auto& mark : m_Marks)

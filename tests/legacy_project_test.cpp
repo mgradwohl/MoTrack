@@ -47,6 +47,47 @@ TEST(LegacyProject, ImportsMetadataAndSparseMarks)
     EXPECT_EQ(result.unsupportedTrackTypes, std::vector<std::string>{"org.opensourcephysics.cabrillo.tracker.CoordAxes"});
 }
 
+TEST(LegacyProject, ImportsSparseVectorComponentsInImageCoordinates)
+{
+    const auto project = motrack::parseLegacyProject(projectXml(R"(
+      <property name="tracks"><property name="item">
+        <object class="org.opensourcephysics.cabrillo.tracker.Vector">
+          <property name="name">Displacement</property>
+          <property name="framedata">
+            <property name="[7]"><object>
+              <property name="xtail">2.5</property><property name="ytail">3</property>
+              <property name="xcomponent">4</property><property name="ycomponent">-1</property>
+            </object></property>
+            <property name="[0]">null</property>
+          </property>
+        </object>
+      </property></property>)"));
+    EXPECT_TRUE(project.unsupportedTrackTypes.empty());
+    ASSERT_EQ(project.vectors.size(), 1u);
+    const auto& track = project.vectors.front();
+    EXPECT_EQ(track.name, "Displacement");
+    ASSERT_EQ(track.samples.size(), 1u);
+    EXPECT_EQ(track.samples.front().frame, 7);
+    EXPECT_DOUBLE_EQ(track.samples.front().tailX, 2.5);
+    EXPECT_DOUBLE_EQ(track.samples.front().componentY, -1.0);
+}
+
+TEST(LegacyProject, KeepsOtherTracksWhenAVectorOmitsComponents)
+{
+    const auto project = motrack::parseLegacyProject(projectXml(R"(
+      <property name="tracks">
+        <property name="item"><object class="org.opensourcephysics.cabrillo.tracker.PointMass"/></property>
+        <property name="item"><object class="org.opensourcephysics.cabrillo.tracker.Vector">
+          <property name="framedata"><property name="[0]"><object>
+            <property name="xtail">1</property><property name="ytail">2</property>
+          </object></property></property>
+        </object></property>
+      </property>)"));
+    EXPECT_EQ(project.pointMasses.size(), 1u);
+    EXPECT_TRUE(project.vectors.empty());
+    EXPECT_EQ(project.unsupportedTrackTypes, std::vector<std::string>{"org.opensourcephysics.cabrillo.tracker.Vector"});
+}
+
 TEST(LegacyProject, OpensBlankSession)
 {
     const auto result = motrack::parseLegacyProject(projectXml(""));

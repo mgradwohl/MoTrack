@@ -15,6 +15,7 @@ namespace
 
 constexpr auto MAX_PROJECT_BYTES = std::size_t{32} * 1024 * 1024;
 constexpr auto TRACKER_PANEL_CLASS = "org.opensourcephysics.cabrillo.tracker.TrackerPanel";
+constexpr auto VECTOR_CLASS = "org.opensourcephysics.cabrillo.tracker.Vector";
 constexpr auto POINT_MASS_CLASS = "org.opensourcephysics.cabrillo.tracker.PointMass";
 
 QDomElement property(const QDomElement& parent, const QString& name)
@@ -150,6 +151,30 @@ PointMass readPointMass(const QDomElement& object)
     return track;
 }
 
+VectorTrack readVector(const QDomElement& object)
+{
+    VectorTrack track{.name = value(object, "name"), .samples = {}};
+    const auto data = property(object, "framedata");
+    for (auto entry = data.firstChildElement("property"); !entry.isNull(); entry = entry.nextSiblingElement("property"))
+    {
+        const auto frame = entry.firstChildElement("object");
+        if (!frame.isNull())
+        {
+            track.samples.push_back({.frame = arrayIndex(entry),
+                                     .tailX = coordinate(frame, "xtail"),
+                                     .tailY = coordinate(frame, "ytail"),
+                                     .componentX = coordinate(frame, "xcomponent"),
+                                     .componentY = coordinate(frame, "ycomponent")});
+        }
+    }
+    std::ranges::sort(track.samples, {}, &VectorSample::frame);
+    if (std::ranges::adjacent_find(track.samples, {}, &VectorSample::frame) != track.samples.end())
+    {
+        throw ProjectError("Duplicate Tracker vector frame.");
+    }
+    return track;
+}
+
 std::optional<Calibration> readCalibration(const QDomElement& panel)
 {
     const auto coords = property(panel, "coords").firstChildElement("object");
@@ -232,6 +257,17 @@ LegacyProject parseLegacyProject(std::string_view xml)
         if (type == POINT_MASS_CLASS)
         {
             project.pointMasses.push_back(readPointMass(object));
+        }
+        else if (type == VECTOR_CLASS)
+        {
+            try
+            {
+                project.vectors.push_back(readVector(object));
+            }
+            catch (const ProjectError&)
+            {
+                project.unsupportedTrackTypes.push_back(type.toStdString());
+            }
         }
         else if (!type.isEmpty())
         {

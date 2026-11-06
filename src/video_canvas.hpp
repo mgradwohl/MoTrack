@@ -3,6 +3,7 @@
 #include "legacy_project.hpp"
 
 #include <QImage>
+#include <QLineF>
 #include <QPointF>
 #include <QWidget>
 
@@ -20,7 +21,7 @@ class VideoCanvas final : public QWidget
     void setCalibrationPoint(std::optional<QPointF> position);
     void setAxes(std::optional<CalibrationKey> axes);
     void setMeasurementPolyline(QList<QPointF> points);
-    void display(QImage image, QList<QPointF> marks, const QString& message);
+    void display(QImage image, QList<QPointF> marks, const QString& message, QList<QLineF> vectors = {});
     void zoomIn();
     void zoomOut();
     void resetZoom();
@@ -43,6 +44,7 @@ class VideoCanvas final : public QWidget
 
     QImage m_Image;
     QList<QPointF> m_Marks;
+    QList<QLineF> m_Vectors;
     QString m_Message;
     std::optional<QPointF> m_CalibrationPoint;
     std::optional<CalibrationKey> m_Axes;

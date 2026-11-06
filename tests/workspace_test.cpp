@@ -5,6 +5,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
+#include <QColor>
 #include <QComboBox>
 #include <QDialog>
 #include <QDoubleSpinBox>
@@ -238,6 +239,50 @@ TEST(Workspace, PlotsPositionAndSeeksToASelectedMeasurement)
     EXPECT_EQ(plot->accessibleName(), QString::fromUtf8("x momentum (kg·m/s) versus Time (s)"));
     quantities->setCurrentIndex(9);
     EXPECT_EQ(plot->accessibleName(), QString::fromUtf8("kinetic energy (kg·m²/s²) versus Time (s)"));
+}
+
+TEST(Workspace, PreservesAndDrawsVectorsAtTheirOriginalFrame)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    auto document = motrack::WorkspaceDocument{};
+    document.project.clip.stepCount = 1;
+    document.project.clip.mediaReferences.push_back(fixturePath("frames/frame00.ppm").toStdString());
+    document.project.vectors.push_back({.name = "Vector A",
+                                        .samples = {{.frame = 0, .tailX = 1, .tailY = 1, .componentX = 2, .componentY = 1},
+                                                    {.frame = 2, .tailX = 1, .tailY = 2, .componentX = 1, .componentY = 0}}});
+    const auto input = temporary.filePath("vectors.motrack");
+    motrack::writeWorkspaceDocument(input, document);
+
+    motrack::MainWindow window;
+    window.show();
+    ASSERT_TRUE(window.loadProject(input));
+    auto* canvas = window.findChild<QWidget*>("videoCanvas");
+    ASSERT_NE(canvas, nullptr);
+    const auto pixels = canvas->grab().toImage();
+    const auto color = QColor(Qt::green);
+    bool foundArrow = false;
+    for (int y = 0; y < pixels.height() && !foundArrow; ++y)
+    {
+        for (int x = 0; x < pixels.width(); ++x)
+        {
+            if (pixels.pixelColor(x, y) == color)
+            {
+                foundArrow = true;
+                break;
+            }
+        }
+    }
+    EXPECT_TRUE(foundArrow);
+    const auto savedPath = temporary.filePath("vectors-saved.motrack");
+    ASSERT_TRUE(window.saveWorkspace(savedPath));
+    const auto saved = motrack::readWorkspaceDocument(savedPath);
+    ASSERT_EQ(saved.project.vectors.size(), 1u);
+    const auto& vectors = saved.project.vectors.front();
+    EXPECT_EQ(vectors.name, "Vector A");
+    ASSERT_EQ(vectors.samples.size(), 2u);
+    EXPECT_EQ(vectors.samples.back().frame, 2);
+    EXPECT_DOUBLE_EQ(vectors.samples.front().componentY, 1.0);
 }
 
 TEST(Workspace, ExportsTheSelectedPlotWithItsUnitsAndTimebase)
