@@ -34,7 +34,7 @@ endif()
 find_package(Qt6 6.8 REQUIRED COMPONENTS Widgets Xml LinguistTools Concurrent)
 include(cmake/MoTrackFFmpeg.cmake)
 
-add_library(motrack_project STATIC src/legacy_project.cpp)
+add_library(motrack_project STATIC src/legacy_project.cpp src/measurements.cpp)
 target_include_directories(motrack_project PUBLIC src)
 target_link_libraries(motrack_project PUBLIC Qt6::Core PRIVATE Qt6::Xml)
 
@@ -99,7 +99,7 @@ if(BUILD_TESTING)
     )
     FetchContent_MakeAvailable(googletest)
 
-    add_executable(motrack_tests tests/legacy_project_test.cpp)
+    add_executable(motrack_tests tests/legacy_project_test.cpp tests/measurements_test.cpp)
     target_link_libraries(motrack_tests PRIVATE motrack_project GTest::gtest_main)
     target_compile_definitions(motrack_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")

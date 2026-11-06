@@ -92,6 +92,31 @@ TEST(LegacyProject, RejectsOversizedProjectFilesBeforeReading)
     EXPECT_THROW(motrack::readLegacyProject(std::filesystem::path(file.fileName().toStdU16String())), motrack::ProjectError);
 }
 
+TEST(LegacyProject, ReadsCalibrationAndKeepsMarksWhenCalibrationIsUnsupported)
+{
+    const auto result = motrack::readLegacyProject(std::filesystem::path(MOTRACK_FIXTURES) / "image-sequence.trk");
+    EXPECT_EQ(result.lengthUnit, "m");
+    if (!result.calibration)
+    {
+        FAIL() << "Missing saved image calibration.";
+    }
+    EXPECT_TRUE(result.calibration->fixedOrigin);
+    EXPECT_TRUE(result.calibration->fixedAngle);
+    EXPECT_TRUE(result.calibration->fixedScale);
+    ASSERT_EQ(result.calibration->keyframes.size(), 1u);
+    EXPECT_DOUBLE_EQ(result.calibration->keyframes.front().scaleX, 2);
+    EXPECT_DOUBLE_EQ(result.calibration->keyframes.front().scaleY, 4);
+
+    const auto malformed = motrack::parseLegacyProject(projectXml(R"(
+        <property name="coords"><object class="org.opensourcephysics.media.core.ImageCoordSystem">
+          <property name="framedata"><property name="[0]"><object/></property></property>
+        </object></property>)"));
+    EXPECT_FALSE(malformed.calibration.has_value());
+    const auto empty = motrack::parseLegacyProject(projectXml(R"(
+        <property name="coords"><object class="org.opensourcephysics.media.core.ImageCoordSystem"/></property>)"));
+    EXPECT_FALSE(empty.calibration.has_value());
+}
+
 TEST(LegacyProject, RejectsInvalidMarks)
 {
     const std::string position = "<object><property name='x'>1</property>"

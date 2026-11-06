@@ -61,7 +61,7 @@ double coordinate(const QDomElement& object, const QString& axis)
     const auto number = property(object, axis).text().toDouble(&ok);
     if (!ok || !std::isfinite(number))
     {
-        throw ProjectError("Invalid point mass coordinate.");
+        throw ProjectError("Invalid Tracker numeric property.");
     }
     return number;
 }
@@ -128,6 +128,47 @@ PointMass readPointMass(const QDomElement& object)
     return track;
 }
 
+std::optional<Calibration> readCalibration(const QDomElement& panel)
+{
+    const auto coords = property(panel, "coords").firstChildElement("object");
+    if (coords.attribute("class") != "org.opensourcephysics.media.core.ImageCoordSystem" || !value(panel, "referenceframe").empty())
+    {
+        return std::nullopt;
+    }
+    Calibration calibration{.keyframes = {},
+                            .fixedOrigin = value(coords, "fixedorigin") == "true",
+                            .fixedAngle = value(coords, "fixedangle") == "true",
+                            .fixedScale = value(coords, "fixedscale") == "true"};
+    const auto data = property(coords, "framedata");
+    try
+    {
+        for (auto entry = data.firstChildElement("property"); !entry.isNull(); entry = entry.nextSiblingElement("property"))
+        {
+            const auto object = entry.firstChildElement("object");
+            if (!object.isNull())
+            {
+                calibration.keyframes.push_back({.frame = arrayIndex(entry),
+                                                 .originX = coordinate(object, "xorigin"),
+                                                 .originY = coordinate(object, "yorigin"),
+                                                 .angleDegrees = coordinate(object, "angle"),
+                                                 .scaleX = coordinate(object, "xscale"),
+                                                 .scaleY = coordinate(object, "yscale")});
+            }
+        }
+    }
+    catch (const ProjectError&)
+    {
+        return std::nullopt;
+    }
+    auto& keys = calibration.keyframes;
+    std::ranges::sort(keys, {}, &CalibrationKey::frame);
+    if (keys.empty() || std::ranges::adjacent_find(keys, {}, &CalibrationKey::frame) != keys.end())
+    {
+        return std::nullopt;
+    }
+    return calibration;
+}
+
 } // namespace
 
 LegacyProject parseLegacyProject(std::string_view xml)
@@ -153,6 +194,8 @@ LegacyProject parseLegacyProject(std::string_view xml)
     LegacyProject project{.version = value(panel, "semantic_version"),
                           .description = value(panel, "description"),
                           .clip = readClip(panel),
+                          .calibration = readCalibration(panel),
+                          .lengthUnit = value(panel, "length_unit"),
                           .pointMasses = {},
                           .unsupportedTrackTypes = {}};
     const auto tracks = property(panel, "tracks");

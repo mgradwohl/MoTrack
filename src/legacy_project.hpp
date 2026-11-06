@@ -31,11 +31,32 @@ struct Clip
     std::vector<std::string> mediaReferences;
 };
 
+struct CalibrationKey
+{
+    int frame;
+    double originX;
+    double originY;
+    double angleDegrees;
+    double scaleX;
+    double scaleY;
+};
+
+struct Calibration
+{
+    /// Sorted by original video frame. Each key applies until the next key.
+    std::vector<CalibrationKey> keyframes;
+    bool fixedOrigin = false;
+    bool fixedAngle = false;
+    bool fixedScale = false;
+};
+
 struct LegacyProject
 {
     std::string version;
     std::string description;
     Clip clip;
+    std::optional<Calibration> calibration;
+    std::string lengthUnit;
     std::vector<PointMass> pointMasses;
     std::vector<std::string> unsupportedTrackTypes;
 };

@@ -22,6 +22,34 @@ QString fixturePath(const QString& name)
     return QString::fromUtf8(MOTRACK_FIXTURES) + '/' + name;
 }
 
+void triggerFileDialog(QAction& action, QWidget& window, const QString& path)
+{
+    QTimer watchdog;
+    watchdog.setSingleShot(true);
+    QObject::connect(&watchdog,
+                     &QTimer::timeout,
+                     &window,
+                     []
+                     {
+                         if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget()))
+                         {
+                             dialog->reject();
+                         }
+                     });
+    watchdog.start(2000);
+    QTimer::singleShot(0,
+                       &window,
+                       [path]
+                       {
+                           if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget()))
+                           {
+                               dialog->selectFile(path);
+                               QMetaObject::invokeMethod(dialog, "accept");
+                           }
+                       });
+    action.trigger();
+}
+
 TEST(ImageSequence, ReportsMissingImagesAndRejectsOutOfRangeSteps)
 {
     motrack::Clip clip;
@@ -55,32 +83,32 @@ TEST(Workspace, OpensAProjectThroughTheFileMenu)
     window.show();
     auto* open = window.findChild<QAction*>("openProject");
     ASSERT_NE(open, nullptr);
-    QTimer watchdog;
-    watchdog.setSingleShot(true);
-    QObject::connect(&watchdog,
-                     &QTimer::timeout,
-                     &window,
-                     []
-                     {
-                         if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget()))
-                         {
-                             dialog->reject();
-                         }
-                     });
-    watchdog.start(2000);
-    QTimer::singleShot(0,
-                       &window,
-                       []
-                       {
-                           auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
-                           if (dialog != nullptr)
-                           {
-                               dialog->selectFile(fixturePath("image-sequence.trk"));
-                               QMetaObject::invokeMethod(dialog, "accept");
-                           }
-                       });
-    open->trigger();
+    triggerFileDialog(*open, window, fixturePath("image-sequence.trk"));
     EXPECT_TRUE(window.windowTitle().contains("image-sequence.trk"));
+}
+
+TEST(Workspace, DisplaysWorldCoordinatesAndExportsMeasurements)
+{
+    motrack::MainWindow window;
+    window.show();
+    auto* action = window.findChild<QAction*>("exportMeasurements");
+    auto* marks = window.findChild<QTableWidget*>("marksTable");
+    ASSERT_TRUE(action && marks);
+    EXPECT_FALSE(action->isEnabled());
+    ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
+    EXPECT_TRUE(action->isEnabled());
+    ASSERT_NE(marks->item(0, 4), nullptr);
+    ASSERT_NE(marks->item(0, 5), nullptr);
+    EXPECT_EQ(marks->item(0, 4)->text(), "0.75");
+    EXPECT_EQ(marks->item(0, 5)->text(), "0.625");
+
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    triggerFileDialog(*action, window, temporary.filePath("measurements"));
+    QFile csv(temporary.filePath("measurements.csv"));
+    ASSERT_TRUE(csv.open(QIODevice::ReadOnly));
+    EXPECT_TRUE(csv.readAll().contains("Ball,0,1.5,1.5,0.75,0.625,m\r\n"));
+    EXPECT_FALSE(window.saveMeasurements(temporary.filePath("missing/measurements.csv")));
 }
 
 TEST(Workspace, StepsThroughImagesAndKeepsImportedMarks)

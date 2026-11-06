@@ -1,5 +1,6 @@
 #include "main_window.hpp"
 
+#include "measurements.hpp"
 #include "video_reader.hpp"
 
 #include <QFileDialog>
@@ -9,6 +10,7 @@
 #include <QLabel>
 #include <QMenuBar>
 #include <QPainter>
+#include <QSaveFile>
 #include <QSignalBlocker>
 #include <QSlider>
 #include <QSplitter>
@@ -76,7 +78,12 @@ MainWindow::MainWindow()
     auto* open = new QAction(tr("&Open Tracker project…"), this);
     open->setObjectName("openProject");
     open->setShortcut(QKeySequence::Open);
-    menuBar()->addMenu(tr("&File"))->addAction(open);
+    auto* fileMenu = menuBar()->addMenu(tr("&File"));
+    fileMenu->addAction(open);
+    m_Export = new QAction(tr("&Export measurements…"), this);
+    m_Export->setObjectName("exportMeasurements");
+    m_Export->setEnabled(false);
+    fileMenu->addAction(m_Export);
     addToolBar(tr("Project"))->addAction(open);
 
     auto* workspace = new QSplitter;
@@ -112,9 +119,9 @@ MainWindow::MainWindow()
     layout->addLayout(controls);
     workspace->addWidget(videoPane);
 
-    m_Marks = new QTableWidget(0, 4);
+    m_Marks = new QTableWidget(0, 6);
     m_Marks->setObjectName("marksTable");
-    m_Marks->setHorizontalHeaderLabels({tr("Track"), tr("Frame"), tr("Image x (px)"), tr("Image y (px)")});
+    m_Marks->setHorizontalHeaderLabels({tr("Track"), tr("Frame"), tr("Image x (px)"), tr("Image y (px)"), tr("World x"), tr("World y")});
     m_Marks->setEditTriggers(QAbstractItemView::NoEditTriggers);
     workspace->addWidget(m_Marks);
     workspace->setStretchFactor(0, 2);
@@ -136,6 +143,17 @@ MainWindow::MainWindow()
                 if (!path.isEmpty())
                 {
                     loadProject(path);
+                }
+            });
+    connect(m_Export,
+            &QAction::triggered,
+            this,
+            [this]
+            {
+                const auto path = QFileDialog::getSaveFileName(this, tr("Export measurements"), {}, tr("CSV files (*.csv)"));
+                if (!path.isEmpty())
+                {
+                    saveMeasurements(path.endsWith(".csv", Qt::CaseInsensitive) ? path : path + ".csv");
                 }
             });
 }
@@ -160,6 +178,7 @@ bool MainWindow::loadProject(const QString& path)
     ++*m_RequestGeneration;
     m_FrameWatcher.reset();
     displayMarks();
+    m_Export->setEnabled(m_Marks->rowCount() > 0);
     m_Sequence = ImageSequence::open(path, m_Project.clip);
     m_MoviePath.clear();
     const auto& clip = m_Project.clip;
@@ -188,6 +207,20 @@ bool MainWindow::loadProject(const QString& path)
     return true;
 }
 
+bool MainWindow::saveMeasurements(const QString& path)
+{
+    QSaveFile file(path);
+    const auto csv = measurementsCsv(m_Project);
+    const auto size = static_cast<qint64>(csv.size());
+    if (!file.open(QIODevice::WriteOnly) || file.write(csv.data(), size) != size || !file.commit())
+    {
+        statusBar()->showMessage(tr("Could not save the measurements."));
+        return false;
+    }
+    statusBar()->showMessage(tr("Measurements exported."));
+    return true;
+}
+
 void MainWindow::displayMarks()
 {
     m_Marks->setRowCount(0);
@@ -201,6 +234,12 @@ void MainWindow::displayMarks()
             m_Marks->setItem(row, 1, new QTableWidgetItem(QString::number(mark.frame)));
             m_Marks->setItem(row, 2, new QTableWidgetItem(QString::number(mark.x, 'g', 12)));
             m_Marks->setItem(row, 3, new QTableWidgetItem(QString::number(mark.y, 'g', 12)));
+            const auto world = m_Project.calibration ? worldPosition(*m_Project.calibration, mark) : std::nullopt;
+            if (world)
+            {
+                m_Marks->setItem(row, 4, new QTableWidgetItem(QString::number(world->x, 'g', 12)));
+                m_Marks->setItem(row, 5, new QTableWidgetItem(QString::number(world->y, 'g', 12)));
+            }
         }
     }
 }

@@ -12,6 +12,7 @@
 #include <memory>
 
 class QLabel;
+class QAction;
 class QSlider;
 class QTableWidget;
 class QToolButton;
@@ -29,6 +30,7 @@ class MainWindow final : public QMainWindow
     MainWindow();
     ~MainWindow() override;
     bool loadProject(const QString& path);
+    bool saveMeasurements(const QString& path);
 
   private:
     void displayStep(int step);
@@ -42,6 +44,7 @@ class MainWindow final : public QMainWindow
     QToolButton* m_Previous;
     QToolButton* m_Next;
     QTableWidget* m_Marks;
+    QAction* m_Export;
     LegacyProject m_Project;
     std::optional<ImageSequence> m_Sequence;
     QString m_MoviePath;
