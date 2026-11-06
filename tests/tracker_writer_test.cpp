@@ -156,8 +156,15 @@ TEST(TrackerWriter, RejectsUnsupportedOrInvalidEditsBeforeReplacingTheDestinatio
     EXPECT_THROW(motrack::writeTrackerProject(output, imported.project, missing), motrack::ProjectError);
     EXPECT_EQ(readBytes(output), imported.source.xml);
     EXPECT_THROW(motrack::writeTrackerProject(temporary.filePath("bad.trz"), imported.project, imported.source), motrack::ProjectError);
-    EXPECT_THROW(motrack::writeTrackerProject(temporary.filePath("missing/child.trk"), imported.project, imported.source),
-                 motrack::ProjectError);
+    try
+    {
+        motrack::writeTrackerProject(temporary.filePath("missing/child.trk"), imported.project, imported.source);
+        FAIL() << "Expected a file error for the missing parent directory.";
+    }
+    catch (const motrack::ProjectError& error)
+    {
+        EXPECT_TRUE(std::string_view(error.what()).starts_with("Could not write Tracker project:"));
+    }
 }
 
 TEST(TrackerWriter, RejectsAmbiguousOrStructuredMassProperties)

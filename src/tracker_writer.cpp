@@ -174,7 +174,10 @@ void writeTrackerProject(const QString& path, const LegacyProject& project, cons
     const auto xml = renderTrackerProject(project, source);
     QSaveFile output(path);
     const auto size = static_cast<qint64>(xml.size());
-    require(output.open(QIODevice::WriteOnly) && output.write(xml.data(), size) == size && output.commit());
+    if (!output.open(QIODevice::WriteOnly) || output.write(xml.data(), size) != size || !output.commit())
+    {
+        throw ProjectError("Could not write Tracker project: " + output.errorString().toStdString());
+    }
 }
 
 } // namespace motrack
