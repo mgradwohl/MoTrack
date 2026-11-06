@@ -238,6 +238,8 @@ TEST(Workspace, StepsThroughAMovieOnABackgroundWorker)
 
 TEST(Workspace, OpensStandaloneMovieAndKeepsTheWorkspaceAfterAFailedOpen)
 {
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
     motrack::MainWindow window;
     auto* canvas = window.findChild<QWidget*>("videoCanvas");
     auto* slider = window.findChild<QSlider*>("stepSlider");
@@ -251,6 +253,60 @@ TEST(Workspace, OpensStandaloneMovieAndKeepsTheWorkspaceAfterAFailedOpen)
     window.openMovie(fixturePath("missing.mp4"));
     ASSERT_TRUE(QTest::qWaitFor([status] { return status->currentMessage() == "Could not open this video."; }));
     EXPECT_EQ(canvas->accessibleName(), "Frame 3");
+    const auto destination = temporary.filePath("movie.motrack");
+    ASSERT_TRUE(window.saveWorkspace(destination));
+    ASSERT_TRUE(window.loadProject(destination));
+    ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
+    EXPECT_EQ(slider->maximum(), 3);
+}
+
+TEST(Workspace, SavesEditsAndReopensMediaFromADifferentDirectory)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    motrack::MainWindow window;
+    window.show();
+    ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
+    auto* canvas = window.findChild<QWidget*>("videoCanvas");
+    auto* marks = window.findChild<QTableWidget*>("marksTable");
+    auto* undo = window.findChild<QAction*>("undoEdit");
+    auto* redo = window.findChild<QAction*>("redoEdit");
+    auto* save = window.findChild<QAction*>("saveWorkspace");
+    auto* saveCurrent = window.findChild<QAction*>("saveProject");
+    ASSERT_TRUE(canvas && marks && undo && redo && save && saveCurrent);
+    QTest::mouseClick(canvas, Qt::LeftButton, Qt::ShiftModifier, canvas->rect().center());
+    ASSERT_TRUE(window.isWindowModified());
+    const auto destination = temporary.filePath("experiment.motrack");
+    EXPECT_FALSE(window.saveWorkspace(temporary.filePath("missing/experiment.motrack")));
+    EXPECT_FALSE(window.saveWorkspace(temporary.filePath("experiment.trk")));
+    EXPECT_TRUE(window.isWindowModified());
+    triggerFileDialog(*save, window, temporary.filePath("experiment"));
+    ASSERT_TRUE(QFile::exists(destination));
+    EXPECT_FALSE(window.isWindowModified());
+    undo->trigger();
+    EXPECT_TRUE(window.isWindowModified());
+    redo->trigger();
+    EXPECT_FALSE(window.isWindowModified());
+    undo->trigger();
+    QTest::mouseClick(canvas, Qt::LeftButton, Qt::ShiftModifier, canvas->rect().center() + QPoint(10, 0));
+    EXPECT_TRUE(window.isWindowModified());
+    EXPECT_FALSE(redo->isEnabled());
+    const auto updatedX = marks->item(1, 2)->text();
+    saveCurrent->trigger();
+    EXPECT_FALSE(window.isWindowModified());
+    ASSERT_TRUE(window.loadProject(destination));
+    EXPECT_FALSE(window.isWindowModified());
+    EXPECT_EQ(canvas->accessibleName(), "Frame 0");
+    EXPECT_EQ(marks->rowCount(), 2);
+    EXPECT_EQ(marks->item(1, 2)->text(), updatedX);
+    EXPECT_FALSE(window.loadProject(temporary.filePath("missing.motrack")));
+    EXPECT_EQ(marks->rowCount(), 2);
+    QFile invalid(temporary.filePath("invalid.motrack"));
+    ASSERT_TRUE(invalid.open(QIODevice::WriteOnly));
+    ASSERT_GT(invalid.write(R"({"format":"MoTrack","version":999})"), 0);
+    invalid.close();
+    EXPECT_FALSE(window.loadProject(invalid.fileName()));
+    EXPECT_EQ(marks->rowCount(), 2);
 }
 
 TEST(Workspace, ReportsUnavailableMovieFrames)

@@ -34,7 +34,7 @@ endif()
 find_package(Qt6 6.8 REQUIRED COMPONENTS Widgets Xml LinguistTools Concurrent)
 include(cmake/MoTrackFFmpeg.cmake)
 
-add_library(motrack_project STATIC src/legacy_project.cpp src/measurements.cpp src/track_edits.cpp)
+add_library(motrack_project STATIC src/legacy_project.cpp src/measurements.cpp src/track_edits.cpp src/workspace_document.cpp)
 target_include_directories(motrack_project PUBLIC src)
 target_link_libraries(motrack_project PUBLIC Qt6::Core PRIVATE Qt6::Xml)
 

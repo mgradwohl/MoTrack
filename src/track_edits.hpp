@@ -24,6 +24,8 @@ class TrackEdits
 {
   public:
     void clear();
+    void markSaved();
+    [[nodiscard]] bool isModified() const;
     void createPointMass(LegacyProject& project, std::string name);
     bool markPointMass(LegacyProject& project, std::size_t track, Mark mark);
     bool calibrateDistance(LegacyProject& project, CalibrationDistance distance);
@@ -59,6 +61,7 @@ class TrackEdits
 
     std::vector<Edit> m_Commands;
     std::size_t m_Head = 0;
+    std::optional<std::size_t> m_SavedHead = 0;
 };
 
 } // namespace motrack
