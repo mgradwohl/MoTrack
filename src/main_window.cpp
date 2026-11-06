@@ -1542,7 +1542,16 @@ void MainWindow::displayFrame(const ImageFrame& frame, const QString& failureMes
             points.emplaceBack(mark->x, mark->y);
         }
     }
-    m_Video->display(frame.image, std::move(points), frame.image.isNull() ? failureMessage : label);
+    QList<QLineF> vectors;
+    for (const auto& track : m_Project.vectors)
+    {
+        const auto sample = std::ranges::lower_bound(track.samples, frame.number, {}, &VectorSample::frame);
+        if (sample != track.samples.end() && sample->frame == frame.number)
+        {
+            vectors.emplaceBack(sample->tailX, sample->tailY, sample->tailX + sample->componentX, sample->tailY + sample->componentY);
+        }
+    }
+    m_Video->display(frame.image, std::move(points), frame.image.isNull() ? failureMessage : label, std::move(vectors));
     if (m_Playing && (frame.image.isNull() || m_StepSlider->value() == m_StepSlider->maximum()))
     {
         setPlaying(false);

@@ -26,6 +26,21 @@ struct PointMass
     double mass = 1.0;
 };
 
+struct VectorSample
+{
+    int frame;
+    double tailX;
+    double tailY;
+    double componentX;
+    double componentY;
+};
+
+struct VectorTrack
+{
+    std::string name;
+    std::vector<VectorSample> samples;
+};
+
 struct Clip
 {
     int firstFrame = 0;
@@ -65,6 +80,7 @@ struct LegacyProject
     std::string lengthUnit;
     std::string massUnit = "kg";
     std::vector<PointMass> pointMasses;
+    std::vector<VectorTrack> vectors{};
     std::vector<std::string> unsupportedTrackTypes;
 };
 
