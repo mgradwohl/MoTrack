@@ -67,6 +67,7 @@ class MainWindow final : public QMainWindow
     void stopAutoTracking(const QString& message = {});
     void updateAutoTrackerAction();
     void autoTrackFrame(const ImageFrame& frame);
+    void applyAutoTrackMatch(int frame, const std::optional<QPoint>& point);
     void activateProject(const QString& path);
     void syncClipControls();
     void editClipSettings();
@@ -140,6 +141,7 @@ class MainWindow final : public QMainWindow
     };
     std::optional<AutoTrackSession> m_AutoTrack;
     QTimer m_AutoTrackTimer;
+    QFutureWatcher<std::optional<QPoint>>* m_AutoTrackMatch = nullptr;
     QString m_MoviePath;
     bool m_MovieUsesDisplayOrientation = false;
     bool m_MovieAlignsToClip = false;

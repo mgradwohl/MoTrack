@@ -1461,6 +1461,10 @@ void MainWindow::displayMarks()
 
 void MainWindow::displayStep(int step)
 {
+    if (m_AutoTrackMatch)
+    {
+        stopAutoTracking();
+    }
     m_PlayTimer.stop();
     m_AutoTrackTimer.stop();
     m_Play->setEnabled(m_StepSlider->maximum() > 0);
@@ -1583,6 +1587,10 @@ void MainWindow::startAutoTracking()
 void MainWindow::stopAutoTracking(const QString& message)
 {
     m_AutoTrackTimer.stop();
+    if (auto* pending = std::exchange(m_AutoTrackMatch, nullptr))
+    {
+        pending->deleteLater();
+    }
     m_AutoTrack.reset();
     const QSignalBlocker blocker(m_AutoTracker);
     m_AutoTracker->setChecked(false);
@@ -1611,16 +1619,40 @@ void MainWindow::autoTrackFrame(const ImageFrame& frame)
         stopAutoTracking(tr("AutoTracker stopped at an existing mark."));
         return;
     }
-    const auto point = session.pattern.find(frame.image, session.predicted);
+    auto* match = new QFutureWatcher<std::optional<QPoint>>(this);
+    m_AutoTrackMatch = match;
+    connect(match,
+            &QFutureWatcher<std::optional<QPoint>>::finished,
+            this,
+            [this, match, number = frame.number]
+            {
+                if (m_AutoTrackMatch == match)
+                {
+                    m_AutoTrackMatch = nullptr;
+                    match->deleteLater();
+                    applyAutoTrackMatch(number, match->result());
+                }
+            });
+    match->setFuture(QtConcurrent::run([pattern = session.pattern, image = frame.image, predicted = session.predicted]
+                                       { return pattern.find(image, predicted); }));
+}
+
+void MainWindow::applyAutoTrackMatch(int frame, const std::optional<QPoint>& point)
+{
+    if (!m_AutoTrack)
+    {
+        return;
+    }
     if (!point)
     {
         stopAutoTracking(tr("AutoTracker could not find a reliable match. Mark this frame to continue."));
         return;
     }
-    session.lastFrame = frame.number;
+    auto& session = *m_AutoTrack;
+    session.lastFrame = frame;
     session.predicted = *point;
     m_Edits.markPointMass(
-        m_Project, session.track, {.frame = frame.number, .x = static_cast<double>(point->x()), .y = static_cast<double>(point->y())});
+        m_Project, session.track, {.frame = frame, .x = static_cast<double>(point->x()), .y = static_cast<double>(point->y())});
     refreshEditViews(static_cast<int>(session.track));
     if (m_StepSlider->value() == m_StepSlider->maximum())
     {

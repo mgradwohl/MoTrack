@@ -22,6 +22,7 @@
 #include <QTableWidget>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QThreadPool>
 #include <QTimer>
 #include <QToolButton>
 #include <QTranslator>
@@ -634,6 +635,16 @@ TEST(Workspace, AutoTracksATexturedMarkAndStopsWhenItDisappears)
     action->trigger();
     QCoreApplication::processEvents();
     EXPECT_EQ(slider->value(), 0);
+
+    action->trigger();
+    slider->setValue(1);
+    action->trigger();
+    slider->setValue(0);
+    ASSERT_TRUE(QThreadPool::globalInstance()->waitForDone(5'000));
+    QCoreApplication::processEvents();
+    EXPECT_EQ(marks->rowCount(), 1);
+    EXPECT_FALSE(action->isChecked());
+
     action->trigger();
     ASSERT_TRUE(QTest::qWaitFor([slider, action] { return slider->value() == 2 && !action->isChecked(); }));
     ASSERT_EQ(marks->rowCount(), 2);
