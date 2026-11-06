@@ -4,6 +4,7 @@
 
 #include <array>
 #include <limits>
+#include <numbers>
 
 namespace
 {
@@ -123,12 +124,21 @@ TEST(MeasurementPlot, DifferentiatesAtTheCenterOfUnevenFrameTimes)
     project.pointMasses.push_back(
         {.name = "Cart",
          .marks = {
-             {.frame = 0, .x = 0, .y = 0}, {.frame = 1, .x = 1, .y = 0}, {.frame = 2, .x = 9, .y = 0}, {.frame = 3, .x = 16, .y = 0}}});
+             {.frame = 0, .x = 0, .y = 1}, {.frame = 1, .x = 1, .y = 3}, {.frame = 2, .x = 9, .y = 7}, {.frame = 3, .x = 16, .y = 9}}});
     const std::array frameTimes{0.0, 1.0, 3.0};
     const auto velocity = motrack::measurementPlot(project, 0, motrack::PlotQuantity::VelocityX, frameTimes);
     ASSERT_EQ(velocity.samples.size(), 1u);
     EXPECT_DOUBLE_EQ(velocity.samples.front().horizontal, 1.0);
     EXPECT_DOUBLE_EQ(velocity.samples.front().vertical, 2.0);
+    const auto speed = motrack::measurementPlot(project, 0, motrack::PlotQuantity::Speed, frameTimes);
+    ASSERT_EQ(speed.samples.size(), 1u);
+    EXPECT_NEAR(speed.samples.front().vertical, 2.0 * std::numbers::sqrt2, 1e-12);
+    const auto accelerationX = motrack::measurementPlot(project, 0, motrack::PlotQuantity::AccelerationX, frameTimes);
+    ASSERT_EQ(accelerationX.samples.size(), 1u);
+    EXPECT_DOUBLE_EQ(accelerationX.samples.front().vertical, 2.0);
+    const auto accelerationY = motrack::measurementPlot(project, 0, motrack::PlotQuantity::AccelerationY, frameTimes);
+    ASSERT_EQ(accelerationY.samples.size(), 1u);
+    EXPECT_DOUBLE_EQ(accelerationY.samples.front().vertical, 0.0);
 }
 
 } // namespace

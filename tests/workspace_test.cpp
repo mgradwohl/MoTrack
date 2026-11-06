@@ -228,6 +228,10 @@ TEST(Workspace, PlotsPositionAndSeeksToASelectedMeasurement)
     EXPECT_FALSE(plot->grab().isNull());
     QTest::mouseClick(plot, Qt::LeftButton, Qt::NoModifier, plot->rect().center());
     EXPECT_EQ(slider->value(), 1);
+    quantities->setCurrentIndex(4);
+    EXPECT_EQ(plot->accessibleName(), "speed (m/s) versus Time (s)");
+    quantities->setCurrentIndex(5);
+    EXPECT_EQ(plot->accessibleName(), QString::fromUtf8("x acceleration (m/s²) versus Time (s)"));
 }
 
 TEST(Workspace, CalibratesAFrameUsingTwoClickedEndpoints)

@@ -9,7 +9,6 @@
 #include <numbers>
 #include <sstream>
 #include <string_view>
-#include <utility>
 
 namespace motrack
 {
@@ -123,15 +122,24 @@ std::string measurementsCsv(const LegacyProject& project)
 
 PlotSeries measurementPlot(const LegacyProject& project, std::size_t track, PlotQuantity quantity, std::span<const double> frameTimes)
 {
+    struct PositionSample
+    {
+        int frame;
+        double horizontal;
+        WorldPoint point;
+    };
+
     const auto frameDurationMs = project.clip.frameDurationMs.value_or(0.0);
     PlotSeries series{.samples = {}, .timed = !frameTimes.empty() || frameDurationMs > 0.0, .calibrated = project.calibration.has_value()};
-    const bool velocity = quantity == PlotQuantity::VelocityX || quantity == PlotQuantity::VelocityY;
-    if (track >= project.pointMasses.size() || (velocity && !series.timed))
+    const bool position = quantity == PlotQuantity::PositionX || quantity == PlotQuantity::PositionY;
+    if (track >= project.pointMasses.size() || (!position && !series.timed))
     {
         return series;
     }
 
-    const bool vertical = quantity == PlotQuantity::PositionY || quantity == PlotQuantity::VelocityY;
+    const bool vertical =
+        quantity == PlotQuantity::PositionY || quantity == PlotQuantity::VelocityY || quantity == PlotQuantity::AccelerationY;
+    std::vector<PositionSample> positions;
     for (const auto& mark : project.pointMasses.at(track).marks)
     {
         if (!includesFrame(project.clip, mark.frame))
@@ -153,33 +161,47 @@ PlotSeries measurementPlot(const LegacyProject& project, std::size_t track, Plot
         {
             horizontal = (project.clip.startTimeMs + (mark.frame - project.clip.firstFrame) * frameDurationMs) / 1000.0;
         }
-        if (point && std::isfinite(horizontal))
+        if (!point || !std::isfinite(horizontal) || !std::isfinite(point->x) || !std::isfinite(point->y))
+        {
+            continue;
+        }
+        if (position)
         {
             series.samples.push_back({.frame = mark.frame, .horizontal = horizontal, .vertical = vertical ? point->y : point->x});
         }
+        else
+        {
+            positions.push_back({.frame = mark.frame, .horizontal = horizontal, .point = *point});
+        }
     }
 
-    if (velocity)
+    const bool acceleration = quantity == PlotQuantity::AccelerationX || quantity == PlotQuantity::AccelerationY;
+    for (std::size_t index = 1; index + 1 < positions.size(); ++index)
     {
-        const auto positions = std::exchange(series.samples, {});
-        for (std::size_t index = 1; index + 1 < positions.size(); ++index)
+        const auto& previous = positions.at(index - 1);
+        const auto& center = positions.at(index);
+        const auto& next = positions.at(index + 1);
+        const auto before = center.horizontal - previous.horizontal;
+        const auto after = next.horizontal - center.horizontal;
+        if (center.frame - previous.frame != project.clip.stepSize || next.frame - center.frame != project.clip.stepSize || before <= 0.0 ||
+            after <= 0.0)
         {
-            const auto& previous = positions.at(index - 1);
-            const auto& center = positions.at(index);
-            const auto& next = positions.at(index + 1);
-            const auto before = center.horizontal - previous.horizontal;
-            const auto after = next.horizontal - center.horizontal;
-            if (center.frame - previous.frame == project.clip.stepSize && next.frame - center.frame == project.clip.stepSize &&
-                before > 0.0 && after > 0.0)
-            {
-                const auto elapsed = before + after;
-                const auto value = (after / elapsed) * (center.vertical - previous.vertical) / before +
-                                   (before / elapsed) * (next.vertical - center.vertical) / after;
-                if (std::isfinite(value))
-                {
-                    series.samples.push_back({.frame = center.frame, .horizontal = center.horizontal, .vertical = value});
-                }
-            }
+            continue;
+        }
+        // Differentiate the quadratic through the three samples at the center time.
+        const auto derivative = [&](double WorldPoint::*component)
+        {
+            const auto firstSlope = (center.point.*component - previous.point.*component) / before;
+            const auto secondSlope = (next.point.*component - center.point.*component) / after;
+            const auto elapsed = before + after;
+            return acceleration ? 2.0 * (secondSlope - firstSlope) / elapsed
+                                : (after / elapsed) * firstSlope + (before / elapsed) * secondSlope;
+        };
+        const auto value = quantity == PlotQuantity::Speed ? std::hypot(derivative(&WorldPoint::x), derivative(&WorldPoint::y))
+                                                           : derivative(vertical ? &WorldPoint::y : &WorldPoint::x);
+        if (std::isfinite(value))
+        {
+            series.samples.push_back({.frame = center.frame, .horizontal = center.horizontal, .vertical = value});
         }
     }
     return series;

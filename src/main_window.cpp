@@ -196,6 +196,9 @@ MainWindow::MainWindow()
     m_PlotQuantity->addItem(tr("y position"), static_cast<int>(PlotQuantity::PositionY));
     m_PlotQuantity->addItem(tr("x velocity"), static_cast<int>(PlotQuantity::VelocityX));
     m_PlotQuantity->addItem(tr("y velocity"), static_cast<int>(PlotQuantity::VelocityY));
+    m_PlotQuantity->addItem(tr("speed"), static_cast<int>(PlotQuantity::Speed));
+    m_PlotQuantity->addItem(tr("x acceleration"), static_cast<int>(PlotQuantity::AccelerationX));
+    m_PlotQuantity->addItem(tr("y acceleration"), static_cast<int>(PlotQuantity::AccelerationY));
     m_Plot = new PositionPlot;
     m_Plot->seekFrame = [this](int frame)
     {
@@ -883,9 +886,22 @@ void MainWindow::refreshPlot()
     auto series = track >= 0 ? measurementPlot(m_Project, static_cast<std::size_t>(track), quantity, m_MovieFrameTimes) : PlotSeries{};
     const auto horizontal = series.timed ? tr("Time (s)") : tr("Frame");
     auto unit = series.calibrated ? QString::fromStdString(m_Project.lengthUnit) : tr("px");
-    if ((quantity == PlotQuantity::VelocityX || quantity == PlotQuantity::VelocityY) && !unit.isEmpty())
+    if (!unit.isEmpty())
     {
-        unit = tr("%1/s").arg(unit);
+        switch (quantity)
+        {
+        case PlotQuantity::VelocityX:
+        case PlotQuantity::VelocityY:
+        case PlotQuantity::Speed:
+            unit = tr("%1/s").arg(unit);
+            break;
+        case PlotQuantity::AccelerationX:
+        case PlotQuantity::AccelerationY:
+            unit = tr("%1/s²").arg(unit);
+            break;
+        default:
+            break;
+        }
     }
     const auto label = m_PlotQuantity->currentText();
     const auto vertical = unit.isEmpty() ? label : tr("%1 (%2)").arg(label, unit);
