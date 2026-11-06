@@ -648,6 +648,7 @@ bool MainWindow::applyProject(const QString& path, PreparedProject prepared, con
     m_Project = std::move(document.project);
     m_Sequence = document.movie ? std::nullopt : ImageSequence::open(m_MediaProjectPath, m_Project.clip);
     m_MoviePath.clear();
+    m_MoviePresentationTimes.clear();
     m_MovieUsesDisplayOrientation = document.useDisplayOrientation;
     m_MovieAlignsToClip = document.alignMovieToClip || !path.endsWith(".motrack", Qt::CaseInsensitive);
     m_MovieFrameTimes = std::move(document.movieFrameTimes);
@@ -673,7 +674,7 @@ bool MainWindow::applyProject(const QString& path, PreparedProject prepared, con
     }
     statusBar()->showMessage(
         tr("Opened %1 marks. Unsupported tracks: %2.").arg(m_Marks->rowCount()).arg(m_Project.unsupportedTrackTypes.size()));
-    if (!m_MoviePath.isEmpty() && m_MovieFrameTimes.empty())
+    if (!m_MoviePath.isEmpty())
     {
         scheduleMovieIndex(m_MoviePath, false);
     }
@@ -744,6 +745,7 @@ bool MainWindow::openImageSequence(const QStringList& paths, double frameRate)
     m_Project = std::move(project);
     m_Sequence = std::move(sequence);
     m_MoviePath.clear();
+    m_MoviePresentationTimes.clear();
     m_MovieUsesDisplayOrientation = false;
     m_MovieAlignsToClip = false;
     m_MovieFrameTimes.clear();
@@ -773,7 +775,11 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
                 auto index = watcher->result();
                 if (!standalone)
                 {
-                    m_MovieFrameTimes = std::move(index.frameTimes);
+                    m_MoviePresentationTimes = std::move(index.presentationTimes);
+                    if (!index.frameTimes.empty())
+                    {
+                        m_MovieFrameTimes = std::move(index.frameTimes);
+                    }
                     refreshPlot();
                     return;
                 }
@@ -797,6 +803,7 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
                 m_MoviePath = path;
                 m_MovieUsesDisplayOrientation = true;
                 m_MovieAlignsToClip = false;
+                m_MoviePresentationTimes = std::move(index.presentationTimes);
                 m_MovieFrameTimes = std::move(index.frameTimes);
                 activateProject(path);
                 statusBar()->showMessage(tr("Opened video with %1 frames.").arg(index.frameCount));
@@ -1674,8 +1681,16 @@ void MainWindow::requestMovieFrame(int frame)
                 });
         m_MovieThread.start();
     }
+    std::optional<std::chrono::nanoseconds> timestamp;
+    if (std::cmp_less(frame, m_MoviePresentationTimes.size()) && frame >= 0)
+    {
+        timestamp = m_MoviePresentationTimes.at(static_cast<std::size_t>(frame));
+    }
     QMetaObject::invokeMethod(
-        m_MovieWorker, "readFrame", Qt::QueuedConnection, m_MoviePath, frame, generation, m_MovieUsesDisplayOrientation);
+        m_MovieWorker,
+        [worker = m_MovieWorker, path = m_MoviePath, frame, generation, orientation = m_MovieUsesDisplayOrientation, timestamp]
+        { worker->readFrame(path, frame, generation, orientation, timestamp); },
+        Qt::QueuedConnection);
 }
 
 } // namespace motrack

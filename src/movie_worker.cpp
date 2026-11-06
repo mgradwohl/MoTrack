@@ -14,16 +14,18 @@ void MovieWorker::clear()
     m_Reader.reset();
 }
 
-void MovieWorker::readFrame(const QString& path, int frame, quint64 request, bool useDisplayOrientation)
+void MovieWorker::readFrame(
+    const QString& path, int frame, quint64 request, bool useDisplayOrientation, std::optional<std::chrono::nanoseconds> timestamp)
 {
     if (m_CurrentRequest == request)
     {
         const auto orientation = useDisplayOrientation ? VideoOrientation::Display : VideoOrientation::Encoded;
-        Q_EMIT frameDecoded(frame, request, decodeFrame(path, frame, request, orientation));
+        Q_EMIT frameDecoded(frame, request, decodeFrame(path, frame, request, orientation, timestamp));
     }
 }
 
-QImage MovieWorker::decodeFrame(const QString& path, int frame, quint64 request, VideoOrientation orientation)
+QImage MovieWorker::decodeFrame(
+    const QString& path, int frame, quint64 request, VideoOrientation orientation, std::optional<std::chrono::nanoseconds> timestamp)
 {
     if (const auto* cached = m_Cache.object(frame))
     {
@@ -31,6 +33,26 @@ QImage MovieWorker::decodeFrame(const QString& path, int frame, quint64 request,
     }
     try
     {
+        constexpr int SEQUENTIAL_WINDOW = 32;
+        if (timestamp && (std::cmp_greater(m_NextFrame, frame) || std::cmp_less(m_NextFrame + SEQUENTIAL_WINDOW, frame)))
+        {
+            if (!m_Reader)
+            {
+                m_Reader = std::make_unique<VideoReader>(path, orientation);
+            }
+            auto image = seekFrame(*timestamp, request);
+            if (!image.isNull())
+            {
+                m_NextFrame = static_cast<std::uint64_t>(frame) + 1;
+                cacheFrame(frame, image);
+                return image;
+            }
+            m_Reader.reset();
+            if (m_CurrentRequest != request)
+            {
+                return {};
+            }
+        }
         if (!m_Reader || std::cmp_greater(m_NextFrame, frame))
         {
             m_Reader.reset();
@@ -48,11 +70,7 @@ QImage MovieWorker::decodeFrame(const QString& path, int frame, quint64 request,
             ++m_NextFrame;
             if (atTarget)
             {
-                const auto bytes = decoded->image.sizeInBytes();
-                if (bytes <= m_Cache.maxCost())
-                {
-                    m_Cache.insert(frame, new QImage(decoded->image), bytes);
-                }
+                cacheFrame(frame, decoded->image);
                 return decoded->image;
             }
         }
@@ -62,6 +80,42 @@ QImage MovieWorker::decodeFrame(const QString& path, int frame, quint64 request,
         m_Reader.reset();
     }
     return {};
+}
+
+QImage MovieWorker::seekFrame(std::chrono::nanoseconds timestamp, quint64 request)
+{
+    try
+    {
+        if (m_Reader->seekTo(timestamp))
+        {
+            while (m_CurrentRequest == request)
+            {
+                const auto decoded = m_Reader->readNext();
+                if (!decoded || !decoded->presentationTime || *decoded->presentationTime > timestamp)
+                {
+                    break;
+                }
+                if (*decoded->presentationTime == timestamp)
+                {
+                    return decoded->image;
+                }
+            }
+        }
+    }
+    catch (const VideoError&)
+    {
+        // Some demuxers can seek successfully without yielding a usable frame.
+    }
+    return {};
+}
+
+void MovieWorker::cacheFrame(int frame, const QImage& image)
+{
+    const auto bytes = image.sizeInBytes();
+    if (bytes <= m_Cache.maxCost())
+    {
+        m_Cache.insert(frame, new QImage(image), bytes);
+    }
 }
 
 } // namespace motrack

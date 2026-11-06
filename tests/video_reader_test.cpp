@@ -38,6 +38,30 @@ TEST(VideoReader, DecodesMovieInPresentationOrderWithVariableTiming)
     EXPECT_FALSE(reader.readNext().has_value());
 }
 
+TEST(VideoReader, SeeksBackwardAfterDraining)
+{
+    motrack::VideoReader reader(fixturePath("vfr.mp4"));
+    QImage target;
+    while (const auto frame = reader.readNext())
+    {
+        if (frame->presentationTime == 288ms)
+        {
+            target = frame->image;
+        }
+    }
+    ASSERT_FALSE(target.isNull());
+    ASSERT_TRUE(reader.seekTo(288ms));
+    while (const auto frame = reader.readNext())
+    {
+        if (frame->presentationTime == 288ms)
+        {
+            EXPECT_EQ(frame->image, target);
+            return;
+        }
+    }
+    FAIL() << "Seeking failed to recover the indexed frame";
+}
+
 TEST(VideoReader, RejectsMissingFilesAndUnknownFormats)
 {
     EXPECT_THROW(motrack::VideoReader{fixturePath("missing.mp4")}, motrack::VideoError);
@@ -52,6 +76,7 @@ TEST(VideoReader, IndexesRelativeTimestampsAndHonorsCancellation)
     EXPECT_EQ(index.frameCount, 4);
     ASSERT_EQ(index.frameTimes.size(), 4u);
     EXPECT_DOUBLE_EQ(index.frameTimes.front(), 0.0);
+    EXPECT_EQ(index.presentationTimes.at(2), 288ms);
     EXPECT_NEAR(index.frameTimes.back(), 0.328, 1e-12);
     cancelled = true;
     EXPECT_EQ(motrack::buildMovieIndex(path, motrack::VideoOrientation::Encoded, cancelled).frameCount, 0);

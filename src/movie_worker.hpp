@@ -20,13 +20,19 @@ class MovieWorker final : public QObject
 
   public Q_SLOTS:
     void clear();
-    void readFrame(const QString& path, int frame, quint64 request, bool useDisplayOrientation);
+
+  public:
+    void readFrame(
+        const QString& path, int frame, quint64 request, bool useDisplayOrientation, std::optional<std::chrono::nanoseconds> timestamp);
 
   Q_SIGNALS:
     void frameDecoded(int frame, quint64 request, const QImage& image);
 
   private:
-    [[nodiscard]] QImage decodeFrame(const QString& path, int frame, quint64 request, VideoOrientation orientation);
+    [[nodiscard]] QImage decodeFrame(
+        const QString& path, int frame, quint64 request, VideoOrientation orientation, std::optional<std::chrono::nanoseconds> timestamp);
+    [[nodiscard]] QImage seekFrame(std::chrono::nanoseconds timestamp, quint64 request);
+    void cacheFrame(int frame, const QImage& image);
 
     const std::atomic<quint64>& m_CurrentRequest;
     QCache<int, QImage> m_Cache{qsizetype{32} * 1024 * 1024};

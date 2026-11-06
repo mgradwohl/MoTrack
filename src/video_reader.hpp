@@ -36,6 +36,7 @@ struct MovieIndex
 {
     int frameCount = 0;
     std::vector<double> frameTimes;
+    std::vector<std::chrono::nanoseconds> presentationTimes;
 };
 
 /// Decodes a local movie in presentation order. Each reader belongs to a single thread.
@@ -48,6 +49,8 @@ class VideoReader
     VideoReader(const VideoReader&) = delete;
     VideoReader& operator=(const VideoReader&) = delete;
 
+    /// Seeks to a keyframe at or before the timestamp and resets decode ordinals.
+    [[nodiscard]] bool seekTo(std::chrono::nanoseconds time);
     /// Returns the next frame, or an empty value once the decoder has drained.
     [[nodiscard]] std::optional<MovieFrame> readNext();
     /// Decodes a frame and returns its ordinal and timestamp without converting its pixels.

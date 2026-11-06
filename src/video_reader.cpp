@@ -296,6 +296,19 @@ VideoReader::VideoReader(const QString& path, VideoOrientation orientation) : m_
 
 VideoReader::~VideoReader() = default;
 
+bool VideoReader::seekTo(std::chrono::nanoseconds time)
+{
+    const auto timestamp = av_rescale_q(time.count(), AVRational{.num = 1, .den = 1'000'000'000}, m_Impl->timeBase);
+    if (av_seek_frame(m_Impl->format.get(), m_Impl->streamIndex, timestamp, AVSEEK_FLAG_BACKWARD) < 0)
+    {
+        return false;
+    }
+    avcodec_flush_buffers(m_Impl->codec.get());
+    m_Impl->draining = false;
+    m_Impl->nextOrdinal = 0;
+    return true;
+}
+
 std::optional<MovieFrame> VideoReader::readNext()
 {
     return decodeNext(true);
@@ -358,6 +371,7 @@ MovieIndex buildMovieIndex(const QString& path, VideoOrientation orientation, co
                     const auto relative = seconds - *start;
                     hasTiming = index.frameTimes.empty() || relative > index.frameTimes.back();
                     index.frameTimes.push_back(relative);
+                    index.presentationTimes.push_back(*frame->presentationTime);
                 }
                 else
                 {
@@ -366,6 +380,7 @@ MovieIndex buildMovieIndex(const QString& path, VideoOrientation orientation, co
                 if (!hasTiming)
                 {
                     index.frameTimes.clear();
+                    index.presentationTimes.clear();
                 }
             }
         }
