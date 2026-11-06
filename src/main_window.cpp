@@ -45,6 +45,15 @@
 namespace motrack
 {
 
+struct MainWindow::PreparedProject
+{
+    WorkspaceDocument document;
+    std::optional<TrackerArchive> archive;
+    QString archivePath;
+    QString member;
+    bool chooseArchiveTab = false;
+};
+
 MainWindow::MainWindow()
 {
     setWindowTitle("MoTrack");
@@ -229,9 +238,9 @@ MainWindow::MainWindow()
             {
                 const auto path =
                     QFileDialog::getOpenFileName(this, tr("Open project"), {}, tr("MoTrack and Tracker projects (*.motrack *.trk *.trz)"));
-                if (!path.isEmpty() && confirmDiscard())
+                if (!path.isEmpty())
                 {
-                    loadProject(path);
+                    openProject(path);
                 }
             });
     connect(openMovieAction,
@@ -339,6 +348,7 @@ MainWindow::MainWindow()
 
 MainWindow::~MainWindow()
 {
+    cancelProjectOpen();
     cancelMovieOpen();
     ++m_RequestGeneration;
     m_MovieThread.quit();
@@ -347,56 +357,147 @@ MainWindow::~MainWindow()
 
 bool MainWindow::loadProject(const QString& path)
 {
-    WorkspaceDocument document;
-    std::optional<TrackerArchive> archive;
-    QString archivePath;
-    QString member;
+    cancelProjectOpen();
     try
     {
-        if (path.endsWith(".motrack", Qt::CaseInsensitive))
-        {
-            document = readWorkspaceDocument(path);
-            if (!document.archiveReference.empty())
-            {
-                archivePath = resolveLocalMediaPath(path, document.archiveReference);
-                archive.emplace(TrackerArchive::open(archivePath));
-            }
-        }
-        else if (path.endsWith(".trz", Qt::CaseInsensitive))
-        {
-            archivePath = QFileInfo(path).absoluteFilePath();
-            archive.emplace(TrackerArchive::open(archivePath));
-            const auto& projects = archive->projects();
-            member = projects.front();
-            if (projects.size() > 1)
-            {
-                member = QInputDialog::getItem(this, tr("Open Tracker archive"), tr("Choose a Tracker tab"), projects, 0, false);
-                if (member.isEmpty())
-                {
-                    return false;
-                }
-            }
-            document.project = readLegacyProject(std::filesystem::path(archive->projectPath(member).toStdU16String()));
-        }
-        else
-        {
-            document.project = readLegacyProject(std::filesystem::path(path.toStdU16String()));
-        }
+        return applyProject(path, prepareProject(path, nullptr), nullptr);
     }
     catch (const ProjectError&)
     {
         statusBar()->showMessage(tr("Could not open this project."));
         return false;
     }
+}
+
+MainWindow::PreparedProject MainWindow::prepareProject(const QString& path, const std::atomic_bool* cancelled)
+{
+    PreparedProject prepared;
+    if (path.endsWith(".motrack", Qt::CaseInsensitive))
+    {
+        prepared.document = readWorkspaceDocument(path);
+        if (!prepared.document.archiveReference.empty())
+        {
+            prepared.archivePath = resolveLocalMediaPath(path, prepared.document.archiveReference);
+            prepared.archive.emplace(TrackerArchive::open(prepared.archivePath, cancelled));
+        }
+    }
+    else if (path.endsWith(".trz", Qt::CaseInsensitive))
+    {
+        prepared.archivePath = QFileInfo(path).absoluteFilePath();
+        auto& archive = prepared.archive.emplace(TrackerArchive::open(prepared.archivePath, cancelled));
+        const auto& projects = archive.projects();
+        prepared.chooseArchiveTab = projects.size() > 1;
+        if (!prepared.chooseArchiveTab)
+        {
+            prepared.member = projects.front();
+            prepared.document.project = readLegacyProject(std::filesystem::path(archive.projectPath(prepared.member).toStdU16String()));
+        }
+    }
+    else
+    {
+        prepared.document.project = readLegacyProject(std::filesystem::path(path.toStdU16String()));
+    }
+    return prepared;
+}
+
+void MainWindow::cancelProjectOpen()
+{
+    if (m_ProjectOpenCancelled)
+    {
+        *m_ProjectOpenCancelled = true;
+        m_ProjectOpenCancelled.reset();
+        m_ProjectOpenWatcher.reset();
+    }
+}
+
+void MainWindow::openProject(const QString& path)
+{
+    cancelProjectOpen();
+    cancelMovieOpen();
+    statusBar()->showMessage(tr("Reading project…"));
+    m_ProjectOpenCancelled = std::make_shared<std::atomic_bool>(false);
+    using Result = std::shared_ptr<PreparedProject>;
+    m_ProjectOpenWatcher = std::make_unique<QFutureWatcher<Result>>();
+    auto* watcher = m_ProjectOpenWatcher.get();
+    const auto cancelled = m_ProjectOpenCancelled;
+    connect(watcher,
+            &QFutureWatcher<Result>::finished,
+            this,
+            [this, path, watcher, cancelled]
+            {
+                try
+                {
+                    auto result = watcher->result();
+                    if (!result)
+                    {
+                        throw ProjectError("Could not prepare project.");
+                    }
+                    applyProject(path, std::move(*result), cancelled.get());
+                }
+                catch (const ProjectError&)
+                {
+                    if (!*cancelled)
+                    {
+                        statusBar()->showMessage(tr("Could not open this project."));
+                    }
+                }
+            });
+    watcher->setFuture(QtConcurrent::run(
+        [path, cancelled]() -> Result
+        {
+            try
+            {
+                return std::make_shared<PreparedProject>(prepareProject(path, cancelled.get()));
+            }
+            catch (const ProjectError&)
+            {
+                return {};
+            }
+        }));
+}
+
+bool MainWindow::applyProject(const QString& path, PreparedProject prepared, const std::atomic_bool* cancelled)
+{
+    auto& document = prepared.document;
+    if (prepared.chooseArchiveTab && prepared.archive)
+    {
+        const auto& archive = *prepared.archive;
+        prepared.member = QInputDialog::getItem(this, tr("Open Tracker archive"), tr("Choose a Tracker tab"), archive.projects(), 0, false);
+        if (prepared.member.isEmpty())
+        {
+            if (!cancelled || !*cancelled)
+            {
+                statusBar()->clearMessage();
+            }
+            return false;
+        }
+        document.project = readLegacyProject(std::filesystem::path(archive.projectPath(prepared.member).toStdU16String()));
+    }
+    if (cancelled)
+    {
+        if (*cancelled)
+        {
+            return false;
+        }
+        if (!confirmDiscard())
+        {
+            statusBar()->clearMessage();
+            return false;
+        }
+        if (*cancelled)
+        {
+            return false;
+        }
+    }
 
     cancelMovieOpen();
     releaseArchive();
-    m_Archive = std::move(archive);
-    m_ArchiveSourcePath = std::move(archivePath);
+    m_Archive = std::move(prepared.archive);
+    m_ArchiveSourcePath = std::move(prepared.archivePath);
     m_MediaProjectPath = path;
     if (m_Archive)
     {
-        m_Archive->resolveMedia(document.project, member);
+        m_Archive->resolveMedia(document.project, prepared.member);
         m_MediaProjectPath = QDir(m_Archive->root()).absoluteFilePath("archive.trk");
     }
     m_Project = std::move(document.project);
@@ -456,6 +557,7 @@ void MainWindow::cancelMovieOpen()
 
 void MainWindow::openMovie(const QString& path)
 {
+    cancelProjectOpen();
     cancelMovieOpen();
     statusBar()->showMessage(tr("Reading video frames…"));
     m_MovieOpenCancelled = std::make_shared<std::atomic_bool>(false);
@@ -660,6 +762,8 @@ void MainWindow::closeEvent(QCloseEvent* event)
 {
     if (confirmDiscard())
     {
+        cancelProjectOpen();
+        cancelMovieOpen();
         event->accept();
     }
     else

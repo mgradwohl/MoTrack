@@ -95,7 +95,7 @@ TEST(Workspace, OpensAProjectThroughTheFileMenu)
     auto* open = window.findChild<QAction*>("openProject");
     ASSERT_NE(open, nullptr);
     triggerFileDialog(*open, window, fixturePath("image-sequence.trk"));
-    EXPECT_TRUE(window.windowTitle().contains("image-sequence.trk"));
+    EXPECT_TRUE(QTest::qWaitFor([&window] { return window.windowTitle().contains("image-sequence.trk"); }));
 }
 
 TEST(Workspace, OpensATrackerArchiveAndReopensASavedCopy)
@@ -109,7 +109,7 @@ TEST(Workspace, OpensATrackerArchiveAndReopensASavedCopy)
     auto* marks = window.findChild<QTableWidget*>("marksTable");
     ASSERT_TRUE(open && canvas && marks);
     triggerFileDialog(*open, window, fixturePath("archive.trz"));
-    EXPECT_TRUE(window.windowTitle().contains("archive.trz"));
+    ASSERT_TRUE(QTest::qWaitFor([&window] { return window.windowTitle().contains("archive.trz"); }));
     EXPECT_EQ(canvas->accessibleName(), "Frame 0");
     EXPECT_EQ(marks->rowCount(), 2);
     const auto path = temporary.filePath("archived.motrack");
@@ -118,6 +118,47 @@ TEST(Workspace, OpensATrackerArchiveAndReopensASavedCopy)
     ASSERT_TRUE(window.loadProject(path));
     EXPECT_EQ(canvas->accessibleName(), "Frame 0");
     EXPECT_EQ(marks->rowCount(), 2);
+}
+
+TEST(Workspace, KeepsOnlyTheLatestBackgroundProjectRequest)
+{
+    motrack::MainWindow window;
+    auto* status = window.statusBar();
+    window.openProject(fixturePath("archive.trz"));
+    window.openProject(fixturePath("point-mass.trk"));
+    ASSERT_TRUE(QTest::qWaitFor([&window] { return window.windowTitle().contains("point-mass.trk"); }));
+    window.openProject(fixturePath("missing.motrack"));
+    ASSERT_TRUE(QTest::qWaitFor([status] { return status->currentMessage() == "Could not open this project."; }));
+    EXPECT_TRUE(window.windowTitle().contains("point-mass.trk"));
+}
+
+TEST(Workspace, PreservesUnsavedEditsWhenABackgroundOpenIsCancelled)
+{
+    motrack::MainWindow window;
+    window.show();
+    ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
+    auto* add = window.findChild<QAction*>("newPointMass");
+    ASSERT_NE(add, nullptr);
+    add->trigger();
+    ASSERT_TRUE(window.isWindowModified());
+    QTimer answer;
+    bool cancelled = false;
+    QObject::connect(&answer,
+                     &QTimer::timeout,
+                     &window,
+                     [&cancelled]
+                     {
+                         if (auto* dialog = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
+                         {
+                             dialog->button(QMessageBox::Cancel)->click();
+                             cancelled = true;
+                         }
+                     });
+    answer.start(10);
+    window.openProject(fixturePath("point-mass.trk"));
+    ASSERT_TRUE(QTest::qWaitFor([&cancelled] { return cancelled; }));
+    EXPECT_TRUE(window.windowTitle().contains("image-sequence.trk"));
+    EXPECT_TRUE(window.isWindowModified());
 }
 
 TEST(Workspace, DisplaysWorldCoordinatesAndExportsMeasurements)

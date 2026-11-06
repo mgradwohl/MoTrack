@@ -39,6 +39,7 @@ class MainWindow final : public QMainWindow
     MainWindow();
     ~MainWindow() override;
     bool loadProject(const QString& path);
+    void openProject(const QString& path);
     void openMovie(const QString& path);
     bool saveMeasurements(const QString& path);
     bool saveWorkspace(const QString& path);
@@ -47,6 +48,10 @@ class MainWindow final : public QMainWindow
     void closeEvent(QCloseEvent* event) override;
 
   private:
+    struct PreparedProject;
+    [[nodiscard]] static PreparedProject prepareProject(const QString& path, const std::atomic_bool* cancelled);
+    bool applyProject(const QString& path, PreparedProject prepared, const std::atomic_bool* cancelled);
+    void cancelProjectOpen();
     void displayStep(int step);
     void displayMarks();
     void displayFrame(const ImageFrame& frame, const QString& failureMessage);
@@ -128,6 +133,8 @@ class MainWindow final : public QMainWindow
     std::vector<double> m_MovieFrameTimes;
     std::shared_ptr<std::atomic_bool> m_MovieOpenCancelled;
     std::unique_ptr<QFutureWatcher<MovieIndex>> m_MovieOpenWatcher;
+    std::shared_ptr<std::atomic_bool> m_ProjectOpenCancelled;
+    std::unique_ptr<QFutureWatcher<std::shared_ptr<PreparedProject>>> m_ProjectOpenWatcher;
     QThread m_MovieThread;
     MovieWorker* m_MovieWorker = nullptr;
     std::atomic<quint64> m_RequestGeneration = 0;
