@@ -8,7 +8,8 @@
 #include <QFutureWatcher>
 #include <QMainWindow>
 #include <QPointF>
-#include <QThreadPool>
+#include <QThread>
+#include <QTimer>
 
 #include <atomic>
 #include <memory>
@@ -26,6 +27,7 @@ namespace motrack
 
 class VideoCanvas;
 class PositionPlot;
+class MovieWorker;
 
 class MainWindow final : public QMainWindow
 {
@@ -47,6 +49,8 @@ class MainWindow final : public QMainWindow
     void displayMarks();
     void displayFrame(const ImageFrame& frame, const QString& failureMessage);
     void requestMovieFrame(int frame);
+    void setPlaying(bool playing);
+    void schedulePlayback();
     void activateProject(const QString& path);
     void cancelMovieOpen();
     bool chooseWorkspacePath();
@@ -64,6 +68,9 @@ class MainWindow final : public QMainWindow
     QSlider* m_StepSlider;
     QToolButton* m_Previous;
     QToolButton* m_Next;
+    QToolButton* m_Play;
+    QTimer m_PlayTimer;
+    bool m_Playing = false;
     QTableWidget* m_Marks;
     QAction* m_Export;
     QAction* m_SaveAs;
@@ -91,9 +98,9 @@ class MainWindow final : public QMainWindow
     std::vector<double> m_MovieFrameTimes;
     std::shared_ptr<std::atomic_bool> m_MovieOpenCancelled;
     std::unique_ptr<QFutureWatcher<MovieIndex>> m_MovieOpenWatcher;
-    QThreadPool m_MovieWorkers;
-    std::unique_ptr<QFutureWatcher<QImage>> m_FrameWatcher;
-    std::shared_ptr<std::atomic_uint64_t> m_RequestGeneration = std::make_shared<std::atomic_uint64_t>(0);
+    QThread m_MovieThread;
+    MovieWorker* m_MovieWorker = nullptr;
+    std::atomic<quint64> m_RequestGeneration = 0;
 };
 
 } // namespace motrack

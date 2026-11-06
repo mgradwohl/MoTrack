@@ -16,6 +16,8 @@
     <message><source>Open a video or a Tracker project.</source><translation>Abre un vídeo o un proyecto de Tracker.</translation></message>
     <message><source>Open &amp;video…</source><translation>Abrir &amp;vídeo…</translation></message>
     <message><source>Open video</source><translation>Abrir vídeo</translation></message>
+    <message><source>Play</source><translation>Reproducir</translation></message>
+    <message><source>Pause</source><translation>Pausar</translation></message>
     <message><source>Reading video frames…</source><translation>Leyendo los fotogramas del vídeo…</translation></message>
     <message><source>Could not open this video.</source><translation>No se pudo abrir este vídeo.</translation></message>
     <message><source>Opened video with %1 frames.</source><translation>Se abrió un vídeo con %1 fotogramas.</translation></message>

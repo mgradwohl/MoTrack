@@ -1,6 +1,7 @@
 #include "main_window.hpp"
 
 #include "measurements.hpp"
+#include "movie_worker.hpp"
 #include "position_plot.hpp"
 #include "video_reader.hpp"
 #include "workspace_document.hpp"
@@ -35,6 +36,7 @@
 #include <QtConcurrentRun>
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <iterator>
 #include <utility>
@@ -210,13 +212,19 @@ MainWindow::MainWindow()
     m_Next->setIcon(style()->standardIcon(QStyle::SP_MediaSkipForward));
     m_Next->setAccessibleName(tr("Next frame"));
     m_Next->setToolTip(m_Next->accessibleName());
+    m_Play = new QToolButton;
+    m_Play->setObjectName("playClip");
+    m_PlayTimer.setSingleShot(true);
+    setPlaying(false);
     m_StepSlider = new QSlider(Qt::Horizontal);
     m_StepSlider->setObjectName("stepSlider");
     m_StepSlider->setTracking(false);
+    m_StepSlider->setRange(0, 0);
     m_StepSlider->setAccessibleName(tr("Clip position"));
     m_FrameLabel = new QLabel;
     m_FrameLabel->setObjectName("frameLabel");
     controls->addWidget(m_Previous);
+    controls->addWidget(m_Play);
     controls->addWidget(m_Next);
     controls->addWidget(m_StepSlider, 1);
     controls->addWidget(m_FrameLabel);
@@ -251,13 +259,28 @@ MainWindow::MainWindow()
     workspace->setStretchFactor(1, 1);
     setCentralWidget(workspace);
     statusBar()->showMessage(tr("Ready"));
-    m_MovieWorkers.setMaxThreadCount(1);
 
     displayStep(0);
     refreshEditViews(0);
     connect(m_StepSlider, &QSlider::valueChanged, this, &MainWindow::displayStep);
     connect(m_Previous, &QToolButton::clicked, m_StepSlider, [this] { m_StepSlider->triggerAction(QSlider::SliderSingleStepSub); });
     connect(m_Next, &QToolButton::clicked, m_StepSlider, [this] { m_StepSlider->triggerAction(QSlider::SliderSingleStepAdd); });
+    connect(&m_PlayTimer, &QTimer::timeout, m_Next, &QToolButton::click);
+    connect(m_Play,
+            &QToolButton::clicked,
+            this,
+            [this]
+            {
+                setPlaying(!m_Playing);
+                if (m_Playing && m_StepSlider->value() == m_StepSlider->maximum())
+                {
+                    m_StepSlider->setValue(0);
+                }
+                else
+                {
+                    schedulePlayback();
+                }
+            });
     connect(open,
             &QAction::triggered,
             this,
@@ -333,6 +356,7 @@ MainWindow::MainWindow()
                 clearCalibrationPoint();
                 if (active)
                 {
+                    setPlaying(false);
                     statusBar()->showMessage(tr("Click the first calibration endpoint."));
                 }
                 else
@@ -347,7 +371,9 @@ MainWindow::MainWindow()
 MainWindow::~MainWindow()
 {
     cancelMovieOpen();
-    ++*m_RequestGeneration;
+    ++m_RequestGeneration;
+    m_MovieThread.quit();
+    m_MovieThread.wait();
 }
 
 bool MainWindow::loadProject(const QString& path)
@@ -486,10 +512,14 @@ void MainWindow::openMovie(const QString& path)
 
 void MainWindow::activateProject(const QString& path)
 {
+    setPlaying(false);
     m_ProjectPath = QFileInfo(path).absoluteFilePath();
     m_SavePath.clear();
-    ++*m_RequestGeneration;
-    m_FrameWatcher.reset();
+    ++m_RequestGeneration;
+    if (m_MovieWorker)
+    {
+        QMetaObject::invokeMethod(m_MovieWorker, "clear", Qt::QueuedConnection);
+    }
     m_DisplayedFrame.reset();
     m_Calibrate->setChecked(false);
     m_Calibrate->setEnabled(false);
@@ -583,6 +613,7 @@ void MainWindow::markAt(const QPointF& position)
         return;
     }
     const Mark mark{.frame = m_DisplayedFrame->number, .x = position.x(), .y = position.y()};
+    setPlaying(false);
     if (m_Edits.markPointMass(m_Project, static_cast<std::size_t>(track), mark))
     {
         refreshEditViews(track);
@@ -762,6 +793,8 @@ void MainWindow::displayMarks()
 
 void MainWindow::displayStep(int step)
 {
+    m_PlayTimer.stop();
+    m_Play->setEnabled(m_StepSlider->maximum() > 0);
     m_StepSlider->setEnabled(m_StepSlider->maximum() > 0);
     m_Previous->setEnabled(step > 0);
     m_Next->setEnabled(step < m_StepSlider->maximum());
@@ -778,6 +811,7 @@ void MainWindow::displayStep(int step)
         }
         else
         {
+            setPlaying(false);
             m_FrameLabel->clear();
             m_Video->display({}, {}, tr("This video frame could not be decoded."));
         }
@@ -810,58 +844,65 @@ void MainWindow::displayFrame(const ImageFrame& frame, const QString& failureMes
         }
     }
     m_Video->display(frame.image, std::move(points), frame.image.isNull() ? failureMessage : label);
+    if (m_Playing && (frame.image.isNull() || m_StepSlider->value() == m_StepSlider->maximum()))
+    {
+        setPlaying(false);
+    }
+    schedulePlayback();
+}
+
+void MainWindow::setPlaying(bool playing)
+{
+    m_Playing = playing;
+    m_PlayTimer.stop();
+    m_Play->setIcon(style()->standardIcon(playing ? QStyle::SP_MediaPause : QStyle::SP_MediaPlay));
+    m_Play->setAccessibleName(playing ? tr("Pause") : tr("Play"));
+    m_Play->setToolTip(m_Play->accessibleName());
+}
+
+void MainWindow::schedulePlayback()
+{
+    if (!m_Playing || !m_DisplayedFrame || m_DisplayedFrame->image.isNull() || m_StepSlider->value() >= m_StepSlider->maximum())
+    {
+        return;
+    }
+    const auto frame = static_cast<std::size_t>(m_DisplayedFrame->number);
+    const auto next = frame + static_cast<std::size_t>(m_Project.clip.stepSize);
+    const auto delayMs = next < m_MovieFrameTimes.size() ? 1000.0 * (m_MovieFrameTimes.at(next) - m_MovieFrameTimes.at(frame))
+                                                         : m_Project.clip.frameDurationMs.value_or(40.0) * m_Project.clip.stepSize;
+    m_PlayTimer.start(static_cast<int>(std::lround(std::clamp(delayMs, 1.0, 60'000.0))));
 }
 
 void MainWindow::requestMovieFrame(int frame)
 {
-    const auto generation = ++*m_RequestGeneration;
+    const auto generation = ++m_RequestGeneration;
     m_DisplayedFrame.reset();
     m_Calibrate->setChecked(false);
     m_Calibrate->setEnabled(false);
     m_Plot->selectFrame(frame);
     m_FrameLabel->setText(tr("Frame %1").arg(frame));
-    m_Video->display({}, {}, tr("Decoding frame…"));
-    m_FrameWatcher = std::make_unique<QFutureWatcher<QImage>>();
-    auto* watcher = m_FrameWatcher.get();
-    connect(watcher,
-            &QFutureWatcher<QImage>::finished,
-            this,
-            [this, watcher, generation, frame]
-            {
-                if (generation == *m_RequestGeneration)
+    if (!m_Playing)
+    {
+        m_Video->display({}, {}, tr("Decoding frame…"));
+    }
+    if (!m_MovieWorker)
+    {
+        m_MovieWorker = new MovieWorker(m_RequestGeneration);
+        m_MovieWorker->moveToThread(&m_MovieThread);
+        connect(&m_MovieThread, &QThread::finished, m_MovieWorker, &QObject::deleteLater);
+        connect(m_MovieWorker,
+                &MovieWorker::frameDecoded,
+                this,
+                [this](int number, quint64 request, const QImage& image)
                 {
-                    displayFrame({.number = frame, .image = watcher->result()}, tr("This video frame could not be decoded."));
-                }
-            });
-    watcher->setFuture(QtConcurrent::run(&m_MovieWorkers,
-                                         [path = m_MoviePath, request = m_RequestGeneration, generation, frame]() -> QImage
-                                         {
-                                             if (generation != *request)
-                                             {
-                                                 return {};
-                                             }
-                                             try
-                                             {
-                                                 VideoReader reader(path);
-                                                 for (std::int64_t ordinal = 0; ordinal <= frame && generation == *request; ++ordinal)
-                                                 {
-                                                     const auto next = ordinal == frame ? reader.readNext() : reader.skipNext();
-                                                     if (!next)
-                                                     {
-                                                         break;
-                                                     }
-                                                     if (std::cmp_equal(next->ordinal, frame))
-                                                     {
-                                                         return next->image;
-                                                     }
-                                                 }
-                                             }
-                                             catch (const VideoError&)
-                                             {
-                                                 return {};
-                                             }
-                                             return {};
-                                         }));
+                    if (request == m_RequestGeneration)
+                    {
+                        displayFrame({.number = number, .image = image}, tr("This video frame could not be decoded."));
+                    }
+                });
+        m_MovieThread.start();
+    }
+    QMetaObject::invokeMethod(m_MovieWorker, "readFrame", Qt::QueuedConnection, m_MoviePath, frame, generation);
 }
 
 } // namespace motrack
