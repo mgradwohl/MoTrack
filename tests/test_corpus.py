@@ -194,6 +194,48 @@ class CorpusTests(unittest.TestCase):
             with self.subTest(mode=mode), self.assertRaises(ValueError):
                 corpus.validate_session(case, invalid, manifest)
 
+    def test_center_of_mass_requires_members_and_independent_weighted_positions(self):
+        manifest = corpus.load_manifest()
+        case = next(case for case in manifest["cases"] if case["id"] == "center-of-mass")
+        expected = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
+        tracks = []
+        for identity in case["session_tracks"]:
+            mass = next((mass for mass in expected["point_masses"] if mass["name"] == identity["name"]), None)
+            tracks.append({**identity, "mass": mass["mass"] if mass else None,
+                           "samples": [{"frame": sample["frame"], "points": [sample["image"]], "world": sample["world"]}
+                                       for sample in mass["samples"]] if mass else []})
+        before = {"centers_of_mass": copy.deepcopy(case["session_centers"]), "tracks": tracks,
+                  "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                  **corpus.session_units(case, expected)}
+        valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                 "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
+        corpus.validate_session(case, valid, manifest)
+        for field, value in [("members", ["mass A"]), ("members", ["mass A", "mass A"]),
+                             ("mass", 2.0), ("name", "different center"), ("samples", []),
+                             ("samples", [{"frame": 0, "image": [25.0, 40.0], "world": [2.5, -5.0]},
+                                          {"frame": 2, "image": [32.0, 52.0], "world": [6.0, -8.0]}])]:
+            invalid = copy.deepcopy(valid)
+            for state in ["before", "after_save", "after"]:
+                invalid[state]["centers_of_mass"][0][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                corpus.validate_session(case, invalid, manifest)
+        for field, value in [("world", [0.0, 0.0]), ("image", [25.0, 40.0])]:
+            invalid = copy.deepcopy(valid)
+            for state in ["before", "after_save", "after"]:
+                invalid[state]["centers_of_mass"][0]["samples"][0][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                corpus.validate_session(case, invalid, manifest)
+        invalid = copy.deepcopy(valid)
+        for state in ["before", "after_save", "after"]:
+            invalid[state]["centers_of_mass"][0]["samples"][1]["frame"] = 1
+        with self.assertRaises(ValueError):
+            corpus.validate_session(case, invalid, manifest)
+        invalid = copy.deepcopy(valid)
+        for state in ["before", "after_save", "after"]:
+            del invalid[state]["centers_of_mass"]
+        with self.assertRaises(ValueError):
+            corpus.validate_session(case, invalid, manifest)
+
     def test_session_checks_reject_non_linux_hosts(self):
         with patch.object(corpus.sys, "platform", "win32"), self.assertRaisesRegex(ValueError, "Linux"):
             corpus.check_sessions({}, self.root, "java")

@@ -10,6 +10,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import org.opensourcephysics.cabrillo.tracker.CenterOfMass;
 import org.opensourcephysics.cabrillo.tracker.ParticleModel;
 import org.opensourcephysics.cabrillo.tracker.PointMass;
 import org.opensourcephysics.cabrillo.tracker.Step;
@@ -100,6 +101,9 @@ public final class TrackerSessionReference {
         panel.getPlayer().setStepNumber(clip.getStepCount() - 1);
         Timer timer = new Timer(25, event -> guard(() -> {
             panel.paintImmediately(panel.getVisibleRect());
+            // Named constituents are resolved by CenterOfMass's normal initialize/draw path.
+            for (TTrack track : panel.getTracks()) if (track instanceof CenterOfMass center
+                    && center.getMasses().length == 0) return;
             for (TTrack track : panel.getTracks()) if (track instanceof ParticleModel model) {
                 for (int step = 0; step < clip.getStepCount(); step++) {
                     int number = clip.stepToFrame(step);
@@ -117,6 +121,7 @@ public final class TrackerSessionReference {
         VideoClip clip = panel.getPlayer().getVideoClip();
         ImageCoordSystem coords = panel.getCoords();
         List<Object> tracks = new ArrayList<>();
+        List<Object> centers = new ArrayList<>();
         for (TTrack track : panel.getTracks()) {
             List<Object> samples = new ArrayList<>();
             List<Object> vectorSamples = new ArrayList<>();
@@ -131,7 +136,7 @@ public final class TrackerSessionReference {
                 for (TPoint point : savedPoints) points.add(point == null ? null : List.of(point.x, point.y));
                 int frame = step.getFrameNumber();
                 List<Double> world = null;
-                if (track.getClass() == PointMass.class) {
+                if (track.getClass() == PointMass.class || track.getClass() == CenterOfMass.class) {
                     TPoint point = savedPoints[0];
                     world = List.of(coords.imageToWorldX(frame, point.x, point.y),
                                     coords.imageToWorldY(frame, point.x, point.y));
@@ -155,6 +160,20 @@ public final class TrackerSessionReference {
             tracks.add(TrackerReference.map("class", track.getClass().getName(), "name", track.getName(),
                 "mass", track instanceof PointMass mass ? mass.getMass() : null, "samples", samples, "key_frames", keys,
                 "vector_samples", vectorSamples));
+            if (track instanceof CenterOfMass center) {
+                List<String> members = new ArrayList<>();
+                for (PointMass member : center.getMasses()) members.add(member.getName());
+                List<Object> positions = new ArrayList<>();
+                for (Step step : steps) if (step != null) {
+                    TPoint point = step.getPoints()[0];
+                    int frame = step.getFrameNumber();
+                    positions.add(TrackerReference.map("frame", frame, "image", List.of(point.x, point.y),
+                        "world", List.of(coords.imageToWorldX(frame, point.x, point.y),
+                                         coords.imageToWorldY(frame, point.x, point.y))));
+                }
+                centers.add(TrackerReference.map("name", center.getName(), "members", members,
+                    "mass", center.getMass(), "samples", positions));
+            }
         }
         List<Object> calibrationKeys = new ArrayList<>();
         java.util.TreeSet<Integer> keyFrames = new java.util.TreeSet<>(coords.getKeyFrames());
@@ -174,6 +193,7 @@ public final class TrackerSessionReference {
             "step_size", clip.getStepSize(), "step_count", clip.getStepCount(), "start_ms", clip.getStartTime()),
             "length_unit", panel.getLengthUnit(), "mass_unit", panel.getMassUnit(),
             "name_references", nameReferences(panel),
+            "centers_of_mass", centers,
             "calibration", TrackerReference.map("fixed_origin", coords.isFixedOrigin(), "fixed_angle", coords.isFixedAngle(),
                 "fixed_scale", coords.isFixedScale(), "keys", calibrationKeys),
             "tracks", tracks, "coordinate_samples", coordinates);

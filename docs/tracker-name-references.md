@@ -7,7 +7,9 @@ changes. The [full-port plan](migration-plan.md) remains the requirements/status
 The first reference-only slice records independent protractor selected-track and plot/table targets
 in the corpus manifest. Its actual-Tracker probe compares live selections and the normal packed-string
 serializer before saving, after saving and after reopening. The PR's CI result establishes whether
-this baseline passes; it does not yet cover table column/format owners, attachments or constituents.
+this baseline passes. A second Java-authored reference covers center-of-mass constituent names,
+resolved member objects, total mass and independent weighted positions at sparse frames. Table
+column/format owners, attachments, vector sums, dynamic systems and edited dependency cases remain.
 
 ## Why a name is more than one XML property
 
