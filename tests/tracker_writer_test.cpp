@@ -376,4 +376,50 @@ TEST(TrackerWriter, RejectsLossyVectorReconstructionAfterNativeReopen)
     EXPECT_EQ(motrack::parseLegacyProject(readBytes(output)).vectors, project.vectors);
 }
 
+TEST(TrackerWriter, RejectsOriginAndVectorSnappingWithoutReplacingTheDestination)
+{
+    const auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk");
+    const auto imported = motrack::parseTrackerProject(xml);
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("existing.trk");
+    motrack::writeTrackerProject(output, imported.project, imported.source);
+    for (const auto& sample :
+         std::vector<motrack::VectorSample>{{.frame = 0, .tailX = 321, .tailY = 240, .componentX = 3, .componentY = -4},
+                                            {.frame = 0, .tailX = 320, .tailY = 240, .componentX = 3, .componentY = -4},
+                                            {.frame = 0, .tailX = 51, .tailY = 60, .componentX = 3, .componentY = -4}})
+    {
+        auto project = imported.project;
+        project.vectors.front().samples.front() = sample;
+        EXPECT_THROW(motrack::writeTrackerProject(output, project, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), xml);
+    }
+    auto project = imported.project;
+    project.vectors.front().samples.front().tailX = 320;
+    project.vectors.front().samples.front().tailY = 249;
+    EXPECT_NO_THROW(static_cast<void>(motrack::renderTrackerProject(project, imported.source))); // Outside the 8-pixel radius.
+    project.calibration.reset();
+    EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(project, imported.source)), motrack::ProjectError);
+    project = imported.project;
+    project.vectors.front().samples.front().tailX += 1;
+    project.unsupportedTrackTypes.emplace_back("FutureVectorProvider");
+    EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(project, imported.source)), motrack::ProjectError);
+    auto styled = xml;
+    const std::string footprint = "Footprint.BoldArrow";
+    styled.replace(styled.find(footprint), footprint.size(), "Footprint.BoldArrow#2");
+    auto custom = motrack::parseTrackerProject(styled);
+    custom.project.vectors.front().samples.front().tailX += 1;
+    EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(custom.project, custom.source)), motrack::ProjectError);
+    project = imported.project;
+    project.vectors.front().samples.resize(4097);
+    for (std::size_t index = 0; index < project.vectors.front().samples.size(); ++index)
+    {
+        project.vectors.front().samples[index] = {.frame = static_cast<int>(index),
+                                                  .tailX = 1000 + 20.0 * static_cast<double>(index),
+                                                  .tailY = 1000,
+                                                  .componentX = 1,
+                                                  .componentY = 2};
+    }
+    EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(project, imported.source)), motrack::ProjectError);
+}
+
 } // namespace

@@ -97,7 +97,7 @@ try
     const auto args = application.arguments();
     if (args.size() == 4 && (args[1] == "--export-mass" || args[1] == "--export-marks" || args[1] == "--export-empty-marks" ||
                              args[1] == "--export-first-mark" || args[1] == "--export-vectors" || args[1] == "--export-empty-vectors" ||
-                             args[1] == "--export-first-vector"))
+                             args[1] == "--export-first-vector" || args[1] == "--export-snap-origin" || args[1] == "--export-snap-vector"))
     {
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trk");
@@ -114,6 +114,18 @@ try
                 !edits.setPointMassValue(document.project, 0, document.project.pointMasses.front().mass * 2.5))
             {
                 throw motrack::ProjectError("Could not edit round-trip mass.");
+            }
+        }
+        else if (args[1].startsWith("--export-snap-"))
+        {
+            const bool origin = args[1] == "--export-snap-origin";
+            if (document.project.vectors.size() != 2 ||
+                !edits.markVector(document.project,
+                                  origin ? 0 : 1,
+                                  origin ? motrack::VectorSample{.frame = 0, .tailX = 321, .tailY = 240, .componentX = 3, .componentY = -4}
+                                         : motrack::VectorSample{.frame = 2, .tailX = 14, .tailY = 16, .componentX = 0, .componentY = 0}))
+            {
+                throw motrack::ProjectError("Could not prepare rejected snapping export.");
             }
         }
         else if (args[1].contains("vector"))
@@ -199,7 +211,31 @@ try
         {
             throw motrack::ProjectError("Native reopen lost Tracker source.");
         }
-        motrack::writeTrackerProject(args[3], document.project, *document.trackerSource);
+        if (args[1].startsWith("--export-snap-"))
+        {
+            if (!QFile::copy(args[2], args[3]))
+            {
+                throw motrack::ProjectError("Could not prepare existing destination.");
+            }
+            bool rejected = false;
+            try
+            {
+                motrack::writeTrackerProject(args[3], document.project, *document.trackerSource);
+            }
+            catch (const motrack::ProjectError&)
+            {
+                rejected = true;
+            }
+            QFile output(args[3]);
+            if (!rejected || !output.open(QIODevice::ReadOnly) || output.readAll().toStdString() != document.trackerSource->xml)
+            {
+                throw motrack::ProjectError("Snapping export was not rejected without replacing its destination.");
+            }
+        }
+        else
+        {
+            motrack::writeTrackerProject(args[3], document.project, *document.trackerSource);
+        }
         return 0;
     }
     if (args.size() != 3)

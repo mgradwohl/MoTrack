@@ -141,3 +141,7 @@ java -Djava.awt.headless=true -Xmx256m --class-path .dev-tools/tracker-reference
 Compare its bytes/hash with the committed fixture; the generator refuses to overwrite an existing file.
 The `roundtrip` command additionally exercises `vectors`, `empty-vectors` and `first-vector` exports
 through native save/reopen and separate Tracker application processes.
+The `snap-origin` and `snap-vector` cases instead verify rejected exports leave an existing destination
+unchanged. Java independently authors the same near-target geometry, then its actual application must
+demonstrate the expected first-draw snap and retain that snapped geometry through save/reopen. These are
+explicit rejection tests, not successful native exports or relaxed comparisons of requested geometry.
