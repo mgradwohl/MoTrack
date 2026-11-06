@@ -74,6 +74,11 @@ The next preservation slice (native version 5) stores the entire original `.trz`
 metadata in a bounded ZIP container. Tests cover all-member byte preservation, nested-tab media paths,
 source-input removal, repeated reopen, older external-archive migration and rejected malformed bundles.
 Its CI/review evidence belongs to the corresponding PR; the snapshot above predates this slice.
+The session foundation then moves editable data, source/archive ownership, undo history and native
+save checkpoints into [DocumentSession](../src/document_session.hpp). [Session tests](../tests/document_session_test.cpp)
+exercise independent documents, cross-session/stale completions, replacement and archive snapshots
+outliving their session data. Desktop save/open/undo tests exercise the integration. Controllers and
+multi-tab UI remain later work; this change does not make multiple tabs editable.
 
 Major current limits: native-only writes; older native imports cannot reconstruct lost source associations; one active tab; reduced track and
 coordinate models; basic AutoTracker and plotting; no particle models, persistent measurement tracks,
@@ -92,7 +97,7 @@ and platform evidence before it can be marked complete.
 | R01 | Reproducible native builds, CI, review, numerical tests, at least 90% combined C++ line coverage | Implemented foundation; continue applying gates to every new component. | 0, every phase |
 | R02 | Open `.trk`/`.trz`; preserve all supported and unknown content, references, metadata, and archive tabs | Partial: supported point masses/vectors/calibration import; one archive tab selected. Native documents retain that tab's original XML, editable-track IDs and source-object associations for new imports. Version 5 embeds the exact original archive, including all tabs/media/unknown files. Older native sources retain an explicit unknown-association state. | 1–3 |
 | R03 | Save edited standard files plus optional `.motrack`; reopen in both applications without data loss | Partial: native persistence, original XML baseline and complete original archive payload. Standard writers, paired-save recovery, and Java reopening of MoTrack edits are missing. | 2–3, every feature |
-| R04 | Multiple experiment tabs, independent undo/dirty state, tab/project Save As, cross-tab import and reusable views | Missing; currently one active experiment. Preserve unopened tabs before adding their UI. | 2–4 |
+| R04 | Multiple experiment tabs, independent undo/dirty state, tab/project Save As, cross-tab import and reusable views | Partial foundation: document sessions own independent data/history/save checkpoints, and native storage preserves unopened archive tabs. The desktop still has one active experiment; multi-tab controllers/UI, cross-tab import and reusable views remain. | 2–4 |
 | R05 | Movies, stills, image sequences and zipped sequences; accurate clip/time/frame controls and media properties | Partial: local movies/images, clip trim/stride, timestamp indexing, orientation, cache, and playback exist. Audit all baseline formats, rates, sequence operations, and properties controls. | 1, 4, 6 |
 | R06 | Complete point-mass editing and appearance: selection, dragging/nudging, numeric positions, multiselect, locks, labels, trails, paths, and vector overlays | Partial: manual marking/replacement, repeat, rename/delete, mass, and undo exist. Finish manipulation, appearance, path length, and selection behavior. | 4–5 |
 | R07 | Independent vectors, linked vectors, sums, their data, editing, and persistence | Partial: independent vectors import/display/edit/undo/native-save. Links, sums, analysis, and standard writes remain. | 3–5 |
@@ -144,7 +149,9 @@ small steps; this is a target architecture, not a description of layers already 
 The shipped application must run without Java or Swift installed. Native C/C++ and operating-system
 libraries are allowed. Java is confined to development/reference tests, never the import/export runtime.
 The current [CMake targets](../CMakeLists.txt) are `motrack_project`, `motrack_media`,
-`motrack_workspace`, and the application. `MainWindow` currently owns much of the session orchestration;
+`motrack_workspace`, and the application. `DocumentSession` in `motrack_project` owns editable document
+data, source/archive preservation, history and native save bookkeeping, with identity-bound completion
+tokens. `MainWindow` still owns open/save orchestration, decoders, playback and view/tool state;
 the generic model is still named `LegacyProject`. GUI selections currently use list positions, but
 recorded edit commands address tracks by persistent ID and reject missing or ambiguous targets.
 
@@ -221,7 +228,8 @@ loaded content. This is Java's own resave baseline, not MoTrack standard-file ex
 Media/archive session loading, broader requirement coverage, runtime/dependency provenance and exact
 source mapping remain unfinished. Phase 2 has an initial XML source envelope, persistent point-mass/vector
 IDs, original object associations, commands addressed by ID, native version migration and complete
-original archive preservation. Per-document session ownership remains. Extend the reference
+original archive preservation. `DocumentSession` now owns each document's data/history/native save state;
+multi-document controllers and view/media switching remain in phase 4. Extend the reference
 evidence alongside these foundations before standard writers. Phase 3 has priority over adding particle-model
 editing. UI familiarity can improve while work progresses, but visual polish cannot replace correctness
 or standard-file compatibility gates.

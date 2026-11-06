@@ -1,5 +1,6 @@
 #pragma once
 
+#include "document_session.hpp"
 #include "image_sequence.hpp"
 #include "legacy_project.hpp"
 #include "template_tracker.hpp"
@@ -135,9 +136,7 @@ class MainWindow final : public QMainWindow
     QCheckBox* m_FitLine;
     QLabel* m_FitSummary;
     PositionPlot* m_Plot;
-    LegacyProject m_Project;
-    std::optional<TrackerSource> m_TrackerSource;
-    TrackEdits m_Edits;
+    DocumentSession m_Session;
     std::optional<ImageSequence> m_Sequence;
     std::optional<ImageFrame> m_DisplayedFrame;
     std::optional<QPointF> m_CalibrationFirst;
@@ -155,18 +154,10 @@ class MainWindow final : public QMainWindow
     QTimer m_AutoTrackTimer;
     QFutureWatcher<std::optional<QPoint>>* m_AutoTrackMatch = nullptr;
     QString m_MoviePath;
-    bool m_MovieUsesDisplayOrientation = false;
-    bool m_MovieAlignsToClip = false;
-    QString m_ProjectPath;
     QString m_MediaProjectPath;
-    QString m_ArchiveMember;
-    std::shared_ptr<const TrackerArchive> m_Archive;
-    QString m_SavePath;
     QThreadPool* m_SavePool;
     bool m_Saving = false;
     std::vector<std::function<void()>> m_AfterSave;
-    quint64 m_DocumentGeneration = 0;
-    std::vector<double> m_MovieFrameTimes;
     std::vector<std::chrono::nanoseconds> m_MoviePresentationTimes;
     std::shared_ptr<std::atomic_bool> m_MovieOpenCancelled;
     std::unique_ptr<QFutureWatcher<MovieIndex>> m_MovieOpenWatcher;

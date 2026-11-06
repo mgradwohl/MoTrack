@@ -27,6 +27,19 @@ to restore insertion order. Missing, duplicate, wrong-type or colliding identiti
 without advancing history or the revision. A history belongs to one live document and is cleared on
 replacement. Native files retain project data and IDs, not a serialized undo log.
 
+`DocumentSession` owns the complete editable `WorkspaceDocument`, its `TrackEdits`, the source path
+and the current native save target. It has no widget or decoder dependency. Each replacement gets a
+fresh identity object; save checkpoints retain that identity and the history revision. A completion
+from another session or a replaced document cannot change the current target or mark it clean, even
+when the two histories have the same revision. Failed writes preserve the old checkpoint. A successful
+stale write keeps its destination but invalidates the checkpoint until the latest state is saved.
+
+Workers receive an owned document snapshot, including shared archive ownership, rather than access
+to the live session. Replacing the session clears only its own history and data; a pending snapshot
+can finish without retaining a widget or losing its extracted media. Session state is GUI-thread owned.
+The desktop still has one active session: decoder/playback, open/save orchestration and view state
+remain in `MainWindow` until the multi-document controller work. The extraction does not itself add tabs.
+
 ## Tracker import source
 
 Versions 2 through 5 require `trackerSource`, either `null` for a document without preserved source or an object
@@ -117,7 +130,7 @@ Version 1 did not retain source XML. Reading it produces no source envelope; sav
 with `trackerSource: null`. Migration preserves its editable data but cannot recover content previously
 discarded. Earlier MoTrack builds that only accept versions 1 through 4 cannot open version-5 documents.
 
-Only the selected archive tab is editable today. Per-document session ownership, multi-tab editing,
+Only the selected archive tab is editable today. Multi-document controllers, multi-tab editing,
 and standard-file writers remain unfinished. An unknown object retained in this
 envelope is not an implemented track type.
 
