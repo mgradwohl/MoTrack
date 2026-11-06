@@ -49,7 +49,7 @@ python tools/corpus.py fetch
 python tools/corpus.py verify
 python tools/corpus.py check --probe build/coverage/motrack_corpus_probe
 python tools/corpus.py reference --java /path/to/jdk-17/bin/java
-xvfb-run -a python tools/corpus.py session --java /path/to/jdk-17/bin/java
+python tools/corpus.py session --java /path/to/jdk-17/bin/java
 python -m unittest discover -s tests -p test_corpus.py
 ```
 
@@ -61,12 +61,20 @@ any preferences or helper files. Downloads have time/size limits, subprocesses h
 and the Java heap is bounded. A corrupt existing cache entry is reported and preserved, never silently
 replaced or treated as success.
 
-The `session` command currently requires Linux with a virtual display and compiles its helpers with
-the adjacent JDK `javac`. It refuses to run on the user's Windows desktop. CI's Ubuntu runner supplies
-Xvfb and Java 17. Each case gets a fresh private Java home and output directory, a 30-second loader
+The `session` command currently requires Linux with Xvfb installed and compiles its helpers with
+the adjacent JDK `javac`. It starts and owns a new Xvfb server using `-displayfd` to allocate its display;
+Java always uses that display, even when the contributor already has a desktop `DISPLAY`. The runner
+terminates only its own server on success or failure, with bounded startup/shutdown waits. It refuses
+to run on Windows. CI's Ubuntu runner supplies Xvfb and Java 17. Each case gets a fresh private Java home
+and output directory, a 30-second loader
 deadline inside the 45-second subprocess limit, and a 256 MiB heap. Temporary compiled classes,
 preferences and Java-resaved experiments are removed on success or failure; successful comparison
 reports remain under the cache's `reports` directory. MoTrack itself does not use Java at runtime.
+
+The session helper shows and seeks each loaded frame on that private display, allowing Tracker's
+normal draw-driven particle-model evaluation to run. It observes the expected model steps before
+snapshotting, within the existing deadline; it does not assume the XML-load callback means models
+have already populated their cached steps.
 
 CI compares native imports on Windows, macOS and Linux, and reruns both Java probes on Linux. These
 checks follow ordinary coverage collection; they do not inflate the production coverage claim.

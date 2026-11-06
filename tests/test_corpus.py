@@ -2,13 +2,14 @@
 
 import hashlib
 import copy
+from contextlib import nullcontext
 import io
 import json
 from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import warnings
 import zipfile
 
@@ -148,11 +149,48 @@ class CorpusTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 corpus.validate_session(case, {**valid, key: value}, manifest)
 
-    def test_session_checks_require_an_isolated_linux_display(self):
-        for platform, display in [("win32", ":1"), ("linux", "")]:
-            with patch.object(corpus.sys, "platform", platform), patch.dict(corpus.os.environ, DISPLAY=display):
-                with self.assertRaisesRegex(ValueError, "virtual display"):
-                    corpus.check_sessions({}, self.root, "java")
+    def test_session_checks_reject_non_linux_hosts(self):
+        with patch.object(corpus.sys, "platform", "win32"), self.assertRaisesRegex(ValueError, "Linux"):
+            corpus.check_sessions({}, self.root, "java")
+
+    def test_ordinary_desktop_display_is_replaced_by_an_owned_server(self):
+        server = Mock()
+        server.poll.return_value = None
+
+        def start(command, **kwargs):
+            writer = int(command[command.index("-displayfd") + 1])
+            self.assertEqual(kwargs["pass_fds"], (writer,))
+            corpus.os.write(writer, b"77\n")
+            return server
+
+        with patch.object(corpus.sys, "platform", "linux"), \
+                patch.dict(corpus.os.environ, DISPLAY=":0", WAYLAND_DISPLAY="wayland-0", XAUTHORITY="desktop-cookie"), \
+                patch.object(corpus.shutil, "which", return_value="/usr/bin/Xvfb"), \
+                patch.object(corpus.subprocess, "Popen", side_effect=start), \
+                patch.object(corpus.select, "select", side_effect=lambda readers, *_: (readers, [], [])):
+            with corpus.private_display() as display:
+                self.assertEqual(display, ":77")
+                self.assertEqual(corpus.os.environ["DISPLAY"], ":0")
+                with patch.object(corpus.subprocess, "run", return_value=Mock(returncode=0)) as run:
+                    corpus.run(["java"], display=display)
+                    self.assertEqual(run.call_args.kwargs["env"]["DISPLAY"], ":77")
+                    self.assertNotIn("WAYLAND_DISPLAY", run.call_args.kwargs["env"])
+                    self.assertNotIn("XAUTHORITY", run.call_args.kwargs["env"])
+        server.terminate.assert_called_once()
+        server.wait.assert_called_once_with(timeout=5)
+
+    def test_display_startup_timeout_terminates_only_its_owned_server(self):
+        server = Mock()
+        server.poll.return_value = None
+        server.wait.side_effect = [corpus.subprocess.TimeoutExpired("Xvfb", 5), 0]
+        with patch.object(corpus.sys, "platform", "linux"), \
+                patch.object(corpus.shutil, "which", return_value="/usr/bin/Xvfb"), \
+                patch.object(corpus.subprocess, "Popen", return_value=server), \
+                patch.object(corpus.select, "select", return_value=([], [], [])):
+            with self.assertRaisesRegex(ValueError, "did not become ready"), corpus.private_display():
+                self.fail("A display that never became ready must not be yielded")
+        server.terminate.assert_called_once()
+        server.kill.assert_called_once()
 
     def test_failed_session_cleans_its_private_home_and_outputs(self):
         manifest = corpus.load_manifest()
@@ -160,9 +198,10 @@ class CorpusTests(unittest.TestCase):
         (self.root / "fixtures").mkdir()
         (self.root / "fixtures/protractor.trk").write_text("<object/>", encoding="utf-8")
 
-        def fail_session(command):
+        def fail_session(command, *, display=None):
             calls.append(command)
             if "TrackerSessionReference" in command:
+                self.assertEqual(display, ":77")
                 private_home = Path(next(arg.split("=", 1)[1] for arg in command if arg.startswith("-Duser.home=")))
                 self.assertTrue(private_home.is_relative_to(self.root))
                 self.assertTrue(private_home.is_dir())
@@ -170,6 +209,7 @@ class CorpusTests(unittest.TestCase):
                 raise ValueError("session failure")
 
         with patch.object(corpus.sys, "platform", "linux"), patch.dict(corpus.os.environ, DISPLAY=":99"), \
+                patch.object(corpus, "private_display", return_value=nullcontext(":77")), \
                 patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "run", side_effect=fail_session):
             with self.assertRaisesRegex(ValueError, "session failure"):
                 corpus.check_sessions(manifest, self.root, "java")

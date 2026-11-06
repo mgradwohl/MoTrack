@@ -9,6 +9,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.SwingUtilities;
+import javax.swing.Timer;
+import org.opensourcephysics.cabrillo.tracker.ParticleModel;
 import org.opensourcephysics.cabrillo.tracker.PointMass;
 import org.opensourcephysics.cabrillo.tracker.Step;
 import org.opensourcephysics.cabrillo.tracker.TFrame;
@@ -41,19 +43,19 @@ public final class TrackerSessionReference {
             if (Files.exists(saved)) throw new IllegalArgumentException("Output must be a fresh test directory");
             SwingUtilities.invokeAndWait(guard(() -> {
                 TFrame originalFrame = new TFrame();
-                TrackerIO.openURL(input.toString(), originalFrame, guard(() -> {
+                TrackerIO.openURL(input.toString(), originalFrame, guard(() -> whenEvaluated(originalFrame, () -> {
                     TrackerPanel panel = onlyPanel(originalFrame);
                     Map<String, Object> before = snapshot(panel);
                     if (TrackerIO.save(saved.toFile(), panel) == null || !Files.isRegularFile(saved))
                         throw new IllegalStateException("Tracker did not save the loaded session");
                     TFrame reopenedFrame = new TFrame();
-                    TrackerIO.openURL(saved.toString(), reopenedFrame, guard(() -> {
+                    TrackerIO.openURL(saved.toString(), reopenedFrame, guard(() -> whenEvaluated(reopenedFrame, () -> {
                         REPORT.set(TrackerReference.map("reference_version", OSPRuntime.VERSION,
                             "verification_level", "tracker_session_resave", "before", before,
                             "after", snapshot(onlyPanel(reopenedFrame))));
                         DONE.countDown();
-                    }));
-                }));
+                    })));
+                })));
             }));
             if (!DONE.await(30, TimeUnit.SECONDS)) throw new IllegalStateException("Tracker session loading timed out");
             if (FAILURE.get() != null) throw new IllegalStateException("Tracker session failed", FAILURE.get());
@@ -80,6 +82,31 @@ public final class TrackerSessionReference {
         if (panel == null || panel.getTracks().isEmpty()) throw new IllegalStateException("Loaded tab has no tracks");
         if (panel.getVideo() != null) throw new IllegalStateException("Media session reference is not implemented yet");
         return panel;
+    }
+
+    private static void whenEvaluated(TFrame frame, Runnable action) {
+        TrackerPanel panel = onlyPanel(frame);
+        VideoClip clip = panel.getPlayer().getVideoClip();
+        if (clip.getStepCount() < 1 || clip.getStepCount() > 10000)
+            throw new IllegalArgumentException("Reference clip step limit exceeded");
+        // ParticleModel evaluates from its normal draw path. Show/seek the real view in our private Xvfb,
+        // then observe generated steps; a completed XML loader alone does not mean models were evaluated.
+        frame.setVisible(true);
+        frame.validate();
+        panel.getPlayer().setStepNumber(clip.getStepCount() - 1);
+        Timer timer = new Timer(25, event -> guard(() -> {
+            panel.paintImmediately(panel.getVisibleRect());
+            for (TTrack track : panel.getTracks()) if (track instanceof ParticleModel model) {
+                for (int step = 0; step < clip.getStepCount(); step++) {
+                    int number = clip.stepToFrame(step);
+                    if (number >= model.getStartFrame() && number <= model.getEndFrame() && model.getStep(number) == null)
+                        return;
+                }
+            }
+            ((Timer) event.getSource()).stop();
+            action.run();
+        }).run());
+        timer.start();
     }
 
     private static Map<String, Object> snapshot(TrackerPanel panel) {

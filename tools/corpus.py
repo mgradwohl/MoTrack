@@ -1,12 +1,14 @@
 """Fetch pinned Tracker examples and compare native imports with Java reference snapshots."""
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import math
 import os
 from pathlib import Path
 import re
+import select
 import shutil
 import subprocess
 import sys
@@ -136,9 +138,14 @@ def compare(expected, actual, tolerance, location="project"):
         raise ValueError(f"{location}: expected {expected!r}, got {actual!r}")
 
 
-def run(command):
+def run(command, *, display=None):
+    environment = {**os.environ, "QT_QPA_PLATFORM": "offscreen"}
+    if display is not None:
+        environment["DISPLAY"] = display
+        environment.pop("WAYLAND_DISPLAY", None)
+        environment.pop("XAUTHORITY", None)
     result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                            timeout=45, env={**os.environ, "QT_QPA_PLATFORM": "offscreen"})
+                            timeout=45, env=environment)
     if result.returncode:
         raise ValueError(f"Probe failed ({result.returncode}):\n{(result.stdout + result.stderr)[-5000:]}")
 
@@ -201,16 +208,50 @@ def validate_session(case, report, manifest):
     compare(expected_masses, masses, tolerance, case["id"] + ".point_masses")
 
 
+@contextmanager
+def private_display():
+    if sys.platform != "linux":
+        raise ValueError("Session checks currently require Linux with Xvfb")
+    executable = shutil.which("Xvfb")
+    if not executable:
+        raise ValueError("Install Xvfb to run the isolated session checks")
+    reader, writer = os.pipe()
+    server = None
+    try:
+        try:
+            server = subprocess.Popen([executable, "-displayfd", str(writer), "-screen", "0", "1280x800x24",
+                                       "-nolisten", "tcp"], pass_fds=(writer,),
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        finally:
+            os.close(writer)
+        if not select.select([reader], [], [], 5)[0]:
+            raise ValueError("Private Xvfb display did not become ready")
+        number = os.read(reader, 32).decode("ascii")
+        if not re.fullmatch(r"[0-9]+\n", number) or server.poll() is not None:
+            raise ValueError("Private Xvfb display failed to start")
+        yield ":" + number.strip()
+    finally:
+        os.close(reader)
+        if server is not None:
+            if server.poll() is None:
+                server.terminate()
+            try:
+                server.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                server.kill()
+                server.wait(timeout=5)
+
+
 def check_sessions(manifest, cache, java):
-    if sys.platform != "linux" or not os.environ.get("DISPLAY"):
-        raise ValueError("Session checks currently require Linux with a virtual display; use xvfb-run -a")
+    if sys.platform != "linux":
+        raise ValueError("Session checks currently require Linux with Xvfb")
     for path, artifact in artifacts(manifest, cache):
         verify_file(path, artifact)
     java_path = Path(shutil.which(java) or java).resolve()
     javac = java_path.with_name("javac")
     reports = cache / "reports"
     reports.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="session-", dir=cache) as temporary:
+    with tempfile.TemporaryDirectory(prefix="session-", dir=cache) as temporary, private_display() as display:
         root = Path(temporary)
         classes = root / "classes"
         classes.mkdir()
@@ -226,7 +267,7 @@ def check_sessions(manifest, cache, java):
             java_home.mkdir(parents=True)
             run([str(java_path), f"-Duser.home={java_home}", "-Duser.language=en", "-Duser.country=US",
                  "-Xmx256m", "-cp", os.pathsep.join([str(classes), str(jar)]), "TrackerSessionReference",
-                 str(project_path(case, cache)), str(output)])
+                 str(project_path(case, cache)), str(output)], display=display)
             report = json.loads((output / "session.json").read_text(encoding="utf-8"))
             validate_session(case, report, manifest)
             (reports / (case["id"] + "-session.json")).write_text(
