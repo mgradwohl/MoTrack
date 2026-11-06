@@ -18,6 +18,15 @@
     <message><source>Open video</source><translation>Abrir vídeo</translation></message>
     <message><source>Play</source><translation>Reproducir</translation></message>
     <message><source>Pause</source><translation>Pausar</translation></message>
+    <message><source>&amp;AutoTracker</source><translation>Seguimiento &amp;automático</translation></message>
+    <message><source>Mark a point mass on this frame to start AutoTracker.</source><translation>Marca una masa puntual en este fotograma para iniciar el seguimiento automático.</translation></message>
+    <message><source>Choose a textured point away from the edge of the image.</source><translation>Elige un punto con textura lejos del borde de la imagen.</translation></message>
+    <message><source>AutoTracker is following the selected point mass.</source><translation>El seguimiento automático está siguiendo la masa puntual seleccionada.</translation></message>
+    <message><source>AutoTracker stopped because this frame could not be opened.</source><translation>El seguimiento automático se detuvo porque no se pudo abrir este fotograma.</translation></message>
+    <message><source>AutoTracker stopped because the next clip frame was unavailable.</source><translation>El seguimiento automático se detuvo porque el siguiente fotograma no estaba disponible.</translation></message>
+    <message><source>AutoTracker stopped at an existing mark.</source><translation>El seguimiento automático se detuvo en una marca existente.</translation></message>
+    <message><source>AutoTracker could not find a reliable match. Mark this frame to continue.</source><translation>El seguimiento automático no encontró una coincidencia fiable. Marca este fotograma para continuar.</translation></message>
+    <message><source>AutoTracker reached the end of the clip.</source><translation>El seguimiento automático llegó al final del clip.</translation></message>
     <message><source>Clip Settings</source><translation>Ajustes del clip</translation></message>
     <message><source>&amp;Start frame</source><translation>Fotograma &amp;inicial</translation></message>
     <message><source>&amp;End frame</source><translation>Fotograma &amp;final</translation></message>

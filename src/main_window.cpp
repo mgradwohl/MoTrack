@@ -164,6 +164,10 @@ MainWindow::MainWindow()
     m_NewPointMass = tracksMenu->addAction(tr("New &point mass"));
     m_NewPointMass->setObjectName("newPointMass");
     m_NewPointMass->setEnabled(false);
+    m_AutoTracker = tracksMenu->addAction(tr("&AutoTracker"));
+    m_AutoTracker->setObjectName("autoTracker");
+    m_AutoTracker->setCheckable(true);
+    m_AutoTracker->setEnabled(false);
     auto* repeat = tracksMenu->addAction(tr("Repeat previous mark"));
     repeat->setObjectName("repeatMark");
     repeat->setShortcuts({QKeySequence("Shift+Return"), QKeySequence("Shift+Enter")});
@@ -177,6 +181,7 @@ MainWindow::MainWindow()
     m_Calibrate->setCheckable(true);
     m_Calibrate->setEnabled(false);
     tools->addAction(m_NewPointMass);
+    tools->addAction(m_AutoTracker);
     m_TrackPicker = new QComboBox;
     m_TrackPicker->setObjectName("trackPicker");
     m_TrackPicker->setAccessibleName(tr("Selected point mass"));
@@ -220,6 +225,7 @@ MainWindow::MainWindow()
     m_Play = new QToolButton;
     m_Play->setObjectName("playClip");
     m_PlayTimer.setSingleShot(true);
+    m_AutoTrackTimer.setSingleShot(true);
     setPlaying(false);
     m_StepSlider = new QSlider(Qt::Horizontal);
     m_StepSlider->setObjectName("stepSlider");
@@ -271,11 +277,13 @@ MainWindow::MainWindow()
     connect(m_Previous, &QToolButton::clicked, m_StepSlider, [this] { m_StepSlider->triggerAction(QSlider::SliderSingleStepSub); });
     connect(m_Next, &QToolButton::clicked, m_StepSlider, [this] { m_StepSlider->triggerAction(QSlider::SliderSingleStepAdd); });
     connect(&m_PlayTimer, &QTimer::timeout, m_Next, &QToolButton::click);
+    connect(&m_AutoTrackTimer, &QTimer::timeout, m_Next, &QToolButton::click);
     connect(m_Play,
             &QToolButton::clicked,
             this,
             [this]
             {
+                stopAutoTracking();
                 setPlaying(!m_Playing);
                 if (m_Playing && m_StepSlider->value() == m_StepSlider->maximum())
                 {
@@ -327,6 +335,7 @@ MainWindow::MainWindow()
             this,
             [this]
             {
+                stopAutoTracking();
                 const auto index = m_Project.pointMasses.size();
                 m_Edits.createPointMass(m_Project, tr("Point Mass %1").arg(index + 1).toStdString());
                 refreshEditViews(static_cast<int>(index));
@@ -336,6 +345,20 @@ MainWindow::MainWindow()
     connect(m_Redo, &QAction::triggered, this, [this] { undoOrRedo(true); });
     connect(m_ClipSettings, &QAction::triggered, this, &MainWindow::editClipSettings);
     connect(repeat, &QAction::triggered, this, &MainWindow::repeatPreviousMark);
+    connect(m_AutoTracker,
+            &QAction::toggled,
+            this,
+            [this](bool active)
+            {
+                if (active)
+                {
+                    startAutoTracking();
+                }
+                else
+                {
+                    stopAutoTracking();
+                }
+            });
     connect(m_Calibrate,
             &QAction::toggled,
             this,
@@ -344,6 +367,7 @@ MainWindow::MainWindow()
                 clearCalibrationPoint();
                 if (active)
                 {
+                    stopAutoTracking();
                     setPlaying(false);
                     statusBar()->showMessage(tr("Click the first calibration endpoint."));
                 }
@@ -352,7 +376,14 @@ MainWindow::MainWindow()
                     statusBar()->clearMessage();
                 }
             });
-    connect(m_TrackPicker, &QComboBox::currentIndexChanged, this, &MainWindow::refreshPlot);
+    connect(m_TrackPicker,
+            &QComboBox::currentIndexChanged,
+            this,
+            [this]
+            {
+                stopAutoTracking();
+                refreshPlot();
+            });
     connect(m_PlotQuantity, &QComboBox::currentIndexChanged, this, &MainWindow::refreshPlot);
 }
 
@@ -507,6 +538,7 @@ void MainWindow::openMovie(const QString& path)
 
 void MainWindow::activateProject(const QString& path)
 {
+    stopAutoTracking();
     setPlaying(false);
     m_ProjectPath = QFileInfo(path).absoluteFilePath();
     m_SavePath.clear();
@@ -550,6 +582,7 @@ void MainWindow::syncClipControls()
 
 void MainWindow::undoOrRedo(bool redo)
 {
+    stopAutoTracking();
     const auto before = clipRange(m_Project.clip);
     const bool changed = redo ? m_Edits.redo(m_Project) : m_Edits.undo(m_Project);
     if (changed)
@@ -564,6 +597,7 @@ void MainWindow::undoOrRedo(bool redo)
 
 void MainWindow::editClipSettings()
 {
+    stopAutoTracking();
     setPlaying(false);
     const auto request = m_RequestGeneration.load();
     const auto& clip = m_Project.clip;
@@ -648,6 +682,7 @@ void MainWindow::refreshEditViews(int track)
     {
         displayFrame(*m_DisplayedFrame, {});
     }
+    updateAutoTrackerAction();
 }
 
 void MainWindow::refreshPlot()
@@ -674,6 +709,7 @@ void MainWindow::markAt(const QPointF& position)
         return;
     }
     const Mark mark{.frame = m_DisplayedFrame->number, .x = position.x(), .y = position.y()};
+    stopAutoTracking();
     setPlaying(false);
     if (m_Edits.markPointMass(m_Project, static_cast<std::size_t>(track), mark))
     {
@@ -855,6 +891,7 @@ void MainWindow::displayMarks()
 void MainWindow::displayStep(int step)
 {
     m_PlayTimer.stop();
+    m_AutoTrackTimer.stop();
     m_Play->setEnabled(m_StepSlider->maximum() > 0);
     m_StepSlider->setEnabled(m_StepSlider->maximum() > 0);
     m_Previous->setEnabled(step > 0);
@@ -873,6 +910,7 @@ void MainWindow::displayStep(int step)
         else
         {
             setPlaying(false);
+            stopAutoTracking(tr("AutoTracker stopped because this frame could not be opened."));
             m_FrameLabel->clear();
             m_Video->display({}, {}, tr("This video frame could not be decoded."));
         }
@@ -910,6 +948,8 @@ void MainWindow::displayFrame(const ImageFrame& frame, const QString& failureMes
         setPlaying(false);
     }
     schedulePlayback();
+    updateAutoTrackerAction();
+    autoTrackFrame(frame);
 }
 
 void MainWindow::setPlaying(bool playing)
@@ -919,6 +959,97 @@ void MainWindow::setPlaying(bool playing)
     m_Play->setIcon(style()->standardIcon(playing ? QStyle::SP_MediaPause : QStyle::SP_MediaPlay));
     m_Play->setAccessibleName(playing ? tr("Pause") : tr("Play"));
     m_Play->setToolTip(m_Play->accessibleName());
+}
+
+void MainWindow::updateAutoTrackerAction()
+{
+    m_AutoTracker->setEnabled(m_AutoTrack.has_value() ||
+                              (m_TrackPicker->currentIndex() >= 0 && m_DisplayedFrame && !m_DisplayedFrame->image.isNull() &&
+                               m_StepSlider->value() < m_StepSlider->maximum()));
+}
+
+void MainWindow::startAutoTracking()
+{
+    const auto track = m_TrackPicker->currentIndex();
+    if (track < 0 || !m_DisplayedFrame || m_StepSlider->value() >= m_StepSlider->maximum())
+    {
+        stopAutoTracking();
+        return;
+    }
+    const auto& frame = *m_DisplayedFrame;
+    const auto& marks = m_Project.pointMasses.at(static_cast<std::size_t>(track)).marks;
+    const auto mark = std::ranges::lower_bound(marks, frame.number, {}, &Mark::frame);
+    if (mark == marks.end() || mark->frame != frame.number || mark->x < 0.0 || mark->x >= frame.image.width() || mark->y < 0.0 ||
+        mark->y >= frame.image.height())
+    {
+        stopAutoTracking(tr("Mark a point mass on this frame to start AutoTracker."));
+        return;
+    }
+    const auto center = QPointF(mark->x, mark->y).toPoint();
+    const auto pattern = TemplateTracker::fromImage(frame.image, center);
+    if (!pattern)
+    {
+        stopAutoTracking(tr("Choose a textured point away from the edge of the image."));
+        return;
+    }
+    m_AutoTrack =
+        AutoTrackSession{.pattern = *pattern, .track = static_cast<std::size_t>(track), .lastFrame = frame.number, .predicted = center};
+    setPlaying(false);
+    m_Calibrate->setChecked(false);
+    statusBar()->showMessage(tr("AutoTracker is following the selected point mass."));
+    m_AutoTrackTimer.start(0);
+}
+
+void MainWindow::stopAutoTracking(const QString& message)
+{
+    m_AutoTrackTimer.stop();
+    m_AutoTrack.reset();
+    const QSignalBlocker blocker(m_AutoTracker);
+    m_AutoTracker->setChecked(false);
+    updateAutoTrackerAction();
+    if (!message.isEmpty())
+    {
+        statusBar()->showMessage(message);
+    }
+}
+
+void MainWindow::autoTrackFrame(const ImageFrame& frame)
+{
+    if (!m_AutoTrack || m_AutoTrack->lastFrame == frame.number)
+    {
+        return;
+    }
+    auto& session = *m_AutoTrack;
+    if (frame.image.isNull() || frame.number - session.lastFrame != m_Project.clip.stepSize)
+    {
+        stopAutoTracking(tr("AutoTracker stopped because the next clip frame was unavailable."));
+        return;
+    }
+    const auto& marks = m_Project.pointMasses.at(session.track).marks;
+    if (std::ranges::binary_search(marks, frame.number, {}, &Mark::frame))
+    {
+        stopAutoTracking(tr("AutoTracker stopped at an existing mark."));
+        return;
+    }
+    const auto point = session.pattern.find(frame.image, session.predicted);
+    if (!point)
+    {
+        stopAutoTracking(tr("AutoTracker could not find a reliable match. Mark this frame to continue."));
+        return;
+    }
+    session.lastFrame = frame.number;
+    session.predicted = *point;
+    m_Edits.markPointMass(
+        m_Project, session.track, {.frame = frame.number, .x = static_cast<double>(point->x()), .y = static_cast<double>(point->y())});
+    refreshEditViews(static_cast<int>(session.track));
+    if (m_StepSlider->value() == m_StepSlider->maximum())
+    {
+        stopAutoTracking(tr("AutoTracker reached the end of the clip."));
+    }
+    else
+    {
+        m_AutoTrackTimer.start(0);
+    }
 }
 
 void MainWindow::schedulePlayback()
@@ -938,6 +1069,7 @@ void MainWindow::requestMovieFrame(int frame)
 {
     const auto generation = ++m_RequestGeneration;
     m_DisplayedFrame.reset();
+    updateAutoTrackerAction();
     m_Calibrate->setChecked(false);
     m_Calibrate->setEnabled(false);
     m_Plot->selectFrame(frame);

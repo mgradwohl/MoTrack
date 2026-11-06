@@ -40,6 +40,8 @@ Choose a quantity above the plot. Select a plotted point to jump to its video fr
 
 Use Clip Settings to choose the starting frame, ending frame, and frame interval for an experiment. Existing marks keep their original frame numbers when the clip changes.
 
+To start AutoTracker, return to a frame with a marked point mass and choose AutoTracker. It follows a small textured patch on later frames, stops at existing marks, and asks for a new manual mark when the match becomes uncertain.
+
 To set a known distance, select Calibration Stick, click two distinct points in the displayed image, and enter their distance and unit. Undo restores the previous scale and unit.
 
 ### Stage a local desktop build
