@@ -44,6 +44,48 @@ TEST(VideoReader, RejectsMissingFilesAndUnknownFormats)
     EXPECT_THROW(motrack::VideoReader{fixturePath("point-mass.trk")}, motrack::VideoError);
 }
 
+TEST(VideoReader, AppliesOrthogonalDisplayMetadataWithoutChangingTimestamps)
+{
+    QFile original(fixturePath("vfr.mp4"));
+    ASSERT_TRUE(original.open(QIODevice::ReadOnly));
+    auto bytes = original.readAll();
+    const auto header = bytes.indexOf("tkhd");
+    ASSERT_GE(header, 0);
+    ASSERT_EQ(bytes.at(header + 4), '\0');
+    constexpr qsizetype MATRIX_OFFSET = 44;
+    constexpr qsizetype INTEGER_BYTES = 4;
+    constexpr std::int32_t UNIT = 1 << 16;
+    constexpr std::int32_t HOMOGENEOUS_UNIT = 1 << 30;
+    constexpr std::array<std::int32_t, 9> ROTATION{0, UNIT, 0, -UNIT, 0, 0, 0, 0, HOMOGENEOUS_UNIT};
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto path = temporary.filePath("rotated.mp4");
+    for (std::size_t index = 0; index < ROTATION.size(); ++index)
+    {
+        qToBigEndian(ROTATION.at(index), bytes.data() + header + MATRIX_OFFSET + static_cast<qsizetype>(index) * INTEGER_BYTES);
+    }
+    QFile file(path);
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+    ASSERT_EQ(file.write(bytes), bytes.size());
+    file.close();
+
+    motrack::VideoReader baseline(fixturePath("vfr.mp4"));
+    motrack::VideoReader rotated(path);
+    motrack::VideoReader encoded(path, motrack::VideoOrientation::Encoded);
+    const auto source = baseline.readNext();
+    const auto result = rotated.readNext();
+    const auto unchanged = encoded.readNext();
+    if (!source || !result || !unchanged)
+    {
+        FAIL() << "The baseline or rotated frame could not be decoded.";
+    }
+    EXPECT_EQ(result->presentationTime, source->presentationTime);
+    EXPECT_EQ(result->image.size(), QSize(24, 32));
+    EXPECT_EQ(result->image.pixelColor(23, 0), source->image.pixelColor(0, 0));
+    EXPECT_EQ(result->image.pixelColor(0, 31), source->image.pixelColor(31, 23));
+    EXPECT_EQ(unchanged->image, source->image);
+}
+
 TEST(VideoReader, RejectsAudioOnlyFiles)
 {
     QTemporaryDir temporary;

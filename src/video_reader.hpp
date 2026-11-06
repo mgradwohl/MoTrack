@@ -24,11 +24,17 @@ class VideoError : public std::runtime_error
     using std::runtime_error::runtime_error;
 };
 
+enum class VideoOrientation : std::uint8_t
+{
+    Encoded,
+    Display,
+};
+
 /// Decodes a local movie in presentation order. Each reader belongs to a single thread.
 class VideoReader
 {
   public:
-    explicit VideoReader(const QString& path);
+    explicit VideoReader(const QString& path, VideoOrientation orientation = VideoOrientation::Display);
     ~VideoReader();
 
     VideoReader(const VideoReader&) = delete;

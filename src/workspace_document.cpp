@@ -168,6 +168,9 @@ WorkspaceDocument readWorkspaceDocument(const QString& path)
     WorkspaceDocument result;
     require(input.value("movie").isBool());
     result.movie = input.value("movie").toBool();
+    const auto orientation = input.value("displayOrientation");
+    require(orientation.isUndefined() || orientation.isBool());
+    result.useDisplayOrientation = orientation.toBool();
     const auto archive = input.value("archive");
     if (!archive.isUndefined())
     {
@@ -237,6 +240,7 @@ void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& docume
                              {"calibration", writeCalibration(project.calibration)},
                              {"pointMasses", writeTracks(project.pointMasses)},
                              {"movie", document.movie},
+                             {"displayOrientation", document.useDisplayOrientation},
                              {"archive", QString::fromStdString(document.archiveReference)},
                              {"movieFrameTimes", frameTimes},
                              {"clip", clipObject}};
