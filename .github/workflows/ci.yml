@@ -24,6 +24,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Check Tracker application reference
+        if: runner.os == 'Linux'
+        run: |
+          python tools/corpus.py fetch
+          python tools/corpus.py reference --java "$JAVA_HOME_17_X64/bin/java"
+          python tools/corpus.py session --java "$JAVA_HOME_17_X64/bin/java"
       - uses: jurplel/install-qt-action@v4
         with:
           version: "6.8.3"
@@ -103,9 +109,6 @@ jobs:
           probe=build/coverage/motrack_corpus_probe
           if [[ "$RUNNER_OS" == Windows ]]; then probe="$probe.exe"; fi
           python tools/corpus.py check --probe "$probe"
-          if [[ "$RUNNER_OS" == Linux ]]; then
-            python tools/corpus.py reference --java "$JAVA_HOME_17_X64/bin/java"
-          fi
       - name: Stage desktop build
         shell: bash
         run: |

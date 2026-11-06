@@ -4,11 +4,16 @@ This is the first reproducible seed for [full-port phase 1](../../docs/migration
 It compares MoTrack's importer and coordinate calculations with snapshots produced by the actual OSP
 XML loader and `ImageCoordSystem` implementation bundled in the official **Tracker 6.3.5** JAR.
 
-It does **not** prove full Tracker session loading, rendering, media decoding, editing, preservation of
-unknown properties, or `.trk`/`.trz` export. The report names its verification level
-`xml_and_coordinate_api`; a successful parser check must never be reported as a complete round trip.
-Complete GUI loading requires Tracker's application/async-loader lifecycle and a graphical environment,
-not just `XMLControlElement.loadObject(null)` in a headless JVM.
+The original report names its verification level `xml_and_coordinate_api`. A separate session probe
+uses Tracker's actual application/async-loader lifecycle to open the two experiments without media,
+save through Tracker's normal saver and reopen in a fresh application frame. Its report is labeled
+`tracker_session_resave`. It checks loaded track classes/names, mass values, step points, clip bounds,
+units and coordinate probes before/after Java's own resave, and compares available point-mass/coordinate
+data with the independent XML baseline.
+
+Neither check proves MoTrack `.trk`/`.trz` export, complete model/function parameter fidelity, rendering,
+media decoding, cross-platform Java UI behavior or the required paired-file round trip. A successful
+parser or Java-only resave check must never be reported as a complete MoTrack round trip.
 
 ## Sources and cases
 
@@ -30,7 +35,7 @@ current 6.3.5 features, varying calibration, media/timing cases and failure case
 
 The executable's SHA-256 is verified and its runtime version reports 6.3.5. The June 22, 2026 upstream
 commit is recorded as a **source candidate**, not a verified binary-to-source mapping. Full source and
-dependency provenance, the complete requirement inventory and GUI reference runner remain phase-1 work.
+dependency provenance, the complete requirement inventory and media/archived-session loading remain phase-1 work.
 Initial snapshots were generated on Windows with Eclipse Temurin 17.0.21+9; CI repeats the reference
 calculation using its Java 17 JDK on Linux. No Java runtime is added to the MoTrack application.
 
@@ -44,6 +49,7 @@ python tools/corpus.py fetch
 python tools/corpus.py verify
 python tools/corpus.py check --probe build/coverage/motrack_corpus_probe
 python tools/corpus.py reference --java /path/to/jdk-17/bin/java
+python tools/corpus.py session --java /path/to/jdk-17/bin/java
 python -m unittest discover -s tests -p test_corpus.py
 ```
 
@@ -55,7 +61,22 @@ any preferences or helper files. Downloads have time/size limits, subprocesses h
 and the Java heap is bounded. A corrupt existing cache entry is reported and preserved, never silently
 replaced or treated as success.
 
-CI compares native imports on Windows, macOS and Linux, and reruns the Java reference on Linux. These
+The `session` command currently requires Linux with Xvfb installed and compiles its helpers with
+the adjacent JDK `javac`. It starts and owns a new Xvfb server using `-displayfd` to allocate its display;
+Java always uses that display, even when the contributor already has a desktop `DISPLAY`. The runner
+terminates only its own server on success or failure, with bounded startup/shutdown waits. It refuses
+to run on Windows. CI's Ubuntu runner supplies Xvfb and Java 17. Each case gets a fresh private Java home
+and output directory, a 30-second loader
+deadline inside the 45-second subprocess limit, and a 256 MiB heap. Temporary compiled classes,
+preferences and Java-resaved experiments are removed on success or failure; successful comparison
+reports remain under the cache's `reports` directory. MoTrack itself does not use Java at runtime.
+
+The session helper shows and seeks each loaded frame on that private display, allowing Tracker's
+normal draw-driven particle-model evaluation to run. It observes the expected model steps before
+snapshotting, within the existing deadline; it does not assume the XML-load callback means models
+have already populated their cached steps.
+
+CI compares native imports on Windows, macOS and Linux, and reruns both Java probes on Linux. These
 checks follow ordinary coverage collection; they do not inflate the production coverage claim.
 
 ## Review and extend baselines
