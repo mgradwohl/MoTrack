@@ -12,6 +12,7 @@
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLocale>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSlider>
@@ -22,9 +23,12 @@
 #include <QTest>
 #include <QTimer>
 #include <QToolButton>
+#include <QTranslator>
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
+#include <utility>
 
 namespace
 {
@@ -32,6 +36,26 @@ namespace
 QString fixturePath(const QString& name)
 {
     return QString::fromUtf8(MOTRACK_FIXTURES) + '/' + name;
+}
+
+TEST(Workspace, LocalizesTheFrameControlsForRegionalLocales)
+{
+    constexpr std::array LOCALES{
+        std::pair{"de_AT", "Vorheriges Bild"}, std::pair{"es_MX", "Fotograma anterior"}, std::pair{"fr_CA", "Image précédente"}};
+    for (const auto& [locale, expected] : LOCALES)
+    {
+        QTranslator translator;
+        ASSERT_TRUE(translator.load(QLocale(QString::fromUtf8(locale)), "motrack", "_", QString::fromUtf8(MOTRACK_TRANSLATIONS)));
+        ASSERT_TRUE(QCoreApplication::installTranslator(&translator));
+        motrack::MainWindow window;
+        auto* previous = window.findChild<QToolButton*>("previousFrame");
+        EXPECT_NE(previous, nullptr);
+        if (previous)
+        {
+            EXPECT_EQ(previous->accessibleName(), QString::fromUtf8(expected));
+        }
+        QCoreApplication::removeTranslator(&translator);
+    }
 }
 
 void triggerFileDialog(QAction& action, QWidget& window, const QString& path)

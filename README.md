@@ -32,7 +32,7 @@ Run the setup script after cloning. It installs build tools through the platform
 ./tools/setup-dev.sh --build
 ```
 
-Run `build/dev/motrack` (`motrack.exe` on Windows) from an [activated developer shell](CONTRIBUTING.md#developer-setup) and open `tests/fixtures/image-sequence.trk` or `tests/fixtures/movie.trk` from the File menu. Use the controls below the image to play, pause, or step through the clip. The initial interface is available in English and Spanish.
+Run `build/dev/motrack` (`motrack.exe` on Windows) from an [activated developer shell](CONTRIBUTING.md#developer-setup) and open `tests/fixtures/image-sequence.trk` or `tests/fixtures/movie.trk` from the File menu. Use the controls below the image to play, pause, or step through the clip. The interface follows the system locale and is available in English, French, German, and Spanish.
 
 Directly opened movies use quarter-turn rotation and reflection metadata. Tracker project imports retain their encoded frame coordinates.
 
