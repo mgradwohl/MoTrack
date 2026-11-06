@@ -29,6 +29,24 @@ QByteArray sourceXml()
            "</object>\r\n";
 }
 
+QByteArray boundXml()
+{
+    return R"(<?xml version="1.0"?>
+      <object class="org.opensourcephysics.cabrillo.tracker.TrackerPanel">
+        <!-- Original names and positions must not be used as editable identity. -->
+        <property name="tracks">
+          <property name="[10]"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">
+            <property name="name">same</property></object></property>
+          <property name="[20]"><object class="Uneditable"><property name="custom">keep</property></object></property>
+          <property name="[30]"/>
+          <property name="[40]"><object class="org.opensourcephysics.cabrillo.tracker.Vector">
+            <property name="name">same</property></object></property>
+          <property name="[50]"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">
+            <property name="name">same</property></object></property>
+        </property>
+      </object>)";
+}
+
 bool writeBytes(const QString& path, const QByteArray& bytes)
 {
     QFile file(path);
@@ -88,7 +106,7 @@ TEST(WorkspaceDocument, MigratesVersionOneWithoutInventingSourceContent)
     document.project.description = "Old native document";
     motrack::writeWorkspaceDocument(path, document);
     auto object = QJsonDocument::fromJson(readBytes(path)).object();
-    EXPECT_EQ(object.value("version").toInt(), 3);
+    EXPECT_EQ(object.value("version").toInt(), 4);
     object.insert("version", 1);
     object.remove("trackerSource");
     object.remove("nextTrackId");
@@ -98,7 +116,7 @@ TEST(WorkspaceDocument, MigratesVersionOneWithoutInventingSourceContent)
     EXPECT_EQ(migrated.project.description, document.project.description);
     motrack::writeWorkspaceDocument(path, migrated);
     const auto updated = QJsonDocument::fromJson(readBytes(path)).object();
-    EXPECT_EQ(updated.value("version").toInt(), 3);
+    EXPECT_EQ(updated.value("version").toInt(), 4);
     EXPECT_TRUE(updated.value("trackerSource").isNull());
 }
 
@@ -131,14 +149,14 @@ TEST(WorkspaceDocument, RejectsMalformedOrAmbiguousSourceEnvelopes)
     object.insert("version", 1);
     ASSERT_TRUE(writeBytes(path, QJsonDocument(object).toJson()));
     EXPECT_THROW(static_cast<void>(motrack::readWorkspaceDocument(path)), motrack::ProjectError);
-    object.insert("version", 4);
+    object.insert("version", 5);
     EXPECT_TRUE(writeBytes(path, QJsonDocument(object).toJson()));
     EXPECT_THROW(static_cast<void>(motrack::readWorkspaceDocument(path)), motrack::ProjectError);
 }
 
 TEST(WorkspaceDocument, MigratesOldIdentitiesAndKeepsThemAcrossEditedNativeReopens)
 {
-    for (const int version : {1, 2})
+    for (const int version : {1, 2, 3})
     {
         SCOPED_TRACE(version);
         QTemporaryDir temporary;
@@ -152,10 +170,19 @@ TEST(WorkspaceDocument, MigratesOldIdentitiesAndKeepsThemAcrossEditedNativeReope
         motrack::writeWorkspaceDocument(path, document);
         auto old = QJsonDocument::fromJson(readBytes(path)).object();
         old.insert("version", version);
-        old.remove("nextTrackId");
+        if (version < 3)
+        {
+            old.remove("nextTrackId");
+        }
         if (version == 1)
         {
             old.remove("trackerSource");
+        }
+        else
+        {
+            auto source = old.value("trackerSource").toObject();
+            source.remove("bindings");
+            old.insert("trackerSource", source);
         }
         for (const auto* key : {"pointMasses", "vectors"})
         {
@@ -163,14 +190,21 @@ TEST(WorkspaceDocument, MigratesOldIdentitiesAndKeepsThemAcrossEditedNativeReope
             for (const auto& entry : old.value(key).toArray())
             {
                 auto track = entry.toObject();
-                track.remove("id");
+                if (version < 3)
+                {
+                    track.remove("id");
+                }
                 tracks.append(track);
             }
             old.insert(key, tracks);
         }
         ASSERT_TRUE(writeBytes(path, QJsonDocument(old).toJson()));
         auto migrated = motrack::readWorkspaceDocument(path);
-        EXPECT_EQ(migrated.trackerSource.has_value(), version == 2);
+        EXPECT_EQ(migrated.trackerSource.has_value(), version >= 2);
+        if (migrated.trackerSource)
+        {
+            EXPECT_FALSE(migrated.trackerSource->bindings);
+        }
         const auto first = migrated.project.pointMasses.front().id;
         const auto second = migrated.project.pointMasses.back().id;
         const auto vector = migrated.project.vectors.front().id;
@@ -194,6 +228,108 @@ TEST(WorkspaceDocument, MigratesOldIdentitiesAndKeepsThemAcrossEditedNativeReope
         EXPECT_EQ(reopened.project.vectors.front().id, newVector);
         EXPECT_GT(reopened.project.nextTrackId, newVector);
     }
+}
+
+TEST(WorkspaceDocument, RetainsSourceBindingsAfterRenameReorderDeleteUndoAndReopen)
+{
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("original.trk");
+    const auto native = temporary.filePath("bound.motrack");
+    ASSERT_TRUE(writeBytes(original, boundXml()));
+    auto document = motrack::importTrackerDocument(original);
+    if (!document.trackerSource || !document.trackerSource->bindings)
+    {
+        FAIL() << "Expected complete import bindings.";
+    }
+    const auto expected = *document.trackerSource->bindings;
+    ASSERT_EQ(expected.size(), 3u);
+    EXPECT_EQ(expected.at(0).sourceIndex, 0u);
+    EXPECT_EQ(expected.at(1).sourceIndex, 3u);
+    EXPECT_EQ(expected.at(2).sourceIndex, 4u);
+    EXPECT_EQ(expected.at(0).trackId, document.project.pointMasses.front().id);
+    EXPECT_EQ(expected.at(1).trackId, document.project.vectors.front().id);
+    EXPECT_EQ(expected.at(2).trackId, document.project.pointMasses.back().id);
+    std::swap(document.project.pointMasses.front(), document.project.pointMasses.back());
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.renamePointMass(document.project, 0, "renamed"));
+    ASSERT_TRUE(edits.removePointMass(document.project, 1));
+    ASSERT_TRUE(edits.undo(document.project));
+    ASSERT_TRUE(edits.redo(document.project));
+    ASSERT_TRUE(edits.removeVector(document.project, 0));
+    ASSERT_TRUE(edits.createVector(document.project, "same"));
+    EXPECT_GT(document.project.vectors.front().id, expected.at(2).trackId);
+    motrack::writeWorkspaceDocument(native, document);
+    ASSERT_TRUE(QFile::remove(original));
+    auto reopened = motrack::readWorkspaceDocument(native);
+    if (!reopened.trackerSource || !reopened.trackerSource->bindings)
+    {
+        FAIL() << "Expected persisted bindings.";
+    }
+    EXPECT_EQ(*reopened.trackerSource->bindings, expected);
+    EXPECT_EQ(reopened.trackerSource->xml, boundXml().toStdString());
+    EXPECT_EQ(reopened.project.pointMasses.front().id, expected.at(2).trackId);
+    motrack::writeWorkspaceDocument(native, reopened);
+    reopened = motrack::readWorkspaceDocument(native);
+    if (!reopened.trackerSource || !reopened.trackerSource->bindings)
+    {
+        FAIL() << "Expected resaved bindings.";
+    }
+    EXPECT_EQ(*reopened.trackerSource->bindings, expected);
+}
+
+TEST(WorkspaceDocument, RejectsIncompleteAmbiguousAndWrongTypeSourceBindings)
+{
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("original.trk");
+    const auto native = temporary.filePath("bound.motrack");
+    ASSERT_TRUE(writeBytes(original, boundXml()));
+    const auto document = motrack::importTrackerDocument(original);
+    motrack::writeWorkspaceDocument(native, document);
+    const auto bytes = readBytes(native);
+    const auto root = QJsonDocument::fromJson(bytes).object();
+    const auto source = root.value("trackerSource").toObject();
+    const auto bindings = source.value("bindings").toArray();
+    const auto rejects = [&](const QJsonValue& invalid)
+    {
+        auto changed = root;
+        auto envelope = source;
+        envelope.insert("bindings", invalid);
+        changed.insert("trackerSource", envelope);
+        ASSERT_TRUE(writeBytes(native, QJsonDocument(changed).toJson()));
+        EXPECT_THROW(static_cast<void>(motrack::readWorkspaceDocument(native)), motrack::ProjectError);
+    };
+    rejects(QJsonValue::Undefined);
+    rejects(true);
+    rejects(QJsonArray{});
+    rejects(QJsonArray{bindings.at(0), bindings.at(0), bindings.at(2)});
+    for (const auto& replacement : std::vector<QJsonObject>{QJsonObject{},
+                                                            QJsonObject{{"trackId", "1"}, {"sourceIndex", 1}, {"kind", "pointMass"}},
+                                                            QJsonObject{{"trackId", "1"}, {"sourceIndex", 999}, {"kind", "pointMass"}},
+                                                            QJsonObject{{"trackId", "1"}, {"sourceIndex", -1}, {"kind", "pointMass"}},
+                                                            QJsonObject{{"trackId", "1"}, {"sourceIndex", 0}, {"kind", "vector"}},
+                                                            QJsonObject{{"trackId", "2"}, {"sourceIndex", 0}, {"kind", "pointMass"}},
+                                                            QJsonObject{{"trackId", "4"}, {"sourceIndex", 0}, {"kind", "pointMass"}},
+                                                            QJsonObject{{"trackId", "1"}, {"sourceIndex", 0}, {"kind", "unknown"}}})
+    {
+        auto invalid = bindings;
+        invalid.replace(0, replacement);
+        rejects(invalid);
+    }
+    ASSERT_TRUE(writeBytes(native, bytes));
+    auto invalid = document;
+    if (!invalid.trackerSource || !invalid.trackerSource->bindings)
+    {
+        FAIL() << "Expected import bindings.";
+    }
+    invalid.trackerSource->bindings->pop_back();
+    EXPECT_THROW(motrack::writeWorkspaceDocument(native, invalid), motrack::ProjectError);
+    EXPECT_EQ(readBytes(native), bytes);
+    invalid = document;
+    invalid.project.pointMasses.clear();
+    invalid.project.vectors.clear();
+    invalid.project.nextTrackId = 1; // Deleted IDs must stay reserved for their source objects.
+    EXPECT_THROW(motrack::writeWorkspaceDocument(native, invalid), motrack::ProjectError);
+    EXPECT_EQ(readBytes(native), bytes);
 }
 
 TEST(WorkspaceDocument, RejectsInvalidIdentitiesAndPreservesExistingFile)

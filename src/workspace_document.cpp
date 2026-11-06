@@ -21,7 +21,7 @@ namespace
 {
 
 constexpr qint64 MAX_DOCUMENT_BYTES = qint64{128} * 1024 * 1024;
-constexpr int DOCUMENT_VERSION = 3;
+constexpr int DOCUMENT_VERSION = 4;
 
 void require(bool valid)
 {
@@ -90,14 +90,52 @@ QJsonArray writeStrings(const std::vector<std::string>& values)
     return result;
 }
 
-std::optional<TrackerSource> readTrackerSource(const QJsonValue& value)
+std::optional<std::vector<TrackSourceBinding>> readBindings(const QJsonValue& value)
+{
+    if (value.isNull())
+    {
+        return std::nullopt;
+    }
+    std::vector<TrackSourceBinding> result;
+    for (const auto& entry : array(value, -1))
+    {
+        require(entry.isObject());
+        const auto binding = entry.toObject();
+        const auto kind = string(binding.value("kind"));
+        require(kind == "pointMass" || kind == "vector");
+        result.push_back({.trackId = identity(binding.value("trackId")),
+                          .sourceIndex = static_cast<std::size_t>(integer(binding.value("sourceIndex"), 0)),
+                          .kind = kind == "pointMass" ? TrackKind::PointMass : TrackKind::Vector});
+    }
+    return result;
+}
+
+QJsonValue writeBindings(const std::optional<std::vector<TrackSourceBinding>>& bindings)
+{
+    if (!bindings)
+    {
+        return QJsonValue::Null;
+    }
+    QJsonArray result;
+    for (const auto& binding : *bindings)
+    {
+        require(std::in_range<int>(binding.sourceIndex));
+        result.append(QJsonObject{{"trackId", QString::fromStdString(std::to_string(binding.trackId))},
+                                  {"sourceIndex", static_cast<int>(binding.sourceIndex)},
+                                  {"kind", binding.kind == TrackKind::PointMass ? "pointMass" : "vector"}});
+    }
+    return result;
+}
+
+std::optional<TrackerSource> readTrackerSource(const QJsonValue& value, int version)
 {
     if (value.isNull())
     {
         return std::nullopt;
     }
     require(value.isObject());
-    const auto encoded = value.toObject().value("xmlBase64");
+    const auto object = value.toObject();
+    const auto encoded = object.value("xmlBase64");
     require(encoded.isString());
     const auto text = encoded.toString();
     constexpr auto MAX_ENCODED_SIZE = (static_cast<qsizetype>(MAX_TRACKER_XML_BYTES) + 2) / 3 * 4;
@@ -106,20 +144,27 @@ std::optional<TrackerSource> readTrackerSource(const QJsonValue& value)
     require(static_cast<bool>(bytes));
     // Require the canonical ASCII encoding: rejects ignored characters and non-Latin text substitutions.
     require(QString::fromLatin1(bytes.decoded.toBase64()) == text);
-    auto xml = bytes.decoded.toStdString();
-    static_cast<void>(parseLegacyProject(xml));
-    return TrackerSource{.xml = std::move(xml)};
+    TrackerSource result{.xml = bytes.decoded.toStdString()};
+    if (version >= 4)
+    {
+        result.bindings = readBindings(object.value("bindings"));
+    }
+    else
+    {
+        require(!object.contains("bindings"));
+    }
+    return result;
 }
 
-QJsonValue writeTrackerSource(const std::optional<TrackerSource>& source)
+QJsonValue writeTrackerSource(const std::optional<TrackerSource>& source, const LegacyProject& project)
 {
     if (!source)
     {
         return QJsonValue::Null;
     }
-    static_cast<void>(parseLegacyProject(source->xml));
+    validateTrackerSource(*source, project);
     const auto bytes = QByteArray::fromRawData(source->xml.data(), static_cast<qsizetype>(source->xml.size()));
-    return QJsonObject{{"xmlBase64", QString::fromLatin1(bytes.toBase64())}};
+    return QJsonObject{{"xmlBase64", QString::fromLatin1(bytes.toBase64())}, {"bindings", writeBindings(source->bindings)}};
 }
 
 QJsonValue writeCalibration(const std::optional<Calibration>& calibration)
@@ -283,7 +328,7 @@ WorkspaceDocument readWorkspaceDocument(const QString& path)
     WorkspaceDocument result;
     if (version >= 2)
     {
-        result.trackerSource = readTrackerSource(input.value("trackerSource"));
+        result.trackerSource = readTrackerSource(input.value("trackerSource"), version);
     }
     else
     {
@@ -335,6 +380,10 @@ WorkspaceDocument readWorkspaceDocument(const QString& path)
         }
     }
     validateTrackIdentities(project);
+    if (result.trackerSource)
+    {
+        validateTrackerSource(*result.trackerSource, project);
+    }
     const auto clip = input.value("clip").toObject();
     project.clip.firstFrame = integer(clip.value("firstFrame"), 0);
     project.clip.stepSize = integer(clip.value("stepSize"), 1);
@@ -387,7 +436,7 @@ void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& docume
     const QJsonObject output{{"format", "MoTrack"},
                              {"version", DOCUMENT_VERSION},
                              {"nextTrackId", QString::fromStdString(std::to_string(project.nextTrackId))},
-                             {"trackerSource", writeTrackerSource(document.trackerSource)},
+                             {"trackerSource", writeTrackerSource(document.trackerSource, project)},
                              {"trackerVersion", QString::fromStdString(project.version)},
                              {"description", QString::fromStdString(project.description)},
                              {"lengthUnit", QString::fromStdString(project.lengthUnit)},

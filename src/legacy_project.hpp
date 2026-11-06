@@ -98,11 +98,29 @@ class ProjectError : public std::runtime_error
     using std::runtime_error::runtime_error;
 };
 
+enum class TrackKind
+{
+    PointMass,
+    Vector
+};
+
+struct TrackSourceBinding
+{
+    TrackId trackId;
+    /// Zero-based ordinal among all direct property children of the original tracks property.
+    std::size_t sourceIndex;
+    TrackKind kind;
+    bool operator==(const TrackSourceBinding&) const = default;
+};
+
 /// Immutable import baseline, kept separately from editable measurements. Bytes retain the XML encoding,
 /// comments, unknown objects and properties. This is not a serialization of subsequent edits.
 struct TrackerSource
 {
     std::string xml;
+    /// Null means source associations were never recorded, including migration from native versions 1-3.
+    /// Known bindings retain deleted tracks so their source objects can later be removed on export.
+    std::optional<std::vector<TrackSourceBinding>> bindings = std::nullopt;
 };
 
 struct ImportedTrackerProject
@@ -115,5 +133,8 @@ LegacyProject parseLegacyProject(std::string_view xml);
 LegacyProject readLegacyProject(const std::filesystem::path& path);
 /// Reads and parses one bounded snapshot, retaining exactly the bytes that produced the project.
 ImportedTrackerProject readTrackerProject(const std::filesystem::path& path);
+/// Validate source XML and, when known, complete and unambiguous bindings to its editable track objects.
+/// Deleted track IDs are allowed, but all bound IDs must remain reserved by the document counter.
+void validateTrackerSource(const TrackerSource& source, const LegacyProject& project);
 
 } // namespace motrack

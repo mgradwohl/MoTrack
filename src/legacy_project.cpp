@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace motrack
@@ -217,9 +219,13 @@ std::optional<Calibration> readCalibration(const QDomElement& panel)
     return calibration;
 }
 
-} // namespace
+struct ParsedProject
+{
+    LegacyProject project;
+    std::vector<TrackSourceBinding> bindings;
+};
 
-LegacyProject parseLegacyProject(std::string_view xml)
+ParsedProject parseProject(std::string_view xml)
 {
     if (xml.size() > MAX_TRACKER_XML_BYTES)
     {
@@ -239,19 +245,22 @@ LegacyProject parseLegacyProject(std::string_view xml)
     {
         throw ProjectError("Expected a TrackerPanel project.");
     }
-    LegacyProject project{.version = value(panel, "semantic_version"),
-                          .description = value(panel, "description"),
-                          .clip = readClip(panel),
-                          .calibration = readCalibration(panel),
-                          .lengthUnit = value(panel, "length_unit"),
-                          .pointMasses = {},
-                          .unsupportedTrackTypes = {}};
+    ParsedProject result;
+    auto& project = result.project;
+    project = LegacyProject{.version = value(panel, "semantic_version"),
+                            .description = value(panel, "description"),
+                            .clip = readClip(panel),
+                            .calibration = readCalibration(panel),
+                            .lengthUnit = value(panel, "length_unit"),
+                            .pointMasses = {},
+                            .unsupportedTrackTypes = {}};
     if (auto unit = value(panel, "mass_unit"); !unit.empty())
     {
         project.massUnit = std::move(unit);
     }
     const auto tracks = property(panel, "tracks");
-    for (auto item = tracks.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"))
+    std::size_t index = 0;
+    for (auto item = tracks.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"), ++index)
     {
         const auto object = item.firstChildElement("object");
         const auto type = object.attribute("class");
@@ -259,6 +268,7 @@ LegacyProject parseLegacyProject(std::string_view xml)
         {
             project.pointMasses.push_back(readPointMass(object));
             project.pointMasses.back().id = allocateTrackId(project);
+            result.bindings.push_back({.trackId = project.pointMasses.back().id, .sourceIndex = index, .kind = TrackKind::PointMass});
         }
         else if (type == VECTOR_CLASS)
         {
@@ -266,6 +276,7 @@ LegacyProject parseLegacyProject(std::string_view xml)
             {
                 project.vectors.push_back(readVector(object));
                 project.vectors.back().id = allocateTrackId(project);
+                result.bindings.push_back({.trackId = project.vectors.back().id, .sourceIndex = index, .kind = TrackKind::Vector});
             }
             catch (const ProjectError&)
             {
@@ -277,7 +288,14 @@ LegacyProject parseLegacyProject(std::string_view xml)
             project.unsupportedTrackTypes.push_back(type.toStdString());
         }
     }
-    return project;
+    return result;
+}
+
+} // namespace
+
+LegacyProject parseLegacyProject(std::string_view xml)
+{
+    return parseProject(xml).project;
 }
 
 LegacyProject readLegacyProject(const std::filesystem::path& path)
@@ -303,8 +321,47 @@ ImportedTrackerProject readTrackerProject(const std::filesystem::path& path)
     {
         throw ProjectError("Could not read the Tracker project.");
     }
-    auto project = parseLegacyProject(xml);
-    return {.project = std::move(project), .source = {.xml = std::move(xml)}};
+    auto parsed = parseProject(xml);
+    return {.project = std::move(parsed.project), .source = {.xml = std::move(xml), .bindings = std::move(parsed.bindings)}};
+}
+
+void validateTrackerSource(const TrackerSource& source, const LegacyProject& project)
+{
+    const auto original = parseProject(source.xml);
+    if (!source.bindings)
+    {
+        return;
+    }
+    if (source.bindings->size() != original.bindings.size())
+    {
+        throw ProjectError("Incomplete Tracker source associations.");
+    }
+    std::unordered_map<std::size_t, TrackKind> expected;
+    for (const auto& binding : original.bindings)
+    {
+        expected.emplace(binding.sourceIndex, binding.kind);
+    }
+    std::unordered_map<TrackId, TrackKind> live;
+    for (const auto& track : project.pointMasses)
+    {
+        live.emplace(track.id, TrackKind::PointMass);
+    }
+    for (const auto& track : project.vectors)
+    {
+        live.emplace(track.id, TrackKind::Vector);
+    }
+    std::unordered_set<TrackId> ids;
+    for (const auto& binding : *source.bindings)
+    {
+        const auto object = expected.find(binding.sourceIndex);
+        const auto track = live.find(binding.trackId);
+        if (binding.trackId == 0 || binding.trackId >= project.nextTrackId || !ids.insert(binding.trackId).second ||
+            object == expected.end() || object->second != binding.kind || (track != live.end() && track->second != binding.kind))
+        {
+            throw ProjectError("Invalid Tracker source association.");
+        }
+        expected.erase(object);
+    }
 }
 
 } // namespace motrack
