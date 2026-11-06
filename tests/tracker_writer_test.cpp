@@ -422,4 +422,38 @@ TEST(TrackerWriter, RejectsOriginAndVectorSnappingWithoutReplacingTheDestination
     EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(project, imported.source)), motrack::ProjectError);
 }
 
+TEST(TrackerWriter, BoundsDenseVectorFrameArraysBeforeReplacingTheDestination)
+{
+    const auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk");
+    const auto imported = motrack::parseTrackerProject(xml);
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("existing.trk");
+    motrack::writeTrackerProject(output, imported.project, imported.source);
+    for (const auto frame : {500001, std::numeric_limits<int>::max()})
+    {
+        auto project = imported.project;
+        project.vectors.front().samples.back().frame = frame;
+        EXPECT_THROW(motrack::writeTrackerProject(output, project, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), xml);
+    }
+    auto project = imported.project;
+    project.vectors.front().samples.back().frame = 250000;
+    project.vectors.back().samples.back().frame = 250000;
+    EXPECT_THROW(motrack::writeTrackerProject(output, project, imported.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(output), xml);
+    project.vectors.back().samples.back().frame = 249999;
+    EXPECT_NO_THROW(static_cast<void>(motrack::renderTrackerProject(project, imported.source)));
+
+    // A retained null placeholder also sizes Tracker's dense array, but is absent from our samples.
+    auto padded = xml;
+    const std::string placeholder = R"(name="[9]" type="object">null)";
+    const auto position = padded.find(placeholder);
+    ASSERT_NE(position, std::string::npos);
+    padded.replace(position, placeholder.size(), R"(name="[2147483647]" type="object">null)");
+    auto sparse = motrack::parseTrackerProject(padded);
+    sparse.project.vectors.front().samples.front().tailX += 1;
+    EXPECT_THROW(motrack::writeTrackerProject(output, sparse.project, sparse.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(output), xml);
+}
+
 } // namespace

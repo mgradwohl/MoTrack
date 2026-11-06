@@ -362,13 +362,28 @@ bool retainsVectorComponent(double tail, double component)
 void requireStableVectors(const LegacyProject& project, const std::unordered_map<TrackId, QDomElement>& objects)
 {
     std::vector<const VectorSample*> samples;
+    std::size_t frameSlots = 0;
     for (const auto& vector : project.vectors)
     {
+        // OSP allocates a dense Java array through the highest XML index, even for null entries.
+        // Bound individual indices and the sum across tracks before any destination is opened.
+        int lastFrame = -1;
+        const auto data = uniqueProperty(objects.at(vector.id), "framedata");
+        for (auto item = data.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"))
+        {
+            const auto frame = frameIndex(item.attribute("name"));
+            require(frame <= 500000);
+            lastFrame = std::max(lastFrame, frame);
+        }
         for (const auto& sample : vector.samples)
         {
+            require(sample.frame >= 0 && sample.frame <= 500000);
+            lastFrame = std::max(lastFrame, sample.frame);
             require(samples.size() < 4096); // Bound the conservative all-visible-tip comparison below.
             samples.push_back(&sample);
         }
+        frameSlots += static_cast<std::size_t>(lastFrame + 1);
+        require(frameSlots <= 500001);
         if (!vector.samples.empty())
         {
             const auto footprint = uniqueProperty(objects.at(vector.id), "footprint").text();

@@ -122,7 +122,11 @@ public final class TrackerSessionReference {
             if (steps.length > 10000) throw new IllegalArgumentException("Reference step limit exceeded");
             for (Step step : steps) if (step != null) {
                 List<Object> points = new ArrayList<>();
-                for (TPoint point : step.getPoints()) points.add(point == null ? null : List.of(point.x, point.y));
+                // Vector drag handles and display points are transient UI state, not saved geometry.
+                // Compare both scientific endpoints here and tail/components independently below.
+                TPoint[] savedPoints = track.getClass() == Vector.class
+                    ? new TPoint[] {((VectorStep) step).getTip(), ((VectorStep) step).getTail()} : step.getPoints();
+                for (TPoint point : savedPoints) points.add(point == null ? null : List.of(point.x, point.y));
                 samples.add(TrackerReference.map("frame", step.getFrameNumber(), "points", points));
                 if (track.getClass() == Vector.class) {
                     VectorStep vector = (VectorStep) step;
