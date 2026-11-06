@@ -21,9 +21,7 @@ class MovieWorker final : public QObject
   public Q_SLOTS:
     void clear();
 
-  public:
-    void readFrame(
-        const QString& path, int frame, quint64 request, bool useDisplayOrientation, std::optional<std::chrono::nanoseconds> timestamp);
+    void readFrame(const QString& path, int frame, quint64 request, bool useDisplayOrientation, bool hasTimestamp, qint64 timestamp);
 
   Q_SIGNALS:
     void frameDecoded(int frame, quint64 request, const QImage& image);

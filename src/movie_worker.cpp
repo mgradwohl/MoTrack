@@ -15,12 +15,13 @@ void MovieWorker::clear()
 }
 
 void MovieWorker::readFrame(
-    const QString& path, int frame, quint64 request, bool useDisplayOrientation, std::optional<std::chrono::nanoseconds> timestamp)
+    const QString& path, int frame, quint64 request, bool useDisplayOrientation, bool hasTimestamp, qint64 timestamp)
 {
     if (m_CurrentRequest == request)
     {
         const auto orientation = useDisplayOrientation ? VideoOrientation::Display : VideoOrientation::Encoded;
-        Q_EMIT frameDecoded(frame, request, decodeFrame(path, frame, request, orientation, timestamp));
+        const auto seekTime = hasTimestamp ? std::optional{std::chrono::nanoseconds{timestamp}} : std::nullopt;
+        Q_EMIT frameDecoded(frame, request, decodeFrame(path, frame, request, orientation, seekTime));
     }
 }
 
@@ -105,6 +106,7 @@ QImage MovieWorker::seekFrame(std::chrono::nanoseconds timestamp, quint64 reques
     catch (const VideoError&)
     {
         // Some demuxers can seek successfully without yielding a usable frame.
+        return {};
     }
     return {};
 }

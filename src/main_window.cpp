@@ -1681,16 +1681,17 @@ void MainWindow::requestMovieFrame(int frame)
                 });
         m_MovieThread.start();
     }
-    std::optional<std::chrono::nanoseconds> timestamp;
-    if (std::cmp_less(frame, m_MoviePresentationTimes.size()) && frame >= 0)
-    {
-        timestamp = m_MoviePresentationTimes.at(static_cast<std::size_t>(frame));
-    }
-    QMetaObject::invokeMethod(
-        m_MovieWorker,
-        [worker = m_MovieWorker, path = m_MoviePath, frame, generation, orientation = m_MovieUsesDisplayOrientation, timestamp]
-        { worker->readFrame(path, frame, generation, orientation, timestamp); },
-        Qt::QueuedConnection);
+    const bool hasTimestamp = frame >= 0 && std::cmp_less(frame, m_MoviePresentationTimes.size());
+    const qint64 timestamp = hasTimestamp ? m_MoviePresentationTimes.at(static_cast<std::size_t>(frame)).count() : 0;
+    QMetaObject::invokeMethod(m_MovieWorker,
+                              "readFrame",
+                              Qt::QueuedConnection,
+                              m_MoviePath,
+                              frame,
+                              generation,
+                              m_MovieUsesDisplayOrientation,
+                              hasTimestamp,
+                              timestamp);
 }
 
 } // namespace motrack
