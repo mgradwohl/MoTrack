@@ -42,7 +42,7 @@ Choose a point mass from the toolbar or create one in the Tracks menu. Shift-cli
 
 Open a Tracker `.trz` experiment archive from the same project chooser. If it contains several Tracker tabs, choose the one to open. A MoTrack project saved from an archive references that archive for its media.
 
-Choose a quantity above the plot. Select a plotted point to jump to its video frame. Position uses the frame number when the project has no known timebase. Velocity uses frame timestamps from directly opened movies or saved constant image-sequence timing, and is left blank at the clip edges and across gaps in the marks.
+Choose position, velocity, speed, or acceleration above the plot. Select a plotted point to jump to its video frame. Position uses the frame number when the project has no known timebase. Derived quantities use frame timestamps or saved image-sequence timing, and are left blank at the clip edges and across gaps in the marks.
 
 Use Clip Settings to choose the starting frame, ending frame, and frame interval for an experiment. Existing marks keep their original frame numbers when the clip changes.
 

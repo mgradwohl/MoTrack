@@ -92,9 +92,13 @@
     <message><source>y position</source><translation>y-Position</translation></message>
     <message><source>x velocity</source><translation>x-Geschwindigkeit</translation></message>
     <message><source>y velocity</source><translation>y-Geschwindigkeit</translation></message>
+    <message><source>speed</source><translation>Geschwindigkeitsbetrag</translation></message>
+    <message><source>x acceleration</source><translation>x-Beschleunigung</translation></message>
+    <message><source>y acceleration</source><translation>y-Beschleunigung</translation></message>
     <message><source>Time (s)</source><translation>Zeit (s)</translation></message>
     <message><source>px</source><translation>px</translation></message>
     <message><source>%1/s</source><translation>%1/s</translation></message>
+    <message><source>%1/s²</source><translation>%1/s²</translation></message>
     <message><source>%1 (%2)</source><translation>%1 (%2)</translation></message>
     <message><source>Calibration Stick</source><translation>Kalibrierungsmaßstab</translation></message>
     <message><source>Click the first calibration endpoint.</source><translation>Klicken Sie auf den ersten Endpunkt des Kalibrierungsmaßstabs.</translation></message>
