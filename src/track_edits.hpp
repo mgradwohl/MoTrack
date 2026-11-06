@@ -51,6 +51,12 @@ class TrackEdits
     bool removePointMass(LegacyProject& project, std::size_t track);
     bool markPointMass(LegacyProject& project, std::size_t track, Mark mark);
     bool removeMark(LegacyProject& project, std::size_t track, int frame);
+    bool createVector(LegacyProject& project, std::string name);
+    bool renameVector(LegacyProject& project, std::size_t track, std::string name);
+    bool removeVector(LegacyProject& project, std::size_t track);
+    /// Store image-pixel tail and components at an original video frame, independent of calibration.
+    bool markVector(LegacyProject& project, std::size_t track, VectorSample sample);
+    bool removeVectorSample(LegacyProject& project, std::size_t track, int frame);
     bool calibrateDistance(LegacyProject& project, CalibrationDistance distance);
     bool setCoordinateAxes(LegacyProject& project, AxesPlacement axes);
     bool setClipRange(LegacyProject& project, int firstFrame, int lastFrame, int stepSize);
@@ -107,7 +113,40 @@ class TrackEdits
         ClipRange before;
     };
 
-    using Edit = std::variant<AddTrack, RenameTrack, RemoveTrack, ChangeMass, ChangeMark, ChangeCalibration, ChangeClip>;
+    struct AddVector
+    {
+        std::string name;
+    };
+    struct RenameVector
+    {
+        std::size_t track;
+        std::string after;
+        std::string before;
+    };
+    struct RemoveVector
+    {
+        std::size_t track;
+        VectorTrack before;
+    };
+    struct ChangeVectorSample
+    {
+        std::size_t track;
+        int frame;
+        std::optional<VectorSample> after;
+        std::optional<VectorSample> before;
+    };
+
+    using Edit = std::variant<AddTrack,
+                              RenameTrack,
+                              RemoveTrack,
+                              ChangeMass,
+                              ChangeMark,
+                              ChangeCalibration,
+                              ChangeClip,
+                              AddVector,
+                              RenameVector,
+                              RemoveVector,
+                              ChangeVectorSample>;
     static void apply(LegacyProject& project, const Edit& edit, bool forward);
     void append(LegacyProject& project, Edit edit);
 

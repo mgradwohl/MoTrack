@@ -1,5 +1,6 @@
 #include "image_sequence.hpp"
 #include "main_window.hpp"
+#include "video_canvas.hpp"
 #include "workspace_document.hpp"
 
 #include <QAction>
@@ -906,6 +907,138 @@ TEST(Workspace, EditsAndSavesTheSelectedMass)
     EXPECT_EQ(saved.project.massUnit, "g");
     ASSERT_EQ(saved.project.pointMasses.size(), 1u);
     EXPECT_DOUBLE_EQ(saved.project.pointMasses.front().mass, 250.25);
+}
+
+TEST(Workspace, CreatesEditsRepeatsAndReopensVectorTracks)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    motrack::MainWindow window;
+    window.show();
+    auto* add = window.findChild<QAction*>("newVector");
+    ASSERT_TRUE(add);
+    EXPECT_FALSE(add->isEnabled());
+    ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
+    auto* canvas = static_cast<motrack::VideoCanvas*>(window.findChild<QWidget*>("videoCanvas"));
+    auto* picker = window.findChild<QComboBox*>("trackPicker");
+    auto* slider = window.findChild<QSlider*>("stepSlider");
+    auto* undo = window.findChild<QAction*>("undoEdit");
+    auto* redo = window.findChild<QAction*>("redoEdit");
+    auto* remove = window.findChild<QAction*>("removeMark");
+    ASSERT_TRUE(canvas && picker && slider && undo && redo && remove);
+    add->trigger();
+    EXPECT_EQ(picker->currentText(), "Vector 1 (vector)");
+    EXPECT_FALSE(window.findChild<QAction*>("autoTracker")->isEnabled());
+    EXPECT_FALSE(window.findChild<QAction*>("setPointMassValue")->isEnabled());
+    EXPECT_FALSE(window.findChild<QAction*>("exportPlotData")->isEnabled());
+    EXPECT_FALSE(window.findChild<QComboBox*>("plotQuantity")->isEnabled());
+    ASSERT_TRUE(canvas->pick({1, 2}, true));
+    EXPECT_EQ(slider->value(), 0);
+    ASSERT_TRUE(canvas->pick({3, 1}, true));
+    EXPECT_EQ(slider->value(), 1);
+    auto* repeat = window.findChild<QAction*>("repeatMark");
+    repeat->trigger();
+    const auto path = temporary.filePath("edited-vectors.motrack");
+    ASSERT_TRUE(window.saveWorkspace(path));
+    auto saved = motrack::readWorkspaceDocument(path);
+    ASSERT_EQ(saved.project.vectors.size(), 1u);
+    const auto& samples = saved.project.vectors.front().samples;
+    ASSERT_EQ(samples.size(), 2u);
+    EXPECT_EQ(samples.front().frame, 0);
+    EXPECT_EQ(samples.back().frame, 2);
+    EXPECT_DOUBLE_EQ(samples.front().tailX, 1);
+    EXPECT_DOUBLE_EQ(samples.front().tailY, 2);
+    EXPECT_DOUBLE_EQ(samples.front().componentX, 2);
+    EXPECT_DOUBLE_EQ(samples.front().componentY, -1);
+    EXPECT_DOUBLE_EQ(samples.back().componentY, -1);
+    // Replacing a vector must be one undoable edit, including both endpoints.
+    slider->setValue(0);
+    canvas->pick({2, 1}, true);
+    canvas->pick({1, 1}, true);
+    undo->trigger();
+    redo->trigger();
+    slider->setValue(0);
+    ASSERT_TRUE(remove->isEnabled());
+    remove->trigger();
+    EXPECT_FALSE(remove->isEnabled());
+    undo->trigger();
+    QTimer::singleShot(0,
+                       &window,
+                       []
+                       {
+                           if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget()))
+                           {
+                               dialog->setTextValue("Force");
+                               dialog->accept();
+                           }
+                       });
+    window.findChild<QAction*>("renamePointMass")->trigger();
+    EXPECT_EQ(picker->currentText(), "Force (vector)");
+    window.findChild<QAction*>("removePointMass")->trigger();
+    EXPECT_EQ(picker->count(), 1);
+    undo->trigger();
+    ASSERT_TRUE(window.saveWorkspace(path));
+    ASSERT_TRUE(window.loadProject(path));
+    saved = motrack::readWorkspaceDocument(path);
+    ASSERT_EQ(saved.project.vectors.size(), 1u);
+    EXPECT_EQ(saved.project.vectors.front().name, "Force");
+    EXPECT_DOUBLE_EQ(saved.project.vectors.front().samples.front().tailX, 2);
+    EXPECT_DOUBLE_EQ(saved.project.vectors.front().samples.front().componentX, -1);
+    EXPECT_EQ(saved.project.pointMasses.front().marks.size(), 2u);
+    picker->setCurrentIndex(1);
+    EXPECT_FALSE(window.findChild<QAction*>("autoTracker")->isEnabled());
+    picker->setCurrentIndex(0);
+    EXPECT_TRUE(window.findChild<QAction*>("setPointMassValue")->isEnabled());
+}
+
+TEST(Workspace, CancelsPartialVectorsOnFrameTrackToolAndEscapeChanges)
+{
+    QTemporaryDir temporary;
+    motrack::MainWindow window;
+    window.show();
+    window.activateWindow();
+    ASSERT_TRUE(QTest::qWaitForWindowActive(&window));
+    ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
+    auto* canvas = static_cast<motrack::VideoCanvas*>(window.findChild<QWidget*>("videoCanvas"));
+    auto* picker = window.findChild<QComboBox*>("trackPicker");
+    auto* slider = window.findChild<QSlider*>("stepSlider");
+    window.findChild<QAction*>("newVector")->trigger();
+    const auto path = temporary.filePath("partial.motrack");
+    ASSERT_TRUE(window.saveWorkspace(path));
+    canvas->pick({1, 1}, true);
+    EXPECT_FALSE(window.isWindowModified());
+    slider->setValue(1);
+    canvas->pick({2, 2}, true);
+    EXPECT_EQ(window.statusBar()->currentMessage(), "Shift-click the vector tip. Escape cancels.");
+    picker->setCurrentIndex(0);
+    picker->setCurrentIndex(1);
+    canvas->pick({2, 2}, true);
+    window.findChild<QAction*>("calibrationStick")->trigger();
+    window.findChild<QAction*>("calibrationStick")->trigger();
+    canvas->pick({2, 2}, true);
+    window.findChild<QAction*>("measureDistance")->trigger();
+    window.findChild<QAction*>("measureDistance")->trigger();
+    canvas->pick({2, 2}, true);
+    // The stack-owned window stays alive across both events; avoid keyClick's QPointer analysis path.
+    QTest::keyPress(&window, Qt::Key_Escape);
+    QTest::keyRelease(&window, Qt::Key_Escape);
+    EXPECT_TRUE(window.statusBar()->currentMessage().isEmpty());
+    ASSERT_TRUE(window.saveWorkspace(path));
+    auto saved = motrack::readWorkspaceDocument(path);
+    EXPECT_TRUE(saved.project.vectors.front().samples.empty());
+    // A real mouse click starts a new vector after Escape; it must not finish the old one.
+    QTest::mouseClick(canvas, Qt::LeftButton, Qt::ShiftModifier, canvas->rect().center());
+    EXPECT_FALSE(window.isWindowModified());
+    window.findChild<QAction*>("undoEdit")->trigger();
+    EXPECT_EQ(picker->count(), 1);
+    window.findChild<QAction*>("redoEdit")->trigger();
+    picker->setCurrentIndex(1);
+    canvas->pick({1, 1}, true);
+    canvas->pick({2, 2}, true);
+    ASSERT_TRUE(window.saveWorkspace(path));
+    saved = motrack::readWorkspaceDocument(path);
+    ASSERT_EQ(saved.project.vectors.front().samples.size(), 1u);
+    EXPECT_EQ(saved.project.vectors.front().samples.front().frame, 2);
 }
 
 TEST(Workspace, MarksASelectedPointMassAdvancesAndSupportsUndo)

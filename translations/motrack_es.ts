@@ -3,6 +3,16 @@
 <TS version="2.1" language="es">
   <context>
     <name>MainWindow</name>
+    <message><source>New &amp;vector</source><translation>Nuevo &amp;vector</translation></message>
+    <message><source>&amp;Rename track…</source><translation>&amp;Renombrar trayectoria…</translation></message>
+    <message><source>&amp;Delete track</source><translation>&amp;Eliminar trayectoria</translation></message>
+    <message><source>Selected track</source><translation>Trayectoria seleccionada</translation></message>
+    <message><source>Shift-click to mark a point mass. For a vector, Shift-click its tail, then its tip.</source><translation>Mayús-clic para marcar una masa puntual. Para un vector, Mayús-clic en su origen y luego en su punta.</translation></message>
+    <message><source>Vector %1</source><translation>Vector %1</translation></message>
+    <message><source>Shift-click the vector tail, then its tip. Escape cancels.</source><translation>Mayús-clic en el origen del vector y luego en su punta. Escape cancela.</translation></message>
+    <message><source>%1 (vector)</source><translation>%1 (vector)</translation></message>
+    <message><source>Shift-click the vector tip. Escape cancels.</source><translation>Mayús-clic en la punta del vector. Escape cancela.</translation></message>
+    <message><source>Rename track</source><translation>Renombrar trayectoria</translation></message>
     <message><source>Export &amp;plot data…</source><translation>Exportar datos de la &amp;gráfica…</translation></message>
     <message><source>Export plot data</source><translation>Exportar datos de la gráfica</translation></message>
     <message><source>Zoom &amp;in</source><translation>&amp;Acercar</translation></message>
@@ -109,7 +119,6 @@
     <message><source>&amp;Tracks</source><translation>&amp;Trayectorias</translation></message>
     <message><source>New &amp;point mass</source><translation>Nueva &amp;masa puntual</translation></message>
     <message><source>Repeat previous mark</source><translation>Repetir la marca anterior</translation></message>
-    <message><source>Selected point mass</source><translation>Masa puntual seleccionada</translation></message>
     <message><source>Shift-click the image to mark the selected point mass.</source><translation>Haz clic en la imagen con Mayús para marcar la masa puntual seleccionada.</translation></message>
     <message><source>Point Mass %1</source><translation>Masa puntual %1</translation></message>
     <message><source>Save tracking edits?</source><translation>¿Guardar los cambios de seguimiento?</translation></message>
@@ -135,10 +144,7 @@
     <message><source>Length unit</source><translation>Unidad de longitud</translation></message>
     <message><source>Calibration updated.</source><translation>Se actualizó la calibración.</translation></message>
     <message><source>Could not apply this calibration.</source><translation>No se pudo aplicar esta calibración.</translation></message>
-    <message><source>&amp;Rename point mass…</source><translation>&amp;Renombrar masa puntual…</translation></message>
-    <message><source>&amp;Delete point mass</source><translation>&amp;Eliminar masa puntual</translation></message>
     <message><source>Delete mark on this &amp;frame</source><translation>Eliminar marca de este &amp;fotograma</translation></message>
-    <message><source>Rename point mass</source><translation>Renombrar masa puntual</translation></message>
     <message><source>Track name</source><translation>Nombre de la trayectoria</translation></message>
     <message><source>Choose a unique, nonempty track name.</source><translation>Elige un nombre de trayectoria único y no vacío.</translation></message>
   </context>
