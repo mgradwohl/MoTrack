@@ -13,6 +13,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSlider>
+#include <QStatusBar>
 #include <QTableWidget>
 #include <QTemporaryDir>
 #include <QTest>
@@ -233,6 +234,23 @@ TEST(Workspace, StepsThroughAMovieOnABackgroundWorker)
     ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
     QCoreApplication::processEvents();
     EXPECT_EQ(canvas->accessibleName(), "Frame 0");
+}
+
+TEST(Workspace, OpensStandaloneMovieAndKeepsTheWorkspaceAfterAFailedOpen)
+{
+    motrack::MainWindow window;
+    auto* canvas = window.findChild<QWidget*>("videoCanvas");
+    auto* slider = window.findChild<QSlider*>("stepSlider");
+    auto* status = window.statusBar();
+    ASSERT_TRUE(canvas && slider && status);
+    window.openMovie(fixturePath("vfr.mp4"));
+    ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
+    EXPECT_EQ(slider->maximum(), 3);
+    slider->setValue(3);
+    ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 3"; }));
+    window.openMovie(fixturePath("missing.mp4"));
+    ASSERT_TRUE(QTest::qWaitFor([status] { return status->currentMessage() == "Could not open this video."; }));
+    EXPECT_EQ(canvas->accessibleName(), "Frame 3");
 }
 
 TEST(Workspace, ReportsUnavailableMovieFrames)

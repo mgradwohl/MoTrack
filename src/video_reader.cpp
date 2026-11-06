@@ -186,7 +186,7 @@ struct VideoReader::Impl
         }
     }
 
-    MovieFrame convertFrame()
+    QImage convertFrame()
     {
         const auto width = decoded->width;
         const auto height = decoded->height;
@@ -215,12 +215,17 @@ struct VideoReader::Impl
         requireSuccess(sws_scale(scale.get(), decoded->data, decoded->linesize, 0, height, destination.data(), strides.data()),
                        "Could not convert the video frame");
 
+        return image;
+    }
+
+    MovieFrame takeFrame(bool convertPixels)
+    {
         std::optional<std::chrono::nanoseconds> time;
         if (decoded->best_effort_timestamp != AV_NOPTS_VALUE)
         {
             time.emplace(av_rescale_q(decoded->best_effort_timestamp, timeBase, AVRational{.num = 1, .den = 1'000'000'000}));
         }
-        return {.ordinal = nextOrdinal++, .presentationTime = time, .image = std::move(image)};
+        return {.ordinal = nextOrdinal++, .presentationTime = time, .image = convertPixels ? convertFrame() : QImage{}};
     }
 
     QFile file;
@@ -243,6 +248,16 @@ VideoReader::~VideoReader() = default;
 
 std::optional<MovieFrame> VideoReader::readNext()
 {
+    return decodeNext(true);
+}
+
+std::optional<MovieFrame> VideoReader::skipNext()
+{
+    return decodeNext(false);
+}
+
+std::optional<MovieFrame> VideoReader::decodeNext(bool convertPixels)
+{
     for (;;)
     {
         const auto result = avcodec_receive_frame(m_Impl->codec.get(), m_Impl->decoded.get());
@@ -253,7 +268,7 @@ std::optional<MovieFrame> VideoReader::readNext()
         if (result != AVERROR(EAGAIN) || m_Impl->draining)
         {
             requireSuccess(result, "Could not decode the video frame");
-            return m_Impl->convertFrame();
+            return m_Impl->takeFrame(convertPixels);
         }
         m_Impl->sendNextPacket();
     }

@@ -134,6 +134,7 @@ MainWindow::MainWindow()
     open->setShortcut(QKeySequence::Open);
     auto* fileMenu = menuBar()->addMenu(tr("&File"));
     fileMenu->addAction(open);
+    auto* openMovieAction = fileMenu->addAction(tr("Open &video…"));
     m_Export = new QAction(tr("&Export measurements…"), this);
     m_Export->setObjectName("exportMeasurements");
     m_Export->setEnabled(false);
@@ -185,7 +186,7 @@ MainWindow::MainWindow()
         }
         return false;
     };
-    m_Video->display({}, {}, tr("Open a Tracker project to inspect its saved marks."));
+    m_Video->display({}, {}, tr("Open a video or a Tracker project."));
     layout->addWidget(m_Video, 1);
 
     auto* controls = new QHBoxLayout;
@@ -258,6 +259,17 @@ MainWindow::MainWindow()
                     loadProject(path);
                 }
             });
+    connect(openMovieAction,
+            &QAction::triggered,
+            this,
+            [this]
+            {
+                const auto path = QFileDialog::getOpenFileName(this, tr("Open video"));
+                if (!path.isEmpty())
+                {
+                    openMovie(path);
+                }
+            });
     connect(m_Export,
             &QAction::triggered,
             this,
@@ -321,6 +333,7 @@ MainWindow::MainWindow()
 
 MainWindow::~MainWindow()
 {
+    cancelMovieOpen();
     ++*m_RequestGeneration;
 }
 
@@ -336,16 +349,10 @@ bool MainWindow::loadProject(const QString& path)
         return false;
     }
 
-    ++*m_RequestGeneration;
-    m_FrameWatcher.reset();
-    m_DisplayedFrame.reset();
-    m_Calibrate->setChecked(false);
-    m_Calibrate->setEnabled(false);
-    m_Edits.clear();
-    m_NewPointMass->setEnabled(true);
-    refreshEditViews(0);
+    cancelMovieOpen();
     m_Sequence = ImageSequence::open(path, m_Project.clip);
     m_MoviePath.clear();
+    m_MovieFrameTimes.clear();
     const auto& clip = m_Project.clip;
     if (!m_Sequence && clip.mediaReferences.size() == 1 && clip.stepCount.value_or(0) > 0)
     {
@@ -355,7 +362,112 @@ bool MainWindow::loadProject(const QString& path)
             m_MoviePath = movie;
         }
     }
-    const int stepCount = m_Sequence ? m_Sequence->stepCount() : (m_MoviePath.isEmpty() ? 0 : clip.stepCount.value_or(0));
+    activateProject(path);
+    statusBar()->showMessage(
+        tr("Imported %1 marks. Unsupported tracks: %2.").arg(m_Marks->rowCount()).arg(m_Project.unsupportedTrackTypes.size()));
+    return true;
+}
+
+void MainWindow::cancelMovieOpen()
+{
+    if (m_MovieOpenCancelled)
+    {
+        *m_MovieOpenCancelled = true;
+        m_MovieOpenCancelled.reset();
+        m_MovieOpenWatcher.reset();
+    }
+}
+
+void MainWindow::openMovie(const QString& path)
+{
+    cancelMovieOpen();
+    statusBar()->showMessage(tr("Reading video frames…"));
+    m_MovieOpenCancelled = std::make_shared<std::atomic_bool>(false);
+    m_MovieOpenWatcher = std::make_unique<QFutureWatcher<MovieIndex>>();
+    auto* watcher = m_MovieOpenWatcher.get();
+    connect(watcher,
+            &QFutureWatcher<MovieIndex>::finished,
+            this,
+            [this, path, watcher, cancelled = m_MovieOpenCancelled]
+            {
+                auto index = watcher->result();
+                if (index.frameCount == 0)
+                {
+                    statusBar()->showMessage(tr("Could not open this video."));
+                    return;
+                }
+                if (!confirmDiscard() || *cancelled)
+                {
+                    statusBar()->clearMessage();
+                    return;
+                }
+                m_Project = {};
+                m_Project.clip.stepCount = index.frameCount;
+                m_Sequence.reset();
+                m_MoviePath = path;
+                m_MovieFrameTimes = std::move(index.frameTimes);
+                activateProject(path);
+                statusBar()->showMessage(tr("Opened video with %1 frames.").arg(index.frameCount));
+            });
+    watcher->setFuture(QtConcurrent::run(
+        [path, cancelled = m_MovieOpenCancelled]() -> MovieIndex
+        {
+            constexpr int MAX_INDEXED_FRAMES = 2'000'000;
+            try
+            {
+                VideoReader reader(path);
+                MovieIndex index;
+                std::optional<double> start;
+                bool hasTiming = true;
+                while (!*cancelled)
+                {
+                    const auto frame = index.frameCount == 0 ? reader.readNext() : reader.skipNext();
+                    if (!frame)
+                    {
+                        return index;
+                    }
+                    if (index.frameCount == MAX_INDEXED_FRAMES)
+                    {
+                        return {};
+                    }
+                    ++index.frameCount;
+                    if (hasTiming && frame->presentationTime)
+                    {
+                        const auto seconds = std::chrono::duration<double>(*frame->presentationTime).count();
+                        start = start.value_or(seconds);
+                        const auto relative = seconds - *start;
+                        hasTiming = index.frameTimes.empty() || relative > index.frameTimes.back();
+                        index.frameTimes.push_back(relative);
+                    }
+                    else
+                    {
+                        hasTiming = false;
+                    }
+                    if (!hasTiming)
+                    {
+                        index.frameTimes.clear();
+                    }
+                }
+            }
+            catch (const VideoError&)
+            {
+                return {};
+            }
+            return {};
+        }));
+}
+
+void MainWindow::activateProject(const QString& path)
+{
+    ++*m_RequestGeneration;
+    m_FrameWatcher.reset();
+    m_DisplayedFrame.reset();
+    m_Calibrate->setChecked(false);
+    m_Calibrate->setEnabled(false);
+    m_Edits.clear();
+    m_NewPointMass->setEnabled(true);
+    refreshEditViews(0);
+    const int stepCount = m_Sequence ? m_Sequence->stepCount() : (m_MoviePath.isEmpty() ? 0 : m_Project.clip.stepCount.value_or(0));
     {
         const QSignalBlocker blocker(m_StepSlider);
         m_StepSlider->setRange(0, std::max(0, stepCount - 1));
@@ -366,10 +478,7 @@ bool MainWindow::loadProject(const QString& path)
         m_Video->display({}, {}, tr("No supported local video or image sequence is attached to this project."));
     }
     displayStep(0);
-    statusBar()->showMessage(
-        tr("Imported %1 marks. Unsupported tracks: %2.").arg(m_Marks->rowCount()).arg(m_Project.unsupportedTrackTypes.size()));
     setWindowTitle(tr("%1[*] — MoTrack").arg(QFileInfo(path).fileName()));
-    return true;
 }
 
 bool MainWindow::confirmDiscard()
@@ -418,7 +527,7 @@ void MainWindow::refreshPlot()
 {
     const auto quantity = static_cast<PlotQuantity>(m_PlotQuantity->currentData().toInt());
     const auto track = m_TrackPicker->currentIndex();
-    auto series = track >= 0 ? measurementPlot(m_Project, static_cast<std::size_t>(track), quantity) : PlotSeries{};
+    auto series = track >= 0 ? measurementPlot(m_Project, static_cast<std::size_t>(track), quantity, m_MovieFrameTimes) : PlotSeries{};
     const auto horizontal = series.timed ? tr("Time (s)") : tr("Frame");
     auto unit = series.calibrated ? QString::fromStdString(m_Project.lengthUnit) : tr("px");
     if ((quantity == PlotQuantity::VelocityX || quantity == PlotQuantity::VelocityY) && !unit.isEmpty())
@@ -651,9 +760,9 @@ void MainWindow::requestMovieFrame(int frame)
                                              try
                                              {
                                                  VideoReader reader(path);
-                                                 while (generation == *request)
+                                                 for (std::int64_t ordinal = 0; ordinal <= frame && generation == *request; ++ordinal)
                                                  {
-                                                     const auto next = reader.readNext();
+                                                     const auto next = ordinal == frame ? reader.readNext() : reader.skipNext();
                                                      if (!next)
                                                      {
                                                          break;

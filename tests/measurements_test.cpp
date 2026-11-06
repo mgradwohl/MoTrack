@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <limits>
 
 namespace
@@ -113,6 +114,21 @@ TEST(MeasurementPlot, UsesRecordedTimingAndSkipsVelocityAcrossGaps)
     EXPECT_DOUBLE_EQ(untimed.samples.front().horizontal, 2.0);
     EXPECT_TRUE(motrack::measurementPlot(project, 0, motrack::PlotQuantity::VelocityX).samples.empty());
     EXPECT_TRUE(motrack::measurementPlot(project, 1, motrack::PlotQuantity::PositionX).samples.empty());
+}
+
+TEST(MeasurementPlot, DifferentiatesAtTheCenterOfUnevenFrameTimes)
+{
+    motrack::LegacyProject project;
+    project.clip.frameDurationMs = 250;
+    project.pointMasses.push_back(
+        {.name = "Cart",
+         .marks = {
+             {.frame = 0, .x = 0, .y = 0}, {.frame = 1, .x = 1, .y = 0}, {.frame = 2, .x = 9, .y = 0}, {.frame = 3, .x = 16, .y = 0}}});
+    const std::array frameTimes{0.0, 1.0, 3.0};
+    const auto velocity = motrack::measurementPlot(project, 0, motrack::PlotQuantity::VelocityX, frameTimes);
+    ASSERT_EQ(velocity.samples.size(), 1u);
+    EXPECT_DOUBLE_EQ(velocity.samples.front().horizontal, 1.0);
+    EXPECT_DOUBLE_EQ(velocity.samples.front().vertical, 2.0);
 }
 
 } // namespace

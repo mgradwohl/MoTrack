@@ -121,10 +121,10 @@ std::string measurementsCsv(const LegacyProject& project)
     return output.str();
 }
 
-PlotSeries measurementPlot(const LegacyProject& project, std::size_t track, PlotQuantity quantity)
+PlotSeries measurementPlot(const LegacyProject& project, std::size_t track, PlotQuantity quantity, std::span<const double> frameTimes)
 {
     const auto frameDurationMs = project.clip.frameDurationMs.value_or(0.0);
-    PlotSeries series{.samples = {}, .timed = frameDurationMs > 0.0, .calibrated = project.calibration.has_value()};
+    PlotSeries series{.samples = {}, .timed = !frameTimes.empty() || frameDurationMs > 0.0, .calibrated = project.calibration.has_value()};
     const bool velocity = quantity == PlotQuantity::VelocityX || quantity == PlotQuantity::VelocityY;
     if (track >= project.pointMasses.size() || (velocity && !series.timed))
     {
@@ -140,9 +140,19 @@ PlotSeries measurementPlot(const LegacyProject& project, std::size_t track, Plot
         }
         const auto point =
             project.calibration ? worldPosition(*project.calibration, mark) : std::optional(WorldPoint{.x = mark.x, .y = mark.y});
-        const double horizontal = series.timed
-                                      ? (project.clip.startTimeMs + (mark.frame - project.clip.firstFrame) * frameDurationMs) / 1000.0
-                                      : static_cast<double>(mark.frame);
+        double horizontal = mark.frame;
+        if (!frameTimes.empty())
+        {
+            if (mark.frame < 0 || static_cast<std::size_t>(mark.frame) >= frameTimes.size())
+            {
+                continue;
+            }
+            horizontal = frameTimes[static_cast<std::size_t>(mark.frame)];
+        }
+        else if (series.timed)
+        {
+            horizontal = (project.clip.startTimeMs + (mark.frame - project.clip.firstFrame) * frameDurationMs) / 1000.0;
+        }
         if (point && std::isfinite(horizontal))
         {
             series.samples.push_back({.frame = mark.frame, .horizontal = horizontal, .vertical = vertical ? point->y : point->x});
@@ -157,11 +167,14 @@ PlotSeries measurementPlot(const LegacyProject& project, std::size_t track, Plot
             const auto& previous = positions.at(index - 1);
             const auto& center = positions.at(index);
             const auto& next = positions.at(index + 1);
-            const auto elapsed = next.horizontal - previous.horizontal;
+            const auto before = center.horizontal - previous.horizontal;
+            const auto after = next.horizontal - center.horizontal;
             if (center.frame - previous.frame == project.clip.stepSize && next.frame - center.frame == project.clip.stepSize &&
-                elapsed > 0.0)
+                before > 0.0 && after > 0.0)
             {
-                const auto value = (next.vertical - previous.vertical) / elapsed;
+                const auto elapsed = before + after;
+                const auto value = (after / elapsed) * (center.vertical - previous.vertical) / before +
+                                   (before / elapsed) * (next.vertical - center.vertical) / after;
                 if (std::isfinite(value))
                 {
                     series.samples.push_back({.frame = center.frame, .horizontal = center.horizontal, .vertical = value});
