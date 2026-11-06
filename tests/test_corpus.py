@@ -200,6 +200,24 @@ class CorpusTests(unittest.TestCase):
             with self.subTest(before=before), self.assertRaises(ValueError):
                 corpus.verify_mass_export_xml(original, exported)
 
+    def test_mass_export_preserves_decoded_character_references(self):
+        original, exported = self.root / "original.trk", self.root / "exported.trk"
+        xml = ("<object><property name='tracks' type='collection'><property type='object'>"
+               "<object class='org.opensourcephysics.cabrillo.tracker.PointMass'>"
+               "<property name='mass' type='double'>1</property></object></property></property>"
+               "<property name='unknown' type='string' custom='left&#13;right'>left&#13;right</property>"
+               "<object>\u00a0<property name='nested'>value</property></object></object>")
+        original.write_text(xml, encoding="utf-8")
+        edited = xml.replace(">1<", ">2.5<")
+        exported.write_text(edited.replace("&#13;", "&#xD;"), encoding="utf-8")
+        corpus.verify_mass_export_xml(original, exported)
+        for before, after in [("left&#13;right</", "left&#10;right</"),
+                              ("custom='left&#13;right'", "custom='left&#10;right'"),
+                              ("\u00a0", "")]:
+            exported.write_text(edited.replace(before, after), encoding="utf-8")
+            with self.subTest(before=before), self.assertRaises(ValueError):
+                corpus.verify_mass_export_xml(original, exported)
+
     def test_ordinary_desktop_display_is_replaced_by_an_owned_server(self):
         server = Mock()
         server.poll.return_value = None

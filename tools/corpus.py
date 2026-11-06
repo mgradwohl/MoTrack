@@ -16,7 +16,6 @@ import sys
 import tempfile
 import urllib.request
 import xml.dom.minidom as minidom
-import xml.etree.ElementTree as ET
 import zipfile
 
 
@@ -265,14 +264,28 @@ def canonical_tracker_xml(document):
             if (structural and not preserve and any(child.nodeType == child.ELEMENT_NODE for child in children)
                     and all(child.nodeType != child.ELEMENT_NODE or child.tagName in {"object", "property"} for child in children)
                     and not any(child.nodeType == child.CDATA_SECTION_NODE or
-                                (child.nodeType == child.TEXT_NODE and child.data.strip()) for child in children)):
+                                (child.nodeType == child.TEXT_NODE and child.data.strip(" \t\r\n")) for child in children)):
                 for child in children:
                     if child.nodeType == child.TEXT_NODE:
                         node.removeChild(child)
         for child in list(node.childNodes):
             normalize(child, preserve)
     normalize(document)
-    return ET.canonicalize(document.toxml(), with_comments=True)
+    # Compare decoded DOM values directly: serializing and reparsing would normalize a decoded
+    # character-reference CR to LF and hide a change to an untouched scalar or attribute.
+    def snapshot(node):
+        attributes = tuple(sorted(node.attributes.items())) if node.attributes else ()
+        children = []
+        for child in node.childNodes:
+            if child.nodeType in {child.TEXT_NODE, child.CDATA_SECTION_NODE}:
+                if children and children[-1][0] == "text":
+                    children[-1] = ("text", children[-1][1] + child.data)
+                else:
+                    children.append(("text", child.data))
+            else:
+                children.append(snapshot(child))
+        return (node.nodeType, node.nodeName, node.nodeValue, attributes, tuple(children))
+    return snapshot(document)
 
 
 def verify_mass_export_xml(original, exported):
