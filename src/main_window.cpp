@@ -3,11 +3,13 @@
 #include "measurements.hpp"
 #include "position_plot.hpp"
 #include "video_reader.hpp"
+#include "workspace_document.hpp"
 
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDir>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -129,12 +131,20 @@ MainWindow::MainWindow()
 {
     setWindowTitle("MoTrack");
     resize(1000, 650);
-    auto* open = new QAction(tr("&Open Tracker project…"), this);
+    auto* open = new QAction(tr("&Open project…"), this);
     open->setObjectName("openProject");
     open->setShortcut(QKeySequence::Open);
     auto* fileMenu = menuBar()->addMenu(tr("&File"));
     fileMenu->addAction(open);
     auto* openMovieAction = fileMenu->addAction(tr("Open &video…"));
+    m_Save = fileMenu->addAction(tr("&Save project"));
+    m_Save->setObjectName("saveProject");
+    m_Save->setShortcut(QKeySequence::Save);
+    m_Save->setEnabled(false);
+    m_SaveAs = fileMenu->addAction(tr("Save project &as…"));
+    m_SaveAs->setObjectName("saveWorkspace");
+    m_SaveAs->setShortcut(QKeySequence::SaveAs);
+    m_SaveAs->setEnabled(false);
     m_Export = new QAction(tr("&Export measurements…"), this);
     m_Export->setObjectName("exportMeasurements");
     m_Export->setEnabled(false);
@@ -253,7 +263,8 @@ MainWindow::MainWindow()
             this,
             [this]
             {
-                const auto path = QFileDialog::getOpenFileName(this, tr("Open Tracker project"), {}, tr("Tracker projects (*.trk)"));
+                const auto path =
+                    QFileDialog::getOpenFileName(this, tr("Open project"), {}, tr("MoTrack and Tracker projects (*.motrack *.trk)"));
                 if (!path.isEmpty() && confirmDiscard())
                 {
                     loadProject(path);
@@ -270,6 +281,8 @@ MainWindow::MainWindow()
                     openMovie(path);
                 }
             });
+    connect(m_SaveAs, &QAction::triggered, this, &MainWindow::chooseWorkspacePath);
+    connect(m_Save, &QAction::triggered, this, &MainWindow::saveCurrentWorkspace);
     connect(m_Export,
             &QAction::triggered,
             this,
@@ -339,20 +352,29 @@ MainWindow::~MainWindow()
 
 bool MainWindow::loadProject(const QString& path)
 {
+    WorkspaceDocument document;
     try
     {
-        m_Project = readLegacyProject(std::filesystem::path(path.toStdU16String()));
+        if (path.endsWith(".motrack", Qt::CaseInsensitive))
+        {
+            document = readWorkspaceDocument(path);
+        }
+        else
+        {
+            document.project = readLegacyProject(std::filesystem::path(path.toStdU16String()));
+        }
     }
     catch (const ProjectError&)
     {
-        statusBar()->showMessage(tr("Could not open this Tracker project."));
+        statusBar()->showMessage(tr("Could not open this project."));
         return false;
     }
 
     cancelMovieOpen();
-    m_Sequence = ImageSequence::open(path, m_Project.clip);
+    m_Project = std::move(document.project);
+    m_Sequence = document.movie ? std::nullopt : ImageSequence::open(path, m_Project.clip);
     m_MoviePath.clear();
-    m_MovieFrameTimes.clear();
+    m_MovieFrameTimes = std::move(document.movieFrameTimes);
     const auto& clip = m_Project.clip;
     if (!m_Sequence && clip.mediaReferences.size() == 1 && clip.stepCount.value_or(0) > 0)
     {
@@ -363,8 +385,12 @@ bool MainWindow::loadProject(const QString& path)
         }
     }
     activateProject(path);
+    if (path.endsWith(".motrack", Qt::CaseInsensitive))
+    {
+        m_SavePath = m_ProjectPath;
+    }
     statusBar()->showMessage(
-        tr("Imported %1 marks. Unsupported tracks: %2.").arg(m_Marks->rowCount()).arg(m_Project.unsupportedTrackTypes.size()));
+        tr("Opened %1 marks. Unsupported tracks: %2.").arg(m_Marks->rowCount()).arg(m_Project.unsupportedTrackTypes.size()));
     return true;
 }
 
@@ -403,6 +429,7 @@ void MainWindow::openMovie(const QString& path)
                 }
                 m_Project = {};
                 m_Project.clip.stepCount = index.frameCount;
+                m_Project.clip.mediaReferences.push_back(QFileInfo(path).fileName().toStdString());
                 m_Sequence.reset();
                 m_MoviePath = path;
                 m_MovieFrameTimes = std::move(index.frameTimes);
@@ -459,6 +486,8 @@ void MainWindow::openMovie(const QString& path)
 
 void MainWindow::activateProject(const QString& path)
 {
+    m_ProjectPath = QFileInfo(path).absoluteFilePath();
+    m_SavePath.clear();
     ++*m_RequestGeneration;
     m_FrameWatcher.reset();
     m_DisplayedFrame.reset();
@@ -466,6 +495,8 @@ void MainWindow::activateProject(const QString& path)
     m_Calibrate->setEnabled(false);
     m_Edits.clear();
     m_NewPointMass->setEnabled(true);
+    m_SaveAs->setEnabled(true);
+    m_Save->setEnabled(true);
     refreshEditViews(0);
     const int stepCount = m_Sequence ? m_Sequence->stepCount() : (m_MoviePath.isEmpty() ? 0 : m_Project.clip.stepCount.value_or(0));
     {
@@ -483,11 +514,16 @@ void MainWindow::activateProject(const QString& path)
 
 bool MainWindow::confirmDiscard()
 {
-    return !m_Edits.canUndo() || QMessageBox::question(this,
-                                                       tr("Discard tracking edits?"),
-                                                       tr("Your tracking edits are only stored in this session."),
-                                                       QMessageBox::Discard | QMessageBox::Cancel,
-                                                       QMessageBox::Cancel) == QMessageBox::Discard;
+    if (!m_Edits.isModified())
+    {
+        return true;
+    }
+    const auto choice = QMessageBox::question(this,
+                                              tr("Save tracking edits?"),
+                                              tr("Save your project to keep your tracking edits."),
+                                              QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel,
+                                              QMessageBox::Save);
+    return choice == QMessageBox::Discard || (choice == QMessageBox::Save && saveCurrentWorkspace());
 }
 
 void MainWindow::closeEvent(QCloseEvent* event)
@@ -513,7 +549,7 @@ void MainWindow::refreshEditViews(int track)
     m_TrackPicker->setCurrentIndex(std::min(std::max(0, track), m_TrackPicker->count() - 1));
     m_Undo->setEnabled(m_Edits.canUndo());
     m_Redo->setEnabled(m_Edits.canRedo());
-    setWindowModified(m_Edits.canUndo());
+    setWindowModified(m_Edits.isModified());
     displayMarks();
     refreshPlot();
     m_Export->setEnabled(m_Marks->rowCount() > 0);
@@ -638,6 +674,53 @@ void MainWindow::pickCalibrationPoint(const QPointF& position)
     {
         statusBar()->showMessage(tr("Could not apply this calibration."));
     }
+}
+
+bool MainWindow::chooseWorkspacePath()
+{
+    QFileDialog dialog(this, tr("Save MoTrack project"), {}, tr("MoTrack projects (*.motrack)"));
+    dialog.setAcceptMode(QFileDialog::AcceptSave);
+    dialog.setDefaultSuffix("motrack");
+    return dialog.exec() == QDialog::Accepted && saveWorkspace(dialog.selectedFiles().value(0));
+}
+
+bool MainWindow::saveCurrentWorkspace()
+{
+    return m_SavePath.isEmpty() ? chooseWorkspacePath() : saveWorkspace(m_SavePath);
+}
+
+bool MainWindow::saveWorkspace(const QString& path)
+{
+    if (m_ProjectPath.isEmpty() || !path.endsWith(".motrack", Qt::CaseInsensitive))
+    {
+        statusBar()->showMessage(tr("Choose a project filename ending in .motrack."));
+        return false;
+    }
+    WorkspaceDocument document{.project = m_Project, .movieFrameTimes = m_MovieFrameTimes, .movie = !m_MoviePath.isEmpty()};
+    const QDir destination(QFileInfo(path).absolutePath());
+    for (auto& reference : document.project.clip.mediaReferences)
+    {
+        const auto source = resolveLocalMediaPath(m_ProjectPath, reference);
+        if (!source.isEmpty())
+        {
+            reference = destination.relativeFilePath(source).toStdString();
+        }
+    }
+    try
+    {
+        writeWorkspaceDocument(path, document);
+    }
+    catch (const ProjectError&)
+    {
+        statusBar()->showMessage(tr("Could not save this project."));
+        return false;
+    }
+    m_Edits.markSaved();
+    m_SavePath = QFileInfo(path).absoluteFilePath();
+    setWindowModified(false);
+    setWindowTitle(tr("%1[*] — MoTrack").arg(QFileInfo(path).fileName()));
+    statusBar()->showMessage(tr("Project saved."));
+    return true;
 }
 
 bool MainWindow::saveMeasurements(const QString& path)

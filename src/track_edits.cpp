@@ -13,6 +13,17 @@ void TrackEdits::clear()
 {
     m_Commands.clear();
     m_Head = 0;
+    markSaved();
+}
+
+void TrackEdits::markSaved()
+{
+    m_SavedHead = m_Head;
+}
+
+bool TrackEdits::isModified() const
+{
+    return m_SavedHead != m_Head;
 }
 
 void TrackEdits::createPointMass(LegacyProject& project, std::string name)
@@ -182,6 +193,10 @@ void TrackEdits::append(LegacyProject& project, Edit edit)
         m_Commands.reserve(m_Head + std::max<std::size_t>(1, m_Head / 2));
     }
     apply(project, edit, true);
+    if (m_SavedHead > m_Head)
+    {
+        m_SavedHead.reset();
+    }
     m_Commands.resize(m_Head);
     m_Commands.push_back(std::move(edit));
     ++m_Head;

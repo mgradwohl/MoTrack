@@ -37,6 +37,7 @@ class MainWindow final : public QMainWindow
     bool loadProject(const QString& path);
     void openMovie(const QString& path);
     bool saveMeasurements(const QString& path);
+    bool saveWorkspace(const QString& path);
 
   protected:
     void closeEvent(QCloseEvent* event) override;
@@ -48,6 +49,8 @@ class MainWindow final : public QMainWindow
     void requestMovieFrame(int frame);
     void activateProject(const QString& path);
     void cancelMovieOpen();
+    bool chooseWorkspacePath();
+    bool saveCurrentWorkspace();
     void refreshEditViews(int track);
     void refreshPlot();
     void markAt(const QPointF& position);
@@ -63,6 +66,8 @@ class MainWindow final : public QMainWindow
     QToolButton* m_Next;
     QTableWidget* m_Marks;
     QAction* m_Export;
+    QAction* m_SaveAs;
+    QAction* m_Save;
     QAction* m_NewPointMass;
     QAction* m_Undo;
     QAction* m_Redo;
@@ -76,6 +81,8 @@ class MainWindow final : public QMainWindow
     std::optional<ImageFrame> m_DisplayedFrame;
     std::optional<QPointF> m_CalibrationFirst;
     QString m_MoviePath;
+    QString m_ProjectPath;
+    QString m_SavePath;
     struct MovieIndex
     {
         int frameCount = 0;

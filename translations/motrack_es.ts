@@ -3,7 +3,14 @@
 <TS version="2.1" language="es">
   <context>
     <name>MainWindow</name>
-    <message><source>&amp;Open Tracker project…</source><translation>&amp;Abrir proyecto de Tracker…</translation></message>
+    <message><source>&amp;Open project…</source><translation>&amp;Abrir proyecto…</translation></message>
+    <message><source>Save project &amp;as…</source><translation>Guardar proyecto &amp;como…</translation></message>
+    <message><source>&amp;Save project</source><translation>&amp;Guardar proyecto</translation></message>
+    <message><source>Save MoTrack project</source><translation>Guardar proyecto de MoTrack</translation></message>
+    <message><source>MoTrack projects (*.motrack)</source><translation>Proyectos de MoTrack (*.motrack)</translation></message>
+    <message><source>Could not save this project.</source><translation>No se pudo guardar este proyecto.</translation></message>
+    <message><source>Project saved.</source><translation>Proyecto guardado.</translation></message>
+    <message><source>Choose a project filename ending in .motrack.</source><translation>Elige un nombre de proyecto que termine en .motrack.</translation></message>
     <message><source>&amp;File</source><translation>&amp;Archivo</translation></message>
     <message><source>Project</source><translation>Proyecto</translation></message>
     <message><source>Open a video or a Tracker project.</source><translation>Abre un vídeo o un proyecto de Tracker.</translation></message>
@@ -17,10 +24,10 @@
     <message><source>Image x (px)</source><translation>x de imagen (px)</translation></message>
     <message><source>Image y (px)</source><translation>y de imagen (px)</translation></message>
     <message><source>Ready</source><translation>Listo</translation></message>
-    <message><source>Open Tracker project</source><translation>Abrir proyecto de Tracker</translation></message>
-    <message><source>Tracker projects (*.trk)</source><translation>Proyectos de Tracker (*.trk)</translation></message>
-    <message><source>Imported %1 marks. Unsupported tracks: %2.</source><translation>Marcas importadas: %1. Trayectorias no compatibles: %2.</translation></message>
-    <message><source>Could not open this Tracker project.</source><translation>No se pudo abrir este proyecto de Tracker.</translation></message>
+    <message><source>Open project</source><translation>Abrir proyecto</translation></message>
+    <message><source>MoTrack and Tracker projects (*.motrack *.trk)</source><translation>Proyectos de MoTrack y Tracker (*.motrack *.trk)</translation></message>
+    <message><source>Opened %1 marks. Unsupported tracks: %2.</source><translation>Marcas cargadas: %1. Trayectorias no compatibles: %2.</translation></message>
+    <message><source>Could not open this project.</source><translation>No se pudo abrir este proyecto.</translation></message>
     <message><source>%1[*] — MoTrack</source><translation>%1[*] — MoTrack</translation></message>
     <message><source>Previous frame</source><translation>Fotograma anterior</translation></message>
     <message><source>Next frame</source><translation>Fotograma siguiente</translation></message>
@@ -46,8 +53,8 @@
     <message><source>Selected point mass</source><translation>Masa puntual seleccionada</translation></message>
     <message><source>Shift-click the image to mark the selected point mass.</source><translation>Haz clic en la imagen con Mayús para marcar la masa puntual seleccionada.</translation></message>
     <message><source>Point Mass %1</source><translation>Masa puntual %1</translation></message>
-    <message><source>Discard tracking edits?</source><translation>¿Descartar los cambios de seguimiento?</translation></message>
-    <message><source>Your tracking edits are only stored in this session.</source><translation>Los cambios de seguimiento solo se conservan durante esta sesión.</translation></message>
+    <message><source>Save tracking edits?</source><translation>¿Guardar los cambios de seguimiento?</translation></message>
+    <message><source>Save your project to keep your tracking edits.</source><translation>Guarda el proyecto para conservar los cambios de seguimiento.</translation></message>
     <message><source>Plot quantity</source><translation>Magnitud de la gráfica</translation></message>
     <message><source>x position</source><translation>posición x</translation></message>
     <message><source>y position</source><translation>posición y</translation></message>
