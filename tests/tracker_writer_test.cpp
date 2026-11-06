@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <limits>
 #include <map>
@@ -512,6 +513,121 @@ TEST(TrackerWriter, RejectsOriginAndVectorSnappingWithoutReplacingTheDestination
     EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(project, imported.source)), motrack::ProjectError);
 }
 
+TEST(TrackerWriter, ExportsExistingFixedCalibrationThroughNativeReopenAndUndoRedo)
+{
+    auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk");
+    xml.insert(xml.find("<property name=\"xorigin\""), "<property name='future' type='string'>  keep calibration  </property>\n");
+    const auto imported = motrack::parseTrackerProject(xml);
+    motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.calibrateDistance(document.project,
+                                        {.frame = 0,
+                                         .imageDeltaX = 8,
+                                         .imageDeltaY = 0,
+                                         .knownLength = 2,
+                                         .defaultOriginX = 320,
+                                         .defaultOriginY = 240,
+                                         .unit = document.project.lengthUnit}));
+    ASSERT_TRUE(
+        edits.setCoordinateAxes(document.project, {.frame = 0, .originX = 100, .originY = 120, .positiveX = 100, .positiveY = 112}));
+    const auto expected = document.project;
+    const auto exported = motrack::renderTrackerProject(expected, imported.source);
+    ASSERT_TRUE(edits.undo(document.project));
+    ASSERT_TRUE(edits.undo(document.project));
+    EXPECT_EQ(motrack::renderTrackerProject(document.project, imported.source), imported.source.xml);
+    ASSERT_TRUE(edits.redo(document.project));
+    ASSERT_TRUE(edits.redo(document.project));
+    EXPECT_EQ(motrack::renderTrackerProject(document.project, imported.source), exported);
+    QTemporaryDir temporary;
+    const auto native = temporary.filePath("calibration.motrack");
+    motrack::writeWorkspaceDocument(native, document);
+    document = motrack::readWorkspaceDocument(native);
+    if (!document.trackerSource)
+    {
+        FAIL() << "Expected preserved Tracker source.";
+    }
+    const auto output = temporary.filePath("calibration.trk");
+    motrack::writeTrackerProject(output, document.project, *document.trackerSource);
+    const auto saved = readBytes(output);
+    EXPECT_EQ(motrack::parseLegacyProject(saved), expected);
+    EXPECT_NE(saved.find("  keep calibration  "), std::string::npos);
+    EXPECT_EQ(document.project.vectors, imported.project.vectors);
+}
+
+TEST(TrackerWriter, RejectsUnsafeCalibrationModesTransformsAndSnapping)
+{
+    const auto original = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk");
+    const auto imported = motrack::parseTrackerProject(original);
+    if (!imported.project.calibration)
+    {
+        FAIL() << "Expected source calibration.";
+    }
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("existing.trk");
+    motrack::writeTrackerProject(output, imported.project, imported.source);
+    const std::vector<std::function<void(motrack::Calibration&)>> changes{
+        [](auto& value) { value.fixedOrigin = false; },
+        [](auto& value) { value.fixedAngle = false; },
+        [](auto& value) { value.fixedScale = false; },
+        [](auto& value) { value.keyframes.clear(); },
+        [](auto& value) { value.keyframes.front().frame = 1; },
+        [](auto& value) { value.keyframes.front().scaleX = 0; },
+        [](auto& value) { value.keyframes.front().scaleY = 0; },
+        [](auto& value) { value.keyframes.front().originX = std::numeric_limits<double>::infinity(); },
+        [](auto& value) { value.keyframes.front().angleDegrees = 360; },
+        [](auto& value)
+        {
+            value.keyframes.front().originX = 9;
+            value.keyframes.front().originY = 20;
+        },
+        [](auto& value) { value.keyframes.front().scaleX = value.keyframes.front().scaleY = 1e-200; },
+        [](auto& value) { value.keyframes.front().scaleX = value.keyframes.front().scaleY = 1e200; },
+        [](auto& value)
+        {
+            value.keyframes.front().angleDegrees = 45;
+            value.keyframes.front().scaleX = value.keyframes.front().scaleY = 2e-162;
+        },
+        [](auto& value)
+        {
+            value.keyframes.front().angleDegrees = 45;
+            value.keyframes.front().scaleX = 4;
+            value.keyframes.front().scaleY = 8;
+            value.keyframes.front().originX = 1e308;
+            value.keyframes.front().originY = 0;
+        },
+        [](auto& value)
+        {
+            value.keyframes.front().scaleX = 1e-100;
+            value.keyframes.front().originX = 1e308;
+        }};
+    for (const auto& change : changes)
+    {
+        auto project = imported.project;
+        auto calibration = *imported.project.calibration;
+        change(calibration);
+        project.calibration = calibration;
+        EXPECT_THROW(motrack::writeTrackerProject(output, project, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), original);
+    }
+    // Java's diagonal special case divides before translating and safely accepts this value.
+    auto diagonal = imported.project;
+    auto calibration = *imported.project.calibration;
+    calibration.keyframes.front().originX = 1e308;
+    calibration.keyframes.front().originY = 0;
+    calibration.keyframes.front().scaleX = 4;
+    calibration.keyframes.front().scaleY = 8;
+    calibration.keyframes.front().angleDegrees = 0;
+    diagonal.calibration = calibration;
+    EXPECT_NO_THROW(static_cast<void>(motrack::renderTrackerProject(diagonal, imported.source)));
+    auto locked = original;
+    const std::string lockProperty = R"(name="locked" type="boolean">false)";
+    locked.replace(locked.find(lockProperty), lockProperty.size(), R"(name="locked" type="boolean">true)");
+    auto document = motrack::parseTrackerProject(locked);
+    document.project.calibration = *imported.project.calibration;
+    document.project.calibration->keyframes.front().originX = 100;
+    EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(document.project, document.source)), motrack::ProjectError);
+}
+
 TEST(TrackerWriter, BoundsDenseVectorFrameArraysBeforeReplacingTheDestination)
 {
     const auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk");
@@ -544,6 +660,121 @@ TEST(TrackerWriter, BoundsDenseVectorFrameArraysBeforeReplacingTheDestination)
     sparse.project.vectors.front().samples.front().tailX += 1;
     EXPECT_THROW(motrack::writeTrackerProject(output, sparse.project, sparse.source), motrack::ProjectError);
     EXPECT_EQ(readBytes(output), xml);
+}
+
+TEST(TrackerWriter, RejectsCalibrationCoordinateCancellationAtOriginAndRetainedMarks)
+{
+    const auto fixture = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk");
+    const auto start = fixture.find("<property name=\"coords\"");
+    const auto end = fixture.find("<property name=\"tracks\"");
+    ASSERT_NE(start, std::string::npos);
+    ASSERT_NE(end, std::string::npos);
+    ASSERT_LT(start, end);
+    auto xml = markedXml();
+    xml.insert(xml.find("<property name='tracks'>"), fixture.substr(start, end - start));
+    const auto imported = motrack::parseTrackerProject(xml);
+    if (!imported.project.calibration)
+    {
+        FAIL() << "Expected fixed source calibration.";
+    }
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("existing.trk");
+    const auto native = temporary.filePath("cancellation.motrack");
+    motrack::writeTrackerProject(output, imported.project, imported.source);
+    for (const bool rotated : {true, false})
+    {
+        motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+        auto calibration = *imported.project.calibration;
+        calibration.keyframes.front() = {.frame = 0,
+                                         .originX = rotated ? 13.5 : 16,
+                                         .originY = rotated ? 17.25 : 16,
+                                         .angleDegrees = rotated ? 45.0 : 0.0,
+                                         .scaleX = 1e-100,
+                                         .scaleY = 2e-100};
+        document.project.calibration = calibration;
+        document.project.pointMasses.front().marks.front() = {
+            .frame = 0, .x = rotated ? 13.5 : std::nextafter(16.0, 17.0), .y = rotated ? 17.25 : 16};
+        motrack::writeWorkspaceDocument(native, document);
+        document = motrack::readWorkspaceDocument(native);
+        if (!document.trackerSource)
+        {
+            FAIL() << "Expected preserved source after native reopen.";
+        }
+        EXPECT_THROW(motrack::writeTrackerProject(output, document.project, *document.trackerSource), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), xml);
+        calibration.keyframes.front().scaleX = 4;
+        calibration.keyframes.front().scaleY = 8;
+        document.project.calibration = calibration;
+        EXPECT_NO_THROW(static_cast<void>(motrack::renderTrackerProject(document.project, *document.trackerSource)));
+    }
+}
+
+TEST(TrackerWriter, RejectsCalibratedVectorComponentAndMagnitudeOverflow)
+{
+    auto imported =
+        motrack::parseTrackerProject(readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk"));
+    imported.project.vectors.front().samples = {{.frame = 0, .tailX = -10, .tailY = 20, .componentX = 20, .componentY = -4}};
+    imported.project.vectors.back().samples.clear();
+    imported = motrack::parseTrackerProject(motrack::renderTrackerProject(imported.project, imported.source));
+    if (!imported.project.calibration)
+    {
+        FAIL() << "Expected fixed source calibration.";
+    }
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("existing.trk");
+    motrack::writeTrackerProject(output, imported.project, imported.source);
+    for (const auto scale : {1e-307, 1e-200})
+    {
+        auto project = imported.project;
+        auto calibration = *imported.project.calibration;
+        calibration.keyframes.front() = {.frame = 0, .originX = 0, .originY = 0, .angleDegrees = 0, .scaleX = scale, .scaleY = 1 / scale};
+        project.calibration = calibration;
+        EXPECT_THROW(motrack::writeTrackerProject(output, project, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), imported.source.xml);
+        calibration.keyframes.front().scaleX = 4;
+        calibration.keyframes.front().scaleY = 8;
+        project.calibration = calibration;
+        EXPECT_NO_THROW(static_cast<void>(motrack::renderTrackerProject(project, imported.source)));
+    }
+}
+
+TEST(TrackerWriter, RejectsVectorReconstructionErrorsAmplifiedByNewOrExistingCalibration)
+{
+    auto fixture =
+        motrack::parseTrackerProject(readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk"));
+    fixture.project.vectors.front().samples = {{.frame = 0, .tailX = 10, .tailY = 20, .componentX = 0, .componentY = -4}};
+    fixture.project.vectors.back().samples.clear();
+    fixture = motrack::parseTrackerProject(motrack::renderTrackerProject(fixture.project, fixture.source));
+    if (!fixture.project.calibration)
+    {
+        FAIL() << "Expected fixed source calibration.";
+    }
+    auto calibration = *fixture.project.calibration;
+    calibration.keyframes.front() = {.frame = 0, .originX = 0, .originY = 0, .angleDegrees = 0, .scaleX = 1e-100, .scaleY = 1e100};
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("existing.trk");
+    const auto native = temporary.filePath("reconstruction.motrack");
+    for (const bool existing : {false, true})
+    {
+        auto imported = fixture;
+        if (existing)
+        {
+            imported.project.calibration = calibration;
+            imported = motrack::parseTrackerProject(motrack::renderTrackerProject(imported.project, imported.source));
+        }
+        motrack::writeTrackerProject(output, imported.project, imported.source);
+        motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+        document.project.calibration = calibration;
+        document.project.vectors.front().samples.front().componentX = 1e-20;
+        motrack::writeWorkspaceDocument(native, document);
+        document = motrack::readWorkspaceDocument(native);
+        if (!document.trackerSource)
+        {
+            FAIL() << "Expected preserved source after native reopen.";
+        }
+        EXPECT_THROW(motrack::writeTrackerProject(output, document.project, *document.trackerSource), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), imported.source.xml);
+    }
 }
 
 } // namespace

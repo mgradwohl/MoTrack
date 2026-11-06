@@ -1,15 +1,19 @@
 #include "tracker_writer.hpp"
 
+#include "measurements.hpp"
+
 #include <QByteArray>
 #include <QDomDocument>
 #include <QSaveFile>
 #include <QStringList>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <numbers>
 #include <set>
 #include <unordered_map>
 
@@ -371,6 +375,150 @@ void patchMarks(QDomDocument& xml, const QDomElement& object, const std::vector<
     }
 }
 
+std::array<double, 6> trackerInverse(const CalibrationKey& key)
+{
+    // ImageCoordSystem normalizes sine/cosine, builds this image affine matrix, then uses
+    // Java 17 AffineTransform.createInverse(). Algebraically simplified translations can
+    // hide overflowing intermediate products; check the same diagonal/shear/general cases.
+    const auto angle = key.angleDegrees * std::numbers::pi / 180.0;
+    const auto rawCos = std::cos(angle);
+    const auto rawSin = std::sin(angle);
+    const auto norm = std::sqrt(rawCos * rawCos + rawSin * rawSin);
+    const auto cos = rawCos / norm;
+    const auto sin = rawSin / norm;
+    const auto a = key.scaleX * cos;
+    const auto b = -key.scaleY * sin;
+    const auto c = -key.scaleX * sin;
+    const auto d = -key.scaleY * cos;
+    std::array<double, 6> inverse{};
+    if (b == 0 && c == 0)
+    {
+        require(a != 0 && d != 0);
+        inverse = {1 / a, 0, 0, 1 / d, -key.originX / a, -key.originY / d};
+    }
+    else if (a == 0 && d == 0)
+    {
+        require(b != 0 && c != 0);
+        inverse = {0, 1 / c, 1 / b, 0, -key.originY / b, -key.originX / c};
+    }
+    else
+    {
+        // Keep multiplication and subtraction separate, as Java's strict floating point does.
+        const auto diagonal = a * d;
+        const auto shear = b * c;
+        const auto determinant = diagonal - shear;
+        require(std::isfinite(determinant) && std::abs(determinant) > std::numeric_limits<double>::denorm_min());
+        const auto cx = c * key.originY;
+        const auto dx = d * key.originX;
+        const auto by = b * key.originX;
+        const auto ay = a * key.originY;
+        inverse = {d / determinant, -b / determinant, -c / determinant, a / determinant, (cx - dx) / determinant, (by - ay) / determinant};
+    }
+    const std::array expected{cos / key.scaleX,
+                              -sin / key.scaleX,
+                              -sin / key.scaleY,
+                              -cos / key.scaleY,
+                              -cos * key.originX / key.scaleX + sin * key.originY / key.scaleY,
+                              sin * key.originX / key.scaleX + cos * key.originY / key.scaleY};
+    for (std::size_t index = 0; index < inverse.size(); ++index)
+    {
+        const auto tolerance = std::max(1e-10, 1e-12 * std::max(std::abs(inverse[index]), std::abs(expected[index])));
+        require(std::isfinite(inverse[index]) && std::isfinite(expected[index]) && std::abs(inverse[index] - expected[index]) <= tolerance);
+    }
+    return inverse;
+}
+
+void requireTrackerCoordinates(const LegacyProject& project, const Calibration& calibration, const std::array<double, 6>& inverse)
+{
+    auto componentCalibration = calibration;
+    componentCalibration.keyframes.front().originX = 0;
+    componentCalibration.keyframes.front().originY = 0;
+    const auto check = [&](const Mark& point, bool component = false, const Mark* reconstructed = nullptr)
+    {
+        const auto native = worldPosition(component ? componentCalibration : calibration, point);
+        if (!native)
+        {
+            require(false);
+            return;
+        }
+        // AffineTransform evaluates products, their sum, then translation. Test coordinates,
+        // not just coefficients: cancellation can be large relative to a near-zero result.
+        const auto& image = reconstructed ? *reconstructed : point;
+        const auto xx = inverse[0] * image.x;
+        const auto xy = inverse[2] * image.y;
+        const auto yx = inverse[1] * image.x;
+        const auto yy = inverse[3] * image.y;
+        const std::array actual{(xx + xy) + (component ? 0 : inverse[4]), (yx + yy) + (component ? 0 : inverse[5])};
+        if (component)
+        {
+            // Vector.refreshData transforms the components separately and squares them for magnitude.
+            require(std::isfinite(actual[0] * actual[0] + actual[1] * actual[1]));
+        }
+        const std::array expected{native->x, native->y};
+        for (std::size_t axis = 0; axis < actual.size(); ++axis)
+        {
+            const auto tolerance = std::max(1e-10, 1e-12 * std::max(std::abs(actual[axis]), std::abs(expected[axis])));
+            require(std::isfinite(actual[axis]) && std::abs(actual[axis] - expected[axis]) <= tolerance);
+        }
+    };
+    const auto& key = calibration.keyframes.front();
+    check({.frame = 0, .x = key.originX, .y = key.originY});
+    check({.frame = 0, .x = 13.5, .y = 17.25}); // Independent corpus coordinate probe.
+    for (const auto& mass : project.pointMasses)
+    {
+        for (const auto& mark : mass.marks)
+        {
+            check(mark);
+        }
+    }
+    for (const auto& vector : project.vectors)
+    {
+        for (const auto& sample : vector.samples)
+        {
+            check({.frame = sample.frame, .x = sample.tailX, .y = sample.tailY});
+            check({.frame = sample.frame, .x = sample.tailX + sample.componentX, .y = sample.tailY + sample.componentY});
+            const Mark reconstructed{.frame = sample.frame,
+                                     .x = (sample.tailX + sample.componentX) - sample.tailX,
+                                     .y = (sample.tailY + sample.componentY) - sample.tailY};
+            check({.frame = sample.frame, .x = sample.componentX, .y = sample.componentY}, true, &reconstructed);
+        }
+    }
+}
+
+void patchFixedCalibration(QDomDocument& xml, const Calibration& original, const Calibration& current, const LegacyProject& project)
+{
+    // Start with the existing fixed coordinate system; keyed and moving frames need their own oracle.
+    require(original.fixedOrigin && original.fixedAngle && original.fixedScale && current.fixedOrigin && current.fixedAngle &&
+            current.fixedScale && original.keyframes.size() == 1 && current.keyframes.size() == 1 &&
+            original.keyframes.front().frame == 0 && current.keyframes.front().frame == 0);
+    const auto property = uniqueProperty(xml.documentElement(), "coords");
+    const auto object = property.firstChildElement("object");
+    require(property.attribute("type") == "object" && object.attribute("class") == "org.opensourcephysics.media.core.ImageCoordSystem" &&
+            object.nextSiblingElement().isNull());
+    const auto locked = uniqueProperty(object, "locked");
+    require(locked.isNull() ||
+            (locked.attribute("type") == "boolean" && locked.firstChildElement().isNull() && locked.text().trimmed() == "false"));
+    patchFrameData(xml,
+                   object,
+                   original.keyframes,
+                   current.keyframes,
+                   "org.opensourcephysics.media.core.ImageCoordSystem$FrameData",
+                   [&](auto& document, const auto& frame, const CalibrationKey& key)
+                   {
+                       require(std::isfinite(key.originX) && std::isfinite(key.originY) && std::isfinite(key.angleDegrees) &&
+                               std::abs(key.angleDegrees) <= 180 && std::isfinite(key.scaleX) && std::isfinite(key.scaleY) &&
+                               key.scaleX != 0 && key.scaleY != 0);
+                       const auto determinant = key.scaleX * key.scaleY;
+                       require(std::isfinite(determinant) && determinant != 0);
+                       requireTrackerCoordinates(project, current, trackerInverse(key));
+                       patchDouble(document, frame, "xorigin", key.originX);
+                       patchDouble(document, frame, "yorigin", key.originY);
+                       patchDouble(document, frame, "angle", key.angleDegrees);
+                       patchDouble(document, frame, "xscale", key.scaleX);
+                       patchDouble(document, frame, "yscale", key.scaleY);
+                   });
+}
+
 void sortTracks(LegacyProject& project)
 {
     std::ranges::sort(project.pointMasses, {}, &PointMass::id);
@@ -432,7 +580,9 @@ void requireStableVectors(const LegacyProject& project, const std::unordered_map
         require(false);
         return;
     }
-    const auto& origin = project.calibration->keyframes.back();
+    require(project.calibration->fixedAngle && project.calibration->fixedScale && project.calibration->keyframes.size() == 1 &&
+            project.calibration->keyframes.front().frame == 0);
+    const auto& origin = project.calibration->keyframes.front();
     require(std::isfinite(origin.originX) && std::isfinite(origin.originY));
     for (const auto* sample : samples)
     {
@@ -450,6 +600,9 @@ void requireStableVectors(const LegacyProject& project, const std::unordered_map
             }
         }
     }
+    // Also validate edits made under an existing calibration: image-pixel tolerance alone can
+    // hide reconstruction errors that a small scale amplifies in calibrated vector components.
+    requireTrackerCoordinates(project, *project.calibration, trackerInverse(origin));
 }
 
 void remapIds(LegacyProject& project, const std::unordered_map<TrackId, TrackId>& mapping, TrackId nextId)
@@ -506,6 +659,19 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
         }
     }
     bool changed = false;
+    if (expected.calibration != baseline.project.calibration)
+    {
+        if (!expected.calibration || !baseline.project.calibration)
+        {
+            require(false); // Creating/removing coordinate systems is not covered by this writer slice.
+        }
+        else
+        {
+            patchFixedCalibration(xml, *baseline.project.calibration, *expected.calibration, expected);
+            baseline.project.calibration = expected.calibration;
+            changed = true;
+        }
+    }
     if (expected.clip.firstFrame != baseline.project.clip.firstFrame || expected.clip.stepSize != baseline.project.clip.stepSize ||
         expected.clip.stepCount != baseline.project.clip.stepCount)
     {
