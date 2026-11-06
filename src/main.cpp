@@ -2,6 +2,7 @@
 
 #include <QApplication>
 #include <QFileInfo>
+#include <QLibraryInfo>
 #include <QLocale>
 #include <QTranslator>
 
@@ -13,8 +14,22 @@ int main(int argc, char** argv)
 try
 {
     QApplication app(argc, argv);
+    const QLocale locale;
+    QTranslator qtTranslator;
+    const auto loadQtCatalog = [&](const QString& directory)
+    {
+        return qtTranslator.load(locale, "qtbase", "_", directory) || qtTranslator.load(locale, "qt", "_", directory);
+    };
+    auto qtLoaded = loadQtCatalog(QLibraryInfo::path(QLibraryInfo::TranslationsPath));
+#ifdef Q_OS_MACOS
+    qtLoaded = qtLoaded || loadQtCatalog(QCoreApplication::applicationDirPath() + "/../Resources/translations");
+#endif
+    if (qtLoaded)
+    {
+        app.installTranslator(&qtTranslator);
+    }
     QTranslator translator;
-    if (translator.load(QLocale(), "motrack", "_", ":/i18n"))
+    if (translator.load(locale, "motrack", "_", ":/i18n"))
     {
         app.installTranslator(&translator);
     }

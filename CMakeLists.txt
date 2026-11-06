@@ -50,7 +50,7 @@ target_link_libraries(motrack_media PUBLIC Qt6::Gui PRIVATE motrack_ffmpeg)
 target_link_libraries(motrack_workspace PUBLIC motrack_project Qt6::Widgets PRIVATE motrack_media Qt6::Concurrent)
 target_link_libraries(motrack PRIVATE motrack_workspace)
 qt_add_translations(motrack
-    TS_FILES translations/motrack_es.ts
+    TS_FILES translations/motrack_de.ts translations/motrack_es.ts translations/motrack_fr.ts
     SOURCES src/main_window.cpp src/position_plot.cpp
     RESOURCE_PREFIX "/i18n"
 )
@@ -82,6 +82,12 @@ if(MOTRACK_STAGE_DESKTOP)
         qt_import_plugins(motrack INCLUDE Qt6::QXcbIntegrationPlugin Qt6::QOffscreenIntegrationPlugin)
     endif()
     install(TARGETS motrack BUNDLE DESTINATION . RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    if(APPLE)
+        foreach(locale IN ITEMS de es fr)
+            install(FILES "${QT6_INSTALL_PREFIX}/${QT6_INSTALL_TRANSLATIONS}/qtbase_${locale}.qm"
+                DESTINATION motrack.app/Contents/Resources/translations OPTIONAL)
+        endforeach()
+    endif()
     qt_generate_deploy_app_script(TARGET motrack OUTPUT_SCRIPT motrack_deploy_script)
     install(SCRIPT "${motrack_deploy_script}")
     install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/motrack)
@@ -143,8 +149,10 @@ if(BUILD_TESTING)
     add_test(NAME legacy_project COMMAND motrack_tests)
     add_executable(motrack_workspace_tests tests/workspace_test.cpp)
     target_link_libraries(motrack_workspace_tests PRIVATE motrack_workspace GTest::gtest Qt6::Test)
+    add_dependencies(motrack_workspace_tests motrack)
     target_compile_definitions(motrack_workspace_tests PRIVATE
-        MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+        MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
+        MOTRACK_TRANSLATIONS="${CMAKE_CURRENT_BINARY_DIR}")
     add_test(NAME workspace COMMAND motrack_workspace_tests)
     set_tests_properties(workspace PROPERTIES TIMEOUT 30)
     add_executable(motrack_media_tests tests/template_tracker_test.cpp tests/video_reader_test.cpp)
