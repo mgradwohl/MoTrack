@@ -21,7 +21,9 @@
     <message><source>Next frame</source><translation>Fotograma siguiente</translation></message>
     <message><source>Clip position</source><translation>Posición en el clip</translation></message>
     <message><source>Frame %1</source><translation>Fotograma %1</translation></message>
-    <message><source>No supported image sequence is attached to this project.</source><translation>Este proyecto no tiene una secuencia de imágenes compatible.</translation></message>
+    <message><source>No supported local video or image sequence is attached to this project.</source><translation>Este proyecto no tiene un vídeo local ni una secuencia de imágenes compatibles.</translation></message>
     <message><source>This image frame could not be opened.</source><translation>No se pudo abrir este fotograma.</translation></message>
+    <message><source>Decoding frame…</source><translation>Decodificando fotograma…</translation></message>
+    <message><source>This video frame could not be decoded.</source><translation>No se pudo decodificar este fotograma de vídeo.</translation></message>
   </context>
 </TS>

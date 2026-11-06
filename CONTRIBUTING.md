@@ -6,7 +6,7 @@ MoTrack starts from [TaskSmack's conventions](https://github.com/mgradwohl/tasks
 
 Follow the [setup commands in the README](README.md#build-the-prototype). Use `-DryRun` on Windows or `--dry-run` on Linux and macOS to preview installation. WinGet may ask for administrator access for Visual Studio Build Tools. Ubuntu uses APT and sudo when required. On macOS, install Homebrew if needed. The script opens Apple's Command Line Tools installer if the tools are missing. Rerun setup after the installer finishes.
 
-The setup scripts manage Qt 6.8.3, Qt Linguist Tools, and the LLVM 18 formatter under `.dev-tools`. CMake fetches GoogleTest during configuration. An existing Qt 6.8 or newer SDK can also be used through `CMAKE_PREFIX_PATH`.
+The setup scripts manage Qt 6.8.3, Qt Linguist Tools, and the LLVM 18 formatter under `.dev-tools`. They build FFmpeg with the pinned vcpkg release and enable the codec, demuxer, and pixel-conversion libraries. The first FFmpeg build can take several minutes. CMake fetches GoogleTest during configuration. An existing Qt 6.8 or newer SDK can also be used through `CMAKE_PREFIX_PATH`. A system FFmpeg 6.1 or newer is supported through pkg-config.
 
 In each new shell, activate the toolchain and build:
 
