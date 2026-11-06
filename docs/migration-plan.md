@@ -35,7 +35,7 @@ scope decisions. Record deliberate behavior changes, including corrections to re
 ## Current implementation and evidence
 
 Snapshot: **2026-11-06**, merged `main` at
-[`5dfdf84`](https://github.com/mgradwohl/MoTrack/commit/5dfdf841069794a4d722cc6472aa71d4a5f11db5).
+[`22c1c8c`](https://github.com/mgradwohl/MoTrack/commit/22c1c8cb0fd0927f5254d8553ae27c7d787dc2a2).
 [PR #34](https://github.com/mgradwohl/MoTrack/pull/34) added independent vector editing,
 [PR #36](https://github.com/mgradwohl/MoTrack/pull/36) the reference corpus,
 [PR #38](https://github.com/mgradwohl/MoTrack/pull/38) actual Java application resave checks,
@@ -45,10 +45,11 @@ Snapshot: **2026-11-06**, merged `main` at
 [PR #42](https://github.com/mgradwohl/MoTrack/pull/42) commands addressed by ID,
 [PR #43](https://github.com/mgradwohl/MoTrack/pull/43) complete archive preservation,
 [PR #44](https://github.com/mgradwohl/MoTrack/pull/44) document/session ownership,
-[PR #45](https://github.com/mgradwohl/MoTrack/pull/45) verified mass-edit standard export, and
-[PR #46](https://github.com/mgradwohl/MoTrack/pull/46) mark edits including empty/first-mark round trips. Windows,
+[PR #45](https://github.com/mgradwohl/MoTrack/pull/45) verified mass-edit standard export,
+[PR #46](https://github.com/mgradwohl/MoTrack/pull/46) mark edits including empty/first-mark round trips, and
+[PR #47](https://github.com/mgradwohl/MoTrack/pull/47) the independent vector corpus with isolated Java processes. Windows,
 macOS, Linux, setup, and coverage checks passed in
-[CI run 42272213455](https://github.com/mgradwohl/MoTrack/actions/runs/42272213455): combined production
+[CI run 42273922512](https://github.com/mgradwohl/MoTrack/actions/runs/42273922512): combined production
 line coverage **93.66% (4595/4906)**. This verifies the implemented slice, not full Tracker equivalence.
 
 Implemented and tested workflows include local movie/image opening, playback and indexed stepping,
@@ -83,13 +84,14 @@ exercise independent documents, cross-session/stale completions, replacement and
 outliving their session data. Desktop save/open/undo tests exercise the integration. Controllers and
 multi-tab UI remain later work; this change does not make multiple tabs editable.
 
-The initial phase-3 writer adds an internal `.trk` path for point-mass **mass values, marks, and independent-vector samples**, in projects without media.
+The initial phase-3 writer adds an internal `.trk` path for point-mass **mass values, marks, independent-vector samples, and clip ranges**, in projects without media.
 It uses original object bindings, retains surrounding XML, rejects all other changed domain fields,
 checks its serialized model before atomic replacement, and does not expose a desktop Save action yet.
-The corpus adds mass, mark and vector round-trip cases: native edit/save/reopen after input removal, standard export,
+The corpus adds mass, mark, vector and clip-range round-trip cases: native edit/save/reopen after input removal, standard export,
 actual Tracker load/save/reopen and native reimport of the Java resave. Cases use the real protractor
 experiment and the Java-authored vector fixture. Mark keyframes and vector tails/components are checked
-before and after Java resave, including empty tracks and first-sample additions. Clip/calibration/archive
+before and after Java resave, including empty tracks and first-sample additions. The clip case checks
+trim/stride while preserving measurements outside the selected range. Clip timing, calibration, media/archive
 and paired-save acceptance remain unfinished.
 Its CI evidence belongs to the writer PR, after the merged snapshot above.
 
@@ -109,11 +111,11 @@ and platform evidence before it can be marked complete.
 | --- | --- | --- | --- |
 | R01 | Reproducible native builds, CI, review, numerical tests, at least 90% combined C++ line coverage | Implemented foundation; continue applying gates to every new component. | 0, every phase |
 | R02 | Open `.trk`/`.trz`; preserve all supported and unknown content, references, metadata, and archive tabs | Partial: supported point masses/vectors/calibration import; one archive tab selected. Native documents retain that tab's original XML, editable-track IDs and source-object associations for new imports. Version 5 embeds the exact original archive, including all tabs/media/unknown files. Older native sources retain an explicit unknown-association state. | 1–3 |
-| R03 | Save edited standard files plus optional `.motrack`; reopen in both applications without data loss | Partial: native persistence and source/archive preservation. Initial internal `.trk` writer and actual-Tracker round-trip case cover mass values, marks and independent-vector samples; other edits are rejected. Full standard writers, export UI, archive packaging and paired-save recovery remain. | 2–3, every feature |
+| R03 | Save edited standard files plus optional `.motrack`; reopen in both applications without data loss | Partial: native persistence and source/archive preservation. Initial internal `.trk` writer and actual-Tracker round-trip case cover mass values, marks, independent-vector samples and clip ranges; other edits are rejected. Full standard writers, export UI, archive packaging and paired-save recovery remain. | 2–3, every feature |
 | R04 | Multiple experiment tabs, independent undo/dirty state, tab/project Save As, cross-tab import and reusable views | Partial foundation: document sessions own independent data/history/save checkpoints, and native storage preserves unopened archive tabs. The desktop still has one active experiment; multi-tab controllers/UI, cross-tab import and reusable views remain. | 2–4 |
 | R05 | Movies, stills, image sequences and zipped sequences; accurate clip/time/frame controls and media properties | Partial: local movies/images, clip trim/stride, timestamp indexing, orientation, cache, and playback exist. Audit all baseline formats, rates, sequence operations, and properties controls. | 1, 4, 6 |
 | R06 | Complete point-mass editing and appearance: selection, dragging/nudging, numeric positions, multiselect, locks, labels, trails, paths, and vector overlays | Partial: manual marking/replacement, repeat, rename/delete, mass, and undo exist. Finish manipulation, appearance, path length, and selection behavior. | 4–5 |
-| R07 | Independent vectors, linked vectors, sums, their data, editing, and persistence | Partial: independent vectors import/display/edit/undo/native-save. Links, sums, analysis, and standard writes remain. | 3–5 |
+| R07 | Independent vectors, linked vectors, sums, their data, editing, and persistence | Partial: independent vectors import/display/edit/undo/native-save. Internal sample export has reference cases; links, sums, analysis and desktop standard saving remain. | 3–5 |
 | R08 | Center-of-mass tracks, constituents, dependent updates, and moving reference frames | Missing; persistent IDs exist for current editable types, but dependency evaluation and referenced-track semantics remain. | 2, 5 |
 | R09 | Fixed or varying calibration, axes, calibration sticks/points, offset origins, attachments, coordinate locks, and L/M/T/angle units | Partial: imported calibration keys, basic distance calibration and axes exist. Finish tool tracks, units UI/defaults, attachments, and reference frames. | 3–5 |
 | R10 | Persistent tape measures, protractors, circle fitting, attachments, and their changing measurements | Partial: temporary distance/angle tools only; these are not persisted Tracker track equivalents. | 5 |
@@ -240,8 +242,8 @@ native importer comparison. An additional Linux virtual-display probe opens the 
 media plus the vector fixture through Tracker's normal application loader, saves them in Java, then reopens and compares the
 loaded content. This is Java's own resave baseline, not MoTrack standard-file export acceptance.
 Media/archive session loading, broader requirement coverage, runtime/dependency provenance and exact
-source mapping remain unfinished. The initial phase-3 writer/reference path covers mass values, marks and independent-vector
-samples, including native reopen and Java resave; expand it to names/calibration/clip and archive/paired
+source mapping remain unfinished. The initial phase-3 writer/reference path covers mass values, marks, independent-vector
+samples and clip ranges, including native reopen and Java resave; expand it to names/calibration/timing and archive/paired
 saving before exposing full standard Save. Phase 2 has an XML source envelope, persistent point-mass/vector
 IDs, original object associations, commands addressed by ID, native version migration and complete
 original archive preservation. `DocumentSession` now owns each document's data/history/native save state;
@@ -299,7 +301,7 @@ reopen the edited experiment in Tracker. A `.motrack` companion may be saved alo
 
 **Current status:** The desktop imports a supported subset of Tracker data and saves edits in its native
 format. New imports also retain the original XML bytes in the native source envelope. That baseline
-is patched by an initial internal standard writer for mass values, marks and independent-vector samples; other edited fields are rejected.
+is patched by an initial internal standard writer for mass values, marks, independent-vector samples and clip ranges; other edited fields are rejected.
 The actual-Tracker corpus case exercises this limited export path after native reopen. Version 5 also embeds the entire original
 archive, preserving other tabs and media without yet making those tabs editable.
 Version-1 native documents cannot recover previously discarded content. Full writers, desktop export,
@@ -342,7 +344,7 @@ Current inventory, checked on 2026-11-06:
 | Material | Availability | What it proves today |
 | --- | --- | --- |
 | `point-mass.trk`, `image-sequence.trk`, `movie.trk` and `archive.trz` | Committed under [tests/fixtures](../tests/fixtures), with tiny generated media and additional inline XML tests. | Targeted parser, timing, path and application regressions; not reference-app round-trip proof. |
-| `independent-vectors.trk` | Java-authored synthetic fixture, reproducible generator and checksum recorded in [the corpus](../tests/corpus/README.md). | Sparse/zero independent vectors and nonuniform calibration; native import and actual Java session resave, with tail/component checks. Native vector export adds moved/added/deleted samples and empty/first-sample round-trip cases; CI evidence belongs to the writer PR. |
+| `independent-vectors.trk` | Java-authored synthetic fixture, reproducible generator and checksum recorded in [the corpus](../tests/corpus/README.md). | Sparse/zero independent vectors and nonuniform calibration; native import and actual Java session resave, with tail/component checks. Native vector export adds moved/added/deleted samples and empty/first-sample round-trip cases; clip export covers trim/stride and retention of samples outside the clip; CI evidence belongs to the writer PR. |
 | `BallToss.trz`, `protractor.trk`, `asinewave.trk` | Reproducibly fetched using [tests/corpus/manifest.json](../tests/corpus/manifest.json), with committed independent Java snapshots. | Native import/coordinate comparisons for real point masses, clip/calibration values and reporting unsupported models/tools. No complete GUI load or standard-file export claim. |
 | `binary_star.trz` | Local development sample; project records Tracker 6.2.0 and contains `DynamicSystem` and `DynamicParticle` objects. | Useful future model/preservation case; no automated corpus baseline yet. |
 | `bouncing_cart.trz` | Local development sample; project records Tracker 6.1.1 and contains `DynamicParticle` and `TapeMeasure` objects. | Useful future model/tool/preservation case; displaying its media does not implement those tracks. |

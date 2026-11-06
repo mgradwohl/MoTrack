@@ -67,6 +67,7 @@
     {
       "id": "independent-vectors",
       "native_vector_roundtrip": true,
+      "native_clip_roundtrip": true,
       "local_file": "fixtures/independent-vectors.trk",
       "file": "independent-vectors.trk",
       "bytes": 6231,

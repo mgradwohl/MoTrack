@@ -309,6 +309,40 @@ def vector_roundtrip_expected(case, mode="vectors"):
     return expected
 
 
+def clip_roundtrip_expected(case):
+    if case["id"] != "independent-vectors":
+        raise ValueError("The clip oracle requires the fixed-coordinate vector fixture")
+    expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
+    expected["clip"].update(first_frame=2, step_size=2, step_count=4)
+    # Fixed calibration: changing the sampled frame leaves both independent coordinate values intact.
+    for sample, frame in zip(expected["coordinate_samples"], [2, 8]):
+        sample["frame"] = frame
+    return expected
+
+
+def verify_clip_export_xml(original, exported):
+    expected = minidom.parse(str(original))
+    clips = [node for node in expected.getElementsByTagName("object")
+             if node.getAttribute("class") == "org.opensourcephysics.media.core.VideoClip"]
+    if len(clips) != 1:
+        raise ValueError("Expected one pinned clip")
+    for name, value in [("startframe", "2"), ("stepsize", "2"), ("stepcount", "4")]:
+        properties = [node for node in clips[0].childNodes if node.nodeType == node.ELEMENT_NODE
+                      and node.tagName == "property" and node.getAttribute("name") == name]
+        if len(properties) != 1 or properties[0].getAttribute("type") != "int":
+            raise ValueError("Unexpected pinned clip property: " + name)
+        nodes = [node for node in properties[0].childNodes if node.nodeType in {node.TEXT_NODE, node.CDATA_SECTION_NODE}]
+        if len(nodes) != 1:
+            raise ValueError("Unexpected pinned clip scalar: " + name)
+        nodes[0].data = value
+    actual = minidom.parse(str(exported))
+    matches = canonical_tracker_xml(expected) == canonical_tracker_xml(actual)
+    expected.unlink()
+    actual.unlink()
+    if not matches:
+        raise ValueError("Standard export changed content beyond the requested clip range")
+
+
 def canonical_tracker_xml(document):
     def normalize(node, preserve=False):
         if node.nodeType == node.ELEMENT_NODE:
@@ -511,7 +545,7 @@ def check_sessions(manifest, cache, java, probe=None):
     modes = [("mass", "native_mass_roundtrip"), ("marks", "native_mark_roundtrip"),
              ("empty-marks", "native_mark_roundtrip"), ("first-mark", "native_mark_roundtrip"),
              ("vectors", "native_vector_roundtrip"), ("empty-vectors", "native_vector_roundtrip"),
-             ("first-vector", "native_vector_roundtrip")] if probe else [("session", "session_tracks")]
+             ("first-vector", "native_vector_roundtrip"), ("clip", "native_clip_roundtrip")] if probe else [("session", "session_tracks")]
     cases = [(case, mode) for case in manifest["cases"] if "session_tracks" in case
              for mode, flag in modes if case.get(flag)]
     if not cases:
@@ -546,6 +580,9 @@ def check_sessions(manifest, cache, java, probe=None):
                 if mode == "mass":
                     verify_mass_export_xml(project, exported)
                     expected = mass_roundtrip_expected(case)
+                elif mode == "clip":
+                    expected = clip_roundtrip_expected(case)
+                    verify_clip_export_xml(project, exported)
                 elif "vector" in mode:
                     expected = vector_roundtrip_expected(case, mode)
                     verify_vector_export_xml(project, exported, expected)

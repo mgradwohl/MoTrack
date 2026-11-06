@@ -135,11 +135,15 @@ and standard-file writers remain unfinished. An unknown object retained in this
 envelope is not an implemented track type.
 
 The initial internal standard writer can patch point-mass mass values, mark positions/additions/deletions,
-and independent-vector tails/components/additions/deletions in media-free projects after a native reopen.
+independent-vector tails/components/additions/deletions, and clip start/stride/count in media-free
+projects after a native reopen. Clip edits retain all measurements, including frames outside the clip.
 It requires known source associations, preserves unknown XML objects/properties and
 normalizes changed output to a matching UTF-8 declaration. Unchanged output is byte-exact. It rejects
 every other changed domain field before opening its atomic replacement file, including name,
-clip, calibration and track-membership edits. Media references are rejected until relocation
+clip timing, calibration and track-membership edits. Range exports require a known `VideoClip` without
+video, frame-shift or saved-video-frame-count properties. They reject missing/invalid counts, endpoints
+beyond Tracker 6.3.5's media-free frame 500000 limit, and overflow in its temporary frame-count arithmetic.
+Media references are rejected until relocation
 and packaging are supported. Changed/new marks become manual keyframes; unchanged automatic marks
 retain their original key status. Deleting the last manual key while leaving automatic marks is rejected,
 because Tracker treats an empty key list as all remaining marks being manual. Unknown properties on

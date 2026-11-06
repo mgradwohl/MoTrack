@@ -364,4 +364,91 @@ TEST(TrackerWriter, RejectsFiniteVectorFieldsWithOverflowingEndpointsAfterNative
     }
 }
 
+TEST(TrackerWriter, ExportsClipRangeAfterNativeReopenWithUndoRedoAndOutOfRangeSamples)
+{
+    const auto imported =
+        motrack::parseTrackerProject(readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk"));
+    motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.setClipRange(document.project, 2, 8, 2));
+    const auto expected = document.project;
+    const auto exported = motrack::renderTrackerProject(expected, imported.source);
+    ASSERT_TRUE(edits.undo(document.project));
+    EXPECT_EQ(motrack::renderTrackerProject(document.project, imported.source), imported.source.xml);
+    ASSERT_TRUE(edits.redo(document.project));
+    EXPECT_EQ(motrack::renderTrackerProject(document.project, imported.source), exported);
+    QTemporaryDir temporary;
+    const auto native = temporary.filePath("clip.motrack");
+    motrack::writeWorkspaceDocument(native, document);
+    document = motrack::readWorkspaceDocument(native);
+    ASSERT_TRUE(document.trackerSource);
+    const auto output = temporary.filePath("clip.trk");
+    motrack::writeTrackerProject(output, document.project, *document.trackerSource);
+    const auto reopened = motrack::parseLegacyProject(readBytes(output));
+    EXPECT_EQ(reopened, expected);
+    EXPECT_EQ(reopened.vectors, imported.project.vectors); // Frames 0 and 5 are outside selected clip steps.
+    ASSERT_TRUE(edits.setClipRange(document.project, 500000, 500000, 1));
+    EXPECT_EQ(motrack::parseLegacyProject(motrack::renderTrackerProject(document.project, imported.source)).clip.firstFrame, 500000);
+}
+
+TEST(TrackerWriter, RejectsInvalidClipRangesTimingAndUnverifiedLegacyFrameMappings)
+{
+    const auto original = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk");
+    const auto imported = motrack::parseTrackerProject(original);
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("existing.trk");
+    motrack::writeTrackerProject(output, imported.project, imported.source);
+    const std::vector<std::function<void(motrack::Clip&)>> changes{[](auto& clip) { clip.firstFrame = -1; },
+                                                                   [](auto& clip) { clip.stepSize = 0; },
+                                                                   [](auto& clip) { clip.stepCount = 0; },
+                                                                   [](auto& clip) { clip.stepCount = std::numeric_limits<int>::max(); },
+                                                                   [](auto& clip)
+                                                                   {
+                                                                       clip.firstFrame = 500001;
+                                                                       clip.stepCount = 1;
+                                                                   },
+                                                                   [](auto& clip)
+                                                                   {
+                                                                       clip.firstFrame = 2;
+                                                                       clip.stepCount = 1;
+                                                                       clip.stepSize = std::numeric_limits<int>::max();
+                                                                   },
+                                                                   [](auto& clip)
+                                                                   {
+                                                                       clip.firstFrame = 2;
+                                                                       clip.sourceFrameCount = 3;
+                                                                   },
+                                                                   [](auto& clip)
+                                                                   {
+                                                                       clip.firstFrame = 2;
+                                                                       clip.startTimeMs = 1;
+                                                                   },
+                                                                   [](auto& clip)
+                                                                   {
+                                                                       clip.firstFrame = 2;
+                                                                       clip.frameDurationMs = 50;
+                                                                   }};
+    for (const auto& change : changes)
+    {
+        auto project = imported.project;
+        change(project.clip);
+        EXPECT_THROW(motrack::writeTrackerProject(output, project, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), original);
+    }
+    for (const auto* property : {"video", "frameshift", "video_framecount"})
+    {
+        auto xml = original;
+        xml.insert(xml.find("<property name=\"startframe\""), "<property name='" + std::string(property) + "' type='int'>0</property>\n");
+        auto legacy = motrack::parseTrackerProject(xml);
+        legacy.project.clip.firstFrame = 2;
+        EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(legacy.project, legacy.source)), motrack::ProjectError);
+    }
+    auto wrongType = original;
+    const std::string oldType = R"(name="startframe" type="int")";
+    wrongType.replace(wrongType.find(oldType), oldType.size(), R"(name="startframe" type="double")");
+    auto legacy = motrack::parseTrackerProject(wrongType);
+    legacy.project.clip.firstFrame = 2;
+    EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(legacy.project, legacy.source)), motrack::ProjectError);
+}
+
 } // namespace
