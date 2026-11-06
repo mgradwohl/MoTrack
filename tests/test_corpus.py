@@ -127,7 +127,8 @@ class CorpusTests(unittest.TestCase):
             tracks.append({**identity, "mass": mass["mass"] if mass else None,
                            "samples": [{"frame": sample["frame"], "points": [sample["image"]], "world": sample["world"]}
                                        for sample in mass["samples"]] if mass else []})
-        before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+        before = {"name_references": copy.deepcopy(case["session_names"]),
+                  "tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
                  "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
@@ -156,6 +157,42 @@ class CorpusTests(unittest.TestCase):
         for key, value in [("reference_version", "6.3.4"), ("verification_level", "xml_and_coordinate_api")]:
             with self.subTest(key=key), self.assertRaises(ValueError):
                 corpus.validate_session(case, {**valid, key: value}, manifest)
+
+    def test_session_name_references_reject_consistent_wrong_targets(self):
+        manifest = corpus.load_manifest()
+        case = next(case for case in manifest["cases"] if case["id"] == "protractor")
+        expected = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
+        tracks = []
+        for identity in case["session_tracks"]:
+            mass = next((mass for mass in expected["point_masses"] if mass["name"] == identity["name"]), None)
+            tracks.append({**identity, "mass": mass["mass"] if mass else None,
+                           "samples": [{"frame": sample["frame"], "points": [sample["image"]], "world": sample["world"]}
+                                       for sample in mass["samples"]] if mass else []})
+        before = {"name_references": copy.deepcopy(case["session_names"]), "tracks": tracks,
+                  "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                  **corpus.session_units(case, expected)}
+        valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                 "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
+        corpus.validate_session(case, valid, manifest)
+        for field, value in [("selected_track", "mass A"), ("selected_track", None),
+                             ("view_tracks", [["mass A", None], [None, "mass B"], [None, None], [None, None]]),
+                             ("view_tracks", [["mass B", None], [None, "mass A"], [None, None], [None, None]]),
+                             ("packed_view_tracks", "mass A,null;null,mass B;null,null;null,null")]:
+            invalid = copy.deepcopy(valid)
+            for state in ["before", "after_save", "after"]:
+                invalid[state]["name_references"][field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                corpus.validate_session(case, invalid, manifest)
+        for mode in ["missing", "changed_after_save", "changed_after_reopen"]:
+            invalid = copy.deepcopy(valid)
+            if mode == "missing":
+                for state in ["before", "after_save", "after"]:
+                    del invalid[state]["name_references"]
+            else:
+                state = "after_save" if mode == "changed_after_save" else "after"
+                invalid[state]["name_references"]["selected_track"] = "mass A"
+            with self.subTest(mode=mode), self.assertRaises(ValueError):
+                corpus.validate_session(case, invalid, manifest)
 
     def test_session_checks_reject_non_linux_hosts(self):
         with patch.object(corpus.sys, "platform", "win32"), self.assertRaisesRegex(ValueError, "Linux"):
@@ -408,7 +445,8 @@ class CorpusTests(unittest.TestCase):
                            "samples": [{"frame": sample["frame"], "points": [sample["image"]], "world": sample["world"]}
                                        for sample in mass["samples"]] if mass else [],
                            "key_frames": keys[index] if mass else None})
-        before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+        before = {"name_references": copy.deepcopy(case["session_names"]),
+                  "tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
                  "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}

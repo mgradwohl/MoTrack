@@ -15,6 +15,8 @@ import org.opensourcephysics.cabrillo.tracker.PointMass;
 import org.opensourcephysics.cabrillo.tracker.Step;
 import org.opensourcephysics.cabrillo.tracker.TFrame;
 import org.opensourcephysics.cabrillo.tracker.TTrack;
+import org.opensourcephysics.cabrillo.tracker.TView;
+import org.opensourcephysics.cabrillo.tracker.TrackChooserTView;
 import org.opensourcephysics.cabrillo.tracker.TrackerIO;
 import org.opensourcephysics.cabrillo.tracker.TrackerPanel;
 import org.opensourcephysics.cabrillo.tracker.Vector;
@@ -171,8 +173,35 @@ public final class TrackerSessionReference {
         return TrackerReference.map("clip", TrackerReference.map("first_frame", first,
             "step_size", clip.getStepSize(), "step_count", clip.getStepCount(), "start_ms", clip.getStartTime()),
             "length_unit", panel.getLengthUnit(), "mass_unit", panel.getMassUnit(),
+            "name_references", nameReferences(panel),
             "calibration", TrackerReference.map("fixed_origin", coords.isFixedOrigin(), "fixed_angle", coords.isFixedAngle(),
                 "fixed_scale", coords.isFixedScale(), "keys", calibrationKeys),
             "tracks", tracks, "coordinate_samples", coordinates);
+    }
+
+    private static Map<String, Object> nameReferences(TrackerPanel panel) {
+        TView[][] views = panel.getTFrame().getTViews(panel, false);
+        if (views == null || views.length != 4)
+            throw new IllegalStateException("Expected four loaded view choosers");
+        List<Object> selections = new ArrayList<>();
+        for (TView[] chooser : views) {
+            if (chooser == null || chooser.length != 4)
+                throw new IllegalStateException("Expected four view slots per chooser");
+            List<Object> pair = new ArrayList<>();
+            for (int type : new int[] {TView.VIEW_PLOT, TView.VIEW_TABLE}) {
+                TView view = chooser[type];
+                if (view != null && !(view instanceof TrackChooserTView))
+                    throw new IllegalStateException("Expected a track chooser view");
+                TTrack selected = view == null ? null : ((TrackChooserTView) view).getSelectedTrack();
+                pair.add(selected == null ? null : selected.getName());
+            }
+            selections.add(pair);
+        }
+        TTrack selected = panel.getSelectedTrack();
+        // Compare live object selections and the normal serializer's packed representation.
+        // The independent manifest expectation comes from the pinned original experiment.
+        return TrackerReference.map("selected_track", selected == null ? null : selected.getName(),
+            "view_tracks", selections,
+            "packed_view_tracks", new XMLControlElement(panel).getString("selected_track_views"));
     }
 }

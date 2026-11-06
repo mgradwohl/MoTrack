@@ -35,6 +35,11 @@
       "native_mass_roundtrip": true,
       "native_mass_unit_roundtrip": true,
       "native_mark_roundtrip": true,
+      "session_names": {
+        "selected_track": "mass B",
+        "view_tracks": [["mass B", null], [null, "mass B"], [null, null], [null, null]],
+        "packed_view_tracks": "mass B,null;null,mass B;null,null;null,null"
+      },
       "session_tracks": [
         {"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes", "name": "axes"},
         {"class": "org.opensourcephysics.cabrillo.tracker.PointMass", "name": "mass A"},

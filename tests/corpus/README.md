@@ -105,6 +105,14 @@ Snapshots must agree before saving, immediately after saving, and after the sepa
 preferences and Java-resaved experiments are removed on success or failure; successful comparison
 reports remain under the cache's `reports` directory. MoTrack itself does not use Java at runtime.
 
+The protractor manifest independently records its selected `mass B`, plot/table selections for all
+four view choosers, and the packed selection string from the pinned original XML. The session helper
+reads the live selected track objects and the normal serializer's packed representation. These must
+match the manifest as well as each other across load/save/reopen, including the existing mass/mark/unit
+export cases. Regression checks reject consistently wrong or missing targets, not only resave drift.
+This is the first name-reference baseline; table column/format owners, plot settings, attachments and
+dependent-track constituents still need acceptance cases before standard-file rename export.
+
 The session helper shows and seeks each loaded frame on that private display, allowing Tracker's
 normal draw-driven particle-model evaluation to run. It observes the expected model steps before
 snapshotting, within the existing deadline; it does not assume the XML-load callback means models
