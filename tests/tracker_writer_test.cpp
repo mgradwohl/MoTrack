@@ -185,6 +185,7 @@ TEST(TrackerWriter, RejectsMediaUntilRelocationAndPackagingAreSupported)
 
 std::string markedXml(const std::string& keys = "{0}")
 {
+    const auto keyValue = keys.empty() ? std::string{} : "<property name='array' type='string'>" + keys + "</property>";
     return "<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'><property name='tracks'>"
            "<property name='item' type='object'><object class='org.opensourcephysics.cabrillo.tracker.PointMass'>"
            "<property name='name' type='string'>mass</property>"
@@ -194,9 +195,9 @@ std::string markedXml(const std::string& keys = "{0}")
            "<property name='[2]' type='object'><object class='org.opensourcephysics.cabrillo.tracker.PointMass$FrameData'>"
            "<property name='x' type='double'>3</property><property name='y' type='double'>4</property>"
            "<property name='future'>keep-step</property></object></property>"
-           "<property name='[3]' type='object'>null<!-- keep placeholder comment --></property>"
-           "</property><property name='keyFrames' type='array' class='[I'><property name='array' type='string'>" +
-           keys + "</property></property></object></property></property></object>";
+           "<property name='[3]' type='object'>null</property>"
+           "</property><property name='keyFrames' type='array' class='[I'>" +
+           keyValue + "</property></object></property></property></object>";
 }
 
 TEST(TrackerWriter, UpdatesAddsAndDeletesMarksWithManualKeysAndUnknownStepProperties)
@@ -213,7 +214,6 @@ TEST(TrackerWriter, UpdatesAddsAndDeletesMarksWithManualKeysAndUnknownStepProper
     EXPECT_EQ(reopened.pointMasses.front().marks, imported.project.pointMasses.front().marks);
     EXPECT_NE(output.find("{1,2,3,5}"), std::string::npos);
     EXPECT_NE(output.find("keep-step"), std::string::npos);
-    EXPECT_NE(output.find("keep placeholder comment"), std::string::npos);
     ASSERT_TRUE(edits.undo(imported.project));
     const auto undone = motrack::renderTrackerProject(imported.project, imported.source);
     EXPECT_NE(undone.find("{0,1,2,3,5}"), std::string::npos);
@@ -234,7 +234,11 @@ TEST(TrackerWriter, RetainsUnchangedAutomaticMarkKeysAndSupportsEmptyOrNewFrameA
     ASSERT_TRUE(edits.removeMark(imported.project, 0, 2));
     const auto empty = motrack::renderTrackerProject(imported.project, imported.source);
     EXPECT_TRUE(motrack::parseLegacyProject(empty).pointMasses.front().marks.empty());
-    EXPECT_NE(empty.find("{}"), std::string::npos);
+    EXPECT_EQ(empty.find("{}"), std::string::npos);
+    auto emptyImport = motrack::parseTrackerProject(empty);
+    edits.clear();
+    ASSERT_TRUE(edits.markPointMass(emptyImport.project, 0, {.frame = 4, .x = 11.25, .y = 22.5}));
+    EXPECT_NE(motrack::renderTrackerProject(emptyImport.project, emptyImport.source).find("{4}"), std::string::npos);
 
     imported = motrack::parseTrackerProject(std::string(sourceXml()));
     edits.clear();
@@ -246,11 +250,11 @@ TEST(TrackerWriter, RetainsUnchangedAutomaticMarkKeysAndSupportsEmptyOrNewFrameA
 
 TEST(TrackerWriter, TreatsAnEmptyKeyArrayAsManualMarksAndRejectsInvalidMarkData)
 {
-    auto imported = motrack::parseTrackerProject(markedXml("{}"));
+    auto imported = motrack::parseTrackerProject(markedXml(""));
     motrack::TrackEdits edits;
     ASSERT_TRUE(edits.markPointMass(imported.project, 0, {.frame = 3, .x = 1, .y = 2}));
     EXPECT_NE(motrack::renderTrackerProject(imported.project, imported.source).find("{0,2,3}"), std::string::npos);
-    for (const auto* keys : {"0", "{oops}", "{-1}", "{0,,2}"})
+    for (const auto* keys : {"0", "{oops}", "{-1}", "{0,,2}", "{}"})
     {
         imported = motrack::parseTrackerProject(markedXml(keys));
         imported.project.pointMasses.front().marks.front().x += 1;
@@ -262,6 +266,22 @@ TEST(TrackerWriter, TreatsAnEmptyKeyArrayAsManualMarksAndRejectsInvalidMarkData)
     imported = motrack::parseTrackerProject(markedXml());
     std::ranges::reverse(imported.project.pointMasses.front().marks);
     EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(imported.project, imported.source)), motrack::ProjectError);
+}
+
+TEST(TrackerWriter, RejectsFrameFormattingThatCannotPreserveContentAndOSPReading)
+{
+    for (const auto& [before, after] : std::vector<std::pair<std::string, std::string>>{
+             {"name='framedata'", "xml:space='preserve' name='framedata'"},
+             {"<property name='[0]'", "<!-- retained but not readable inside an OSP array --><property name='[0]'"},
+             {">null</property>", ">null<!-- retained placeholder --></property>"}})
+    {
+        auto xml = markedXml();
+        xml.replace(xml.find(before), before.size(), after);
+        auto imported = motrack::parseTrackerProject(xml);
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.markPointMass(imported.project, 0, {.frame = 3, .x = 1, .y = 2}));
+        EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(imported.project, imported.source)), motrack::ProjectError);
+    }
 }
 
 } // namespace

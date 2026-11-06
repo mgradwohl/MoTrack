@@ -26,6 +26,10 @@ The second case, `motrack_marks_roundtrip`, moves the first mass's original mark
 and replaces the second mass's original mark with one at frame 7. It independently checks image/world
 coordinates and Java's loaded manual keyframe lists `{0,3}` and `{7}`, before and after resave. Sparse
 frames also exercise OSP's line-oriented array reader: an accidental blank line must not hide later marks.
+Two further mark cases delete every mark from the first mass, resave that empty track through Java,
+then add its first mark in MoTrack. They verify empty key arrays and newly created frame data in the
+actual Tracker loader, saver and native reimport. Empty point masses are allowed; expected samples
+and keyframes still have to match exactly.
 Other edits, media/archive round trips, desktop export UI and paired saves remain unfinished.
 
 ## Sources and cases

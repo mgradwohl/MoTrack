@@ -257,10 +257,16 @@ def mass_roundtrip_expected(case):
     return expected
 
 
-def mark_roundtrip_expected(case):
+def mark_roundtrip_expected(case, mode="marks"):
     if case["id"] != "protractor":
         raise ValueError("The mark oracle is defined for the pinned protractor case")
     expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
+    if mode in {"empty-marks", "first-mark"}:
+        expected["point_masses"][0]["samples"] = [] if mode == "empty-marks" else [
+            {"frame": 4, "image": [11.25, 22.5], "world": [-308.75, 217.5]}]
+        if mode == "first-mark":
+            expected["source_version"] = "6.3.5" # Input is Tracker's resave of the empty-mark case.
+        return expected
     mark = expected["point_masses"][0]["samples"][0]
     mark["image"][0] += 12.5
     mark["image"][1] -= 3.25
@@ -280,7 +286,7 @@ def canonical_tracker_xml(document):
             structural = node.tagName == "object" or (node.tagName == "property" and
                          node.getAttribute("type") in {"object", "array", "collection"})
             children = list(node.childNodes)
-            if (structural and not preserve and any(child.nodeType == child.ELEMENT_NODE for child in children)
+            if (structural and not preserve
                     and all(child.nodeType != child.ELEMENT_NODE or child.tagName in {"object", "property"} for child in children)
                     and not any(child.nodeType == child.CDATA_SECTION_NODE or
                                 (child.nodeType == child.TEXT_NODE and child.data.strip(" \t\r\n")) for child in children)):
@@ -336,7 +342,7 @@ def verify_mass_export_xml(original, exported):
         raise ValueError("Standard export changed content beyond the requested mass edit")
 
 
-def verify_mark_export_xml(original, exported, expected_project):
+def verify_mark_export_xml(original, exported, expected_project, mode="marks"):
     expected = minidom.parse(str(original))
     def elements(node, tag):
         return [child for child in node.childNodes if child.nodeType == child.ELEMENT_NODE and child.tagName == tag]
@@ -363,21 +369,36 @@ def verify_mark_export_xml(original, exported, expected_project):
             coordinate.setAttribute("type", "double")
             coordinate.appendChild(expected.createTextNode(format(value, ".17g")))
             obj.appendChild(coordinate)
-        data.appendChild(entry)
+        following = next((child for child in elements(data, "property")
+                          if int(child.getAttribute("name")[1:-1]) > number), None)
+        data.insertBefore(entry, following)
     masses = [obj for item in elements(prop(expected.documentElement, "tracks"), "property")
               for obj in elements(item, "object") if obj.getAttribute("class") == "org.opensourcephysics.cabrillo.tracker.PointMass"]
     if len(masses) != 2:
         raise ValueError("Expected the pinned two-mass experiment")
     first, second = [prop(mass, "framedata") for mass in masses]
-    original_mark = elements(prop(first, "[0]"), "object")[0]
-    image = expected_project["point_masses"][0]["samples"][0]["image"]
-    text(prop(original_mark, "x"), format(image[0], ".17g"))
-    text(prop(original_mark, "y"), format(image[1], ".17g"))
-    add_frame(first, 3, 100.125, 200.5)
-    second.removeChild(prop(second, "[0]"))
-    add_frame(second, 7, 50.0, 60.0)
-    text(prop(prop(masses[0], "keyFrames"), "array"), "{0,3}")
-    text(prop(prop(masses[1], "keyFrames"), "array"), "{7}")
+    if mode == "empty-marks":
+        first.removeChild(prop(first, "[0]"))
+        keys = prop(masses[0], "keyFrames")
+        keys.removeChild(prop(keys, "array"))
+    elif mode == "first-mark":
+        add_frame(first, 4, 11.25, 22.5)
+        keys = prop(masses[0], "keyFrames")
+        value = expected.createElement("property")
+        value.setAttribute("name", "array")
+        value.setAttribute("type", "string")
+        value.appendChild(expected.createTextNode("{4}"))
+        keys.appendChild(value)
+    else:
+        original_mark = elements(prop(first, "[0]"), "object")[0]
+        image = expected_project["point_masses"][0]["samples"][0]["image"]
+        text(prop(original_mark, "x"), format(image[0], ".17g"))
+        text(prop(original_mark, "y"), format(image[1], ".17g"))
+        add_frame(first, 3, 100.125, 200.5)
+        second.removeChild(prop(second, "[0]"))
+        add_frame(second, 7, 50.0, 60.0)
+        text(prop(prop(masses[0], "keyFrames"), "array"), "{0,3}")
+        text(prop(prop(masses[1], "keyFrames"), "array"), "{7}")
     actual = minidom.parse(str(exported))
     matches = canonical_tracker_xml(expected) == canonical_tracker_xml(actual)
     expected.unlink()
@@ -389,7 +410,8 @@ def verify_mark_export_xml(original, exported, expected_project):
 def check_sessions(manifest, cache, java, probe=None):
     if sys.platform != "linux":
         raise ValueError("Session checks currently require Linux with Xvfb")
-    modes = [("mass", "native_mass_roundtrip"), ("marks", "native_mark_roundtrip")] if probe else [("session", "session_tracks")]
+    modes = [("mass", "native_mass_roundtrip"), ("marks", "native_mark_roundtrip"),
+             ("empty-marks", "native_mark_roundtrip"), ("first-mark", "native_mark_roundtrip")] if probe else [("session", "session_tracks")]
     cases = [(case, mode) for case in manifest["cases"] if "session_tracks" in case
              for mode, flag in modes if case.get(flag)]
     if not cases:
@@ -413,6 +435,8 @@ def check_sessions(manifest, cache, java, probe=None):
             java_home = output / "java-home"
             java_home.mkdir(parents=True)
             project = project_path(case, cache)
+            if mode == "first-mark":
+                project = root / (case["id"] + "-empty-marks") / "tracker-resaved.trk"
             expected = None
             if probe:
                 exported = output / "motrack-export.trk"
@@ -421,8 +445,8 @@ def check_sessions(manifest, cache, java, probe=None):
                     verify_mass_export_xml(project, exported)
                     expected = mass_roundtrip_expected(case)
                 else:
-                    expected = mark_roundtrip_expected(case)
-                    verify_mark_export_xml(project, exported, expected)
+                    expected = mark_roundtrip_expected(case, mode)
+                    verify_mark_export_xml(project, exported, expected, mode)
                 native_report = output / "native-export.json"
                 run([str(Path(probe).resolve()), str(exported), str(native_report)])
                 compare(expected, json.loads(native_report.read_text(encoding="utf-8")), manifest["tolerance"], case["id"] + ".export")
@@ -431,7 +455,8 @@ def check_sessions(manifest, cache, java, probe=None):
                  "-Xmx256m", "-cp", os.pathsep.join([str(classes), str(jar)]), "TrackerSessionReference",
                  str(project), str(output)], display=display)
             report = json.loads((output / "session.json").read_text(encoding="utf-8"))
-            validate_session(case, report, manifest, expected, [[0, 3], [7]] if mode == "marks" else None)
+            keys = {"marks": [[0, 3], [7]], "empty-marks": [[], [0]], "first-mark": [[4], [0]]}.get(mode)
+            validate_session(case, report, manifest, expected, keys)
             if probe:
                 reimport = output / "native-reimport.json"
                 run([str(Path(probe).resolve()), str(output / "tracker-resaved.trk"), str(reimport)])

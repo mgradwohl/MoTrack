@@ -143,7 +143,9 @@ and packaging are supported. Changed/new marks become manual keyframes; unchange
 retain their original key status. Deleting the last manual key while leaving automatic marks is rejected,
 because Tracker treats an empty key list as all remaining marks being manual. Unknown properties on
 retained frame objects survive; deleting a mark removes its frame object. Rewritten frame arrays omit
-structural blank lines because the OSP array reader stops at them. This path is exercised by the reference corpus;
+structural blank lines because the OSP array reader stops at them. Empty key lists use Tracker's
+empty array container, and adding a first mark after Java has resaved that container is reference-tested.
+Explicitly preserved frame-array whitespace and comments that would stop OSP's reader cause rejection. This path is exercised by the reference corpus;
 it does not add a desktop export action or mark the native document saved. Standard export checkpoints,
 additional edit types, media relocation, `.trz` packaging and paired-save recovery remain phase-3 work.
 

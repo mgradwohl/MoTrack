@@ -85,7 +85,9 @@ QDomElement arrayProperty(QDomDocument& xml, QDomElement object, const QString& 
         array = xml.createElement("property");
         array.setAttribute("name", name);
         array.setAttribute("type", "array");
+        object.appendChild(xml.createTextNode("\n"));
         object.appendChild(array);
+        object.appendChild(xml.createTextNode("\n"));
     }
     require(array.attribute("type") == "array" && (array.attribute("class").isEmpty() || array.attribute("class") == type));
     array.setAttribute("class", type);
@@ -109,18 +111,26 @@ std::set<int> readKeys(const QDomElement& object, const std::vector<Mark>& origi
     {
         require(keys.attribute("type") == "array" && keys.attribute("class") == "[I");
         const auto array = uniqueProperty(keys, "array");
-        require(!array.isNull() && array.attribute("type") == "string" && array.firstChildElement().isNull());
-        const auto text = array.text().trimmed();
-        require(text.startsWith('{') && text.endsWith('}'));
-        const auto values = text.mid(1, text.size() - 2).trimmed();
-        if (!values.isEmpty())
+        if (array.isNull())
         {
-            for (const auto& value : values.split(','))
+            require(keys.firstChildElement().isNull()); // Tracker's zero-length int array has no child.
+        }
+        else
+        {
+            require(array.attribute("type") == "string" && array.firstChildElement().isNull());
+            const auto text = array.text().trimmed();
+            require(text.startsWith('{') && text.endsWith('}'));
+            const auto values = text.mid(1, text.size() - 2).trimmed();
+            require(!values.isEmpty()); // A compact empty token is not a valid OSP int-array encoding.
+            if (!values.isEmpty())
             {
-                bool valid = false;
-                const auto frame = value.trimmed().toInt(&valid);
-                require(valid && frame >= 0);
-                result.insert(frame);
+                for (const auto& value : values.split(','))
+                {
+                    bool valid = false;
+                    const auto frame = value.trimmed().toInt(&valid);
+                    require(valid && frame >= 0);
+                    result.insert(frame);
+                }
             }
         }
     }
@@ -204,11 +214,17 @@ void patchMarks(QDomDocument& xml, const QDomElement& object, const std::vector<
                 {
                     item.removeChild(node);
                 }
+                else
+                {
+                    require(false); // A comment before the new object would stop OSP's object reader.
+                }
                 node = next;
             }
             item.setAttribute("type", "object");
             step = xml.createElement("object");
+            item.appendChild(xml.createTextNode("\n"));
             item.appendChild(step);
+            item.appendChild(xml.createTextNode("\n"));
         }
         require(
             step.nextSiblingElement("object").isNull() &&
@@ -219,18 +235,40 @@ void patchMarks(QDomDocument& xml, const QDomElement& object, const std::vector<
         keys.insert(frame);
     }
     // OSP's array reader consumes consecutive property lines. Deleting an entry can leave a blank
-    // line in preserved formatting that makes it stop early; remove only XML indentation here.
+    // line in preserved formatting that makes it stop early. Format only this known structural array,
+    // while the whole document is serialized without adding whitespace to unknown content.
     auto array = data;
+    for (auto ancestor = QDomNode(array); !ancestor.isNull(); ancestor = ancestor.parentNode())
+    {
+        const auto space = ancestor.toElement().attribute("xml:space");
+        if (!space.isEmpty())
+        {
+            require(space != "preserve");
+            break;
+        }
+    }
     for (auto node = array.firstChild(); !node.isNull();)
     {
         const auto next = node.nextSibling();
-        if (node.isText() &&
-            std::ranges::all_of(node.nodeValue(),
-                                [](QChar value) { return value == ' ' || value == '\t' || value == '\r' || value == '\n'; }))
+        if (node.isText())
         {
+            require(std::ranges::all_of(node.nodeValue(),
+                                        [](QChar value) { return value == ' ' || value == '\t' || value == '\r' || value == '\n'; }));
             array.removeChild(node);
         }
+        else
+        {
+            require(node.isElement() && node.nodeName() == "property");
+        }
         node = next;
+    }
+    for (auto item = array.firstChildElement(); !item.isNull(); item = item.nextSiblingElement())
+    {
+        array.insertBefore(xml.createTextNode("\n"), item);
+    }
+    if (array.hasChildNodes())
+    {
+        array.appendChild(xml.createTextNode("\n"));
     }
     // An empty key list makes Tracker promote every remaining automatic mark to a manual key.
     // Until that distinction is in the editable model, reject edits that cannot retain it.
@@ -239,12 +277,22 @@ void patchMarks(QDomDocument& xml, const QDomElement& object, const std::vector<
     {
         auto container = arrayProperty(xml, object, "keyFrames", "[I");
         auto values = uniqueProperty(container, "array");
+        if (keys.empty())
+        {
+            if (!values.isNull())
+            {
+                container.removeChild(values);
+            }
+            return; // OSP cannot decode the compact string "{}" as a zero-length int array.
+        }
         if (values.isNull())
         {
             values = xml.createElement("property");
             values.setAttribute("name", "array");
             values.setAttribute("type", "string");
+            container.appendChild(xml.createTextNode("\n"));
             container.appendChild(values);
+            container.appendChild(xml.createTextNode("\n"));
         }
         for (auto node = values.firstChild(); !node.isNull();)
         {

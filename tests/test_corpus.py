@@ -193,10 +193,11 @@ class CorpusTests(unittest.TestCase):
                     f"<property name='x' type='double'>{x}</property><property name='y' type='double'>{y}</property>"
                     "</object></property>")
         def mass(frames, keys):
+            values = "" if keys is None else f"<property name='array' type='string'>{{{keys}}}</property>"
             return (f"<property type='object'><object class='{point_class}'>"
                     f"<property name='framedata' type='array' class='[L{point_class}$FrameData;'>{frames}</property>"
-                    f"<property name='keyFrames' type='array' class='[I'><property name='array' type='string'>"
-                    f"{{{keys}}}</property></property><property name='unknown'>  keep  </property></object></property>")
+                    f"<property name='keyFrames' type='array' class='[I'>{values}</property>"
+                    "<property name='unknown'>  keep  </property></object></property>")
         def project(first, second):
             return "<!-- before --><object><property name='tracks' type='collection'>" + first + second + "</property></object>"
         original, exported = self.root / "original.trk", self.root / "exported.trk"
@@ -212,6 +213,16 @@ class CorpusTests(unittest.TestCase):
             exported.write_text(invalid, encoding="utf-8")
             with self.assertRaises(ValueError):
                 corpus.verify_mark_export_xml(original, exported, expected)
+        empty = project(mass("\n ", None), mass(frame(0, 3, 4), "0"))
+        exported.write_text(empty, encoding="utf-8")
+        corpus.verify_mark_export_xml(original, exported, corpus.mark_roundtrip_expected(case, "empty-marks"), "empty-marks")
+        original.write_text(empty, encoding="utf-8")
+        first = project(mass(frame(4, 11.25, 22.5), "4"), mass(frame(0, 3, 4), "0"))
+        exported.write_text(first, encoding="utf-8")
+        corpus.verify_mark_export_xml(original, exported, corpus.mark_roundtrip_expected(case, "first-mark"), "first-mark")
+        exported.write_text(first.replace("{4}", "{}"), encoding="utf-8")
+        with self.assertRaises(ValueError):
+            corpus.verify_mark_export_xml(original, exported, corpus.mark_roundtrip_expected(case, "first-mark"), "first-mark")
 
     def test_mass_export_checks_unknown_content_and_the_requested_edit(self):
         original, exported = self.root / "original.trk", self.root / "exported.trk"

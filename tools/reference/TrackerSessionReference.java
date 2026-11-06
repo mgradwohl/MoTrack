@@ -123,8 +123,8 @@ public final class TrackerSessionReference {
                 for (TPoint point : step.getPoints()) points.add(point == null ? null : List.of(point.x, point.y));
                 samples.add(TrackerReference.map("frame", step.getFrameNumber(), "points", points));
             }
-            if (track instanceof PointMass && samples.isEmpty())
-                throw new IllegalStateException("Expected loaded point-mass/model samples");
+            if (track instanceof ParticleModel && samples.isEmpty())
+                throw new IllegalStateException("Expected evaluated model samples");
             List<Integer> keys = null;
             if (track.getClass() == PointMass.class) {
                 int[] values = (int[]) new XMLControlElement(track).getObject("keyFrames");
