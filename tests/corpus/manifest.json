@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "reference": {
+    "version": "6.3.5",
+    "file": "tracker-6.3.5.jar",
+    "url": "https://opensourcephysics.github.io/tracker-website/archives/tracker-6.3.5.jar",
+    "sha256": "3b655f4370613afa5c4224c8e2e435d21a1f1fdcc28274937890feb90e1460d0",
+    "bytes": 9659919,
+    "source_candidate": "dc064f922fd924826fb42030b9cd5f5bbc720c9f",
+    "source_mapping_verified": false,
+    "verification_level": "xml_and_coordinate_api"
+  },
+  "tolerance": { "absolute": 1e-10, "relative": 1e-12 },
+  "upstream": {
+    "repository": "https://github.com/OpenSourcePhysics/tracker",
+    "revision": "020692a3d23781763dd8a7a19d73bf004c3faefe",
+    "license_notice": "https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/LICENSE",
+    "redistribution": "Examples are fetched unchanged into an ignored cache. No upstream example or binary is vendored. Individual media redistribution terms have not been separately audited."
+  },
+  "cases": [
+    {
+      "id": "ball-toss",
+      "file": "BallToss.trz",
+      "url": "https://raw.githubusercontent.com/OpenSourcePhysics/tracker/020692a3d23781763dd8a7a19d73bf004c3faefe/examples/BallToss.trz",
+      "sha256": "bd3c21fc191c75f0def0cea70005f27e69e70a247e1848ce84be23dcd8c6485d",
+      "bytes": 72239,
+      "project_member": "BallToss_BallToss.trk",
+      "tracker_version": "5.1.5",
+      "features": ["point-mass", "calibration", "clip-offset", "embedded-media", "unsupported-tape-measure"],
+      "requirements": ["R02", "R05", "R06", "R09", "R10"],
+      "expected": "expected/ball-toss.json"
+    },
+    {
+      "id": "protractor",
+      "file": "protractor.trk",
+      "url": "https://raw.githubusercontent.com/OpenSourcePhysics/tracker/020692a3d23781763dd8a7a19d73bf004c3faefe/examples/protractor.trk",
+      "sha256": "13952c977b25b1690a652d7f2d6060e2c41e70df20e316a9037602ea2687395e",
+      "bytes": 12109,
+      "tracker_version": "6.0.7",
+      "features": ["two-point-masses", "calibration", "unsupported-protractor"],
+      "requirements": ["R02", "R06", "R09", "R10"],
+      "expected": "expected/protractor.json"
+    },
+    {
+      "id": "dynamic-sine",
+      "file": "asinewave.trk",
+      "url": "https://raw.githubusercontent.com/OpenSourcePhysics/tracker/020692a3d23781763dd8a7a19d73bf004c3faefe/examples/asinewave.trk",
+      "sha256": "a1aa29891b41fe7bfaba2d7100115c6eeb28e1f3960dc9904cf1979fa1f75f50",
+      "bytes": 29402,
+      "tracker_version": "5.1.2",
+      "features": ["calibration", "unsupported-dynamic-particle", "saved-functions", "saved-plot-settings"],
+      "requirements": ["R02", "R09", "R16", "R19"],
+      "expected": "expected/dynamic-sine.json"
+    }
+  ]
+}

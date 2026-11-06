@@ -147,6 +147,8 @@ if(BUILD_TESTING)
     target_compile_definitions(motrack_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
     add_test(NAME legacy_project COMMAND motrack_tests)
+    add_executable(motrack_corpus_probe tests/corpus_probe.cpp)
+    target_link_libraries(motrack_corpus_probe PRIVATE motrack_project)
     add_executable(motrack_workspace_tests tests/workspace_test.cpp)
     target_link_libraries(motrack_workspace_tests PRIVATE motrack_workspace GTest::gtest Qt6::Test)
     add_dependencies(motrack_workspace_tests motrack)

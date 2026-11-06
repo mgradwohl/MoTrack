@@ -95,6 +95,17 @@ jobs:
       - name: Test and collect coverage
         shell: bash
         run: python tools/coverage.py collect build/coverage coverage.json --llvm-bin "$LLVM_BIN"
+      - name: Check Tracker reference corpus
+        shell: bash
+        run: |
+          python -m unittest discover -s tests -p test_corpus.py
+          python tools/corpus.py fetch
+          probe=build/coverage/motrack_corpus_probe
+          if [[ "$RUNNER_OS" == Windows ]]; then probe="$probe.exe"; fi
+          python tools/corpus.py check --probe "$probe"
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            python tools/corpus.py reference --java "$JAVA_HOME_17_X64/bin/java"
+          fi
       - name: Stage desktop build
         shell: bash
         run: |

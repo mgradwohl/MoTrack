@@ -189,8 +189,11 @@ Coordinate and dependency semantics precede dependent tracks; filters precede RG
 expression evaluation precedes models and custom fits; complete rendering precedes overlay video export.
 Localization, accessibility, performance checks and serialization accompany every phase, not just phase 12.
 
-The next concrete implementation slice is phase 1's versioned corpus/reference harness, followed by
-source preservation and stable identities in phase 2. Phase 3 has priority over adding particle-model
+Phase 1 now has a [versioned seed corpus and reference harness](../tests/corpus/README.md): three real
+upstream experiments, checksum-pinned Tracker 6.3.5, independent Java XML/coordinate snapshots and a
+native importer comparison. Full GUI reference loading, broader requirement coverage, runtime/dependency
+provenance and exact source mapping remain unfinished. Extend that evidence, then proceed with source
+preservation and stable identities in phase 2. Phase 3 has priority over adding particle-model
 editing. UI familiarity can improve while work progresses, but visual polish cannot replace correctness
 or standard-file compatibility gates.
 
@@ -198,7 +201,7 @@ or standard-file compatibility gates.
 
 | Decision | Current position | Needed by |
 | --- | --- | --- |
-| Executable/source reference | Desktop 6.3.5 is the scope baseline; exact binary/JRE/dependency hashes and matching source mapping still need verification. | 1, before golden results |
+| Executable/source reference | Desktop 6.3.5's JAR URL, bytes and SHA-256 are pinned; its runtime version is checked. Initial XML/coordinate snapshots were produced with Temurin 17.0.21+9. Matching source mapping and the full GUI/media dependency stack remain to verify. | 1, before full-session golden results |
 | OS and CPU support | CI currently uses Windows 2025, macOS 15 and Ubuntu 24.04 runners. These are test environments, not declared minimum end-user OS versions. Specify release minimums and Intel/Arm coverage explicitly. | 1, finalized before 12 |
 | Codec coverage and export | FFmpeg import works for tested fixtures; pin a format/codec/container test matrix and identify any licensing or platform limitations. Do not label untested formats supported because FFmpeg recognizes their names. | 1, 6 and 10 |
 | Native preservation representation | Choose a versioned source-envelope/storage design with migrations and bounded payload handling. Media may remain explicitly referenced; unknown project metadata must survive without the original import file. | 2 |
@@ -282,17 +285,18 @@ Current inventory, checked on 2026-11-06:
 | Material | Availability | What it proves today |
 | --- | --- | --- |
 | `point-mass.trk`, `image-sequence.trk`, `movie.trk` and `archive.trz` | Committed under [tests/fixtures](../tests/fixtures), with tiny generated media and additional inline XML tests. | Targeted parser, timing, path and application regressions; not reference-app round-trip proof. |
+| `BallToss.trz`, `protractor.trk`, `asinewave.trk` | Reproducibly fetched using [tests/corpus/manifest.json](../tests/corpus/manifest.json), with committed independent Java snapshots. | Native import/coordinate comparisons for real point masses, clip/calibration values and reporting unsupported models/tools. No complete GUI load or standard-file export claim. |
 | `binary_star.trz` | Local development sample; project records Tracker 6.2.0 and contains `DynamicSystem` and `DynamicParticle` objects. | Useful future model/preservation case; no automated corpus baseline yet. |
 | `bouncing_cart.trz` | Local development sample; project records Tracker 6.1.1 and contains `DynamicParticle` and `TapeMeasure` objects. | Useful future model/tool/preservation case; displaying its media does not implement those tracks. |
 | `tab_video.trz` | Local development sample; project records Tracker 4.62 and contains a `TapeMeasure`. | Useful older-format case; despite its name, the inspected archive contains only one `.trk`. |
 
-The three downloaded samples are not yet a reproducible committed corpus. Record provenance,
-redistribution terms, download location and hashes before promoting them into automated reference tests.
+The older `binary_star`, `bouncing_cart` and `tab_video` downloads are not in the reproducible corpus.
+Record provenance, redistribution terms, download location and hashes before promoting them into automated reference tests.
 Add real point-mass/vector experiments and a genuinely multi-tab archive; the existing samples cannot
 stand in for those cases.
 
-The existing small synthetic fixtures test importer behavior, not broad Tracker compatibility. Build
-a versioned corpus with source URL, redistribution permission, checksum, producing Tracker version,
+The existing small synthetic fixtures test importer behavior, not broad Tracker compatibility. Extend
+the versioned corpus with source URL, redistribution permission, checksum, producing Tracker version,
 features exercised, and expected values. Keep tiny synthetic edge cases in ordinary CI and provide a
 reproducible fetch/check process for larger real experiments where redistribution is not appropriate.
 
