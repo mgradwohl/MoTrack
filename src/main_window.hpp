@@ -19,6 +19,7 @@
 class QLabel;
 class QAction;
 class QCloseEvent;
+class QCheckBox;
 class QComboBox;
 class QSlider;
 class QTableWidget;
@@ -110,6 +111,8 @@ class MainWindow final : public QMainWindow
     QAction* m_EditAxes;
     QComboBox* m_TrackPicker;
     QComboBox* m_PlotQuantity;
+    QCheckBox* m_FitLine;
+    QLabel* m_FitSummary;
     PositionPlot* m_Plot;
     LegacyProject m_Project;
     TrackEdits m_Edits;

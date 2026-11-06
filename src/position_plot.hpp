@@ -19,6 +19,8 @@ class PositionPlot final : public QWidget
     PositionPlot();
     void setSeries(PlotSeries series, const QString& horizontalLabel, const QString& verticalLabel);
     void selectFrame(std::optional<int> frame);
+    void setFitVisible(bool visible);
+    [[nodiscard]] QString fitSummary() const;
     std::function<void(int)> seekFrame;
 
   protected:
@@ -42,6 +44,8 @@ class PositionPlot final : public QWidget
     QString m_HorizontalLabel;
     QString m_VerticalLabel;
     std::optional<int> m_SelectedFrame;
+    std::optional<LinearFit> m_Fit;
+    bool m_ShowFit = false;
 };
 
 } // namespace motrack

@@ -43,6 +43,13 @@ struct PlotSeries
     bool calibrated = false;
 };
 
+struct LinearFit
+{
+    double slope;
+    double intercept;
+    std::optional<double> rSquared;
+};
+
 /// Resolves the effective calibration for an original frame, including fixed fields.
 [[nodiscard]] std::optional<CalibrationKey> calibrationAt(const Calibration& calibration, int frame);
 
@@ -55,5 +62,8 @@ struct PlotSeries
 /// Frame times are seconds indexed by original frame number. Saved constant timing is the fallback.
 [[nodiscard]] PlotSeries
 measurementPlot(const LegacyProject& project, std::size_t track, PlotQuantity quantity, std::span<const double> frameTimes = {});
+
+/// Fits a straight line to finite plotted samples with at least two distinct horizontal values.
+[[nodiscard]] std::optional<LinearFit> fitStraightLine(std::span<const PlotSample> samples);
 
 } // namespace motrack

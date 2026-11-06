@@ -7,6 +7,7 @@
 #include "video_reader.hpp"
 #include "workspace_document.hpp"
 
+#include <QCheckBox>
 #include <QCloseEvent>
 #include <QCollator>
 #include <QComboBox>
@@ -205,12 +206,22 @@ MainWindow::MainWindow()
     m_PlotQuantity->addItem(tr("speed"), static_cast<int>(PlotQuantity::Speed));
     m_PlotQuantity->addItem(tr("x acceleration"), static_cast<int>(PlotQuantity::AccelerationX));
     m_PlotQuantity->addItem(tr("y acceleration"), static_cast<int>(PlotQuantity::AccelerationY));
+    m_FitLine = new QCheckBox(tr("Linear fit"));
+    m_FitLine->setObjectName("linearFit");
+    m_FitSummary = new QLabel;
+    m_FitSummary->setObjectName("linearFitSummary");
+    m_FitSummary->setWordWrap(true);
+    m_FitSummary->hide();
     m_Plot = new PositionPlot;
     m_Plot->seekFrame = [this](int frame)
     {
         m_StepSlider->setValue((frame - m_Project.clip.firstFrame) / m_Project.clip.stepSize);
     };
-    plotLayout->addWidget(m_PlotQuantity);
+    auto* plotControls = new QHBoxLayout;
+    plotControls->addWidget(m_PlotQuantity, 1);
+    plotControls->addWidget(m_FitLine);
+    plotLayout->addLayout(plotControls);
+    plotLayout->addWidget(m_FitSummary);
     plotLayout->addWidget(m_Plot, 1);
     analysis->addWidget(plotPane);
     analysis->addWidget(m_Marks);
@@ -399,6 +410,18 @@ MainWindow::MainWindow()
                 refreshPlot();
             });
     connect(m_PlotQuantity, &QComboBox::currentIndexChanged, this, &MainWindow::refreshPlot);
+    connect(m_FitLine,
+            &QCheckBox::toggled,
+            this,
+            [this](bool visible)
+            {
+                m_Plot->setFitVisible(visible);
+                m_FitSummary->setVisible(visible);
+                if (visible)
+                {
+                    m_FitSummary->setText(m_Plot->fitSummary());
+                }
+            });
 }
 
 MainWindow::~MainWindow()
@@ -923,6 +946,10 @@ void MainWindow::refreshPlot()
     const auto label = m_PlotQuantity->currentText();
     const auto vertical = unit.isEmpty() ? label : tr("%1 (%2)").arg(label, unit);
     m_Plot->setSeries(std::move(series), horizontal, vertical);
+    if (m_FitLine->isChecked())
+    {
+        m_FitSummary->setText(m_Plot->fitSummary());
+    }
 }
 
 void MainWindow::markAt(const QPointF& position)

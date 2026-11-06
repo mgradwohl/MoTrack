@@ -1,5 +1,6 @@
 #include "position_plot.hpp"
 
+#include <QLocale>
 #include <QMouseEvent>
 #include <QPainter>
 
@@ -39,13 +40,32 @@ void PositionPlot::setSeries(PlotSeries series, const QString& horizontalLabel, 
         const auto y = std::ranges::minmax_element(m_Series.samples, {}, &PlotSample::vertical);
         m_Bounds = {.left = x.min->horizontal, .right = x.max->horizontal, .bottom = y.min->vertical, .top = y.max->vertical};
     }
-    update();
+    setFitVisible(m_ShowFit);
 }
 
 void PositionPlot::selectFrame(std::optional<int> frame)
 {
     m_SelectedFrame = frame;
     update();
+}
+
+void PositionPlot::setFitVisible(bool visible)
+{
+    m_ShowFit = visible;
+    m_Fit = visible ? fitStraightLine(m_Series.samples) : std::nullopt;
+    update();
+}
+
+QString PositionPlot::fitSummary() const
+{
+    if (!m_Fit)
+    {
+        return tr("Linear fit needs two distinct horizontal values.");
+    }
+    const QLocale locale;
+    const auto& fit = *m_Fit;
+    const auto rSquared = fit.rSquared ? locale.toString(*fit.rSquared, 'g', 6) : QString::fromUtf8("—");
+    return tr("Slope %1 · intercept %2 · R² %3").arg(locale.toString(fit.slope, 'g', 6), locale.toString(fit.intercept, 'g', 6), rSquared);
 }
 
 QRectF PositionPlot::plotArea() const
@@ -84,6 +104,20 @@ void PositionPlot::paintEvent(QPaintEvent* /*event*/)
     painter.setPen(palette().mid().color());
     painter.drawRect(area);
     painter.setRenderHint(QPainter::Antialiasing);
+    if (m_Fit)
+    {
+        const auto left = std::fma(m_Fit->slope, m_Bounds.left, m_Fit->intercept);
+        const auto right = std::fma(m_Fit->slope, m_Bounds.right, m_Fit->intercept);
+        if (std::isfinite(left) && std::isfinite(right))
+        {
+            painter.save();
+            painter.setClipRect(area);
+            painter.setPen(QPen(palette().text().color(), 1, Qt::DashLine));
+            painter.drawLine(position({.frame = 0, .horizontal = m_Bounds.left, .vertical = left}),
+                             position({.frame = 0, .horizontal = m_Bounds.right, .vertical = right}));
+            painter.restore();
+        }
+    }
     painter.setPen(Qt::NoPen);
     for (const auto& sample : m_Series.samples)
     {

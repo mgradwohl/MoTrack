@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cmath>
 #include <limits>
 #include <numbers>
 
@@ -139,6 +140,41 @@ TEST(MeasurementPlot, DifferentiatesAtTheCenterOfUnevenFrameTimes)
     const auto accelerationY = motrack::measurementPlot(project, 0, motrack::PlotQuantity::AccelerationY, frameTimes);
     ASSERT_EQ(accelerationY.samples.size(), 1u);
     EXPECT_DOUBLE_EQ(accelerationY.samples.front().vertical, 0.0);
+}
+
+TEST(LinearFit, RetainsPrecisionWithALargeHorizontalOffset)
+{
+    constexpr std::array SAMPLES{
+        motrack::PlotSample{.frame = 0, .horizontal = 1e12, .vertical = 5},
+        motrack::PlotSample{.frame = 1, .horizontal = 1e12 + 1, .vertical = 8},
+        motrack::PlotSample{.frame = 2, .horizontal = 1e12 + 3, .vertical = 14},
+        motrack::PlotSample{.frame = 3, .horizontal = 1e12 + 4, .vertical = std::numeric_limits<double>::quiet_NaN()}};
+    const auto fit = motrack::fitStraightLine(SAMPLES);
+    if (!fit || !fit->rSquared)
+    {
+        FAIL() << "Expected a fit with goodness of fit.";
+    }
+    EXPECT_NEAR(fit->slope, 3.0, 1e-4);
+    EXPECT_NEAR(std::fma(fit->slope, 1e12, fit->intercept), 5.0, 1e-3);
+    EXPECT_NEAR(fit->rSquared.value(), 1.0, 1e-4);
+}
+
+TEST(LinearFit, RejectsIndistinguishableXAndReportsConstantY)
+{
+    const std::array samples{motrack::PlotSample{.frame = 0, .horizontal = 1, .vertical = 7},
+                             motrack::PlotSample{.frame = 1, .horizontal = 2, .vertical = 7}};
+    EXPECT_FALSE(motrack::fitStraightLine({}));
+    auto sameX = samples;
+    sameX.back().horizontal = sameX.front().horizontal;
+    EXPECT_FALSE(motrack::fitStraightLine(sameX));
+    const auto fit = motrack::fitStraightLine(samples);
+    if (!fit)
+    {
+        FAIL() << "Expected a horizontal fit.";
+    }
+    EXPECT_EQ(fit->slope, 0.0);
+    EXPECT_EQ(fit->intercept, 7.0);
+    EXPECT_FALSE(fit->rSquared.has_value());
 }
 
 } // namespace
