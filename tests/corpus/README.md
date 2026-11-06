@@ -169,3 +169,16 @@ Vector session snapshots compare the scientific tip/tail positions and independe
 tail/components. Transient drag handles and display points are excluded: Tracker does not serialize
 them, and an automatic snap can leave the drag handle at its old location until a fresh reload.
 The numerical tolerance and checks on all saved vector geometry remain unchanged.
+
+The `length-unit` case changes only the calibration command's label to micro-metres (`µm`), with no
+scale or geometry change. Full XML preservation and native/Java snapshots check that label explicitly,
+including after Java resave and native reimport. The Java snapshots now include length and mass labels;
+the four baselines were regenerated from the pinned Java reference with all prior values unchanged.
+Tracker's omitted length label is explicitly recorded as `m` for the vector session; Java materializes
+that default on save, while the original native import still represents an absent label as empty.
+
+The XML reference uses Tracker's normal resource-path reader. OSP's alternate `File` constructor uses
+the platform default charset and misdecodes UTF-8 on Java 17 Windows; a bounded comparison confirmed
+that the resource reader preserves the micro sign without changing VM-wide encoding settings. Native
+string writes use CDATA for XML-sensitive characters rather than entities, matching OSP's string reader.
+The actual application round trip remains the final acceptance gate; this adapter fix alone is not GUI evidence.

@@ -127,7 +127,8 @@ class CorpusTests(unittest.TestCase):
             tracks.append({**identity, "mass": mass["mass"] if mass else None,
                            "samples": [{"frame": sample["frame"], "points": [sample["image"]]}
                                        for sample in mass["samples"]] if mass else []})
-        before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"]}
+        before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                  **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
                  "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest)
@@ -195,7 +196,8 @@ class CorpusTests(unittest.TestCase):
         for identity in case["session_tracks"]:
             vector = next((v for v in expected["vectors"] if v["name"] == identity["name"]), None)
             tracks.append({**identity, "vector_samples": copy.deepcopy(vector["samples"]) if vector else []})
-        before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"]}
+        before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                  **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
                  "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest)
@@ -205,6 +207,32 @@ class CorpusTests(unittest.TestCase):
                 invalid[state]["tracks"][1]["vector_samples"][0][field] = value
             with self.subTest(field=field), self.assertRaises(ValueError):
                 corpus.validate_session(case, invalid, manifest)
+
+        for field in ["length_unit", "mass_unit"]:
+            invalid = copy.deepcopy(valid)
+            for state in ["before", "after_save", "after"]:
+                invalid[state][field] = "wrong-unit"
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                corpus.validate_session(case, invalid, manifest)
+
+    def test_length_unit_export_preserves_calibration_and_geometry(self):
+        case = next(case for case in corpus.load_manifest()["cases"] if case["id"] == "independent-vectors")
+        original = corpus.local_fixture_path(case)
+        exported = self.root / "unit.trk"
+        xml = original.read_text(encoding="utf-8")
+        pos = xml.rfind("</object>")
+        edited = xml[:pos] + '<property name="length_unit" type="string">\u00b5m</property>' + xml[pos:]
+        exported.write_text(edited, encoding="utf-8")
+        corpus.verify_length_unit_export_xml(original, exported)
+        for invalid in [xml, edited.replace('>\u00b5m<', '>m<'),
+                        edited.replace('name="xscale" type="double">2.0', 'name="xscale" type="double">3.0'),
+                        edited.replace('name="xtail" type="double">10.0', 'name="xtail" type="double">11.0')]:
+            exported.write_text(invalid, encoding="utf-8")
+            with self.assertRaises(ValueError):
+                corpus.verify_length_unit_export_xml(original, exported)
+        expected = corpus.length_unit_roundtrip_expected(case)
+        self.assertEqual(expected["length_unit"], "\u00b5m")
+        self.assertEqual(expected["coordinate_samples"], corpus.vector_roundtrip_expected(case)["coordinate_samples"])
 
     def test_vector_export_rejects_unrequested_geometry_and_unknown_content_changes(self):
         case = next(case for case in corpus.load_manifest()["cases"] if case["id"] == "independent-vectors")
@@ -282,7 +310,8 @@ class CorpusTests(unittest.TestCase):
                            "samples": [{"frame": sample["frame"], "points": [sample["image"]]}
                                        for sample in mass["samples"]] if mass else [],
                            "key_frames": keys[index] if mass else None})
-        before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"]}
+        before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                  **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
                  "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest, expected, keys)

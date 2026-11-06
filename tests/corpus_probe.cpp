@@ -77,6 +77,8 @@ QJsonObject snapshot(const motrack::LegacyProject& project)
             QJsonObject{{"frame", frame}, {"image", QJsonArray{13.5, 17.25}}, {"world", world(project, frame, 13.5, 17.25)}});
     }
     return {{"source_version", QString::fromStdString(project.version)},
+            {"length_unit", QString::fromStdString(project.lengthUnit)},
+            {"mass_unit", QString::fromStdString(project.massUnit)},
             {"clip",
              QJsonObject{{"first_frame", clip.firstFrame},
                          {"step_size", clip.stepSize},
@@ -98,7 +100,8 @@ try
     if (args.size() == 4 && (args[1] == "--export-mass" || args[1] == "--export-marks" || args[1] == "--export-empty-marks" ||
                              args[1] == "--export-first-mark" || args[1] == "--export-vectors" || args[1] == "--export-empty-vectors" ||
                              args[1] == "--export-first-vector" || args[1] == "--export-clip" || args[1] == "--export-snap-origin" ||
-                             args[1] == "--export-snap-vector" || args[1] == "--export-calibration" || args[1] == "--export-clip-boundary"))
+                             args[1] == "--export-snap-vector" || args[1] == "--export-length-unit" || args[1] == "--export-calibration" ||
+                             args[1] == "--export-clip-boundary"))
     {
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trk");
@@ -115,6 +118,20 @@ try
                 !edits.setPointMassValue(document.project, 0, document.project.pointMasses.front().mass * 2.5))
             {
                 throw motrack::ProjectError("Could not edit round-trip mass.");
+            }
+        }
+        else if (args[1] == "--export-length-unit")
+        {
+            if (!edits.calibrateDistance(document.project,
+                                         {.frame = 0,
+                                          .imageDeltaX = 4,
+                                          .imageDeltaY = 0,
+                                          .knownLength = 2,
+                                          .defaultOriginX = 320,
+                                          .defaultOriginY = 240,
+                                          .unit = "\xC2\xB5m"}))
+            {
+                throw motrack::ProjectError("Could not edit round-trip length unit.");
             }
         }
         else if (args[1] == "--export-calibration")

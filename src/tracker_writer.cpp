@@ -58,6 +58,16 @@ void patchScalar(QDomDocument& xml, QDomElement object, const QString& name, con
         object.appendChild(xml.createTextNode("\n"));
     }
     require(property.attribute("type") == type && property.firstChildElement().isNull());
+    // OSP strings decode CDATA, but do not decode XML entity references such as &amp;.
+    const auto scalar = [&]() -> QDomNode
+    {
+        if (type == "string" && (value.contains('&') || value.contains('<') || value.contains('>')))
+        {
+            require(!value.contains("]]>"));
+            return xml.createCDATASection(value);
+        }
+        return xml.createTextNode(value);
+    };
     // Preserve comments and processing instructions within the scalar property.
     bool written = false;
     for (auto child = property.firstChild(); !child.isNull();)
@@ -67,7 +77,7 @@ void patchScalar(QDomDocument& xml, QDomElement object, const QString& name, con
         {
             if (!written)
             {
-                property.replaceChild(xml.createTextNode(value), child);
+                property.replaceChild(scalar(), child);
                 written = true;
             }
             else
@@ -79,7 +89,7 @@ void patchScalar(QDomDocument& xml, QDomElement object, const QString& name, con
     }
     if (!written)
     {
-        property.appendChild(xml.createTextNode(value));
+        property.appendChild(scalar());
     }
 }
 
@@ -662,6 +672,19 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
             baseline.project.calibration = expected.calibration;
             changed = true;
         }
+    }
+    if (expected.lengthUnit != baseline.project.lengthUnit)
+    {
+        const auto label = QString::fromStdString(expected.lengthUnit);
+        require(!label.isEmpty() && label.size() <= 256 && label == label.trimmed() && label.toStdString() == expected.lengthUnit);
+        for (const auto character : label)
+        {
+            require(character.unicode() >= 0x20 && character.unicode() != 0x7f && !character.isDigit());
+        }
+        // A unit is a label; any requested rescaling belongs to the reversible calibration edit.
+        patchScalar(xml, xml.documentElement(), "length_unit", "string", label);
+        baseline.project.lengthUnit = expected.lengthUnit;
+        changed = true;
     }
     if (expected.clip.firstFrame != baseline.project.clip.firstFrame || expected.clip.stepSize != baseline.project.clip.stepSize ||
         expected.clip.stepCount != baseline.project.clip.stepCount)

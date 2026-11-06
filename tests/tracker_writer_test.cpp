@@ -136,7 +136,6 @@ TEST(TrackerWriter, RejectsUnsupportedOrInvalidEditsBeforeReplacingTheDestinatio
         [](auto& project) { project.vectors[0].name = "renamed"; },
         [](auto& project) { project.clip.firstFrame = 2; },
         [](auto& project) { project.description = "edited"; },
-        [](auto& project) { project.lengthUnit = "cm"; },
         [](auto& project) { project.massUnit = "g"; },
         [](auto& project) { project.calibration = motrack::Calibration{}; },
         [](auto& project) { project.pointMasses[0].mass = std::numeric_limits<double>::quiet_NaN(); },
@@ -736,6 +735,64 @@ TEST(TrackerWriter, RejectsCalibratedVectorComponentAndMagnitudeOverflow)
         project.calibration = calibration;
         EXPECT_NO_THROW(static_cast<void>(motrack::renderTrackerProject(project, imported.source)));
     }
+}
+
+TEST(TrackerWriter, ExportsLengthUnitsThroughCalibrationHistoryAndNativeReopen)
+{
+    const auto imported =
+        motrack::parseTrackerProject(readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk"));
+    motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.calibrateDistance(document.project,
+                                        {.frame = 0,
+                                         .imageDeltaX = 4,
+                                         .imageDeltaY = 0,
+                                         .knownLength = 2,
+                                         .defaultOriginX = 320,
+                                         .defaultOriginY = 240,
+                                         .unit = "\xC2\xB5m"}));
+    const auto expected = document.project;
+    EXPECT_EQ(expected.calibration, imported.project.calibration);
+    ASSERT_TRUE(edits.undo(document.project));
+    EXPECT_EQ(document.project, imported.project);
+    ASSERT_TRUE(edits.redo(document.project));
+    EXPECT_EQ(document.project, expected);
+    QTemporaryDir temporary;
+    const auto native = temporary.filePath("units.motrack");
+    const auto output = temporary.filePath("units.trk");
+    motrack::writeWorkspaceDocument(native, document);
+    document = motrack::readWorkspaceDocument(native);
+    if (!document.trackerSource)
+    {
+        FAIL() << "Expected source after native reopen.";
+    }
+    motrack::writeTrackerProject(output, document.project, *document.trackerSource);
+    EXPECT_EQ(motrack::parseLegacyProject(readBytes(output)), expected);
+    auto saved = motrack::parseTrackerProject(readBytes(output));
+    saved.project.lengthUnit = "m & <lab>";
+    EXPECT_EQ(motrack::parseLegacyProject(motrack::renderTrackerProject(saved.project, saved.source)), saved.project);
+}
+
+TEST(TrackerWriter, RejectsInvalidUnitLabelsWithoutReplacingTheDestination)
+{
+    auto xml = std::string(sourceXml());
+    xml.insert(xml.find("<property name='tracks'>"), "<property name='length_unit' type='string'>m<!-- keep unit --></property>");
+    const auto imported = motrack::parseTrackerProject(xml);
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("existing.trk");
+    motrack::writeTrackerProject(output, imported.project, imported.source);
+    for (const auto& unit : std::vector<std::string>{"", " m", "m ", "m2", "m\n", "]]>m", "\xFF", std::string(257, 'm')})
+    {
+        auto project = imported.project;
+        project.lengthUnit = unit;
+        EXPECT_THROW(motrack::writeTrackerProject(output, project, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), xml);
+    }
+    auto project = imported.project;
+    project.lengthUnit = "cm";
+    const auto result = motrack::renderTrackerProject(project, imported.source);
+    EXPECT_EQ(motrack::parseLegacyProject(result).lengthUnit, "cm");
+    EXPECT_NE(result.find("<!-- keep unit -->"), std::string::npos);
 }
 
 } // namespace

@@ -21,7 +21,9 @@ public final class TrackerReference {
         try {
             if (args.length != 2) throw new IllegalArgumentException("Usage: TrackerReference input.trk output.json");
             if (!OSPRuntime.VERSION.equals("6.3.5")) throw new IllegalStateException("Expected Tracker 6.3.5");
-            XMLControlElement root = new XMLControlElement(Path.of(args[0]).toFile());
+            // Use Tracker's resource reader. The File constructor decodes with the platform default
+            // charset instead, which corrupts UTF-8 labels on Java 17 Windows.
+            XMLControlElement root = new XMLControlElement(Path.of(args[0]).toString());
             if (root.failedToRead() || !root.getObjectClassName().equals(TRACKER + "TrackerPanel"))
                 throw new IllegalArgumentException("Reference rejected the TrackerPanel document");
             Map<String, Object> report = map("reference_version", OSPRuntime.VERSION,
@@ -81,6 +83,7 @@ public final class TrackerReference {
             coordinateSamples.add(map("frame", frame, "image", List.of(13.5, 17.25),
                 "world", world(coords, frame, 13.5, 17.25)));
         Map<String, Object> result = map("source_version", string(root, "semantic_version", ""),
+            "length_unit", string(root, "length_unit", ""), "mass_unit", string(root, "mass_unit", "kg"),
             "clip", map("first_frame", first, "step_size", stride, "step_count", count,
                 "start_ms", number(clip, "starttime", 0.0)),
             "point_masses", masses, "vectors", vectors, "unsupported_tracks", unsupported,

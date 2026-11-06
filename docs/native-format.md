@@ -150,7 +150,7 @@ geometry. Full dependent-vector/display semantics must replace these restriction
 It requires known source associations, preserves unknown XML objects/properties and
 normalizes changed output to a matching UTF-8 declaration. Unchanged output is byte-exact. It rejects
 every other changed domain field before opening its atomic replacement file, including name,
-clip timing, units, keyed/moving calibration and track-membership edits. Range exports require a known `VideoClip` without
+clip timing, mass/time units, keyed/moving calibration and track-membership edits. Range exports require a known `VideoClip` without
 video, frame-shift or saved-video-frame-count properties. They reject missing/invalid counts, endpoints
 beyond Tracker 6.3.5's media-free frame 500000 limit, and overflow in its temporary frame-count arithmetic.
 Media references are rejected until relocation
@@ -183,6 +183,15 @@ the independent corpus probe, every point-mass mark and every vector endpoint; c
 alone cannot detect cancellation near zero. Translation-free vector components must also agree, and
 Tracker's squared-component magnitude calculation must remain finite. Angles stay in the native editor's -180 to 180 degree range.
 Unknown fields and measured image positions are retained. Creating/removing a coordinate system,
-changing units or fixed flags, time-varying keys and moving reference frames require later reference cases.
+changing fixed flags, time-varying keys and moving reference frames require later reference cases.
 The vector snapping guard also runs after calibration changes, preventing an origin move from silently
 reattaching a previously independent vector when Tracker opens the export.
+
+Length-unit labels can be exported independently or with a supported calibration edit. The current
+calibration command owns the label and scale together, including undo/redo. Changing only the label
+never converts numerical values. Labels must be nonempty, trimmed, valid UTF-8 and at most 256 UTF-16
+code units; control characters and digits are rejected consistently with Tracker's unit editor.
+Strings containing XML-sensitive characters use OSP-compatible CDATA because its string reader does
+not decode XML entities; the CDATA terminator is rejected before replacing a destination. Mass/time
+unit editing and unit defaults remain separate work. The corpus explicitly checks imported labels,
+Java's independently recorded default for an omitted label, and labels after Java resave/native reimport.
