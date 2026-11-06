@@ -9,6 +9,41 @@
 namespace
 {
 
+TEST(TrackEdits, RestoresDeletedTracksAndMarksInTheirOriginalOrder)
+{
+    motrack::LegacyProject project;
+    project.pointMasses = {{.name = "First", .marks = {{.frame = 0, .x = 3, .y = 4}}},
+                           {.name = "Second", .marks = {{.frame = 2, .x = 7, .y = 8}}}};
+    motrack::TrackEdits edits;
+    EXPECT_FALSE(edits.renamePointMass(project, 0, "Second"));
+    EXPECT_FALSE(edits.renamePointMass(project, 0, ""));
+    EXPECT_FALSE(edits.removePointMass(project, 2));
+    EXPECT_FALSE(edits.removeMark(project, 2, 0));
+    EXPECT_FALSE(edits.removeMark(project, 0, 3));
+    ASSERT_TRUE(edits.removeMark(project, 0, 0));
+    ASSERT_TRUE(edits.renamePointMass(project, 1, "Target"));
+    ASSERT_TRUE(edits.removePointMass(project, 0));
+    ASSERT_EQ(project.pointMasses.size(), 1u);
+    EXPECT_EQ(project.pointMasses.front().name, "Target");
+    ASSERT_TRUE(edits.markPointMass(project, 0, {.frame = 3, .x = 10, .y = 10}));
+    ASSERT_TRUE(edits.undo(project));
+    ASSERT_TRUE(edits.undo(project));
+    ASSERT_TRUE(edits.undo(project));
+    ASSERT_TRUE(edits.undo(project));
+    ASSERT_EQ(project.pointMasses.size(), 2u);
+    EXPECT_EQ(project.pointMasses.front().name, "First");
+    EXPECT_EQ(project.pointMasses.front().marks.front().frame, 0);
+    EXPECT_EQ(project.pointMasses.back().name, "Second");
+    EXPECT_EQ(project.pointMasses.back().marks.size(), 1u);
+    ASSERT_TRUE(edits.redo(project));
+    ASSERT_TRUE(edits.redo(project));
+    ASSERT_TRUE(edits.redo(project));
+    ASSERT_TRUE(edits.redo(project));
+    ASSERT_EQ(project.pointMasses.size(), 1u);
+    EXPECT_EQ(project.pointMasses.front().name, "Target");
+    EXPECT_EQ(project.pointMasses.front().marks.back().frame, 3);
+}
+
 TEST(TrackEdits, ChangesTheClipWithoutRenumberingMarks)
 {
     motrack::LegacyProject project;

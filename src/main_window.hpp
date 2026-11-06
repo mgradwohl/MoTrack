@@ -74,6 +74,10 @@ class MainWindow final : public QMainWindow
     void refreshEditViews(int track);
     void refreshPlot();
     void markAt(const QPointF& position);
+    void renameSelectedPointMass();
+    void removeSelectedPointMass();
+    void removeCurrentMark();
+    void updatePointMassActions();
     void repeatPreviousMark();
     void pickCalibrationPoint(const QPointF& position);
     void pickAxesPoint(const QPointF& position);
@@ -94,6 +98,9 @@ class MainWindow final : public QMainWindow
     QAction* m_SaveAs;
     QAction* m_Save;
     QAction* m_NewPointMass;
+    QAction* m_RenamePointMass;
+    QAction* m_RemovePointMass;
+    QAction* m_RemoveMark;
     QAction* m_Undo;
     QAction* m_Redo;
     QAction* m_Calibrate;

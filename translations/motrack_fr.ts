@@ -108,6 +108,12 @@
     <message><source>Length unit</source><translation>Unité de longueur</translation></message>
     <message><source>Calibration updated.</source><translation>Calibration mise à jour.</translation></message>
     <message><source>Could not apply this calibration.</source><translation>Impossible d’appliquer cette calibration.</translation></message>
+    <message><source>&amp;Rename point mass…</source><translation>&amp;Renommer la masse ponctuelle…</translation></message>
+    <message><source>&amp;Delete point mass</source><translation>&amp;Supprimer la masse ponctuelle</translation></message>
+    <message><source>Delete mark on this &amp;frame</source><translation>Supprimer le point de cette &amp;image</translation></message>
+    <message><source>Rename point mass</source><translation>Renommer la masse ponctuelle</translation></message>
+    <message><source>Track name</source><translation>Nom de la trajectoire</translation></message>
+    <message><source>Choose a unique, nonempty track name.</source><translation>Choisissez un nom de trajectoire unique et non vide.</translation></message>
   </context>
   <context>
     <name>PositionPlot</name>
