@@ -145,19 +145,30 @@ std::set<int> readKeys(const QDomElement& object, const std::vector<Mark>& origi
     return result;
 }
 
-void patchMarks(QDomDocument& xml, const QDomElement& object, const std::vector<Mark>& original, const std::vector<Mark>& current)
+struct FrameChanges
 {
-    std::map<int, const Mark*> marks;
+    std::vector<int> updated;
+    std::vector<int> removed;
+};
+
+template <typename Sample, typename Update>
+FrameChanges patchFrameData(QDomDocument& xml,
+                            const QDomElement& object,
+                            const std::vector<Sample>& original,
+                            const std::vector<Sample>& current,
+                            const QString& className,
+                            Update update)
+{
+    std::map<int, const Sample*> marks;
     int previous = -1;
     for (const auto& mark : current)
     {
-        require(mark.frame > previous && std::isfinite(mark.x) && std::isfinite(mark.y));
+        require(mark.frame > previous);
         marks.emplace(mark.frame, &mark);
         previous = mark.frame;
     }
-    auto keys = readKeys(object, original);
-    const auto oldKeys = keys;
-    const auto data = arrayProperty(xml, object, "framedata", "[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;");
+    FrameChanges changes;
+    const auto data = arrayProperty(xml, object, "framedata", "[L" + className + ';');
     std::map<int, QDomElement> entries;
     int lastEntry = -1;
     for (auto item = data.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"))
@@ -174,7 +185,7 @@ void patchMarks(QDomDocument& xml, const QDomElement& object, const std::vector<
             auto parent = data;
             parent.removeChild(entries.at(mark.frame));
             entries.erase(mark.frame);
-            keys.erase(mark.frame);
+            changes.removed.push_back(mark.frame);
         }
         else if (*found->second == mark)
         {
@@ -226,13 +237,10 @@ void patchMarks(QDomDocument& xml, const QDomElement& object, const std::vector<
             item.appendChild(step);
             item.appendChild(xml.createTextNode("\n"));
         }
-        require(
-            step.nextSiblingElement("object").isNull() &&
-            (step.attribute("class").isEmpty() || step.attribute("class") == "org.opensourcephysics.cabrillo.tracker.PointMass$FrameData"));
-        step.setAttribute("class", "org.opensourcephysics.cabrillo.tracker.PointMass$FrameData");
-        patchDouble(xml, step, "x", mark->x);
-        patchDouble(xml, step, "y", mark->y);
-        keys.insert(frame);
+        require(step.nextSiblingElement("object").isNull() && (step.attribute("class").isEmpty() || step.attribute("class") == className));
+        step.setAttribute("class", className);
+        update(xml, step, *mark);
+        changes.updated.push_back(frame);
     }
     // OSP's array reader consumes consecutive property lines. Deleting an entry can leave a blank
     // line in preserved formatting that makes it stop early. Format only this known structural array,
@@ -270,6 +278,29 @@ void patchMarks(QDomDocument& xml, const QDomElement& object, const std::vector<
     {
         array.appendChild(xml.createTextNode("\n"));
     }
+    return changes;
+}
+
+void patchMarks(QDomDocument& xml, const QDomElement& object, const std::vector<Mark>& original, const std::vector<Mark>& current)
+{
+    auto keys = readKeys(object, original);
+    const auto oldKeys = keys;
+    const auto changes = patchFrameData(xml,
+                                        object,
+                                        original,
+                                        current,
+                                        "org.opensourcephysics.cabrillo.tracker.PointMass$FrameData",
+                                        [](auto& document, const auto& step, const Mark& mark)
+                                        {
+                                            require(std::isfinite(mark.x) && std::isfinite(mark.y));
+                                            patchDouble(document, step, "x", mark.x);
+                                            patchDouble(document, step, "y", mark.y);
+                                        });
+    for (const auto frame : changes.removed)
+    {
+        keys.erase(frame);
+    }
+    keys.insert(changes.updated.begin(), changes.updated.end());
     // An empty key list makes Tracker promote every remaining automatic mark to a manual key.
     // Until that distinction is in the editable model, reject edits that cannot retain it.
     require(!keys.empty() || current.empty());
@@ -318,6 +349,81 @@ void sortTracks(LegacyProject& project)
     std::ranges::sort(project.vectors, {}, &VectorTrack::id);
 }
 
+bool retainsVectorComponent(double tail, double component)
+{
+    // Tracker stores endpoints internally, then reconstructs components by subtraction on save.
+    // Use the independent corpus tolerance in image-pixel units, including cancellation error.
+    const auto tip = tail + component;
+    const auto reconstructed = tip - tail;
+    const auto tolerance = std::max(1e-10, 1e-12 * std::max(std::abs(component), std::abs(reconstructed)));
+    return std::isfinite(tip) && std::isfinite(reconstructed) && std::abs(reconstructed - component) <= tolerance;
+}
+
+void requireStableVectors(const LegacyProject& project, const std::unordered_map<TrackId, QDomElement>& objects)
+{
+    std::vector<const VectorSample*> samples;
+    std::size_t frameSlots = 0;
+    for (const auto& vector : project.vectors)
+    {
+        // OSP allocates a dense Java array through the highest XML index, even for null entries.
+        // Bound individual indices and the sum across tracks before any destination is opened.
+        int lastFrame = -1;
+        const auto data = uniqueProperty(objects.at(vector.id), "framedata");
+        for (auto item = data.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"))
+        {
+            const auto frame = frameIndex(item.attribute("name"));
+            require(frame <= 500000);
+            lastFrame = std::max(lastFrame, frame);
+        }
+        for (const auto& sample : vector.samples)
+        {
+            require(sample.frame >= 0 && sample.frame <= 500000);
+            lastFrame = std::max(lastFrame, sample.frame);
+            require(samples.size() < 4096); // Bound the conservative all-visible-tip comparison below.
+            samples.push_back(&sample);
+        }
+        frameSlots += static_cast<std::size_t>(lastFrame + 1);
+        require(frameSlots <= 500001);
+        if (!vector.samples.empty())
+        {
+            const auto footprint = uniqueProperty(objects.at(vector.id), "footprint").text();
+            require(footprint == "Footprint.Arrow" || footprint == "Footprint.BoldArrow");
+        }
+    }
+    if (samples.empty())
+    {
+        return;
+    }
+    // Until dependencies and display scaling are modeled, only audit ordinary independent arrows
+    // with a fixed origin and no other tracks that could supply visible vector snap targets.
+    require(project.pointMasses.empty() &&
+            std::ranges::all_of(project.unsupportedTrackTypes,
+                                [](const auto& type) { return type == "org.opensourcephysics.cabrillo.tracker.CoordAxes"; }));
+    if (!project.calibration || !project.calibration->fixedOrigin || project.calibration->keyframes.empty())
+    {
+        require(false);
+        return;
+    }
+    const auto& origin = project.calibration->keyframes.back();
+    require(std::isfinite(origin.originX) && std::isfinite(origin.originY));
+    for (const auto* sample : samples)
+    {
+        require(std::isfinite(sample->tailX) && std::isfinite(sample->tailY) && std::isfinite(sample->componentX) &&
+                std::isfinite(sample->componentY) && retainsVectorComponent(sample->tailX, sample->componentX) &&
+                retainsVectorComponent(sample->tailY, sample->componentY));
+        // Tracker 6.3.5 snaps brand-new steps on first draw. Trails can expose steps from other frames.
+        require(std::hypot(sample->tailX - origin.originX, sample->tailY - origin.originY) > 8);
+        for (const auto* target : samples)
+        {
+            if (target != sample)
+            {
+                require(std::hypot(sample->tailX - (target->tailX + target->componentX),
+                                   sample->tailY - (target->tailY + target->componentY)) > 8);
+            }
+        }
+    }
+}
+
 void remapIds(LegacyProject& project, const std::unordered_map<TrackId, TrackId>& mapping, TrackId nextId)
 {
     for (auto& track : project.pointMasses)
@@ -357,6 +463,7 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
     auto expected = project;
     sortTracks(expected);
     require(expected.pointMasses.size() == baseline.project.pointMasses.size());
+    require(expected.vectors.size() == baseline.project.vectors.size());
 
     QDomDocument xml;
     require(static_cast<bool>(xml.setContent(QByteArray::fromStdString(source.xml), QDomDocument::ParseOption::PreserveSpacingOnlyNodes)));
@@ -389,12 +496,39 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
             changed = true;
         }
     }
+    for (std::size_t index = 0; index < expected.vectors.size(); ++index)
+    {
+        const auto& current = expected.vectors[index];
+        auto& original = baseline.project.vectors[index];
+        require(current.id == original.id);
+        if (current.samples != original.samples)
+        {
+            patchFrameData(xml,
+                           objects.at(current.id),
+                           original.samples,
+                           current.samples,
+                           "org.opensourcephysics.cabrillo.tracker.Vector$FrameData",
+                           [](auto& document, const auto& step, const VectorSample& sample)
+                           {
+                               require(std::isfinite(sample.tailX) && std::isfinite(sample.tailY) && std::isfinite(sample.componentX) &&
+                                       std::isfinite(sample.componentY) && retainsVectorComponent(sample.tailX, sample.componentX) &&
+                                       retainsVectorComponent(sample.tailY, sample.componentY));
+                               patchDouble(document, step, "xtail", sample.tailX);
+                               patchDouble(document, step, "ytail", sample.tailY);
+                               patchDouble(document, step, "xcomponent", sample.componentX);
+                               patchDouble(document, step, "ycomponent", sample.componentY);
+                           });
+            original.samples = current.samples;
+            changed = true;
+        }
+    }
     // Never produce a superficially valid file that silently omits an unsupported edit.
     require(baseline.project == expected);
     if (!changed)
     {
         return source.xml;
     }
+    requireStableVectors(expected, objects);
     // QDom emits UTF-8 bytes; do not retain an input declaration for a different encoding.
     for (auto node = xml.firstChild(); !node.isNull(); node = node.nextSibling())
     {

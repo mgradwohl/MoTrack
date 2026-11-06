@@ -17,18 +17,21 @@ import org.opensourcephysics.media.core.VideoClip;
 public final class VectorFixture {
     public static void main(String[] args) {
         try {
-            if (args.length != 1 || !OSPRuntime.VERSION.equals("6.3.5"))
+            if ((args.length != 1 && args.length != 2) || !OSPRuntime.VERSION.equals("6.3.5"))
                 throw new IllegalArgumentException("Expected Tracker 6.3.5 and one fresh output path");
+            String mode = args.length == 2 ? args[1] : "normal";
+            if (!List.of("normal", "snap-origin", "snap-vector").contains(mode))
+                throw new IllegalArgumentException("Unknown fixture mode");
             Path path = Path.of(args[0]).toAbsolutePath();
             if (Files.exists(path)) throw new IllegalArgumentException("Fixture output already exists");
             Locale.setDefault(Locale.US);
             Vector first = new Vector();
             first.setName("vector A");
-            first.createStep(0, 10, 20, 3, -4);
+            first.createStep(0, mode.equals("snap-origin") ? 321 : 10, mode.equals("snap-origin") ? 240 : 20, 3, -4);
             first.createStep(5, 30, 40, -5, 12);
             Vector second = new Vector();
             second.setName("vector B");
-            second.createStep(2, 50, 60, 0, 0);
+            second.createStep(2, mode.equals("snap-vector") ? 14 : 50, mode.equals("snap-vector") ? 16 : 60, 0, 0);
             VideoClip clip = new VideoClip(null);
             clip.setStepCount(10);
             ImageCoordSystem coords = new ImageCoordSystem(10);

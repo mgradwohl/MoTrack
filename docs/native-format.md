@@ -134,19 +134,34 @@ Only the selected archive tab is editable today. Multi-document controllers, mul
 and standard-file writers remain unfinished. An unknown object retained in this
 envelope is not an implemented track type.
 
-The initial internal standard writer can patch point-mass mass values and mark positions/additions/deletions in media-free projects after a
-native reopen. It requires known source associations, preserves unknown XML objects/properties and
+The initial internal standard writer can patch point-mass mass values, mark positions/additions/deletions,
+and independent-vector tails/components/additions/deletions in media-free projects after a native reopen.
+Vector exports reject nonfinite endpoints and components that Tracker's endpoint subtraction would
+change beyond the reference tolerance (absolute `1e-10` image pixels or relative `1e-12`).
+Tracker also automatically snaps newly loaded arrows on their first draw. Changed files containing
+vector samples currently require a known fixed origin, plain Arrow/BoldArrow footprints, no point-mass
+or unsupported vector providers, and at most 4096 samples. Vector frame indices (including retained
+null XML entries) cannot exceed 500000, and the sum of dense frame-array lengths across vectors cannot
+exceed 500001 slots; this bounds Tracker's allocation for sparse high-frame samples. Tails within 8 image pixels of the origin or
+any other sample's tip are rejected before output replacement; the comparison includes other frames
+because trails can expose them. This conservative bound avoids silently introducing links or moving
+geometry. Full dependent-vector/display semantics must replace these restrictions before full parity.
+It requires known source associations, preserves unknown XML objects/properties and
 normalizes changed output to a matching UTF-8 declaration. Unchanged output is byte-exact. It rejects
 every other changed domain field before opening its atomic replacement file, including name,
-clip, calibration, vector and track-membership edits. Media references are rejected until relocation
+clip, calibration and track-membership edits. Media references are rejected until relocation
 and packaging are supported. Changed/new marks become manual keyframes; unchanged automatic marks
 retain their original key status. Deleting the last manual key while leaving automatic marks is rejected,
 because Tracker treats an empty key list as all remaining marks being manual. Unknown properties on
 retained frame objects survive; deleting a mark removes its frame object. Rewritten frame arrays omit
 structural blank lines because the OSP array reader stops at them. Empty key lists use Tracker's
 empty array container, and adding a first mark after Java has resaved that container is reference-tested.
-Explicitly preserved frame-array whitespace and comments that would stop OSP's reader cause rejection. This path is exercised by the reference corpus;
-it does not add a desktop export action or mark the native document saved. Standard export checkpoints,
+Explicitly preserved frame-array whitespace and comments that would stop OSP's reader cause rejection.
+This path is exercised by the reference corpus.
+Vector cases also clear every sample and add the first sample after Java resaves the empty vector.
+The shared frame writer retains unknown properties on existing frames, validates finite positions/components,
+and preserves original frame numbers; vector samples do not acquire point-mass keyframe lists.
+It does not add a desktop export action or mark the native document saved. Standard export checkpoints,
 additional edit types, media relocation, `.trz` packaging and paired-save recovery remain phase-3 work.
 
 See the [full-port implementation order](migration-plan.md#implementation-order-and-exit-gates) and

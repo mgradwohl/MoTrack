@@ -175,6 +175,18 @@ class CorpusTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Invalid corpus artifact"):
             corpus.load_manifest(path)
 
+    def test_snapping_oracle_requires_the_actual_tracker_geometry_change(self):
+        manifest = corpus.load_manifest()
+        case = next(case for case in manifest["cases"] if case["id"] == "independent-vectors")
+        for mode, track, before, after in [("snap-origin", 0, [321.0, 240.0], [320.0, 240.0]),
+                                           ("snap-vector", 1, [14.0, 16.0], [13.0, 16.0])]:
+            expected = corpus.snapping_roundtrip_expected(case, mode)
+            self.assertEqual(expected["vectors"][track]["samples"][0]["tail"], after)
+            wrong = copy.deepcopy(expected)
+            wrong["vectors"][track]["samples"][0]["tail"] = before
+            with self.assertRaises(ValueError):
+                corpus.compare(expected, wrong, manifest["tolerance"])
+
     def test_vector_session_requires_loaded_tails_components_and_frames(self):
         manifest = corpus.load_manifest()
         case = next(case for case in manifest["cases"] if case["id"] == "independent-vectors")
@@ -193,6 +205,25 @@ class CorpusTests(unittest.TestCase):
                 invalid[state]["tracks"][1]["vector_samples"][0][field] = value
             with self.subTest(field=field), self.assertRaises(ValueError):
                 corpus.validate_session(case, invalid, manifest)
+
+    def test_vector_export_rejects_unrequested_geometry_and_unknown_content_changes(self):
+        case = next(case for case in corpus.load_manifest()["cases"] if case["id"] == "independent-vectors")
+        original = corpus.local_fixture_path(case)
+        exported = self.root / "exported.trk"
+        expected = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
+        xml = original.read_text(encoding="utf-8")
+        expected["vectors"][0]["samples"][0]["tail"][0] = 22.5
+        edited = xml.replace('name="xtail" type="double">10.0', 'name="xtail" type="double">22.5', 1)
+        for name, before, after in [("ytail", "20.0", "20"), ("xcomponent", "3.0", "3"), ("ycomponent", "-4.0", "-4")]:
+            edited = edited.replace(f'name="{name}" type="double">{before}', f'name="{name}" type="double">{after}', 1)
+        exported.write_text(edited, encoding="utf-8")
+        corpus.verify_vector_export_xml(original, exported, expected)
+        for invalid in [xml, edited.replace('>22.5<', '>23.5<', 1),
+                        edited.replace('>Footprint.BoldArrow<', '>Footprint.Arrow<', 1),
+                        edited.replace('name="[5]"', 'name="[6]"', 1)]:
+            exported.write_text(invalid, encoding="utf-8")
+            with self.assertRaises(ValueError):
+                corpus.verify_vector_export_xml(original, exported, expected)
 
     def test_mark_session_requires_edited_samples_and_manual_keys(self):
         manifest = corpus.load_manifest()
