@@ -156,6 +156,8 @@ TEST(TrackerReferences, ReportsMalformedNamesObjectsAndDuplicateContainers)
         "<property name='item'><object/></property>",
         "<property name='item'><other/><object class='Future'/></property>",
         "<property name='item'><object class='Future'/><object class='Future'/></property>",
+        "<property name='item' type='string'><object class='Future'>" + property("name", "A") + "</object></property>",
+        "<property name='item'>garbage<object class='Future'>" + property("name", "A") + "</object></property>",
         "<property name='item'><object class='Future'/></property>",
         "<property name='item'><object class='Future'>" + property("name", "A") + property("name", "B") + "</object></property>",
         "<property name='item'><object class='Future'><property name='name' type='string'><object/></property></object></property>"};
@@ -171,6 +173,33 @@ TEST(TrackerReferences, ReportsMalformedNamesObjectsAndDuplicateContainers)
     EXPECT_TRUE(duplicate.tracks.empty());
     EXPECT_EQ(duplicate.malformedPaths, (std::vector<std::string>{"/tracks"}));
     EXPECT_EQ(duplicate.references[0].resolution, Resolution::Missing);
+}
+
+TEST(TrackerReferences, DistinguishesMalformedContainersFromAbsentOrEmptyCollections)
+{
+    for (const auto& container : {"<property name='tracks' type='string'>garbage</property>",
+                                  "<property name='tracks' type='string'/>",
+                                  "<property name='tracks'><object class='Future'/></property>",
+                                  "<property name='tracks'><unexpected/></property>",
+                                  "<property name='tracks'><![CDATA[garbage]]></property>",
+                                  "<property name='tracks'>\xE2\x80\x83</property>"})
+    {
+        const auto result =
+            index("<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>" + std::string(container) + "</object>");
+        EXPECT_TRUE(result.tracks.empty());
+        EXPECT_EQ(result.malformedPaths, (std::vector<std::string>{"/tracks"}));
+    }
+    const auto mixed = index(project("garbage" + point("A"), property("selectedtrack", "A")));
+    EXPECT_TRUE(mixed.tracks.empty());
+    EXPECT_EQ(mixed.malformedPaths, (std::vector<std::string>{"/tracks"}));
+    EXPECT_EQ(mixed.references[0].resolution, Resolution::Missing);
+    const auto valid = index(project(" \t\r\n<!-- retained --><?note retained?><![CDATA[\n]]>" + point("A")));
+    EXPECT_TRUE(valid.malformedPaths.empty());
+    EXPECT_EQ(valid.tracks.size(), 1u);
+    const auto empty = index("<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>"
+                             "<property name='tracks' type='collection' class='java.util.ArrayList'> \n</property></object>");
+    EXPECT_TRUE(empty.tracks.empty());
+    EXPECT_TRUE(empty.malformedPaths.empty());
 }
 
 TEST(TrackerReferences, RejectsMalformedPackedStringsWithoutPartialReferenceResults)

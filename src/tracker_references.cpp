@@ -4,6 +4,7 @@
 #include <QDomDocument>
 #include <QStringList>
 
+#include <algorithm>
 #include <unordered_map>
 #include <utility>
 
@@ -61,6 +62,25 @@ std::optional<QString> stringValue(const Property& value, qsizetype limit)
 }
 
 using NameTargets = std::unordered_map<std::string, std::vector<std::size_t>>;
+
+bool onlyChildren(const QDomElement& owner, const QString& tag)
+{
+    for (auto child = owner.firstChild(); !child.isNull(); child = child.nextSibling())
+    {
+        if (child.isComment() || child.isProcessingInstruction() || (child.isElement() && child.nodeName() == tag))
+        {
+            continue;
+        }
+        if ((child.isText() || child.isCDATASection()) &&
+            std::ranges::all_of(child.nodeValue(),
+                                [](QChar value) { return value == ' ' || value == '\t' || value == '\n' || value == '\r'; }))
+        {
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
 
 void addReference(
     TrackerReferenceIndex& result, const NameTargets& names, TrackerReferenceKind kind, std::string path, const QString& name, bool packed)
@@ -166,7 +186,8 @@ TrackerReferenceIndex indexTrackerReferences(const TrackerSource& source, const 
     }
     const auto panel = xml.documentElement();
     const auto tracks = property(panel, "tracks");
-    if (tracks.duplicate)
+    const auto containerType = tracks.element.attribute("type");
+    if (tracks.duplicate || (!containerType.isEmpty() && containerType != "collection") || !onlyChildren(tracks.element, "property"))
     {
         result.malformedPaths.emplace_back("/tracks");
     }
@@ -183,7 +204,9 @@ TrackerReferenceIndex indexTrackerReferences(const TrackerSource& source, const 
             TrackerSourceTrack track{
                 .sourceIndex = index, .className = object.attribute("class").toStdString(), .originalName = {}, .nativeId = {}};
             const auto path = "/tracks/" + std::to_string(index);
-            if (object.isNull() || !object.nextSiblingElement().isNull() || item.firstChildElement() != object || track.className.empty())
+            const auto itemType = item.attribute("type");
+            if (object.isNull() || !object.nextSiblingElement().isNull() || track.className.empty() ||
+                (!itemType.isEmpty() && itemType != "object") || !onlyChildren(item, "object"))
             {
                 result.malformedPaths.push_back(path);
             }
