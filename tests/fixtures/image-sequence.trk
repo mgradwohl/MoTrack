@@ -16,6 +16,23 @@
       </property>
     </object>
   </property>
+  <property name="length_unit" type="string">m</property>
+  <property name="coords" type="object">
+    <object class="org.opensourcephysics.media.core.ImageCoordSystem">
+      <property name="fixedorigin" type="boolean">true</property>
+      <property name="fixedangle" type="boolean">true</property>
+      <property name="fixedscale" type="boolean">true</property>
+      <property name="framedata" type="array">
+        <property name="[0]" type="object"><object>
+          <property name="xorigin" type="double">0</property>
+          <property name="yorigin" type="double">4</property>
+          <property name="angle" type="double">0</property>
+          <property name="xscale" type="double">2</property>
+          <property name="yscale" type="double">4</property>
+        </object></property>
+      </property>
+    </object>
+  </property>
   <property name="tracks" type="collection">
     <property name="item" type="object">
       <object class="org.opensourcephysics.cabrillo.tracker.PointMass">

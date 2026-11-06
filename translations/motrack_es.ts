@@ -25,5 +25,12 @@
     <message><source>This image frame could not be opened.</source><translation>No se pudo abrir este fotograma.</translation></message>
     <message><source>Decoding frame…</source><translation>Decodificando fotograma…</translation></message>
     <message><source>This video frame could not be decoded.</source><translation>No se pudo decodificar este fotograma de vídeo.</translation></message>
+    <message><source>&amp;Export measurements…</source><translation>&amp;Exportar mediciones…</translation></message>
+    <message><source>Export measurements</source><translation>Exportar mediciones</translation></message>
+    <message><source>CSV files (*.csv)</source><translation>Archivos CSV (*.csv)</translation></message>
+    <message><source>Could not save the measurements.</source><translation>No se pudieron guardar las mediciones.</translation></message>
+    <message><source>Measurements exported.</source><translation>Mediciones exportadas.</translation></message>
+    <message><source>World x</source><translation>x del mundo</translation></message>
+    <message><source>World y</source><translation>y del mundo</translation></message>
   </context>
 </TS>

@@ -4,7 +4,7 @@ MoTrack is a planned desktop application for measuring motion in video, plotting
 
 ## Project status
 
-MoTrack is in early development. The desktop prototype opens Tracker `.trk` files, steps through attached local movies and image sequences, and displays saved point-mass marks on the frame and in a table. The first experiment milestone also calls for distance calibration, manual marking, plotting, and CSV export. See the [migration plan](docs/migration-plan.md) for scope and acceptance criteria.
+MoTrack is in early development. The desktop prototype opens Tracker `.trk` files, steps through attached local movies and image sequences, and displays saved point-mass marks on the frame and in a table. It imports saved image calibration and exports the selected clip's measurements to CSV. The first experiment milestone also calls for editing calibration, manual marking, and plotting. See the [migration plan](docs/migration-plan.md) for scope and acceptance criteria.
 
 ## Development
 
