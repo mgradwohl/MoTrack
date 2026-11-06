@@ -37,6 +37,9 @@ to it elsewhere. Do not describe planned functionality or unavailable tooling as
   setup tools unless changing them is part of the task.
 - Keep scientific analysis and the project data model independent of Qt Widgets, FFmpeg, and OS APIs.
   Translate at adapter boundaries; keep drawing and selection in the workspace.
+- Preserve the required [Tracker round-trip workflow](docs/migration-plan.md#tracker-round-trip-compatibility).
+  A `.motrack` companion is allowed alongside standard files; native-only saving is not the compatibility
+  target. Retain unknown source content and validate exported edits by reopening them in Java Tracker.
 - Document coordinate spaces, units, original frame numbers, clip steps, and timestamps. Changes to
   scientific results need explicit reasoning and numerical reference tests against the pinned Tracker
   behavior. Do not silently substitute zero for missing or unsupported measurements.

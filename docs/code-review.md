@@ -29,7 +29,10 @@ to MoTrack. It is the only review checklist; agent entry points link here.
 - Require finite values, safe bounds/conversions, and defined behavior for empty or degenerate inputs.
   Use explicit tolerances for scientific comparisons; preserve uncertainty/missing values.
 - Compare changed scientific algorithms or legacy interpretations with a pinned reference and record
-  intentional differences. Newly supported `.trk` writes require validation in the Java app.
+  intentional differences. Newly supported `.trk`/`.trz` writes require validation in the Java app,
+  including edited values, untouched content, media, and dependent objects. Apply the
+  [round-trip acceptance criteria](migration-plan.md#tracker-round-trip-compatibility), including a
+  native save/reopen and partial failures when writing the companion and standard files together.
 - Cache keys must cover every input that affects the result, including document/decoder generation,
   frame identity, orientation, calibration, and requested units. Bound cache and archive resource use.
 
