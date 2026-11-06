@@ -5,7 +5,7 @@ It compares MoTrack's importer and coordinate calculations with snapshots produc
 XML loader and `ImageCoordSystem` implementation bundled in the official **Tracker 6.3.5** JAR.
 
 The original report names its verification level `xml_and_coordinate_api`. A separate session probe
-uses Tracker's actual application/async-loader lifecycle to open the three experiments without media,
+uses Tracker's actual application/async-loader lifecycle to open the media-free experiments,
 save through Tracker's normal saver and reopen in a fresh Java process. Its report is labeled
 `tracker_session_resave`. It checks loaded track classes/names, mass values, step points, clip bounds,
 units and coordinate probes before/after Java's own resave, and compares available point-mass/coordinate
@@ -57,6 +57,7 @@ are likewise pinned and reproducible; expected values come only from the Java re
 | Protractor | 6.0.7 | Two named point masses, their marks/calibration; mass-value and mark edits through the standard round-trip runner | Protractor and its saved settings |
 | Independent vectors (synthetic) | 6.3.5 | Two independent vectors, sparse frames, a zero vector, nonuniform scale; actual Java session resave | Track colors/footprints and coordinate axes |
 | Keyed calibration (synthetic) | 6.3.5 | Origin, rotation and nonuniform scale vary at frames 0/4/9; marks before and at each transition; import and Java session resave | Coordinate axes and display settings |
+| Center of mass (synthetic) | 6.3.5 | Two unequal point masses at sparse frames; independently expected constituent names, total mass and weighted image/world positions in the Java session | Native center-of-mass editing/evaluation and moving reference frames |
 | Dynamic sine | 5.1.2 | Clip and calibration; dynamic particle is reported as unsupported | Model parameters, functions and plot settings |
 
 The probe reads the `.trk` member selected by the manifest from BallToss's `.trz`. It does not exercise
@@ -232,3 +233,24 @@ also checked against independent constants before and after resave; unchanged ma
 cannot prove that all calibration parameters survived.
 Partly fixed systems, key deletion, varying vector coordinates, attachments and reference frames are
 separate follow-ups; this case must not be reported as full calibration parity.
+
+## Named center-of-mass reference
+
+`CenterOfMassFixture.java` creates `fixtures/center-of-mass.trk` with the pinned Tracker 6.3.5
+serializers. It has no media, three clip frames and two recorded frames (0 and 2). The generator
+uses a fresh output path, US locale and LF normalization. Two independent runs reproduced the
+7798-byte fixture with SHA-256 `813bc52c54e95ac6034bdb33bccdbaa547f592f4443fa963a5e2159ee00989a2`.
+The committed XML/coordinate snapshot was produced by the pinned Java helper, not MoTrack.
+
+Mass A is 2 kg with image points (10,20) and (14,28); mass B is 3 kg with (40,60) and (44,68).
+The manifest independently requires member names A/B, total mass 5 kg and weighted image points
+(28,44) and (32,52). With origin (20,20), scales (2,4) and zero rotation, the corresponding world
+points are (4,-6) and (6,-8). Frame 1 stays unmarked. The actual application helper waits for the
+normal draw path to resolve members, then checks these values before/after save and after a fresh
+reopen. Missing or consistently wrong membership, total mass, frames or positions must fail.
+
+MoTrack imports the two plain masses and reports the center as unsupported. This is reference
+coverage for R08 and named relationships, not native dependent-track implementation or standard
+rename/export acceptance. Moving reference frames, nested centers and edited constituent updates
+still need their own cases. Run the generator with the same bounded Java settings as the keyed
+fixture, substituting `CenterOfMassFixture.java` and a new `.trk` output path.

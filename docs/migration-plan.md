@@ -126,7 +126,7 @@ and platform evidence before it can be marked complete.
 | R05 | Movies, stills, image sequences and zipped sequences; accurate clip/time/frame controls and media properties | Partial: local movies/images, clip trim/stride, timestamp indexing, orientation, cache, and playback exist. Audit all baseline formats, rates, sequence operations, and properties controls. | 1, 4, 6 |
 | R06 | Complete point-mass editing and appearance: selection, dragging/nudging, numeric positions, multiselect, locks, labels, trails, paths, and vector overlays | Partial: manual marking/replacement, repeat, rename/delete, mass, and undo exist. Finish manipulation, appearance, path length, and selection behavior. | 4–5 |
 | R07 | Independent vectors, linked vectors, sums, their data, editing, and persistence | Partial: independent vectors import/display/edit/undo/native-save. Internal sample export has reference cases; links, sums, analysis and desktop standard saving remain. | 3–5 |
-| R08 | Center-of-mass tracks, constituents, dependent updates, and moving reference frames | Missing; persistent IDs exist for current editable types, but dependency evaluation and referenced-track semantics remain. | 2, 5 |
+| R08 | Center-of-mass tracks, constituents, dependent updates, and moving reference frames | Native implementation missing. A Java-authored center-of-mass reference checks named constituents, total mass and independent weighted positions; native dependency evaluation, editing and moving reference frames remain. | 2, 5 |
 | R09 | Fixed or varying calibration, axes, calibration sticks/points, offset origins, attachments, coordinate locks, and L/M/T/angle units | Partial: imported calibration keys, basic distance calibration and axes exist. Internal fixed-calibration and length/mass-unit export have reference cases. A Java-authored varying-calibration case checks added/edited keys and world positions at boundaries. Finish partly fixed/moving calibration, key deletion, varying vectors, time-unit export, tool tracks, units UI/defaults, attachments and reference frames. | 3–5 |
 | R10 | Persistent tape measures, protractors, circle fitting, attachments, and their changing measurements | Partial: temporary distance/angle tools only; these are not persisted Tracker track equivalents. | 5 |
 | R11 | Full AutoTracker: masks, search areas, keyframes, target offsets, match scores, subpixel positions, evolution/tethering, look-ahead, line search, stop/retry/skip, and live/fast modes | Partial: fixed grayscale patch and bounded search on a point mass, background operation, uncertainty stop. Reference algorithm and interaction parity remain. | 5–7 |
@@ -246,10 +246,10 @@ expression evaluation precedes models and custom fits; complete rendering preced
 Localization, accessibility, performance checks and serialization accompany every phase, not just phase 12.
 
 Phase 1 now has a [versioned seed corpus and reference harness](../tests/corpus/README.md): three real
-upstream experiments plus Java-authored synthetic vector and keyed-calibration fixtures, checksum-pinned Tracker 6.3.5,
+upstream experiments plus Java-authored synthetic vector, keyed-calibration and center-of-mass fixtures, checksum-pinned Tracker 6.3.5,
 independent Java XML/coordinate snapshots and a
 native importer comparison. An additional Linux virtual-display probe opens the two experiments without
-media plus both synthetic fixtures through Tracker's normal application loader, saves them in Java, then reopens and compares the
+media plus the synthetic fixtures through Tracker's normal application loader, saves them in Java, then reopens and compares the
 loaded content. This is Java's own resave baseline, not MoTrack standard-file export acceptance.
 The keyed case checks world positions before and at changes in origin, angle and nonuniform scale.
 Point-mass world coordinates from the loaded Java panel are compared with independent expected values,
@@ -257,8 +257,10 @@ so a consistently wrong resave cannot pass. The standard keyed writer uses this 
 partly fixed coordinates, attachments and moving reference frames still need separate cases.
 The protractor session also checks selected-track and plot/table selection targets against independent
 manifest expectations, using live objects and the normal packed-string serializer. This begins the
-[name-reference acceptance work](tracker-name-references.md); column/format owners, attachments,
-dependent constituents and standard rename export remain unfinished.
+[name-reference acceptance work](tracker-name-references.md); column/format owners, attachments and
+standard rename export remain unfinished. A separate center-of-mass fixture checks named membership,
+total mass and independently calculated image/world positions at sparse frames; native dependent-track
+behavior and edited dependency round trips remain unfinished.
 Media/archive session loading, broader requirement coverage, runtime/dependency provenance and exact
 source mapping remain unfinished. The initial phase-3 writer/reference path covers mass values, marks, independent-vector
 samples, clip ranges, existing fixed/fully varying calibration and length/mass-unit labels, including native reopen and Java resave; expand it
@@ -364,6 +366,7 @@ Current inventory, checked on 2026-11-06:
 | --- | --- | --- |
 | `point-mass.trk`, `image-sequence.trk`, `movie.trk` and `archive.trz` | Committed under [tests/fixtures](../tests/fixtures), with tiny generated media and additional inline XML tests. | Targeted parser, timing, path and application regressions; not reference-app round-trip proof. |
 | `independent-vectors.trk` | Java-authored synthetic fixture, reproducible generator and checksum recorded in [the corpus](../tests/corpus/README.md). | Sparse/zero independent vectors and nonuniform calibration; native import and actual Java session resave, with tail/component checks. Native vector export adds moved/added/deleted samples and empty/first-sample round-trip cases; clip export covers trim/stride and retention of samples outside the clip; fixed-calibration export checks origin/rotation/nonuniform scale without moving image samples. A length-unit case preserves a Unicode label without moving geometry or changing calibration. Snapping cases explicitly verify rejected unsafe exports. CI evidence belongs to each writer PR. |
+| `center-of-mass.trk` | Java-authored synthetic fixture and independent weighted-position expectations in the corpus manifest. | Two named point masses and their center at sparse frames. Native import reports the center as unsupported; the Java application baseline checks resolved members, total mass and image/world positions across resave. |
 | `keyed-calibration.trk` | Java-authored synthetic fixture and independent Java snapshot with pinned bytes; reproducible generator in the corpus. | Fully varying origin/rotation/nonuniform scale at frames 0/4/9, with point-mass image/world coordinates checked before and at transitions. Native import and Java application resave reference; a standard-export case adds/edits keys with unchanged image marks and independent world values. See its writer PR for CI evidence. |
 | `BallToss.trz`, `protractor.trk`, `asinewave.trk` | Reproducibly fetched using [tests/corpus/manifest.json](../tests/corpus/manifest.json), with committed independent Java snapshots. | Native import/coordinate comparisons for real point masses, clip/calibration values and reporting unsupported models/tools. No complete GUI load or standard-file export claim. |
 | `binary_star.trz` | Local development sample; project records Tracker 6.2.0 and contains `DynamicSystem` and `DynamicParticle` objects. | Useful future model/preservation case; no automated corpus baseline yet. |

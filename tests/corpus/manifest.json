@@ -142,6 +142,31 @@
         }
       ],
       "provenance": "Authored by tools/reference/KeyedCalibrationFixture.java using checksum-pinned Tracker 6.3.5 serializers; reproduced byte-for-byte; no MoTrack output used."
+    },
+    {
+      "id": "center-of-mass",
+      "local_file": "fixtures/center-of-mass.trk",
+      "file": "center-of-mass.trk",
+      "bytes": 7798,
+      "sha256": "813bc52c54e95ac6034bdb33bccdbaa547f592f4443fa963a5e2159ee00989a2",
+      "tracker_version": "6.3.5",
+      "features": ["two-point-masses", "named-constituents", "unsupported-center-of-mass", "sparse-frames", "java-authored-synthetic"],
+      "requirements": ["R02", "R03", "R08"],
+      "expected": "expected/center-of-mass.json",
+      "session_tracks": [
+        {"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes", "name": "axes"},
+        {"class": "org.opensourcephysics.cabrillo.tracker.PointMass", "name": "mass A"},
+        {"class": "org.opensourcephysics.cabrillo.tracker.PointMass", "name": "mass B"},
+        {"class": "org.opensourcephysics.cabrillo.tracker.CenterOfMass", "name": "center"}
+      ],
+      "session_centers": [
+        {"name": "center", "members": ["mass A", "mass B"], "mass": 5.0,
+         "samples": [
+           {"frame": 0, "image": [28.0, 44.0], "world": [4.0, -6.0]},
+           {"frame": 2, "image": [32.0, 52.0], "world": [6.0, -8.0]}
+         ]}
+      ],
+      "provenance": "Authored by tools/reference/CenterOfMassFixture.java using checksum-pinned Tracker 6.3.5 serializers; reproduced byte-for-byte; independent weighted-position expectations; no MoTrack output used."
     }
   ]
 }
