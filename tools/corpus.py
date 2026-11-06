@@ -337,7 +337,7 @@ def verify_length_unit_export_xml(original, exported):
     unit = expected.createElement("property")
     unit.setAttribute("name", "length_unit")
     unit.setAttribute("type", "string")
-    unit.appendChild(expected.createTextNode("\u00b5m"))
+    unit.appendChild(expected.createCDATASection("\u00b5m"))
     root.appendChild(unit)
     actual = minidom.parse(str(exported))
     matches = canonical_tracker_xml(expected) == canonical_tracker_xml(actual)

@@ -221,10 +221,10 @@ class CorpusTests(unittest.TestCase):
         exported = self.root / "unit.trk"
         xml = original.read_text(encoding="utf-8")
         pos = xml.rfind("</object>")
-        edited = xml[:pos] + '<property name="length_unit" type="string">\u00b5m</property>' + xml[pos:]
+        edited = xml[:pos] + '<property name="length_unit" type="string"><![CDATA[\u00b5m]]></property>' + xml[pos:]
         exported.write_text(edited, encoding="utf-8")
         corpus.verify_length_unit_export_xml(original, exported)
-        for invalid in [xml, edited.replace('>\u00b5m<', '>m<'),
+        for invalid in [xml, edited.replace('\u00b5m', 'm'),
                         edited.replace('name="xscale" type="double">2.0', 'name="xscale" type="double">3.0'),
                         edited.replace('name="xtail" type="double">10.0', 'name="xtail" type="double">11.0')]:
             exported.write_text(invalid, encoding="utf-8")

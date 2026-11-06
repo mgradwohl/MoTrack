@@ -58,17 +58,25 @@ void patchScalar(QDomDocument& xml, QDomElement object, const QString& name, con
         object.appendChild(xml.createTextNode("\n"));
     }
     require(property.attribute("type") == type && property.firstChildElement().isNull());
-    // OSP strings decode CDATA, but do not decode XML entity references such as &amp;.
+    // OSP requires the CDATA terminator immediately before </property>. It does not decode
+    // entities in ordinary strings, and preserving adjacent comments can make its reader hang.
+    if (type == "string")
+    {
+        for (auto child = property.firstChild(); !child.isNull(); child = child.nextSibling())
+        {
+            require(child.isText() || child.isCDATASection());
+        }
+    }
     const auto scalar = [&]() -> QDomNode
     {
-        if (type == "string" && (value.contains('&') || value.contains('<') || value.contains('>')))
+        if (type == "string")
         {
             require(!value.contains("]]>"));
             return xml.createCDATASection(value);
         }
         return xml.createTextNode(value);
     };
-    // Preserve comments and processing instructions within the scalar property.
+    // Preserve comments and processing instructions within numeric scalar properties.
     bool written = false;
     for (auto child = property.firstChild(); !child.isNull();)
     {
@@ -686,9 +694,10 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
     {
         const auto label = QString::fromStdString(expected.lengthUnit);
         require(!label.isEmpty() && label.size() <= 256 && label == label.trimmed() && label.toStdString() == expected.lengthUnit);
-        for (const auto character : label)
+        for (const auto codePoint : label.toUcs4())
         {
-            require(character.unicode() >= 0x20 && character.unicode() != 0x7f && !character.isDigit());
+            const auto category = QChar::category(codePoint);
+            require(category != QChar::Other_Control && category != QChar::Other_Format && !QChar::isDigit(codePoint));
         }
         // A unit is a label; any requested rescaling belongs to the reversible calibration edit.
         patchScalar(xml, xml.documentElement(), "length_unit", "string", label);

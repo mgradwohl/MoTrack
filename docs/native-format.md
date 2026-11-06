@@ -193,8 +193,11 @@ reattaching a previously independent vector when Tracker opens the export.
 Length-unit labels can be exported independently or with a supported calibration edit. The current
 calibration command owns the label and scale together, including undo/redo. Changing only the label
 never converts numerical values. Labels must be nonempty, trimmed, valid UTF-8 and at most 256 UTF-16
-code units; control characters and digits are rejected consistently with Tracker's unit editor.
-Strings containing XML-sensitive characters use OSP-compatible CDATA because its string reader does
-not decode XML entities; the CDATA terminator is rejected before replacing a destination. Mass/time
+code units; Unicode control/format characters and decimal digits are rejected by code point,
+including C1 controls and supplementary digits. Supplementary letters remain valid labels.
+String labels use OSP-compatible CDATA because its string reader does not decode XML entities. Edits
+to a source unit containing comments or processing instructions are rejected: OSP requires the CDATA
+terminator immediately before the closing property tag and can hang on an intervening comment.
+The CDATA terminator in a label is also rejected before replacing a destination. Mass/time
 unit editing and unit defaults remain separate work. The corpus explicitly checks imported labels,
 Java's independently recorded default for an omitted label, and labels after Java resave/native reimport.

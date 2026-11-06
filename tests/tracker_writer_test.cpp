@@ -771,17 +771,20 @@ TEST(TrackerWriter, ExportsLengthUnitsThroughCalibrationHistoryAndNativeReopen)
     auto saved = motrack::parseTrackerProject(readBytes(output));
     saved.project.lengthUnit = "m & <lab>";
     EXPECT_EQ(motrack::parseLegacyProject(motrack::renderTrackerProject(saved.project, saved.source)), saved.project);
+    saved.project.lengthUnit = "\xF0\x9D\x91\x8Em"; // Supplementary letter, not a decimal digit.
+    EXPECT_EQ(motrack::parseLegacyProject(motrack::renderTrackerProject(saved.project, saved.source)), saved.project);
 }
 
 TEST(TrackerWriter, RejectsInvalidUnitLabelsWithoutReplacingTheDestination)
 {
     auto xml = std::string(sourceXml());
-    xml.insert(xml.find("<property name='tracks'>"), "<property name='length_unit' type='string'>m<!-- keep unit --></property>");
+    xml.insert(xml.find("<property name='tracks'>"), "<property name='length_unit' type='string'>m</property>");
     const auto imported = motrack::parseTrackerProject(xml);
     QTemporaryDir temporary;
     const auto output = temporary.filePath("existing.trk");
     motrack::writeTrackerProject(output, imported.project, imported.source);
-    for (const auto& unit : std::vector<std::string>{"", " m", "m ", "m2", "m\n", "]]>m", "\xFF", std::string(257, 'm')})
+    for (const auto& unit :
+         std::vector<std::string>{"", " m", "m ", "m2", "m\n", "]]>m", "m\xC2\x81x", "m\xF0\x9D\x9F\x9A", "\xFF", std::string(257, 'm')})
     {
         auto project = imported.project;
         project.lengthUnit = unit;
@@ -792,7 +795,26 @@ TEST(TrackerWriter, RejectsInvalidUnitLabelsWithoutReplacingTheDestination)
     project.lengthUnit = "cm";
     const auto result = motrack::renderTrackerProject(project, imported.source);
     EXPECT_EQ(motrack::parseLegacyProject(result).lengthUnit, "cm");
-    EXPECT_NE(result.find("<!-- keep unit -->"), std::string::npos);
+    EXPECT_NE(result.find("<![CDATA[cm]]></property>"), std::string::npos);
+}
+
+TEST(TrackerWriter, RejectsUnitEditsWithUnpreservableSourceNodes)
+{
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("existing.trk");
+    for (const auto* content : {"m<!-- keep unit -->", "<!-- keep unit -->m", "m<?unit keep?>", "<![CDATA[m]]><!-- keep unit -->"})
+    {
+        auto xml = std::string(sourceXml());
+        xml.insert(xml.find("<property name='tracks'>"),
+                   std::string("<property name='length_unit' type='string'>") + content + "</property>");
+        const auto imported = motrack::parseTrackerProject(xml);
+        motrack::writeTrackerProject(output, imported.project, imported.source);
+        EXPECT_EQ(readBytes(output), xml);
+        auto edited = imported.project;
+        edited.lengthUnit = "cm";
+        EXPECT_THROW(motrack::writeTrackerProject(output, edited, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), xml);
+    }
 }
 
 TEST(TrackerWriter, RejectsVectorReconstructionErrorsAmplifiedByNewOrExistingCalibration)
