@@ -1,5 +1,6 @@
 #include "legacy_project.hpp"
 
+#include <QTemporaryFile>
 #include <gtest/gtest.h>
 
 namespace
@@ -80,6 +81,15 @@ TEST(LegacyProject, RejectsInvalidInput)
           <property name="[1]">missing-zero.jpg</property>
         </property></object></property>)")),
                  motrack::ProjectError);
+}
+
+TEST(LegacyProject, RejectsOversizedProjectFilesBeforeReading)
+{
+    QTemporaryFile file;
+    ASSERT_TRUE(file.open());
+    ASSERT_TRUE(file.resize(32LL * 1024 * 1024 + 1));
+    file.close();
+    EXPECT_THROW(motrack::readLegacyProject(std::filesystem::path(file.fileName().toStdU16String())), motrack::ProjectError);
 }
 
 TEST(LegacyProject, RejectsInvalidMarks)

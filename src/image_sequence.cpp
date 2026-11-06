@@ -10,6 +10,16 @@
 namespace motrack
 {
 
+QString resolveLocalMediaPath(const QString& projectPath, const std::string& reference)
+{
+    const auto path = QString::fromStdString(reference);
+    if (path.isEmpty() || path.contains("!/") || path.contains("://") || path.startsWith(':'))
+    {
+        return {};
+    }
+    return QDir(QFileInfo(projectPath).absolutePath()).absoluteFilePath(path);
+}
+
 std::optional<ImageSequence> ImageSequence::open(const QString& projectPath, const Clip& clip)
 {
     if (clip.firstFrame < 0 || clip.stepSize < 1 || clip.mediaReferences.empty() ||
@@ -31,19 +41,10 @@ std::optional<ImageSequence> ImageSequence::open(const QString& projectPath, con
         return std::nullopt;
     }
 
-    const QDir directory(QFileInfo(projectPath).absolutePath());
     ImageSequence sequence;
     for (const auto& reference : clip.mediaReferences)
     {
-        const auto path = QString::fromStdString(reference);
-        if (path.contains("!/") || path.contains("://") || path.startsWith(':'))
-        {
-            sequence.m_Paths.append(QString());
-        }
-        else
-        {
-            sequence.m_Paths.append(directory.absoluteFilePath(path));
-        }
+        sequence.m_Paths.append(resolveLocalMediaPath(projectPath, reference));
     }
     sequence.m_FirstFrame = clip.firstFrame;
     sequence.m_StepSize = clip.stepSize;

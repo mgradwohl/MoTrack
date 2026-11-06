@@ -31,7 +31,8 @@ if(MOTRACK_PGO_PROFILE AND NOT EXISTS "${MOTRACK_PGO_PROFILE}")
     message(FATAL_ERROR "Generate the PGO profile first: ${MOTRACK_PGO_PROFILE}")
 endif()
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Widgets Xml LinguistTools)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Widgets Xml LinguistTools Concurrent)
+include(cmake/MoTrackFFmpeg.cmake)
 
 add_library(motrack_project STATIC src/legacy_project.cpp)
 target_include_directories(motrack_project PUBLIC src)
@@ -39,7 +40,10 @@ target_link_libraries(motrack_project PUBLIC Qt6::Core PRIVATE Qt6::Xml)
 
 add_executable(motrack src/main.cpp)
 add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp)
-target_link_libraries(motrack_workspace PUBLIC motrack_project Qt6::Widgets)
+add_library(motrack_media STATIC src/video_reader.cpp)
+target_include_directories(motrack_media PUBLIC src)
+target_link_libraries(motrack_media PUBLIC Qt6::Gui PRIVATE motrack_ffmpeg)
+target_link_libraries(motrack_workspace PUBLIC motrack_project Qt6::Widgets PRIVATE motrack_media Qt6::Concurrent)
 target_link_libraries(motrack PRIVATE motrack_workspace)
 qt_add_translations(motrack
     TS_FILES translations/motrack_es.ts
@@ -47,7 +51,7 @@ qt_add_translations(motrack
     RESOURCE_PREFIX "/i18n"
 )
 
-set(motrack_targets motrack_project motrack_workspace motrack)
+set(motrack_targets motrack_project motrack_media motrack_workspace motrack)
 if(MOTRACK_BUILD_BENCHMARKS)
     add_executable(motrack_import_benchmark benchmarks/import_benchmark.cpp)
     target_link_libraries(motrack_import_benchmark PRIVATE motrack_project)
@@ -84,6 +88,7 @@ endforeach()
 
 include(CTest)
 if(BUILD_TESTING)
+    find_package(Qt6 6.8 REQUIRED COMPONENTS Test)
     include(FetchContent)
     set(gtest_force_shared_crt ON CACHE BOOL "Match the application CRT on Windows")
     set(INSTALL_GTEST OFF CACHE BOOL "Build tests without installing GoogleTest")
@@ -100,10 +105,16 @@ if(BUILD_TESTING)
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
     add_test(NAME legacy_project COMMAND motrack_tests)
     add_executable(motrack_workspace_tests tests/workspace_test.cpp)
-    target_link_libraries(motrack_workspace_tests PRIVATE motrack_workspace GTest::gtest)
+    target_link_libraries(motrack_workspace_tests PRIVATE motrack_workspace GTest::gtest Qt6::Test)
     target_compile_definitions(motrack_workspace_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
     add_test(NAME workspace COMMAND motrack_workspace_tests)
+    set_tests_properties(workspace PROPERTIES TIMEOUT 30)
+    add_executable(motrack_media_tests tests/video_reader_test.cpp)
+    target_link_libraries(motrack_media_tests PRIVATE motrack_media GTest::gtest_main)
+    target_compile_definitions(motrack_media_tests PRIVATE
+        MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+    add_test(NAME video_reader COMMAND motrack_media_tests)
     add_test(NAME desktop_smoke COMMAND motrack --smoke-test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/point-mass.trk")
     add_test(NAME desktop_invalid_project COMMAND motrack --smoke-test
@@ -118,6 +129,6 @@ if(BUILD_TESTING)
 
     if(MOTRACK_COVERAGE)
         file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/coverage-objects.txt"
-            CONTENT "$<TARGET_FILE:motrack>\n$<TARGET_FILE:motrack_tests>\n$<TARGET_FILE:motrack_workspace_tests>\n")
+            CONTENT "$<TARGET_FILE:motrack>\n$<TARGET_FILE:motrack_tests>\n$<TARGET_FILE:motrack_workspace_tests>\n$<TARGET_FILE:motrack_media_tests>\n")
     endif()
 endif()

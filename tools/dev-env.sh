@@ -2,7 +2,7 @@
 # Source this file to use the MoTrack toolchain in the current shell.
 
 motrack_dev_env() {
-    local repo llvm tools qt
+    local repo llvm tools qt media
     repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)" || return
     case "$(uname -s)" in
         Linux) llvm=/usr/lib/llvm-18/bin ;;
@@ -31,6 +31,10 @@ motrack_dev_env() {
                 *) export CMAKE_PREFIX_PATH="$qt${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}" ;;
             esac
             export PATH="$qt/bin:$PATH"
+        fi
+        media="$(python3 "$repo/tools/media_sdk.py" prefix)" || return
+        if [[ -f "$media/share/ffmpeg/FindFFMPEG.cmake" ]]; then
+            export MOTRACK_FFMPEG_ROOT="$media"
         fi
     fi
 }

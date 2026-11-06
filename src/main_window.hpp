@@ -4,7 +4,12 @@
 #include "legacy_project.hpp"
 
 #include <QCoreApplication>
+#include <QFutureWatcher>
 #include <QMainWindow>
+#include <QThreadPool>
+
+#include <atomic>
+#include <memory>
 
 class QLabel;
 class QSlider;
@@ -22,11 +27,14 @@ class MainWindow final : public QMainWindow
 
   public:
     MainWindow();
+    ~MainWindow() override;
     bool loadProject(const QString& path);
 
   private:
     void displayStep(int step);
     void displayMarks();
+    void displayFrame(const ImageFrame& frame, const QString& failureMessage);
+    void requestMovieFrame(int frame);
 
     VideoCanvas* m_Video;
     QLabel* m_FrameLabel;
@@ -36,6 +44,10 @@ class MainWindow final : public QMainWindow
     QTableWidget* m_Marks;
     LegacyProject m_Project;
     std::optional<ImageSequence> m_Sequence;
+    QString m_MoviePath;
+    QThreadPool m_MovieWorkers;
+    std::unique_ptr<QFutureWatcher<QImage>> m_FrameWatcher;
+    std::shared_ptr<std::atomic_uint64_t> m_RequestGeneration = std::make_shared<std::atomic_uint64_t>(0);
 };
 
 } // namespace motrack

@@ -16,6 +16,9 @@ struct ImageFrame
     QImage image;
 };
 
+/// Resolves a local media reference from a Tracker document. Archive and URL references return empty.
+QString resolveLocalMediaPath(const QString& projectPath, const std::string& reference);
+
 class ImageSequence
 {
   public:

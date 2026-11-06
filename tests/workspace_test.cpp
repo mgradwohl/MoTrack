@@ -1,10 +1,16 @@
 #include "image_sequence.hpp"
 #include "main_window.hpp"
 
+#include <QAction>
 #include <QApplication>
+#include <QFile>
+#include <QFileDialog>
 #include <QLabel>
 #include <QSlider>
 #include <QTableWidget>
+#include <QTemporaryDir>
+#include <QTest>
+#include <QTimer>
 #include <QToolButton>
 #include <gtest/gtest.h>
 
@@ -19,6 +25,7 @@ QString fixturePath(const QString& name)
 TEST(ImageSequence, ReportsMissingImagesAndRejectsOutOfRangeSteps)
 {
     motrack::Clip clip;
+    EXPECT_FALSE(motrack::ImageSequence::open(fixturePath("image-sequence.trk"), clip).has_value());
     clip.mediaReferences = {"https://example.invalid/remote.ppm", "archive.trz!/frame.ppm", "missing.ppm"};
     const auto sequence = motrack::ImageSequence::open(fixturePath("image-sequence.trk"), clip);
     if (!sequence)
@@ -40,6 +47,40 @@ TEST(ImageSequence, ReportsMissingImagesAndRejectsOutOfRangeSteps)
     }
     clip.firstFrame = 3;
     EXPECT_FALSE(motrack::ImageSequence::open(fixturePath("image-sequence.trk"), clip).has_value());
+}
+
+TEST(Workspace, OpensAProjectThroughTheFileMenu)
+{
+    motrack::MainWindow window;
+    window.show();
+    auto* open = window.findChild<QAction*>("openProject");
+    ASSERT_NE(open, nullptr);
+    QTimer watchdog;
+    watchdog.setSingleShot(true);
+    QObject::connect(&watchdog,
+                     &QTimer::timeout,
+                     &window,
+                     []
+                     {
+                         if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget()))
+                         {
+                             dialog->reject();
+                         }
+                     });
+    watchdog.start(2000);
+    QTimer::singleShot(0,
+                       &window,
+                       []
+                       {
+                           auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
+                           if (dialog != nullptr)
+                           {
+                               dialog->selectFile(fixturePath("image-sequence.trk"));
+                               QMetaObject::invokeMethod(dialog, "accept");
+                           }
+                       });
+    open->trigger();
+    EXPECT_TRUE(window.windowTitle().contains("image-sequence.trk"));
 }
 
 TEST(Workspace, StepsThroughImagesAndKeepsImportedMarks)
@@ -79,10 +120,51 @@ TEST(Workspace, StepsThroughImagesAndKeepsImportedMarks)
     EXPECT_TRUE(label->text().isEmpty());
 }
 
+TEST(Workspace, StepsThroughAMovieOnABackgroundWorker)
+{
+    motrack::MainWindow window;
+    window.show();
+    ASSERT_TRUE(window.loadProject(fixturePath("movie.trk")));
+    auto* canvas = window.findChild<QWidget*>("videoCanvas");
+    auto* slider = window.findChild<QSlider*>("stepSlider");
+    ASSERT_TRUE(canvas && slider);
+    ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 1"; }));
+    slider->setValue(1);
+    ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 3"; }));
+    slider->setValue(0);
+    ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
+    QCoreApplication::processEvents();
+    EXPECT_EQ(canvas->accessibleName(), "Frame 0");
+}
+
+TEST(Workspace, ReportsUnavailableMovieFrames)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    ASSERT_TRUE(QFile::copy(fixturePath("vfr.mp4"), temporary.filePath("vfr.mp4")));
+    QFile source(fixturePath("movie.trk"));
+    ASSERT_TRUE(source.open(QIODevice::ReadOnly));
+    auto xml = source.readAll();
+    xml.replace(R"(name="stepcount" type="int">2)", R"(name="stepcount" type="int">3)");
+    QFile project(temporary.filePath("movie.trk"));
+    ASSERT_TRUE(project.open(QIODevice::WriteOnly));
+    ASSERT_EQ(project.write(xml), xml.size());
+    project.close();
+
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(project.fileName()));
+    auto* slider = window.findChild<QSlider*>("stepSlider");
+    auto* canvas = window.findChild<QWidget*>("videoCanvas");
+    ASSERT_TRUE(slider && canvas);
+    slider->setValue(2);
+    ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "This video frame could not be decoded."; }));
+}
+
 } // namespace
 
 int main(int argc, char** argv)
 {
+    QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     const QApplication app(argc, argv);
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

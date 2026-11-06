@@ -1,5 +1,7 @@
 #include "main_window.hpp"
 
+#include "video_reader.hpp"
+
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHBoxLayout>
@@ -16,6 +18,7 @@
 #include <QToolBar>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <QtConcurrentRun>
 
 #include <algorithm>
 #include <utility>
@@ -71,6 +74,7 @@ MainWindow::MainWindow()
     setWindowTitle("MoTrack");
     resize(1000, 650);
     auto* open = new QAction(tr("&Open Tracker project…"), this);
+    open->setObjectName("openProject");
     open->setShortcut(QKeySequence::Open);
     menuBar()->addMenu(tr("&File"))->addAction(open);
     addToolBar(tr("Project"))->addAction(open);
@@ -97,6 +101,7 @@ MainWindow::MainWindow()
     m_Next->setToolTip(m_Next->accessibleName());
     m_StepSlider = new QSlider(Qt::Horizontal);
     m_StepSlider->setObjectName("stepSlider");
+    m_StepSlider->setTracking(false);
     m_StepSlider->setAccessibleName(tr("Clip position"));
     m_FrameLabel = new QLabel;
     m_FrameLabel->setObjectName("frameLabel");
@@ -116,6 +121,7 @@ MainWindow::MainWindow()
     workspace->setStretchFactor(1, 1);
     setCentralWidget(workspace);
     statusBar()->showMessage(tr("Ready"));
+    m_MovieWorkers.setMaxThreadCount(1);
 
     displayStep(0);
     connect(m_StepSlider, &QSlider::valueChanged, this, &MainWindow::displayStep);
@@ -134,6 +140,11 @@ MainWindow::MainWindow()
             });
 }
 
+MainWindow::~MainWindow()
+{
+    ++*m_RequestGeneration;
+}
+
 bool MainWindow::loadProject(const QString& path)
 {
     try
@@ -146,16 +157,29 @@ bool MainWindow::loadProject(const QString& path)
         return false;
     }
 
+    ++*m_RequestGeneration;
+    m_FrameWatcher.reset();
     displayMarks();
     m_Sequence = ImageSequence::open(path, m_Project.clip);
+    m_MoviePath.clear();
+    const auto& clip = m_Project.clip;
+    if (!m_Sequence && clip.mediaReferences.size() == 1 && clip.stepCount.value_or(0) > 0)
+    {
+        const auto movie = resolveLocalMediaPath(path, clip.mediaReferences.front());
+        if (QFileInfo(movie).isFile())
+        {
+            m_MoviePath = movie;
+        }
+    }
+    const int stepCount = m_Sequence ? m_Sequence->stepCount() : (m_MoviePath.isEmpty() ? 0 : clip.stepCount.value_or(0));
     {
         const QSignalBlocker blocker(m_StepSlider);
-        m_StepSlider->setRange(0, m_Sequence ? m_Sequence->stepCount() - 1 : 0);
+        m_StepSlider->setRange(0, std::max(0, stepCount - 1));
         m_StepSlider->setValue(0);
     }
-    if (!m_Sequence)
+    if (stepCount == 0)
     {
-        m_Video->display({}, {}, tr("No supported image sequence is attached to this project."));
+        m_Video->display({}, {}, tr("No supported local video or image sequence is attached to this project."));
     }
     displayStep(0);
     statusBar()->showMessage(
@@ -183,28 +207,94 @@ void MainWindow::displayMarks()
 
 void MainWindow::displayStep(int step)
 {
-    const auto frame = m_Sequence ? m_Sequence->readStep(step) : std::nullopt;
     m_StepSlider->setEnabled(m_StepSlider->maximum() > 0);
     m_Previous->setEnabled(step > 0);
     m_Next->setEnabled(step < m_StepSlider->maximum());
-    if (!frame)
+    if (const auto frame = m_Sequence ? m_Sequence->readStep(step) : std::nullopt)
+    {
+        displayFrame(*frame, tr("This image frame could not be opened."));
+    }
+    else if (!m_MoviePath.isEmpty())
+    {
+        const auto number = m_Project.clip.firstFrame + static_cast<std::int64_t>(step) * m_Project.clip.stepSize;
+        if (std::in_range<int>(number))
+        {
+            requestMovieFrame(static_cast<int>(number));
+        }
+        else
+        {
+            m_FrameLabel->clear();
+            m_Video->display({}, {}, tr("This video frame could not be decoded."));
+        }
+    }
+    else
     {
         m_FrameLabel->clear();
-        return;
     }
+}
 
-    const auto label = tr("Frame %1").arg(frame->number);
+void MainWindow::displayFrame(const ImageFrame& frame, const QString& failureMessage)
+{
+    const auto label = tr("Frame %1").arg(frame.number);
     m_FrameLabel->setText(label);
     QList<QPointF> points;
     for (const auto& track : m_Project.pointMasses)
     {
-        const auto mark = std::ranges::lower_bound(track.marks, frame->number, {}, &Mark::frame);
-        if (mark != track.marks.end() && mark->frame == frame->number)
+        const auto mark = std::ranges::lower_bound(track.marks, frame.number, {}, &Mark::frame);
+        if (mark != track.marks.end() && mark->frame == frame.number)
         {
             points.emplaceBack(mark->x, mark->y);
         }
     }
-    m_Video->display(frame->image, std::move(points), frame->image.isNull() ? tr("This image frame could not be opened.") : label);
+    m_Video->display(frame.image, std::move(points), frame.image.isNull() ? failureMessage : label);
+}
+
+void MainWindow::requestMovieFrame(int frame)
+{
+    const auto generation = ++*m_RequestGeneration;
+    m_FrameLabel->setText(tr("Frame %1").arg(frame));
+    m_Video->display({}, {}, tr("Decoding frame…"));
+    m_FrameWatcher = std::make_unique<QFutureWatcher<QImage>>();
+    auto* watcher = m_FrameWatcher.get();
+    connect(watcher,
+            &QFutureWatcher<QImage>::finished,
+            this,
+            [this, watcher, generation, frame]
+            {
+                if (generation == *m_RequestGeneration)
+                {
+                    displayFrame({.number = frame, .image = watcher->result()}, tr("This video frame could not be decoded."));
+                }
+            });
+    watcher->setFuture(QtConcurrent::run(&m_MovieWorkers,
+                                         [path = m_MoviePath, request = m_RequestGeneration, generation, frame]() -> QImage
+                                         {
+                                             if (generation != *request)
+                                             {
+                                                 return {};
+                                             }
+                                             try
+                                             {
+                                                 VideoReader reader(path);
+                                                 while (generation == *request)
+                                                 {
+                                                     const auto next = reader.readNext();
+                                                     if (!next)
+                                                     {
+                                                         break;
+                                                     }
+                                                     if (std::cmp_equal(next->ordinal, frame))
+                                                     {
+                                                         return next->image;
+                                                     }
+                                                 }
+                                             }
+                                             catch (const VideoError&)
+                                             {
+                                                 return {};
+                                             }
+                                             return {};
+                                         }));
 }
 
 } // namespace motrack

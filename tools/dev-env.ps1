@@ -61,6 +61,12 @@ function Initialize-MoTrackEnvironment {
             $prefixes = @($qt) + @($env:CMAKE_PREFIX_PATH -split ';')
             $env:CMAKE_PREFIX_PATH = (($prefixes | Where-Object { $_ } | Select-Object -Unique) -join ';')
         }
+        $media = & $python (Join-Path $repo 'tools\media_sdk.py') prefix
+        if ($LASTEXITCODE -ne 0) { throw 'Could not locate the MoTrack FFmpeg SDK.' }
+        if (Test-Path -LiteralPath (Join-Path $media 'share\ffmpeg\FindFFMPEG.cmake')) {
+            $env:MOTRACK_FFMPEG_ROOT = $media
+            Add-MoTrackPath @((Join-Path $media 'bin'))
+        }
     }
 }
 
