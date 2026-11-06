@@ -135,8 +135,9 @@ and standard-file writers remain unfinished. An unknown object retained in this
 envelope is not an implemented track type.
 
 The initial internal standard writer can patch point-mass mass values, mark positions/additions/deletions,
-independent-vector tails/components/additions/deletions, clip start/stride/count, and existing fixed
-coordinate-system origin/rotation/scale in media-free projects after a native reopen. Clip edits retain all measurements, including frames outside the clip.
+independent-vector tails/components/additions/deletions, clip start/stride/count, length-unit labels,
+and supported fixed/fully varying coordinate-system keys in media-free projects after a native reopen.
+Clip edits retain all measurements, including frames outside the clip.
 Vector exports reject nonfinite endpoints and components that Tracker's endpoint subtraction would
 change beyond the reference tolerance (absolute `1e-10` image pixels or relative `1e-12`).
 Tracker also automatically snaps newly loaded arrows on their first draw. Changed files containing
@@ -186,9 +187,21 @@ reconstructed `(tail + component) - tail` values, so scale amplification cannot 
 tolerance. Changed vector files receive these checks even when the calibration itself is unchanged;
 keyed and partly fixed vector-coordinate systems need their own reference cases before export. Angles stay in the native editor's -180 to 180 degree range.
 Unknown fields and measured image positions are retained. Creating/removing a coordinate system,
-changing fixed flags, time-varying keys and moving reference frames require later reference cases.
+changing fixed flags and moving reference frames require later reference cases.
 The vector snapping guard also runs after calibration changes, preventing an origin move from silently
 reattaching a previously independent vector when Tracker opens the export.
+
+The same writer also supports adding/editing keys in an existing, unlocked coordinate system with all
+three fixed flags false, starting at frame 0, in projects without vector tracks. Each key's inverse,
+origin and independent coordinate probe are validated; retained marks use the active key at their own
+original frame number. Unchanged keys are validated too, preventing a different edit from hiding an
+unstable transform. New/retained calibration frame indices, including null source placeholders, are
+bounded at 500000 for OSP's dense arrays. Varying systems also bound the sum of each key's remaining
+frame range at 1000000, including the clip/marks, because OSP recomputes dense transforms for each key.
+This rejects excessive work before opening a file, without running a stress test. Updates preserve unknown key fields and untouched keys.
+The existing distance/axes commands own these changes with undo/redo and native save/reopen. Removing
+keys, partly fixed systems, varying vector coordinates and moving reference frames remain unsupported;
+failed validation leaves an existing destination unchanged.
 
 Length-unit labels can be exported independently or with a supported calibration edit. The current
 calibration command owns the label and scale together, including undo/redo. Changing only the label

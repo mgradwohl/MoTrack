@@ -34,7 +34,7 @@ and keyframes still have to match exactly.
 The vector cases change tails/components, insert/delete samples, clear a vector, then add its first
 sample after Java resaves the empty vector. They compare unchanged XML, image-space tails/components,
 loaded Java vectors and native reimport. Clip ranges, fixed calibration and length labels have additional
-cases described below. Names, keyed calibration and track-membership edits, media/archive
+cases described below. Names, partly fixed calibration and track-membership edits, media/archive
 round trips, desktop export UI and paired saves remain unfinished.
 
 ## Sources and cases
@@ -168,7 +168,7 @@ The `calibration` case changes the vector fixture's existing fixed origin to (10
 maps image (13.5, 17.25) to world (12.84375, 21.625); Java's coordinate API and application must agree
 before and after resave. All vector image positions/components and unrelated XML remain unchanged.
 Native tests additionally exercise undo/redo, native reopen, locked/unsupported coordinate modes,
-nonfinite/singular transforms and destination preservation. Keyed/moving system export remains pending.
+nonfinite/singular transforms and destination preservation. Partly fixed/moving system export remains pending.
 
 Vector session snapshots compare the scientific tip/tail positions and independently expected
 tail/components. Transient drag handles and display points are excluded: Tracker does not serialize
@@ -197,10 +197,22 @@ angle -90 degrees, scale (2,8). A mark at image (10,20) maps to world (-155,55) 
 All point-mass session samples now include world coordinates evaluated by the loaded Tracker panel;
 the harness checks these against the independent baseline before save, after save and after reopening.
 Matching wrong values across all three stages must still fail. This establishes a reference for future
-keyed-calibration export; it does not yet claim that MoTrack can export those edits.
+keyed-calibration export, independently of the edited standard-file case below.
 
 Regenerate the fixture only to a fresh temporary path and compare bytes before proposing a baseline change:
 
 ```sh
 java -Djava.awt.headless=true -Xmx256m --class-path .dev-tools/tracker-reference/tracker-6.3.5.jar tools/reference/KeyedCalibrationFixture.java /temporary/path/keyed-calibration.trk
 ```
+
+The `keyed-calibration` standard round trip uses three reversible native commands: change frame 4's
+scales to (8,16), place its origin at (120,140) with zero rotation, and add a key at frame 3 with origin
+(80,90), angle -90 degrees and inherited scales (2,4). All image marks and keys 0/9 remain unchanged.
+The independent world-coordinate expectations at image (10,20) become (-17.5,-35) at frame 3 and
+(-13.75,7.5) at frames 4/8. A whole-tree XML comparison permits only those key edits/addition, then
+native reparse, actual Tracker load/save/reopen and native reimport check the edited scientific values.
+The loaded Tracker panel's fixed flags and every calibration key's frame, origin, angle and scale are
+also checked against independent constants before and after resave; unchanged mark positions alone
+cannot prove that all calibration parameters survived.
+Partly fixed systems, key deletion, varying vector coordinates, attachments and reference frames are
+separate follow-ups; this case must not be reported as full calibration parity.

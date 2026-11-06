@@ -107,6 +107,7 @@
     },
     {
       "id": "keyed-calibration",
+      "native_keyed_calibration_roundtrip": true,
       "local_file": "fixtures/keyed-calibration.trk",
       "file": "keyed-calibration.trk",
       "bytes": 6638,

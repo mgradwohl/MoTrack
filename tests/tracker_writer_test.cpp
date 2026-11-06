@@ -1,5 +1,6 @@
 #include "tracker_writer.hpp"
 
+#include "measurements.hpp"
 #include "track_edits.hpp"
 #include "workspace_document.hpp"
 
@@ -9,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -815,6 +817,124 @@ TEST(TrackerWriter, RejectsUnitEditsWithUnpreservableSourceNodes)
         EXPECT_THROW(motrack::writeTrackerProject(output, edited, imported.source), motrack::ProjectError);
         EXPECT_EQ(readBytes(output), xml);
     }
+}
+
+TEST(TrackerWriter, ExportsAddedAndEditedCalibrationKeysThroughHistoryAndNativeReopen)
+{
+    auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/keyed-calibration.trk");
+    xml.insert(xml.find(R"(<property name="xorigin" type="double">100.0)"),
+               "<property name=\"unknown_key_field\" type=\"string\">keep this</property>\n");
+    const auto imported = motrack::parseTrackerProject(xml);
+    motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.calibrateDistance(
+        document.project,
+        {.frame = 4, .imageDeltaX = 8, .imageDeltaY = 0, .knownLength = 1, .defaultOriginX = 0, .defaultOriginY = 0, .unit = "m"}));
+    ASSERT_TRUE(
+        edits.setCoordinateAxes(document.project, {.frame = 4, .originX = 120, .originY = 140, .positiveX = 128, .positiveY = 140}));
+    ASSERT_TRUE(edits.setCoordinateAxes(document.project, {.frame = 3, .originX = 80, .originY = 90, .positiveX = 80, .positiveY = 98}));
+    const auto expected = document.project;
+    for (int index = 0; index < 3; ++index)
+    {
+        ASSERT_TRUE(edits.undo(document.project));
+    }
+    EXPECT_EQ(document.project, imported.project);
+    for (int index = 0; index < 3; ++index)
+    {
+        ASSERT_TRUE(edits.redo(document.project));
+    }
+    EXPECT_EQ(document.project, expected);
+    EXPECT_EQ(document.project.pointMasses, imported.project.pointMasses);
+    QTemporaryDir temporary;
+    const auto native = temporary.filePath("keyed.motrack");
+    const auto output = temporary.filePath("keyed.trk");
+    motrack::writeWorkspaceDocument(native, document);
+    document = motrack::readWorkspaceDocument(native);
+    if (!document.trackerSource || !document.project.calibration)
+    {
+        FAIL() << "Expected source and calibration after native reopen.";
+    }
+    motrack::writeTrackerProject(output, document.project, *document.trackerSource);
+    const auto saved = readBytes(output);
+    EXPECT_EQ(motrack::parseLegacyProject(saved), expected);
+    EXPECT_NE(saved.find("keep this"), std::string::npos);
+    const std::array<motrack::WorldPoint, 5> world{
+        {{.x = -155, .y = 55}, {.x = -17.5, .y = -35}, {.x = -13.75, .y = 7.5}, {.x = -13.75, .y = 7.5}, {.x = -13.75, .y = -50}}};
+    for (std::size_t index = 0; index < world.size(); ++index)
+    {
+        const auto actual = motrack::worldPosition(*document.project.calibration, document.project.pointMasses.front().marks[index]);
+        if (!actual)
+        {
+            FAIL() << "Expected a world coordinate after keyed export.";
+        }
+        EXPECT_NEAR(actual->x, world[index].x, 1e-10);
+        EXPECT_NEAR(actual->y, world[index].y, 1e-10);
+    }
+}
+
+TEST(TrackerWriter, RejectsUnsupportedOrUnstableCalibrationKeysWithoutReplacingFiles)
+{
+    const auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/keyed-calibration.trk");
+    const auto imported = motrack::parseTrackerProject(xml);
+    ASSERT_TRUE(imported.project.calibration.has_value());
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("existing.trk");
+    const auto native = temporary.filePath("invalid.motrack");
+    motrack::writeTrackerProject(output, imported.project, imported.source);
+    const std::vector<std::function<void(motrack::Calibration&)>> changes{
+        [](auto& value) { value.fixedOrigin = true; },
+        [](auto& value) { value.fixedAngle = true; },
+        [](auto& value) { value.fixedScale = true; },
+        [](auto& value) { value.keyframes.erase(value.keyframes.begin() + 1); },
+        [](auto& value) { value.keyframes.front().frame = 1; },
+        [](auto& value) { value.keyframes.back().frame = 500001; },
+        [](auto& value)
+        {
+            auto key = value.keyframes.back();
+            key.frame = 500000;
+            value.keyframes.push_back(key); // Individually bounded keys can still cause excessive dense-frame updates.
+        },
+        [](auto& value) { value.keyframes[1].scaleX = 0; },
+        [](auto& value) { value.keyframes[1].angleDegrees = 181; },
+        [](auto& value)
+        { value.keyframes[1] = {.frame = 4, .originX = 13.5, .originY = 17.25, .angleDegrees = 45, .scaleX = 1e-100, .scaleY = 2e-100}; },
+        [](auto& value)
+        {
+            value.keyframes[1] = {.frame = 4, .originX = 16, .originY = 16, .angleDegrees = 0, .scaleX = 1e-100, .scaleY = 2e-100};
+        }};
+    for (const auto& change : changes)
+    {
+        motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+        if (!document.project.calibration)
+        {
+            FAIL() << "Expected source calibration for the rejection case.";
+        }
+        change(*document.project.calibration);
+        // A mark after the changed key must be evaluated using that key, not frame zero.
+        document.project.pointMasses.front().marks[3] = {.frame = 8, .x = std::nextafter(16.0, 17.0), .y = 16};
+        motrack::writeWorkspaceDocument(native, document);
+        document = motrack::readWorkspaceDocument(native);
+        if (!document.trackerSource)
+        {
+            FAIL() << "Expected source after native reopen.";
+        }
+        EXPECT_THROW(motrack::writeTrackerProject(output, document.project, *document.trackerSource), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), xml);
+    }
+    auto withPlaceholder = xml;
+    const auto data = withPlaceholder.find("<property name=\"framedata\"");
+    const auto index = withPlaceholder.find("</property>\n    </object>", data);
+    ASSERT_NE(index, std::string::npos);
+    withPlaceholder.insert(index, "<property name=\"[500001]\" type=\"object\">null</property>\n");
+    auto unsafe = motrack::parseTrackerProject(withPlaceholder);
+    motrack::writeTrackerProject(output, unsafe.project, unsafe.source); // Unchanged bytes still pass through.
+    if (!unsafe.project.calibration)
+    {
+        FAIL() << "Expected calibration around the null placeholder.";
+    }
+    unsafe.project.calibration->keyframes[1].originX += 1;
+    EXPECT_THROW(motrack::writeTrackerProject(output, unsafe.project, unsafe.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(output), withPlaceholder);
 }
 
 TEST(TrackerWriter, RejectsVectorReconstructionErrorsAmplifiedByNewOrExistingCalibration)

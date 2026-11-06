@@ -154,6 +154,14 @@ public final class TrackerSessionReference {
                 "mass", track instanceof PointMass mass ? mass.getMass() : null, "samples", samples, "key_frames", keys,
                 "vector_samples", vectorSamples));
         }
+        List<Object> calibrationKeys = new ArrayList<>();
+        java.util.TreeSet<Integer> keyFrames = new java.util.TreeSet<>(coords.getKeyFrames());
+        keyFrames.add(0);
+        if (keyFrames.size() > 10000) throw new IllegalArgumentException("Reference calibration limit exceeded");
+        for (int frame : keyFrames) calibrationKeys.add(TrackerReference.map("frame", frame,
+            "origin", List.of(coords.getOriginX(frame), coords.getOriginY(frame)),
+            "angle", coords.getAngle(frame) * 180 / Math.PI,
+            "scale", List.of(coords.getScaleX(frame), coords.getScaleY(frame))));
         List<Object> coordinates = new ArrayList<>();
         int first = clip.getStartFrameNumber();
         int last = first + Math.max(0, clip.getStepCount() - 1) * clip.getStepSize();
@@ -163,6 +171,8 @@ public final class TrackerSessionReference {
         return TrackerReference.map("clip", TrackerReference.map("first_frame", first,
             "step_size", clip.getStepSize(), "step_count", clip.getStepCount(), "start_ms", clip.getStartTime()),
             "length_unit", panel.getLengthUnit(), "mass_unit", panel.getMassUnit(),
+            "calibration", TrackerReference.map("fixed_origin", coords.isFixedOrigin(), "fixed_angle", coords.isFixedAngle(),
+                "fixed_scale", coords.isFixedScale(), "keys", calibrationKeys),
             "tracks", tracks, "coordinate_samples", coordinates);
     }
 }
