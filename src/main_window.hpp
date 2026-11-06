@@ -15,6 +15,7 @@
 #include <QTimer>
 
 #include <atomic>
+#include <chrono>
 #include <memory>
 
 class QLabel;
@@ -148,6 +149,7 @@ class MainWindow final : public QMainWindow
     std::shared_ptr<TrackerArchive> m_Archive;
     QString m_SavePath;
     std::vector<double> m_MovieFrameTimes;
+    std::vector<std::chrono::nanoseconds> m_MoviePresentationTimes;
     std::shared_ptr<std::atomic_bool> m_MovieOpenCancelled;
     std::unique_ptr<QFutureWatcher<MovieIndex>> m_MovieOpenWatcher;
     std::shared_ptr<std::atomic_bool> m_ProjectOpenCancelled;
