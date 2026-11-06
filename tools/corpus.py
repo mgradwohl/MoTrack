@@ -35,12 +35,16 @@ def load_manifest(path=CORPUS / "manifest.json"):
         seen.add(case["id"])
         expected_path(case)
     for artifact in [manifest["reference"], *manifest["cases"]]:
+        local = "local_file" in artifact
         if (not re.fullmatch(r"[A-Za-z0-9_.-]+", artifact["file"])
                 or artifact["file"] in {".", ".."}
-                or not artifact["url"].startswith("https://")
+                or (local and ("url" in artifact or artifact is manifest["reference"]))
+                or (not local and not artifact.get("url", "").startswith("https://"))
                 or not re.fullmatch(r"[a-f0-9]{64}", artifact["sha256"])
                 or not 0 < artifact["bytes"] <= 128 * 1024 * 1024):
             raise ValueError("Invalid corpus artifact")
+        if local:
+            local_fixture_path(artifact)
     for value in manifest["tolerance"].values():
         if not math.isfinite(value) or value < 0:
             raise ValueError("Invalid numerical tolerance")
@@ -51,6 +55,13 @@ def expected_path(case):
     path = (CORPUS / case["expected"]).resolve()
     if not path.is_relative_to(CORPUS.resolve()):
         raise ValueError("Expected snapshot must stay inside the corpus")
+    return path
+
+
+def local_fixture_path(case):
+    path = (CORPUS / case["local_file"]).resolve()
+    if not path.is_relative_to((CORPUS / "fixtures").resolve()):
+        raise ValueError("Local fixture must stay inside the corpus fixtures directory")
     return path
 
 
@@ -94,11 +105,11 @@ def fetch_file(path, artifact):
 def artifacts(manifest, cache):
     yield cache / manifest["reference"]["file"], manifest["reference"]
     for case in manifest["cases"]:
-        yield cache / "fixtures" / case["file"], case
+        yield local_fixture_path(case) if "local_file" in case else cache / "fixtures" / case["file"], case
 
 
 def project_path(case, cache):
-    source = cache / "fixtures" / case["file"]
+    source = local_fixture_path(case) if "local_file" in case else cache / "fixtures" / case["file"]
     if "project_member" not in case:
         if source.stat().st_size > MAX_XML_BYTES:
             raise ValueError("Corpus project exceeds the XML size limit")
@@ -209,6 +220,9 @@ def validate_session(case, report, manifest, expected=None, key_frames=None):
     expected_masses = [{**mass, "samples": [{"frame": sample["frame"], "image": sample["image"]}
                        for sample in mass["samples"]]} for mass in expected["point_masses"]]
     compare(expected_masses, masses, tolerance, case["id"] + ".point_masses")
+    vectors = [{"name": track["name"], "samples": track["vector_samples"]} for track in before["tracks"]
+               if track["class"] == "org.opensourcephysics.cabrillo.tracker.Vector"]
+    compare(expected["vectors"], vectors, tolerance, case["id"] + ".vectors")
     if key_frames is not None:
         actual = [track["key_frames"] for track in before["tracks"]
                   if track["class"] == "org.opensourcephysics.cabrillo.tracker.PointMass"]
@@ -488,7 +502,7 @@ def main():
     cache = args.cache.resolve()
     if args.command in {"fetch", "verify"}:
         for path, artifact in artifacts(manifest, cache):
-            (fetch_file if args.command == "fetch" else verify_file)(path, artifact)
+            (fetch_file if args.command == "fetch" and "local_file" not in artifact else verify_file)(path, artifact)
         print(f"Verified {len(manifest['cases'])} cases and Tracker {manifest['reference']['version']}")
     elif args.command in {"session", "roundtrip"}:
         check_sessions(manifest, cache, args.java, args.probe if args.command == "roundtrip" else None)

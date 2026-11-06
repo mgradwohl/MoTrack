@@ -231,9 +231,10 @@ expression evaluation precedes models and custom fits; complete rendering preced
 Localization, accessibility, performance checks and serialization accompany every phase, not just phase 12.
 
 Phase 1 now has a [versioned seed corpus and reference harness](../tests/corpus/README.md): three real
-upstream experiments, checksum-pinned Tracker 6.3.5, independent Java XML/coordinate snapshots and a
+upstream experiments plus a Java-authored synthetic vector fixture, checksum-pinned Tracker 6.3.5,
+independent Java XML/coordinate snapshots and a
 native importer comparison. An additional Linux virtual-display probe opens the two experiments without
-media through Tracker's normal application loader, saves them in Java, then reopens and compares the
+media plus the vector fixture through Tracker's normal application loader, saves them in Java, then reopens and compares the
 loaded content. This is Java's own resave baseline, not MoTrack standard-file export acceptance.
 Media/archive session loading, broader requirement coverage, runtime/dependency provenance and exact
 source mapping remain unfinished. The initial phase-3 writer/reference path covers mass values and mark
@@ -338,6 +339,7 @@ Current inventory, checked on 2026-11-06:
 | Material | Availability | What it proves today |
 | --- | --- | --- |
 | `point-mass.trk`, `image-sequence.trk`, `movie.trk` and `archive.trz` | Committed under [tests/fixtures](../tests/fixtures), with tiny generated media and additional inline XML tests. | Targeted parser, timing, path and application regressions; not reference-app round-trip proof. |
+| `independent-vectors.trk` | Java-authored synthetic fixture, reproducible generator and checksum recorded in [the corpus](../tests/corpus/README.md). | Sparse/zero independent vectors and nonuniform calibration; native import and actual Java session resave, with tail/component checks. Native vector export remains unverified. |
 | `BallToss.trz`, `protractor.trk`, `asinewave.trk` | Reproducibly fetched using [tests/corpus/manifest.json](../tests/corpus/manifest.json), with committed independent Java snapshots. | Native import/coordinate comparisons for real point masses, clip/calibration values and reporting unsupported models/tools. No complete GUI load or standard-file export claim. |
 | `binary_star.trz` | Local development sample; project records Tracker 6.2.0 and contains `DynamicSystem` and `DynamicParticle` objects. | Useful future model/preservation case; no automated corpus baseline yet. |
 | `bouncing_cart.trz` | Local development sample; project records Tracker 6.1.1 and contains `DynamicParticle` and `TapeMeasure` objects. | Useful future model/tool/preservation case; displaying its media does not implement those tracks. |

@@ -5,11 +5,12 @@ It compares MoTrack's importer and coordinate calculations with snapshots produc
 XML loader and `ImageCoordSystem` implementation bundled in the official **Tracker 6.3.5** JAR.
 
 The original report names its verification level `xml_and_coordinate_api`. A separate session probe
-uses Tracker's actual application/async-loader lifecycle to open the two experiments without media,
+uses Tracker's actual application/async-loader lifecycle to open the three experiments without media,
 save through Tracker's normal saver and reopen in a fresh application frame. Its report is labeled
 `tracker_session_resave`. It checks loaded track classes/names, mass values, step points, clip bounds,
 units and coordinate probes before/after Java's own resave, and compares available point-mass/coordinate
-data with the independent XML baseline.
+data with the independent XML baseline. Independent vectors are checked by their loaded tails,
+components and original frame numbers before and after Java resave.
 
 Neither check proves MoTrack `.trk`/`.trz` export, complete model/function parameter fidelity, rendering,
 media decoding, cross-platform Java UI behavior or the required paired-file round trip. A successful
@@ -38,16 +39,21 @@ Other edits, media/archive round trips, desktop export UI and paired saves remai
 recorded producing Tracker version, relevant requirement IDs and known features. Examples and the
 reference JAR are downloaded unchanged into ignored `.dev-tools/tracker-reference`; they are not
 vendored. The manifest links the upstream license and records the unaudited media-redistribution limit.
+The fourth case is a small committed synthetic fixture authored by Tracker 6.3.5's own serializers using
+[VectorFixture.java](../../tools/reference/VectorFixture.java), with LF-normalized bytes and a pinned
+checksum. Its expected snapshot comes from the Java reference, never from MoTrack. Local fixtures are
+verified in place and restricted to this corpus's `fixtures` directory; they are never fetched or replaced.
 
 | Case | Producing version | Checked imported content | Unsupported content retained in the source fixture |
 | --- | --- | --- | --- |
 | Ball toss | 5.1.5 | Eleven marks at frames 2–12, mass, clip bounds/time origin and world coordinates | Tape measure, display settings and archive media |
 | Protractor | 6.0.7 | Two named point masses, their marks/calibration; mass-value and mark edits through the standard round-trip runner | Protractor and its saved settings |
+| Independent vectors (synthetic) | 6.3.5 | Two independent vectors, sparse frames, a zero vector, nonuniform scale; actual Java session resave | Track colors/footprints and coordinate axes |
 | Dynamic sine | 5.1.2 | Clip and calibration; dynamic particle is reported as unsupported | Model parameters, functions and plot settings |
 
 The probe reads the `.trk` member selected by the manifest from BallToss's `.trz`. It does not exercise
 MoTrack's archive extractor, so the existing archive/workspace tests remain necessary. No archive member
-paths are extracted by the corpus script. Add genuine multi-tab archives, independent/dependent vectors,
+paths are extracted by the corpus script. Add genuine multi-tab archives, upstream vector examples/dependent vectors,
 current 6.3.5 features, varying calibration, media/timing cases and failure cases next.
 
 The executable's SHA-256 is verified and its runtime version reports 6.3.5. The June 22, 2026 upstream
@@ -120,3 +126,12 @@ Extend the initial mass/mark tests to every editable type and operation, media, 
 failures. Preservation of unsupported objects and other archive tabs remains mandatory. The writer's
 mass, framedata and keyFrames properties follow the pinned upstream [PointMass loader](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/PointMass.java);
 the actual 6.3.5 application check, not source inspection alone, determines acceptance.
+
+The vector fixture can be regenerated to a **fresh temporary path** with a Java 17 JDK:
+
+```sh
+java -Djava.awt.headless=true -Xmx256m --class-path .dev-tools/tracker-reference/tracker-6.3.5.jar tools/reference/VectorFixture.java /temporary/path/independent-vectors.trk
+```
+
+Compare its bytes/hash with the committed fixture; the generator refuses to overwrite an existing file.
+This establishes vector import and Java's own resave behavior, not native vector export acceptance.

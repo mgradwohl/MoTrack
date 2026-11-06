@@ -17,6 +17,8 @@ import org.opensourcephysics.cabrillo.tracker.TFrame;
 import org.opensourcephysics.cabrillo.tracker.TTrack;
 import org.opensourcephysics.cabrillo.tracker.TrackerIO;
 import org.opensourcephysics.cabrillo.tracker.TrackerPanel;
+import org.opensourcephysics.cabrillo.tracker.Vector;
+import org.opensourcephysics.cabrillo.tracker.VectorStep;
 import org.opensourcephysics.controls.XMLControlElement;
 import org.opensourcephysics.display.OSPRuntime;
 import org.opensourcephysics.media.core.ImageCoordSystem;
@@ -116,12 +118,19 @@ public final class TrackerSessionReference {
         List<Object> tracks = new ArrayList<>();
         for (TTrack track : panel.getTracks()) {
             List<Object> samples = new ArrayList<>();
+            List<Object> vectorSamples = new ArrayList<>();
             Step[] steps = track.getSteps();
             if (steps.length > 10000) throw new IllegalArgumentException("Reference step limit exceeded");
             for (Step step : steps) if (step != null) {
                 List<Object> points = new ArrayList<>();
                 for (TPoint point : step.getPoints()) points.add(point == null ? null : List.of(point.x, point.y));
                 samples.add(TrackerReference.map("frame", step.getFrameNumber(), "points", points));
+                if (track.getClass() == Vector.class) {
+                    VectorStep vector = (VectorStep) step;
+                    vectorSamples.add(TrackerReference.map("frame", step.getFrameNumber(),
+                        "tail", List.of(vector.getTail().getX(), vector.getTail().getY()),
+                        "components", List.of(vector.getXComponent(), vector.getYComponent())));
+                }
             }
             if (track instanceof ParticleModel && samples.isEmpty())
                 throw new IllegalStateException("Expected evaluated model samples");
@@ -132,7 +141,8 @@ public final class TrackerSessionReference {
                 if (values != null) for (int value : values) keys.add(value);
             }
             tracks.add(TrackerReference.map("class", track.getClass().getName(), "name", track.getName(),
-                "mass", track instanceof PointMass mass ? mass.getMass() : null, "samples", samples, "key_frames", keys));
+                "mass", track instanceof PointMass mass ? mass.getMass() : null, "samples", samples, "key_frames", keys,
+                "vector_samples", vectorSamples));
         }
         List<Object> coordinates = new ArrayList<>();
         int first = clip.getStartFrameNumber();

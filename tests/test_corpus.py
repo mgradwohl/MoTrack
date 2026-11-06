@@ -160,6 +160,40 @@ class CorpusTests(unittest.TestCase):
         with patch.object(corpus.sys, "platform", "win32"), self.assertRaisesRegex(ValueError, "Linux"):
             corpus.check_sessions({}, self.root, "java")
 
+    def test_local_vector_fixture_is_pinned_and_cannot_escape_the_corpus(self):
+        manifest = corpus.load_manifest()
+        case = next(case for case in manifest["cases"] if case["id"] == "independent-vectors")
+        local = corpus.local_fixture_path(case)
+        corpus.verify_file(local, case)
+        self.assertEqual(corpus.project_path(case, self.root), local)
+        self.assertIn((local, case), list(corpus.artifacts(manifest, self.root)))
+        with self.assertRaisesRegex(ValueError, "inside"):
+            corpus.local_fixture_path({**case, "local_file": "../outside.trk"})
+        case["url"] = "https://example.org/conflicting-source.trk"
+        path = self.root / "manifest.json"
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "Invalid corpus artifact"):
+            corpus.load_manifest(path)
+
+    def test_vector_session_requires_loaded_tails_components_and_frames(self):
+        manifest = corpus.load_manifest()
+        case = next(case for case in manifest["cases"] if case["id"] == "independent-vectors")
+        expected = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
+        tracks = []
+        for identity in case["session_tracks"]:
+            vector = next((v for v in expected["vectors"] if v["name"] == identity["name"]), None)
+            tracks.append({**identity, "vector_samples": copy.deepcopy(vector["samples"]) if vector else []})
+        before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"]}
+        valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                 "before": before, "after": copy.deepcopy(before)}
+        corpus.validate_session(case, valid, manifest)
+        for field, value in [("tail", [11.0, 20.0]), ("components", [3.0, 4.0]), ("frame", 1)]:
+            invalid = copy.deepcopy(valid)
+            for state in ["before", "after"]:
+                invalid[state]["tracks"][1]["vector_samples"][0][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                corpus.validate_session(case, invalid, manifest)
+
     def test_mark_session_requires_edited_samples_and_manual_keys(self):
         manifest = corpus.load_manifest()
         case = next(case for case in manifest["cases"] if case["id"] == "protractor")
