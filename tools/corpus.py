@@ -7,7 +7,9 @@ import math
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.request
 import zipfile
@@ -177,11 +179,66 @@ def check_cases(manifest, cache, *, java=None, probe=None, record=False):
               f" ({'Java XML/coordinate API' if java else 'MoTrack import/coordinates'}; full round trip untested)")
 
 
+def validate_session(case, report, manifest):
+    if (report["reference_version"] != manifest["reference"]["version"]
+            or report["verification_level"] != "tracker_session_resave"):
+        raise ValueError("Unexpected session reference version or verification level")
+    before = report["before"]
+    tolerance = manifest["tolerance"]
+    compare(before, report["after"], tolerance, case["id"] + ".resave")
+    identities = [{"class": track["class"], "name": track["name"]} for track in before["tracks"]]
+    compare(case["session_tracks"], identities, tolerance, case["id"] + ".tracks")
+    expected = json.loads(expected_path(case).read_text(encoding="utf-8"))["project"]
+    for key in ["clip", "coordinate_samples"]:
+        compare(expected[key], before[key], tolerance, case["id"] + "." + key)
+    masses = []
+    for track in before["tracks"]:
+        if track["class"] == "org.opensourcephysics.cabrillo.tracker.PointMass":
+            masses.append({"name": track["name"], "mass": track["mass"], "samples": [
+                {"frame": sample["frame"], "image": sample["points"][0]} for sample in track["samples"]]})
+    expected_masses = [{**mass, "samples": [{"frame": sample["frame"], "image": sample["image"]}
+                       for sample in mass["samples"]]} for mass in expected["point_masses"]]
+    compare(expected_masses, masses, tolerance, case["id"] + ".point_masses")
+
+
+def check_sessions(manifest, cache, java):
+    if sys.platform != "linux" or not os.environ.get("DISPLAY"):
+        raise ValueError("Session checks currently require Linux with a virtual display; use xvfb-run -a")
+    for path, artifact in artifacts(manifest, cache):
+        verify_file(path, artifact)
+    java_path = Path(shutil.which(java) or java).resolve()
+    javac = java_path.with_name("javac")
+    reports = cache / "reports"
+    reports.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="session-", dir=cache) as temporary:
+        root = Path(temporary)
+        classes = root / "classes"
+        classes.mkdir()
+        jar = cache / manifest["reference"]["file"]
+        run([str(javac), "-cp", str(jar), "-d", str(classes),
+             str(ROOT / "tools/reference/TrackerReference.java"),
+             str(ROOT / "tools/reference/TrackerSessionReference.java")])
+        for case in manifest["cases"]:
+            if "session_tracks" not in case:
+                continue
+            output = root / case["id"]
+            java_home = output / "java-home"
+            java_home.mkdir(parents=True)
+            run([str(java_path), f"-Duser.home={java_home}", "-Duser.language=en", "-Duser.country=US",
+                 "-Xmx256m", "-cp", os.pathsep.join([str(classes), str(jar)]), "TrackerSessionReference",
+                 str(project_path(case, cache)), str(output)])
+            report = json.loads((output / "session.json").read_text(encoding="utf-8"))
+            validate_session(case, report, manifest)
+            (reports / (case["id"] + "-session.json")).write_text(
+                json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            print(f"{case['id']}: passed (Tracker application load/save/reopen; MoTrack export untested)")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["fetch", "verify", "reference", "check"])
+    parser.add_argument("command", choices=["fetch", "verify", "reference", "check", "session"])
     parser.add_argument("--cache", type=Path, default=ROOT / ".dev-tools/tracker-reference")
-    parser.add_argument("--java", default="java", help="Java 17+ JDK executable (reference command)")
+    parser.add_argument("--java", default="java", help="Java 17+ JDK executable (reference/session commands)")
     parser.add_argument("--probe", help="Built motrack_corpus_probe executable (check command)")
     parser.add_argument("--record", action="store_true", help="Explicitly replace committed Java baselines for review")
     args = parser.parse_args()
@@ -195,6 +252,8 @@ def main():
         for path, artifact in artifacts(manifest, cache):
             (fetch_file if args.command == "fetch" else verify_file)(path, artifact)
         print(f"Verified {len(manifest['cases'])} cases and Tracker {manifest['reference']['version']}")
+    elif args.command == "session":
+        check_sessions(manifest, cache, args.java)
     else:
         check_cases(manifest, cache, java=args.java if args.command == "reference" else None,
                     probe=args.probe, record=args.record)

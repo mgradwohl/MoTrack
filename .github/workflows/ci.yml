@@ -105,6 +105,7 @@ jobs:
           python tools/corpus.py check --probe "$probe"
           if [[ "$RUNNER_OS" == Linux ]]; then
             python tools/corpus.py reference --java "$JAVA_HOME_17_X64/bin/java"
+            xvfb-run -a python tools/corpus.py session --java "$JAVA_HOME_17_X64/bin/java"
           fi
       - name: Stage desktop build
         shell: bash

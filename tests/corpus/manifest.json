@@ -32,6 +32,12 @@
     },
     {
       "id": "protractor",
+      "session_tracks": [
+        {"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes", "name": "axes"},
+        {"class": "org.opensourcephysics.cabrillo.tracker.PointMass", "name": "mass A"},
+        {"class": "org.opensourcephysics.cabrillo.tracker.Protractor", "name": "protractor A"},
+        {"class": "org.opensourcephysics.cabrillo.tracker.PointMass", "name": "mass B"}
+      ],
       "file": "protractor.trk",
       "url": "https://raw.githubusercontent.com/OpenSourcePhysics/tracker/020692a3d23781763dd8a7a19d73bf004c3faefe/examples/protractor.trk",
       "sha256": "13952c977b25b1690a652d7f2d6060e2c41e70df20e316a9037602ea2687395e",
@@ -43,6 +49,10 @@
     },
     {
       "id": "dynamic-sine",
+      "session_tracks": [
+        {"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes", "name": "axes"},
+        {"class": "org.opensourcephysics.cabrillo.tracker.DynamicParticle", "name": "model A"}
+      ],
       "file": "asinewave.trk",
       "url": "https://raw.githubusercontent.com/OpenSourcePhysics/tracker/020692a3d23781763dd8a7a19d73bf004c3faefe/examples/asinewave.trk",
       "sha256": "a1aa29891b41fe7bfaba2d7100115c6eeb28e1f3960dc9904cf1979fa1f75f50",
