@@ -83,6 +83,8 @@ MainWindow::MainWindow()
     m_Export->setObjectName("exportMeasurements");
     m_Export->setEnabled(false);
     fileMenu->addAction(m_Export);
+    m_ExportPlot = fileMenu->addAction(tr("Export &plot data…"));
+    m_ExportPlot->setObjectName("exportPlotData");
     auto* editMenu = menuBar()->addMenu(tr("&Edit"));
     m_Undo = editMenu->addAction(tr("&Undo"));
     m_Undo->setObjectName("undoEdit");
@@ -354,6 +356,18 @@ MainWindow::MainWindow()
                 if (!path.isEmpty())
                 {
                     saveMeasurements(path.endsWith(".csv", Qt::CaseInsensitive) ? path : path + ".csv");
+                }
+            });
+    connect(m_ExportPlot,
+            &QAction::triggered,
+            this,
+            [this]
+            {
+                const auto csv = m_Plot->csv();
+                const auto path = QFileDialog::getSaveFileName(this, tr("Export plot data"), {}, tr("CSV files (*.csv)"));
+                if (!path.isEmpty())
+                {
+                    saveCsv(path.endsWith(".csv", Qt::CaseInsensitive) ? path : path + ".csv", csv);
                 }
             });
     connect(m_NewPointMass,
@@ -1014,6 +1028,7 @@ void MainWindow::refreshPlot()
     }
     const auto label = m_PlotQuantity->currentText();
     const auto vertical = unit.isEmpty() ? label : tr("%1 (%2)").arg(label, unit);
+    m_ExportPlot->setEnabled(!series.samples.empty());
     m_Plot->setSeries(std::move(series), horizontal, vertical);
     if (m_FitLine->isChecked())
     {
@@ -1424,8 +1439,12 @@ bool MainWindow::saveWorkspace(const QString& path)
 
 bool MainWindow::saveMeasurements(const QString& path)
 {
+    return saveCsv(path, measurementsCsv(m_Project));
+}
+
+bool MainWindow::saveCsv(const QString& path, const std::string& csv)
+{
     QSaveFile file(path);
-    const auto csv = measurementsCsv(m_Project);
     const auto size = static_cast<qint64>(csv.size());
     if (!file.open(QIODevice::WriteOnly) || file.write(csv.data(), size) != size || !file.commit())
     {

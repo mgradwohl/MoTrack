@@ -76,6 +76,7 @@ class MainWindow final : public QMainWindow
     void releaseArchive();
     bool chooseWorkspacePath();
     bool saveCurrentWorkspace();
+    bool saveCsv(const QString& path, const std::string& csv);
     void refreshEditViews(int track);
     void refreshPlot();
     void markAt(const QPointF& position);
@@ -104,6 +105,7 @@ class MainWindow final : public QMainWindow
     bool m_Playing = false;
     QTableWidget* m_Marks;
     QAction* m_Export;
+    QAction* m_ExportPlot;
     QAction* m_SaveAs;
     QAction* m_Save;
     QAction* m_NewPointMass;

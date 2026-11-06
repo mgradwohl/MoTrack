@@ -10,6 +10,12 @@
 namespace
 {
 
+TEST(Measurements, EscapesPlotLabelsAndExportsUntimedSamplesByFrame)
+{
+    const motrack::PlotSeries series{.samples = {{.frame = 3, .horizontal = 3.0, .vertical = 1.5}}};
+    EXPECT_EQ(motrack::plotCsv(series, "position, \"x\""), "frame,\"position, \"\"x\"\"\"\r\n3,1.5\r\n");
+}
+
 TEST(Calibration, UsesLatestKeyframeAndInvertsImageAxes)
 {
     motrack::Calibration calibration;
