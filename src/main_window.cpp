@@ -1120,6 +1120,12 @@ void MainWindow::cancelVectorMark()
 
 void MainWindow::markVectorAt(const QPointF& position)
 {
+    const auto vector = selectedVector();
+    if (!vector || !m_DisplayedFrame)
+    {
+        return;
+    }
+    const auto frame = m_DisplayedFrame->number;
     stopAutoTracking();
     setPlaying(false);
     if (!m_VectorTail)
@@ -1129,12 +1135,12 @@ void MainWindow::markVectorAt(const QPointF& position)
         statusBar()->showMessage(tr("Shift-click the vector tip. Escape cancels."));
         return;
     }
-    const VectorSample sample{.frame = m_DisplayedFrame->number,
+    const VectorSample sample{.frame = frame,
                               .tailX = m_VectorTail->x(),
                               .tailY = m_VectorTail->y(),
                               .componentX = position.x() - m_VectorTail->x(),
                               .componentY = position.y() - m_VectorTail->y()};
-    if (m_Edits.markVector(m_Project, *selectedVector(), sample))
+    if (m_Edits.markVector(m_Project, *vector, sample))
     {
         refreshEditViews(m_TrackPicker->currentIndex());
         m_StepSlider->triggerAction(QSlider::SliderSingleStepAdd);
