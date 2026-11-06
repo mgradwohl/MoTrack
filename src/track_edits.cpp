@@ -1,6 +1,7 @@
 #include "track_edits.hpp"
 
 #include "measurements.hpp"
+#include "track_identity.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -69,9 +70,17 @@ std::uint64_t TrackEdits::revision() const
     return m_Revision;
 }
 
-void TrackEdits::createPointMass(LegacyProject& project, std::string name)
+bool TrackEdits::createPointMass(LegacyProject& project, std::string name)
 {
-    append(project, AddTrack{.name = std::move(name)});
+    if (!hasTrackIdCapacity(project))
+    {
+        return false;
+    }
+    append(project, AddTrack{.name = std::move(name), .id = project.nextTrackId});
+    ++project.nextTrackId; // Commit allocation only after the command succeeds.
+    // Undo removes the track, but the advanced allocation counter must still be saved.
+    invalidateSaved();
+    return true;
 }
 
 bool TrackEdits::renamePointMass(LegacyProject& project, std::size_t track, std::string name)
@@ -143,11 +152,14 @@ bool TrackEdits::removeMark(LegacyProject& project, std::size_t track, int frame
 
 bool TrackEdits::createVector(LegacyProject& project, std::string name)
 {
-    if (name.empty() || std::ranges::any_of(project.vectors, [&name](const auto& track) { return track.name == name; }))
+    if (!hasTrackIdCapacity(project) || name.empty() ||
+        std::ranges::any_of(project.vectors, [&name](const auto& track) { return track.name == name; }))
     {
         return false;
     }
-    append(project, AddVector{.name = std::move(name)});
+    append(project, AddVector{.name = std::move(name), .id = project.nextTrackId});
+    ++project.nextTrackId;
+    invalidateSaved();
     return true;
 }
 
@@ -364,7 +376,7 @@ void TrackEdits::apply(LegacyProject& project, const Edit& edit, bool forward)
     {
         if (forward)
         {
-            project.vectors.push_back({.name = track->name, .samples = {}});
+            project.vectors.push_back({.name = track->name, .samples = {}, .id = track->id});
         }
         else
         {
@@ -414,7 +426,7 @@ void TrackEdits::apply(LegacyProject& project, const Edit& edit, bool forward)
     {
         if (forward)
         {
-            project.pointMasses.push_back({.name = track->name, .marks = {}});
+            project.pointMasses.push_back({.name = track->name, .marks = {}, .id = track->id});
         }
         else
         {

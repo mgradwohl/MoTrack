@@ -3,6 +3,7 @@
 #include "measurements.hpp"
 #include "movie_worker.hpp"
 #include "position_plot.hpp"
+#include "track_identity.hpp"
 #include "video_canvas.hpp"
 #include "video_reader.hpp"
 #include "workspace_document.hpp"
@@ -396,7 +397,10 @@ MainWindow::MainWindow()
                 {
                     name = tr("Point Mass %1").arg(++number).toStdString();
                 }
-                m_Edits.createPointMass(m_Project, std::move(name));
+                if (!m_Edits.createPointMass(m_Project, std::move(name)))
+                {
+                    return;
+                }
                 refreshEditViews(static_cast<int>(index));
                 statusBar()->showMessage(tr("Shift-click the image to mark the selected point mass."));
             });
@@ -412,9 +416,13 @@ MainWindow::MainWindow()
                 m_EditAxes->setChecked(false);
                 auto number = m_Project.vectors.size() + 1;
                 auto name = tr("Vector %1").arg(number).toStdString();
-                while (!m_Edits.createVector(m_Project, name))
+                while (std::ranges::any_of(m_Project.vectors, [&name](const auto& track) { return track.name == name; }))
                 {
                     name = tr("Vector %1").arg(++number).toStdString();
+                }
+                if (!m_Edits.createVector(m_Project, name))
+                {
+                    return;
                 }
                 refreshEditViews(static_cast<int>(m_Project.pointMasses.size() + m_Project.vectors.size() - 1));
                 statusBar()->showMessage(tr("Shift-click the vector tail, then its tip. Escape cancels."));
@@ -1040,6 +1048,8 @@ void MainWindow::closeEvent(QCloseEvent* event)
 
 void MainWindow::refreshEditViews(int track)
 {
+    m_NewPointMass->setEnabled(!m_ProjectPath.isEmpty() && hasTrackIdCapacity(m_Project));
+    m_NewVector->setEnabled(!m_ProjectPath.isEmpty() && hasTrackIdCapacity(m_Project));
     cancelVectorMark();
     const QSignalBlocker blocker(m_TrackPicker);
     m_TrackPicker->clear();

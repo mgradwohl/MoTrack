@@ -47,6 +47,29 @@ TEST(LegacyProject, ImportsMetadataAndSparseMarks)
     EXPECT_EQ(result.unsupportedTrackTypes, std::vector<std::string>{"org.opensourcephysics.cabrillo.tracker.CoordAxes"});
 }
 
+TEST(LegacyProject, AssignsDistinctIdentitiesToImportedTracksWithDuplicateNames)
+{
+    const auto project = motrack::parseLegacyProject(projectXml(R"(
+      <property name="tracks">
+        <property name="[0]"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">
+          <property name="name">same</property></object></property>
+        <property name="[1]"><object class="UnknownTrack"><property name="name">same</property></object></property>
+        <property name="[2]"><object class="org.opensourcephysics.cabrillo.tracker.Vector">
+          <property name="name">same</property></object></property>
+        <property name="[3]"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">
+          <property name="name">same</property></object></property>
+      </property>)"));
+    ASSERT_EQ(project.pointMasses.size(), 2u);
+    ASSERT_EQ(project.vectors.size(), 1u);
+    EXPECT_GT(project.pointMasses.front().id, 0u);
+    EXPECT_NE(project.pointMasses.front().id, project.pointMasses.back().id);
+    EXPECT_NE(project.pointMasses.front().id, project.vectors.front().id);
+    EXPECT_NE(project.pointMasses.back().id, project.vectors.front().id);
+    EXPECT_GT(project.nextTrackId, project.pointMasses.back().id);
+    EXPECT_GT(project.nextTrackId, project.vectors.front().id);
+    EXPECT_EQ(project.unsupportedTrackTypes, std::vector<std::string>{"UnknownTrack"});
+}
+
 TEST(LegacyProject, ImportsSparseVectorComponentsInImageCoordinates)
 {
     const auto project = motrack::parseLegacyProject(projectXml(R"(

@@ -50,7 +50,7 @@ class TrackEdits
     [[nodiscard]] bool isModified() const;
     /// Changes after each edit, undo, redo or document reset; detects stale asynchronous save snapshots.
     [[nodiscard]] std::uint64_t revision() const;
-    void createPointMass(LegacyProject& project, std::string name);
+    bool createPointMass(LegacyProject& project, std::string name);
     bool renamePointMass(LegacyProject& project, std::size_t track, std::string name);
     bool setPointMassValue(LegacyProject& project, std::size_t track, double mass);
     bool removePointMass(LegacyProject& project, std::size_t track);
@@ -74,6 +74,7 @@ class TrackEdits
     struct AddTrack
     {
         std::string name;
+        TrackId id;
     };
 
     struct ChangeMark
@@ -121,6 +122,7 @@ class TrackEdits
     struct AddVector
     {
         std::string name;
+        TrackId id;
     };
     struct RenameVector
     {

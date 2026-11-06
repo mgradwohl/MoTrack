@@ -76,8 +76,8 @@ normal draw-driven particle-model evaluation to run. It observes the expected mo
 snapshotting, within the existing deadline; it does not assume the XML-load callback means models
 have already populated their cached steps.
 
-CI compares native imports on Windows, macOS and Linux, and reruns both Java probes on Linux. These
-checks follow ordinary coverage collection; they do not inflate the production coverage claim.
+CI compares native imports on Windows, macOS and Linux after ordinary coverage collection, and runs
+both Java probes early on Linux. Corpus checks do not inflate the production coverage claim.
 
 ## Review and extend baselines
 

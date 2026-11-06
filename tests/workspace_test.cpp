@@ -1,5 +1,6 @@
 #include "image_sequence.hpp"
 #include "main_window.hpp"
+#include "track_identity.hpp"
 #include "video_canvas.hpp"
 #include "workspace_document.hpp"
 
@@ -33,6 +34,7 @@
 
 #include <algorithm>
 #include <array>
+#include <limits>
 #include <utility>
 
 namespace
@@ -265,7 +267,8 @@ TEST(Workspace, PreservesAndDrawsVectorsAtTheirOriginalFrame)
     document.project.clip.mediaReferences.push_back(fixturePath("frames/frame00.ppm").toStdString());
     document.project.vectors.push_back({.name = "Vector A",
                                         .samples = {{.frame = 0, .tailX = 1, .tailY = 1, .componentX = 2, .componentY = 1},
-                                                    {.frame = 2, .tailX = 1, .tailY = 2, .componentX = 1, .componentY = 0}}});
+                                                    {.frame = 2, .tailX = 1, .tailY = 2, .componentX = 1, .componentY = 0}},
+                                        .id = motrack::allocateTrackId(document.project)});
     const auto input = temporary.filePath("vectors.motrack");
     motrack::writeWorkspaceDocument(input, document);
 
@@ -681,7 +684,8 @@ TEST(Workspace, AutoTracksATexturedMarkAndStopsWhenItDisappears)
     QTemporaryDir temporary;
     ASSERT_TRUE(temporary.isValid());
     motrack::WorkspaceDocument document;
-    document.project.pointMasses.push_back({.name = "Ball", .marks = {{.frame = 0, .x = 22, .y = 22}}});
+    document.project.pointMasses.push_back(
+        {.name = "Ball", .marks = {{.frame = 0, .x = 22, .y = 22}}, .id = motrack::allocateTrackId(document.project)});
     for (int frame = 0; frame < 3; ++frame)
     {
         const auto name = QString("frame%1.png").arg(frame);
@@ -833,6 +837,101 @@ TEST(Workspace, SavesEditsAndReopensMediaFromADifferentDirectory)
     invalid.close();
     EXPECT_FALSE(window.loadProject(invalid.fileName()));
     EXPECT_EQ(marks->rowCount(), 2);
+}
+
+TEST(Workspace, RetainsTrackIdentityThroughDesktopUndoAndReopen)
+{
+    QTemporaryDir temporary;
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
+    auto* create = window.findChild<QAction*>("newPointMass");
+    auto* vector = window.findChild<QAction*>("newVector");
+    auto* undo = window.findChild<QAction*>("undoEdit");
+    auto* redo = window.findChild<QAction*>("redoEdit");
+    ASSERT_TRUE(create && vector && undo && redo);
+    create->trigger();
+    vector->trigger();
+    const auto path = temporary.filePath("identities.motrack");
+    ASSERT_TRUE(window.saveWorkspace(path));
+    const auto saved = motrack::readWorkspaceDocument(path).project;
+    ASSERT_EQ(saved.pointMasses.size(), 2u);
+    ASSERT_EQ(saved.vectors.size(), 1u);
+    EXPECT_NE(saved.pointMasses.front().id, saved.pointMasses.back().id);
+    undo->trigger();
+    redo->trigger();
+    ASSERT_TRUE(window.saveWorkspace(path));
+    EXPECT_EQ(motrack::readWorkspaceDocument(path).project.vectors.front().id, saved.vectors.front().id);
+    ASSERT_TRUE(window.loadProject(path));
+    vector->trigger();
+    ASSERT_TRUE(window.saveWorkspace(path));
+    const auto reopened = motrack::readWorkspaceDocument(path).project;
+    EXPECT_EQ(reopened.pointMasses.front().id, saved.pointMasses.front().id);
+    EXPECT_EQ(reopened.pointMasses.back().id, saved.pointMasses.back().id);
+    ASSERT_EQ(reopened.vectors.size(), 2u);
+    EXPECT_EQ(reopened.vectors.front().id, saved.vectors.front().id);
+    EXPECT_GT(reopened.vectors.back().id, saved.vectors.front().id);
+}
+
+TEST(Workspace, PromptsToSaveAnUndoneCreationAndDoesNotReuseItsIdentityAfterReopen)
+{
+    for (const auto* action : {"newPointMass", "newVector"})
+    {
+        SCOPED_TRACE(action);
+        QTemporaryDir temporary;
+        motrack::MainWindow window;
+        ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
+        const auto path = temporary.filePath("identity.motrack");
+        ASSERT_TRUE(window.saveWorkspace(path));
+        const auto originalCounter = motrack::readWorkspaceDocument(path).project.nextTrackId;
+        auto* create = window.findChild<QAction*>(action);
+        auto* undo = window.findChild<QAction*>("undoEdit");
+        ASSERT_TRUE(create && undo);
+        create->trigger();
+        undo->trigger();
+        EXPECT_TRUE(window.isWindowModified());
+        bool prompted = false;
+        QTimer::singleShot(0,
+                           &window,
+                           [&]
+                           {
+                               for (auto* widget : QApplication::topLevelWidgets())
+                               {
+                                   if (auto* dialog = qobject_cast<QMessageBox*>(widget))
+                                   {
+                                       prompted = true;
+                                       dialog->button(QMessageBox::Save)->click();
+                                   }
+                               }
+                           });
+        EXPECT_TRUE(window.close());
+        EXPECT_TRUE(prompted);
+        EXPECT_EQ(motrack::readWorkspaceDocument(path).project.nextTrackId, originalCounter + 1);
+        ASSERT_TRUE(window.loadProject(path));
+        create->trigger();
+        ASSERT_TRUE(window.saveWorkspace(path));
+        const auto project = motrack::readWorkspaceDocument(path).project;
+        const auto newId = project.vectors.empty() ? project.pointMasses.back().id : project.vectors.back().id;
+        EXPECT_GT(newId, originalCounter);
+    }
+}
+
+TEST(Workspace, DisablesCreationWhenTheSavedIdentityCounterIsExhausted)
+{
+    QTemporaryDir temporary;
+    motrack::WorkspaceDocument document;
+    document.project.nextTrackId = std::numeric_limits<motrack::TrackId>::max();
+    const auto path = temporary.filePath("exhausted.motrack");
+    motrack::writeWorkspaceDocument(path, document);
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(path));
+    auto* mass = window.findChild<QAction*>("newPointMass");
+    auto* vector = window.findChild<QAction*>("newVector");
+    ASSERT_TRUE(mass && vector);
+    EXPECT_FALSE(mass->isEnabled());
+    EXPECT_FALSE(vector->isEnabled());
+    ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
+    EXPECT_TRUE(mass->isEnabled());
+    EXPECT_TRUE(vector->isEnabled());
 }
 
 TEST(Workspace, ProcessesEventsDuringSaveWithoutMarkingNewerEditsSaved)
@@ -1015,7 +1114,8 @@ TEST(Workspace, KeepsOnlySuccessfulSaveAsDestinationsAndCheckpoints)
         EXPECT_FALSE(window.saveWorkspace(destination));
         undo->trigger();
         undo->trigger();
-        EXPECT_EQ(window.isWindowModified(), !failWrite);
+        // Undoing creation still leaves the advanced ID counter to save, even after a failed write.
+        EXPECT_TRUE(window.isWindowModified());
         EXPECT_EQ(QFile::exists(destination), !failWrite);
         if (!failWrite)
         {
