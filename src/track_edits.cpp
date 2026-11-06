@@ -14,6 +14,41 @@ namespace motrack
 namespace
 {
 
+auto identityCount(const LegacyProject& project, TrackId id)
+{
+    return std::ranges::count(project.pointMasses, id, &PointMass::id) + std::ranges::count(project.vectors, id, &VectorTrack::id);
+}
+
+template <typename Track> auto findTrack(const LegacyProject& project, std::vector<Track>& tracks, TrackId id)
+{
+    if (id == 0 || identityCount(project, id) != 1)
+    {
+        return tracks.end();
+    }
+    return std::ranges::find(tracks, id, &Track::id);
+}
+
+template <typename Track> bool eraseTrack(const LegacyProject& project, std::vector<Track>& tracks, TrackId id)
+{
+    const auto found = findTrack(project, tracks, id);
+    if (found == tracks.end())
+    {
+        return false;
+    }
+    tracks.erase(found);
+    return true;
+}
+
+template <typename Track> bool insertTrack(const LegacyProject& project, std::vector<Track>& tracks, std::size_t position, Track track)
+{
+    if (track.id == 0 || identityCount(project, track.id) != 0 || position > tracks.size())
+    {
+        return false;
+    }
+    tracks.insert(tracks.begin() + static_cast<std::ptrdiff_t>(position), std::move(track));
+    return true;
+}
+
 Calibration initialCalibration(double x, double y)
 {
     return {.keyframes = {{.frame = 0, .originX = x, .originY = y, .angleDegrees = 0.0, .scaleX = 1.0, .scaleY = 1.0}},
@@ -76,7 +111,10 @@ bool TrackEdits::createPointMass(LegacyProject& project, std::string name)
     {
         return false;
     }
-    append(project, AddTrack{.name = std::move(name), .id = project.nextTrackId});
+    if (!append(project, AddTrack{.name = std::move(name), .id = project.nextTrackId, .position = project.pointMasses.size()}))
+    {
+        return false;
+    }
     ++project.nextTrackId; // Commit allocation only after the command succeeds.
     // Undo removes the track, but the advanced allocation counter must still be saved.
     invalidateSaved();
@@ -90,8 +128,9 @@ bool TrackEdits::renamePointMass(LegacyProject& project, std::size_t track, std:
     {
         return false;
     }
-    append(project, RenameTrack{.track = track, .after = std::move(name), .before = project.pointMasses.at(track).name});
-    return true;
+    return append(
+        project,
+        RenameTrack{.id = project.pointMasses.at(track).id, .after = std::move(name), .before = project.pointMasses.at(track).name});
 }
 
 bool TrackEdits::removePointMass(LegacyProject& project, std::size_t track)
@@ -100,8 +139,7 @@ bool TrackEdits::removePointMass(LegacyProject& project, std::size_t track)
     {
         return false;
     }
-    append(project, RemoveTrack{.track = track, .before = project.pointMasses.at(track)});
-    return true;
+    return append(project, RemoveTrack{.position = track, .before = project.pointMasses.at(track)});
 }
 
 bool TrackEdits::setPointMassValue(LegacyProject& project, std::size_t track, double mass)
@@ -113,7 +151,7 @@ bool TrackEdits::setPointMassValue(LegacyProject& project, std::size_t track, do
     const auto before = project.pointMasses.at(track).mass;
     if (mass != before)
     {
-        append(project, ChangeMass{.track = track, .after = mass, .before = before});
+        return append(project, ChangeMass{.id = project.pointMasses.at(track).id, .after = mass, .before = before});
     }
     return true;
 }
@@ -129,7 +167,7 @@ bool TrackEdits::markPointMass(LegacyProject& project, std::size_t track, Mark m
     const auto before = previous != marks.end() && previous->frame == mark.frame ? std::optional(*previous) : std::nullopt;
     if (!before || before->x != mark.x || before->y != mark.y)
     {
-        append(project, ChangeMark{.track = track, .frame = mark.frame, .after = mark, .before = before});
+        return append(project, ChangeMark{.id = project.pointMasses.at(track).id, .frame = mark.frame, .after = mark, .before = before});
     }
     return true;
 }
@@ -146,8 +184,7 @@ bool TrackEdits::removeMark(LegacyProject& project, std::size_t track, int frame
     {
         return false;
     }
-    append(project, ChangeMark{.track = track, .frame = frame, .after = std::nullopt, .before = *mark});
-    return true;
+    return append(project, ChangeMark{.id = project.pointMasses.at(track).id, .frame = frame, .after = std::nullopt, .before = *mark});
 }
 
 bool TrackEdits::createVector(LegacyProject& project, std::string name)
@@ -157,7 +194,10 @@ bool TrackEdits::createVector(LegacyProject& project, std::string name)
     {
         return false;
     }
-    append(project, AddVector{.name = std::move(name), .id = project.nextTrackId});
+    if (!append(project, AddVector{.name = std::move(name), .id = project.nextTrackId, .position = project.vectors.size()}))
+    {
+        return false;
+    }
     ++project.nextTrackId;
     invalidateSaved();
     return true;
@@ -170,8 +210,8 @@ bool TrackEdits::renameVector(LegacyProject& project, std::size_t track, std::st
     {
         return false;
     }
-    append(project, RenameVector{.track = track, .after = std::move(name), .before = project.vectors.at(track).name});
-    return true;
+    return append(project,
+                  RenameVector{.id = project.vectors.at(track).id, .after = std::move(name), .before = project.vectors.at(track).name});
 }
 
 bool TrackEdits::removeVector(LegacyProject& project, std::size_t track)
@@ -180,8 +220,7 @@ bool TrackEdits::removeVector(LegacyProject& project, std::size_t track)
     {
         return false;
     }
-    append(project, RemoveVector{.track = track, .before = project.vectors.at(track)});
-    return true;
+    return append(project, RemoveVector{.position = track, .before = project.vectors.at(track)});
 }
 
 bool TrackEdits::markVector(LegacyProject& project, std::size_t track, VectorSample sample)
@@ -198,7 +237,8 @@ bool TrackEdits::markVector(LegacyProject& project, std::size_t track, VectorSam
     if (!before || before->tailX != sample.tailX || before->tailY != sample.tailY || before->componentX != sample.componentX ||
         before->componentY != sample.componentY)
     {
-        append(project, ChangeVectorSample{.track = track, .frame = sample.frame, .after = sample, .before = before});
+        return append(project,
+                      ChangeVectorSample{.id = project.vectors.at(track).id, .frame = sample.frame, .after = sample, .before = before});
     }
     return true;
 }
@@ -215,8 +255,8 @@ bool TrackEdits::removeVectorSample(LegacyProject& project, std::size_t track, i
     {
         return false;
     }
-    append(project, ChangeVectorSample{.track = track, .frame = frame, .after = std::nullopt, .before = *sample});
-    return true;
+    return append(project,
+                  ChangeVectorSample{.id = project.vectors.at(track).id, .frame = frame, .after = std::nullopt, .before = *sample});
 }
 
 bool TrackEdits::calibrateDistance(LegacyProject& project, CalibrationDistance distance)
@@ -259,12 +299,11 @@ bool TrackEdits::calibrateDistance(LegacyProject& project, CalibrationDistance d
     {
         writeCalibrationKey(next, *key);
     }
-    append(project,
-           ChangeCalibration{.after = std::move(next),
-                             .before = project.calibration,
-                             .afterUnit = std::move(distance.unit),
-                             .beforeUnit = project.lengthUnit});
-    return true;
+    return append(project,
+                  ChangeCalibration{.after = std::move(next),
+                                    .before = project.calibration,
+                                    .afterUnit = std::move(distance.unit),
+                                    .beforeUnit = project.lengthUnit});
 }
 
 bool TrackEdits::setCoordinateAxes(LegacyProject& project, AxesPlacement axes)
@@ -306,12 +345,11 @@ bool TrackEdits::setCoordinateAxes(LegacyProject& project, AxesPlacement axes)
     {
         next.keyframes.back().angleDegrees = key->angleDegrees;
     }
-    append(project,
-           ChangeCalibration{.after = std::move(next),
-                             .before = project.calibration,
-                             .afterUnit = initial ? "px" : project.lengthUnit,
-                             .beforeUnit = project.lengthUnit});
-    return true;
+    return append(project,
+                  ChangeCalibration{.after = std::move(next),
+                                    .before = project.calibration,
+                                    .afterUnit = initial ? "px" : project.lengthUnit,
+                                    .beforeUnit = project.lengthUnit});
 }
 
 bool TrackEdits::canUndo() const
@@ -337,8 +375,7 @@ bool TrackEdits::setClipRange(LegacyProject& project, int firstFrame, int lastFr
     {
         return false;
     }
-    append(project, ChangeClip{.after = after, .before = before});
-    return true;
+    return append(project, ChangeClip{.after = after, .before = before});
 }
 
 bool TrackEdits::canRedo() const
@@ -352,7 +389,10 @@ bool TrackEdits::undo(LegacyProject& project)
     {
         return false;
     }
-    apply(project, m_Commands.at(m_Head - 1), false);
+    if (!apply(project, m_Commands.at(m_Head - 1), false))
+    {
+        return false;
+    }
     --m_Head;
     ++m_Revision;
     return true;
@@ -364,47 +404,51 @@ bool TrackEdits::redo(LegacyProject& project)
     {
         return false;
     }
-    apply(project, m_Commands.at(m_Head), true);
+    if (!apply(project, m_Commands.at(m_Head), true))
+    {
+        return false;
+    }
     ++m_Head;
     ++m_Revision;
     return true;
 }
 
-void TrackEdits::apply(LegacyProject& project, const Edit& edit, bool forward)
+bool TrackEdits::apply(LegacyProject& project, const Edit& edit, bool forward)
 {
     if (const auto* track = std::get_if<AddVector>(&edit))
     {
         if (forward)
         {
-            project.vectors.push_back({.name = track->name, .samples = {}, .id = track->id});
+            return insertTrack(project, project.vectors, track->position, VectorTrack{.name = track->name, .samples = {}, .id = track->id});
         }
-        else
-        {
-            project.vectors.pop_back();
-        }
-        return;
+        return eraseTrack(project, project.vectors, track->id);
     }
     if (const auto* rename = std::get_if<RenameVector>(&edit))
     {
-        project.vectors.at(rename->track).name = forward ? rename->after : rename->before;
-        return;
+        const auto track = findTrack(project, project.vectors, rename->id);
+        if (track == project.vectors.end())
+        {
+            return false;
+        }
+        track->name = forward ? rename->after : rename->before;
+        return true;
     }
     if (const auto* remove = std::get_if<RemoveVector>(&edit))
     {
-        const auto position = project.vectors.begin() + static_cast<std::ptrdiff_t>(remove->track);
         if (forward)
         {
-            project.vectors.erase(position);
+            return eraseTrack(project, project.vectors, remove->before.id);
         }
-        else
-        {
-            project.vectors.insert(position, remove->before);
-        }
-        return;
+        return insertTrack(project, project.vectors, remove->position, remove->before);
     }
     if (const auto* change = std::get_if<ChangeVectorSample>(&edit))
     {
-        auto& samples = project.vectors.at(change->track).samples;
+        const auto track = findTrack(project, project.vectors, change->id);
+        if (track == project.vectors.end())
+        {
+            return false;
+        }
+        auto& samples = track->samples;
         const auto position = std::ranges::lower_bound(samples, change->frame, {}, &VectorSample::frame);
         const bool existing = position != samples.end() && position->frame == change->frame;
         const auto& replacement = forward ? change->after : change->before;
@@ -420,42 +464,43 @@ void TrackEdits::apply(LegacyProject& project, const Edit& edit, bool forward)
         {
             samples.erase(position);
         }
-        return;
+        return true;
     }
     if (const auto* track = std::get_if<AddTrack>(&edit))
     {
         if (forward)
         {
-            project.pointMasses.push_back({.name = track->name, .marks = {}, .id = track->id});
+            return insertTrack(project, project.pointMasses, track->position, PointMass{.name = track->name, .marks = {}, .id = track->id});
         }
-        else
-        {
-            project.pointMasses.pop_back();
-        }
-        return;
+        return eraseTrack(project, project.pointMasses, track->id);
     }
     if (const auto* rename = std::get_if<RenameTrack>(&edit))
     {
-        project.pointMasses.at(rename->track).name = forward ? rename->after : rename->before;
-        return;
+        const auto track = findTrack(project, project.pointMasses, rename->id);
+        if (track == project.pointMasses.end())
+        {
+            return false;
+        }
+        track->name = forward ? rename->after : rename->before;
+        return true;
     }
     if (const auto* remove = std::get_if<RemoveTrack>(&edit))
     {
-        const auto position = project.pointMasses.begin() + static_cast<std::ptrdiff_t>(remove->track);
         if (forward)
         {
-            project.pointMasses.erase(position);
+            return eraseTrack(project, project.pointMasses, remove->before.id);
         }
-        else
-        {
-            project.pointMasses.insert(position, remove->before);
-        }
-        return;
+        return insertTrack(project, project.pointMasses, remove->position, remove->before);
     }
     if (const auto* mass = std::get_if<ChangeMass>(&edit))
     {
-        project.pointMasses.at(mass->track).mass = forward ? mass->after : mass->before;
-        return;
+        const auto track = findTrack(project, project.pointMasses, mass->id);
+        if (track == project.pointMasses.end())
+        {
+            return false;
+        }
+        track->mass = forward ? mass->after : mass->before;
+        return true;
     }
     if (const auto* change = std::get_if<ChangeCalibration>(&edit))
     {
@@ -463,7 +508,7 @@ void TrackEdits::apply(LegacyProject& project, const Edit& edit, bool forward)
         auto unit = forward ? change->afterUnit : change->beforeUnit;
         project.calibration = std::move(calibration);
         project.lengthUnit = std::move(unit);
-        return;
+        return true;
     }
     if (const auto* change = std::get_if<ChangeClip>(&edit))
     {
@@ -471,11 +516,16 @@ void TrackEdits::apply(LegacyProject& project, const Edit& edit, bool forward)
         project.clip.firstFrame = range.firstFrame;
         project.clip.stepSize = range.stepSize;
         project.clip.stepCount = range.stepCount;
-        return;
+        return true;
     }
 
     const auto& change = std::get<ChangeMark>(edit);
-    auto& marks = project.pointMasses.at(change.track).marks;
+    const auto track = findTrack(project, project.pointMasses, change.id);
+    if (track == project.pointMasses.end())
+    {
+        return false;
+    }
+    auto& marks = track->marks;
     const auto position = std::ranges::lower_bound(marks, change.frame, {}, &Mark::frame);
     const bool existing = position != marks.end() && position->frame == change.frame;
     const auto& replacement = forward ? change.after : change.before;
@@ -491,16 +541,20 @@ void TrackEdits::apply(LegacyProject& project, const Edit& edit, bool forward)
     {
         marks.erase(position);
     }
+    return true;
 }
 
-void TrackEdits::append(LegacyProject& project, Edit edit)
+bool TrackEdits::append(LegacyProject& project, Edit edit)
 {
     // Reserve history first so a failed allocation leaves both the project and history intact.
     if (m_Head == m_Commands.capacity())
     {
         m_Commands.reserve(m_Head + std::max<std::size_t>(1, m_Head / 2));
     }
-    apply(project, edit, true);
+    if (!apply(project, edit, true))
+    {
+        return false;
+    }
     if (m_SavedHead > m_Head)
     {
         m_SavedHead.reset();
@@ -509,6 +563,7 @@ void TrackEdits::append(LegacyProject& project, Edit edit)
     m_Commands.push_back(std::move(edit));
     ++m_Head;
     ++m_Revision;
+    return true;
 }
 
 } // namespace motrack

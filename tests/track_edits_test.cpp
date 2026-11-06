@@ -10,6 +10,145 @@
 namespace
 {
 
+TEST(TrackEdits, PointMassCommandsFollowIdentityAfterTheTrackOrderChanges)
+{
+    motrack::LegacyProject project;
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.createPointMass(project, "A"));
+    ASSERT_TRUE(edits.createPointMass(project, "B"));
+    const auto a = project.pointMasses.front().id;
+    const auto b = project.pointMasses.back().id;
+    ASSERT_TRUE(edits.markPointMass(project, 1, {.frame = 3, .x = 99, .y = 99}));
+    edits.clear();
+    ASSERT_TRUE(edits.setPointMassValue(project, 0, 3.5));
+    ASSERT_TRUE(edits.renamePointMass(project, 0, "Target"));
+    ASSERT_TRUE(edits.markPointMass(project, 0, {.frame = 3, .x = 7, .y = 8}));
+    std::swap(project.pointMasses.front(), project.pointMasses.back());
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_TRUE(project.pointMasses.back().marks.empty());
+    EXPECT_EQ(project.pointMasses.front().marks.front().x, 99);
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_EQ(project.pointMasses.back().name, "A");
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_EQ(project.pointMasses.back().mass, 1.0);
+    ASSERT_TRUE(edits.redo(project));
+    ASSERT_TRUE(edits.redo(project));
+    ASSERT_TRUE(edits.redo(project));
+    EXPECT_EQ(project.pointMasses.back().id, a);
+    EXPECT_EQ(project.pointMasses.back().marks.front().x, 7);
+    EXPECT_EQ(project.pointMasses.back().mass, 3.5);
+    EXPECT_EQ(project.pointMasses.back().name, "Target");
+    ASSERT_TRUE(edits.removePointMass(project, 1));
+    ASSERT_TRUE(edits.undo(project));
+    std::swap(project.pointMasses.front(), project.pointMasses.back());
+    ASSERT_TRUE(edits.redo(project));
+    ASSERT_EQ(project.pointMasses.size(), 1u);
+    EXPECT_EQ(project.pointMasses.front().id, b);
+    edits.clear();
+    ASSERT_TRUE(edits.createPointMass(project, "C"));
+    const auto c = project.pointMasses.back().id;
+    std::swap(project.pointMasses.front(), project.pointMasses.back());
+    ASSERT_TRUE(edits.undo(project));
+    ASSERT_EQ(project.pointMasses.size(), 1u);
+    EXPECT_EQ(project.pointMasses.front().id, b);
+    ASSERT_TRUE(edits.redo(project));
+    EXPECT_EQ(project.pointMasses.back().id, c);
+}
+
+TEST(TrackEdits, VectorCommandsFollowIdentityAfterTheTrackOrderChanges)
+{
+    motrack::LegacyProject project;
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.createVector(project, "A"));
+    ASSERT_TRUE(edits.createVector(project, "B"));
+    const auto a = project.vectors.front().id;
+    const auto b = project.vectors.back().id;
+    ASSERT_TRUE(edits.markVector(project, 1, {.frame = 3, .tailX = 99, .tailY = 0, .componentX = 1, .componentY = 2}));
+    edits.clear();
+    ASSERT_TRUE(edits.renameVector(project, 0, "Target"));
+    ASSERT_TRUE(edits.markVector(project, 0, {.frame = 3, .tailX = 7, .tailY = 8, .componentX = 1, .componentY = 2}));
+    std::swap(project.vectors.front(), project.vectors.back());
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_TRUE(project.vectors.back().samples.empty());
+    EXPECT_EQ(project.vectors.front().samples.front().tailX, 99);
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_EQ(project.vectors.back().name, "A");
+    ASSERT_TRUE(edits.redo(project));
+    ASSERT_TRUE(edits.redo(project));
+    EXPECT_EQ(project.vectors.back().id, a);
+    EXPECT_EQ(project.vectors.back().name, "Target");
+    EXPECT_EQ(project.vectors.back().samples.front().tailX, 7);
+    ASSERT_TRUE(edits.removeVector(project, 1));
+    ASSERT_TRUE(edits.undo(project));
+    std::swap(project.vectors.front(), project.vectors.back());
+    ASSERT_TRUE(edits.redo(project));
+    ASSERT_EQ(project.vectors.size(), 1u);
+    EXPECT_EQ(project.vectors.front().id, b);
+    edits.clear();
+    ASSERT_TRUE(edits.createVector(project, "C"));
+    const auto c = project.vectors.back().id;
+    std::swap(project.vectors.front(), project.vectors.back());
+    ASSERT_TRUE(edits.undo(project));
+    ASSERT_EQ(project.vectors.size(), 1u);
+    EXPECT_EQ(project.vectors.front().id, b);
+    ASSERT_TRUE(edits.redo(project));
+    EXPECT_EQ(project.vectors.back().id, c);
+}
+
+TEST(TrackEdits, RejectsMissingAmbiguousAndCollidingTargetsWithoutAdvancingHistory)
+{
+    motrack::LegacyProject project;
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.createPointMass(project, "A"));
+    ASSERT_TRUE(edits.createPointMass(project, "B"));
+    ASSERT_TRUE(edits.createVector(project, "V"));
+    edits.clear();
+    ASSERT_TRUE(edits.markPointMass(project, 0, {.frame = 2, .x = 7, .y = 8}));
+    const auto revision = edits.revision();
+    const auto a = project.pointMasses.front();
+    project.pointMasses.erase(project.pointMasses.begin());
+    EXPECT_FALSE(edits.undo(project));
+    EXPECT_EQ(edits.revision(), revision);
+    EXPECT_TRUE(edits.canUndo());
+    EXPECT_TRUE(project.pointMasses.front().marks.empty());
+    project.pointMasses.push_back(a);
+    const auto vectorId = project.vectors.front().id;
+    project.vectors.front().id = a.id;
+    EXPECT_FALSE(edits.undo(project));
+    EXPECT_EQ(edits.revision(), revision);
+    project.vectors.front().id = vectorId;
+    ASSERT_TRUE(edits.undo(project));
+    project.pointMasses.back().id = 0;
+    EXPECT_FALSE(edits.redo(project));
+    EXPECT_FALSE(edits.renamePointMass(project, 1, "invalid"));
+    EXPECT_TRUE(edits.canRedo());
+    project.pointMasses.back().id = a.id;
+    ASSERT_TRUE(edits.redo(project));
+    EXPECT_EQ(project.pointMasses.back().marks.front().x, 7);
+    ASSERT_TRUE(edits.removePointMass(project, 1));
+    project.pointMasses.push_back(a); // Another owner already restored this identity.
+    const auto removedRevision = edits.revision();
+    EXPECT_FALSE(edits.undo(project));
+    EXPECT_EQ(edits.revision(), removedRevision);
+    project.pointMasses.pop_back();
+    ASSERT_TRUE(edits.undo(project));
+    edits.clear();
+    const auto counter = project.nextTrackId;
+    project.nextTrackId = vectorId;
+    EXPECT_FALSE(edits.createPointMass(project, "collision"));
+    EXPECT_FALSE(edits.createVector(project, "collision"));
+    EXPECT_EQ(project.nextTrackId, vectorId);
+    EXPECT_FALSE(edits.isModified());
+    project.nextTrackId = counter;
+    ASSERT_TRUE(edits.renameVector(project, 0, "renamed"));
+    auto vector = project.vectors.front();
+    project.vectors.clear();
+    EXPECT_FALSE(edits.undo(project));
+    project.vectors.push_back(vector);
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_EQ(project.vectors.front().name, "V");
+}
+
 TEST(TrackEdits, KeepsDistinctIdentitiesAcrossRenameDeleteUndoRedoAndNewHistory)
 {
     motrack::LegacyProject project;
@@ -180,7 +319,7 @@ TEST(TrackEdits, EditsVectorsAndRestoresSamplesAndTrackOrder)
 TEST(TrackEdits, RejectsNonfiniteOrOverflowingVectorEndpointsWithoutAddingHistory)
 {
     motrack::LegacyProject project;
-    project.vectors = {{.name = "Vector", .samples = {}}};
+    project.vectors = {{.name = "Vector", .samples = {}, .id = motrack::allocateTrackId(project)}};
     motrack::TrackEdits edits;
     const motrack::VectorSample valid{.frame = 0, .tailX = 1, .tailY = 2, .componentX = 3, .componentY = 4};
     EXPECT_FALSE(edits.markVector(project, 1, valid));
@@ -212,8 +351,8 @@ TEST(TrackEdits, RejectsNonfiniteOrOverflowingVectorEndpointsWithoutAddingHistor
 TEST(TrackEdits, RestoresDeletedTracksAndMarksInTheirOriginalOrder)
 {
     motrack::LegacyProject project;
-    project.pointMasses = {{.name = "First", .marks = {{.frame = 0, .x = 3, .y = 4}}},
-                           {.name = "Second", .marks = {{.frame = 2, .x = 7, .y = 8}}}};
+    project.pointMasses = {{.name = "First", .marks = {{.frame = 0, .x = 3, .y = 4}}, .id = motrack::allocateTrackId(project)},
+                           {.name = "Second", .marks = {{.frame = 2, .x = 7, .y = 8}}, .id = motrack::allocateTrackId(project)}};
     motrack::TrackEdits edits;
     EXPECT_FALSE(edits.renamePointMass(project, 0, "Second"));
     EXPECT_FALSE(edits.renamePointMass(project, 0, ""));
@@ -267,7 +406,7 @@ TEST(TrackEdits, ChangesTheClipWithoutRenumberingMarks)
     motrack::TrackEdits edits;
     EXPECT_FALSE(edits.setClipRange(project, 0, std::numeric_limits<int>::max(), 1));
     project.clip.sourceFrameCount = 12;
-    project.pointMasses.push_back({.name = "Ball", .marks = {{.frame = 4, .x = 2, .y = 3}}});
+    project.pointMasses.push_back({.name = "Ball", .marks = {{.frame = 4, .x = 2, .y = 3}}, .id = motrack::allocateTrackId(project)});
     EXPECT_FALSE(edits.setClipRange(project, 7, 6, 1));
     EXPECT_FALSE(edits.setClipRange(project, 1, 12, 1));
     EXPECT_TRUE(edits.setClipRange(project, 1, 10, 3));
