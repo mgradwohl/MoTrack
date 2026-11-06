@@ -577,12 +577,12 @@ MainWindow::PreparedProject MainWindow::prepareProject(const QString& path, cons
         if (!prepared.chooseArchiveTab)
         {
             prepared.member = projects.front();
-            prepared.document.project = readLegacyProject(std::filesystem::path(archive.projectPath(prepared.member).toStdU16String()));
+            prepared.document = importTrackerDocument(archive.projectPath(prepared.member));
         }
     }
     else
     {
-        prepared.document.project = readLegacyProject(std::filesystem::path(path.toStdU16String()));
+        prepared.document = importTrackerDocument(path);
     }
     return prepared;
 }
@@ -658,7 +658,7 @@ bool MainWindow::applyProject(const QString& path, PreparedProject prepared, con
             }
             return false;
         }
-        document.project = readLegacyProject(std::filesystem::path(archive.projectPath(prepared.member).toStdU16String()));
+        document = importTrackerDocument(archive.projectPath(prepared.member));
     }
     if (cancelled)
     {
@@ -689,6 +689,7 @@ bool MainWindow::applyProject(const QString& path, PreparedProject prepared, con
         m_MediaProjectPath = QDir(m_Archive->root()).absoluteFilePath("archive.trk");
     }
     m_Project = std::move(document.project);
+    m_TrackerSource = std::move(document.trackerSource);
     m_Sequence = document.movie ? std::nullopt : ImageSequence::open(m_MediaProjectPath, m_Project.clip);
     m_MoviePath.clear();
     m_MoviePresentationTimes.clear();
@@ -786,6 +787,7 @@ bool MainWindow::openImageSequence(const QStringList& paths, double frameRate)
     releaseArchive();
     m_MediaProjectPath = path;
     m_Project = std::move(project);
+    m_TrackerSource.reset();
     m_Sequence = std::move(sequence);
     m_MoviePath.clear();
     m_MoviePresentationTimes.clear();
@@ -839,6 +841,7 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
                 releaseArchive();
                 m_MediaProjectPath = path;
                 m_Project = {};
+                m_TrackerSource.reset();
                 m_Project.clip.stepCount = index.frameCount;
                 m_Project.clip.sourceFrameCount = index.frameCount;
                 m_Project.clip.mediaReferences.push_back(QFileInfo(path).fileName().toStdString());
@@ -1524,7 +1527,8 @@ bool MainWindow::saveWorkspace(const QString& path)
                                .movieFrameTimes = m_MovieFrameTimes,
                                .movie = !m_MoviePath.isEmpty(),
                                .useDisplayOrientation = m_MovieUsesDisplayOrientation,
-                               .alignMovieToClip = m_MovieAlignsToClip};
+                               .alignMovieToClip = m_MovieAlignsToClip,
+                               .trackerSource = m_TrackerSource};
     const QDir destination(QFileInfo(path).absolutePath());
     if (m_Archive)
     {

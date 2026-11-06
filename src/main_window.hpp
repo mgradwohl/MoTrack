@@ -132,6 +132,7 @@ class MainWindow final : public QMainWindow
     QLabel* m_FitSummary;
     PositionPlot* m_Plot;
     LegacyProject m_Project;
+    std::optional<TrackerSource> m_TrackerSource;
     TrackEdits m_Edits;
     std::optional<ImageSequence> m_Sequence;
     std::optional<ImageFrame> m_DisplayedFrame;

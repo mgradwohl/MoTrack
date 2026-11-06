@@ -143,10 +143,17 @@ TEST(Workspace, OpensATrackerArchiveAndReopensASavedCopy)
     EXPECT_EQ(marks->rowCount(), 2);
     const auto path = temporary.filePath("archived.motrack");
     ASSERT_TRUE(window.saveWorkspace(path));
+    const auto source = motrack::readWorkspaceDocument(path).trackerSource;
+    ASSERT_TRUE(source);
+    EXPECT_EQ(motrack::parseLegacyProject(source->xml).pointMasses.size(), 1u);
     ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
     ASSERT_TRUE(window.loadProject(path));
     EXPECT_EQ(canvas->accessibleName(), "Frame 0");
     EXPECT_EQ(marks->rowCount(), 2);
+    ASSERT_TRUE(window.saveWorkspace(path));
+    const auto resaved = motrack::readWorkspaceDocument(path);
+    ASSERT_TRUE(resaved.trackerSource);
+    EXPECT_EQ(resaved.trackerSource->xml, source->xml);
 }
 
 TEST(Workspace, KeepsOnlyTheLatestBackgroundProjectRequest)
@@ -457,6 +464,7 @@ TEST(Workspace, OpensStandaloneMovieAndKeepsTheWorkspaceAfterAFailedOpen)
     auto* slider = window.findChild<QSlider*>("stepSlider");
     auto* status = window.statusBar();
     ASSERT_TRUE(canvas && slider && status);
+    ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
     window.openMovie(fixturePath("vfr.mp4"));
     ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
     EXPECT_EQ(slider->maximum(), 3);
@@ -472,6 +480,7 @@ TEST(Workspace, OpensStandaloneMovieAndKeepsTheWorkspaceAfterAFailedOpen)
     const auto destination = temporary.filePath("movie.motrack");
     ASSERT_TRUE(window.saveWorkspace(destination));
     EXPECT_TRUE(motrack::readWorkspaceDocument(destination).useDisplayOrientation);
+    EXPECT_FALSE(motrack::readWorkspaceDocument(destination).trackerSource);
     ASSERT_TRUE(window.loadProject(destination));
     ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
     EXPECT_EQ(slider->maximum(), 3);
@@ -485,6 +494,7 @@ TEST(Workspace, OpensStandaloneImagesAndSavesTheirTiming)
     auto* canvas = window.findChild<QWidget*>("videoCanvas");
     auto* slider = window.findChild<QSlider*>("stepSlider");
     ASSERT_TRUE(canvas && slider);
+    ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
     EXPECT_FALSE(window.openImageSequence({}, 0.0));
     EXPECT_FALSE(window.openImageSequence({fixturePath("frames/frame00.ppm")}, -1.0));
     ASSERT_TRUE(window.openImageSequence({fixturePath("frames/frame00.ppm"), fixturePath("frames/frame02.ppm")}, 4.0));
@@ -497,6 +507,7 @@ TEST(Workspace, OpensStandaloneImagesAndSavesTheirTiming)
     const auto destination = temporary.filePath("images.motrack");
     ASSERT_TRUE(window.saveWorkspace(destination));
     EXPECT_EQ(motrack::readWorkspaceDocument(destination).project.clip.frameDurationMs, 250.0);
+    EXPECT_FALSE(motrack::readWorkspaceDocument(destination).trackerSource);
     ASSERT_TRUE(window.loadProject(destination));
     EXPECT_EQ(canvas->accessibleName(), "Frame 0");
     EXPECT_EQ(slider->maximum(), 1);
@@ -887,7 +898,11 @@ TEST(Workspace, EditsAndSavesTheSelectedMass)
     ASSERT_TRUE(temporary.isValid());
     motrack::MainWindow window;
     window.show();
-    ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
+    const auto imported = temporary.filePath("imported.trk");
+    ASSERT_TRUE(QFile::copy(fixturePath("point-mass.trk"), imported));
+    const auto original = motrack::importTrackerDocument(imported).trackerSource;
+    ASSERT_TRUE(original);
+    ASSERT_TRUE(window.loadProject(imported));
     auto* action = window.findChild<QAction*>("setPointMassValue");
     ASSERT_TRUE(action && action->isEnabled());
     QTimer::singleShot(0,
@@ -907,6 +922,22 @@ TEST(Workspace, EditsAndSavesTheSelectedMass)
     EXPECT_EQ(saved.project.massUnit, "g");
     ASSERT_EQ(saved.project.pointMasses.size(), 1u);
     EXPECT_DOUBLE_EQ(saved.project.pointMasses.front().mass, 250.25);
+    ASSERT_TRUE(saved.trackerSource);
+    EXPECT_EQ(saved.trackerSource->xml, original->xml);
+    ASSERT_TRUE(QFile::remove(imported));
+    motrack::MainWindow reopened;
+    ASSERT_TRUE(reopened.loadProject(path));
+    const auto copy = temporary.filePath("reopened.motrack");
+    ASSERT_TRUE(reopened.saveWorkspace(copy));
+    const auto resaved = motrack::readWorkspaceDocument(copy);
+    ASSERT_TRUE(resaved.trackerSource);
+    EXPECT_EQ(resaved.trackerSource->xml, original->xml);
+    EXPECT_DOUBLE_EQ(resaved.project.pointMasses.front().mass, 250.25);
+    EXPECT_FALSE(reopened.loadProject(imported));
+    ASSERT_TRUE(reopened.saveWorkspace(copy));
+    const auto afterFailedOpen = motrack::readWorkspaceDocument(copy);
+    ASSERT_TRUE(afterFailedOpen.trackerSource);
+    EXPECT_EQ(afterFailedOpen.trackerSource->xml, original->xml);
 }
 
 TEST(Workspace, CreatesEditsRepeatsAndReopensVectorTracks)
