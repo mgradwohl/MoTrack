@@ -1,0 +1,86 @@
+{
+  "reference_version": "6.3.5",
+  "verification_level": "xml_and_coordinate_api",
+  "project": {
+    "source_version": "6.3.5",
+    "clip": {
+      "first_frame": 0,
+      "step_size": 1,
+      "step_count": 10,
+      "start_ms": 0.0
+    },
+    "point_masses": [],
+    "vectors": [
+      {
+        "name": "vector A",
+        "samples": [
+          {
+            "frame": 0,
+            "tail": [
+              10.0,
+              20.0
+            ],
+            "components": [
+              3.0,
+              -4.0
+            ]
+          },
+          {
+            "frame": 5,
+            "tail": [
+              30.0,
+              40.0
+            ],
+            "components": [
+              -5.0,
+              12.0
+            ]
+          }
+        ]
+      },
+      {
+        "name": "vector B",
+        "samples": [
+          {
+            "frame": 2,
+            "tail": [
+              50.0,
+              60.0
+            ],
+            "components": [
+              0.0,
+              0.0
+            ]
+          }
+        ]
+      }
+    ],
+    "unsupported_tracks": [
+      "org.opensourcephysics.cabrillo.tracker.CoordAxes"
+    ],
+    "coordinate_samples": [
+      {
+        "frame": 0,
+        "image": [
+          13.5,
+          17.25
+        ],
+        "world": [
+          -153.25,
+          55.6875
+        ]
+      },
+      {
+        "frame": 9,
+        "image": [
+          13.5,
+          17.25
+        ],
+        "world": [
+          -153.25,
+          55.6875
+        ]
+      }
+    ]
+  }
+}

@@ -63,6 +63,42 @@
       "features": ["calibration", "unsupported-dynamic-particle", "saved-functions", "saved-plot-settings"],
       "requirements": ["R02", "R09", "R16", "R19"],
       "expected": "expected/dynamic-sine.json"
+    },
+    {
+      "id": "independent-vectors",
+      "local_file": "fixtures/independent-vectors.trk",
+      "file": "independent-vectors.trk",
+      "bytes": 6231,
+      "sha256": "364a7eeec7a901b35211cbb7a09bd10cf8ec2ec3acab5772cb0bb4b53724c3ab",
+      "tracker_version": "6.3.5",
+      "features": [
+        "two-independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "nonuniform-calibration",
+        "java-authored-synthetic"
+      ],
+      "requirements": [
+        "R02",
+        "R07",
+        "R09"
+      ],
+      "expected": "expected/independent-vectors.json",
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        }
+      ],
+      "provenance": "Authored by tools/reference/VectorFixture.java using the checksum-pinned Tracker 6.3.5 serializers; LF normalized; no MoTrack output used."
     }
   ]
 }

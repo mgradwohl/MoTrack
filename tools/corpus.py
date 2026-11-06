@@ -35,12 +35,16 @@ def load_manifest(path=CORPUS / "manifest.json"):
         seen.add(case["id"])
         expected_path(case)
     for artifact in [manifest["reference"], *manifest["cases"]]:
+        local = "local_file" in artifact
         if (not re.fullmatch(r"[A-Za-z0-9_.-]+", artifact["file"])
                 or artifact["file"] in {".", ".."}
-                or not artifact["url"].startswith("https://")
+                or (local and ("url" in artifact or artifact is manifest["reference"]))
+                or (not local and not artifact.get("url", "").startswith("https://"))
                 or not re.fullmatch(r"[a-f0-9]{64}", artifact["sha256"])
                 or not 0 < artifact["bytes"] <= 128 * 1024 * 1024):
             raise ValueError("Invalid corpus artifact")
+        if local:
+            local_fixture_path(artifact)
     for value in manifest["tolerance"].values():
         if not math.isfinite(value) or value < 0:
             raise ValueError("Invalid numerical tolerance")
@@ -51,6 +55,13 @@ def expected_path(case):
     path = (CORPUS / case["expected"]).resolve()
     if not path.is_relative_to(CORPUS.resolve()):
         raise ValueError("Expected snapshot must stay inside the corpus")
+    return path
+
+
+def local_fixture_path(case):
+    path = (CORPUS / case["local_file"]).resolve()
+    if not path.is_relative_to((CORPUS / "fixtures").resolve()):
+        raise ValueError("Local fixture must stay inside the corpus fixtures directory")
     return path
 
 
@@ -94,11 +105,11 @@ def fetch_file(path, artifact):
 def artifacts(manifest, cache):
     yield cache / manifest["reference"]["file"], manifest["reference"]
     for case in manifest["cases"]:
-        yield cache / "fixtures" / case["file"], case
+        yield local_fixture_path(case) if "local_file" in case else cache / "fixtures" / case["file"], case
 
 
 def project_path(case, cache):
-    source = cache / "fixtures" / case["file"]
+    source = local_fixture_path(case) if "local_file" in case else cache / "fixtures" / case["file"]
     if "project_member" not in case:
         if source.stat().st_size > MAX_XML_BYTES:
             raise ValueError("Corpus project exceeds the XML size limit")
@@ -194,6 +205,7 @@ def validate_session(case, report, manifest, expected=None, key_frames=None):
         raise ValueError("Unexpected session reference version or verification level")
     before = report["before"]
     tolerance = manifest["tolerance"]
+    compare(before, report["after_save"], tolerance, case["id"] + ".save")
     compare(before, report["after"], tolerance, case["id"] + ".resave")
     identities = [{"class": track["class"], "name": track["name"]} for track in before["tracks"]]
     compare(case["session_tracks"], identities, tolerance, case["id"] + ".tracks")
@@ -209,6 +221,9 @@ def validate_session(case, report, manifest, expected=None, key_frames=None):
     expected_masses = [{**mass, "samples": [{"frame": sample["frame"], "image": sample["image"]}
                        for sample in mass["samples"]]} for mass in expected["point_masses"]]
     compare(expected_masses, masses, tolerance, case["id"] + ".point_masses")
+    vectors = [{"name": track["name"], "samples": track["vector_samples"]} for track in before["tracks"]
+               if track["class"] == "org.opensourcephysics.cabrillo.tracker.Vector"]
+    compare(expected["vectors"], vectors, tolerance, case["id"] + ".vectors")
     if key_frames is not None:
         actual = [track["key_frames"] for track in before["tracks"]
                   if track["class"] == "org.opensourcephysics.cabrillo.tracker.PointMass"]
@@ -451,12 +466,28 @@ def check_sessions(manifest, cache, java, probe=None):
                 run([str(Path(probe).resolve()), str(exported), str(native_report)])
                 compare(expected, json.loads(native_report.read_text(encoding="utf-8")), manifest["tolerance"], case["id"] + ".export")
                 project = exported
-            run([str(java_path), f"-Duser.home={java_home}", "-Duser.language=en", "-Duser.country=US",
-                 "-Xmx256m", "-cp", os.pathsep.join([str(classes), str(jar)]), "TrackerSessionReference",
-                 str(project), str(output)], display=display)
-            report = json.loads((output / "session.json").read_text(encoding="utf-8"))
+            stages = {}
+            # Tracker has static per-panel drawing state but allocates IDs separately in each TFrame.
+            # A fresh JVM prevents two windows' vector snapping registries from sharing the same IDs.
+            for stage in ["save", "reopen"]:
+                home = java_home if stage == "save" else output / "java-reopen-home"
+                home.mkdir(exist_ok=True)
+                source = project if stage == "save" else output / "tracker-resaved.trk"
+                run([str(java_path), f"-Duser.home={home}", "-Duser.language=en", "-Duser.country=US",
+                     "-Xmx256m", "-cp", os.pathsep.join([str(classes), str(jar)]), "TrackerSessionReference",
+                     str(source), str(output), stage], display=display)
+                stages[stage] = json.loads((output / ("session-" + stage + ".json")).read_text(encoding="utf-8"))
+                if (stages[stage]["reference_version"] != manifest["reference"]["version"]
+                        or stages[stage]["verification_level"] != "tracker_session_" + stage):
+                    raise ValueError("Unexpected Tracker session stage")
+            report = {"reference_version": stages["save"]["reference_version"], "verification_level": "tracker_session_resave",
+                      "before": stages["save"]["loaded"], "after_save": stages["save"]["after_save"],
+                      "after": stages["reopen"]["loaded"]}
             keys = {"marks": [[0, 3], [7]], "empty-marks": [[], [0]], "first-mark": [[4], [0]]}.get(mode)
-            validate_session(case, report, manifest, expected, keys)
+            try:
+                validate_session(case, report, manifest, expected, keys)
+            except ValueError as error:
+                raise ValueError(f"{error}\nTracker session snapshots (bounded): {json.dumps(report)[:24000]}") from error
             if probe:
                 reimport = output / "native-reimport.json"
                 run([str(Path(probe).resolve()), str(output / "tracker-resaved.trk"), str(reimport)])
@@ -488,7 +519,7 @@ def main():
     cache = args.cache.resolve()
     if args.command in {"fetch", "verify"}:
         for path, artifact in artifacts(manifest, cache):
-            (fetch_file if args.command == "fetch" else verify_file)(path, artifact)
+            (fetch_file if args.command == "fetch" and "local_file" not in artifact else verify_file)(path, artifact)
         print(f"Verified {len(manifest['cases'])} cases and Tracker {manifest['reference']['version']}")
     elif args.command in {"session", "roundtrip"}:
         check_sessions(manifest, cache, args.java, args.probe if args.command == "roundtrip" else None)

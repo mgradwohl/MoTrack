@@ -129,11 +129,11 @@ class CorpusTests(unittest.TestCase):
                                        for sample in mass["samples"]] if mass else []})
         before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"]}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                 "before": before, "after": copy.deepcopy(before)}
+                 "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest)
         edited_expected = corpus.mass_roundtrip_expected(case)
         edited = copy.deepcopy(valid)
-        for key in ["before", "after"]:
+        for key in ["before", "after_save", "after"]:
             edited[key]["tracks"][1]["mass"] *= 2.5
         corpus.validate_session(case, edited, manifest, edited_expected)
         with self.assertRaises(ValueError):
@@ -143,12 +143,12 @@ class CorpusTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             corpus.validate_session(case, invalid, manifest)
         invalid = copy.deepcopy(valid)
-        for key in ["before", "after"]:
+        for key in ["before", "after_save", "after"]:
             invalid[key]["tracks"][2]["class"] = "MissingProtractor"
         with self.assertRaises(ValueError):
             corpus.validate_session(case, invalid, manifest)
         invalid = copy.deepcopy(valid)
-        for key in ["before", "after"]:
+        for key in ["before", "after_save", "after"]:
             invalid[key]["tracks"][1]["samples"][0]["points"][0][0] += 1.0
         with self.assertRaises(ValueError):
             corpus.validate_session(case, invalid, manifest)
@@ -159,6 +159,40 @@ class CorpusTests(unittest.TestCase):
     def test_session_checks_reject_non_linux_hosts(self):
         with patch.object(corpus.sys, "platform", "win32"), self.assertRaisesRegex(ValueError, "Linux"):
             corpus.check_sessions({}, self.root, "java")
+
+    def test_local_vector_fixture_is_pinned_and_cannot_escape_the_corpus(self):
+        manifest = corpus.load_manifest()
+        case = next(case for case in manifest["cases"] if case["id"] == "independent-vectors")
+        local = corpus.local_fixture_path(case)
+        corpus.verify_file(local, case)
+        self.assertEqual(corpus.project_path(case, self.root), local)
+        self.assertIn((local, case), list(corpus.artifacts(manifest, self.root)))
+        with self.assertRaisesRegex(ValueError, "inside"):
+            corpus.local_fixture_path({**case, "local_file": "../outside.trk"})
+        case["url"] = "https://example.org/conflicting-source.trk"
+        path = self.root / "manifest.json"
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "Invalid corpus artifact"):
+            corpus.load_manifest(path)
+
+    def test_vector_session_requires_loaded_tails_components_and_frames(self):
+        manifest = corpus.load_manifest()
+        case = next(case for case in manifest["cases"] if case["id"] == "independent-vectors")
+        expected = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
+        tracks = []
+        for identity in case["session_tracks"]:
+            vector = next((v for v in expected["vectors"] if v["name"] == identity["name"]), None)
+            tracks.append({**identity, "vector_samples": copy.deepcopy(vector["samples"]) if vector else []})
+        before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"]}
+        valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                 "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
+        corpus.validate_session(case, valid, manifest)
+        for field, value in [("tail", [11.0, 20.0]), ("components", [3.0, 4.0]), ("frame", 1)]:
+            invalid = copy.deepcopy(valid)
+            for state in ["before", "after_save", "after"]:
+                invalid[state]["tracks"][1]["vector_samples"][0][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                corpus.validate_session(case, invalid, manifest)
 
     def test_mark_session_requires_edited_samples_and_manual_keys(self):
         manifest = corpus.load_manifest()
@@ -175,11 +209,11 @@ class CorpusTests(unittest.TestCase):
                            "key_frames": keys[index] if mass else None})
         before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"]}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                 "before": before, "after": copy.deepcopy(before)}
+                 "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest, expected, keys)
         for field, value in [("key_frames", [0]), ("samples", tracks[1]["samples"][:1])]:
             invalid = copy.deepcopy(valid)
-            for state in ["before", "after"]:
+            for state in ["before", "after_save", "after"]:
                 invalid[state]["tracks"][1][field] = value
             with self.subTest(field=field), self.assertRaises(ValueError):
                 corpus.validate_session(case, invalid, manifest, expected, keys)
@@ -343,6 +377,39 @@ class CorpusTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "session failure"):
                 corpus.check_sessions(manifest, self.root, "java")
         self.assertEqual(len(calls), 2)
+        self.assertEqual(list(self.root.glob("session-*")), [])
+
+    def test_reopen_runs_in_a_separate_process_and_private_home(self):
+        manifest = corpus.load_manifest()
+        manifest["cases"] = [next(case for case in manifest["cases"] if case["id"] == "protractor")]
+        (self.root / "fixtures").mkdir()
+        (self.root / "fixtures/protractor.trk").write_text("<object/>", encoding="utf-8")
+        calls = []
+        def session(command, *, display=None):
+            if "TrackerSessionReference" not in command:
+                return
+            source, output, stage = command[-3:]
+            calls.append((source, next(arg for arg in command if arg.startswith("-Duser.home=")), stage))
+            output = Path(output)
+            if stage == "save":
+                (output / "tracker-resaved.trk").write_text("<object/>", encoding="utf-8")
+            else:
+                self.assertEqual(Path(source).name, "tracker-resaved.trk")
+                self.assertTrue(Path(source).is_file())
+            report = {"reference_version": "6.3.5", "verification_level": "tracker_session_" + stage,
+                      "loaded": {"stage": stage}, "after_save": {"stage": "after_save"}}
+            (output / ("session-" + stage + ".json")).write_text(json.dumps(report), encoding="utf-8")
+        with patch.object(corpus.sys, "platform", "linux"), \
+                patch.object(corpus, "private_display", return_value=nullcontext(":77")), \
+                patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "run", side_effect=session), \
+                patch.object(corpus, "validate_session") as validate:
+            corpus.check_sessions(manifest, self.root, "java")
+        self.assertEqual([call[2] for call in calls], ["save", "reopen"])
+        self.assertNotEqual(calls[0][1], calls[1][1])
+        report = validate.call_args.args[1]
+        self.assertEqual(report["before"], {"stage": "save"})
+        self.assertEqual(report["after_save"], {"stage": "after_save"})
+        self.assertEqual(report["after"], {"stage": "reopen"})
         self.assertEqual(list(self.root.glob("session-*")), [])
 
 

@@ -17,6 +17,8 @@ import org.opensourcephysics.cabrillo.tracker.TFrame;
 import org.opensourcephysics.cabrillo.tracker.TTrack;
 import org.opensourcephysics.cabrillo.tracker.TrackerIO;
 import org.opensourcephysics.cabrillo.tracker.TrackerPanel;
+import org.opensourcephysics.cabrillo.tracker.Vector;
+import org.opensourcephysics.cabrillo.tracker.VectorStep;
 import org.opensourcephysics.controls.XMLControlElement;
 import org.opensourcephysics.display.OSPRuntime;
 import org.opensourcephysics.media.core.ImageCoordSystem;
@@ -34,34 +36,33 @@ public final class TrackerSessionReference {
     public static void main(String[] args) {
         int status = 1;
         try {
-            if (args.length != 2) throw new IllegalArgumentException("Usage: TrackerSessionReference input.trk output-directory");
+            if (args.length != 3 || !(args[2].equals("save") || args[2].equals("reopen")))
+                throw new IllegalArgumentException("Usage: TrackerSessionReference input.trk output-directory save|reopen");
             if (!OSPRuntime.VERSION.equals("6.3.5")) throw new IllegalStateException("Expected Tracker 6.3.5");
             Locale.setDefault(Locale.US);
             Path input = Path.of(args[0]).toAbsolutePath();
             Path directory = Path.of(args[1]).toAbsolutePath();
+            boolean save = args[2].equals("save");
             Files.createDirectories(directory);
             Path saved = directory.resolve("tracker-resaved.trk");
-            if (Files.exists(saved)) throw new IllegalArgumentException("Output must be a fresh test directory");
+            if (save && Files.exists(saved)) throw new IllegalArgumentException("Output must be a fresh test directory");
             SwingUtilities.invokeAndWait(guard(() -> {
                 TFrame originalFrame = new TFrame();
                 TrackerIO.openURL(input.toString(), originalFrame, guard(() -> whenEvaluated(originalFrame, () -> {
                     TrackerPanel panel = onlyPanel(originalFrame);
                     Map<String, Object> before = snapshot(panel);
-                    if (TrackerIO.save(saved.toFile(), panel) == null || !Files.isRegularFile(saved))
+                    if (save && (TrackerIO.save(saved.toFile(), panel) == null || !Files.isRegularFile(saved)))
                         throw new IllegalStateException("Tracker did not save the loaded session");
-                    TFrame reopenedFrame = new TFrame();
-                    TrackerIO.openURL(saved.toString(), reopenedFrame, guard(() -> whenEvaluated(reopenedFrame, () -> {
-                        REPORT.set(TrackerReference.map("reference_version", OSPRuntime.VERSION,
-                            "verification_level", "tracker_session_resave", "before", before,
-                            "after", snapshot(onlyPanel(reopenedFrame))));
-                        DONE.countDown();
-                    })));
+                    REPORT.set(TrackerReference.map("reference_version", OSPRuntime.VERSION,
+                        "verification_level", "tracker_session_" + args[2], "loaded", before,
+                        "after_save", save ? snapshot(panel) : null));
+                    DONE.countDown();
                 })));
             }));
             if (!DONE.await(30, TimeUnit.SECONDS)) throw new IllegalStateException("Tracker session loading timed out");
             if (FAILURE.get() != null) throw new IllegalStateException("Tracker session failed", FAILURE.get());
             if (REPORT.get() == null) throw new IllegalStateException("Tracker produced no session report");
-            Files.writeString(directory.resolve("session.json"), TrackerReference.json(REPORT.get()) + "\n", StandardCharsets.UTF_8);
+            Files.writeString(directory.resolve("session-" + args[2] + ".json"), TrackerReference.json(REPORT.get()) + "\n", StandardCharsets.UTF_8);
             status = 0;
         } catch (Throwable error) {
             error.printStackTrace();
@@ -116,12 +117,19 @@ public final class TrackerSessionReference {
         List<Object> tracks = new ArrayList<>();
         for (TTrack track : panel.getTracks()) {
             List<Object> samples = new ArrayList<>();
+            List<Object> vectorSamples = new ArrayList<>();
             Step[] steps = track.getSteps();
             if (steps.length > 10000) throw new IllegalArgumentException("Reference step limit exceeded");
             for (Step step : steps) if (step != null) {
                 List<Object> points = new ArrayList<>();
                 for (TPoint point : step.getPoints()) points.add(point == null ? null : List.of(point.x, point.y));
                 samples.add(TrackerReference.map("frame", step.getFrameNumber(), "points", points));
+                if (track.getClass() == Vector.class) {
+                    VectorStep vector = (VectorStep) step;
+                    vectorSamples.add(TrackerReference.map("frame", step.getFrameNumber(),
+                        "tail", List.of(vector.getTail().getX(), vector.getTail().getY()),
+                        "components", List.of(vector.getXComponent(), vector.getYComponent())));
+                }
             }
             if (track instanceof ParticleModel && samples.isEmpty())
                 throw new IllegalStateException("Expected evaluated model samples");
@@ -132,7 +140,8 @@ public final class TrackerSessionReference {
                 if (values != null) for (int value : values) keys.add(value);
             }
             tracks.add(TrackerReference.map("class", track.getClass().getName(), "name", track.getName(),
-                "mass", track instanceof PointMass mass ? mass.getMass() : null, "samples", samples, "key_frames", keys));
+                "mass", track instanceof PointMass mass ? mass.getMass() : null, "samples", samples, "key_frames", keys,
+                "vector_samples", vectorSamples));
         }
         List<Object> coordinates = new ArrayList<>();
         int first = clip.getStartFrameNumber();
