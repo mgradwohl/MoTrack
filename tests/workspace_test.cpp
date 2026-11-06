@@ -872,6 +872,49 @@ TEST(Workspace, RetainsTrackIdentityThroughDesktopUndoAndReopen)
     EXPECT_GT(reopened.vectors.back().id, saved.vectors.front().id);
 }
 
+TEST(Workspace, PromptsToSaveAnUndoneCreationAndDoesNotReuseItsIdentityAfterReopen)
+{
+    for (const auto* action : {"newPointMass", "newVector"})
+    {
+        SCOPED_TRACE(action);
+        QTemporaryDir temporary;
+        motrack::MainWindow window;
+        ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
+        const auto path = temporary.filePath("identity.motrack");
+        ASSERT_TRUE(window.saveWorkspace(path));
+        const auto originalCounter = motrack::readWorkspaceDocument(path).project.nextTrackId;
+        auto* create = window.findChild<QAction*>(action);
+        auto* undo = window.findChild<QAction*>("undoEdit");
+        ASSERT_TRUE(create && undo);
+        create->trigger();
+        undo->trigger();
+        EXPECT_TRUE(window.isWindowModified());
+        bool prompted = false;
+        QTimer::singleShot(0,
+                           &window,
+                           [&]
+                           {
+                               for (auto* widget : QApplication::topLevelWidgets())
+                               {
+                                   if (auto* dialog = qobject_cast<QMessageBox*>(widget))
+                                   {
+                                       prompted = true;
+                                       dialog->button(QMessageBox::Save)->click();
+                                   }
+                               }
+                           });
+        EXPECT_TRUE(window.close());
+        EXPECT_TRUE(prompted);
+        EXPECT_EQ(motrack::readWorkspaceDocument(path).project.nextTrackId, originalCounter + 1);
+        ASSERT_TRUE(window.loadProject(path));
+        create->trigger();
+        ASSERT_TRUE(window.saveWorkspace(path));
+        const auto project = motrack::readWorkspaceDocument(path).project;
+        const auto newId = project.vectors.empty() ? project.pointMasses.back().id : project.vectors.back().id;
+        EXPECT_GT(newId, originalCounter);
+    }
+}
+
 TEST(Workspace, DisablesCreationWhenTheSavedIdentityCounterIsExhausted)
 {
     QTemporaryDir temporary;
@@ -1071,7 +1114,8 @@ TEST(Workspace, KeepsOnlySuccessfulSaveAsDestinationsAndCheckpoints)
         EXPECT_FALSE(window.saveWorkspace(destination));
         undo->trigger();
         undo->trigger();
-        EXPECT_EQ(window.isWindowModified(), !failWrite);
+        // Undoing creation still leaves the advanced ID counter to save, even after a failed write.
+        EXPECT_TRUE(window.isWindowModified());
         EXPECT_EQ(QFile::exists(destination), !failWrite);
         if (!failWrite)
         {

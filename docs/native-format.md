@@ -12,7 +12,8 @@ Version 3 stores an `id` on every editable point mass and independent vector and
 one document, and independent of names and list positions. Zero is reserved for uninitialized records.
 Import assigns IDs; creation allocates a fresh ID; rename, mark edits, deletion/undo and creation/redo
 retain the original identity. The allocation counter never rewinds, including after undo or deletion,
-so newly created tracks cannot reuse an earlier identity. An exhausted counter disables creation.
+so newly created tracks cannot reuse an earlier identity. Undoing creation therefore keeps the document
+modified until the advanced counter is saved, and closing still offers Save. An exhausted counter disables creation.
 
 Native reads and writes reject zero/duplicate IDs and a counter not greater than every live ID. Writes
 validate before replacing the existing file. Versions 1 and 2 receive fresh identities during migration;

@@ -66,6 +66,26 @@ TEST(TrackEdits, ExhaustedIdentitySpaceRejectsCreationWithoutChangingHistory)
     EXPECT_THROW(motrack::validateTrackIdentities(project), motrack::ProjectError);
 }
 
+TEST(TrackEdits, UndoingCreationStillNeedsToSaveTheAdvancedIdentityCounter)
+{
+    for (const bool vector : {false, true})
+    {
+        motrack::LegacyProject project;
+        motrack::TrackEdits edits;
+        edits.markSaved();
+        ASSERT_TRUE(vector ? edits.createVector(project, "A") : edits.createPointMass(project, "A"));
+        ASSERT_TRUE(edits.undo(project));
+        EXPECT_TRUE(edits.isModified());
+        EXPECT_EQ(project.nextTrackId, 2u);
+        edits.markSaved();
+        EXPECT_FALSE(edits.isModified());
+        ASSERT_TRUE(edits.redo(project));
+        EXPECT_TRUE(edits.isModified());
+        ASSERT_TRUE(edits.undo(project));
+        EXPECT_FALSE(edits.isModified()); // The saved counter is now the same.
+    }
+}
+
 TEST(TrackEdits, ChangesRevisionForEditsUndoRedoAndDocumentReset)
 {
     motrack::LegacyProject project;
