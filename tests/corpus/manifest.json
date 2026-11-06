@@ -32,6 +32,7 @@
     },
     {
       "id": "protractor",
+      "native_mass_roundtrip": true,
       "session_tracks": [
         {"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes", "name": "axes"},
         {"class": "org.opensourcephysics.cabrillo.tracker.PointMass", "name": "mass A"},
@@ -44,7 +45,7 @@
       "bytes": 12109,
       "tracker_version": "6.0.7",
       "features": ["two-point-masses", "calibration", "unsupported-protractor"],
-      "requirements": ["R02", "R06", "R09", "R10"],
+      "requirements": ["R02", "R03", "R06", "R09", "R10"],
       "expected": "expected/protractor.json"
     },
     {

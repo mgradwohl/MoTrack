@@ -134,6 +134,15 @@ Only the selected archive tab is editable today. Multi-document controllers, mul
 and standard-file writers remain unfinished. An unknown object retained in this
 envelope is not an implemented track type.
 
+The initial internal standard writer can patch point-mass mass values in media-free projects after a
+native reopen. It requires known source associations, preserves unknown XML objects/properties and
+normalizes changed output to a matching UTF-8 declaration. Unchanged output is byte-exact. It rejects
+every other changed domain field before opening its atomic replacement file, including mark, name,
+clip, calibration, vector and track-membership edits. Media references are rejected until relocation
+and packaging are supported. This path is exercised by the reference corpus;
+it does not add a desktop export action or mark the native document saved. Standard export checkpoints,
+additional edit types, media relocation, `.trz` packaging and paired-save recovery remain phase-3 work.
+
 See the [full-port implementation order](migration-plan.md#implementation-order-and-exit-gates) and
 [round-trip acceptance requirements](migration-plan.md#tracker-round-trip-compatibility). Tests exercise
 [native validation and migration](../tests/workspace_document_test.cpp) and

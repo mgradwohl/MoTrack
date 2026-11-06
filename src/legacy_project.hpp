@@ -21,6 +21,7 @@ struct Mark
     int frame;
     double x;
     double y;
+    bool operator==(const Mark&) const = default;
 };
 
 struct PointMass
@@ -29,6 +30,7 @@ struct PointMass
     std::vector<Mark> marks;
     double mass = 1.0;
     TrackId id = 0;
+    bool operator==(const PointMass&) const = default;
 };
 
 struct VectorSample
@@ -38,6 +40,7 @@ struct VectorSample
     double tailY;
     double componentX;
     double componentY;
+    bool operator==(const VectorSample&) const = default;
 };
 
 struct VectorTrack
@@ -45,6 +48,7 @@ struct VectorTrack
     std::string name;
     std::vector<VectorSample> samples;
     TrackId id = 0;
+    bool operator==(const VectorTrack&) const = default;
 };
 
 struct Clip
@@ -56,6 +60,7 @@ struct Clip
     std::optional<double> frameDurationMs;
     double startTimeMs = 0.0;
     std::optional<int> sourceFrameCount = std::nullopt;
+    bool operator==(const Clip&) const = default;
 };
 
 struct CalibrationKey
@@ -66,6 +71,7 @@ struct CalibrationKey
     double angleDegrees;
     double scaleX;
     double scaleY;
+    bool operator==(const CalibrationKey&) const = default;
 };
 
 struct Calibration
@@ -75,6 +81,7 @@ struct Calibration
     bool fixedOrigin = false;
     bool fixedAngle = false;
     bool fixedScale = false;
+    bool operator==(const Calibration&) const = default;
 };
 
 struct LegacyProject
@@ -90,6 +97,7 @@ struct LegacyProject
     std::vector<std::string> unsupportedTrackTypes;
     /// Document-scoped allocation counter. Never rewind after deleting or undoing a track.
     TrackId nextTrackId = 1;
+    bool operator==(const LegacyProject&) const = default;
 };
 
 class ProjectError : public std::runtime_error
@@ -130,6 +138,8 @@ struct ImportedTrackerProject
 };
 
 LegacyProject parseLegacyProject(std::string_view xml);
+/// Parse an owned XML snapshot and retain its original object associations.
+ImportedTrackerProject parseTrackerProject(std::string xml);
 LegacyProject readLegacyProject(const std::filesystem::path& path);
 /// Reads and parses one bounded snapshot, retaining exactly the bytes that produced the project.
 ImportedTrackerProject readTrackerProject(const std::filesystem::path& path);

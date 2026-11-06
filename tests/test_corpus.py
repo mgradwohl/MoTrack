@@ -131,6 +131,13 @@ class CorpusTests(unittest.TestCase):
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
                  "before": before, "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest)
+        edited_expected = corpus.mass_roundtrip_expected(case)
+        edited = copy.deepcopy(valid)
+        for key in ["before", "after"]:
+            edited[key]["tracks"][1]["mass"] *= 2.5
+        corpus.validate_session(case, edited, manifest, edited_expected)
+        with self.assertRaises(ValueError):
+            corpus.validate_session(case, valid, manifest, edited_expected)
         invalid = copy.deepcopy(valid)
         invalid["after"]["tracks"][1]["mass"] = 2.0
         with self.assertRaises(ValueError):
@@ -152,6 +159,27 @@ class CorpusTests(unittest.TestCase):
     def test_session_checks_reject_non_linux_hosts(self):
         with patch.object(corpus.sys, "platform", "win32"), self.assertRaisesRegex(ValueError, "Linux"):
             corpus.check_sessions({}, self.root, "java")
+
+    def test_mass_export_checks_unknown_content_and_the_requested_edit(self):
+        original, exported = self.root / "original.trk", self.root / "exported.trk"
+        xml = ("<!-- before --><?test keep?><object><property name='tracks'><property><object class='org.opensourcephysics.cabrillo.tracker.PointMass'>"
+               "<property name='mass' type='double'>1</property></object></property></property>"
+               "<!-- keep --><property name='unknown'>unchanged</property></object><!-- after -->")
+        original.write_text(xml, encoding="utf-8")
+        exported.write_text(xml.replace(">1<", ">2.5<"), encoding="utf-8")
+        corpus.verify_mass_export_xml(original, exported)
+        for invalid in [xml, xml.replace(">1<", ">2.5<").replace("<!-- keep -->", ""),
+                        xml.replace(">1<", ">2.5<").replace("<!-- before -->", ""),
+                        xml.replace(">1<", ">2.5<").replace("<!-- after -->", ""),
+                        xml.replace(">1<", ">2.5<").replace("<?test keep?>", ""),
+                        xml.replace(">1<", ">2.5<").replace("unchanged", "lost")]:
+            exported.write_text(invalid, encoding="utf-8")
+            with self.assertRaises(ValueError):
+                corpus.verify_mass_export_xml(original, exported)
+
+    def test_roundtrip_cannot_pass_without_an_applicable_case(self):
+        with patch.object(corpus.sys, "platform", "linux"), self.assertRaisesRegex(ValueError, "No applicable"):
+            corpus.check_sessions({"cases": []}, self.root, "java", "probe")
 
     def test_ordinary_desktop_display_is_replaced_by_an_owned_server(self):
         server = Mock()
