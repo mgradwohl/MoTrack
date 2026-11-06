@@ -76,4 +76,43 @@ TEST(MeasurementsCsv, UsesClipFramesAndEscapesTextFields)
     EXPECT_NE(motrack::measurementsCsv(project).find("\",2,1,2,,,\r\n"), std::string::npos);
 }
 
+TEST(MeasurementPlot, UsesRecordedTimingAndSkipsVelocityAcrossGaps)
+{
+    motrack::LegacyProject project;
+    project.clip.firstFrame = 2;
+    project.clip.stepSize = 2;
+    project.clip.stepCount = 6;
+    project.clip.frameDurationMs = 250;
+    project.clip.startTimeMs = -1000;
+    project.pointMasses.push_back({.name = "Cart",
+                                   .marks = {{.frame = 2, .x = 0, .y = 1},
+                                             {.frame = 4, .x = 2, .y = 2},
+                                             {.frame = 6, .x = 4, .y = 3},
+                                             {.frame = 10, .x = 8, .y = 5},
+                                             {.frame = 12, .x = 10, .y = 6}}});
+    const auto position = motrack::measurementPlot(project, 0, motrack::PlotQuantity::PositionY);
+    ASSERT_EQ(position.samples.size(), 5u);
+    EXPECT_TRUE(position.timed);
+    EXPECT_FALSE(position.calibrated);
+    EXPECT_DOUBLE_EQ(position.samples.front().horizontal, -1.0);
+    EXPECT_DOUBLE_EQ(position.samples.back().vertical, 6.0);
+
+    const auto velocityX = motrack::measurementPlot(project, 0, motrack::PlotQuantity::VelocityX);
+    ASSERT_EQ(velocityX.samples.size(), 1u);
+    EXPECT_EQ(velocityX.samples.front().frame, 4);
+    EXPECT_DOUBLE_EQ(velocityX.samples.front().horizontal, -0.5);
+    EXPECT_DOUBLE_EQ(velocityX.samples.front().vertical, 4.0);
+    const auto velocityY = motrack::measurementPlot(project, 0, motrack::PlotQuantity::VelocityY);
+    ASSERT_EQ(velocityY.samples.size(), 1u);
+    EXPECT_DOUBLE_EQ(velocityY.samples.front().vertical, 2.0);
+
+    project.clip.frameDurationMs.reset();
+    const auto untimed = motrack::measurementPlot(project, 0, motrack::PlotQuantity::PositionX);
+    ASSERT_EQ(untimed.samples.size(), 5u);
+    EXPECT_FALSE(untimed.timed);
+    EXPECT_DOUBLE_EQ(untimed.samples.front().horizontal, 2.0);
+    EXPECT_TRUE(motrack::measurementPlot(project, 0, motrack::PlotQuantity::VelocityX).samples.empty());
+    EXPECT_TRUE(motrack::measurementPlot(project, 1, motrack::PlotQuantity::PositionX).samples.empty());
+}
+
 } // namespace

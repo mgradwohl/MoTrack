@@ -9,6 +9,7 @@
 #include <numbers>
 #include <sstream>
 #include <string_view>
+#include <utility>
 
 namespace motrack
 {
@@ -107,6 +108,57 @@ std::string measurementsCsv(const LegacyProject& project)
         }
     }
     return output.str();
+}
+
+PlotSeries measurementPlot(const LegacyProject& project, std::size_t track, PlotQuantity quantity)
+{
+    const auto frameDurationMs = project.clip.frameDurationMs.value_or(0.0);
+    PlotSeries series{.samples = {}, .timed = frameDurationMs > 0.0, .calibrated = project.calibration.has_value()};
+    const bool velocity = quantity == PlotQuantity::VelocityX || quantity == PlotQuantity::VelocityY;
+    if (track >= project.pointMasses.size() || (velocity && !series.timed))
+    {
+        return series;
+    }
+
+    const bool vertical = quantity == PlotQuantity::PositionY || quantity == PlotQuantity::VelocityY;
+    for (const auto& mark : project.pointMasses.at(track).marks)
+    {
+        if (!includesFrame(project.clip, mark.frame))
+        {
+            continue;
+        }
+        const auto point =
+            project.calibration ? worldPosition(*project.calibration, mark) : std::optional(WorldPoint{.x = mark.x, .y = mark.y});
+        const double horizontal = series.timed
+                                      ? (project.clip.startTimeMs + (mark.frame - project.clip.firstFrame) * frameDurationMs) / 1000.0
+                                      : static_cast<double>(mark.frame);
+        if (point && std::isfinite(horizontal))
+        {
+            series.samples.push_back({.frame = mark.frame, .horizontal = horizontal, .vertical = vertical ? point->y : point->x});
+        }
+    }
+
+    if (velocity)
+    {
+        const auto positions = std::exchange(series.samples, {});
+        for (std::size_t index = 1; index + 1 < positions.size(); ++index)
+        {
+            const auto& previous = positions.at(index - 1);
+            const auto& center = positions.at(index);
+            const auto& next = positions.at(index + 1);
+            const auto elapsed = next.horizontal - previous.horizontal;
+            if (center.frame - previous.frame == project.clip.stepSize && next.frame - center.frame == project.clip.stepSize &&
+                elapsed > 0.0)
+            {
+                const auto value = (next.vertical - previous.vertical) / elapsed;
+                if (std::isfinite(value))
+                {
+                    series.samples.push_back({.frame = center.frame, .horizontal = center.horizontal, .vertical = value});
+                }
+            }
+        }
+    }
+    return series;
 }
 
 } // namespace motrack

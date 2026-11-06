@@ -43,5 +43,19 @@
     <message><source>Point Mass %1</source><translation>Masa puntual %1</translation></message>
     <message><source>Discard tracking edits?</source><translation>¿Descartar los cambios de seguimiento?</translation></message>
     <message><source>Your tracking edits are only stored in this session.</source><translation>Los cambios de seguimiento solo se conservan durante esta sesión.</translation></message>
+    <message><source>Plot quantity</source><translation>Magnitud de la gráfica</translation></message>
+    <message><source>x position</source><translation>posición x</translation></message>
+    <message><source>y position</source><translation>posición y</translation></message>
+    <message><source>x velocity</source><translation>velocidad x</translation></message>
+    <message><source>y velocity</source><translation>velocidad y</translation></message>
+    <message><source>Time (s)</source><translation>Tiempo (s)</translation></message>
+    <message><source>px</source><translation>px</translation></message>
+    <message><source>%1/s</source><translation>%1/s</translation></message>
+    <message><source>%1 (%2)</source><translation>%1 (%2)</translation></message>
+  </context>
+  <context>
+    <name>PositionPlot</name>
+    <message><source>%1 versus %2</source><translation>%1 en función de %2</translation></message>
+    <message><source>No measurements to plot.</source><translation>No hay mediciones para graficar.</translation></message>
   </context>
 </TS>

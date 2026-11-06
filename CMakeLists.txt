@@ -39,7 +39,7 @@ target_include_directories(motrack_project PUBLIC src)
 target_link_libraries(motrack_project PUBLIC Qt6::Core PRIVATE Qt6::Xml)
 
 add_executable(motrack src/main.cpp)
-add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp)
+add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp src/position_plot.cpp)
 add_library(motrack_media STATIC src/video_reader.cpp)
 target_include_directories(motrack_media PUBLIC src)
 target_link_libraries(motrack_media PUBLIC Qt6::Gui PRIVATE motrack_ffmpeg)
@@ -47,7 +47,7 @@ target_link_libraries(motrack_workspace PUBLIC motrack_project Qt6::Widgets PRIV
 target_link_libraries(motrack PRIVATE motrack_workspace)
 qt_add_translations(motrack
     TS_FILES translations/motrack_es.ts
-    SOURCES src/main_window.cpp
+    SOURCES src/main_window.cpp src/position_plot.cpp
     RESOURCE_PREFIX "/i18n"
 )
 

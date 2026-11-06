@@ -1,6 +1,7 @@
 #include "main_window.hpp"
 
 #include "measurements.hpp"
+#include "position_plot.hpp"
 #include "video_reader.hpp"
 
 #include <QCloseEvent>
@@ -178,7 +179,26 @@ MainWindow::MainWindow()
     m_Marks->setObjectName("marksTable");
     m_Marks->setHorizontalHeaderLabels({tr("Track"), tr("Frame"), tr("Image x (px)"), tr("Image y (px)"), tr("World x"), tr("World y")});
     m_Marks->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    workspace->addWidget(m_Marks);
+    auto* analysis = new QSplitter(Qt::Vertical);
+    auto* plotPane = new QWidget;
+    auto* plotLayout = new QVBoxLayout(plotPane);
+    m_PlotQuantity = new QComboBox;
+    m_PlotQuantity->setObjectName("plotQuantity");
+    m_PlotQuantity->setAccessibleName(tr("Plot quantity"));
+    m_PlotQuantity->addItem(tr("x position"), static_cast<int>(PlotQuantity::PositionX));
+    m_PlotQuantity->addItem(tr("y position"), static_cast<int>(PlotQuantity::PositionY));
+    m_PlotQuantity->addItem(tr("x velocity"), static_cast<int>(PlotQuantity::VelocityX));
+    m_PlotQuantity->addItem(tr("y velocity"), static_cast<int>(PlotQuantity::VelocityY));
+    m_Plot = new PositionPlot;
+    m_Plot->seekFrame = [this](int frame)
+    {
+        m_StepSlider->setValue((frame - m_Project.clip.firstFrame) / m_Project.clip.stepSize);
+    };
+    plotLayout->addWidget(m_PlotQuantity);
+    plotLayout->addWidget(m_Plot, 1);
+    analysis->addWidget(plotPane);
+    analysis->addWidget(m_Marks);
+    workspace->addWidget(analysis);
     workspace->setStretchFactor(0, 2);
     workspace->setStretchFactor(1, 1);
     setCentralWidget(workspace);
@@ -243,6 +263,8 @@ MainWindow::MainWindow()
                 }
             });
     connect(repeat, &QAction::triggered, this, &MainWindow::repeatPreviousMark);
+    connect(m_TrackPicker, &QComboBox::currentIndexChanged, this, &MainWindow::refreshPlot);
+    connect(m_PlotQuantity, &QComboBox::currentIndexChanged, this, &MainWindow::refreshPlot);
 }
 
 MainWindow::~MainWindow()
@@ -330,11 +352,28 @@ void MainWindow::refreshEditViews(int track)
     m_Redo->setEnabled(m_Edits.canRedo());
     setWindowModified(m_Edits.canUndo());
     displayMarks();
+    refreshPlot();
     m_Export->setEnabled(m_Marks->rowCount() > 0);
     if (m_DisplayedFrame && !m_DisplayedFrame->image.isNull())
     {
         displayFrame(*m_DisplayedFrame, {});
     }
+}
+
+void MainWindow::refreshPlot()
+{
+    const auto quantity = static_cast<PlotQuantity>(m_PlotQuantity->currentData().toInt());
+    const auto track = m_TrackPicker->currentIndex();
+    auto series = track >= 0 ? measurementPlot(m_Project, static_cast<std::size_t>(track), quantity) : PlotSeries{};
+    const auto horizontal = series.timed ? tr("Time (s)") : tr("Frame");
+    auto unit = series.calibrated ? QString::fromStdString(m_Project.lengthUnit) : tr("px");
+    if ((quantity == PlotQuantity::VelocityX || quantity == PlotQuantity::VelocityY) && !unit.isEmpty())
+    {
+        unit = tr("%1/s").arg(unit);
+    }
+    const auto label = m_PlotQuantity->currentText();
+    const auto vertical = unit.isEmpty() ? label : tr("%1 (%2)").arg(label, unit);
+    m_Plot->setSeries(std::move(series), horizontal, vertical);
 }
 
 void MainWindow::markAt(const QPointF& position)
@@ -430,12 +469,14 @@ void MainWindow::displayStep(int step)
     else
     {
         m_FrameLabel->clear();
+        m_Plot->selectFrame(std::nullopt);
     }
 }
 
 void MainWindow::displayFrame(const ImageFrame& frame, const QString& failureMessage)
 {
     m_DisplayedFrame = frame;
+    m_Plot->selectFrame(frame.number);
     const auto label = tr("Frame %1").arg(frame.number);
     m_FrameLabel->setText(label);
     QList<QPointF> points;
@@ -454,6 +495,7 @@ void MainWindow::requestMovieFrame(int frame)
 {
     const auto generation = ++*m_RequestGeneration;
     m_DisplayedFrame.reset();
+    m_Plot->selectFrame(frame);
     m_FrameLabel->setText(tr("Frame %1").arg(frame));
     m_Video->display({}, {}, tr("Decoding frame…"));
     m_FrameWatcher = std::make_unique<QFutureWatcher<QImage>>();

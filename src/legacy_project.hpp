@@ -29,6 +29,8 @@ struct Clip
     int stepSize = 1;
     std::optional<int> stepCount;
     std::vector<std::string> mediaReferences;
+    std::optional<double> frameDurationMs;
+    double startTimeMs = 0.0;
 };
 
 struct CalibrationKey

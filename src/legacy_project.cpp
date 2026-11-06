@@ -55,15 +55,21 @@ int arrayIndex(const QDomElement& entry)
     return integer(name.sliced(1, name.size() - 2), 0);
 }
 
-double coordinate(const QDomElement& object, const QString& axis)
+std::optional<double> finiteNumber(const QDomElement& object, const QString& name)
 {
     bool ok = false;
-    const auto number = property(object, axis).text().toDouble(&ok);
-    if (!ok || !std::isfinite(number))
+    const auto number = property(object, name).text().toDouble(&ok);
+    return ok && std::isfinite(number) ? std::optional(number) : std::nullopt;
+}
+
+double coordinate(const QDomElement& object, const QString& axis)
+{
+    const auto number = finiteNumber(object, axis);
+    if (!number)
     {
         throw ProjectError("Invalid Tracker numeric property.");
     }
-    return number;
+    return *number;
 }
 
 Clip readClip(const QDomElement& panel)
@@ -104,6 +110,21 @@ Clip readClip(const QDomElement& panel)
     if (const auto path = value(video, "path"); clip.mediaReferences.empty() && !path.empty())
     {
         clip.mediaReferences.push_back(path);
+    }
+    clip.startTimeMs = finiteNumber(object, "starttime").value_or(0.0);
+    // Movie clip controls can save a mean interval even when frame presentation times vary.
+    if (video.isNull() || video.attribute("class") == "org.opensourcephysics.media.core.ImageVideo")
+    {
+        const auto control = property(panel, "clipcontrol").firstChildElement("object");
+        clip.frameDurationMs = finiteNumber(control, "delta_t");
+        if (clip.frameDurationMs.value_or(0.0) <= 0.0)
+        {
+            clip.frameDurationMs = finiteNumber(video, "delta_t");
+        }
+        if (clip.frameDurationMs.value_or(0.0) <= 0.0)
+        {
+            clip.frameDurationMs.reset();
+        }
     }
     return clip;
 }
