@@ -40,6 +40,7 @@ import org.opensourcephysics.media.core.VideoClip;
 public final class TrackerSessionReference {
     private static final CountDownLatch DONE = new CountDownLatch(1);
     private static final AtomicReference<Throwable> FAILURE = new AtomicReference<>();
+    private static final AtomicReference<String> WAITING = new AtomicReference<>("application loader callback");
     private static final AtomicReference<Map<String, Object>> REPORT = new AtomicReference<>();
 
     public static void main(String[] args) {
@@ -69,7 +70,7 @@ public final class TrackerSessionReference {
                     DONE.countDown();
                 })));
             }));
-            if (!DONE.await(30, TimeUnit.SECONDS)) throw new IllegalStateException("Tracker session loading timed out");
+            if (!DONE.await(30, TimeUnit.SECONDS)) throw new IllegalStateException("Tracker session loading timed out: " + WAITING.get());
             if (FAILURE.get() != null) throw new IllegalStateException("Tracker session failed", FAILURE.get());
             if (REPORT.get() == null) throw new IllegalStateException("Tracker produced no session report");
             Files.writeString(directory.resolve("session-" + args[2] + ".json"), TrackerReference.json(REPORT.get()) + "\n", StandardCharsets.UTF_8);
@@ -98,6 +99,7 @@ public final class TrackerSessionReference {
 
     private static void whenEvaluated(TFrame frame, Runnable action) {
         TrackerPanel panel = onlyPanel(frame);
+        WAITING.set("showing the loaded experiment");
         VideoClip clip = panel.getPlayer().getVideoClip();
         if (clip.getStepCount() < 1 || clip.getStepCount() > 10000)
             throw new IllegalArgumentException("Reference clip step limit exceeded");
@@ -110,26 +112,34 @@ public final class TrackerSessionReference {
             panel.paintImmediately(panel.getVisibleRect());
             // Named constituents are resolved by CenterOfMass's normal initialize/draw path.
             for (TTrack track : panel.getTracks()) if (track instanceof CenterOfMass center
-                    && center.getMasses().length == 0) return;
+                    && center.getMasses().length == 0) { WAITING.set("center members: " + center.getName()); return; }
             for (TTrack track : panel.getTracks()) if (track instanceof VectorSum sum) {
                 Vector[] members = sum.getVectors();
-                if (members.length == 0) return;
+                if (members.length == 0) { WAITING.set("vector-sum members: " + sum.getName()); return; }
                 if (members.length > 10000) throw new IllegalStateException("Vector member limit exceeded");
                 for (int step = 0; step < clip.getStepCount(); step++) {
                     int number = clip.stepToFrame(step);
                     boolean complete = true;
                     for (Vector member : members) complete &= member.getStep(number) != null;
-                    if (complete != (sum.getStep(number) != null)) return;
+                    if (complete != (sum.getStep(number) != null)) {
+                        WAITING.set("vector-sum steps: " + sum.getName() + ", frame=" + number
+                            + ", complete=" + complete + ", members=" + Arrays.toString(Arrays.stream(members).map(TTrack::getName).toArray())
+                            + ", sum step=" + (sum.getStep(number) != null));
+                        return;
+                    }
                 }
             }
             for (TTrack track : panel.getTracks()) if (track instanceof ParticleModel model) {
                 for (int step = 0; step < clip.getStepCount(); step++) {
                     int number = clip.stepToFrame(step);
-                    if (number >= model.getStartFrame() && number <= model.getEndFrame() && model.getStep(number) == null)
+                    if (number >= model.getStartFrame() && number <= model.getEndFrame() && model.getStep(number) == null) {
+                        WAITING.set("particle model: " + model.getName() + ", frame=" + number);
                         return;
+                    }
                 }
             }
             ((Timer) event.getSource()).stop();
+            WAITING.set("custom table preparation");
             visitCustomTables(panel, action);
         }).run());
         timer.start();
