@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <map>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 
@@ -17,6 +18,8 @@ namespace
 constexpr std::size_t MAX_SOURCE_TRACKS = 10000;
 constexpr qsizetype MAX_NAME_UNITS = 4096;
 constexpr qsizetype MAX_VIEW_UNITS = 65536;
+constexpr std::string_view POINT_MASS_CLASS = "org.opensourcephysics.cabrillo.tracker.PointMass";
+constexpr std::string_view VECTOR_CLASS = "org.opensourcephysics.cabrillo.tracker.Vector";
 
 struct Property
 {
@@ -87,8 +90,13 @@ bool onlyChildren(const QDomElement& owner, const QString& tag)
     return true;
 }
 
-void addReference(
-    TrackerReferenceIndex& result, NameTargets& names, TrackerReferenceKind kind, std::string path, const QString& name, bool packed)
+void addReference(TrackerReferenceIndex& result,
+                  NameTargets& names,
+                  TrackerReferenceKind kind,
+                  std::string path,
+                  const QString& name,
+                  bool packed,
+                  std::string_view constituentClass = {})
 {
     TrackerNameReference reference{.kind = kind,
                                    .path = std::move(path),
@@ -102,14 +110,35 @@ void addReference(
     else if (const auto found = names.byName.find(reference.originalName); found != names.byName.end())
     {
         // Entry caps alone permit tracks * owners candidate copies for duplicate names.
-        // Charge the aggregate budget before allocating each list, including panel references.
+        // Charge before filtering/copying, including wrong-type candidates and panel references.
         if (found->second.size() > names.remainingCandidates)
         {
             throw ProjectError("Too many Tracker reference candidates to index.");
         }
         names.remainingCandidates -= found->second.size();
-        reference.candidateSourceIndices = found->second;
-        reference.resolution = found->second.size() == 1 ? TrackerReferenceResolution::Resolved : TrackerReferenceResolution::Ambiguous;
+        bool unclassified = false;
+        for (const auto sourceIndex : found->second)
+        {
+            const auto& className = result.tracks[sourceIndex].className;
+            if (!constituentClass.empty() && className != constituentClass)
+            {
+                if (className == POINT_MASS_CLASS || className == VECTOR_CLASS)
+                {
+                    continue; // The two exact base types cannot be constituents of each other's family.
+                }
+                unclassified = true; // Do not guess subclass eligibility, including nested dependent tracks.
+            }
+            reference.candidateSourceIndices.push_back(sourceIndex);
+        }
+        if (unclassified)
+        {
+            reference.resolution = TrackerReferenceResolution::Unclassified;
+        }
+        else if (!reference.candidateSourceIndices.empty())
+        {
+            reference.resolution =
+                reference.candidateSourceIndices.size() == 1 ? TrackerReferenceResolution::Resolved : TrackerReferenceResolution::Ambiguous;
+        }
     }
     result.references.push_back(std::move(reference));
 }
@@ -192,7 +221,7 @@ QDomElement viewObject(const QDomElement& item)
     return object;
 }
 
-struct SavedViewReader
+struct ReferenceReader
 {
     TrackerReferenceIndex& result;
     NameTargets& names;
@@ -205,7 +234,7 @@ struct SavedViewReader
     {
         if (++entries > 10000)
         {
-            throw ProjectError("Too many nested Tracker view entries to index.");
+            throw ProjectError("Too many nested Tracker reference entries to index.");
         }
     }
 
@@ -359,6 +388,48 @@ struct SavedViewReader
         }
     }
 
+    void constituents(const QDomElement& object, std::size_t sourceIndex)
+    {
+        const auto className = object.attribute("class");
+        const bool center = className == "org.opensourcephysics.cabrillo.tracker.CenterOfMass";
+        if (!center && className != "org.opensourcephysics.cabrillo.tracker.VectorSum")
+        {
+            return;
+        }
+        const auto field = center ? "masses" : "vectors";
+        const auto value = property(object, field);
+        const auto path = "/tracks/" + std::to_string(sourceIndex) + "/" + field;
+        if (value.duplicate || value.element.attribute("type") != "collection" ||
+            value.element.attribute("class") != "java.util.ArrayList" || !onlyChildren(value.element, "property"))
+        {
+            result.malformedPaths.push_back(path);
+            return;
+        }
+        Owners members;
+        for (auto item = value.element.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"))
+        {
+            countEntry();
+            const auto memberPath = path + "/" + std::to_string(members.size());
+            const auto name = stringValue({.element = item}, MAX_NAME_UNITS);
+            if (!name)
+            {
+                result.malformedPaths.push_back(memberPath);
+                return; // No partially valid constituent list is emitted.
+            }
+            members.emplace_back(memberPath, *name);
+        }
+        for (const auto& [memberPath, name] : members)
+        {
+            addReference(result,
+                         names,
+                         center ? TrackerReferenceKind::CenterOfMassMember : TrackerReferenceKind::VectorSumMember,
+                         memberPath,
+                         name,
+                         false,
+                         center ? POINT_MASS_CLASS : VECTOR_CLASS);
+        }
+    }
+
     void read(const QDomElement& panel)
     {
         const auto views = property(panel, "views");
@@ -413,6 +484,7 @@ TrackerReferenceIndex indexTrackerReferences(const TrackerSource& source, const 
         throw ProjectError("Invalid Tracker reference XML.");
     }
     TrackerReferenceIndex result;
+    std::vector<std::pair<std::size_t, QDomElement>> sourceObjects;
     NameTargets names;
     std::unordered_map<std::size_t, TrackId> ids;
     if (source.bindings)
@@ -448,14 +520,18 @@ TrackerReferenceIndex indexTrackerReferences(const TrackerSource& source, const 
             {
                 result.malformedPaths.push_back(path);
             }
-            else if (const auto name = stringValue(property(object, "name"), MAX_NAME_UNITS))
-            {
-                track.originalName = name->toStdString();
-                names.byName[*track.originalName].push_back(index);
-            }
             else
             {
-                result.malformedPaths.push_back(path + "/name");
+                sourceObjects.emplace_back(index, object);
+                if (const auto name = stringValue(property(object, "name"), MAX_NAME_UNITS))
+                {
+                    track.originalName = name->toStdString();
+                    names.byName[*track.originalName].push_back(index);
+                }
+                else
+                {
+                    result.malformedPaths.push_back(path + "/name");
+                }
             }
             if (const auto id = ids.find(index); id != ids.end())
             {
@@ -467,7 +543,12 @@ TrackerReferenceIndex indexTrackerReferences(const TrackerSource& source, const 
     panelReference(result, names, panel, "selectedtrack", TrackerReferenceKind::SelectedTrack);
     panelReference(result, names, panel, "referenceframe", TrackerReferenceKind::ReferenceFrame);
     viewReferences(result, names, panel);
-    SavedViewReader{.result = result, .names = names}.read(panel);
+    ReferenceReader reader{.result = result, .names = names};
+    reader.read(panel);
+    for (const auto& [sourceIndex, object] : sourceObjects)
+    {
+        reader.constituents(object, sourceIndex);
+    }
     return result;
 }
 

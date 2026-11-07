@@ -62,6 +62,17 @@ std::string stringRow(std::string_view name, std::string_view cells)
     return arrayXml(name, "[Ljava.lang.String;", cells);
 }
 
+std::string membersXml(std::string_view field, std::string_view members)
+{
+    return "<property name='" + std::string(field) + "' type='collection' class='java.util.ArrayList'>" + std::string(members) +
+           "</property>";
+}
+
+std::string dependent(std::string_view type, std::string_view fields)
+{
+    return viewXml(type, property("name", "dependent") + std::string(fields), "item");
+}
+
 using Kind = motrack::TrackerReferenceKind;
 using Resolution = motrack::TrackerReferenceResolution;
 
@@ -127,7 +138,7 @@ TEST(TrackerReferences, DecodesFourPlotTablePairsWithoutTreatingDirectNullNamesA
 TEST(TrackerReferences, OriginalBindingsSurviveRenameReorderDeletionUndoAndNativeReopen)
 {
     auto imported = motrack::parseTrackerProject(
-        project(point("original") + point("other"),
+        project(point("original") + point("other") + dependent("CenterOfMass", membersXml("masses", property("item", "original"))),
                 property("selectedtrack", "original") + savedViews(viewXml("TableTView", property("selected_track", "original")))));
     const auto originalId = imported.project.pointMasses.front().id;
     motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
@@ -136,7 +147,7 @@ TEST(TrackerReferences, OriginalBindingsSurviveRenameReorderDeletionUndoAndNativ
     std::ranges::reverse(document.project.pointMasses);
     ASSERT_TRUE(edits.removePointMass(document.project, 1));
     const auto removed = motrack::indexTrackerReferences(imported.source, document.project);
-    ASSERT_EQ(removed.tracks.size(), 2u);
+    ASSERT_EQ(removed.tracks.size(), 3u);
     EXPECT_EQ(removed.tracks[0].nativeId, originalId);
     EXPECT_EQ(removed.tracks[0].originalName, "original");
     EXPECT_EQ(removed.references[0].candidateSourceIndices, (std::vector<std::size_t>{0}));
@@ -154,7 +165,9 @@ TEST(TrackerReferences, OriginalBindingsSurviveRenameReorderDeletionUndoAndNativ
     const auto restored = motrack::indexTrackerReferences(*reopened.trackerSource, reopened.project);
     EXPECT_EQ(restored.tracks[0].nativeId, originalId);
     EXPECT_EQ(restored.references[0].candidateSourceIndices, (std::vector<std::size_t>{0}));
-    ASSERT_EQ(restored.references.size(), 2u);
+    ASSERT_EQ(restored.references.size(), 3u);
+    EXPECT_EQ(restored.references[2].kind, Kind::CenterOfMassMember);
+    EXPECT_EQ(restored.references[2].candidateSourceIndices, (std::vector<std::size_t>{0}));
     EXPECT_EQ(restored.references[1].candidateSourceIndices, (std::vector<std::size_t>{0}));
     EXPECT_EQ(restored.references[1].originalName, "original");
     auto unbound = *reopened.trackerSource;
@@ -461,6 +474,109 @@ TEST(TrackerReferences, BoundsAggregateAmbiguousCandidatesBeforeCopying)
     }
     // A panel reference shares the same budget; one extra ambiguous owner must reject the index.
     EXPECT_THROW((void)index(project(tracks, property("selectedtrack", "same") + views)), motrack::ProjectError);
+}
+
+TEST(TrackerReferences, IndexesTypedConstituentsAndPreservesCollectionOrdinals)
+{
+    const auto tracks =
+        point("same") + track("org.opensourcephysics.cabrillo.tracker.Vector", "same") + point("null") +
+        dependent("CenterOfMass",
+                  membersXml("masses", property("[900]", "same") + property("item", "null") + property("item", "missing"))) +
+        dependent("VectorSum", membersXml("vectors", property("item", "same") + property("item", "null") + property("item", "same")));
+    const auto result = index(project(tracks));
+    EXPECT_TRUE(result.malformedPaths.empty());
+    ASSERT_EQ(result.references.size(), 6u);
+    EXPECT_EQ(result.references[0].kind, Kind::CenterOfMassMember);
+    EXPECT_EQ(result.references[0].path, "/tracks/3/masses/0");
+    EXPECT_EQ(result.references[0].resolution, Resolution::Resolved);
+    EXPECT_EQ(result.references[0].candidateSourceIndices, (std::vector<std::size_t>{0}));
+    EXPECT_EQ(result.references[1].resolution, Resolution::Resolved); // Direct null is a real name.
+    EXPECT_EQ(result.references[1].candidateSourceIndices, (std::vector<std::size_t>{2}));
+    EXPECT_EQ(result.references[2].resolution, Resolution::Missing);
+    EXPECT_EQ(result.references[3].kind, Kind::VectorSumMember);
+    EXPECT_EQ(result.references[3].path, "/tracks/4/vectors/0");
+    EXPECT_EQ(result.references[3].resolution, Resolution::Resolved);
+    EXPECT_EQ(result.references[3].candidateSourceIndices, (std::vector<std::size_t>{1}));
+    EXPECT_EQ(result.references[4].resolution, Resolution::Missing); // Same name exists only on wrong base type.
+    EXPECT_TRUE(result.references[4].candidateSourceIndices.empty());
+    EXPECT_EQ(result.references[5].path, "/tracks/4/vectors/2"); // Repeated serialized slots stay explicit.
+    EXPECT_EQ(result.references[5].candidateSourceIndices, (std::vector<std::size_t>{1}));
+    EXPECT_TRUE(index(project(dependent("VectorSum", membersXml("vectors", "")))).references.empty());
+    EXPECT_TRUE(index(project(dependent("FutureSum", membersXml("vectors", property("item", "same"))))).references.empty());
+}
+
+TEST(TrackerReferences, DoesNotGuessDuplicateOrSubclassConstituentSemantics)
+{
+    const auto result = index(project(
+        point("duplicate") + point("duplicate") + track("org.opensourcephysics.cabrillo.tracker.Vector", "duplicate") +
+        track("FutureMass", "uncertain") + point("uncertain") +
+        dependent("CenterOfMass",
+                  membersXml("masses", property("item", "duplicate") + property("item", "uncertain") + property("item", "dependent"))) +
+        dependent("VectorSum", membersXml("vectors", property("item", "duplicate") + property("item", "uncertain")))));
+    ASSERT_EQ(result.references.size(), 5u);
+    EXPECT_EQ(result.references[0].resolution, Resolution::Ambiguous);
+    EXPECT_EQ(result.references[0].candidateSourceIndices, (std::vector<std::size_t>{0, 1}));
+    EXPECT_EQ(result.references[1].resolution, Resolution::Unclassified);
+    EXPECT_EQ(result.references[1].candidateSourceIndices, (std::vector<std::size_t>{3, 4}));
+    EXPECT_EQ(result.references[2].resolution, Resolution::Unclassified); // Includes self/nested dependencies; never evaluate them.
+    EXPECT_EQ(result.references[2].candidateSourceIndices, (std::vector<std::size_t>{5, 6}));
+    EXPECT_EQ(result.references[3].resolution, Resolution::Resolved);
+    EXPECT_EQ(result.references[3].candidateSourceIndices, (std::vector<std::size_t>{2}));
+    EXPECT_EQ(result.references[4].resolution, Resolution::Unclassified);
+    EXPECT_EQ(result.references[4].candidateSourceIndices, (std::vector<std::size_t>{3}));
+}
+
+TEST(TrackerReferences, RejectsMalformedConstituentListsWithoutPartialMembers)
+{
+    const auto good = membersXml("vectors", property("item", "A"));
+    for (const auto& fields : {std::string{},
+                               property("vectors", "A"),
+                               good + good,
+                               std::string("<property name='vectors' type='collection' class='java.util.LinkedList'/>"),
+                               membersXml("vectors", "unexpected"),
+                               membersXml("vectors", property("item", "A") + "<property name='item' type='object'>null</property>"),
+                               membersXml("vectors", property("item", "A") + "<property name='item' type='string'><object/></property>"),
+                               membersXml("vectors", property("item", std::string(4097, 'a')))})
+    {
+        const auto result = index(project(track("org.opensourcephysics.cabrillo.tracker.Vector", "A") + dependent("VectorSum", fields)));
+        EXPECT_TRUE(result.references.empty());
+        ASSERT_EQ(result.malformedPaths.size(), 1u);
+        EXPECT_TRUE(result.malformedPaths[0].starts_with("/tracks/1/vectors"));
+    }
+    const auto missingMasses = index(project(dependent("CenterOfMass", "")));
+    EXPECT_EQ(missingMasses.malformedPaths, (std::vector<std::string>{"/tracks/0/masses"}));
+}
+
+TEST(TrackerReferences, BoundsConstituentsTogetherWithViewsAndWrongTypeCandidateVisits)
+{
+    std::string members;
+    for (int i = 0; i < 5000; ++i)
+    {
+        members += property("item", "missing");
+    }
+    const auto tracks = dependent("CenterOfMass", membersXml("masses", members)) + dependent("VectorSum", membersXml("vectors", members));
+    EXPECT_EQ(index(project(tracks)).references.size(), 10000u);
+    EXPECT_THROW((void)index(project(tracks, savedViews(viewXml("TableTView", "")))), motrack::ProjectError);
+
+    std::string duplicates;
+    for (int i = 0; i < 1000; ++i)
+    {
+        duplicates += point("same");
+    }
+    members.clear();
+    for (int i = 0; i < 100; ++i)
+    {
+        members += property("item", "same");
+    }
+    const auto exact = index(project(duplicates + dependent("VectorSum", membersXml("vectors", members))));
+    ASSERT_EQ(exact.references.size(), 100u);
+    for (const auto& reference : exact.references)
+    {
+        EXPECT_EQ(reference.resolution, Resolution::Missing);
+        EXPECT_TRUE(reference.candidateSourceIndices.empty());
+    }
+    EXPECT_THROW((void)index(project(duplicates + dependent("VectorSum", membersXml("vectors", members + property("item", "same"))))),
+                 motrack::ProjectError);
 }
 
 } // namespace

@@ -23,7 +23,9 @@ enum class TrackerReferenceKind : std::uint8_t
     TableSelection,
     TableColumnOwner,
     TableFormatOwner,
-    PlotOwner
+    PlotOwner,
+    CenterOfMassMember,
+    VectorSumMember
 };
 
 enum class TrackerReferenceResolution : std::uint8_t
@@ -31,7 +33,9 @@ enum class TrackerReferenceResolution : std::uint8_t
     Resolved,
     Missing,
     Ambiguous,
-    NoTarget
+    NoTarget,
+    /// A same-named candidate has a class whose constituent eligibility is not verified.
+    Unclassified
 };
 
 struct TrackerNameReference
@@ -41,7 +45,7 @@ struct TrackerNameReference
     std::string path;
     std::string originalName;
     TrackerReferenceResolution resolution;
-    /// Original source ordinals, including unsupported tracks. Never resolve duplicate names by order.
+    /// Original source ordinals, including unclassified possible constituents. Never choose duplicates by order.
     std::vector<std::size_t> candidateSourceIndices;
 };
 
@@ -52,13 +56,15 @@ struct TrackerReferenceIndex
     std::vector<std::string> malformedPaths;
 };
 
-/// Read-only, partial index of original identities, panel selections/referenceframe and saved-view owners.
+/// Read-only, partial index of original identities, panel selections/referenceframe, saved-view owners and constituents.
 /// The packed selection codec requires exactly four plot/table pairs; only its "null" tokens mean no target.
 /// Validates persisted bindings but does not require a bound track to remain live. Source XML is unchanged.
-/// Bounds: 10000 tracks and 10000 nested entries, 4096 UTF-16 units per string, 65536 packed units, plus the XML byte cap.
-/// Candidate lists have an aggregate limit of 100000 source indices, checked before copying.
-/// Malformed known fields are reported explicitly. Dataset indices, plot guests, attachments and dependencies are NOT
-/// indexed yet: an empty malformedPaths list is NOT proof that a rename/export is safe.
+/// Bounds: 10000 tracks and 10000 total nested entries, 4096 UTF-16 units per string, 65536 packed units, plus the XML byte cap.
+/// Same-name candidate visits have an aggregate limit of 100000, checked before filtering/copying.
+/// CenterOfMass.masses and VectorSum.vectors resolve unique exact PointMass/Vector candidates only.
+/// Other same-named classes stay Unclassified; duplicates stay Ambiguous, not simulated Java membership.
+/// Malformed known fields are explicit. Dataset indices, plot guests, attachments and model dependencies are NOT indexed:
+/// an empty malformedPaths list is NOT proof that a rename/export is safe. Tracker's vector-sum reload defect still applies.
 [[nodiscard]] TrackerReferenceIndex indexTrackerReferences(const TrackerSource& source, const LegacyProject& project);
 
 } // namespace motrack

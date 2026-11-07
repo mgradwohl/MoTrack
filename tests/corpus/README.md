@@ -323,3 +323,14 @@ This establishes a compatibility blocker, not native vector-sum editing or expor
 member names, nested sums, attachment/snapping relationships and edited dependencies remain. Run
 `VectorSumFixture.java` with the same bounded Java settings as the other fixture generators and a
 fresh temporary output path; do not overwrite a pinned fixture or bless changed expectations.
+
+## Native constituent reference index
+
+Independent source-index expectations for `center-of-mass` and `vector-sum` identify axes at node 0,
+the two native base tracks at nodes 1/2 (IDs 1/2), and the unsupported dependent track at node 3.
+The selected-track reference targets node 3 and both serialized constituent slots target nodes 1/2.
+These expectations are transcribed from the pinned originals, not regenerated from the native probe.
+They validate read-only preservation metadata, not dependent-track evaluation or standard rename export.
+In particular, the vector-sum index can correctly describe its source while the real Tracker application
+still fails to restore the relationship. Native tests cover cross-type names, duplicates, unclassified
+same-named classes, malformed/oversized lists, shared resource bounds and native edit/undo/save/reopen.
