@@ -38,6 +38,30 @@ motrack::TrackerReferenceIndex index(const std::string& xml)
     return motrack::indexTrackerReferences(imported.source, imported.project);
 }
 
+std::string arrayXml(std::string_view name, std::string_view type, std::string_view children)
+{
+    return "<property name='" + std::string(name) + "' type='array' class='" + std::string(type) + "'>" + std::string(children) +
+           "</property>";
+}
+
+std::string viewXml(std::string_view name, std::string_view fields, std::string_view slot = "[1]")
+{
+    return "<property name='" + std::string(slot) + "' type='object'><object class='org.opensourcephysics.cabrillo.tracker." +
+           std::string(name) + "'>" + std::string(fields) + "</object></property>";
+}
+
+std::string savedViews(std::string_view views, std::string_view chooser = "[1]")
+{
+    return arrayXml("views",
+                    "[[Lorg.opensourcephysics.cabrillo.tracker.TView;",
+                    arrayXml(chooser, "[Lorg.opensourcephysics.cabrillo.tracker.TView;", views));
+}
+
+std::string stringRow(std::string_view name, std::string_view cells)
+{
+    return arrayXml(name, "[Ljava.lang.String;", cells);
+}
+
 using Kind = motrack::TrackerReferenceKind;
 using Resolution = motrack::TrackerReferenceResolution;
 
@@ -102,7 +126,9 @@ TEST(TrackerReferences, DecodesFourPlotTablePairsWithoutTreatingDirectNullNamesA
 
 TEST(TrackerReferences, OriginalBindingsSurviveRenameReorderDeletionUndoAndNativeReopen)
 {
-    auto imported = motrack::parseTrackerProject(project(point("original") + point("other"), property("selectedtrack", "original")));
+    auto imported = motrack::parseTrackerProject(
+        project(point("original") + point("other"),
+                property("selectedtrack", "original") + savedViews(viewXml("TableTView", property("selected_track", "original")))));
     const auto originalId = imported.project.pointMasses.front().id;
     motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
     motrack::TrackEdits edits;
@@ -128,6 +154,9 @@ TEST(TrackerReferences, OriginalBindingsSurviveRenameReorderDeletionUndoAndNativ
     const auto restored = motrack::indexTrackerReferences(*reopened.trackerSource, reopened.project);
     EXPECT_EQ(restored.tracks[0].nativeId, originalId);
     EXPECT_EQ(restored.references[0].candidateSourceIndices, (std::vector<std::size_t>{0}));
+    ASSERT_EQ(restored.references.size(), 2u);
+    EXPECT_EQ(restored.references[1].candidateSourceIndices, (std::vector<std::size_t>{0}));
+    EXPECT_EQ(restored.references[1].originalName, "original");
     auto unbound = *reopened.trackerSource;
     unbound.bindings.reset();
     const auto oldNative = motrack::indexTrackerReferences(unbound, reopened.project);
@@ -254,6 +283,158 @@ TEST(TrackerReferences, HandlesAbsentFieldsExactNamesAndBoundedTrackInventories)
     EXPECT_EQ(index(project(many)).tracks.size(), 10000u);
     many += track("Future", "name");
     EXPECT_THROW((void)index(project(many)), motrack::ProjectError);
+}
+
+TEST(TrackerReferences, IndexesNestedTableOwnersWithoutTreatingColumnNamesOrFormatsAsReferences)
+{
+    const auto columns = arrayXml("track_columns",
+                                  "[[Ljava.lang.String;",
+                                  stringRow("[4]", property("[0]", "unknown") + property("[1]", "null") + property("[2]", "missing")));
+    const auto formats =
+        arrayXml("column_formats",
+                 "[[[Ljava.lang.String;",
+                 arrayXml("[0]",
+                          "[[Ljava.lang.String;",
+                          stringRow("[0]", property("[0]", "unknown") + property("[1]", "t") + property("[2]", "null")) +
+                              stringRow("[1]", property("[0]", "unknown") + property("[1]", "frame") + property("[2]", "0"))));
+    const auto xml = project(
+        point("null") + track("Future", "unknown"),
+        savedViews(viewXml("TableTView", property("selected_track", "null") + columns + formats + property("description", "unknown"))));
+    const auto result = index(xml);
+    EXPECT_TRUE(result.malformedPaths.empty());
+    ASSERT_EQ(result.references.size(), 4u);
+    EXPECT_EQ(result.references[0].kind, Kind::TableSelection);
+    EXPECT_EQ(result.references[0].path, "/views/1/1/selected_track");
+    EXPECT_EQ(result.references[0].resolution, Resolution::Resolved);
+    EXPECT_EQ(result.references[0].candidateSourceIndices, (std::vector<std::size_t>{0}));
+    EXPECT_EQ(result.references[1].kind, Kind::TableColumnOwner);
+    EXPECT_EQ(result.references[1].path, "/views/1/1/track_columns/4/0");
+    EXPECT_EQ(result.references[1].candidateSourceIndices, (std::vector<std::size_t>{1}));
+    EXPECT_EQ(result.references[2].kind, Kind::TableFormatOwner);
+    EXPECT_EQ(result.references[2].path, "/views/1/1/column_formats/0/0/0");
+    EXPECT_EQ(result.references[3].path, "/views/1/1/column_formats/0/1/0");
+    EXPECT_EQ(result.references[3].candidateSourceIndices, (std::vector<std::size_t>{1}));
+    EXPECT_FALSE(result.tracks[1].nativeId);
+}
+
+TEST(TrackerReferences, ResolvesPlotOwnersIncludingMissingAndAmbiguousNames)
+{
+    const auto owners = "<property name='track_views' type='collection' class='java.util.ArrayList'>" +
+                        viewXml("PlotTrackView", property("track", "same") + property("x_var", "missing"), "item") +
+                        viewXml("PlotTrackView", property("track", "missing"), "item") + "</property>";
+    const auto result = index(project(point("same") + track("Future", "same"),
+                                      savedViews(viewXml("PlotTView", property("selected_track", "same") + owners, "[0]"), "[3]")));
+    EXPECT_TRUE(result.malformedPaths.empty());
+    ASSERT_EQ(result.references.size(), 3u);
+    EXPECT_EQ(result.references[0].kind, Kind::PlotSelection);
+    EXPECT_EQ(result.references[1].kind, Kind::PlotOwner);
+    EXPECT_EQ(result.references[1].path, "/views/3/0/track_views/0/track");
+    EXPECT_EQ(result.references[1].resolution, Resolution::Ambiguous);
+    EXPECT_EQ(result.references[1].candidateSourceIndices, (std::vector<std::size_t>{0, 1}));
+    EXPECT_EQ(result.references[2].path, "/views/3/0/track_views/1/track");
+    EXPECT_EQ(result.references[2].resolution, Resolution::Missing);
+    EXPECT_TRUE(index(project(point("A"), savedViews(viewXml("PlotTView", {}, "[0]")))).malformedPaths.empty());
+    EXPECT_TRUE(index(project(point("A"), savedViews(viewXml("FutureView", property("track", "A"), "[2]")))).references.empty());
+}
+
+TEST(TrackerReferences, RejectsMalformedViewContainersIndicesAndObjects)
+{
+    const auto valid = savedViews(viewXml("TableTView", property("selected_track", "A")));
+    for (const auto& field : {property("views", "A"),
+                              valid + valid,
+                              arrayXml("views", "wrong", ""),
+                              arrayXml("views", "[[Lorg.opensourcephysics.cabrillo.tracker.TView;", "<other/>"),
+                              savedViews(viewXml("TableTView", {}), "[4]"),
+                              savedViews(viewXml("TableTView", {}), "[01]"),
+                              savedViews(viewXml("TableTView", {}), "[-1]"),
+                              savedViews(viewXml("TableTView", {}), "garbage"),
+                              savedViews(viewXml("TableTView", {}, "[0]")),
+                              savedViews(viewXml("PlotTView", {}, "[1]")),
+                              savedViews("<property name='[1]' type='object'><object class='Future'/><object class='Future'/></property>"),
+                              savedViews(viewXml("TableTView", {}) + viewXml("TableTView", {})),
+                              arrayXml("views", "[[Lorg.opensourcephysics.cabrillo.tracker.TView;", property("[0]", "A")),
+                              savedViews("<property name='[0]' type='object'>text<object class='Future'/></property>")})
+    {
+        SCOPED_TRACE(field);
+        const auto result = index(project(point("A"), field));
+        EXPECT_TRUE(result.references.empty());
+        EXPECT_FALSE(result.malformedPaths.empty());
+    }
+    EXPECT_TRUE(index(project({}, arrayXml("views", "[[Lorg.opensourcephysics.cabrillo.tracker.TView;", {}))).malformedPaths.empty());
+}
+
+TEST(TrackerReferences, RejectsMalformedTableRowsWithoutInventingPartialOwners)
+{
+    const auto good = stringRow("[0]", property("[0]", "A") + property("[1]", "t"));
+    for (const auto& row : {stringRow("[1]", {}),
+                            stringRow("[1]", property("[1]", "A")),
+                            stringRow("[1]", property("[0]", "A") + property("[2]", "x")),
+                            stringRow("[1]", property("[0]", "A") + property("[0]", "A")),
+                            stringRow("[1]", property("[0]", "A") + "<property name='[1]' type='int'>1</property>"),
+                            stringRow("[1]", property("[0]", std::string(4097, 'x'))),
+                            property("[1]", "A")})
+    {
+        const auto fields = arrayXml("track_columns", "[[Ljava.lang.String;", good + row);
+        const auto result = index(project(point("A"), savedViews(viewXml("TableTView", fields))));
+        EXPECT_TRUE(result.references.empty());
+        EXPECT_FALSE(result.malformedPaths.empty());
+    }
+    const auto group = [](std::string_view rows)
+    {
+        return arrayXml("column_formats", "[[[Ljava.lang.String;", arrayXml("[0]", "[[Ljava.lang.String;", rows));
+    };
+    const auto first = stringRow("[0]", property("[0]", "A") + property("[1]", "t") + property("[2]", "0.00"));
+    for (const auto& fields :
+         {group({}),
+          group(stringRow("[2]", property("[0]", "A"))),
+          group(stringRow("[0]", property("[0]", "A"))),
+          group(first + stringRow("[1]", property("[0]", "B") + property("[1]", "frame") + property("[2]", "0"))),
+          arrayXml("column_formats", "[[[Ljava.lang.String;", arrayXml("[1]", "[[Ljava.lang.String;", first)),
+          group(first + stringRow("[2]", property("[0]", "A") + property("[1]", "frame") + property("[2]", "0"))),
+          property("column_formats", "A"),
+          property("track_columns", "A"),
+          arrayXml("track_columns", "[[Ljava.lang.String;", good) + arrayXml("track_columns", "[[Ljava.lang.String;", good)})
+    {
+        const auto result = index(project(point("A") + point("B"), savedViews(viewXml("TableTView", fields))));
+        EXPECT_TRUE(result.references.empty());
+        EXPECT_FALSE(result.malformedPaths.empty());
+    }
+}
+
+TEST(TrackerReferences, RejectsMalformedPlotOwnerCollectionsAndRequiredNames)
+{
+    for (const auto& fields :
+         {property("track_views", "A"),
+          std::string("<property name='track_views' type='collection' class='java.util.ArrayList'><other/></property>"),
+          std::string("<property name='track_views' type='collection' class='wrong'/>"),
+          std::string("<property name='track_views' type='collection' class='java.util.ArrayList'>") +
+              viewXml("PlotTrackView", {}, "item") + "</property>",
+          std::string("<property name='track_views' type='collection' class='java.util.ArrayList'>") +
+              viewXml("Future", property("track", "A"), "item") + "</property>"})
+    {
+        const auto result = index(project(point("A"), savedViews(viewXml("PlotTView", fields, "[0]"))));
+        EXPECT_TRUE(result.references.empty());
+        EXPECT_FALSE(result.malformedPaths.empty());
+    }
+}
+
+TEST(TrackerReferences, BoundsTotalNestedEntriesWithoutAllocatingSparseArrays)
+{
+    const auto fields = arrayXml("track_columns", "[[Ljava.lang.String;", stringRow("[9999]", property("[0]", "A")));
+    const auto valid = index(project(point("A"), savedViews(viewXml("TableTView", fields))));
+    EXPECT_TRUE(valid.malformedPaths.empty());
+    ASSERT_EQ(valid.references.size(), 1u);
+    EXPECT_EQ(valid.references[0].path, "/views/1/1/track_columns/9999/0");
+    const auto tooFar = arrayXml("track_columns", "[[Ljava.lang.String;", stringRow("[10000]", property("[0]", "A")));
+    EXPECT_FALSE(index(project(point("A"), savedViews(viewXml("TableTView", tooFar)))).malformedPaths.empty());
+    std::string many;
+    for (unsigned row = 0; row < 5000; ++row)
+    {
+        many += stringRow("[" + std::to_string(row) + "]", property("[0]", "A"));
+    }
+    EXPECT_THROW(
+        (void)index(project(point("A"), savedViews(viewXml("TableTView", arrayXml("track_columns", "[[Ljava.lang.String;", many))))),
+        motrack::ProjectError);
 }
 
 } // namespace

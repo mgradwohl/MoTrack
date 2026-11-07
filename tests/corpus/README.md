@@ -286,3 +286,8 @@ This check covers the current partial, read-only index, not standard rename expo
 settings, attachments or dependent constituents. The runner compares exact paths, names, states and
 target lists; it rejects consistently wrong source identities and does not regenerate this expected
 file with `reference --record`.
+
+The native read-only reference-index oracle additionally checks nested protractor table selections,
+column and format owners, plus the dynamic-sine plot selection and owner. Expected source ordinals
+are transcribed from pinned original files, including unsupported source nodes with no native ID.
+This does not enable rename export or imply the remaining dependency graph is complete.

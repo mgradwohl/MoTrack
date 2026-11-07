@@ -59,16 +59,23 @@ Java classes and names, retaining unsupported track nodes. Known persistent IDs 
 validated original bindings; native rename/reorder/deletion does not change them. Old documents with
 unknown bindings retain source-node resolution without inventing native IDs.
 
-It currently reads root `selectedtrack`, `referenceframe` and exactly four plot/table pairs in
-`selected_track_views`. Resolution explicitly distinguishes one target, missing targets, duplicate
+It reads root `selectedtrack`, `referenceframe`, exactly four plot/table pairs in
+`selected_track_views`, nested table/plot `selected_track`, table column/format owners and
+`PlotTrackView.track` owners. Resolution explicitly distinguishes one target, missing targets, duplicate
 names and packed `null` markers. Only the packed codec treats `null` as an empty slot. Malformed known
 fields have diagnostic paths; ordinary description text is ignored. Limits are 10000 source entries,
-4096 UTF-16 units per name and 65536 units for the packed value, within the existing XML byte cap.
+10000 total nested array/collection entries, 4096 UTF-16 units per string and 65536 units for the packed
+value, within the existing XML byte cap. View indices are bounded to four choosers/four slots; string
+arrays use bounded sparse maps. Table-format groups/rows must be dense because the Java loader
+dereferences every row. Duplicate array labels, invalid types/classes, malformed cells and mixed
+format owners produce diagnostic paths. Column names and format patterns are validated as data,
+never resolved as track references.
 The original XML remains unchanged. Native tests cover ambiguity across supported/unknown types,
 malformed fields, bounds, Unicode, rename/reorder/delete/undo and native save/reopen. The protractor
-corpus checks the index against original source ordinals and the Java-verified selected mass/views.
+and dynamic-sine corpus checks compare the index with independently transcribed source ordinals and
+the Java-verified selected mass, customized table owner and model plot owner.
 
-This is not a complete dependency graph or an export eligibility check. Nested table/plot settings,
+This is not a complete dependency graph or an export eligibility check. Dataset indices, plot guests,
 attachments, constituents and model boosters are not indexed yet; no malformed paths does not mean a rename is safe.
 The `referenceframe` scalar is indexed, but moving-coordinate behavior still lacks application cases.
 

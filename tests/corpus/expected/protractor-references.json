@@ -94,6 +94,60 @@
       "name": "null",
       "resolution": "no_target",
       "targets": []
+    },
+    {
+      "kind": "table",
+      "path": "/views/1/1/selected_track",
+      "name": "mass B",
+      "resolution": "resolved",
+      "targets": [
+        3
+      ]
+    },
+    {
+      "kind": "table_column_owner",
+      "path": "/views/1/1/track_columns/0/0",
+      "name": "protractor A",
+      "resolution": "resolved",
+      "targets": [
+        2
+      ]
+    },
+    {
+      "kind": "table_format_owner",
+      "path": "/views/1/1/column_formats/0/0/0",
+      "name": "protractor A",
+      "resolution": "resolved",
+      "targets": [
+        2
+      ]
+    },
+    {
+      "kind": "table_format_owner",
+      "path": "/views/1/1/column_formats/0/1/0",
+      "name": "protractor A",
+      "resolution": "resolved",
+      "targets": [
+        2
+      ]
+    },
+    {
+      "kind": "table_format_owner",
+      "path": "/views/1/1/column_formats/0/2/0",
+      "name": "protractor A",
+      "resolution": "resolved",
+      "targets": [
+        2
+      ]
+    },
+    {
+      "kind": "table_format_owner",
+      "path": "/views/1/1/column_formats/0/3/0",
+      "name": "protractor A",
+      "resolution": "resolved",
+      "targets": [
+        2
+      ]
     }
   ],
   "malformed_paths": []
