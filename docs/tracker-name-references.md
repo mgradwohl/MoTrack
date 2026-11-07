@@ -65,23 +65,35 @@ unknown bindings retain source-node resolution without inventing native IDs.
 
 It reads root `selectedtrack`, `referenceframe`, exactly four plot/table pairs in
 `selected_track_views`, nested table/plot `selected_track`, table column/format owners and
-`PlotTrackView.track` owners. Resolution explicitly distinguishes one target, missing targets, duplicate
-names and packed `null` markers. Only the packed codec treats `null` as an empty slot. Malformed known
+`PlotTrackView.track` owners, plus `CenterOfMass.masses` and `VectorSum.vectors` collections.
+Constituents resolve only unique exact `PointMass`/`Vector` candidates; the other base type is excluded.
+Other same-named classes (including nested dependent tracks) yield `Unclassified`, retaining their possible
+source targets. Duplicate eligible names stay `Ambiguous`; this index does not simulate either loader's
+duplicate-name behavior. Repeated serialized member slots remain distinct references.
+Resolution also distinguishes missing targets and packed `null` markers. Only the packed codec treats `null` as an empty slot. Malformed known
 fields have diagnostic paths; ordinary description text is ignored. Limits are 10000 source entries,
 10000 total nested array/collection entries, 4096 UTF-16 units per string and 65536 units for the packed
 value, within the existing XML byte cap. View indices are bounded to four choosers/four slots; string
 arrays use bounded sparse maps. Table-format groups/rows must be dense because the Java loader
 dereferences every row. Duplicate array labels, invalid types/classes, malformed cells and mixed
 format owners produce diagnostic paths. Column names and format patterns are validated as data,
-never resolved as track references. All emitted candidate lists share a 100000-index storage budget,
-charged before copying; duplicate names cannot multiply storage up to tracks times owners.
+never resolved as track references. All references share a 100000 same-name candidate-visit budget, charged before filtering or copying;
+duplicate names cannot multiply storage or scanning up to tracks times owners. Constituent collections
+share the nested-entry budget with views, require known encodings and well-formed strings, and emit
+no partial member list when malformed.
 The original XML remains unchanged. Native tests cover ambiguity across supported/unknown types,
 malformed fields, bounds, Unicode, rename/reorder/delete/undo and native save/reopen. The protractor
 and dynamic-sine corpus checks compare the index with independently transcribed source ordinals and
-the Java-verified selected mass, customized table owner and model plot owner.
+the Java-verified selected mass, customized table owner and model plot owner. The center-of-mass and
+vector-sum corpus cases additionally require the two serialized member names to resolve to source nodes
+1/2 and retain their native IDs. The vector-sum source-index check does not negate the separate pinned
+Java reload failure or permit export; it describes the original XML, not successfully loaded membership.
+The internal writer rejects edits to any project containing a vector sum, even after all independent
+member samples are removed. Native saving still retains the exact original source; an unchanged
+standard-file copy is also preserved byte-for-byte and is not advertised as repaired Tracker behavior.
 
 This is not a complete dependency graph or an export eligibility check. Dataset indices, plot guests,
-attachments, constituents and model boosters are not indexed yet; no malformed paths does not mean a rename is safe.
+attachments and model boosters are not indexed yet; no malformed paths does not mean a rename is safe.
 The `referenceframe` scalar is indexed, but moving-coordinate behavior still lacks application cases.
 
 ## Proposed rename architecture

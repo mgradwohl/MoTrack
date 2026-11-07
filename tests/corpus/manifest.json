@@ -169,6 +169,7 @@
       "features": ["two-point-masses", "named-constituents", "unsupported-center-of-mass", "sparse-frames", "java-authored-synthetic"],
       "requirements": ["R02", "R03", "R08"],
       "expected": "expected/center-of-mass.json",
+      "native_reference_index": "expected/center-of-mass-references.json",
       "session_tracks": [
         {"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes", "name": "axes"},
         {"class": "org.opensourcephysics.cabrillo.tracker.PointMass", "name": "mass A"},
@@ -208,6 +209,7 @@
         "R07"
       ],
       "expected": "expected/vector-sum.json",
+      "native_reference_index": "expected/vector-sum-references.json",
       "session_tracks": [
         {
           "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",

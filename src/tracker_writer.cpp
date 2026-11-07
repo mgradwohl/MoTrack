@@ -828,6 +828,10 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
     {
         return source.xml;
     }
+    // Pinned Tracker 6.3.5 never initializes saved VectorSum members and loses their names on resave.
+    // Do not let clearing all independent samples bypass the nonempty-vector safeguards below.
+    require(std::ranges::find(expected.unsupportedTrackTypes, "org.opensourcephysics.cabrillo.tracker.VectorSum") ==
+            expected.unsupportedTrackTypes.end());
     requireStableVectors(expected, objects);
     // QDom emits UTF-8 bytes; do not retain an input declaration for a different encoding.
     for (auto node = xml.firstChild(); !node.isNull(); node = node.nextSibling())

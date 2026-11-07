@@ -134,6 +134,13 @@ Only the selected archive tab is editable today. Multi-document controllers, mul
 and standard-file writers remain unfinished. An unknown object retained in this
 envelope is not an implemented track type.
 
+Edited projects containing `VectorSum` are rejected before replacing a standard-file destination,
+including when all independent member samples have been removed. The pinned Tracker 6.3.5 reference
+fails to initialize these member names and loses them on its own resave; see the
+[explicit known-issue corpus case](../tests/corpus/README.md#vector-sum-reference). Native documents
+still retain the exact original source. An unchanged standard-file copy remains byte-for-byte and does
+not repair this upstream behavior.
+
 The initial internal standard writer can patch point-mass mass values, mark positions/additions/deletions,
 independent-vector tails/components/additions/deletions, clip start/stride/count, length/mass-unit labels,
 and supported fixed/fully varying coordinate-system keys in media-free projects after a native reopen.
@@ -151,7 +158,7 @@ geometry. Full dependent-vector/display semantics must replace these restriction
 It requires known source associations, preserves unknown XML objects/properties and
 normalizes changed output to a matching UTF-8 declaration. Unchanged output is byte-exact. It rejects
 every other changed domain field before opening its atomic replacement file, including name,
-clip timing, mass/time units, keyed/moving calibration and track-membership edits. Range exports require a known `VideoClip` without
+clip timing, time units, unsupported partly fixed/moving calibration and track-membership edits. Range exports require a known `VideoClip` without
 video, frame-shift or saved-video-frame-count properties. They reject missing/invalid counts, endpoints
 beyond Tracker 6.3.5's media-free frame 500000 limit, and overflow in its temporary frame-count arithmetic.
 Media references are rejected until relocation
