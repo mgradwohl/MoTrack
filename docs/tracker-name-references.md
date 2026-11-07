@@ -15,6 +15,15 @@ plot's owner, axis variables and linked-axis flag. These independent original-fi
 compared with serializers of live loaded views at all three stages. Nonempty dataset indices, plot
 guests, attachments, vector sums, dynamic systems and edited dependency cases remain.
 
+
+The saved-view baseline visits each customized table through Tracker's normal selection/refresh path,
+waits for populated column names, and restores its original selection before taking snapshots. Reports
+explicitly label this preparation. An immediate unvisited protractor resave on pinned Tracker 6.3.5
+was observed to write null column slots and lose the angle column on reopen. The runner does not
+accept that loss as the expected result or change the original-file expectations. This visited-view
+case does **not** establish fidelity for an immediate unvisited Tracker resave. Hidden customized
+tables and that upstream save behavior still need separate acceptance/handling before full parity.
+
 ## Why a name is more than one XML property
 
 The real protractor corpus stores `mass B` in its track object, the root `selectedtrack`, a table's

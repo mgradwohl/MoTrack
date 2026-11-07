@@ -160,6 +160,7 @@ class CorpusTests(unittest.TestCase):
                   "tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                 "view_preparation": "visit_custom_tables_restore_selection",
                  "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest)
         edited_expected = corpus.mass_roundtrip_expected(case)
@@ -183,7 +184,8 @@ class CorpusTests(unittest.TestCase):
             invalid[key]["tracks"][1]["samples"][0]["points"][0][0] += 1.0
         with self.assertRaises(ValueError):
             corpus.validate_session(case, invalid, manifest)
-        for key, value in [("reference_version", "6.3.4"), ("verification_level", "xml_and_coordinate_api")]:
+        for key, value in [("reference_version", "6.3.4"), ("verification_level", "xml_and_coordinate_api"),
+                           ("view_preparation", None), ("view_preparation", "unvisited")]:
             with self.subTest(key=key), self.assertRaises(ValueError):
                 corpus.validate_session(case, {**valid, key: value}, manifest)
 
@@ -202,6 +204,7 @@ class CorpusTests(unittest.TestCase):
                   "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                 "view_preparation": "visit_custom_tables_restore_selection",
                  "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest)
         for field, value in [("selected_track", "mass A"), ("selected_track", None),
@@ -241,6 +244,7 @@ class CorpusTests(unittest.TestCase):
             if "session_names" in case:
                 before["name_references"] = copy.deepcopy(case["session_names"])
             valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                     "view_preparation": "visit_custom_tables_restore_selection",
                      "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
             corpus.validate_session(case, valid, manifest)
             if case_id == "protractor":
@@ -299,6 +303,7 @@ class CorpusTests(unittest.TestCase):
                   "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                 "view_preparation": "visit_custom_tables_restore_selection",
                  "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest)
         for field, value in [("members", ["mass A"]), ("members", ["mass A", "mass A"]),
@@ -347,6 +352,7 @@ class CorpusTests(unittest.TestCase):
         before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                 "view_preparation": "visit_custom_tables_restore_selection",
                  "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest)
         for index in range(len(mass["samples"])):
@@ -396,6 +402,7 @@ class CorpusTests(unittest.TestCase):
                   "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   "calibration": calibration, **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                 "view_preparation": "visit_custom_tables_restore_selection",
                  "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest, expected, calibration=calibration)
         for field, value in [("frame", 2), ("origin", [81, 90]), ("scale", [3, 4]), ("angle", 90)]:
@@ -449,6 +456,7 @@ class CorpusTests(unittest.TestCase):
         before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                 "view_preparation": "visit_custom_tables_restore_selection",
                  "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest)
         for field, value in [("tail", [11.0, 20.0]), ("components", [3.0, 4.0]), ("frame", 1)]:
@@ -583,6 +591,7 @@ class CorpusTests(unittest.TestCase):
                   "tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                 "view_preparation": "visit_custom_tables_restore_selection",
                  "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest, expected, keys)
         for field, value in [("key_frames", [0]), ("samples", tracks[1]["samples"][:1])]:
@@ -771,6 +780,7 @@ class CorpusTests(unittest.TestCase):
                 self.assertEqual(Path(source).name, "tracker-resaved.trk")
                 self.assertTrue(Path(source).is_file())
             report = {"reference_version": "6.3.5", "verification_level": "tracker_session_" + stage,
+                      "view_preparation": "visit_custom_tables_restore_selection",
                       "loaded": {"stage": stage}, "after_save": {"stage": "after_save"}}
             (output / ("session-" + stage + ".json")).write_text(json.dumps(report), encoding="utf-8")
         with patch.object(corpus.sys, "platform", "linux"), \

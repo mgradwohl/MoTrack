@@ -71,6 +71,15 @@ dependency provenance, the complete requirement inventory and media/archived-ses
 Initial snapshots were generated on Windows with Eclipse Temurin 17.0.21+9; CI repeats the reference
 calculation using its Java 17 JDK on Linux. No Java runtime is added to the MoTrack application.
 
+
+The saved-view baseline visits each customized table through Tracker's normal selection/refresh path,
+waits for populated column names, and restores its original selection before taking snapshots. Reports
+explicitly label this preparation. An immediate unvisited protractor resave on pinned Tracker 6.3.5
+was observed to write null column slots and lose the angle column on reopen. The runner does not
+accept that loss as the expected result or change the original-file expectations. This visited-view
+case does **not** establish fidelity for an immediate unvisited Tracker resave. Hidden customized
+tables and that upstream save behavior still need separate acceptance/handling before full parity.
+
 ## Run the checks
 
 Activate the usual MoTrack development environment and build with testing enabled. The ordinary

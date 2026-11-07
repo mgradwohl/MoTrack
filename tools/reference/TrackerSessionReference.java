@@ -62,7 +62,8 @@ public final class TrackerSessionReference {
                     if (save && (TrackerIO.save(saved.toFile(), panel) == null || !Files.isRegularFile(saved)))
                         throw new IllegalStateException("Tracker did not save the loaded session");
                     REPORT.set(TrackerReference.map("reference_version", OSPRuntime.VERSION,
-                        "verification_level", "tracker_session_" + args[2], "loaded", before,
+                        "verification_level", "tracker_session_" + args[2],
+                        "view_preparation", "visit_custom_tables_restore_selection", "loaded", before,
                         "after_save", save ? snapshot(panel) : null));
                     DONE.countDown();
                 })));
@@ -117,7 +118,49 @@ public final class TrackerSessionReference {
                 }
             }
             ((Timer) event.getSource()).stop();
-            action.run();
+            visitCustomTables(panel, action);
+        }).run());
+        timer.start();
+    }
+
+    private record TableVisit(TrackChooserTView view, TTrack track, TTrack restore) {}
+
+    private static void visitCustomTables(TrackerPanel panel, Runnable action) {
+        List<TableVisit> visits = new ArrayList<>();
+        for (TView[] chooser : panel.getTFrame().getTViews(panel, false)) {
+            if (!(chooser[TView.VIEW_TABLE] instanceof TrackChooserTView table)) continue;
+            for (List<String> row : stringRows(new XMLControlElement(table).getObject("track_columns"), 0)) {
+                List<TTrack> owners = panel.getTracks().stream().filter(track -> track.getName().equals(row.get(0))).toList();
+                if (owners.size() != 1 || !table.isShowing() || table.getSelectedTrack() == null)
+                    throw new IllegalStateException("Reference needs a visible table with an unambiguous owner");
+                visits.add(new TableVisit(table, owners.get(0), table.getSelectedTrack()));
+                if (visits.size() > 10000) throw new IllegalStateException("Table visit limit exceeded");
+            }
+        }
+        if (visits.isEmpty()) { action.run(); return; }
+        // Tracker refreshes a table's column model only while that track is displayed. In 6.3.5,
+        // immediately resaving an unvisited custom table can serialize null columns. Exercise the
+        // normal selection/refresh path, observe populated columns, then restore the saved selection.
+        // This is a visited-view baseline, not proof of fidelity for an immediate unvisited resave.
+        int[] index = {0};
+        visits.get(0).view().setSelectedTrack(visits.get(0).track());
+        Timer timer = new Timer(25, event -> guard(() -> {
+            TableVisit visit = visits.get(index[0]);
+            if (visit.view().getSelectedTrack() != visit.track())
+                throw new IllegalStateException("Tracker did not select the table owner");
+            visit.view().paintImmediately(visit.view().getVisibleRect());
+            boolean found = false;
+            for (List<String> row : stringRows(new XMLControlElement(visit.view()).getObject("track_columns"), 0)) {
+                if (!visit.track().getName().equals(row.get(0))) continue;
+                found = true;
+                if (row.stream().anyMatch(value -> value == null)) return;
+            }
+            if (!found) throw new IllegalStateException("Customized table disappeared during selection");
+            visit.view().setSelectedTrack(visit.restore());
+            if (++index[0] == visits.size()) {
+                ((Timer) event.getSource()).stop();
+                action.run();
+            } else visits.get(index[0]).view().setSelectedTrack(visits.get(index[0]).track());
         }).run());
         timer.start();
     }
