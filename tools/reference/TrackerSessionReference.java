@@ -2,6 +2,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -306,7 +307,7 @@ public final class TrackerSessionReference {
         for (String[] row : rows) {
             if (row == null || row.length == 0 || row.length > 10000 || (width != 0 && row.length != width))
                 throw new IllegalStateException("Unexpected table row");
-            result.add(List.of(row));
+            result.add(new ArrayList<>(Arrays.asList(row)));
         }
         result.sort(Comparator.comparing(row -> row.get(0)));
         return result;
