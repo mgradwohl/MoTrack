@@ -59,9 +59,10 @@ vector-reconstruction safeguards,
 [PR #55](https://github.com/mgradwohl/MoTrack/pull/55) the proposed source-reference architecture,
 [PR #56](https://github.com/mgradwohl/MoTrack/pull/56) live selected-track/plot/table reference checks, and
 [PR #57](https://github.com/mgradwohl/MoTrack/pull/57) the named center-of-mass reference baseline, and
-[PR #58](https://github.com/mgradwohl/MoTrack/pull/58) the partial native source-reference index. Windows,
+[PR #58](https://github.com/mgradwohl/MoTrack/pull/58) the partial native source-reference index, and
+[PR #59](https://github.com/mgradwohl/MoTrack/pull/59) visited-table and saved-plot reference checks. Windows,
 macOS, Linux, setup, and coverage checks passed in
-[CI run 42299876763](https://github.com/mgradwohl/MoTrack/actions/runs/42299876763): combined production
+[CI run 42329842392](https://github.com/mgradwohl/MoTrack/actions/runs/42329842392): combined production
 line coverage **94.07% (5158/5483)**. The keyed-calibration and mass-unit writer PRs also passed actual
 Tracker edited-file load/save/reopen and native reimport before merging. This verifies the implemented slice, not full Tracker equivalence.
 
@@ -127,7 +128,7 @@ and platform evidence before it can be marked complete.
 | ID | Required desktop behavior | Status at the snapshot and remaining work | Phase |
 | --- | --- | --- | --- |
 | R01 | Reproducible native builds, CI, review, numerical tests, at least 90% combined C++ line coverage | Implemented foundation; continue applying gates to every new component. | 0, every phase |
-| R02 | Open `.trk`/`.trz`; preserve all supported and unknown content, references, metadata, and archive tabs | Partial: supported point masses/vectors/calibration import; one archive tab selected. Native documents retain that tab's original XML, editable-track IDs and source-object associations for new imports. Version 5 embeds the exact original archive, including all tabs/media/unknown files. A partial read-only reference index maps original track names and panel selections to source nodes and known IDs; nested/dependent references remain. Older native sources retain an explicit unknown-association state. | 1–3 |
+| R02 | Open `.trk`/`.trz`; preserve all supported and unknown content, references, metadata, and archive tabs | Partial: supported point masses/vectors/calibration import; one archive tab selected. Native documents retain that tab's original XML, editable-track IDs and source-object associations for new imports. Version 5 embeds the exact original archive, including all tabs/media/unknown files. A partial read-only reference index maps original track names, panel/nested-view selections and table/plot owners to source nodes and known IDs; dataset/guest/dependent references remain. Older native sources retain an explicit unknown-association state. | 1–3 |
 | R03 | Save edited standard files plus optional `.motrack`; reopen in both applications without data loss | Partial: native persistence and source/archive preservation. Initial internal `.trk` writer and actual-Tracker round-trip case cover mass values, marks, independent-vector samples, clip ranges, existing fixed/fully varying calibration and length/mass-unit labels; other edits are rejected. Full standard writers, export UI, archive packaging and paired-save recovery remain. | 2–3, every feature |
 | R04 | Multiple experiment tabs, independent undo/dirty state, tab/project Save As, cross-tab import and reusable views | Partial foundation: document sessions own independent data/history/save checkpoints, and native storage preserves unopened archive tabs. The desktop still has one active experiment; multi-tab controllers/UI, cross-tab import and reusable views remain. | 2–4 |
 | R05 | Movies, stills, image sequences and zipped sequences; accurate clip/time/frame controls and media properties | Partial: local movies/images, clip trim/stride, timestamp indexing, orientation, cache, and playback exist. Audit all baseline formats, rates, sequence operations, and properties controls. | 1, 4, 6 |

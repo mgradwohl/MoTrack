@@ -1,0 +1,46 @@
+{
+  "tracks": [
+    {
+      "source_index": 0,
+      "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+      "name": "axes",
+      "native_id": null
+    },
+    {
+      "source_index": 1,
+      "class": "org.opensourcephysics.cabrillo.tracker.DynamicParticle",
+      "name": "model A",
+      "native_id": null
+    }
+  ],
+  "references": [
+    {
+      "kind": "selected_track",
+      "path": "/selectedtrack",
+      "name": "model A",
+      "resolution": "resolved",
+      "targets": [
+        1
+      ]
+    },
+    {
+      "kind": "plot",
+      "path": "/views/0/0/selected_track",
+      "name": "model A",
+      "resolution": "resolved",
+      "targets": [
+        1
+      ]
+    },
+    {
+      "kind": "plot_owner",
+      "path": "/views/0/0/track_views/0/track",
+      "name": "model A",
+      "resolution": "resolved",
+      "targets": [
+        1
+      ]
+    }
+  ],
+  "malformed_paths": []
+}

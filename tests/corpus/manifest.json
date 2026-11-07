@@ -66,6 +66,7 @@
     },
     {
       "id": "dynamic-sine",
+      "native_reference_index": "expected/dynamic-sine-references.json",
       "session_views": {
         "tables": [],
         "plots": [{"chooser": 0, "selected_track": "model A", "track_views": [

@@ -5,6 +5,7 @@
 #include <QStringList>
 
 #include <algorithm>
+#include <map>
 #include <unordered_map>
 #include <utility>
 
@@ -61,7 +62,11 @@ std::optional<QString> stringValue(const Property& value, qsizetype limit)
     return result;
 }
 
-using NameTargets = std::unordered_map<std::string, std::vector<std::size_t>>;
+struct NameTargets
+{
+    std::unordered_map<std::string, std::vector<std::size_t>> byName;
+    std::size_t remainingCandidates = 100000;
+};
 
 bool onlyChildren(const QDomElement& owner, const QString& tag)
 {
@@ -83,7 +88,7 @@ bool onlyChildren(const QDomElement& owner, const QString& tag)
 }
 
 void addReference(
-    TrackerReferenceIndex& result, const NameTargets& names, TrackerReferenceKind kind, std::string path, const QString& name, bool packed)
+    TrackerReferenceIndex& result, NameTargets& names, TrackerReferenceKind kind, std::string path, const QString& name, bool packed)
 {
     TrackerNameReference reference{.kind = kind,
                                    .path = std::move(path),
@@ -94,24 +99,36 @@ void addReference(
     {
         reference.resolution = TrackerReferenceResolution::NoTarget;
     }
-    else if (const auto found = names.find(reference.originalName); found != names.end())
+    else if (const auto found = names.byName.find(reference.originalName); found != names.byName.end())
     {
+        // Entry caps alone permit tracks * owners candidate copies for duplicate names.
+        // Charge the aggregate budget before allocating each list, including panel references.
+        if (found->second.size() > names.remainingCandidates)
+        {
+            throw ProjectError("Too many Tracker reference candidates to index.");
+        }
+        names.remainingCandidates -= found->second.size();
         reference.candidateSourceIndices = found->second;
         reference.resolution = found->second.size() == 1 ? TrackerReferenceResolution::Resolved : TrackerReferenceResolution::Ambiguous;
     }
     result.references.push_back(std::move(reference));
 }
 
-void panelReference(
-    TrackerReferenceIndex& result, const NameTargets& names, const QDomElement& panel, const QString& field, TrackerReferenceKind kind)
+void panelReference(TrackerReferenceIndex& result,
+                    NameTargets& names,
+                    const QDomElement& panel,
+                    const QString& field,
+                    TrackerReferenceKind kind,
+                    const std::string& prefix = {},
+                    bool required = false)
 {
     const auto value = property(panel, field);
-    if (value.element.isNull())
+    if (value.element.isNull() && !required)
     {
         return;
     }
     const auto name = stringValue(value, MAX_NAME_UNITS);
-    const auto path = "/" + field.toStdString();
+    const auto path = prefix + "/" + field.toStdString();
     if (!name)
     {
         result.malformedPaths.push_back(path);
@@ -120,7 +137,7 @@ void panelReference(
     addReference(result, names, kind, path, *name, false);
 }
 
-void viewReferences(TrackerReferenceIndex& result, const NameTargets& names, const QDomElement& panel)
+void viewReferences(TrackerReferenceIndex& result, NameTargets& names, const QDomElement& panel)
 {
     const auto propertyValue = property(panel, "selected_track_views");
     if (propertyValue.element.isNull())
@@ -163,6 +180,227 @@ void viewReferences(TrackerReferenceIndex& result, const NameTargets& names, con
         addReference(result, names, TrackerReferenceKind::TableSelection, path + "/table", pairs[index][1], true);
     }
 }
+
+QDomElement viewObject(const QDomElement& item)
+{
+    const auto object = item.firstChildElement("object");
+    if (item.attribute("type") != "object" || object.isNull() || !object.nextSiblingElement().isNull() ||
+        object.attribute("class").isEmpty() || !onlyChildren(item, "object"))
+    {
+        return {};
+    }
+    return object;
+}
+
+struct SavedViewReader
+{
+    TrackerReferenceIndex& result;
+    NameTargets& names;
+    std::size_t entries = 0;
+
+    using Array = std::map<unsigned, QDomElement>;
+    using Owners = std::vector<std::pair<std::string, QString>>;
+
+    void countEntry()
+    {
+        if (++entries > 10000)
+        {
+            throw ProjectError("Too many nested Tracker view entries to index.");
+        }
+    }
+
+    std::optional<Array> array(const Property& value, const QString& className, const std::string& path, unsigned bound = 10000)
+    {
+        Array children;
+        bool valid = !value.duplicate && value.element.attribute("type") == "array" && value.element.attribute("class") == className &&
+                     onlyChildren(value.element, "property");
+        if (valid)
+        {
+            for (auto child = value.element.firstChildElement("property"); !child.isNull(); child = child.nextSiblingElement("property"))
+            {
+                countEntry();
+                const auto label = child.attribute("name");
+                bool parsed = false;
+                const auto index = label.mid(1, label.size() - 2).toUInt(&parsed);
+                if (!parsed || index >= bound || label != "[" + QString::number(index) + "]" || !children.emplace(index, child).second)
+                {
+                    valid = false;
+                    break;
+                }
+            }
+        }
+        if (!valid)
+        {
+            result.malformedPaths.push_back(path);
+            return std::nullopt;
+        }
+        return children;
+    }
+
+    // All cells must be well-formed strings, but only the first cell is an owner reference.
+    // Preserve column/format text as data, including text identical to another track's name.
+    std::optional<Owners> rows(const Property& value, const std::string& path, bool formats)
+    {
+        const auto rows = array(value, "[[Ljava.lang.String;", path);
+        if (!rows)
+        {
+            return std::nullopt;
+        }
+        Owners owners;
+        if (formats && (rows->empty() || rows->begin()->first != 0 || rows->rbegin()->first != rows->size() - 1))
+        {
+            result.malformedPaths.push_back(path);
+            return std::nullopt;
+        }
+        for (const auto& [rowIndex, row] : *rows)
+        {
+            const auto rowPath = path + "/" + std::to_string(rowIndex);
+            const auto columns = array({.element = row}, "[Ljava.lang.String;", rowPath);
+            if (!columns)
+            {
+                return std::nullopt;
+            }
+            if (columns->empty() || columns->begin()->first != 0 || columns->rbegin()->first != columns->size() - 1 ||
+                (formats && columns->size() != 3))
+            {
+                result.malformedPaths.push_back(rowPath);
+                return std::nullopt;
+            }
+            for (const auto& [columnIndex, column] : *columns)
+            {
+                const auto text = stringValue({.element = column}, MAX_NAME_UNITS);
+                if (!text)
+                {
+                    result.malformedPaths.push_back(rowPath + "/" + std::to_string(columnIndex));
+                    return std::nullopt;
+                }
+                if (columnIndex == 0)
+                {
+                    if (formats && !owners.empty() && owners.front().second != *text)
+                    {
+                        result.malformedPaths.push_back(rowPath + "/0");
+                        return std::nullopt;
+                    }
+                    owners.emplace_back(rowPath + "/0", *text);
+                }
+            }
+        }
+        return owners;
+    }
+
+    void table(const QDomElement& object, const std::string& path)
+    {
+        panelReference(result, names, object, "selected_track", TrackerReferenceKind::TableSelection, path);
+        const auto columns = property(object, "track_columns");
+        if (!columns.element.isNull())
+        {
+            if (const auto owners = rows(columns, path + "/track_columns", false))
+            {
+                for (const auto& [ownerPath, name] : *owners)
+                {
+                    addReference(result, names, TrackerReferenceKind::TableColumnOwner, ownerPath, name, false);
+                }
+            }
+        }
+        const auto formats = property(object, "column_formats");
+        if (formats.element.isNull())
+        {
+            return;
+        }
+        const auto groups = array(formats, "[[[Ljava.lang.String;", path + "/column_formats");
+        if (!groups)
+        {
+            return;
+        }
+        if (!groups->empty() && (groups->begin()->first != 0 || groups->rbegin()->first != groups->size() - 1))
+        {
+            result.malformedPaths.push_back(path + "/column_formats");
+            return;
+        }
+        for (const auto& [groupIndex, group] : *groups)
+        {
+            if (const auto owners = rows({.element = group}, path + "/column_formats/" + std::to_string(groupIndex), true))
+            {
+                for (const auto& [ownerPath, name] : *owners)
+                {
+                    addReference(result, names, TrackerReferenceKind::TableFormatOwner, ownerPath, name, false);
+                }
+            }
+        }
+    }
+
+    void plot(const QDomElement& object, const std::string& path)
+    {
+        panelReference(result, names, object, "selected_track", TrackerReferenceKind::PlotSelection, path);
+        const auto views = property(object, "track_views");
+        if (views.element.isNull())
+        {
+            return; // Legacy plotN properties use the selected track, not separate track owners.
+        }
+        const auto ownerPath = path + "/track_views";
+        if (views.duplicate || views.element.attribute("type") != "collection" ||
+            views.element.attribute("class") != "java.util.ArrayList" || !onlyChildren(views.element, "property"))
+        {
+            result.malformedPaths.push_back(ownerPath);
+            return;
+        }
+        std::size_t ordinal = 0;
+        for (auto item = views.element.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"), ++ordinal)
+        {
+            countEntry();
+            const auto child = viewObject(item);
+            const auto childPath = ownerPath + "/" + std::to_string(ordinal);
+            if (child.attribute("class") != "org.opensourcephysics.cabrillo.tracker.PlotTrackView")
+            {
+                result.malformedPaths.push_back(childPath);
+                continue;
+            }
+            panelReference(result, names, child, "track", TrackerReferenceKind::PlotOwner, childPath, true);
+        }
+    }
+
+    void read(const QDomElement& panel)
+    {
+        const auto views = property(panel, "views");
+        if (views.element.isNull())
+        {
+            return;
+        }
+        const auto choosers = array(views, "[[Lorg.opensourcephysics.cabrillo.tracker.TView;", "/views", 4);
+        if (!choosers)
+        {
+            return;
+        }
+        for (const auto& [chooserIndex, chooser] : *choosers)
+        {
+            const auto path = "/views/" + std::to_string(chooserIndex);
+            const auto viewSlots = array({.element = chooser}, "[Lorg.opensourcephysics.cabrillo.tracker.TView;", path, 4);
+            if (!viewSlots)
+            {
+                continue;
+            }
+            for (const auto& [slot, item] : *viewSlots)
+            {
+                const auto childPath = path + "/" + std::to_string(slot);
+                const auto object = viewObject(item);
+                const auto className = object.attribute("class");
+                if (object.isNull() || (className == "org.opensourcephysics.cabrillo.tracker.TableTView" && slot != 1) ||
+                    (className == "org.opensourcephysics.cabrillo.tracker.PlotTView" && slot != 0))
+                {
+                    result.malformedPaths.push_back(childPath);
+                }
+                else if (className == "org.opensourcephysics.cabrillo.tracker.TableTView")
+                {
+                    table(object, childPath);
+                }
+                else if (className == "org.opensourcephysics.cabrillo.tracker.PlotTView")
+                {
+                    plot(object, childPath);
+                }
+            }
+        }
+    }
+};
 
 } // namespace
 
@@ -213,7 +451,7 @@ TrackerReferenceIndex indexTrackerReferences(const TrackerSource& source, const 
             else if (const auto name = stringValue(property(object, "name"), MAX_NAME_UNITS))
             {
                 track.originalName = name->toStdString();
-                names[*track.originalName].push_back(index);
+                names.byName[*track.originalName].push_back(index);
             }
             else
             {
@@ -229,6 +467,7 @@ TrackerReferenceIndex indexTrackerReferences(const TrackerSource& source, const 
     panelReference(result, names, panel, "selectedtrack", TrackerReferenceKind::SelectedTrack);
     panelReference(result, names, panel, "referenceframe", TrackerReferenceKind::ReferenceFrame);
     viewReferences(result, names, panel);
+    SavedViewReader{.result = result, .names = names}.read(panel);
     return result;
 }
 

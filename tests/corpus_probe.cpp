@@ -35,7 +35,7 @@ QJsonObject referenceSnapshot(const motrack::ImportedTrackerProject& imported)
                                   {"native_id", track.nativeId ? QJsonValue(QString::number(*track.nativeId)) : QJsonValue::Null}});
     }
     QJsonArray references;
-    const QStringList kinds{"selected_track", "reference_frame", "plot", "table"};
+    const QStringList kinds{"selected_track", "reference_frame", "plot", "table", "table_column_owner", "table_format_owner", "plot_owner"};
     const QStringList states{"resolved", "missing", "ambiguous", "no_target"};
     for (const auto& reference : index.references)
     {
