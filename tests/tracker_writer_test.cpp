@@ -346,6 +346,35 @@ TEST(TrackerWriter, ExportsEmptyVectorsAndTheirFirstNewSample)
     EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(imported.project, imported.source)), motrack::ProjectError);
 }
 
+TEST(TrackerWriter, RejectsVectorSumEditsEvenAfterAllMemberSamplesAreRemoved)
+{
+    const auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/vector-sum.trk");
+    auto imported = motrack::parseTrackerProject(xml);
+    EXPECT_EQ(motrack::renderTrackerProject(imported.project, imported.source), xml); // Exact original preservation remains possible.
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("existing.trk");
+    motrack::writeTrackerProject(output, imported.project, imported.source);
+    motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+    motrack::TrackEdits edits;
+    for (std::size_t index = 0; index < document.project.vectors.size(); ++index)
+    {
+        while (!document.project.vectors[index].samples.empty())
+        {
+            ASSERT_TRUE(edits.removeVectorSample(document.project, index, document.project.vectors[index].samples.back().frame));
+        }
+    }
+    const auto native = temporary.filePath("empty-members.motrack");
+    motrack::writeWorkspaceDocument(native, document);
+    const auto reopened = motrack::readWorkspaceDocument(native);
+    if (!reopened.trackerSource)
+    {
+        FAIL() << "Expected preserved vector-sum source";
+    }
+    EXPECT_EQ(reopened.trackerSource->xml, xml);
+    EXPECT_THROW(motrack::writeTrackerProject(output, reopened.project, *reopened.trackerSource), motrack::ProjectError);
+    EXPECT_EQ(readBytes(output), xml);
+}
+
 TEST(TrackerWriter, RejectsLossyVectorReconstructionAfterNativeReopen)
 {
     const auto imported =

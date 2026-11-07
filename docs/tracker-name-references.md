@@ -88,6 +88,9 @@ the Java-verified selected mass, customized table owner and model plot owner. Th
 vector-sum corpus cases additionally require the two serialized member names to resolve to source nodes
 1/2 and retain their native IDs. The vector-sum source-index check does not negate the separate pinned
 Java reload failure or permit export; it describes the original XML, not successfully loaded membership.
+The internal writer rejects edits to any project containing a vector sum, even after all independent
+member samples are removed. Native saving still retains the exact original source; an unchanged
+standard-file copy is also preserved byte-for-byte and is not advertised as repaired Tracker behavior.
 
 This is not a complete dependency graph or an export eligibility check. Dataset indices, plot guests,
 attachments and model boosters are not indexed yet; no malformed paths does not mean a rename is safe.
