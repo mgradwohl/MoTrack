@@ -2,6 +2,7 @@
 name: Feature or compatibility request
 about: Describe a missing workflow or Tracker compatibility gap
 title: ''
+labels: enhancement
 ---
 
 ## Workflow and expected behavior
@@ -19,3 +20,10 @@ title: ''
 ## Related work
 
 <!-- Link existing issues/PRs. Separate required behavior from possible implementation ideas. -->
+
+## Triage and implementation order
+
+<!-- Link the original Tracker request when applicable and consult docs/upstream-issues.md.
+     State required baseline, partial acceptance, deferred proposal, or outside scope, with rationale,
+     prerequisites and full-port requirement IDs/phase. A new proposal does not automatically expand
+     the frozen baseline; do not present an unapproved extension as a committed feature. -->

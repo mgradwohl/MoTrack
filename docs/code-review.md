@@ -61,6 +61,10 @@ to MoTrack. It is the only review checklist; agent entry points link here.
   hide untested production targets. Investigate real coverage mismatches rather than suppressing them.
 - Update the relevant canonical guide and translations. PRs state what changed, why, validation results,
   platform coverage, and remaining compatibility limits.
+- Consult [Tracker issue triage](upstream-issues.md) for the affected workflow. Link the native issue and
+  upstream report, distinguish reproduced failures from preventive coverage, and require regression or
+  investigated-disposition evidence before closing. A historical upstream fix still needs native coverage;
+  deferred feature proposals must not become hidden parity requirements.
 
 ## Dependencies, automation, and release changes
 
