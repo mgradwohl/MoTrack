@@ -382,6 +382,58 @@ class CorpusTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             corpus.validate_session(case, invalid, manifest)
 
+    def test_known_sum_defect_is_explicit_and_never_roundtrip_acceptance(self):
+        manifest = corpus.load_manifest()
+        case = next(case for case in manifest["cases"] if case["id"] == "vector-sum")
+        expected = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
+        tracks = []
+        for identity in case["session_tracks"]:
+            vector = next((v for v in expected["vectors"] if v["name"] == identity["name"]), None)
+            tracks.append({**identity, "samples": [], "vector_samples": copy.deepcopy(vector["samples"]) if vector else []})
+        before = {"vector_sums": [{"name": "resultant", "members": [], "samples": []}], "tracks": tracks,
+                  "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                  **corpus.session_units(case, expected)}
+        defect = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                  "view_preparation": "visit_custom_tables_restore_selection",
+                  "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
+        saved = self.root / "known-defect.trk"
+        xml = ('<object><property name="tracks"><property><object class="org.opensourcephysics.cabrillo.tracker.VectorSum">'
+               '<property name="vectors" type="collection" class="java.util.ArrayList"/></object></property></property></object>')
+        saved.write_text(xml, encoding="utf-8")
+        report = corpus.validate_known_session_issue(case, defect, manifest, saved)
+        self.assertFalse(report["compatibility_accepted"])
+        self.assertEqual(report["verification_level"], "tracker_session_known_issue")
+        self.assertEqual(report["expected_vector_sums"], case["session_sums"])
+        with self.assertRaises(ValueError):
+            corpus.validate_session(case, defect, manifest)
+        changes = [(["vector_sums", 0, "members"], ["vector A"]),
+                   (["vector_sums", 0, "samples"], case["session_sums"][0]["samples"]),
+                   (["tracks", 3, "samples"], [{"frame": 0}]),
+                   (["tracks", 3, "vector_samples"], [{"frame": 0}]),
+                   (["tracks", 1, "vector_samples", 0, "components"], [0.0, 0.0]),
+                   (["length_unit"], "wrong")]
+        for path, value in changes:
+            for stages in [["before", "after_save", "after"], ["after_save"], ["after"]]:
+                invalid = copy.deepcopy(defect)
+                for stage in stages:
+                    target = invalid[stage]
+                    for key in path[:-1]:
+                        target = target[key]
+                    target[path[-1]] = value
+                with self.subTest(path=path, stages=stages), self.assertRaises(ValueError):
+                    corpus.validate_known_session_issue(case, invalid, manifest, saved)
+        for invalid_xml in [xml.replace('name="vectors"', 'name="other"'),
+                            xml.replace('class="java.util.ArrayList"/>', 'class="java.util.ArrayList">'
+                                        '<property name="item" type="string">vector A</property></property>'),
+                            xml.replace('type="collection"', 'type="array"'),
+                            xml.replace('class="java.util.ArrayList"/>', 'class="java.util.ArrayList">null</property>')]:
+            saved.write_text(invalid_xml, encoding="utf-8")
+            with self.subTest(xml=invalid_xml), self.assertRaises(ValueError):
+                corpus.validate_known_session_issue(case, defect, manifest, saved)
+        for invalid_case in [{**case, "id": "other"}, {**case, "session_known_issue": "other"}]:
+            with self.assertRaises(ValueError):
+                corpus.validate_known_session_issue(invalid_case, defect, manifest, saved)
+
     def test_session_checks_reject_non_linux_hosts(self):
         with patch.object(corpus.sys, "platform", "win32"), self.assertRaisesRegex(ValueError, "Linux"):
             corpus.check_sessions({}, self.root, "java")

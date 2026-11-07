@@ -16,6 +16,7 @@ import sys
 import tempfile
 import urllib.request
 import xml.dom.minidom as minidom
+import xml.etree.ElementTree as ET
 import zipfile
 
 
@@ -257,6 +258,35 @@ def validate_session(case, report, manifest, expected=None, key_frames=None, cal
         actual = [track["key_frames"] for track in before["tracks"]
                   if track["class"] == "org.opensourcephysics.cabrillo.tracker.PointMass"]
         compare(key_frames, actual, tolerance, case["id"] + ".key_frames")
+
+
+def validate_known_session_issue(case, report, manifest, saved):
+    """Reproduce one exact upstream defect; never count it as round-trip acceptance."""
+    issue = "tracker-6.3.5-vector-sum-members"
+    if (case["id"] != "vector-sum" or case.get("session_known_issue") != issue
+            or manifest["reference"]["version"] != "6.3.5"):
+        raise ValueError("Unknown Tracker session defect")
+    observed = [{"name": "resultant", "members": [], "samples": []}]
+    # All unaffected tracks, units, calibration and three-stage comparisons still apply.
+    # The ordinary validator retains the independent, correct sums and rejects this report.
+    validate_session({**case, "session_sums": observed}, report, manifest)
+    for stage in ["before", "after_save", "after"]:
+        sums = [track for track in report[stage]["tracks"]
+                if track["class"] == "org.opensourcephysics.cabrillo.tracker.VectorSum"]
+        if len(sums) != 1 or sums[0]["samples"] != [] or sums[0]["vector_samples"] != []:
+            raise ValueError("Known vector-sum defect changed: unexpected step data")
+    if saved.stat().st_size > MAX_XML_BYTES:
+        raise ValueError("Known-defect resave exceeds XML limit")
+    sums = ET.parse(saved).getroot().findall(
+        "property[@name='tracks']/property/object[@class='org.opensourcephysics.cabrillo.tracker.VectorSum']")
+    members = sums[0].findall("property[@name='vectors']") if len(sums) == 1 else []
+    if (len(members) != 1 or members[0].get("type") != "collection"
+            or members[0].get("class") != "java.util.ArrayList"
+            or len(members[0]) != 0 or (members[0].text or "").strip()):
+        raise ValueError("Known vector-sum defect changed: expected lost saved member names")
+    return {"verification_level": "tracker_session_known_issue", "compatibility_accepted": False,
+            "known_issue": issue, "expected_vector_sums": copy.deepcopy(case["session_sums"]),
+            "tracker_session": report}
 
 
 @contextmanager
@@ -752,6 +782,8 @@ def check_sessions(manifest, cache, java, probe=None):
              str(ROOT / "tools/reference/TrackerReference.java"),
              str(ROOT / "tools/reference/TrackerSessionReference.java"), str(ROOT / "tools/reference/VectorFixture.java")])
         for case, mode in cases:
+            if probe and case.get("session_known_issue"):
+                raise ValueError("Known Tracker defects cannot be used as native export acceptance")
             output = root / (case["id"] + ("-" + mode if probe else ""))
             java_home = output / "java-home"
             java_home.mkdir(parents=True)
@@ -830,8 +862,12 @@ def check_sessions(manifest, cache, java, probe=None):
                       "after": stages["reopen"]["loaded"]}
             keys = {"marks": [[0, 3], [7]], "empty-marks": [[], [0]], "first-mark": [[4], [0]]}.get(mode)
             calibration = keyed_calibration_expected(mode == "keyed-calibration") if case["id"] == "keyed-calibration" else None
+            known_report = None
             try:
-                validate_session(case, report, manifest, expected, keys, calibration)
+                if case.get("session_known_issue"):
+                    known_report = validate_known_session_issue(case, report, manifest, output / "tracker-resaved.trk")
+                else:
+                    validate_session(case, report, manifest, expected, keys, calibration)
             except ValueError as error:
                 raise ValueError(f"{error}\nTracker session snapshots (bounded): {json.dumps(report)[:24000]}") from error
             if probe:
@@ -847,6 +883,9 @@ def check_sessions(manifest, cache, java, probe=None):
                     print(f"{case['id']}/{mode}: passed (MoTrack rejected unsafe export; actual Tracker snapping confirmed; resave/reimport)")
                 else:
                     print(f"{case['id']}/{mode}: passed (MoTrack edit/native reopen/TRK export; Tracker load/save/reopen; native reimport)")
+            elif known_report is not None:
+                saved_report, suffix = known_report, "-known-issue.json"
+                print(f"{case['id']}: KNOWN TRACKER DEFECT reproduced (members and samples lost; round trip NOT accepted)")
             else:
                 saved_report, suffix = report, "-session.json"
                 print(f"{case['id']}: passed (Tracker application load/save/reopen; MoTrack export untested)")

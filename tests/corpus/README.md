@@ -58,7 +58,7 @@ are likewise pinned and reproducible; expected values come only from the Java re
 | Independent vectors (synthetic) | 6.3.5 | Two independent vectors, sparse frames, a zero vector, nonuniform scale; actual Java session resave | Track colors/footprints and coordinate axes |
 | Keyed calibration (synthetic) | 6.3.5 | Origin, rotation and nonuniform scale vary at frames 0/4/9; marks before and at each transition; import and Java session resave | Coordinate axes and display settings |
 | Center of mass (synthetic) | 6.3.5 | Two unequal point masses at sparse frames; independently expected constituent names, total mass and weighted image/world positions in the Java session | Native center-of-mass editing/evaluation and moving reference frames |
-| Vector sum (synthetic) | 6.3.5 | Two named vectors, three independently expected sum samples including zero, two missing-member frames, calibrated components and deliberately stale cached sum geometry | Native dependent-vector evaluation/editing |
+| Vector sum (synthetic) | 6.3.5 | Two named vectors and independent sums including zero/missing frames expose a pinned 6.3.5 member-initialization defect; explicitly classified failure, not accepted compatibility | Native dependent-vector evaluation/editing and safe standard-file handling |
 | Dynamic sine | 5.1.2 | Clip and calibration; dynamic particle is reported as unsupported | Model parameters, functions and plot settings |
 
 The probe reads the `.trk` member selected by the manifest from BallToss's `.trz`. It does not exercise
@@ -305,12 +305,21 @@ byte-for-byte in two isolated Java processes; no native output supplies expected
 Independent expected image-space sums are (10,4), (0,0), (-2,4) at frames 0/2/4. With nonuniform scales
 (2,4), zero rotation and image y increasing downward, world components are (5,-1), (0,0), (-1,-1).
 The saved tails are (240,260), (280,280), (320,300); no sum sample may exist at frames 1 or 3.
-The session runner waits for named member resolution and the correct presence/absence of steps,
-then checks member names, tails, components and frame identities before save, after save and after
-fresh-process reopen. Its independent expectation rejects stale cached zeros, missing/duplicate
-members, wrong units/sign, a lost zero vector and an incorrectly synthesized sample at a gap.
+The normal application loader and draw path are exercised before snapshotting. **Tracker 6.3.5 fails
+this case:** member names remain pending, the live sum has no members or steps, and its own save writes
+an empty member collection. The pinned binary's `VectorSum.Loader` does not reset the inherited
+`initialized` flag (unlike `CenterOfMass.Loader`), so normal initialization returns immediately.
+The first application run timed out waiting for members; an explicit diagnostic confirmed that state.
 
-This is a Java application reference, not native vector-sum editing or export acceptance. Duplicate
+The correct independent expectations remain in `session_sums`; the ordinary compatibility validator
+rejects the observed result. A separate, version/case-specific known-issue check requires exactly empty
+live membership and step data at all three stages and an empty member collection in the actual resaved
+XML. All unaffected tracks, units and coordinates must still match. If the defect changes or is fixed,
+this check fails for investigation. Reports use `tracker_session_known_issue` with
+`compatibility_accepted: false`; CI prints **KNOWN TRACKER DEFECT**, never a passed round trip. This
+case cannot serve as native export acceptance and the harness does not repair the Java objects.
+
+This establishes a compatibility blocker, not native vector-sum editing or export acceptance. Duplicate
 member names, nested sums, attachment/snapping relationships and edited dependencies remain. Run
 `VectorSumFixture.java` with the same bounded Java settings as the other fixture generators and a
 fresh temporary output path; do not overwrite a pinned fixture or bless changed expectations.

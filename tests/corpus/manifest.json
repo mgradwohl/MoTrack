@@ -186,6 +186,7 @@
     },
     {
       "id": "vector-sum",
+      "session_known_issue": "tracker-6.3.5-vector-sum-members",
       "local_file": "fixtures/vector-sum.trk",
       "file": "vector-sum.trk",
       "bytes": 11766,

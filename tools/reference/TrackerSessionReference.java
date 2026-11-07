@@ -113,22 +113,9 @@ public final class TrackerSessionReference {
             // Named constituents are resolved by CenterOfMass's normal initialize/draw path.
             for (TTrack track : panel.getTracks()) if (track instanceof CenterOfMass center
                     && center.getMasses().length == 0) { WAITING.set("center members: " + center.getName()); return; }
-            for (TTrack track : panel.getTracks()) if (track instanceof VectorSum sum) {
-                Vector[] members = sum.getVectors();
-                if (members.length == 0) { WAITING.set("vector-sum members: " + sum.getName()); return; }
-                if (members.length > 10000) throw new IllegalStateException("Vector member limit exceeded");
-                for (int step = 0; step < clip.getStepCount(); step++) {
-                    int number = clip.stepToFrame(step);
-                    boolean complete = true;
-                    for (Vector member : members) complete &= member.getStep(number) != null;
-                    if (complete != (sum.getStep(number) != null)) {
-                        WAITING.set("vector-sum steps: " + sum.getName() + ", frame=" + number
-                            + ", complete=" + complete + ", members=" + Arrays.toString(Arrays.stream(members).map(TTrack::getName).toArray())
-                            + ", sum step=" + (sum.getStep(number) != null));
-                        return;
-                    }
-                }
-            }
+            // The normal loader and draw path have run. Snapshot vector sums as they are:
+            // Tracker 6.3.5 leaves pending names uninitialized. Waiting for nonempty members
+            // would hide this persistent load/save defect behind a generic timeout.
             for (TTrack track : panel.getTracks()) if (track instanceof ParticleModel model) {
                 for (int step = 0; step < clip.getStepCount(); step++) {
                     int number = clip.stepToFrame(step);

@@ -14,8 +14,10 @@ reference now records the protractor table's column/format owner and ordered col
 plot's owner, axis variables and linked-axis flag. These independent original-file expectations are
 compared with serializers of live loaded views at all three stages. Nonempty dataset indices, plot
 guests, attachments, dynamic systems and edited dependency cases remain. The vector-sum reference
-adds named members, independently expected image/world components and missing-member frames; stale
-zero cached components must be recomputed by the application. Native dependent-track editing remains.
+retains named members, independently expected image/world components and missing-member frames, but
+exposes a pinned 6.3.5 defect: the loader leaves pending names uninitialized, so the live sum has no members
+or samples and resave loses the names. The suite classifies this exact failure separately; it is not round-trip
+acceptance. Native dependent-track editing and a safe standard-file strategy remain.
 
 
 The saved-view baseline visits each customized table through Tracker's normal selection/refresh path,
@@ -50,7 +52,7 @@ complete inventory of every name/reference field.
 | [TrackPlottingPanel](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/TrackPlottingPanel.java) | `guests` | Array of comparison-track names on each plot. An empty array is observed in the current plot case; nonempty guest relationships still need application cases. |
 | [TTrack](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/TTrack.java) | `attachments` | Names in attachment slots, including empty slots, resolve to track objects after load. |
 | [CenterOfMass](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/CenterOfMass.java) | `masses` | Collection of constituent point-mass names. The audited loader scans matching `PointMass` drawables and can add multiple same-named masses; duplicate-name behavior needs application cases. |
-| [VectorSum](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/VectorSum.java) | `vectors` | Collection of constituent vector names resolved with `getTrackByName(Vector.class, name)`. The reference case checks two unique member names; duplicates and nested sums need separate cases. |
+| [VectorSum](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/VectorSum.java) | `vectors` | Collection of constituent vector names resolved with `getTrackByName(Vector.class, name)`. The reference case has two unique member names, but the pinned loader does not reset `initialized`; live resolution never runs and resave loses the names. This case is a known compatibility failure. Duplicates and nested sums need separate cases. |
 | [DynamicSystem](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/DynamicSystem.java) | `particles` | Array of component particle names. |
 | [DynamicParticle](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/DynamicParticle.java) | `booster` | Name of a point mass resolved through `getTrackByName(PointMass.class, boosterName)` during normal drawing. Its model-initialization behavior needs an actual-application case. |
 
