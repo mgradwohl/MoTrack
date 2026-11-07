@@ -34,8 +34,8 @@ scope decisions. Record deliberate behavior changes, including corrections to re
 
 ## Current implementation and evidence
 
-Snapshot: **2026-11-06**, merged `main` at
-[`0c2dd2a`](https://github.com/mgradwohl/MoTrack/commit/0c2dd2a5f4c03aa7c70c123fc924ac2364be8bde).
+Snapshot: **2026-11-07**, merged `main` at
+[`0342503`](https://github.com/mgradwohl/MoTrack/commit/0342503c9ef37366059229ba7e4ad287a5a123d8).
 [PR #34](https://github.com/mgradwohl/MoTrack/pull/34) added independent vector editing,
 [PR #36](https://github.com/mgradwohl/MoTrack/pull/36) the reference corpus,
 [PR #38](https://github.com/mgradwohl/MoTrack/pull/38) actual Java application resave checks,
@@ -60,10 +60,11 @@ vector-reconstruction safeguards,
 [PR #56](https://github.com/mgradwohl/MoTrack/pull/56) live selected-track/plot/table reference checks, and
 [PR #57](https://github.com/mgradwohl/MoTrack/pull/57) the named center-of-mass reference baseline, and
 [PR #58](https://github.com/mgradwohl/MoTrack/pull/58) the partial native source-reference index, and
-[PR #59](https://github.com/mgradwohl/MoTrack/pull/59) visited-table and saved-plot reference checks. Windows,
+[PR #59](https://github.com/mgradwohl/MoTrack/pull/59) visited-table and saved-plot reference checks, and
+[PR #60](https://github.com/mgradwohl/MoTrack/pull/60) bounded native saved-view owner indexing. Windows,
 macOS, Linux, setup, and coverage checks passed in
-[CI run 42329842392](https://github.com/mgradwohl/MoTrack/actions/runs/42329842392): combined production
-line coverage **94.07% (5158/5483)**. The keyed-calibration and mass-unit writer PRs also passed actual
+[CI run 42330998447](https://github.com/mgradwohl/MoTrack/actions/runs/42330998447): combined production
+line coverage **94.28% (5359/5684)**. The keyed-calibration and mass-unit writer PRs also passed actual
 Tracker edited-file load/save/reopen and native reimport before merging. This verifies the implemented slice, not full Tracker equivalence.
 
 Implemented and tested workflows include local movie/image opening, playback and indexed stepping,
@@ -133,7 +134,7 @@ and platform evidence before it can be marked complete.
 | R04 | Multiple experiment tabs, independent undo/dirty state, tab/project Save As, cross-tab import and reusable views | Partial foundation: document sessions own independent data/history/save checkpoints, and native storage preserves unopened archive tabs. The desktop still has one active experiment; multi-tab controllers/UI, cross-tab import and reusable views remain. | 2–4 |
 | R05 | Movies, stills, image sequences and zipped sequences; accurate clip/time/frame controls and media properties | Partial: local movies/images, clip trim/stride, timestamp indexing, orientation, cache, and playback exist. Audit all baseline formats, rates, sequence operations, and properties controls. | 1, 4, 6 |
 | R06 | Complete point-mass editing and appearance: selection, dragging/nudging, numeric positions, multiselect, locks, labels, trails, paths, and vector overlays | Partial: manual marking/replacement, repeat, rename/delete, mass, and undo exist. Finish manipulation, appearance, path length, and selection behavior. | 4–5 |
-| R07 | Independent vectors, linked vectors, sums, their data, editing, and persistence | Partial: independent vectors import/display/edit/undo/native-save. Internal sample export has reference cases; links, sums, analysis and desktop standard saving remain. | 3–5 |
+| R07 | Independent vectors, linked vectors, sums, their data, editing, and persistence | Partial: independent vectors import/display/edit/undo/native-save. Internal sample export has reference cases. A Java-authored vector-sum reference checks named members, recomputed image/world components, a zero result and missing-member frames. Native links/sums, analysis and desktop standard saving remain. | 3–5 |
 | R08 | Center-of-mass tracks, constituents, dependent updates, and moving reference frames | Native implementation missing. A Java-authored center-of-mass reference checks named constituents, total mass and independent weighted positions; native dependency evaluation, editing and moving reference frames remain. | 2, 5 |
 | R09 | Fixed or varying calibration, axes, calibration sticks/points, offset origins, attachments, coordinate locks, and L/M/T/angle units | Partial: imported calibration keys, basic distance calibration and axes exist. Internal fixed-calibration and length/mass-unit export have reference cases. A Java-authored varying-calibration case checks added/edited keys and world positions at boundaries. Finish partly fixed/moving calibration, key deletion, varying vectors, time-unit export, tool tracks, units UI/defaults, attachments and reference frames. | 3–5 |
 | R10 | Persistent tape measures, protractors, circle fitting, attachments, and their changing measurements | Partial: temporary distance/angle tools only; these are not persisted Tracker track equivalents. | 5 |
@@ -254,7 +255,7 @@ expression evaluation precedes models and custom fits; complete rendering preced
 Localization, accessibility, performance checks and serialization accompany every phase, not just phase 12.
 
 Phase 1 now has a [versioned seed corpus and reference harness](../tests/corpus/README.md): three real
-upstream experiments plus Java-authored synthetic vector, keyed-calibration and center-of-mass fixtures, checksum-pinned Tracker 6.3.5,
+upstream experiments plus Java-authored synthetic vector, keyed-calibration, center-of-mass and vector-sum fixtures, checksum-pinned Tracker 6.3.5,
 independent Java XML/coordinate snapshots and a
 native importer comparison. An additional Linux virtual-display probe opens the two experiments without
 media plus the synthetic fixtures through Tracker's normal application loader, saves them in Java, then reopens and compares the

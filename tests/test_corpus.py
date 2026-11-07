@@ -11,6 +11,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 import warnings
+import xml.etree.ElementTree as ET
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
@@ -329,6 +330,55 @@ class CorpusTests(unittest.TestCase):
         invalid = copy.deepcopy(valid)
         for state in ["before", "after_save", "after"]:
             del invalid[state]["centers_of_mass"]
+        with self.assertRaises(ValueError):
+            corpus.validate_session(case, invalid, manifest)
+
+    def test_vector_sum_requires_members_recomputed_components_and_missing_frames(self):
+        manifest = corpus.load_manifest()
+        case = next(case for case in manifest["cases"] if case["id"] == "vector-sum")
+        corpus.verify_file(corpus.local_fixture_path(case), case)
+        root = ET.parse(corpus.local_fixture_path(case)).getroot()
+        cached = root.find("property[@name='tracks']/property/object[@class='org.opensourcephysics.cabrillo.tracker.VectorSum']")
+        self.assertIsNotNone(cached)
+        cached_frames = cached.findall("property[@name='framedata']/property/object")
+        self.assertEqual(len(cached_frames), 3)
+        for frame in cached_frames:
+            self.assertEqual(float(frame.find("property[@name='xcomponent']").text), 0.0)
+            self.assertEqual(float(frame.find("property[@name='ycomponent']").text), 0.0)
+        expected = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
+        tracks = []
+        for identity in case["session_tracks"]:
+            vector = next((vector for vector in expected["vectors"] if vector["name"] == identity["name"]), None)
+            tracks.append({**identity, "samples": [], "vector_samples": copy.deepcopy(vector["samples"]) if vector else []})
+        before = {"vector_sums": copy.deepcopy(case["session_sums"]), "tracks": tracks,
+                  "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                  **corpus.session_units(case, expected)}
+        valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                 "view_preparation": "visit_custom_tables_restore_selection",
+                 "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
+        corpus.validate_session(case, valid, manifest)
+        changes = [(["name"], "other sum"), (["members"], ["vector A"]),
+                   (["members"], ["vector A", "vector A"]), (["members"], ["vector A", "missing"]),
+                   (["samples"], []), (["samples", 0, "tail"], [0.0, 0.0]),
+                   (["samples", 0, "components"], [0.0, 0.0]),
+                   (["samples", 0, "world_components"], [5.0, 1.0]),
+                   (["samples", 1, "components"], [1.0, 0.0]),
+                   (["samples", 2, "frame"], 3),
+                   (["samples"], case["session_sums"][0]["samples"] + [
+                       {"frame": 1, "tail": [260.0, 270.0], "components": [5.0, 6.0], "world_components": [2.5, -1.5]}])]
+        for path, value in changes:
+            for states in [["before", "after_save", "after"], ["after_save"], ["after"]]:
+                invalid = copy.deepcopy(valid)
+                for state in states:
+                    target = invalid[state]["vector_sums"][0]
+                    for key in path[:-1]:
+                        target = target[key]
+                    target[path[-1]] = value
+                with self.subTest(path=path, states=states), self.assertRaises(ValueError):
+                    corpus.validate_session(case, invalid, manifest)
+        invalid = copy.deepcopy(valid)
+        for state in ["before", "after_save", "after"]:
+            del invalid[state]["vector_sums"]
         with self.assertRaises(ValueError):
             corpus.validate_session(case, invalid, manifest)
 

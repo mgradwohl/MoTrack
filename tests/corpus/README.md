@@ -58,6 +58,7 @@ are likewise pinned and reproducible; expected values come only from the Java re
 | Independent vectors (synthetic) | 6.3.5 | Two independent vectors, sparse frames, a zero vector, nonuniform scale; actual Java session resave | Track colors/footprints and coordinate axes |
 | Keyed calibration (synthetic) | 6.3.5 | Origin, rotation and nonuniform scale vary at frames 0/4/9; marks before and at each transition; import and Java session resave | Coordinate axes and display settings |
 | Center of mass (synthetic) | 6.3.5 | Two unequal point masses at sparse frames; independently expected constituent names, total mass and weighted image/world positions in the Java session | Native center-of-mass editing/evaluation and moving reference frames |
+| Vector sum (synthetic) | 6.3.5 | Two named vectors, three independently expected sum samples including zero, two missing-member frames, calibrated components and deliberately stale cached sum geometry | Native dependent-vector evaluation/editing |
 | Dynamic sine | 5.1.2 | Clip and calibration; dynamic particle is reported as unsupported | Model parameters, functions and plot settings |
 
 The probe reads the `.trk` member selected by the manifest from BallToss's `.trz`. It does not exercise
@@ -282,7 +283,7 @@ expectations were authored independently of the native index output. They requir
 and its plot/table references to target source node 3; axes and the unsupported protractor retain
 source identities with no native editable ID. Description text is not treated as a relationship.
 
-This check covers the current partial, read-only index, not standard rename export, nested view
+This check covers the current partial, read-only index, not standard rename export, full view
 settings, attachments or dependent constituents. The runner compares exact paths, names, states and
 target lists; it rejects consistently wrong source identities and does not regenerate this expected
 file with `reference --record`.
@@ -291,3 +292,25 @@ The native read-only reference-index oracle additionally checks nested protracto
 column and format owners, plus the dynamic-sine plot selection and owner. Expected source ordinals
 are transcribed from pinned original files, including unsupported source nodes with no native ID.
 This does not enable rename export or imply the remaining dependency graph is complete.
+
+## Vector-sum reference
+
+`vector-sum.trk` is authored by [VectorSumFixture.java](../../tools/reference/VectorSumFixture.java)
+using the pinned Java APIs, OSP XML controls and Vector FrameData serializer. Two independent vectors
+have overlapping marks at frames 0, 2 and 4; only one member is marked at frames 1 and 3. The sum's
+cached components are deliberately zero, so an application that fails to resolve its members and
+recompute its data must fail even if all three snapshots agree. Fixture generation was reproduced
+byte-for-byte in two isolated Java processes; no native output supplies expected values.
+
+Independent expected image-space sums are (10,4), (0,0), (-2,4) at frames 0/2/4. With nonuniform scales
+(2,4), zero rotation and image y increasing downward, world components are (5,-1), (0,0), (-1,-1).
+The saved tails are (240,260), (280,280), (320,300); no sum sample may exist at frames 1 or 3.
+The session runner waits for named member resolution and the correct presence/absence of steps,
+then checks member names, tails, components and frame identities before save, after save and after
+fresh-process reopen. Its independent expectation rejects stale cached zeros, missing/duplicate
+members, wrong units/sign, a lost zero vector and an incorrectly synthesized sample at a gap.
+
+This is a Java application reference, not native vector-sum editing or export acceptance. Duplicate
+member names, nested sums, attachment/snapping relationships and edited dependencies remain. Run
+`VectorSumFixture.java` with the same bounded Java settings as the other fixture generators and a
+fresh temporary output path; do not overwrite a pinned fixture or bless changed expectations.
