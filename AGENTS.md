@@ -9,6 +9,8 @@ than maintaining competing copies. The user's instructions and authorization tak
 - [README.md](README.md): current user workflows, supported features, and setup entry points.
 - [CONTRIBUTING.md](CONTRIBUTING.md): C++ conventions, dependencies, build commands, coverage, and PR process.
 - [Migration plan](docs/migration-plan.md): architecture, Tracker compatibility, and unfinished milestones.
+- [Tracker issue triage](docs/upstream-issues.md): upstream reports, native filings, feature decisions,
+  and regressions to address in the corresponding port phase.
 - [Review checklist](docs/code-review.md): apply to each proposed diff, including your own.
 
 Keep each document scoped to its purpose. Update the canonical source when behavior changes and link
@@ -48,6 +50,12 @@ to it elsewhere. Do not describe planned functionality or unavailable tooling as
 - Follow the [full-port implementation order](docs/migration-plan.md#implementation-order-and-exit-gates).
   Update its requirement/status matrix and evidence with each completed slice. A working prototype,
   preserved unknown object, or green coverage result does not by itself establish full Tracker parity.
+- Before a port slice, consult the Tracker issue triage and refresh relevant upstream discussions.
+  Link accepted fixes/workflows to a MoTrack issue with the original report, reproduction status and
+  acceptance criteria. Keep upstream and native resolution separate; close native issues with regression
+  evidence or an explicit investigated disposition. Deferred proposals do not silently expand port scope.
+- Preserve correct scientific behavior when the reference has a bug: keep independent expected values,
+  document the intentional difference, and do not accept a lossy Tracker resave as compatibility evidence.
 - Document coordinate spaces, units, original frame numbers, clip steps, and timestamps. Changes to
   scientific results need explicit reasoning and numerical reference tests against the pinned Tracker
   behavior. Do not silently substitute zero for missing or unsupported measurements.

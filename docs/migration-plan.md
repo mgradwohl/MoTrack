@@ -4,6 +4,8 @@ This is the canonical scope, requirements, architecture, status, and execution o
 the native desktop port. Update it with implementation evidence as work lands. It is not a claim that
 the port is complete. Contributor commands live in [CONTRIBUTING.md](../CONTRIBUTING.md), agent workflow
 in [AGENTS.md](../AGENTS.md), and per-change checks in [code-review.md](code-review.md).
+The [Tracker issue audit and triage](upstream-issues.md) maps upstream reports to native issues,
+regression requirements and accepted/deferred feature decisions. Consult it as each slice is ported.
 
 ## Goal and completion contract
 
@@ -35,7 +37,7 @@ scope decisions. Record deliberate behavior changes, including corrections to re
 ## Current implementation and evidence
 
 Snapshot: **2026-11-07**, merged `main` at
-[`0342503`](https://github.com/mgradwohl/MoTrack/commit/0342503c9ef37366059229ba7e4ad287a5a123d8).
+[`14c6057`](https://github.com/mgradwohl/MoTrack/commit/14c605737cdc3a590b12cc5b0d85593154f23e21).
 [PR #34](https://github.com/mgradwohl/MoTrack/pull/34) added independent vector editing,
 [PR #36](https://github.com/mgradwohl/MoTrack/pull/36) the reference corpus,
 [PR #38](https://github.com/mgradwohl/MoTrack/pull/38) actual Java application resave checks,
@@ -61,10 +63,13 @@ vector-reconstruction safeguards,
 [PR #57](https://github.com/mgradwohl/MoTrack/pull/57) the named center-of-mass reference baseline, and
 [PR #58](https://github.com/mgradwohl/MoTrack/pull/58) the partial native source-reference index, and
 [PR #59](https://github.com/mgradwohl/MoTrack/pull/59) visited-table and saved-plot reference checks, and
-[PR #60](https://github.com/mgradwohl/MoTrack/pull/60) bounded native saved-view owner indexing. Windows,
+[PR #60](https://github.com/mgradwohl/MoTrack/pull/60) bounded native saved-view owner indexing,
+[PR #61](https://github.com/mgradwohl/MoTrack/pull/61) the classified vector-sum reference defect, and
+[PR #62](https://github.com/mgradwohl/MoTrack/pull/62) dependent-member indexing and the edited
+vector-sum export safeguard. Windows,
 macOS, Linux, setup, and coverage checks passed in
-[CI run 42330998447](https://github.com/mgradwohl/MoTrack/actions/runs/42330998447): combined production
-line coverage **94.28% (5359/5684)**. The keyed-calibration and mass-unit writer PRs also passed actual
+[CI run 42381811578](https://github.com/mgradwohl/MoTrack/actions/runs/42381811578): combined production
+line coverage **94.35% (5432/5757)**. The keyed-calibration and mass-unit writer PRs also passed actual
 Tracker edited-file load/save/reopen and native reimport before merging. This verifies the implemented slice, not full Tracker equivalence.
 
 Implemented and tested workflows include local movie/image opening, playback and indexed stepping,
@@ -253,6 +258,12 @@ editing → full track/media/analysis/model behavior → complete output/library
 Coordinate and dependency semantics precede dependent tracks; filters precede RGB and final AutoTracker;
 expression evaluation precedes models and custom fits; complete rendering precedes overlay video export.
 Localization, accessibility, performance checks and serialization accompany every phase, not just phase 12.
+
+The [upstream issue triage](upstream-issues.md) adds concrete regression cases to these exit gates,
+including historical issues already fixed in Tracker. Resolve applicable native filings as their phases
+land; record an investigated disposition when the original report cannot be reproduced. Intentional
+corrections to reference bugs require independent expected results and explicit compatibility limits.
+Deferred upstream proposals are separate from the frozen baseline and do not postpone its completion.
 
 Phase 1 now has a [versioned seed corpus and reference harness](../tests/corpus/README.md): three real
 upstream experiments plus Java-authored synthetic vector, keyed-calibration, center-of-mass and vector-sum fixtures, checksum-pinned Tracker 6.3.5,
