@@ -2,9 +2,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -23,6 +26,8 @@ import org.opensourcephysics.cabrillo.tracker.TrackerPanel;
 import org.opensourcephysics.cabrillo.tracker.Vector;
 import org.opensourcephysics.cabrillo.tracker.VectorStep;
 import org.opensourcephysics.controls.XMLControlElement;
+import org.opensourcephysics.controls.XMLControl;
+import org.opensourcephysics.controls.XMLProperty;
 import org.opensourcephysics.display.OSPRuntime;
 import org.opensourcephysics.media.core.ImageCoordSystem;
 import org.opensourcephysics.media.core.TPoint;
@@ -57,7 +62,8 @@ public final class TrackerSessionReference {
                     if (save && (TrackerIO.save(saved.toFile(), panel) == null || !Files.isRegularFile(saved)))
                         throw new IllegalStateException("Tracker did not save the loaded session");
                     REPORT.set(TrackerReference.map("reference_version", OSPRuntime.VERSION,
-                        "verification_level", "tracker_session_" + args[2], "loaded", before,
+                        "verification_level", "tracker_session_" + args[2],
+                        "view_preparation", "visit_custom_tables_restore_selection", "loaded", before,
                         "after_save", save ? snapshot(panel) : null));
                     DONE.countDown();
                 })));
@@ -112,7 +118,49 @@ public final class TrackerSessionReference {
                 }
             }
             ((Timer) event.getSource()).stop();
-            action.run();
+            visitCustomTables(panel, action);
+        }).run());
+        timer.start();
+    }
+
+    private record TableVisit(TrackChooserTView view, TTrack track, TTrack restore) {}
+
+    private static void visitCustomTables(TrackerPanel panel, Runnable action) {
+        List<TableVisit> visits = new ArrayList<>();
+        for (TView[] chooser : panel.getTFrame().getTViews(panel, false)) {
+            if (!(chooser[TView.VIEW_TABLE] instanceof TrackChooserTView table)) continue;
+            for (List<String> row : stringRows(new XMLControlElement(table).getObject("track_columns"), 0)) {
+                List<TTrack> owners = panel.getTracks().stream().filter(track -> track.getName().equals(row.get(0))).toList();
+                if (owners.size() != 1 || !table.isShowing() || table.getSelectedTrack() == null)
+                    throw new IllegalStateException("Reference needs a visible table with an unambiguous owner");
+                visits.add(new TableVisit(table, owners.get(0), table.getSelectedTrack()));
+                if (visits.size() > 10000) throw new IllegalStateException("Table visit limit exceeded");
+            }
+        }
+        if (visits.isEmpty()) { action.run(); return; }
+        // Tracker refreshes a table's column model only while that track is displayed. In 6.3.5,
+        // immediately resaving an unvisited custom table can serialize null columns. Exercise the
+        // normal selection/refresh path, observe populated columns, then restore the saved selection.
+        // This is a visited-view baseline, not proof of fidelity for an immediate unvisited resave.
+        int[] index = {0};
+        visits.get(0).view().setSelectedTrack(visits.get(0).track());
+        Timer timer = new Timer(25, event -> guard(() -> {
+            TableVisit visit = visits.get(index[0]);
+            if (visit.view().getSelectedTrack() != visit.track())
+                throw new IllegalStateException("Tracker did not select the table owner");
+            visit.view().paintImmediately(visit.view().getVisibleRect());
+            boolean found = false;
+            for (List<String> row : stringRows(new XMLControlElement(visit.view()).getObject("track_columns"), 0)) {
+                if (!visit.track().getName().equals(row.get(0))) continue;
+                found = true;
+                if (row.stream().anyMatch(value -> value == null)) return;
+            }
+            if (!found) throw new IllegalStateException("Customized table disappeared during selection");
+            visit.view().setSelectedTrack(visit.restore());
+            if (++index[0] == visits.size()) {
+                ((Timer) event.getSource()).stop();
+                action.run();
+            } else visits.get(index[0]).view().setSelectedTrack(visits.get(index[0]).track());
         }).run());
         timer.start();
     }
@@ -193,6 +241,7 @@ public final class TrackerSessionReference {
             "step_size", clip.getStepSize(), "step_count", clip.getStepCount(), "start_ms", clip.getStartTime()),
             "length_unit", panel.getLengthUnit(), "mass_unit", panel.getMassUnit(),
             "name_references", nameReferences(panel),
+            "saved_views", savedViews(panel),
             "centers_of_mass", centers,
             "calibration", TrackerReference.map("fixed_origin", coords.isFixedOrigin(), "fixed_angle", coords.isFixedAngle(),
                 "fixed_scale", coords.isFixedScale(), "keys", calibrationKeys),
@@ -223,5 +272,87 @@ public final class TrackerSessionReference {
         return TrackerReference.map("selected_track", selected == null ? null : selected.getName(),
             "view_tracks", selections,
             "packed_view_tracks", new XMLControlElement(panel).getString("selected_track_views"));
+    }
+
+    // Capture the normal serializers of live, loaded views. Do not instantiate saved TrackView
+    // controls: their loaders require the existing panel/track context. Only primitive string
+    // arrays are decoded with getObject. Owner-map order is immaterial; visible column and plot
+    // order remains significant. This deliberately excludes transient autoscale/rendering state.
+    private static Map<String, Object> savedViews(TrackerPanel panel) {
+        TView[][] views = panel.getTFrame().getTViews(panel, false);
+        List<Object> tables = new ArrayList<>();
+        List<Object> plots = new ArrayList<>();
+        for (int chooser = 0; chooser < views.length; chooser++) {
+            TView table = views[chooser][TView.VIEW_TABLE];
+            if (table != null) {
+                XMLControl control = new XMLControlElement(table);
+                List<List<String>> columns = stringRows(control.getObject("track_columns"), 0);
+                List<List<String>> indices = stringRows(control.getObject("dataset_indices"), 2);
+                List<List<String>> formats = new ArrayList<>();
+                Object raw = control.getObject("column_formats");
+                if (raw != null) {
+                    if (!(raw instanceof String[][][] groups) || groups.length > 10000)
+                        throw new IllegalStateException("Unexpected table format groups");
+                    for (String[][] group : groups) {
+                        List<List<String>> rows = stringRows(group, 3);
+                        if (rows.isEmpty()) throw new IllegalStateException("Empty table format group");
+                        String owner = rows.get(0).get(0);
+                        for (List<String> row : rows) {
+                            if (!owner.equals(row.get(0))) throw new IllegalStateException("Mixed table format owners");
+                            formats.add(row);
+                            if (formats.size() > 10000) throw new IllegalStateException("Table format limit exceeded");
+                        }
+                    }
+                }
+                formats.sort(Comparator.<List<String>, String>comparing(row -> row.get(0)).thenComparing(row -> row.get(1)));
+                if (!columns.isEmpty() || !formats.isEmpty() || !indices.isEmpty())
+                    tables.add(TrackerReference.map("chooser", chooser, "selected_track", control.getString("selected_track"),
+                        "track_columns", columns, "column_formats", formats, "dataset_indices", indices));
+            }
+            TView plot = views[chooser][TView.VIEW_PLOT];
+            if (plot != null) {
+                XMLControl control = new XMLControlElement(plot);
+                XMLProperty property = TrackerReference.property(control, "track_views");
+                Map<String, Object> owners = new TreeMap<>();
+                if (property != null) {
+                    XMLControl[] children = property.getChildControls();
+                    if (children.length > 10000) throw new IllegalStateException("Plot owner limit exceeded");
+                    for (XMLControl child : children) {
+                        List<Object> settings = new ArrayList<>();
+                        // The pinned application supports up to three ordered plots per track.
+                        for (int index = 0; index < 3; index++) {
+                            XMLControl item = child.getChildControl("plot" + index);
+                            if (item == null) break;
+                            Object guests = item.getObject("guests");
+                            if (guests != null && (!(guests instanceof String[]) || ((String[]) guests).length > 10000))
+                                throw new IllegalStateException("Unexpected plot guests");
+                            settings.add(TrackerReference.map("x_var", item.getString("x_var"), "y_var", item.getString("y_var"),
+                                "guests", guests == null ? List.of() : List.of((String[]) guests)));
+                        }
+                        String owner = child.getString("track");
+                        if (owner == null || settings.isEmpty() || owners.put(owner, TrackerReference.map("track", owner,
+                                "linked", child.getBoolean("linked"), "plots", settings)) != null)
+                            throw new IllegalStateException("Invalid or duplicate plot owner");
+                    }
+                }
+                if (!owners.isEmpty()) plots.add(TrackerReference.map("chooser", chooser,
+                    "selected_track", control.getString("selected_track"), "track_views", new ArrayList<>(owners.values())));
+            }
+        }
+        return TrackerReference.map("tables", tables, "plots", plots);
+    }
+
+    private static List<List<String>> stringRows(Object value, int width) {
+        List<List<String>> result = new ArrayList<>();
+        if (value == null) return result;
+        if (!(value instanceof String[][] rows) || rows.length > 10000)
+            throw new IllegalStateException("Unexpected table rows");
+        for (String[] row : rows) {
+            if (row == null || row.length == 0 || row.length > 10000 || (width != 0 && row.length != width))
+                throw new IllegalStateException("Unexpected table row");
+            result.add(new ArrayList<>(Arrays.asList(row)));
+        }
+        result.sort(Comparator.comparing(row -> row.get(0)));
+        return result;
     }
 }

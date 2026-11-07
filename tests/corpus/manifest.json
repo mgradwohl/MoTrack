@@ -41,6 +41,14 @@
         "view_tracks": [["mass B", null], [null, "mass B"], [null, null], [null, null]],
         "packed_view_tracks": "mass B,null;null,mass B;null,null;null,null"
       },
+      "session_views": {
+        "tables": [{"chooser": 1, "selected_track": "mass B",
+          "track_columns": [["protractor A", "t", "θ"]],
+          "column_formats": [["protractor A", "frame", "0"], ["protractor A", "step", "0"],
+                             ["protractor A", "t", "0.000"], ["protractor A", "θ", "0.0"]],
+          "dataset_indices": []}],
+        "plots": []
+      },
       "session_tracks": [
         {"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes", "name": "axes"},
         {"class": "org.opensourcephysics.cabrillo.tracker.PointMass", "name": "mass A"},
@@ -58,6 +66,12 @@
     },
     {
       "id": "dynamic-sine",
+      "session_views": {
+        "tables": [],
+        "plots": [{"chooser": 0, "selected_track": "model A", "track_views": [
+          {"track": "model A", "linked": false, "plots": [{"x_var": "t", "y_var": "y", "guests": []}]}
+        ]}]
+      },
       "session_tracks": [
         {"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes", "name": "axes"},
         {"class": "org.opensourcephysics.cabrillo.tracker.DynamicParticle", "name": "model A"}

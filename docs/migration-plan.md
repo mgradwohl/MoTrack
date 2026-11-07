@@ -58,10 +58,11 @@ vector-reconstruction safeguards,
 [PR #54](https://github.com/mgradwohl/MoTrack/pull/54) reversible mass-unit labels and standard export, and
 [PR #55](https://github.com/mgradwohl/MoTrack/pull/55) the proposed source-reference architecture,
 [PR #56](https://github.com/mgradwohl/MoTrack/pull/56) live selected-track/plot/table reference checks, and
-[PR #57](https://github.com/mgradwohl/MoTrack/pull/57) the named center-of-mass reference baseline. Windows,
+[PR #57](https://github.com/mgradwohl/MoTrack/pull/57) the named center-of-mass reference baseline, and
+[PR #58](https://github.com/mgradwohl/MoTrack/pull/58) the partial native source-reference index. Windows,
 macOS, Linux, setup, and coverage checks passed in
-[CI run 42297386593](https://github.com/mgradwohl/MoTrack/actions/runs/42297386593): combined production
-line coverage **93.92% (4973/5295)**. The keyed-calibration and mass-unit writer PRs also passed actual
+[CI run 42299876763](https://github.com/mgradwohl/MoTrack/actions/runs/42299876763): combined production
+line coverage **94.07% (5158/5483)**. The keyed-calibration and mass-unit writer PRs also passed actual
 Tracker edited-file load/save/reopen and native reimport before merging. This verifies the implemented slice, not full Tracker equivalence.
 
 Implemented and tested workflows include local movie/image opening, playback and indexed stepping,
@@ -139,7 +140,7 @@ and platform evidence before it can be marked complete.
 | R12 | Ordered, editable video filter stack with saved parameters and reproducible filtered frames | Missing: enhancement, temporal, noise-reduction, geometric, and lens-correction filters; see the filter inventory below. | 6 |
 | R13 | RGB region and line-profile tracks, shapes/widths, changing image statistics, spatial/time data, and persistence | Missing; define sampling relative to the filter pipeline before implementing numerical kernels. | 6–7 |
 | R14 | Complete motion data and derivative choices, gaps/interpolation, motion smoothing, filtered clones, and correct units | Partial: several translational quantities with gap handling exist. Audit all variables/algorithms; add angular quantities, interpolation, Moving Average, Butterworth, and Savitzky-Golay clone behavior. | 5, 8 |
-| R15 | Plot/table parity: selectable axes/columns, synchronized plots, comparisons, ranges, selection, sorting, formatting, text columns, clipboard, and data refresh | Partial: one selected series and basic marks table. Full views and saved view settings remain. | 4, 8, 10 |
+| R15 | Plot/table parity: selectable axes/columns, synchronized plots, comparisons, ranges, selection, sorting, formatting, text columns, clipboard, and data refresh | Partial: one selected series and basic marks table. Java reference checks cover original protractor table owners/columns/formats and dynamic-sine plot owners/axes across application resave after visiting custom tables and restoring selection. Immediate unvisited Tracker resave can lose table columns; that limitation and native saved views, additional view relationships and full view editing remain. | 4, 8, 10 |
 | R16 | Data Builder expressions, parameters, custom variables, saved function sets, and autoloading | Missing; needs compatible expression evaluation and dependency tracking. | 8 |
 | R17 | Data Tool and Fit Builder workflows: statistics, automatic/manual/custom fits, uncertainty, residuals, integration and Fourier analysis, saved analysis state | Partial: straight-line slope/intercept/R² only. Inventory the bundled OSP tool and match its exposed operations. | 1, 8 |
 | R18 | Analytic/kinematic particle models, parameter editing/synchronization, initial conditions, model overlays, and stamping | Missing. | 8–9 |

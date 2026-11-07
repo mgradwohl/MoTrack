@@ -218,7 +218,8 @@ def session_units(case, expected):
 
 def validate_session(case, report, manifest, expected=None, key_frames=None, calibration=None):
     if (report["reference_version"] != manifest["reference"]["version"]
-            or report["verification_level"] != "tracker_session_resave"):
+            or report["verification_level"] != "tracker_session_resave"
+            or report.get("view_preparation") != "visit_custom_tables_restore_selection"):
         raise ValueError("Unexpected session reference version or verification level")
     before = report["before"]
     tolerance = manifest["tolerance"]
@@ -228,6 +229,8 @@ def validate_session(case, report, manifest, expected=None, key_frames=None, cal
     compare(case["session_tracks"], identities, tolerance, case["id"] + ".tracks")
     if "session_names" in case:
         compare(case["session_names"], before.get("name_references"), tolerance, case["id"] + ".name_references")
+    if "session_views" in case:
+        compare(case["session_views"], before.get("saved_views"), tolerance, case["id"] + ".saved_views")
     if "session_centers" in case:
         compare(case["session_centers"], before.get("centers_of_mass"), tolerance, case["id"] + ".centers_of_mass")
     if expected is None:
@@ -816,9 +819,11 @@ def check_sessions(manifest, cache, java, probe=None):
                      str(source), str(output), stage], display=display)
                 stages[stage] = json.loads((output / ("session-" + stage + ".json")).read_text(encoding="utf-8"))
                 if (stages[stage]["reference_version"] != manifest["reference"]["version"]
-                        or stages[stage]["verification_level"] != "tracker_session_" + stage):
+                        or stages[stage]["verification_level"] != "tracker_session_" + stage
+                        or stages[stage].get("view_preparation") != "visit_custom_tables_restore_selection"):
                     raise ValueError("Unexpected Tracker session stage")
             report = {"reference_version": stages["save"]["reference_version"], "verification_level": "tracker_session_resave",
+                      "view_preparation": stages["save"]["view_preparation"],
                       "before": stages["save"]["loaded"], "after_save": stages["save"]["after_save"],
                       "after": stages["reopen"]["loaded"]}
             keys = {"marks": [[0, 3], [7]], "empty-marks": [[], [0]], "first-mark": [[4], [0]]}.get(mode)

@@ -9,8 +9,20 @@ The first reference-only slice records independent protractor selected-track and
 in the corpus manifest. Its actual-Tracker probe compares live selections and the normal packed-string
 serializer before saving, after saving and after reopening. The PR's CI result establishes whether
 this baseline passes. A second Java-authored reference covers center-of-mass constituent names,
-resolved member objects, total mass and independent weighted positions at sparse frames. Table
-column/format owners, attachments, vector sums, dynamic systems and edited dependency cases remain.
+resolved member objects, total mass and independent weighted positions at sparse frames. The saved-view
+reference now records the protractor table's column/format owner and ordered columns, and the dynamic-sine
+plot's owner, axis variables and linked-axis flag. These independent original-file expectations are
+compared with serializers of live loaded views at all three stages. Nonempty dataset indices, plot
+guests, attachments, vector sums, dynamic systems and edited dependency cases remain.
+
+
+The saved-view baseline visits each customized table through Tracker's normal selection/refresh path,
+waits for populated column names, and restores its original selection before taking snapshots. Reports
+explicitly label this preparation. An immediate unvisited protractor resave on pinned Tracker 6.3.5
+was observed to write null column slots and lose the angle column on reopen. The runner does not
+accept that loss as the expected result or change the original-file expectations. This visited-view
+case does **not** establish fidelity for an immediate unvisited Tracker resave. Hidden customized
+tables and that upstream save behavior still need separate acceptance/handling before full parity.
 
 ## Why a name is more than one XML property
 
@@ -33,6 +45,7 @@ complete inventory of every name/reference field.
 | TableTView | `track_columns`, `dataset_indices` | Each row's first element identifies its owning track; subsequent elements are column names or dataset settings. |
 | TableTView | `column_formats` | Each group is selected by its first row's first element; format rows also carry names, column keys and patterns. Preserve column keys/patterns. |
 | [PlotTView](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/PlotTView.java) and [PlotTrackView](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/PlotTrackView.java) | `selected_track`; nested `track_views` and `track` | Selected plot and per-track plot settings identify their owner by name. |
+| [TrackPlottingPanel](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/TrackPlottingPanel.java) | `guests` | Array of comparison-track names on each plot. An empty array is observed in the current plot case; nonempty guest relationships still need application cases. |
 | [TTrack](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/TTrack.java) | `attachments` | Names in attachment slots, including empty slots, resolve to track objects after load. |
 | [CenterOfMass](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/CenterOfMass.java) | `masses` | Collection of constituent point-mass names. |
 | [VectorSum](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/VectorSum.java) | `vectors` | Collection of constituent vector names. |
