@@ -25,6 +25,7 @@ import org.opensourcephysics.cabrillo.tracker.TrackerIO;
 import org.opensourcephysics.cabrillo.tracker.TrackerPanel;
 import org.opensourcephysics.cabrillo.tracker.Vector;
 import org.opensourcephysics.cabrillo.tracker.VectorStep;
+import org.opensourcephysics.cabrillo.tracker.VectorSum;
 import org.opensourcephysics.controls.XMLControlElement;
 import org.opensourcephysics.controls.XMLControl;
 import org.opensourcephysics.controls.XMLProperty;
@@ -39,6 +40,7 @@ import org.opensourcephysics.media.core.VideoClip;
 public final class TrackerSessionReference {
     private static final CountDownLatch DONE = new CountDownLatch(1);
     private static final AtomicReference<Throwable> FAILURE = new AtomicReference<>();
+    private static final AtomicReference<String> WAITING = new AtomicReference<>("application loader callback");
     private static final AtomicReference<Map<String, Object>> REPORT = new AtomicReference<>();
 
     public static void main(String[] args) {
@@ -68,7 +70,7 @@ public final class TrackerSessionReference {
                     DONE.countDown();
                 })));
             }));
-            if (!DONE.await(30, TimeUnit.SECONDS)) throw new IllegalStateException("Tracker session loading timed out");
+            if (!DONE.await(30, TimeUnit.SECONDS)) throw new IllegalStateException("Tracker session loading timed out: " + WAITING.get());
             if (FAILURE.get() != null) throw new IllegalStateException("Tracker session failed", FAILURE.get());
             if (REPORT.get() == null) throw new IllegalStateException("Tracker produced no session report");
             Files.writeString(directory.resolve("session-" + args[2] + ".json"), TrackerReference.json(REPORT.get()) + "\n", StandardCharsets.UTF_8);
@@ -97,6 +99,7 @@ public final class TrackerSessionReference {
 
     private static void whenEvaluated(TFrame frame, Runnable action) {
         TrackerPanel panel = onlyPanel(frame);
+        WAITING.set("showing the loaded experiment");
         VideoClip clip = panel.getPlayer().getVideoClip();
         if (clip.getStepCount() < 1 || clip.getStepCount() > 10000)
             throw new IllegalArgumentException("Reference clip step limit exceeded");
@@ -109,15 +112,21 @@ public final class TrackerSessionReference {
             panel.paintImmediately(panel.getVisibleRect());
             // Named constituents are resolved by CenterOfMass's normal initialize/draw path.
             for (TTrack track : panel.getTracks()) if (track instanceof CenterOfMass center
-                    && center.getMasses().length == 0) return;
+                    && center.getMasses().length == 0) { WAITING.set("center members: " + center.getName()); return; }
+            // The normal loader and draw path have run. Snapshot vector sums as they are:
+            // Tracker 6.3.5 leaves pending names uninitialized. Waiting for nonempty members
+            // would hide this persistent load/save defect behind a generic timeout.
             for (TTrack track : panel.getTracks()) if (track instanceof ParticleModel model) {
                 for (int step = 0; step < clip.getStepCount(); step++) {
                     int number = clip.stepToFrame(step);
-                    if (number >= model.getStartFrame() && number <= model.getEndFrame() && model.getStep(number) == null)
+                    if (number >= model.getStartFrame() && number <= model.getEndFrame() && model.getStep(number) == null) {
+                        WAITING.set("particle model: " + model.getName() + ", frame=" + number);
                         return;
+                    }
                 }
             }
             ((Timer) event.getSource()).stop();
+            WAITING.set("custom table preparation");
             visitCustomTables(panel, action);
         }).run());
         timer.start();
@@ -170,6 +179,7 @@ public final class TrackerSessionReference {
         ImageCoordSystem coords = panel.getCoords();
         List<Object> tracks = new ArrayList<>();
         List<Object> centers = new ArrayList<>();
+        List<Object> sums = new ArrayList<>();
         for (TTrack track : panel.getTracks()) {
             List<Object> samples = new ArrayList<>();
             List<Object> vectorSamples = new ArrayList<>();
@@ -179,7 +189,7 @@ public final class TrackerSessionReference {
                 List<Object> points = new ArrayList<>();
                 // Vector drag handles and display points are transient UI state, not saved geometry.
                 // Compare both scientific endpoints here and tail/components independently below.
-                TPoint[] savedPoints = track.getClass() == Vector.class
+                TPoint[] savedPoints = track instanceof Vector
                     ? new TPoint[] {((VectorStep) step).getTip(), ((VectorStep) step).getTail()} : step.getPoints();
                 for (TPoint point : savedPoints) points.add(point == null ? null : List.of(point.x, point.y));
                 int frame = step.getFrameNumber();
@@ -190,7 +200,7 @@ public final class TrackerSessionReference {
                                     coords.imageToWorldY(frame, point.x, point.y));
                 }
                 samples.add(TrackerReference.map("frame", frame, "points", points, "world", world));
-                if (track.getClass() == Vector.class) {
+                if (track instanceof Vector) {
                     VectorStep vector = (VectorStep) step;
                     vectorSamples.add(TrackerReference.map("frame", step.getFrameNumber(),
                         "tail", List.of(vector.getTail().getX(), vector.getTail().getY()),
@@ -208,6 +218,21 @@ public final class TrackerSessionReference {
             tracks.add(TrackerReference.map("class", track.getClass().getName(), "name", track.getName(),
                 "mass", track instanceof PointMass mass ? mass.getMass() : null, "samples", samples, "key_frames", keys,
                 "vector_samples", vectorSamples));
+            if (track instanceof VectorSum sum) {
+                List<String> members = new ArrayList<>();
+                for (Vector member : sum.getVectors()) members.add(member.getName());
+                List<Object> components = new ArrayList<>();
+                for (Step step : steps) if (step != null) {
+                    VectorStep vector = (VectorStep) step;
+                    int frame = step.getFrameNumber();
+                    double x = vector.getXComponent(), y = vector.getYComponent();
+                    components.add(TrackerReference.map("frame", frame,
+                        "tail", List.of(vector.getTail().getX(), vector.getTail().getY()), "components", List.of(x, y),
+                        "world_components", List.of(coords.imageToWorldXComponent(frame, x, y),
+                                                    coords.imageToWorldYComponent(frame, x, y))));
+                }
+                sums.add(TrackerReference.map("name", sum.getName(), "members", members, "samples", components));
+            }
             if (track instanceof CenterOfMass center) {
                 List<String> members = new ArrayList<>();
                 for (PointMass member : center.getMasses()) members.add(member.getName());
@@ -243,6 +268,7 @@ public final class TrackerSessionReference {
             "name_references", nameReferences(panel),
             "saved_views", savedViews(panel),
             "centers_of_mass", centers,
+            "vector_sums", sums,
             "calibration", TrackerReference.map("fixed_origin", coords.isFixedOrigin(), "fixed_angle", coords.isFixedAngle(),
                 "fixed_scale", coords.isFixedScale(), "keys", calibrationKeys),
             "tracks", tracks, "coordinate_samples", coordinates);

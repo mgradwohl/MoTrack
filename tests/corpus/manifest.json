@@ -183,6 +183,106 @@
          ]}
       ],
       "provenance": "Authored by tools/reference/CenterOfMassFixture.java using checksum-pinned Tracker 6.3.5 serializers; reproduced byte-for-byte; independent weighted-position expectations; no MoTrack output used."
+    },
+    {
+      "id": "vector-sum",
+      "session_known_issue": "tracker-6.3.5-vector-sum-members",
+      "local_file": "fixtures/vector-sum.trk",
+      "file": "vector-sum.trk",
+      "bytes": 11766,
+      "sha256": "5e356abb004615948588ecbd2e4ee89faf23be327d8df0ee8bc781216385ef28",
+      "tracker_version": "6.3.5",
+      "features": [
+        "two-independent-vectors",
+        "named-constituents",
+        "unsupported-vector-sum",
+        "missing-member-frames",
+        "zero-sum",
+        "nonuniform-calibration",
+        "stale-cached-sum",
+        "java-authored-synthetic"
+      ],
+      "requirements": [
+        "R02",
+        "R03",
+        "R07"
+      ],
+      "expected": "expected/vector-sum.json",
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.VectorSum",
+          "name": "resultant"
+        }
+      ],
+      "session_sums": [
+        {
+          "name": "resultant",
+          "members": [
+            "vector A",
+            "vector B"
+          ],
+          "samples": [
+            {
+              "frame": 0,
+              "tail": [
+                240.0,
+                260.0
+              ],
+              "components": [
+                10.0,
+                4.0
+              ],
+              "world_components": [
+                5.0,
+                -1.0
+              ]
+            },
+            {
+              "frame": 2,
+              "tail": [
+                280.0,
+                280.0
+              ],
+              "components": [
+                0.0,
+                0.0
+              ],
+              "world_components": [
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "frame": 4,
+              "tail": [
+                320.0,
+                300.0
+              ],
+              "components": [
+                -2.0,
+                4.0
+              ],
+              "world_components": [
+                -1.0,
+                -1.0
+              ]
+            }
+          ]
+        }
+      ],
+      "provenance": "Authored by tools/reference/VectorSumFixture.java through checksum-pinned Tracker 6.3.5 APIs and serializers; reproduced byte-for-byte. Named members and deliberately stale zero cached components require actual application evaluation. Independent component sums and missing-member expectations; no MoTrack output used."
     }
   ]
 }
