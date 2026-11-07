@@ -69,7 +69,8 @@ value, within the existing XML byte cap. View indices are bounded to four choose
 arrays use bounded sparse maps. Table-format groups/rows must be dense because the Java loader
 dereferences every row. Duplicate array labels, invalid types/classes, malformed cells and mixed
 format owners produce diagnostic paths. Column names and format patterns are validated as data,
-never resolved as track references.
+never resolved as track references. All emitted candidate lists share a 100000-index storage budget,
+charged before copying; duplicate names cannot multiply storage up to tracks times owners.
 The original XML remains unchanged. Native tests cover ambiguity across supported/unknown types,
 malformed fields, bounds, Unicode, rename/reorder/delete/undo and native save/reopen. The protractor
 and dynamic-sine corpus checks compare the index with independently transcribed source ordinals and

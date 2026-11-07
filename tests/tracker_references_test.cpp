@@ -437,4 +437,30 @@ TEST(TrackerReferences, BoundsTotalNestedEntriesWithoutAllocatingSparseArrays)
         motrack::ProjectError);
 }
 
+TEST(TrackerReferences, BoundsAggregateAmbiguousCandidatesBeforeCopying)
+{
+    std::string tracks;
+    for (unsigned source = 0; source < 1000; ++source)
+    {
+        tracks += track("Future", "same");
+    }
+    std::string owners;
+    for (unsigned owner = 0; owner < 100; ++owner)
+    {
+        owners += viewXml("PlotTrackView", property("track", "same"), "item");
+    }
+    const auto views = savedViews(viewXml(
+        "PlotTView", "<property name='track_views' type='collection' class='java.util.ArrayList'>" + owners + "</property>", "[0]"));
+    const auto exact = index(project(tracks, views));
+    ASSERT_EQ(exact.references.size(), 100u);
+    for (const auto& reference : exact.references)
+    {
+        EXPECT_EQ(reference.resolution, Resolution::Ambiguous);
+        ASSERT_EQ(reference.candidateSourceIndices.size(), 1000u);
+        EXPECT_EQ(reference.candidateSourceIndices.back(), 999u);
+    }
+    // A panel reference shares the same budget; one extra ambiguous owner must reject the index.
+    EXPECT_THROW((void)index(project(tracks, property("selectedtrack", "same") + views)), motrack::ProjectError);
+}
+
 } // namespace

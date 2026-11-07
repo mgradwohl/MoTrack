@@ -59,9 +59,10 @@ vector-reconstruction safeguards,
 [PR #55](https://github.com/mgradwohl/MoTrack/pull/55) the proposed source-reference architecture,
 [PR #56](https://github.com/mgradwohl/MoTrack/pull/56) live selected-track/plot/table reference checks, and
 [PR #57](https://github.com/mgradwohl/MoTrack/pull/57) the named center-of-mass reference baseline, and
-[PR #58](https://github.com/mgradwohl/MoTrack/pull/58) the partial native source-reference index. Windows,
+[PR #58](https://github.com/mgradwohl/MoTrack/pull/58) the partial native source-reference index, and
+[PR #59](https://github.com/mgradwohl/MoTrack/pull/59) visited-table and saved-plot reference checks. Windows,
 macOS, Linux, setup, and coverage checks passed in
-[CI run 42299876763](https://github.com/mgradwohl/MoTrack/actions/runs/42299876763): combined production
+[CI run 42329842392](https://github.com/mgradwohl/MoTrack/actions/runs/42329842392): combined production
 line coverage **94.07% (5158/5483)**. The keyed-calibration and mass-unit writer PRs also passed actual
 Tracker edited-file load/save/reopen and native reimport before merging. This verifies the implemented slice, not full Tracker equivalence.
 

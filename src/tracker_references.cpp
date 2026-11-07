@@ -62,7 +62,11 @@ std::optional<QString> stringValue(const Property& value, qsizetype limit)
     return result;
 }
 
-using NameTargets = std::unordered_map<std::string, std::vector<std::size_t>>;
+struct NameTargets
+{
+    std::unordered_map<std::string, std::vector<std::size_t>> byName;
+    std::size_t remainingCandidates = 100000;
+};
 
 bool onlyChildren(const QDomElement& owner, const QString& tag)
 {
@@ -84,7 +88,7 @@ bool onlyChildren(const QDomElement& owner, const QString& tag)
 }
 
 void addReference(
-    TrackerReferenceIndex& result, const NameTargets& names, TrackerReferenceKind kind, std::string path, const QString& name, bool packed)
+    TrackerReferenceIndex& result, NameTargets& names, TrackerReferenceKind kind, std::string path, const QString& name, bool packed)
 {
     TrackerNameReference reference{.kind = kind,
                                    .path = std::move(path),
@@ -95,8 +99,15 @@ void addReference(
     {
         reference.resolution = TrackerReferenceResolution::NoTarget;
     }
-    else if (const auto found = names.find(reference.originalName); found != names.end())
+    else if (const auto found = names.byName.find(reference.originalName); found != names.byName.end())
     {
+        // Entry caps alone permit tracks * owners candidate copies for duplicate names.
+        // Charge the aggregate budget before allocating each list, including panel references.
+        if (found->second.size() > names.remainingCandidates)
+        {
+            throw ProjectError("Too many Tracker reference candidates to index.");
+        }
+        names.remainingCandidates -= found->second.size();
         reference.candidateSourceIndices = found->second;
         reference.resolution = found->second.size() == 1 ? TrackerReferenceResolution::Resolved : TrackerReferenceResolution::Ambiguous;
     }
@@ -104,7 +115,7 @@ void addReference(
 }
 
 void panelReference(TrackerReferenceIndex& result,
-                    const NameTargets& names,
+                    NameTargets& names,
                     const QDomElement& panel,
                     const QString& field,
                     TrackerReferenceKind kind,
@@ -126,7 +137,7 @@ void panelReference(TrackerReferenceIndex& result,
     addReference(result, names, kind, path, *name, false);
 }
 
-void viewReferences(TrackerReferenceIndex& result, const NameTargets& names, const QDomElement& panel)
+void viewReferences(TrackerReferenceIndex& result, NameTargets& names, const QDomElement& panel)
 {
     const auto propertyValue = property(panel, "selected_track_views");
     if (propertyValue.element.isNull())
@@ -184,7 +195,7 @@ QDomElement viewObject(const QDomElement& item)
 struct SavedViewReader
 {
     TrackerReferenceIndex& result;
-    const NameTargets& names;
+    NameTargets& names;
     std::size_t entries = 0;
 
     using Array = std::map<unsigned, QDomElement>;
@@ -440,7 +451,7 @@ TrackerReferenceIndex indexTrackerReferences(const TrackerSource& source, const 
             else if (const auto name = stringValue(property(object, "name"), MAX_NAME_UNITS))
             {
                 track.originalName = name->toStdString();
-                names[*track.originalName].push_back(index);
+                names.byName[*track.originalName].push_back(index);
             }
             else
             {

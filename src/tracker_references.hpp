@@ -56,6 +56,7 @@ struct TrackerReferenceIndex
 /// The packed selection codec requires exactly four plot/table pairs; only its "null" tokens mean no target.
 /// Validates persisted bindings but does not require a bound track to remain live. Source XML is unchanged.
 /// Bounds: 10000 tracks and 10000 nested entries, 4096 UTF-16 units per string, 65536 packed units, plus the XML byte cap.
+/// Candidate lists have an aggregate limit of 100000 source indices, checked before copying.
 /// Malformed known fields are reported explicitly. Dataset indices, plot guests, attachments and dependencies are NOT
 /// indexed yet: an empty malformedPaths list is NOT proof that a rename/export is safe.
 [[nodiscard]] TrackerReferenceIndex indexTrackerReferences(const TrackerSource& source, const LegacyProject& project);
