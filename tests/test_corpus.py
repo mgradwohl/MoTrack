@@ -155,7 +155,8 @@ class CorpusTests(unittest.TestCase):
             tracks.append({**identity, "mass": mass["mass"] if mass else None,
                            "samples": [{"frame": sample["frame"], "points": [sample["image"]], "world": sample["world"]}
                                        for sample in mass["samples"]] if mass else []})
-        before = {"name_references": copy.deepcopy(case["session_names"]),
+        before = {"saved_views": copy.deepcopy(case["session_views"]),
+                  "name_references": copy.deepcopy(case["session_names"]),
                   "tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
@@ -196,7 +197,8 @@ class CorpusTests(unittest.TestCase):
             tracks.append({**identity, "mass": mass["mass"] if mass else None,
                            "samples": [{"frame": sample["frame"], "points": [sample["image"]], "world": sample["world"]}
                                        for sample in mass["samples"]] if mass else []})
-        before = {"name_references": copy.deepcopy(case["session_names"]), "tracks": tracks,
+        before = {"saved_views": copy.deepcopy(case["session_views"]),
+                  "name_references": copy.deepcopy(case["session_names"]), "tracks": tracks,
                   "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
@@ -220,6 +222,67 @@ class CorpusTests(unittest.TestCase):
                 state = "after_save" if mode == "changed_after_save" else "after"
                 invalid[state]["name_references"]["selected_track"] = "mass A"
             with self.subTest(mode=mode), self.assertRaises(ValueError):
+                corpus.validate_session(case, invalid, manifest)
+
+    def test_saved_views_require_original_owners_columns_and_formats(self):
+        manifest = corpus.load_manifest()
+        for case_id in ["protractor", "dynamic-sine"]:
+            case = next(case for case in manifest["cases"] if case["id"] == case_id)
+            expected = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
+            tracks = []
+            for identity in case["session_tracks"]:
+                mass = next((mass for mass in expected["point_masses"] if mass["name"] == identity["name"]), None)
+                tracks.append({**identity, "mass": mass["mass"] if mass else None,
+                               "samples": [{"frame": sample["frame"], "points": [sample["image"]], "world": sample["world"]}
+                                           for sample in mass["samples"]] if mass else []})
+            before = {"saved_views": copy.deepcopy(case["session_views"]), "tracks": tracks,
+                      "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                      **corpus.session_units(case, expected)}
+            if "session_names" in case:
+                before["name_references"] = copy.deepcopy(case["session_names"])
+            valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                     "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
+            corpus.validate_session(case, valid, manifest)
+            if case_id == "protractor":
+                changes = [
+                    (["tables", 0, "chooser"], 0),
+                    (["tables", 0, "selected_track"], "protractor A"),
+                    (["tables", 0, "track_columns", 0, 0], "mass B"),
+                    (["tables", 0, "track_columns", 0], ["protractor A", "x", "t"]),
+                    (["tables", 0, "track_columns", 0], ["protractor A", "\u03b8", "t"]),
+                    (["tables", 0, "column_formats", 0, 0], "mass B"),
+                    (["tables", 0, "column_formats", 0, 1], "x"),
+                    (["tables", 0, "column_formats", 0, 2], "0.00"),
+                    (["tables", 0, "dataset_indices"], [["protractor A", "1"]]),
+                    (["tables"], []),
+                ]
+            else:
+                changes = [
+                    (["plots", 0, "chooser"], 1),
+                    (["plots", 0, "selected_track"], "axes"),
+                    (["plots", 0, "track_views", 0, "track"], "axes"),
+                    (["plots", 0, "track_views", 0, "linked"], True),
+                    (["plots", 0, "track_views", 0, "plots", 0, "x_var"], "x"),
+                    (["plots", 0, "track_views", 0, "plots", 0, "y_var"], "x"),
+                    (["plots", 0, "track_views", 0, "plots", 0, "guests"], ["axes"]),
+                    (["plots", 0, "track_views"], []),
+                    (["plots"], []),
+                ]
+            for path, value in changes:
+                # Reject a consistently wrong load as well as changes during saving/reopening.
+                for states in [["before", "after_save", "after"], ["after_save"], ["after"]]:
+                    invalid = copy.deepcopy(valid)
+                    for state in states:
+                        target = invalid[state]["saved_views"]
+                        for key in path[:-1]:
+                            target = target[key]
+                        target[path[-1]] = value
+                    with self.subTest(case=case_id, path=path, states=states), self.assertRaises(ValueError):
+                        corpus.validate_session(case, invalid, manifest)
+            invalid = copy.deepcopy(valid)
+            for state in ["before", "after_save", "after"]:
+                del invalid[state]["saved_views"]
+            with self.subTest(case=case_id, missing=True), self.assertRaises(ValueError):
                 corpus.validate_session(case, invalid, manifest)
 
     def test_center_of_mass_requires_members_and_independent_weighted_positions(self):
@@ -515,7 +578,8 @@ class CorpusTests(unittest.TestCase):
                            "samples": [{"frame": sample["frame"], "points": [sample["image"]], "world": sample["world"]}
                                        for sample in mass["samples"]] if mass else [],
                            "key_frames": keys[index] if mass else None})
-        before = {"name_references": copy.deepcopy(case["session_names"]),
+        before = {"saved_views": copy.deepcopy(case["session_views"]),
+                  "name_references": copy.deepcopy(case["session_names"]),
                   "tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",

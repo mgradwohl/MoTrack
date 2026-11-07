@@ -96,7 +96,7 @@ public final class TrackerReference {
         return coords == null ? null : List.of(coords.imageToWorldX(frame, x, y), coords.imageToWorldY(frame, x, y));
     }
 
-    private static XMLProperty property(XMLControl control, String name) {
+    static XMLProperty property(XMLControl control, String name) {
         if (control != null) for (XMLProperty value : control.getPropsRaw())
             if (value.getPropertyName().equals(name)) return value;
         return null;

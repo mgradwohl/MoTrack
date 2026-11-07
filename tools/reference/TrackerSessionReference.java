@@ -2,9 +2,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -23,6 +25,8 @@ import org.opensourcephysics.cabrillo.tracker.TrackerPanel;
 import org.opensourcephysics.cabrillo.tracker.Vector;
 import org.opensourcephysics.cabrillo.tracker.VectorStep;
 import org.opensourcephysics.controls.XMLControlElement;
+import org.opensourcephysics.controls.XMLControl;
+import org.opensourcephysics.controls.XMLProperty;
 import org.opensourcephysics.display.OSPRuntime;
 import org.opensourcephysics.media.core.ImageCoordSystem;
 import org.opensourcephysics.media.core.TPoint;
@@ -193,6 +197,7 @@ public final class TrackerSessionReference {
             "step_size", clip.getStepSize(), "step_count", clip.getStepCount(), "start_ms", clip.getStartTime()),
             "length_unit", panel.getLengthUnit(), "mass_unit", panel.getMassUnit(),
             "name_references", nameReferences(panel),
+            "saved_views", savedViews(panel),
             "centers_of_mass", centers,
             "calibration", TrackerReference.map("fixed_origin", coords.isFixedOrigin(), "fixed_angle", coords.isFixedAngle(),
                 "fixed_scale", coords.isFixedScale(), "keys", calibrationKeys),
@@ -223,5 +228,87 @@ public final class TrackerSessionReference {
         return TrackerReference.map("selected_track", selected == null ? null : selected.getName(),
             "view_tracks", selections,
             "packed_view_tracks", new XMLControlElement(panel).getString("selected_track_views"));
+    }
+
+    // Capture the normal serializers of live, loaded views. Do not instantiate saved TrackView
+    // controls: their loaders require the existing panel/track context. Only primitive string
+    // arrays are decoded with getObject. Owner-map order is immaterial; visible column and plot
+    // order remains significant. This deliberately excludes transient autoscale/rendering state.
+    private static Map<String, Object> savedViews(TrackerPanel panel) {
+        TView[][] views = panel.getTFrame().getTViews(panel, false);
+        List<Object> tables = new ArrayList<>();
+        List<Object> plots = new ArrayList<>();
+        for (int chooser = 0; chooser < views.length; chooser++) {
+            TView table = views[chooser][TView.VIEW_TABLE];
+            if (table != null) {
+                XMLControl control = new XMLControlElement(table);
+                List<List<String>> columns = stringRows(control.getObject("track_columns"), 0);
+                List<List<String>> indices = stringRows(control.getObject("dataset_indices"), 2);
+                List<List<String>> formats = new ArrayList<>();
+                Object raw = control.getObject("column_formats");
+                if (raw != null) {
+                    if (!(raw instanceof String[][][] groups) || groups.length > 10000)
+                        throw new IllegalStateException("Unexpected table format groups");
+                    for (String[][] group : groups) {
+                        List<List<String>> rows = stringRows(group, 3);
+                        if (rows.isEmpty()) throw new IllegalStateException("Empty table format group");
+                        String owner = rows.get(0).get(0);
+                        for (List<String> row : rows) {
+                            if (!owner.equals(row.get(0))) throw new IllegalStateException("Mixed table format owners");
+                            formats.add(row);
+                            if (formats.size() > 10000) throw new IllegalStateException("Table format limit exceeded");
+                        }
+                    }
+                }
+                formats.sort(Comparator.<List<String>, String>comparing(row -> row.get(0)).thenComparing(row -> row.get(1)));
+                if (!columns.isEmpty() || !formats.isEmpty() || !indices.isEmpty())
+                    tables.add(TrackerReference.map("chooser", chooser, "selected_track", control.getString("selected_track"),
+                        "track_columns", columns, "column_formats", formats, "dataset_indices", indices));
+            }
+            TView plot = views[chooser][TView.VIEW_PLOT];
+            if (plot != null) {
+                XMLControl control = new XMLControlElement(plot);
+                XMLProperty property = TrackerReference.property(control, "track_views");
+                Map<String, Object> owners = new TreeMap<>();
+                if (property != null) {
+                    XMLControl[] children = property.getChildControls();
+                    if (children.length > 10000) throw new IllegalStateException("Plot owner limit exceeded");
+                    for (XMLControl child : children) {
+                        List<Object> settings = new ArrayList<>();
+                        // The pinned application supports up to three ordered plots per track.
+                        for (int index = 0; index < 3; index++) {
+                            XMLControl item = child.getChildControl("plot" + index);
+                            if (item == null) break;
+                            Object guests = item.getObject("guests");
+                            if (guests != null && (!(guests instanceof String[]) || ((String[]) guests).length > 10000))
+                                throw new IllegalStateException("Unexpected plot guests");
+                            settings.add(TrackerReference.map("x_var", item.getString("x_var"), "y_var", item.getString("y_var"),
+                                "guests", guests == null ? List.of() : List.of((String[]) guests)));
+                        }
+                        String owner = child.getString("track");
+                        if (owner == null || settings.isEmpty() || owners.put(owner, TrackerReference.map("track", owner,
+                                "linked", child.getBoolean("linked"), "plots", settings)) != null)
+                            throw new IllegalStateException("Invalid or duplicate plot owner");
+                    }
+                }
+                if (!owners.isEmpty()) plots.add(TrackerReference.map("chooser", chooser,
+                    "selected_track", control.getString("selected_track"), "track_views", new ArrayList<>(owners.values())));
+            }
+        }
+        return TrackerReference.map("tables", tables, "plots", plots);
+    }
+
+    private static List<List<String>> stringRows(Object value, int width) {
+        List<List<String>> result = new ArrayList<>();
+        if (value == null) return result;
+        if (!(value instanceof String[][] rows) || rows.length > 10000)
+            throw new IllegalStateException("Unexpected table rows");
+        for (String[] row : rows) {
+            if (row == null || row.length == 0 || row.length > 10000 || (width != 0 && row.length != width))
+                throw new IllegalStateException("Unexpected table row");
+            result.add(List.of(row));
+        }
+        result.sort(Comparator.comparing(row -> row.get(0)));
+        return result;
     }
 }
