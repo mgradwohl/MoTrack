@@ -501,7 +501,7 @@ evidence does not provide native multi-tab workspace editing or expand the suppo
 
 
 
-### Paired standard and native output (internal adapter; acceptance pending)
+### Paired standard and native output (internal adapter)
 
 The [paired-saving contract](paired-saving.md) defines sibling `.trk`/`.trz` plus `.motrack` output,
 separate atomic replacements, bounded journaling, explicit conflict-safe recovery and per-output
@@ -509,3 +509,8 @@ results. The adapter stages and validates both files, commits standard first, an
 data after interruption. It reuses the supported standard writers and does not broaden their schemas.
 Native desktop Save now shares its physical media-path rebasing helper with this adapter. Desktop
 standard actions, per-output history checkpoints and recovery prompts remain to be implemented.
+
+Both recovered linked-image and archived-image modes passed actual Tracker load/save/fresh reopen
+and native reimport at `32c21d6`, Linux job 128747171486 in
+[run 42485770063](https://github.com/mgradwohl/MoTrack/actions/runs/42485770063). Later review fixes
+still require current-revision CI; desktop paired Save remains a separate implementation slice.

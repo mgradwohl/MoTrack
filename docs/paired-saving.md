@@ -95,12 +95,15 @@ remove only the transaction's files. This exercises process interruption, not po
 Two additional corpus modes interrupt a pair after its standard commit, recover it, and reopen the
 native companion before passing the recovered standard file through the existing independent
 XML/ZIP/media oracle and actual Tracker load/save/fresh-process reopen/native-reimport gate.
-Those application results must pass in Linux CI before this slice can be accepted.
+Both application modes passed at `32c21d6` (the downstream checkpoint branch), Linux job
+128747171486 in [run 42485770063](https://github.com/mgradwohl/MoTrack/actions/runs/42485770063).
+The same run passed Windows/macOS/Linux builds, both setup checks and combined coverage.
+Subsequent fixes still require current-revision CI and review.
 
 Local Windows validation on 2026-11-08: all six CTest suites passed, including process-loss recovery;
 combined production coverage was 95.32% (7632/8007 lines). Formatting and clang-tidy passed, as did
 76 corpus-harness tests, native corpus checks and both recovered-export XML/media/ZIP oracles.
-These local results do not substitute for the pending Linux/macOS and actual Tracker application gates.
+These local results are separate from the later three-platform/application evidence above.
 
 
 Long operations disable Qt's age-based lock expiry with `setStaleLockTime(0)` while retaining
@@ -109,5 +112,7 @@ A regression copies a live owner's lock identity to an aged claim without an OS 
 so timeout-based theft cannot be masked by native locking support. Both new writes and recovery
 must refuse that claim; the separate terminated-child regression still proves dead-owner recovery.
 
-After review fixes, all six Windows suites and formatting/clang-tidy pass; coverage is 95.33%
-(7656/8031). Both recovered-export oracles still pass. Current-head CI/application acceptance remains pending.
+After the destination-status review fixes in `7d04cd4`, all six Windows suites and formatting/clang-tidy
+pass; coverage is 95.34% (7679/8054). Both output statuses are refreshed before reporting conflicts or
+read failures, so an early conflict cannot hide or falsely retain a companion commit. The inherited
+source-digest and standalone-media corrections require the next combined current-revision CI run.

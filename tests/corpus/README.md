@@ -974,3 +974,7 @@ independent XML/ZIP, pixel, timing, geometry, actual Tracker resave/fresh-reopen
 checks as the direct export cases. These modes add recovery acceptance; they do not replace direct
 writer coverage or establish desktop paired Save availability. The native test executable separately
 launches a bounded child probe that exits without destructors and recovers its stale-lock transaction.
+
+Both paired modes passed at `32c21d6`, Linux job 128747171486 in
+[run 42485770063](https://github.com/mgradwohl/MoTrack/actions/runs/42485770063). Later revisions
+must continue passing these complete application checks, including independent expected values.
