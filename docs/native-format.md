@@ -421,3 +421,5 @@ through save and fresh reopen. This application acceptance remains required befo
 Movie engines, filters and archive members need their own audited path/timing contracts. Archive
 packaging will preserve untouched members and feed the paired-save transaction/recovery layer;
 standard Save UI follows that layer. This internal adapter is not full R03 completion.
+
+Desktop sessions retain resolved local media locations separately from serialized references when opening a project. Native Save As and linked-image standard export can therefore rebase those locations even after the original project and its empty directory are removed. These runtime bindings are rebuilt on open and are not serialized; changing a media source must rebuild them. Native saving rejects an unresolved local rebase before replacing the destination.

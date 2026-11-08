@@ -1293,7 +1293,7 @@ void writeTrackerDocument(const QString& path, const WorkspaceDocument& document
         for (auto& reference : project.clip.mediaReferences)
         {
             requireLocalReference(reference);
-            const auto resolved = resolveLocalMediaPath(mediaProjectPath, reference);
+            const auto resolved = workspaceMediaPath(document, mediaProjectPath, reference);
             require(!resolved.isEmpty() && resolved != targetDirectory.filePath(QFileInfo(path).fileName()) &&
                     (QFileInfo(path).canonicalFilePath().isEmpty() ||
                      QFileInfo(path).canonicalFilePath() != QFileInfo(resolved).canonicalFilePath()));
