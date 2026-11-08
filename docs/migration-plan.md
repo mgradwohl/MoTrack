@@ -36,8 +36,8 @@ scope decisions. Record deliberate behavior changes, including corrections to re
 
 ## Current implementation and evidence
 
-Snapshot: **2026-11-07**, merged `main` at
-[`14c6057`](https://github.com/mgradwohl/MoTrack/commit/14c605737cdc3a590b12cc5b0d85593154f23e21).
+Snapshot: **2026-11-08**, merged `main` at
+[`d63eb12`](https://github.com/mgradwohl/MoTrack/commit/d63eb12ebd919979d22ab67e61f35481c741b943).
 [PR #34](https://github.com/mgradwohl/MoTrack/pull/34) added independent vector editing,
 [PR #36](https://github.com/mgradwohl/MoTrack/pull/36) the reference corpus,
 [PR #38](https://github.com/mgradwohl/MoTrack/pull/38) actual Java application resave checks,
@@ -66,11 +66,21 @@ vector-reconstruction safeguards,
 [PR #60](https://github.com/mgradwohl/MoTrack/pull/60) bounded native saved-view owner indexing,
 [PR #61](https://github.com/mgradwohl/MoTrack/pull/61) the classified vector-sum reference defect, and
 [PR #62](https://github.com/mgradwohl/MoTrack/pull/62) dependent-member indexing and the edited
-vector-sum export safeguard. Windows,
-macOS, Linux, setup, and coverage checks passed in
-[CI run 42381811578](https://github.com/mgradwohl/MoTrack/actions/runs/42381811578): combined production
-line coverage **94.35% (5432/5757)**. The keyed-calibration and mass-unit writer PRs also passed actual
+vector-sum export safeguard.
+[PR #120](https://github.com/mgradwohl/MoTrack/pull/120) adds audited linked-image export and physical
+media-location preservation through native Save As, restored aliases and long filenames. Its reviewed
+head `6e8f1c3` passed Windows, macOS, Linux, setup and coverage checks in
+[CI run 42532296270](https://github.com/mgradwohl/MoTrack/actions/runs/42532296270): combined production
+line coverage **95.16% (7149/7513)**, including actual Tracker edited-file save/reopen acceptance.
+The keyed-calibration and mass-unit writer PRs also passed actual
 Tracker edited-file load/save/reopen and native reimport before merging. This verifies the implemented slice, not full Tracker equivalence.
+
+Archive member editing, multi-experiment archive acceptance, paired recovery/checkpoints, desktop
+paired saving, portable image packages and movie acceptance/export remain in the dependent
+[PR #121](https://github.com/mgradwohl/MoTrack/pull/121) through
+[PR #133](https://github.com/mgradwohl/MoTrack/pull/133) sequence. Their scoped implementation and
+evidence below do not imply that every change in that sequence is merged. Each updated head still
+requires its own CI and passing review; R03 and the full-port completion contract remain open.
 
 Implemented and tested workflows include local movie/image opening, playback and indexed stepping,
 clip limits, a reusable background decoder with a bounded cache, cancellation of superseded opens,
