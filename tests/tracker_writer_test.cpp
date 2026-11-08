@@ -1135,6 +1135,22 @@ TEST(TrackerWriter, DeletedPlotOwnersAndGuestsStayDeletedThroughNativeReopenAndL
         }
         const auto bytes = motrack::renderTrackerProject(document.project, *document.trackerSource);
         auto output = motrack::parseTrackerProject(bytes);
+        // The pinned OSP reader consumes array/collection properties line by line, unlike
+        // Qt's general XML reader. A surviving child must not share its container's line.
+        for (const std::string field : {"guests", "track_views"})
+        {
+            const auto name = "name=\"" + field + "\"";
+            for (auto position = bytes.find(name); position != std::string::npos; position = bytes.find(name, position + name.size()))
+            {
+                const auto end = bytes.find('>', position);
+                ASSERT_NE(end, std::string::npos);
+                if (bytes[end - 1] != '/')
+                {
+                    ASSERT_LT(end + 1, bytes.size());
+                    EXPECT_EQ(bytes[end + 1], '\n') << field;
+                }
+            }
+        }
         ASSERT_EQ(output.project.pointMasses.size(), expected.size());
         for (std::size_t i = 0; i < expected.size(); ++i)
         {

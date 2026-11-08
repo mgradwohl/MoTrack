@@ -709,6 +709,10 @@ void patchTrackerDeletedReferences(QDomDocument& xml, const LegacyProject& proje
             }
             node = next;
         }
+        for (auto item = parent.firstChildElement(); !item.isNull(); item = item.nextSiblingElement())
+            parent.insertBefore(xml.createTextNode("\n"), item);
+        if (parent.hasChildNodes())
+            parent.appendChild(xml.createTextNode("\n"));
     }
 }
 
