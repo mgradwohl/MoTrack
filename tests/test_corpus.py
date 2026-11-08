@@ -879,6 +879,12 @@ class CorpusTests(unittest.TestCase):
             corpus.project_path({"id": "example", "file": "sample.trz", "project_member": "project.trk"}, self.root)
 
     def test_manifest_rejects_duplicate_ids_and_escaping_paths(self):
+        missing_version = corpus.load_manifest()
+        del missing_version["cases"][0]["tracker_version"]
+        missing_path = self.root / "missing-version.json"
+        missing_path.write_text(json.dumps(missing_version), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "original Tracker version"):
+            corpus.load_manifest(missing_path)
         manifest = corpus.load_manifest()
         manifest["cases"].append(manifest["cases"][0])
         path = self.root / "manifest.json"
