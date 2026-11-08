@@ -300,6 +300,37 @@ class CorpusTests(unittest.TestCase):
                         corpus.validate_session(updated, invalid, manifest, expected)
         self.assertEqual(case, original_case)
 
+    def test_model_booster_rename_changes_only_the_label_and_booster_reference(self):
+        manifest = corpus.load_manifest()
+        case = next(case for case in manifest["cases"] if case["id"] == "model-dependencies")
+        baseline = copy.deepcopy(case)
+        source = corpus.local_fixture_path(case).read_text(encoding="utf-8")
+        before, after = source.rsplit("</object>", 1)
+        source = before + '<property name="description" type="string">mass A</property>\n</object>' + after
+        original, exported = self.root / "model-source.trk", self.root / "model-export.trk"
+        original.write_text(source, encoding="utf-8")
+        text = source
+        for field in ["name", "booster"]:
+            text = text.replace(f'name="{field}" type="string">mass A</property>',
+                                f'name="{field}" type="string"><![CDATA[{corpus.RENAME_LABEL}]]></property>')
+        exported.write_text(text, encoding="utf-8")
+        corpus.verify_rename_export_xml(original, exported, "model-booster-name")
+        for old, new in [('name="description" type="string">mass A', 'name="description" type="string">changed'),
+                         ('name="function" type="string">100', 'name="function" type="string">0'),
+                         ('name="expression" type="string">0', 'name="expression" type="string">1'),
+                         ('name="[1]" type="string">particle B', 'name="[1]" type="string">particle A'),
+                         ('name="selectedtrack" type="string">system', 'name="selectedtrack" type="string">mass A')]:
+            self.assertIn(old, text)
+            exported.write_text(text.replace(old, new, 1), encoding="utf-8")
+            with self.subTest(change=old), self.assertRaises(ValueError):
+                corpus.verify_rename_export_xml(original, exported, "model-booster-name")
+        expected, updated = corpus.rename_roundtrip_expected(case, "model-booster-name")
+        self.assertEqual(expected["point_masses"][0]["name"], corpus.RENAME_LABEL)
+        self.assertEqual(updated["session_models"][1]["booster"], corpus.RENAME_LABEL)
+        self.assertEqual(updated["session_models"][1]["samples"], case["session_models"][1]["samples"])
+        self.assertEqual(updated["session_models"][2], case["session_models"][2])
+        self.assertEqual(case, baseline)
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix="motrack-corpus-test-")
         self.addCleanup(self.directory.cleanup)
@@ -658,39 +689,47 @@ class CorpusTests(unittest.TestCase):
         manifest = corpus.load_manifest()
         case = next(case for case in manifest["cases"] if case["id"] == "model-dependencies")
         expected = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
-        tracks = []
-        for identity in case["session_tracks"]:
-            mass = next((mass for mass in expected["point_masses"] if mass["name"] == identity["name"]), None)
-            tracks.append({**identity, "mass": mass["mass"] if mass else None,
-                           "samples": [{"frame": s["frame"], "points": [s["image"]], "world": s["world"]}
-                                       for s in mass["samples"]] if mass else []})
-        before = {"models": copy.deepcopy(case["session_models"]), "tracks": tracks,
-                  "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
-                  **corpus.session_units(case, expected)}
-        valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                 "view_preparation": "visit_custom_tables_restore_selection",
-                 "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
-        corpus.validate_session(case, valid, manifest)
-        changes = [([1, "booster"], None), ([1, "booster"], "wrong"), ([2, "particles"], []),
-                   ([2, "particles"], ["particle B", "particle A"]), ([2, "particles"], ["particle A", "particle A"]),
-                   ([2, "mass"], 0.0), ([0, "mass"], 3.0), ([1, "samples"], []),
-                   ([1, "samples", 0, "world"], [100.0, 100.0]), ([1, "samples", 0, "image"], [220.0, -160.0]),
-                   ([2, "samples", 2, "world"], [2.0, 3.0]), ([2, "samples", 2, "frame"], 3)]
-        for path, value in changes:
-            for states in [["before", "after_save", "after"], ["after_save"], ["after"]]:
-                invalid = copy.deepcopy(valid)
-                for state in states:
-                    target = invalid[state]["models"]
-                    for key in path[:-1]:
-                        target = target[key]
-                    target[path[-1]] = value
-                with self.subTest(path=path, states=states), self.assertRaises(ValueError):
-                    corpus.validate_session(case, invalid, manifest)
-        invalid = copy.deepcopy(valid)
-        for state in ["before", "after_save", "after"]:
-            del invalid[state]["models"]
-        with self.assertRaises(ValueError):
-            corpus.validate_session(case, invalid, manifest)
+        original = copy.deepcopy(case)
+        for renamed in [False, True]:
+            if renamed:
+                expected, case = corpus.rename_roundtrip_expected(original, "model-booster-name")
+            tracks = []
+            for identity in case["session_tracks"]:
+                mass = next((mass for mass in expected["point_masses"] if mass["name"] == identity["name"]), None)
+                tracks.append({**identity, "mass": mass["mass"] if mass else None,
+                               "samples": [{"frame": s["frame"], "points": [s["image"]], "world": s["world"]}
+                                           for s in mass["samples"]] if mass else []})
+            before = {"models": copy.deepcopy(case["session_models"]), "tracks": tracks,
+                      "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                      **corpus.session_units(case, expected)}
+            if renamed:
+                before["name_references"] = {"selected_track": "system"}
+            valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                     "view_preparation": "visit_custom_tables_restore_selection",
+                     "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
+            corpus.validate_session(case, valid, manifest, expected)
+            changes = [([1, "booster"], None), ([1, "booster"], "wrong"), ([2, "particles"], []),
+                       ([2, "particles"], ["particle B", "particle A"]), ([2, "particles"], ["particle A", "particle A"]),
+                       ([2, "mass"], 0.0), ([0, "mass"], 3.0), ([1, "samples"], []),
+                       ([1, "samples", 0, "world"], [100.0, 100.0]), ([1, "samples", 0, "image"], [220.0, -160.0]),
+                       ([2, "samples", 2, "world"], [2.0, 3.0]), ([2, "samples", 2, "frame"], 3),
+                       ([0, "functions", 0, "expression"], "1"), ([1, "functions", 1, "name"], "wrong"),
+                       ([2, "functions"], [])]
+            for path, value in changes:
+                for states in [["before", "after_save", "after"], ["after_save"], ["after"]]:
+                    invalid = copy.deepcopy(valid)
+                    for state in states:
+                        target = invalid[state]["models"]
+                        for key in path[:-1]:
+                            target = target[key]
+                        target[path[-1]] = value
+                    with self.subTest(path=path, states=states), self.assertRaises(ValueError):
+                        corpus.validate_session(case, invalid, manifest, expected)
+            invalid = copy.deepcopy(valid)
+            for state in ["before", "after_save", "after"]:
+                del invalid[state]["models"]
+            with self.assertRaises(ValueError):
+                corpus.validate_session(case, invalid, manifest, expected)
 
     def test_vector_sum_requires_members_recomputed_components_and_missing_frames(self):
         manifest = corpus.load_manifest()

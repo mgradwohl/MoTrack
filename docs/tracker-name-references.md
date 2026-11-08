@@ -165,7 +165,7 @@ column labels and format patterns remain data. No global text replacement is use
 Eligibility additionally requires the explicitly audited media-free schema in
 [`tracker_rename.cpp`](../src/tracker_rename.cpp): axes, point masses, independent vectors, unattached protractors and table/modern plot
 settings, together with their numeric geometry, color, clip and toolbar fields. Unrecognized properties,
-attributes/classes, model/function data, other attachment modes, reference frames, legacy/scaled plot fields and dataset
+attributes/classes, other model/function data, other attachment modes, reference frames, legacy/scaled plot fields and dataset
 rows reject rename export, even when the partial reference index has no malformed paths. The original
 source and native document remain available. Extend this allowlist only alongside application acceptance.
 
@@ -298,3 +298,24 @@ and [#13](https://github.com/OpenSourcePhysics/tracker/issues/13) were refreshed
 attachments; it does not implement the native two-click calibration workflow or resolve
 [MoTrack #78](https://github.com/mgradwohl/MoTrack/issues/78). Protractor/circle attachments, missing
 marked target frames, cyclic dependencies and native persistent tool editing remain separate work.
+
+## Measured model-booster rename
+
+The model-booster-name case renames the measured mass A that supplies particle B's initial state.
+The source gate admits audited Cartesian DynamicParticle/DynamicSystem records, Parameter and
+UserFunction fields, with dense nonempty parameter/function arrays, unique names within each array,
+and two main force functions. Each particle is explicitly in a system, belongs to exactly one
+two-member system, and has a measured PointMass booster if present. Missing/ambiguous references,
+repeated/shared system members, orphan particles, unknown subclasses, support-function fields,
+malformed arrays and incomplete function records reject export before replacement.
+
+Only the measured PointMass label and its booster reference change. Parameter and expression strings
+remain data, with a complete-source comparison retaining their original values and an unrelated
+old-name note. Application acceptance requires the same system membership/order, masses 1/3/4 and
+world positions (1,2), (3,4), (2.5,3.5) at frames 0/1/2, selected system and zero-force function names
+and expressions through normal Tracker save/fresh reopen. The deliberately stale (100,100) initial
+source position for boosted particle B must resolve normally to (3,4); the harness does not repair it.
+
+This preserves a covered reference while renaming a measured track. Native dynamic models, solvers,
+model/parameter editing, polar/interaction cases, arbitrary parameter fidelity and broader model
+export remain unfinished under R19. This is not a new native modeling feature.

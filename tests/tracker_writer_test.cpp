@@ -717,6 +717,78 @@ TEST(TrackerWriter, RejectsPlotDefinitionsThatJavaWouldCoalesceBeforeReplacingDe
     }
 }
 
+TEST(TrackerWriter, RenamesModelBoosterAfterNativeHistoryWithoutChangingSystemOrFunctions)
+{
+    const auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/model-dependencies.trk");
+    const auto imported = motrack::parseTrackerProject(xml);
+    const auto before = motrack::indexTrackerReferences(imported.source, imported.project);
+    motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+    motrack::TrackEdits edits;
+    const auto name = QString::fromUtf8("élève β & <B>").toStdString();
+    ASSERT_TRUE(edits.renamePointMass(document.project, 0, "temporary"));
+    ASSERT_TRUE(edits.renamePointMass(document.project, 0, name));
+    ASSERT_TRUE(edits.undo(document.project));
+    ASSERT_TRUE(edits.redo(document.project));
+    ASSERT_TRUE(edits.removePointMass(document.project, 0));
+    ASSERT_TRUE(edits.undo(document.project));
+    QTemporaryDir temporary;
+    const auto native = temporary.filePath("model-booster-name.motrack");
+    motrack::writeWorkspaceDocument(native, document);
+    document = motrack::readWorkspaceDocument(native);
+    if (!document.trackerSource)
+    {
+        FAIL() << "Native reopen lost the original model source.";
+    }
+    const auto output = motrack::parseTrackerProject(motrack::renderTrackerProject(document.project, *document.trackerSource));
+    auto expected = imported.project;
+    expected.pointMasses[0].name = name;
+    EXPECT_EQ(output.project, expected);
+    const auto after = motrack::indexTrackerReferences(output.source, output.project);
+    ASSERT_EQ(after.references.size(), before.references.size());
+    ASSERT_EQ(after.references.size(), 4u);
+    for (std::size_t i = 0; i < before.references.size(); ++i)
+    {
+        EXPECT_EQ(after.references[i].path, before.references[i].path);
+        EXPECT_EQ(after.references[i].candidateSourceIndices, before.references[i].candidateSourceIndices);
+        EXPECT_EQ(after.references[i].resolution, before.references[i].resolution);
+        EXPECT_EQ(after.references[i].originalName,
+                  before.references[i].originalName == "mass A" ? name : before.references[i].originalName);
+    }
+    EXPECT_EQ(document.trackerSource->xml, xml);
+}
+
+TEST(TrackerWriter, RejectsUnknownOrLossyModelDependenciesAndFunctionDefinitionsBeforeReplacement)
+{
+    const auto original = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/model-dependencies.trk");
+    const auto unchanged = motrack::parseTrackerProject(original);
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    motrack::writeTrackerProject(destination, unchanged.project, unchanged.source);
+    for (const auto& [from, to] : std::vector<std::pair<std::string, std::string>>{
+             {R"(name="booster" type="string">mass A)", R"(name="booster" type="string">particle A)"},
+             {R"(name="booster" type="string">mass A)", R"(name="booster" type="string">missing)"},
+             {R"(name="[1]" type="string">particle B)", R"(name="[1]" type="string">particle A)"},
+             {R"(name="[1]" type="string">particle B)", R"(name="[2]" type="string">particle B)"},
+             {R"(name="in_system" type="boolean">true)", R"(name="in_system" type="boolean">false)"},
+             {R"(name="user_parameters")", R"(name="support_functions")"},
+             {R"(name="name" type="string">y</property>)", R"(name="name" type="string">x</property>)"},
+             {R"(name="name" type="string">fy</property>)", R"(name="name" type="string">fx</property>)"},
+             {R"(<property name="function" type="string">1.0</property>)", ""},
+             {R"(<property name="expression" type="string">0</property>)", ""},
+             {"class=\"org.opensourcephysics.cabrillo.tracker.DynamicParticle\"",
+              "class=\"org.opensourcephysics.cabrillo.tracker.DynamicParticlePolar\""}})
+    {
+        SCOPED_TRACE(from);
+        auto xml = original;
+        ASSERT_NE(xml.find(from), std::string::npos);
+        xml.replace(xml.find(from), from.size(), to);
+        auto imported = motrack::parseTrackerProject(xml);
+        imported.project.pointMasses[0].name = "renamed";
+        EXPECT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
+        EXPECT_TRUE(readBytes(destination) == original);
+    }
+}
+
 TEST(TrackerWriter, BoundsRenameSchemaAndRejectsUnclassifiedFieldsAndEncodings)
 {
     for (const auto& [from, to] : std::vector<std::pair<std::string, std::string>>{

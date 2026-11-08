@@ -581,6 +581,7 @@
     },
     {
       "id": "model-dependencies",
+      "native_model_name_roundtrip": true,
       "file": "model-dependencies.trk",
       "local_file": "fixtures/model-dependencies.trk",
       "sha256": "fad9b0f4dff4f4f8d3e755f0f5ba0fc3353a19c03055d7e6a67eaa88656d26dc",
@@ -627,6 +628,10 @@
           "mass": 1,
           "booster": null,
           "particles": [],
+          "functions": [
+            {"name": "fx", "expression": "0"},
+            {"name": "fy", "expression": "0"}
+          ],
           "samples": [
             {
               "frame": 0,
@@ -668,6 +673,10 @@
           "mass": 3,
           "booster": "mass A",
           "particles": [],
+          "functions": [
+            {"name": "fx", "expression": "0"},
+            {"name": "fy", "expression": "0"}
+          ],
           "samples": [
             {
               "frame": 0,
@@ -711,6 +720,10 @@
           "particles": [
             "particle A",
             "particle B"
+          ],
+          "functions": [
+            {"name": "fr_internal", "expression": "0"},
+            {"name": "fθ_internal", "expression": "0"}
           ],
           "samples": [
             {

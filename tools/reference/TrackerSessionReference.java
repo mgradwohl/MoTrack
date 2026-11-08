@@ -327,6 +327,9 @@ public final class TrackerSessionReference {
             if (track instanceof DynamicParticle model) {
                 XMLControlElement live = new XMLControlElement(model);
                 String[] members = model instanceof DynamicSystem ? (String[]) live.getObject("particles") : null;
+                List<Object> functions = new ArrayList<>();
+                for (XMLControl function : TrackerReference.objects(TrackerReference.property(live, "main_functions")))
+                    functions.add(TrackerReference.map("name", function.getString("name"), "expression", function.getString("expression")));
                 List<Object> positions = new ArrayList<>();
                 for (Step step : steps) if (step != null) {
                     int frame = step.getFrameNumber();
@@ -336,7 +339,7 @@ public final class TrackerSessionReference {
                 }
                 models.add(TrackerReference.map("name", model.getName(), "mass", model.getMass(),
                     "booster", live.getString("booster"), "particles", members == null ? List.of() : Arrays.asList(members),
-                    "samples", positions));
+                    "samples", positions, "functions", functions));
             }
             if (track instanceof TapeMeasure tape && tape.isAttached()) {
                 List<String> targets = new ArrayList<>();

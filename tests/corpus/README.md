@@ -517,3 +517,15 @@ attached flags and independent lengths at frames 0/1/2 through save and fresh-pr
 selected tape remains both ends. Consistently stale targets, filled empty slots, changed lengths or
 endpoints, lost tapes and wrong selection all fail the negative oracle. Native reimport also runs.
 Only the documented read-only, fixed, non-calibrating tape subset is eligible for rename export.
+
+
+The `model-booster-name` mode renames the one measured PointMass in the pinned model-dependencies
+fixture after repeated edits, undo/redo and native save/reopen. Only its label and particle B's
+booster string may change in the complete-source comparison; parameters, functions, member order
+and an old-name note remain intact. Both original and renamed application cases independently
+require masses 1/3/4, positions (1,2)/(3,4)/(2.5,3.5) across frames 0/1/2 and unchanged zero-force
+expressions. The function names fx/fy and fr_internal/fθ_internal and expressions 0 are transcribed
+from the pinned source, not generated from native or live resave output. Wrong expressions/functions,
+booster references, missing/reordered members and stale boosted coordinates fail even if all three
+snapshots agree. Java load/save/fresh-process reopen and native reimport provide final acceptance
+in Linux CI. Native model evaluation/editing and broader parameter fidelity remain unfinished.
