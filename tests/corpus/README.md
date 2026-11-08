@@ -812,7 +812,7 @@ still unfinished, so [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/6
 [TableOwnersFixture.java](../../tools/reference/TableOwnersFixture.java) authors the same independent
 three-mass geometry as the plot fixture with Tracker's real track/coordinate serializers and OSP's
 public XML API. It defines one table chooser containing three custom owners: mass A has columns
-`t,x,y`, mass B `t,y,x`, and mass C `t,x`, with distinct decimal formats. Its LF-normalized bytes are
+`t,x,y`, mass B `t,y,x`, and mass C `t,x,y`, with distinct decimal formats. Its LF-normalized bytes are
 checksum-pinned in the manifest; two independent bounded headless generations produced identical
 bytes. Java coordinate-API and native snapshots agree with the independently specified geometry.
 The source-reference oracle independently specifies original identities, column rows and grouped
@@ -839,10 +839,19 @@ table retains its saved selection or applies the deletion fallback. The independ
 expectation includes all three view instances, including when every remaining selection is null.
 The fixture explicitly selects the table in chooser 0 so the normal visible-table refresh path
 is exercised; merely loading a hidden custom table does not satisfy the visited-view baseline.
-If selection alone leaves null columns, the harness tries one normal player frame change and
-restores the original frame before checking again. It never patches a table model, retries the
-application or accepts missing columns. This extends the explicit visited/refreshed-view workflow;
-it remains distinct from immediate resave and does not close the native table-refresh issue.
+The original two-column mass C variant is retained as checksum-pinned `table-owners-subset.trk`,
+reproducible with the generator's `subset` argument. Tracker 6.3.5 continuously reports null columns
+for its visible `t,x` row after normal selection; a separate bounded experiment with one normal
+frame change/restoration did not recover it. Both observations are linked in
+[MoTrack #64](https://github.com/mgradwohl/MoTrack/issues/64). The ineffective frame workaround was
+removed. This variant remains a native/reference-geometry and source-index case, explicitly excluded
+from application round-trip acceptance; the manifest rejects enabling acceptance flags on it.
+
+Changed standard exports retaining the known point-mass `t,x` subset are refused before replacing
+the destination. Native saving retains it, and an unchanged standard rendering preserves its bytes.
+Removing that owner is allowed: its output is byte-identical to removing the same owner from the
+full-column fixture. This guards a known reference loss rather than accepting nulls or claiming all
+column subsets are compatible. The full-column fixture still tests distinct order, formats and owners.
 
 Baseline and edited Tracker application load/save/fresh-process reopen, native reimport, all-platform
 CI and the unchanged coverage gate are required before accepting this slice. These media-free cases

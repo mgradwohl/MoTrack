@@ -110,6 +110,20 @@
         ]
       }
     },
+    {
+      "tracker_version": "6.3.5",
+      "expected": "expected/table-owners.json",
+      "native_reference_index": "expected/table-owners-references.json",
+      "id": "table-owners-subset",
+      "file": "table-owners-subset.trk",
+      "local_file": "fixtures/table-owners-subset.trk",
+      "sha256": "2a93db64ddb884748c95cb19c6238182813883e7ed6940d4a3b9b1d1a8545aa3",
+      "bytes": 12539,
+      "session_exclusion": {
+        "issue": "https://github.com/mgradwohl/MoTrack/issues/64",
+        "reason": "Tracker 6.3.5 keeps null columns for the visible mass C t,x subset; selection and one normal frame refresh fail. Not accepted round-trip evidence."
+      }
+    },
     {"id": "mixed-calibration-1","native_mixed_calibration_roundtrip": true,"mixed_calibration_flags": 1,"local_file": "fixtures/mixed-calibration-1.trk","file": "mixed-calibration-1.trk","bytes": 6637,"sha256": "528ea4d862cfc4073032fa3519e92b96f4d7ae36ec75aa94ec7baf5c671112d2","tracker_version": "6.3.5","features": ["partly-fixed-calibration","nonuniform-scale","key-boundaries","java-authored-synthetic"],"requirements": ["R02","R03","R09"],"expected": "expected/mixed-calibration-1.json","session_tracks": [{"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes","name": "axes"},{"class": "org.opensourcephysics.cabrillo.tracker.PointMass","name": "calibration probe"}],"provenance": "Public setters and serializers in pinned Tracker 6.3.5; two independent Java authoring runs reproduced identical bytes; baseline coordinates also checked by independent quadrant arithmetic."},
     {"id": "mixed-calibration-2","native_mixed_calibration_roundtrip": true,"mixed_calibration_flags": 2,"local_file": "fixtures/mixed-calibration-2.trk","file": "mixed-calibration-2.trk","bytes": 6640,"sha256": "f941cec2e4a59401f1e467c26e5d3c6d8298ad881c322b06eabc68368c6500c5","tracker_version": "6.3.5","features": ["partly-fixed-calibration","nonuniform-scale","key-boundaries","java-authored-synthetic"],"requirements": ["R02","R03","R09"],"expected": "expected/mixed-calibration-2.json","session_tracks": [{"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes","name": "axes"},{"class": "org.opensourcephysics.cabrillo.tracker.PointMass","name": "calibration probe"}],"provenance": "Public setters and serializers in pinned Tracker 6.3.5; two independent Java authoring runs reproduced identical bytes; baseline coordinates also checked by independent quadrant arithmetic."},
     {"id": "mixed-calibration-3","native_mixed_calibration_roundtrip": true,"mixed_calibration_flags": 3,"local_file": "fixtures/mixed-calibration-3.trk","file": "mixed-calibration-3.trk","bytes": 6639,"sha256": "863c441f3c3d76a166053665a314d746184b59f0c3bd54c91c502e8702b3cebc","tracker_version": "6.3.5","features": ["partly-fixed-calibration","nonuniform-scale","key-boundaries","java-authored-synthetic"],"requirements": ["R02","R03","R09"],"expected": "expected/mixed-calibration-3.json","session_tracks": [{"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes","name": "axes"},{"class": "org.opensourcephysics.cabrillo.tracker.PointMass","name": "calibration probe"}],"provenance": "Public setters and serializers in pinned Tracker 6.3.5; two independent Java authoring runs reproduced identical bytes; baseline coordinates also checked by independent quadrant arithmetic."},
@@ -121,8 +135,8 @@
       "native_delete_table_roundtrip": true,
       "file": "table-owners.trk",
       "local_file": "fixtures/table-owners.trk",
-      "sha256": "2a93db64ddb884748c95cb19c6238182813883e7ed6940d4a3b9b1d1a8545aa3",
-      "bytes": 12539,
+      "sha256": "6417e60e91c84d928e74e51286553760f2e5850b48faa84a4852d748984e06c0",
+      "bytes": 12611,
       "tracker_version": "6.3.5",
       "features": [
         "three-point-masses",
@@ -199,7 +213,8 @@
               [
                 "mass C",
                 "t",
-                "x"
+                "x",
+                "y"
               ]
             ],
             "column_formats": [
