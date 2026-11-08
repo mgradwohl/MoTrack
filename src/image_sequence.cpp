@@ -1,6 +1,5 @@
 #include "image_sequence.hpp"
 
-#include <QDir>
 #include <QFileInfo>
 #include <QImageReader>
 
@@ -9,16 +8,6 @@
 
 namespace motrack
 {
-
-QString resolveLocalMediaPath(const QString& projectPath, const std::string& reference)
-{
-    const auto path = QString::fromStdString(reference);
-    if (path.isEmpty() || path.contains("!/") || path.contains("://") || path.startsWith(':'))
-    {
-        return {};
-    }
-    return QDir(QFileInfo(projectPath).absolutePath()).absoluteFilePath(path);
-}
 
 std::optional<ImageSequence> ImageSequence::open(const QString& projectPath, const Clip& clip)
 {

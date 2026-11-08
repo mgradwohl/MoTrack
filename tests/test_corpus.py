@@ -449,6 +449,8 @@ class CorpusTests(unittest.TestCase):
                 selected = table.find("property[@name='selected_track']")
                 if mode == "delete-all-table-owners":
                     table.remove(selected)
+                    empty_views = ET.tostring(root.find("property[@name='views']"), encoding="unicode")
+                    root.remove(root.find("property[@name='views']"))
                 else:
                     selected.text = "mass A"
             remaining = [name for name in ["mass A", "mass B", "mass C"] if name not in removed]
@@ -463,6 +465,9 @@ class CorpusTests(unittest.TestCase):
             if mode != "delete-all-table-owners":
                 invalids += [good.replace('type="string">x<', 'type="string">lost<'),
                              good.replace('type="string">0<', 'type="string">9<')]
+            else:
+                before, after = good.rsplit("</object>", 1)
+                invalids.append(before + empty_views + "</object>" + after)
             for invalid in invalids:
                 self.assertNotEqual(invalid, good)
                 exported.write_text(invalid, encoding="utf-8")

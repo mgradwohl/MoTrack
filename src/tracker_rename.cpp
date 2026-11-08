@@ -644,6 +644,7 @@ void patchTrackerDeletedReferences(QDomDocument& xml, const LegacyProject& proje
     QStringList packed;
     std::map<std::string, QDomElement> removals;
     std::map<std::string, QDomElement> changedParents;
+    std::map<std::string, QDomElement> changedTableViews;
     for (const auto& reference : index.references)
     {
         if (reference.resolution != TrackerReferenceResolution::Resolved)
@@ -679,6 +680,8 @@ void patchTrackerDeletedReferences(QDomDocument& xml, const LegacyProject& proje
             }
             const auto parentPath = removedPath.substr(0, removedPath.rfind('/'));
             changedParents.emplace(parentPath, removed.parentNode().toElement());
+            if (reference.kind == TrackerReferenceKind::TableColumnOwner || reference.kind == TrackerReferenceKind::TableFormatOwner)
+                changedTableViews.emplace(parentPath.substr(0, parentPath.rfind('/')), removed.parentNode().parentNode().toElement());
             removals.emplace(removedPath, removed);
             continue;
         }
@@ -754,6 +757,24 @@ void patchTrackerDeletedReferences(QDomDocument& xml, const LegacyProject& proje
             parent.insertBefore(xml.createTextNode("\n"), item);
         if (parent.hasChildNodes())
             parent.appendChild(xml.createTextNode("\n"));
+    }
+    for (const auto& [path, view] : changedTableViews)
+    {
+        require(view.attribute("class") == QString(TRACKER) + "TableTView");
+        if (!view.firstChildElement().isNull())
+            continue;
+        // Tracker's TableTView loader passes its missing selection to getTrackByName,
+        // which dereferences null. Its own saver omits a view with no custom state.
+        // Remove only this emptied slot and empty enclosing arrays; view indices are roles.
+        auto slot = view.parentNode();
+        auto chooser = slot.parentNode();
+        auto views = chooser.parentNode();
+        require(slot.isElement() && chooser.toElement().attribute("type") == "array" && views.toElement().attribute("name") == "views");
+        chooser.removeChild(slot);
+        if (chooser.firstChildElement().isNull())
+            views.removeChild(chooser);
+        if (views.firstChildElement().isNull())
+            views.parentNode().removeChild(views);
     }
 }
 

@@ -63,6 +63,12 @@ public final class TrackerSessionReference {
             if ((args.length != 3 && args.length != 4) || !(args[2].equals("save") || args[2].equals("reopen")))
                 throw new IllegalArgumentException("Usage: TrackerSessionReference input.trk|trz output-directory save|reopen [selected-xml]");
             if (!OSPRuntime.VERSION.equals("6.3.5")) throw new IllegalStateException("Expected Tracker 6.3.5");
+            // Unhandled asynchronous loader/EDT failures must fail this isolated reference
+            // immediately with their cause, rather than disappearing behind a later timeout.
+            Thread.setDefaultUncaughtExceptionHandler((thread, error) -> {
+                FAILURE.compareAndSet(null, error);
+                DONE.countDown();
+            });
             Locale.setDefault(Locale.US);
             Path input = Path.of(args[0]).toAbsolutePath();
             Path directory = Path.of(args[1]).toAbsolutePath();
