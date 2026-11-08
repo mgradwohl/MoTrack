@@ -490,6 +490,7 @@ public final class TrackerSessionReference {
                             if (guests != null && (!(guests instanceof String[]) || ((String[]) guests).length > 10000))
                                 throw new IllegalStateException("Unexpected plot guests");
                             settings.add(TrackerReference.map("x_var", item.getString("x_var"), "y_var", item.getString("y_var"),
+                                "lines", item.getBoolean("lines"), "points", item.getBoolean("points"),
                                 "guests", guests == null ? List.of() : List.of((String[]) guests)));
                         }
                         String owner = child.getString("track");

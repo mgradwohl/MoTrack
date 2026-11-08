@@ -116,6 +116,72 @@ class CorpusTests(unittest.TestCase):
         self.assertEqual(updated["session_names"]["view_tracks"][0], ["élève β & <B>", None])
         self.assertNotIn("session_names", case)
 
+    def test_plot_rename_oracle_changes_only_the_owner_or_ordered_guests(self):
+        manifest = corpus.load_manifest()
+        case = next(case for case in manifest["cases"] if case["id"] == "plot-guests")
+        source = corpus.local_fixture_path(case).read_text(encoding="utf-8")
+        before, after = source.rsplit("</object>", 1)
+        source = before + '<property name="description" type="string">mass B</property>\n</object>' + after
+        original, exported = self.root / "plot-source.trk", self.root / "plot-export.trk"
+        original.write_text(source, encoding="utf-8")
+        for mode in ["plot-owner-name", "plot-guest-name"]:
+            old = "mass A" if mode == "plot-owner-name" else "mass B"
+            fields = ["name", "selectedtrack", "selected_track", "track"] if mode == "plot-owner-name" else ["name", "[0]", "[1]"]
+            text = source
+            for field in fields:
+                text = text.replace(f'name="{field}" type="string">{old}</property>',
+                                    f'name="{field}" type="string"><![CDATA[{corpus.RENAME_LABEL}]]></property>')
+            exported.write_text(text, encoding="utf-8")
+            corpus.verify_rename_export_xml(original, exported, mode)
+            for old_text, new_text in [('name="description" type="string">mass B', 'name="description" type="string">changed'),
+                                       ('name="x_var" type="string">t', 'name="x_var" type="string">wrong'),
+                                       ('name="guests" type="array"', 'name="lost_guests" type="array"'),
+                                       ('name="[0]" type="string">mass C', 'name="[0]" type="string">wrong')]:
+                self.assertIn(old_text, text)
+                exported.write_text(text.replace(old_text, new_text, 1), encoding="utf-8")
+                with self.subTest(mode=mode, change=old_text), self.assertRaises(ValueError):
+                    corpus.verify_rename_export_xml(original, exported, mode)
+
+    def test_plot_rename_requires_independent_live_owner_guest_order_and_selection(self):
+        manifest = corpus.load_manifest()
+        case = next(case for case in manifest["cases"] if case["id"] == "plot-guests")
+        for mode in ["plot-owner-name", "plot-guest-name"]:
+            expected, updated = corpus.rename_roundtrip_expected(case, mode)
+            tracks = []
+            for identity in updated["session_tracks"]:
+                mass = next((mass for mass in expected["point_masses"] if mass["name"] == identity["name"]), None)
+                tracks.append({**identity, "mass": mass["mass"] if mass else None,
+                               "samples": [{"frame": s["frame"], "points": [s["image"]], "world": s["world"]}
+                                           for s in mass["samples"]] if mass else []})
+            before = {"tracks": tracks, "saved_views": copy.deepcopy(updated["session_views"]),
+                      "name_references": {"selected_track": updated["session_selected_track"]},
+                      "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                      **corpus.session_units(updated, expected)}
+            valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                     "view_preparation": "visit_custom_tables_restore_selection", "before": before,
+                     "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
+            corpus.validate_session(updated, valid, manifest, expected)
+            plots = before["saved_views"]["plots"][0]["track_views"][0]["plots"]
+            self.assertEqual(plots[0]["guests"], ["mass C", corpus.RENAME_LABEL if mode == "plot-guest-name" else "mass B"])
+            changes = [(["name_references", "selected_track"], "wrong"),
+                       (["name_references"], None),
+                       (["saved_views", "plots", 0, "selected_track"], "wrong"),
+                       (["saved_views", "plots", 0, "track_views", 0, "track"], "wrong"),
+                       (["saved_views", "plots", 0, "track_views", 0, "plots", 0, "guests"], list(reversed(plots[0]["guests"]))),
+                       (["saved_views", "plots", 0, "track_views", 0, "plots", 1, "guests"], []),
+                       (["saved_views", "plots", 0, "track_views", 0, "plots", 0, "lines"], False),
+                       (["saved_views", "plots", 0, "track_views", 0, "plots", 1, "points"], False)]
+            for path, value in changes:
+                for states in [["before", "after_save", "after"], ["after"]]:
+                    invalid = copy.deepcopy(valid)
+                    for state in states:
+                        target = invalid[state]
+                        for key in path[:-1]:
+                            target = target[key]
+                        target[path[-1]] = value
+                    with self.subTest(mode=mode, path=path, states=states), self.assertRaises(ValueError):
+                        corpus.validate_session(updated, invalid, manifest, expected)
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix="motrack-corpus-test-")
         self.addCleanup(self.directory.cleanup)

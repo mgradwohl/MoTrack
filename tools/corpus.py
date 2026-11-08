@@ -230,6 +230,10 @@ def validate_session(case, report, manifest, expected=None, key_frames=None, cal
     compare(case["session_tracks"], identities, tolerance, case["id"] + ".tracks")
     if "session_names" in case:
         compare(case["session_names"], before.get("name_references"), tolerance, case["id"] + ".name_references")
+    if "session_selected_track" in case:
+        names = before.get("name_references")
+        compare(case["session_selected_track"], names.get("selected_track") if isinstance(names, dict) else None,
+                tolerance, case["id"] + ".selected_track")
     if "session_views" in case:
         compare(case["session_views"], before.get("saved_views"), tolerance, case["id"] + ".saved_views")
     if "session_centers" in case:
@@ -340,13 +344,16 @@ RENAME_LABEL = "élève β & <B>"
 
 def rename_roundtrip_expected(case, mode):
     vector = mode == "vector-name"
+    plot = mode in {"plot-owner-name", "plot-guest-name"}
     if not ((vector and case["id"] == "independent-vectors") or
+            (plot and case["id"] == "plot-guests") or
             (case["id"] == "protractor" and mode in {"name", "unselected-name"})):
         raise ValueError("Rename acceptance requires a pinned name case")
     expected = json.loads(expected_path(case).read_text(encoding="utf-8"))["project"]
-    index = 0 if mode == "unselected-name" else 1
+    index = 0 if mode in {"unselected-name", "plot-owner-name"} else 1
     kind, key, prefix = ("Vector", "vectors", "vector") if vector else ("PointMass", "point_masses", "mass")
-    if [track["name"] for track in expected[key]] != [prefix + " A", prefix + " B"]:
+    original_names = [prefix + " A", prefix + " B"] + (["mass C"] if plot else [])
+    if [track["name"] for track in expected[key]] != original_names:
         raise ValueError("Unexpected rename source identities")
     expected[key][index]["name"] = RENAME_LABEL
     updated = copy.deepcopy(case)
@@ -358,12 +365,23 @@ def rename_roundtrip_expected(case, mode):
     for track in updated["session_tracks"]:
         if track["class"] == "org.opensourcephysics.cabrillo.tracker." + kind and track["name"] == old:
             track["name"] = RENAME_LABEL
-    names = updated["session_names"]
-    if names["selected_track"] == old:
-        names["selected_track"] = RENAME_LABEL
-    names["view_tracks"] = [[RENAME_LABEL if name == old else name for name in pair] for pair in names["view_tracks"]]
-    names["packed_view_tracks"] = ";".join(",".join(name if name is not None else "null" for name in pair)
-                                            for pair in names["view_tracks"])
+    if "session_names" in updated:
+        names = updated["session_names"]
+        if names["selected_track"] == old:
+            names["selected_track"] = RENAME_LABEL
+        names["view_tracks"] = [[RENAME_LABEL if name == old else name for name in pair] for pair in names["view_tracks"]]
+        names["packed_view_tracks"] = ";".join(",".join(name if name is not None else "null" for name in pair)
+                                                for pair in names["view_tracks"])
+    if plot:
+        updated["session_selected_track"] = RENAME_LABEL if mode == "plot-owner-name" else "mass A"
+        for view in updated["session_views"]["plots"]:
+            if view["selected_track"] == old:
+                view["selected_track"] = RENAME_LABEL
+            for owner in view["track_views"]:
+                if owner["track"] == old:
+                    owner["track"] = RENAME_LABEL
+                for panel in owner["plots"]:
+                    panel["guests"] = [RENAME_LABEL if guest == old else guest for guest in panel["guests"]]
     for table in updated.get("session_views", {}).get("tables", []):
         if table["selected_track"] == old:
             table["selected_track"] = RENAME_LABEL
@@ -664,7 +682,8 @@ def verify_mass_export_xml(original, exported):
 
 
 def verify_rename_export_xml(original, exported, mode):
-    if mode not in {"name", "unselected-name", "vector-name"}:
+    plot = mode in {"plot-owner-name", "plot-guest-name"}
+    if mode not in {"name", "unselected-name", "vector-name"} and not plot:
         raise ValueError("Unexpected rename mode")
     expected = minidom.parse(str(original))
     def props(node):
@@ -689,19 +708,34 @@ def verify_rename_export_xml(original, exported, mode):
     kind, prefix = ("Vector", "vector") if mode == "vector-name" else ("PointMass", "mass")
     tracks = [obj for obj in prop(root, "tracks").getElementsByTagName("object")
               if obj.getAttribute("class") == "org.opensourcephysics.cabrillo.tracker." + kind]
-    if len(tracks) != 2 or [value(prop(track, "name")) for track in tracks] != [prefix + " A", prefix + " B"]:
+    original_names = [prefix + " A", prefix + " B"] + (["mass C"] if plot else [])
+    if [value(prop(track, "name")) for track in tracks] != original_names:
         raise ValueError("Unexpected rename source tracks")
-    index = 0 if mode == "unselected-name" else 1
+    index = 0 if mode in {"unselected-name", "plot-owner-name"} else 1
     old = prefix + (" B" if index == 1 else " A")
     set_value(prop(tracks[index], "name"), RENAME_LABEL)
     selected = prop(root, "selectedtrack")
     if value(selected) == old:
         set_value(selected, RENAME_LABEL)
-    packed = prop(root, "selected_track_views")
-    pairs = [pair.split(",") for pair in value(packed).split(";")]
-    if len(pairs) != 4 or any(len(pair) != 2 for pair in pairs):
-        raise ValueError("Unexpected packed rename selections")
-    set_value(packed, ";".join(",".join(RENAME_LABEL if name == old else name for name in pair) for pair in pairs))
+    if not plot or any(child.getAttribute("name") == "selected_track_views" for child in props(root)):
+        packed = prop(root, "selected_track_views")
+        pairs = [pair.split(",") for pair in value(packed).split(";")]
+        if len(pairs) != 4 or any(len(pair) != 2 for pair in pairs):
+            raise ValueError("Unexpected packed rename selections")
+        set_value(packed, ";".join(",".join(RENAME_LABEL if name == old else name for name in pair) for pair in pairs))
+    if plot:
+        for obj in expected.getElementsByTagName("object"):
+            kind = obj.getAttribute("class")
+            if kind in {"org.opensourcephysics.cabrillo.tracker.PlotTView", "org.opensourcephysics.cabrillo.tracker.PlotTrackView"}:
+                target = prop(obj, "selected_track" if kind.endswith(".PlotTView") else "track")
+                if value(target) == old:
+                    set_value(target, RENAME_LABEL)
+            elif kind == "org.opensourcephysics.cabrillo.tracker.TrackPlottingPanel":
+                for group in props(obj):
+                    if group.getAttribute("name") == "guests":
+                        for guest in props(group):
+                            if value(guest) == old:
+                                set_value(guest, RENAME_LABEL)
     for table in expected.getElementsByTagName("object"):
         if table.getAttribute("class") != "org.opensourcephysics.cabrillo.tracker.TableTView":
             continue
@@ -868,7 +902,8 @@ def check_sessions(manifest, cache, java, probe=None):
              ("keyed-calibration", "native_keyed_calibration_roundtrip"),
              ("mass-unit", "native_mass_unit_roundtrip"),
              ("name", "native_name_roundtrip"), ("unselected-name", "native_name_roundtrip"),
-             ("vector-name", "native_vector_name_roundtrip")] if probe else [("session", "session_tracks")]
+             ("vector-name", "native_vector_name_roundtrip"),
+             ("plot-owner-name", "native_plot_name_roundtrip"), ("plot-guest-name", "native_plot_name_roundtrip")] if probe else [("session", "session_tracks")]
     cases = [(case, mode) for case in manifest["cases"] if "session_tracks" in case
              for mode, flag in modes if case.get(flag)]
     if not cases:
@@ -894,7 +929,7 @@ def check_sessions(manifest, cache, java, probe=None):
             java_home = output / "java-home"
             java_home.mkdir(parents=True)
             project = project_path(case, cache)
-            if mode in {"name", "unselected-name", "vector-name"}:
+            if mode in {"name", "unselected-name", "vector-name", "plot-owner-name", "plot-guest-name"}:
                 # Preserve the pinned original. Add a non-reference note to the temporary source,
                 # keeping OSP's line-oriented XML layout, so blind text substitution cannot pass.
                 text = project.read_text(encoding="utf-8")
@@ -935,7 +970,7 @@ def check_sessions(manifest, cache, java, probe=None):
                 if mode == "mass":
                     verify_mass_export_xml(project, exported)
                     expected = mass_roundtrip_expected(case)
-                elif mode in {"name", "unselected-name", "vector-name"}:
+                elif mode in {"name", "unselected-name", "vector-name", "plot-owner-name", "plot-guest-name"}:
                     verify_rename_export_xml(project, exported, mode)
                     expected, case = rename_roundtrip_expected(case, mode)
                 elif mode == "mass-unit":

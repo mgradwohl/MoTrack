@@ -20,6 +20,7 @@
   "cases": [
     {
       "id": "plot-guests",
+      "native_plot_name_roundtrip": true,
       "file": "plot-guests.trk",
       "local_file": "fixtures/plot-guests.trk",
       "sha256": "886eb2b29a14ed511029e03237a15fb65ce691d70aeed40ce0820e0b75a8b709",
@@ -39,8 +40,8 @@
         "tables": [],
         "plots": [{"chooser": 0, "selected_track": "mass A", "track_views": [
           {"track": "mass A", "linked": false, "plots": [
-            {"x_var": "t", "y_var": "x", "guests": ["mass C", "mass B"]},
-            {"x_var": "t", "y_var": "y", "guests": ["mass B"]}
+            {"x_var": "t", "y_var": "x", "lines": true, "points": true, "guests": ["mass C", "mass B"]},
+            {"x_var": "t", "y_var": "y", "lines": true, "points": true, "guests": ["mass B"]}
           ]}
         ]}]
       }
@@ -98,7 +99,7 @@
       "session_views": {
         "tables": [],
         "plots": [{"chooser": 0, "selected_track": "model A", "track_views": [
-          {"track": "model A", "linked": false, "plots": [{"x_var": "t", "y_var": "y", "guests": []}]}
+          {"track": "model A", "linked": false, "plots": [{"x_var": "t", "y_var": "y", "lines": true, "points": true, "guests": []}]}
         ]}]
       },
       "session_tracks": [
