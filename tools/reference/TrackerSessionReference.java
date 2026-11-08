@@ -36,6 +36,8 @@ import org.opensourcephysics.controls.XMLControlElement;
 import org.opensourcephysics.controls.XMLControl;
 import org.opensourcephysics.controls.XMLProperty;
 import org.opensourcephysics.display.OSPRuntime;
+import org.opensourcephysics.display.Dataset;
+import org.opensourcephysics.display.DatasetManager;
 import org.opensourcephysics.media.core.ImageCoordSystem;
 import org.opensourcephysics.media.core.TPoint;
 import org.opensourcephysics.media.core.VideoClip;
@@ -339,6 +341,36 @@ public final class TrackerSessionReference {
         timer.start();
     }
 
+    private static List<Object> calibratedVectorSamples(Vector vector, TrackerPanel panel) {
+        // Read the live analysis datasets rather than recomputing values from the XML/coordinate API.
+        // Pinned 6.3.5 columns are x, y, magnitude, angle, tail x/y, step and original frame.
+        DatasetManager data = vector.getData(panel);
+        int[] indices = {0, 1, 2, 7};
+        String[] names = {"x", "y", "mag", "frame"};
+        double[][] columns = new double[4][];
+        int count = -1;
+        for (int index = 0; index < indices.length; index++) {
+            Dataset column = data.getDataset(indices[index]);
+            if (!names[index].equals(column.getYColumnName()) || column.getIndex() > 10000)
+                throw new IllegalStateException("Unexpected vector analysis column");
+            columns[index] = column.getYPoints();
+            if (count < 0) count = columns[index].length;
+            if (columns[index].length != count)
+                throw new IllegalStateException("Mismatched vector analysis rows");
+        }
+        List<Object> result = new ArrayList<>();
+        for (int row = 0; row < count; row++) {
+            double frame = columns[3][row];
+            if (!Double.isFinite(frame) || frame < 0 || frame > 500000 || frame != Math.rint(frame)
+                    || !Double.isFinite(columns[0][row]) || !Double.isFinite(columns[1][row])
+                    || !Double.isFinite(columns[2][row]))
+                throw new IllegalStateException("Invalid vector analysis row");
+            result.add(TrackerReference.map("frame", (int) frame,
+                "components", List.of(columns[0][row], columns[1][row]), "magnitude", columns[2][row]));
+        }
+        return result;
+    }
+
     private static Map<String, Object> snapshot(TrackerPanel panel) {
         VideoClip clip = panel.getPlayer().getVideoClip();
         ImageCoordSystem coords = panel.getCoords();
@@ -388,6 +420,8 @@ public final class TrackerSessionReference {
             tracks.add(TrackerReference.map("class", track.getClass().getName(), "name", track.getName(),
                 "mass", track instanceof PointMass mass ? mass.getMass() : null, "samples", samples, "key_frames", keys,
                 "vector_samples", vectorSamples,
+                "calibrated_vector_samples", track.getClass() == Vector.class
+                    ? calibratedVectorSamples((Vector) track, panel) : List.of(),
                 "appearance", TrackerReference.map("visible", track.isVisible(), "trail", track.isTrailVisible(),
                     "locked", track.isLocked(), "footprint", track.getFootprintName(), "argb", track.getColor().getRGB())));
             if (track instanceof DynamicParticle model) {

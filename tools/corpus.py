@@ -313,6 +313,10 @@ def validate_session(case, report, manifest, expected=None, key_frames=None, cal
     vectors = [{"name": track["name"], "samples": track["vector_samples"]} for track in before["tracks"]
                if track["class"] == "org.opensourcephysics.cabrillo.tracker.Vector"]
     compare(expected["vectors"], vectors, tolerance, case["id"] + ".vectors")
+    if "session_vector_data" in case:
+        calibrated = [{"name": track["name"], "samples": track.get("calibrated_vector_samples")}
+                      for track in before["tracks"] if track["class"] == "org.opensourcephysics.cabrillo.tracker.Vector"]
+        compare(case["session_vector_data"], calibrated, tolerance, case["id"] + ".calibrated_vectors")
     if key_frames is not None:
         actual = [track["key_frames"] for track in before["tracks"]
                   if track["class"] == "org.opensourcephysics.cabrillo.tracker.PointMass"]
@@ -586,6 +590,17 @@ def create_vector_roundtrip_expected(case, empty=False):
     case = copy.deepcopy(case)
     case["session_tracks"].append({"class": "org.opensourcephysics.cabrillo.tracker.Vector", "name": CREATED_VECTOR_NAME})
     case["session_created_vector_appearance"] = copy.deepcopy(CREATED_VECTOR_APPEARANCE)
+    # Independent arithmetic for the pinned angle=0, scaleX=2, scaleY=4, image-y-down calibration.
+    # Include old tracks too: identical incorrect values at load/save/reopen must still fail.
+    case["session_vector_data"] = [
+        {"name": "vector A", "samples": [
+            {"frame": 0, "components": [1.5, 1.0], "magnitude": math.sqrt(3.25)},
+            {"frame": 5, "components": [-2.5, -3.0], "magnitude": math.sqrt(15.25)}]},
+        {"name": "vector B", "samples": [{"frame": 2, "components": [0.0, 0.0], "magnitude": 0.0}]},
+        {"name": CREATED_VECTOR_NAME, "samples": [] if empty else [
+            {"frame": 1, "components": [2.0, 2.0], "magnitude": math.sqrt(8.0)},
+            {"frame": 6, "components": [0.0, 0.0], "magnitude": 0.0},
+            {"frame": 8, "components": [-3.0, -3.0], "magnitude": math.sqrt(18.0)}]}]
     return expected, case
 
 

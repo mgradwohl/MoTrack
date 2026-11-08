@@ -696,7 +696,13 @@ The probe covers allocation gaps, creation/undo/redo, sample edits, remove/undo,
 native save/reopen after source-copy removal and repeated export. Whole-source comparison permits
 only the appended object. Independent application expectations check exact names, tails, components,
 appearance and original data through save/fresh-process reopen; native reimport checks both files.
-Negative tests reject consistent wrong geometry/appearance and changes to original content. Native
+The Java snapshot also reads the live Vector analysis datasets (`x`, `y`, `mag`, original `frame`),
+whose column layout was checked against the pinned JAR. Independent expectations for scale (2,4)
+and zero angle require new calibrated components (2,2)/(0,0)/(-3,-3), with magnitudes sqrt(8)/0/sqrt(18).
+Both original vectors have separate numerical expectations too. These values are not inferred from
+exported XML or from Java's resave. A regression first reproduced the old oracle accepting the same
+wrong calibrated values at all three stages; the strengthened check rejects them.
+Negative tests reject consistent wrong geometry/appearance/calibrated data and changes to original content. Native
 tests cover collisions, dangling links, vector sums, source deletion, mixed provider types, origin/tip
 snapping across frames, endpoint precision loss and bounded dense allocation. These cases extend
 R03/R07 without accepting dependent vectors or the known VectorSum resave defect (#63). Current-head
