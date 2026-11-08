@@ -20,6 +20,7 @@
   "cases": [
     {
       "id": "linked-images",
+      "tracker_version": "6.3.5",
       "file": "linked-images.trk",
       "local_file": "fixtures/linked-images/linked-images.trk",
       "sha256": "077149850c4628c2c98fb03d2ec4d6e6b026698ff32473f8f4cd1f981a8cff60",

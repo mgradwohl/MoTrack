@@ -34,6 +34,8 @@ def load_manifest(path=CORPUS / "manifest.json"):
         if not re.fullmatch(r"[a-z0-9-]+", case["id"]) or case["id"] in seen:
             raise ValueError("Invalid or duplicate corpus case ID")
         seen.add(case["id"])
+        if not isinstance(case.get("tracker_version"), str) or not case["tracker_version"]:
+            raise ValueError("Corpus case requires its original Tracker version")
         expected_path(case)
         if "native_reference_index" in case:
             expected_path({"expected": case["native_reference_index"]})
