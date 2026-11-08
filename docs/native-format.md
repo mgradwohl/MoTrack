@@ -169,8 +169,8 @@ because trails can expose them. This conservative bound avoids silently introduc
 geometry. Full dependent-vector/display semantics must replace these restrictions before full parity.
 It requires known source associations, preserves unknown XML objects/properties and
 normalizes changed output to a matching UTF-8 declaration. Unchanged output is byte-exact. It rejects
-every other changed domain field before opening its atomic replacement file, including unsupported
-moving calibration and track deletions. Range exports require a known `VideoClip` without
+every other changed domain field before opening its atomic replacement file, including media-based
+timing, moving reference frames, fixed-flag changes, new vectors and original-track deletions. Range exports require a known `VideoClip` without
 video, frame-shift or saved-video-frame-count properties. They reject missing/invalid counts, endpoints
 beyond Tracker 6.3.5's media-free frame 500000 limit, and overflow in its temporary frame-count arithmetic.
 Media references are rejected until relocation
@@ -210,13 +210,16 @@ changing fixed flags and moving reference frames require later reference cases.
 The vector snapping guard also runs after calibration changes, preventing an origin move from silently
 reattaching a previously independent vector when Tracker opens the export.
 
-The same writer also supports adding/editing keys in an existing, unlocked coordinate system with all
-three fixed flags false, starting at frame 0, in projects without vector tracks. Each key's inverse,
+The same writer supports adding/editing keys in existing, unlocked partly fixed or fully varying
+coordinate systems, starting at frame 0, in projects without vector tracks. The fixed flags must remain
+unchanged. Fixed origin/angle use the last loaded key and fixed scale uses the first; validation uses
+that effective calibration at each original frame. Each key's inverse,
 origin and independent coordinate probe are validated; retained marks use the active key at their own
 original frame number. Unchanged keys are validated too, preventing a different edit from hiding an
 unstable transform. New/retained calibration frame indices, including null source placeholders, are
-bounded at 500000 for OSP's dense arrays. Varying systems also bound the sum of each key's remaining
-frame range at 1000000, including the clip/marks, because OSP recomputes dense transforms for each key.
+bounded at 500000 for OSP's dense arrays. Partly fixed and varying systems bound coordinate-setter work at 1000000 dense frame slots, including
+the clip/marks. Each varying setter counts its remaining frame range; fixed-origin/angle setters count
+the entire dense range because OSP applies those changes globally.
 This rejects excessive work before opening a file, without running a stress test. Updates preserve unknown key fields and untouched keys.
 The existing distance/axes commands own these changes with undo/redo and native save/reopen. Removing
 keys, changing fixed flags, varying vector coordinates and moving reference frames remain unsupported;
@@ -240,7 +243,9 @@ Java's independently recorded default for an omitted label, and labels after Jav
 Constant media-free clip timing can now be edited through history using the existing frame-duration
 and start-time fields, both in milliseconds. No native format version change is required. Undo restores
 the prior optional duration exactly. Standard export requires the audited StepperClipControl subset
-and finite increasing times at original frames; decoded media timing, model/data time sources and
+and finite increasing times at original frames. Edits, undo/redo and standard export share a provider
+guard: only point masses, independent vectors and retained axes/protractors are accepted. A refused
+edit leaves the project, saved/dirty state and both history directions unchanged. Decoded media timing, model/data time sources and
 desktop timing controls remain separate work. The corpus guide documents the independent negative-origin
 and nonzero-first-frame/stride acceptance cases.
 

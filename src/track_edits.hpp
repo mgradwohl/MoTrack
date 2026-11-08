@@ -79,6 +79,7 @@ class TrackEdits
     bool setCoordinateAxes(LegacyProject& project, AxesPlacement axes);
     bool setClipRange(LegacyProject& project, int firstFrame, int lastFrame, int stepSize);
     /// Change an existing bounded media-free clip's constant timing, in milliseconds.
+    /// Model/data and unknown track providers are refused without changing project or history.
     bool setClipTiming(LegacyProject& project, double frameDurationMs, double startTimeMs);
     [[nodiscard]] bool canUndo() const;
     [[nodiscard]] bool canRedo() const;

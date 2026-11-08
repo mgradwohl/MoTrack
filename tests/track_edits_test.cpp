@@ -525,6 +525,70 @@ TEST(TrackEdits, RefusesInvalidOrUnrepresentableTimingWithoutHistoryChanges)
     EXPECT_TRUE(edits.setClipTiming(project, 250, -500));
 }
 
+TEST(TrackEdits, RefusesUnsupportedTimingProvidersWithoutDiscardingHistory)
+{
+    const std::array types{
+        "DynamicParticle", "DynamicParticlePolar", "DynamicSystem", "AnalyticParticle", "ParticleDataTrack", "UnknownTrack"};
+    for (const auto* type : types)
+    {
+        SCOPED_TRACE(type);
+        motrack::LegacyProject project;
+        project.clip.stepCount = 10;
+        project.unsupportedTrackTypes = {std::string("org.opensourcephysics.cabrillo.tracker.") + type};
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.setMassUnit(project, "g"));
+        edits.markSaved();
+        ASSERT_TRUE(edits.setTimeUnit(project, "ms"));
+        ASSERT_TRUE(edits.undo(project));
+        const auto original = project;
+        const auto revision = edits.revision();
+        EXPECT_FALSE(edits.setClipTiming(project, 250, -500));
+        EXPECT_EQ(project, original);
+        EXPECT_EQ(edits.revision(), revision);
+        EXPECT_FALSE(edits.isModified());
+        EXPECT_TRUE(edits.canUndo());
+        EXPECT_TRUE(edits.canRedo());
+        ASSERT_TRUE(edits.redo(project));
+        EXPECT_EQ(project.timeUnit, "ms");
+    }
+}
+
+TEST(TrackEdits, TimingHistoryRefusesNewUnsupportedProvidersAndRetainsItsPosition)
+{
+    motrack::LegacyProject project;
+    project.clip.stepCount = 10;
+    const std::vector<std::string> allowed{"org.opensourcephysics.cabrillo.tracker.CoordAxes",
+                                           "org.opensourcephysics.cabrillo.tracker.Protractor"};
+    project.unsupportedTrackTypes = allowed;
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.setClipTiming(project, 250, -500));
+    edits.markSaved();
+    project.unsupportedTrackTypes.emplace_back("org.opensourcephysics.cabrillo.tracker.ParticleDataTrack");
+    auto original = project;
+    auto revision = edits.revision();
+    EXPECT_FALSE(edits.undo(project));
+    EXPECT_EQ(project, original);
+    EXPECT_EQ(edits.revision(), revision);
+    EXPECT_FALSE(edits.isModified());
+    EXPECT_TRUE(edits.canUndo());
+    EXPECT_FALSE(edits.canRedo());
+    project.unsupportedTrackTypes = allowed;
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_FALSE(project.clip.frameDurationMs);
+    project.unsupportedTrackTypes.emplace_back("org.opensourcephysics.cabrillo.tracker.DynamicParticle");
+    original = project;
+    revision = edits.revision();
+    EXPECT_FALSE(edits.redo(project));
+    EXPECT_EQ(project, original);
+    EXPECT_EQ(edits.revision(), revision);
+    EXPECT_TRUE(edits.isModified());
+    EXPECT_FALSE(edits.canUndo());
+    EXPECT_TRUE(edits.canRedo());
+    project.unsupportedTrackTypes = allowed;
+    ASSERT_TRUE(edits.redo(project));
+    EXPECT_FALSE(edits.isModified());
+}
+
 TEST(TrackEdits, PlacesAxesWithoutChangingAnisotropicScale)
 {
     motrack::LegacyProject project;

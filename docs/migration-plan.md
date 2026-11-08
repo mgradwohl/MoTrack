@@ -119,7 +119,7 @@ The time-unit case similarly preserves timing and numerical data through reversi
 reopen, standard export and actual Tracker resave. Imported time labels also reach plot/derived-quantity
 labels and CSV headers. Independent live frame times stay 0/900 ms at frames 0/9 in the pinned case;
 The separate numeric timing slice changes frame duration and time origin with undo/redo, native persistence and independent negative-origin/stride export oracles. Full time-control UI, media time-base conversion and locale-dependent time-zero behavior remain separate.
-Clip timing, partly fixed/moving calibration, key deletion, varying vector coordinates,
+Fixed-flag changes, moving reference frames, key deletion, varying vector coordinates,
 media/archive and paired-save acceptance remain unfinished.
 Its CI evidence belongs to the writer PR, after the merged snapshot above.
 
