@@ -277,7 +277,7 @@ def session_units(case, expected):
 def validate_session(case, report, manifest, expected=None, key_frames=None, calibration=None):
     if (report["reference_version"] != manifest["reference"]["version"]
             or report["verification_level"] != "tracker_session_resave"
-            or report.get("view_preparation") != "visit_custom_tables_restore_selection"):
+            or report.get("view_preparation") != "expand_visit_custom_tables_restore_selection"):
         raise ValueError("Unexpected session reference version or verification level")
     before = report["before"]
     tolerance = manifest["tolerance"]
@@ -1694,7 +1694,7 @@ def check_sessions(manifest, cache, java, probe=None):
                 stages[stage] = json.loads((output / ("session-" + stage + ".json")).read_text(encoding="utf-8"))
                 if (stages[stage]["reference_version"] != manifest["reference"]["version"]
                         or stages[stage]["verification_level"] != "tracker_session_" + stage
-                        or stages[stage].get("view_preparation") != "visit_custom_tables_restore_selection"):
+                        or stages[stage].get("view_preparation") != "expand_visit_custom_tables_restore_selection"):
                     raise ValueError("Unexpected Tracker session stage")
                 callbacks = stages[stage].get("loader_callbacks")
                 if type(callbacks) is not int or callbacks < 1:
