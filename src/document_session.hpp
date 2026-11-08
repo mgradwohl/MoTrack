@@ -12,6 +12,12 @@
 namespace motrack
 {
 
+enum class DocumentSourceKind : std::uint8_t
+{
+    Project,
+    Media
+};
+
 enum class SaveOutcome : std::uint8_t
 {
     Saved,
@@ -39,7 +45,7 @@ class DocumentSession
     TrackEdits history;
 
     /// Install a successfully prepared document, clearing only this session's old history/save target.
-    void replace(WorkspaceDocument incoming, const QString& source);
+    void replace(WorkspaceDocument incoming, const QString& source, DocumentSourceKind kind = DocumentSourceKind::Project);
     [[nodiscard]] const QString& sourcePath() const;
     [[nodiscard]] const QString& nativeSavePath() const;
     [[nodiscard]] const QString& standardSavePath() const;

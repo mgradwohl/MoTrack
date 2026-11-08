@@ -17,6 +17,18 @@ QString fixturePath(const QString& name)
     return QString::fromUtf8(MOTRACK_FIXTURES) + '/' + name;
 }
 
+TEST(DocumentSession, MediaOriginsDoNotInferAnExistingProjectSaveTarget)
+{
+    QTemporaryDir temporary;
+    motrack::DocumentSession session;
+    const auto media = temporary.filePath("image.motrack");
+    session.replace({}, media, motrack::DocumentSourceKind::Media);
+    EXPECT_EQ(session.sourcePath(), media);
+    EXPECT_TRUE(session.nativeSavePath().isEmpty());
+    session.replace({}, media);
+    EXPECT_EQ(session.nativeSavePath(), media);
+}
+
 TEST(DocumentSession, IsolatesDataHistoriesAndSaveCheckpointsBetweenDocuments)
 {
     QTemporaryDir temporary;

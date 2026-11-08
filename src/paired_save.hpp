@@ -34,6 +34,7 @@ struct PairedSaveResult
     QString standardPath;
     QString nativePath;
     QString recoveryPath;
+    QString transactionId; // Persistent UUID identifies this journal instance, independent of its reusable path.
     QString diagnostic;
     bool standardCurrent = false;
     bool nativeCurrent = false;

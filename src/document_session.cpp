@@ -7,11 +7,11 @@
 namespace motrack
 {
 
-void DocumentSession::replace(WorkspaceDocument incoming, const QString& source)
+void DocumentSession::replace(WorkspaceDocument incoming, const QString& source, DocumentSourceKind kind)
 {
     auto identity = std::make_shared<const Identity>();
     const auto path = QFileInfo(source).absoluteFilePath();
-    const auto native = source.endsWith(".motrack", Qt::CaseInsensitive) ? path : QString{};
+    const auto native = kind == DocumentSourceKind::Project && source.endsWith(".motrack", Qt::CaseInsensitive) ? path : QString{};
     document = std::move(incoming);
     m_Identity = std::move(identity);
     m_SourcePath = path;

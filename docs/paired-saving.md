@@ -156,3 +156,8 @@ The combined review-corrected stack passed all six Windows suites with 95.54% li
 (7803/8167); this includes immutable archive export, unsupported ZIP layouts imported before
 validation, multiple recovery destinations, case-folded media collisions and prepared-stage changes.
 Current-revision cross-platform CI remains required before merging.
+
+Every journal contains a persistent transaction UUID, returned by both paired writes and recovery.
+A new transaction at the same pathname receives a new identity. Session completion checks use this
+identity so a delayed result cannot clear a newer pending transaction. Missing/invalid identities are
+refused before recovery modifies either output. This is part of the initial, unmerged journal format.
