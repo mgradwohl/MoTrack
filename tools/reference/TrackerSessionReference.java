@@ -76,16 +76,49 @@ public final class TrackerSessionReference {
                     DONE.countDown();
                 })));
             }));
-            if (!DONE.await(30, TimeUnit.SECONDS)) throw new IllegalStateException("Tracker session loading timed out: " + WAITING.get());
+            if (!DONE.await(30, TimeUnit.SECONDS)) {
+                printWaitingThreads();
+                throw new IllegalStateException("Tracker session loading timed out: " + WAITING.get());
+            }
             if (FAILURE.get() != null) throw new IllegalStateException("Tracker session failed", FAILURE.get());
             if (REPORT.get() == null) throw new IllegalStateException("Tracker produced no session report");
             Files.writeString(directory.resolve("session-" + args[2] + ".json"), TrackerReference.json(REPORT.get()) + "\n", StandardCharsets.UTF_8);
             status = 0;
         } catch (Throwable error) {
+            System.err.println("Tracker reference input=" + bounded(args.length > 0 ? args[0] : "<missing>", 512)
+                + " stage=" + bounded(args.length > 2 ? args[2] : "<missing>", 32)
+                + " waiting=" + bounded(WAITING.get(), 512));
             error.printStackTrace();
         }
         // Tracker owns background services and AWT windows. Exit only this isolated reference process.
         System.exit(status);
+    }
+
+    private static String bounded(String text, int limit) {
+        return text.length() <= limit ? text : text.substring(0, limit) + "...";
+    }
+
+    private static void printWaitingThreads() {
+        // Observe only this isolated JVM. Do not call the possibly blocked event thread or alter its loader.
+        try {
+            StringBuilder report = new StringBuilder("Tracker timeout threads (bounded):\n");
+            Thread.getAllStackTraces().entrySet().stream()
+                .filter(entry -> {
+                    String name = entry.getKey().getName();
+                    return name.startsWith("AWT-EventQueue") || name.startsWith("SwingWorker")
+                        || name.equals("TimerQueue") || name.equals("main");
+                })
+                .sorted(Comparator.comparing(entry -> entry.getKey().getName())).limit(8)
+                .forEach(entry -> {
+                    report.append(bounded(entry.getKey().getName(), 80)).append(' ')
+                        .append(entry.getKey().getState()).append('\n');
+                    Arrays.stream(entry.getValue()).limit(8)
+                        .forEach(frame -> report.append("  ").append(bounded(frame.toString(), 200)).append('\n'));
+                });
+            System.err.println(bounded(report.toString(), 3000));
+        } catch (Throwable diagnosticFailure) {
+            System.err.println("Tracker timeout thread diagnostics unavailable: " + diagnosticFailure.getClass().getName());
+        }
     }
 
     private static Runnable guard(Runnable action) {

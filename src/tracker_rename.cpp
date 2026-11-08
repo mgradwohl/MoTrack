@@ -221,6 +221,11 @@ struct RenameSchema
                 require(!item.isNull() && item.attribute("name") == "[0]" && item.nextSiblingElement().isNull());
             }
         }
+
+        // Tracker synchronizes linked x axes while loading each panel. Until that behavior has
+        // its own application acceptance case, admit only explicitly unlinked custom plots.
+        if (actual == QString(TRACKER) + "PlotTrackView")
+            require(property(value, "linked").text() == "false");
     }
 
     void propertyValue(const QDomElement& value, const QString& signature, unsigned depth)
@@ -437,6 +442,14 @@ bool patchTrackerNames(QDomDocument& xml, const LegacyProject& project, LegacyPr
         {
             const auto target = std::ranges::find(index.tracks, reference.candidateSourceIndices.front(), &TrackerSourceTrack::sourceIndex);
             require(target != index.tracks.end() && target->className == "org.opensourcephysics.cabrillo.tracker.PointMass");
+        }
+        if (reference.kind == TrackerReferenceKind::PlotSelection || reference.kind == TrackerReferenceKind::TableSelection ||
+            reference.kind == TrackerReferenceKind::PlotOwner || reference.kind == TrackerReferenceKind::PlotGuest ||
+            reference.kind == TrackerReferenceKind::TableColumnOwner || reference.kind == TrackerReferenceKind::TableFormatOwner)
+        {
+            const auto target = std::ranges::find(index.tracks, reference.candidateSourceIndices.front(), &TrackerSourceTrack::sourceIndex);
+            // TrackChooserTView ignores CoordAxes even when the named source object exists.
+            require(target != index.tracks.end() && target->className != "org.opensourcephysics.cabrillo.tracker.CoordAxes");
         }
         const auto replacement = replacements.find(reference.candidateSourceIndices.front());
         if (replacement == replacements.end())
