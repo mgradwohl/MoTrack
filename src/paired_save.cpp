@@ -560,6 +560,12 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
     return result;
 }
 
+SaveDestinationError::SaveDestinationError(SaveDestinationConflict conflict)
+    : ProjectError(conflict == SaveDestinationConflict::Busy ? "Another save for this project is already in progress."
+                                                             : "An interrupted paired save requires recovery before replacement."),
+      m_Conflict(conflict)
+{}
+
 void writeNativeDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled)
 {
     checkCancelled(cancelled);
@@ -572,9 +578,10 @@ void writeNativeDocument(const QString& path, const WorkspaceDocument& document,
     const auto recovery = QDir(parent).filePath('.' + target.completeBaseName() + RECORD_SUFFIX);
     QLockFile lock(lockPath(recovery));
     lock.setStaleLockTime(0);
-    require(lock.tryLock(0), "Another save for this project is already in progress.");
-    require(!QFileInfo::exists(recovery) && !QFileInfo(recovery).isSymLink(),
-            "Finish the interrupted paired save before replacing this native companion, or save a copy elsewhere.");
+    if (!lock.tryLock(0))
+        throw SaveDestinationError(SaveDestinationConflict::Busy);
+    if (QFileInfo::exists(recovery) || QFileInfo(recovery).isSymLink())
+        throw SaveDestinationError(SaveDestinationConflict::PendingRecovery);
     checkCancelled(cancelled);
     writeWorkspaceDocument(physical, document, cancelled);
 }
