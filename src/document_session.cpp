@@ -28,6 +28,7 @@ void DocumentSession::replace(WorkspaceDocument incoming, const QString& source,
     m_NativeInvalidation = 0;
     m_TrackerInvalidation = 0;
     m_PairedSaving = false;
+    m_MediaObservation = 0;
     history.clear();
 }
 
@@ -159,8 +160,11 @@ SaveOutcome DocumentSession::completePairedSave(const SaveCheckpoint& checkpoint
         return SaveOutcome::Stale;
     if (!result.standardCurrent && !result.nativeCurrent && result.status != PairedSaveStatus::RecoveryRequired)
         return SaveOutcome::Failed;
-    if (result.standardCurrent || result.nativeCurrent)
+    if ((result.standardCurrent || result.nativeCurrent) && result.observation >= m_MediaObservation)
+    {
         document.mediaLocations = result.mediaLocations;
+        m_MediaObservation = result.observation;
+    }
     // A blocked retry only reports an existing journal; it must not restore an older destination.
     const bool adoptStandard = !m_PairedSaving || m_StandardSavePath.isEmpty() || result.standardCurrent;
     m_PairedSaving = true;
@@ -231,7 +235,7 @@ SaveOutcome DocumentSession::completePairedRecovery(const SaveCheckpoint& checkp
     const bool absent = result.status == PairedSaveStatus::RecoveryNotNeeded;
     if (!absent && (result.status != PairedSaveStatus::Saved || !result.standardCurrent || !result.nativeCurrent))
         return SaveOutcome::Partial;
-    if (!transaction.isEmpty() && result.transactionId != transaction)
+    if (!absent && !transaction.isEmpty() && result.transactionId != transaction)
         return SaveOutcome::Stale;
     if (!absent && !newerObservation)
     {

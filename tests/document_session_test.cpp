@@ -2,6 +2,7 @@
 
 #include "tracker_archive.hpp"
 
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QTemporaryDir>
@@ -559,7 +560,13 @@ TEST(DocumentSession, ReconcilesExternallyReplacedAndCompletedRecoveryRecordsWit
             secondTransaction = second.transactionId;
         }
         const auto checkpoint = session.saveCheckpoint();
-        const auto recovery = motrack::recoverPairedDocuments(first.recoveryPath, nullptr, {}, first.transactionId);
+        const auto recovery = replaced ? motrack::recoverPairedDocuments(first.recoveryPath, nullptr, {}, first.transactionId)
+                                       : motrack::recoverPairedDocuments(first.recoveryPath);
+        if (!replaced)
+        {
+            EXPECT_TRUE(recovery.transactionId.isEmpty());
+            EXPECT_GT(recovery.observation, first.observation);
+        }
         const auto outcome = session.completePairedRecovery(checkpoint, session.recoveryPath(), recovery);
         if (replaced)
         {
@@ -575,6 +582,63 @@ TEST(DocumentSession, ReconcilesExternallyReplacedAndCompletedRecoveryRecordsWit
         EXPECT_TRUE(session.isModified());
         EXPECT_EQ(session.standardSavePath(), target);
         const auto saved = motrack::writePairedDocuments(target, session.document, source);
+        EXPECT_EQ(session.completePairedSave(session.saveCheckpoint(), saved), motrack::SaveOutcome::Saved);
+        EXPECT_FALSE(session.isModified());
+    }
+}
+
+TEST(DocumentSession, OlderWriteCallbacksCannotReplaceNewerMediaBindings)
+{
+    for (const bool newestFirst : {false, true})
+    {
+        SCOPED_TRACE(newestFirst);
+        QTemporaryDir temporary;
+        const auto source = temporary.filePath("input.trk");
+        const auto fixture = fixturePath("../corpus/fixtures/linked-images/linked-images.trk");
+        ASSERT_TRUE(QFile::copy(fixture, source));
+        motrack::DocumentSession session;
+        session.replace(motrack::importTrackerDocument(source), source);
+        const auto checkpoint = session.saveCheckpoint();
+        auto snapshot = session.document;
+        std::vector<motrack::PairedSaveResult> results;
+        for (const auto& directory : {QString("first"), QString("second")})
+        {
+            ASSERT_TRUE(QDir(temporary.path()).mkpath(directory));
+#ifndef _WIN32
+            const auto alias = temporary.filePath("images");
+            if (QFileInfo(alias).isSymLink())
+                ASSERT_TRUE(QFile::remove(alias));
+            ASSERT_TRUE(QFile::link(temporary.filePath(directory), alias));
+#endif
+            for (const auto& reference : snapshot.project.clip.mediaReferences)
+            {
+                const auto name = QFileInfo(QString::fromStdString(reference)).fileName();
+                const auto path = temporary.filePath(directory + '/' + name);
+                ASSERT_TRUE(QFile::copy(QFileInfo(fixture).absolutePath() + "/images/" + name, path));
+#ifdef _WIN32
+                // Windows symlink creation requires additional privileges. Exercise the same
+                // resolved snapshot results using explicit runtime locations on this platform.
+                snapshot.mediaLocations.insert(QString::fromStdString(reference), path);
+#endif
+            }
+            results.push_back(motrack::writePairedDocuments(temporary.filePath(directory + ".trk"), snapshot, source));
+            ASSERT_EQ(results.back().status, motrack::PairedSaveStatus::Saved);
+        }
+        ASSERT_GT(results.back().observation, results.front().observation);
+        for (const auto index : newestFirst ? std::vector<std::size_t>{1, 0} : std::vector<std::size_t>{0, 1})
+            static_cast<void>(session.completePairedSave(checkpoint, results.at(index)));
+        EXPECT_EQ(session.document.mediaLocations, results.back().mediaLocations);
+#ifndef _WIN32
+        ASSERT_TRUE(QFile::remove(temporary.filePath("images")));
+#endif
+        ASSERT_TRUE(QFile::remove(source));
+        for (const auto& reference : snapshot.project.clip.mediaReferences)
+            ASSERT_TRUE(QFile::remove(temporary.filePath("first/" + QFileInfo(QString::fromStdString(reference)).fileName())));
+        ASSERT_TRUE(QDir(temporary.path()).rmdir("first"));
+        const auto saved = motrack::writePairedDocuments(temporary.filePath("final.trk"), session.document, source);
+        ASSERT_EQ(saved.status, motrack::PairedSaveStatus::Saved);
+        const auto reopened = motrack::readWorkspaceDocument(saved.nativePath);
+        EXPECT_EQ(reopened.project.clip.mediaReferences.front(), "second/frame0.png");
         EXPECT_EQ(session.completePairedSave(session.saveCheckpoint(), saved), motrack::SaveOutcome::Saved);
         EXPECT_FALSE(session.isModified());
     }
