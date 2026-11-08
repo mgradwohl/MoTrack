@@ -1,5 +1,6 @@
 #include "main_window.hpp"
 
+#include "local_media_path.hpp"
 #include "measurements.hpp"
 #include "movie_worker.hpp"
 #include "position_plot.hpp"
@@ -52,6 +53,36 @@
 
 namespace motrack
 {
+
+namespace
+{
+void rebaseWorkspaceMedia(WorkspaceDocument& document, const QString& sourcePath, const QString& destinationPath)
+{
+    if (!document.archivePayload)
+    {
+        const auto directory = localProjectDirectory(destinationPath);
+        if (directory.isEmpty())
+        {
+            throw ProjectError("Could not resolve the native project destination.");
+        }
+        const QDir destination(directory);
+        for (auto& reference : document.project.clip.mediaReferences)
+        {
+            const auto source = resolveLocalMediaPath(sourcePath, reference);
+            if (!source.isEmpty())
+            {
+                const auto rebased = destination.relativeFilePath(source).toStdString();
+                const auto resolved = resolveLocalMediaPath(destinationPath, rebased);
+                if (resolved.isEmpty() || QDir::cleanPath(resolved) != QDir::cleanPath(source))
+                {
+                    throw ProjectError("Could not preserve a native project media reference.");
+                }
+                reference = rebased;
+            }
+        }
+    }
+}
+} // namespace
 
 struct MainWindow::PreparedProject
 {
@@ -1584,18 +1615,6 @@ bool MainWindow::saveWorkspace(const QString& path)
         return false;
     }
     auto document = m_Session.document;
-    const QDir destination(QFileInfo(path).absolutePath());
-    if (!document.archivePayload)
-    {
-        for (auto& reference : document.project.clip.mediaReferences)
-        {
-            const auto source = resolveLocalMediaPath(m_MediaProjectPath, reference);
-            if (!source.isEmpty())
-            {
-                reference = destination.relativeFilePath(source).toStdString();
-            }
-        }
-    }
     // Keep the synchronous result used by Save-before-close, but let the GUI paint and process worker
     // completions. User input is deferred while the owned snapshot is validated and serialized off-thread.
     const auto checkpoint = m_Session.saveCheckpoint();
@@ -1607,10 +1626,11 @@ bool MainWindow::saveWorkspace(const QString& path)
     QFutureWatcher<bool> watcher;
     connect(&watcher, &QFutureWatcher<bool>::finished, &loop, &QEventLoop::quit);
     watcher.setFuture(QtConcurrent::run(m_SavePool,
-                                        [path, document = std::move(document)]
+                                        [path, sourcePath = m_MediaProjectPath, document = std::move(document)]() mutable
                                         {
                                             try
                                             {
+                                                rebaseWorkspaceMedia(document, sourcePath, path);
                                                 writeWorkspaceDocument(path, document);
                                                 return true;
                                             }
