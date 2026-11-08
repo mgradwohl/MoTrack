@@ -140,6 +140,7 @@ class TrackEdits
     {
         ClipRange after;
         ClipRange before;
+        ClipTiming originalTiming;
     };
 
     struct ChangeTimeUnit
@@ -152,6 +153,7 @@ class TrackEdits
     {
         ClipTiming after;
         ClipTiming before;
+        ClipRange originalRange;
     };
 
     struct AddVector

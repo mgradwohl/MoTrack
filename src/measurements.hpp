@@ -65,6 +65,7 @@ struct LinearFit
 
 /// Checks a media-free constant timebase over original frames (0..500000), in milliseconds.
 /// Every frame must have a finite, strictly increasing time both in milliseconds and seconds.
+/// Adjacent absolute timestamps must retain the requested interval within relative 1e-9.
 [[nodiscard]] bool validConstantClipTiming(const Clip& clip);
 
 /// Timing edits/history require media-free projects with no unverified model or data time source.

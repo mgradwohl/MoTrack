@@ -45,6 +45,14 @@ bool validConstantClipTiming(const Clip& clip)
         {
             return false;
         }
+        // Tracker consumers can subtract absolute timestamps. Monotonicity alone permits large
+        // origins to materially distort their interval; bound rounding in both saved/display units.
+        const auto durationSeconds = *clip.frameDurationMs / 1000.0;
+        if (std::abs((time - previous) - *clip.frameDurationMs) > *clip.frameDurationMs * 1e-9 ||
+            std::abs((time / 1000.0 - previous / 1000.0) - durationSeconds) > durationSeconds * 1e-9)
+        {
+            return false;
+        }
         previous = time;
     }
     return true;
@@ -250,10 +258,14 @@ PlotSeries measurementPlot(const LegacyProject& project,
         const auto& previous = positions.at(index - 1);
         const auto& center = positions.at(index);
         const auto& next = positions.at(index + 1);
-        const auto before = center.horizontal - previous.horizontal;
-        const auto after = next.horizontal - center.horizontal;
+        // A constant interval is independent of the absolute time origin. Subtracting rounded
+        // absolute timestamps can invent acceleration when the origin is much larger than a step.
+        const auto before =
+            frameTimes.empty() ? (center.frame - previous.frame) * (frameDurationMs / 1000.0) : center.horizontal - previous.horizontal;
+        const auto after =
+            frameTimes.empty() ? (next.frame - center.frame) * (frameDurationMs / 1000.0) : next.horizontal - center.horizontal;
         if (center.frame - previous.frame != project.clip.stepSize || next.frame - center.frame != project.clip.stepSize || before <= 0.0 ||
-            after <= 0.0)
+            after <= 0.0 || !std::isfinite(before) || !std::isfinite(after))
         {
             continue;
         }
