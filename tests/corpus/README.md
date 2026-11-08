@@ -875,4 +875,7 @@ undo/redo, saves and closes the native document, removes its original XML copy, 
 through the new document adapter. Independent checks permit only the requested mass, mark/manual
 keys and media paths in the XML, and require all relocated assets to match their pinned bytes.
 The actual Tracker session must then retain every RGB pixel and timestamp, edited measurements and
-manual keys through save/fresh reopen and native reimport. Acceptance remains pending CI.
+manual keys through save/fresh reopen and native reimport. This edited case passed at commit
+`c050b19fdbf6e9e103e5cef62d78f52cdf6cb3e8`, Linux job 128706751494 in run 42471577055.
+That run failed later on the separate all-table-owner deletion case. Subsequent physical-path
+resolution fixes still require current-revision application and cross-platform checks before merge.

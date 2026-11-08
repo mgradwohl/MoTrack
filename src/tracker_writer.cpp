@@ -1,5 +1,6 @@
 #include "tracker_writer.hpp"
 
+#include "local_media_path.hpp"
 #include "measurements.hpp"
 #include "tracker_rename.hpp"
 #include "workspace_document.hpp"
@@ -1250,6 +1251,15 @@ void writeXml(const QString& path, const std::string& xml)
     }
 }
 
+void requireLocalReference(const std::string& reference)
+{
+    const auto local = QString::fromStdString(reference);
+    require(!local.isEmpty() && local.size() <= 4096 && local.toStdString() == reference && !local.contains("!/") &&
+            !local.contains("://") && !local.startsWith(':') && !local.contains("]]>"));
+    for (const auto point : local.toUcs4())
+        require(QChar::category(point) != QChar::Other_Control && QChar::category(point) != QChar::Other_Format);
+}
+
 } // namespace
 
 std::string renderTrackerProject(const LegacyProject& project, const TrackerSource& source)
@@ -1274,23 +1284,25 @@ void writeTrackerDocument(const QString& path, const WorkspaceDocument& document
     if (linkedImages)
     {
         require(project.clip.mediaReferences.size() <= 10000 && !mediaProjectPath.isEmpty() && QFileInfo(mediaProjectPath).isAbsolute());
-        const QDir sourceDirectory(QFileInfo(mediaProjectPath).absolutePath());
-        const QDir targetDirectory(QFileInfo(path).absolutePath());
+        // A file symlink can be opened under two different project directories. Require a
+        // regular destination; directory aliases are resolved consistently by the reader.
+        require(!QFileInfo(path).isSymbolicLink());
+        const auto targetParent = localProjectDirectory(path);
+        require(!targetParent.isEmpty());
+        const QDir targetDirectory(targetParent);
         for (auto& reference : project.clip.mediaReferences)
         {
-            const auto local = QString::fromStdString(reference);
-            require(!local.isEmpty() && local.size() <= 4096 && local.toStdString() == reference && !local.contains("!/") &&
-                    !local.contains("://") && !local.startsWith(':') && !local.contains("]]>"));
-            for (const auto point : local.toUcs4())
-                require(QChar::category(point) != QChar::Other_Control && QChar::category(point) != QChar::Other_Format);
-            const auto resolved = sourceDirectory.absoluteFilePath(local);
-            require(QDir::cleanPath(resolved) != QFileInfo(path).absoluteFilePath() &&
+            requireLocalReference(reference);
+            const auto resolved = resolveLocalMediaPath(mediaProjectPath, reference);
+            require(!resolved.isEmpty() && resolved != targetDirectory.filePath(QFileInfo(path).fileName()) &&
                     (QFileInfo(path).canonicalFilePath().isEmpty() ||
                      QFileInfo(path).canonicalFilePath() != QFileInfo(resolved).canonicalFilePath()));
             QFile file(resolved);
             if (!QFileInfo(resolved).isFile() || !file.open(QIODevice::ReadOnly))
                 throw ProjectError("Linked media is missing or unreadable: " + resolved.toStdString());
             reference = QDir::fromNativeSeparators(targetDirectory.relativeFilePath(resolved)).toStdString();
+            requireLocalReference(reference); // Rebasing can introduce a forbidden marker from a parent directory.
+            require(resolveLocalMediaPath(path, reference) == resolved);
         }
         // A native decoded-frame count is redundant with the complete image list, not a standard edit.
         if (project.clip.sourceFrameCount)

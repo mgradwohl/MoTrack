@@ -15,9 +15,10 @@ struct WorkspaceDocument;
 /// Atomically write validated standard .trk XML. Does not write .trz or mark a native session saved.
 void writeTrackerProject(const QString& path, const LegacyProject& project, const TrackerSource& source);
 /// Atomically export a standalone document. mediaProjectPath is the absolute current project file path;
-/// local image references are resolved relative to its parent directory.
+/// local image references use its physical parent directory, resolving existing filesystem aliases before rebasing.
 /// The source/native snapshot remains unchanged. Movies, archives, filters and media timing/range edits are refused.
-/// All linked files must be readable; no media is copied and no session save checkpoint is changed.
+/// All linked files must be readable. Symbolic-link output files and unsafe generated references are refused.
+/// No media is copied and no session save checkpoint is changed.
 void writeTrackerDocument(const QString& path, const WorkspaceDocument& document, const QString& mediaProjectPath);
 
 } // namespace motrack

@@ -1,5 +1,6 @@
 #include "tracker_writer.hpp"
 
+#include "local_media_path.hpp"
 #include "measurements.hpp"
 #include "track_edits.hpp"
 #include "tracker_references.hpp"
@@ -228,6 +229,94 @@ TEST(TrackerWriter, AuditsSavedImageFrameCountsAndNeverReplacesALinkedImage)
     EXPECT_THROW(motrack::writeTrackerDocument(imageDestination, document, input), motrack::ProjectError);
     EXPECT_EQ(readBytes(imageDestination), originalImage);
 }
+
+TEST(TrackerWriter, RejectsUnsafeGeneratedImageReferencesWithoutReplacingEitherFile)
+{
+    QTemporaryDir temporary;
+    const auto fixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images/";
+    const auto directory = temporary.filePath("source!");
+    ASSERT_TRUE(QDir().mkpath(directory + "/images"));
+    ASSERT_TRUE(QDir().mkpath(temporary.filePath("exports")));
+    const auto input = directory + "/input.trk";
+    ASSERT_TRUE(QFile::copy(fixture + "linked-images.trk", input));
+    for (int frame = 0; frame < 4; ++frame)
+    {
+        const auto name = "images/frame" + QString::number(frame) + ".png";
+        ASSERT_TRUE(QFile::copy(fixture + name, directory + '/' + name));
+    }
+    auto document = motrack::importTrackerDocument(input);
+    document.project.pointMasses.front().mass = 5;
+    const auto before = document;
+    const auto destination = temporary.filePath("exports/saved.trk");
+    ASSERT_TRUE(QFile::copy(input, destination));
+    const auto previous = readBytes(destination);
+    EXPECT_THROW(motrack::writeTrackerDocument(destination, document, input), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), previous);
+    EXPECT_EQ(readBytes(input), previous);
+    EXPECT_EQ(document.project, before.project);
+    ASSERT_TRUE(before.trackerSource);
+    EXPECT_EQ(retainedSource(document).xml, before.trackerSource->xml);
+    EXPECT_EQ(motrack::resolveLocalMediaPath(input, "images/frame0.png"), QFileInfo(directory + "/images/frame0.png").canonicalFilePath());
+    EXPECT_TRUE(motrack::resolveLocalMediaPath(destination, "../source!/images/frame0.png").isEmpty());
+    EXPECT_TRUE(motrack::resolveLocalMediaPath(temporary.filePath("missing/base.trk"), "frame.png").isEmpty());
+}
+
+#ifndef _WIN32
+// QFile::link creates POSIX symbolic links here; on Windows it creates shortcuts with different semantics.
+TEST(TrackerWriter, RebasesPhysicalImagePathsThroughDirectoryAndProjectAliases)
+{
+    QTemporaryDir temporary;
+    const auto fixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images/";
+    const auto source = temporary.filePath("source");
+    const auto physical = temporary.filePath("elsewhere/exports");
+    const auto assets = temporary.filePath("elsewhere/assets");
+    ASSERT_TRUE(QDir().mkpath(source + "/images"));
+    ASSERT_TRUE(QDir().mkpath(physical));
+    ASSERT_TRUE(QDir().mkpath(assets + "/deep"));
+    ASSERT_TRUE(QDir().mkpath(assets + "/images"));
+    for (int frame = 0; frame < 4; ++frame)
+    {
+        const auto name = "images/frame" + QString::number(frame) + ".png";
+        ASSERT_TRUE(QFile::copy(fixture + name, source + '/' + name));
+        ASSERT_TRUE(QFile::copy(fixture + "images/frame3.png", assets + '/' + name));
+    }
+    const auto input = source + "/input.trk";
+    ASSERT_TRUE(QFile::copy(fixture + "linked-images.trk", input));
+    const auto inputAlias = temporary.filePath("input-alias.trk");
+    const auto directoryAlias = temporary.filePath("exports-alias");
+    ASSERT_TRUE(QFile::link(input, inputAlias));
+    ASSERT_TRUE(QFile::link(physical, directoryAlias));
+    ASSERT_TRUE(QFile::link(assets + "/deep", source + "/shortcut"));
+    auto document = motrack::importTrackerDocument(inputAlias);
+    document.project.pointMasses.front().mass = 5;
+    const auto destination = directoryAlias + "/saved.trk";
+    for (const bool redirected : {false, true})
+    {
+        SCOPED_TRACE(redirected);
+        for (std::size_t frame = 0; frame < 4; ++frame)
+            document.project.clip.mediaReferences[frame] =
+                (redirected ? "shortcut/../images/frame" : "images/frame") + std::to_string(frame) + ".png";
+        const auto before = document.project;
+        motrack::writeTrackerDocument(destination, document, inputAlias);
+        const auto exported = motrack::parseLegacyProject(readBytes(destination));
+        for (std::size_t frame = 0; frame < 4; ++frame)
+        {
+            const auto expected = (redirected ? assets : source) + "/images/frame" + QString::number(frame) + ".png";
+            const auto& reference = exported.clip.mediaReferences[frame];
+            EXPECT_EQ(motrack::resolveLocalMediaPath(destination, reference), QFileInfo(expected).canonicalFilePath());
+            EXPECT_EQ(motrack::resolveLocalMediaPath(physical + "/saved.trk", reference), QFileInfo(expected).canonicalFilePath());
+            EXPECT_EQ(readBytes(motrack::resolveLocalMediaPath(destination, reference)), readBytes(expected));
+        }
+        EXPECT_EQ(document.project, before);
+    }
+    const auto outputAlias = temporary.filePath("output-alias.trk");
+    ASSERT_TRUE(QFile::link(destination, outputAlias));
+    const auto bytes = readBytes(destination);
+    EXPECT_THROW(motrack::writeTrackerDocument(outputAlias, document, inputAlias), motrack::ProjectError);
+    EXPECT_EQ(readBytes(outputAlias), bytes);
+    EXPECT_EQ(readBytes(destination), bytes);
+}
+#endif
 
 TEST(TrackerWriter, PatchesTheBoundMassAfterNativeReopenAndKeepsUnknownContent)
 {

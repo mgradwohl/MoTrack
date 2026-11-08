@@ -383,6 +383,11 @@ metadata. An optional saved video_framecount must also match. Source path and pa
 
 Every linked file must be readable before output is prepared. The adapter rebases known path fields,
 uses OSP-safe CDATA, validates the complete edited project by reparsing, and writes through QSaveFile.
+The reader and exporter share physical project/media path resolution: existing directory and source-file
+aliases are resolved before computing relative links, including POSIX symlink components followed by `..`.
+The destination's parent must exist; a symbolic-link output file is refused. Generated links pass the
+same local-reference checks as inputs, so a parent folder containing `!/` cannot create an unreadable
+archive-style reference. Reopening each generated reference must resolve to the same original image.
 It rejects an output that aliases linked media and leaves an existing destination intact on preflight
 or rendering failure. This links existing files; it neither copies media nor marks a session saved.
 The filesystem preflight establishes availability, not general codec validation or protection from
