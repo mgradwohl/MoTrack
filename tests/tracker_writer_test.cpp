@@ -182,6 +182,11 @@ TEST(TrackerWriter, RestoredMissingMediaCanBeSavedWithoutReopeningTheProject)
         source.close();
         auto document = motrack::importTrackerDocument(input);
         motrack::retainWorkspaceMediaLocations(document, input);
+        // Empty bindings model an alias that could not be resolved at open, on every platform.
+        // Nonempty bindings still cover removal of the original project directory below.
+        if (!removeOriginalDirectory)
+            for (auto& location : document.mediaLocations)
+                location.clear();
         const auto output = temporary.filePath("exports/saved.trk");
         EXPECT_THROW(motrack::writeTrackerDocument(output, document, input), motrack::ProjectError);
         EXPECT_FALSE(QFileInfo::exists(output));
@@ -198,6 +203,9 @@ TEST(TrackerWriter, RestoredMissingMediaCanBeSavedWithoutReopeningTheProject)
         motrack::TrackEdits edits;
         ASSERT_TRUE(edits.setPointMassValue(document.project, 0, 5));
         EXPECT_NO_THROW(motrack::writeTrackerDocument(output, document, input));
+        motrack::refreshWorkspaceMediaLocations(document, input);
+        for (const auto& location : document.mediaLocations)
+            EXPECT_FALSE(location.isEmpty());
         const auto reopened = motrack::importTrackerDocument(output);
         EXPECT_EQ(reopened.project.pointMasses.front().mass, 5);
         for (int frame = 0; frame < 4; ++frame)
