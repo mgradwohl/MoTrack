@@ -34,7 +34,7 @@ QString resolveLocalMediaPath(const QString& projectPath, const std::string& ref
             return {};
         path = directory + '/' + path;
     }
-    const auto existing = QFileInfo(path).canonicalFilePath();
+    auto existing = QFileInfo(path).canonicalFilePath();
     if (!existing.isEmpty())
         return existing;
     // Preserve the physical base even when a missing image is restored after its project directory
