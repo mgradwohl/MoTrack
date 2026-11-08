@@ -5,6 +5,7 @@
 #include "tracker_archive.hpp"
 #include "tracker_writer.hpp"
 
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -92,7 +93,8 @@ TEST(PairedSave, SavesBothLinkedDocumentsAndKeepsTheInputSnapshot)
     EXPECT_EQ(native.project, standard.project);
     EXPECT_DOUBLE_EQ(native.project.pointMasses.at(0).mass, 5.0);
     EXPECT_EQ(native.project.pointMasses.at(0).marks, original.pointMasses.at(0).marks);
-    ASSERT_TRUE(native.trackerSource.has_value());
+    if (!native.trackerSource)
+        FAIL() << "Saved native source envelope is missing.";
     EXPECT_EQ(native.trackerSource->xml, originalBytes.toStdString());
     ASSERT_EQ(native.project.clip.mediaReferences.size(), 4u);
     for (std::size_t i = 0; i < native.project.clip.mediaReferences.size(); ++i)
@@ -397,6 +399,155 @@ TEST(PairedSave, DetectsDestinationChangesDuringPreparationAndCleansStages)
     EXPECT_FALSE(result.standardCurrent || result.nativeCurrent);
     EXPECT_EQ(bytes(target), "external edit");
     EXPECT_EQ(bytes(native), "previous native");
+    EXPECT_EQ(files(temporary), (QStringList{"saved.motrack", "saved.trk"}));
+}
+
+TEST(PairedSave, AStandardConflictDuringTheSecondCommitPreservesThePreviousCompanion)
+{
+    QTemporaryDir temporary;
+    const auto target = temporary.filePath("saved.trk");
+    const auto original = motrack::writePairedDocuments(target, motrack::importTrackerDocument(fixture()), fixture());
+    ASSERT_EQ(original.status, motrack::PairedSaveStatus::Saved);
+    const auto previousNative = bytes(original.nativePath);
+    const auto partial = motrack::writePairedDocuments(target,
+                                                       editedDocument(),
+                                                       fixture(),
+                                                       nullptr,
+                                                       [&](auto state)
+                                                       {
+                                                           if (state == motrack::PairedSaveProgress::StandardSaved)
+                                                               put(target, "external edit");
+                                                       });
+    ASSERT_EQ(partial.status, motrack::PairedSaveStatus::RecoveryRequired);
+    EXPECT_FALSE(partial.standardCurrent);
+    EXPECT_FALSE(partial.nativeCurrent);
+    EXPECT_EQ(bytes(target), "external edit");
+    EXPECT_EQ(bytes(original.nativePath), previousNative);
+    put(target, bytes(stage(partial.recoveryPath, 0)));
+    EXPECT_EQ(motrack::recoverPairedDocuments(partial.recoveryPath).status, motrack::PairedSaveStatus::Saved);
+}
+
+TEST(PairedSave, ACorruptCompletedStageCannotPermitAnotherDestinationReplacement)
+{
+    for (const int changed : {0, 1})
+    {
+        SCOPED_TRACE(changed);
+        QTemporaryDir temporary;
+        const auto target = temporary.filePath("saved.trk");
+        const auto original = motrack::writePairedDocuments(target, motrack::importTrackerDocument(fixture()), fixture());
+        ASSERT_EQ(original.status, motrack::PairedSaveStatus::Saved);
+        const auto previousNative = bytes(original.nativePath);
+        std::atomic_bool cancelled{false};
+        const auto partial =
+            motrack::writePairedDocuments(target,
+                                          editedDocument(),
+                                          fixture(),
+                                          &cancelled,
+                                          [&cancelled](auto state) { cancelled = state == motrack::PairedSaveProgress::StandardSaved; });
+        ASSERT_EQ(partial.status, motrack::PairedSaveStatus::RecoveryRequired);
+        const auto staged = stage(partial.recoveryPath, changed);
+        const auto restore = bytes(staged);
+        put(staged, "corrupt prepared data");
+        EXPECT_EQ(motrack::recoverPairedDocuments(partial.recoveryPath).status, motrack::PairedSaveStatus::RecoveryRequired);
+        EXPECT_EQ(bytes(original.nativePath), previousNative);
+        EXPECT_EQ(bytes(staged), "corrupt prepared data");
+        put(staged, restore);
+        EXPECT_EQ(motrack::recoverPairedDocuments(partial.recoveryPath).status, motrack::PairedSaveStatus::Saved);
+    }
+}
+
+TEST(PairedSave, FinalConflictsAndUnreadableOutputsClearOnlyTheirCurrentFlags)
+{
+    for (const int kind : {0, 1, 2})
+    {
+        SCOPED_TRACE(kind);
+        QTemporaryDir temporary;
+        const auto target = temporary.filePath("saved.trk");
+        const auto changed = temporary.filePath(kind == 0 ? "saved.trk" : "saved.motrack");
+        const auto result = motrack::writePairedDocuments(target,
+                                                          editedDocument(),
+                                                          fixture(),
+                                                          nullptr,
+                                                          [&](auto state)
+                                                          {
+                                                              if (state != motrack::PairedSaveProgress::NativeSaved)
+                                                                  return;
+                                                              if (kind == 2)
+                                                              {
+                                                                  if (!QFile::remove(changed) || !QDir().mkdir(changed))
+                                                                      throw std::runtime_error("Could not prepare unreadable output.");
+                                                              }
+                                                              else
+                                                                  put(changed, "external edit");
+                                                          });
+        ASSERT_EQ(result.status, motrack::PairedSaveStatus::RecoveryRequired);
+        EXPECT_EQ(result.standardCurrent, kind != 0);
+        EXPECT_EQ(result.nativeCurrent, kind == 0);
+        if (kind == 2)
+            ASSERT_TRUE(QDir().rmdir(changed));
+        put(changed, bytes(stage(result.recoveryPath, kind == 0 ? 0 : 1)));
+        EXPECT_EQ(motrack::recoverPairedDocuments(result.recoveryPath).status, motrack::PairedSaveStatus::Saved);
+    }
+}
+
+TEST(PairedSave, ReportsAdapterCancellationBeforeCommitAsCancelled)
+{
+    QTemporaryDir temporary;
+    std::atomic_bool cancelled{false};
+    const auto result = motrack::writePairedDocuments(temporary.filePath("saved.trk"),
+                                                      editedDocument(),
+                                                      fixture(),
+                                                      &cancelled,
+                                                      [&](auto state)
+                                                      {
+                                                          if (state == motrack::PairedSaveProgress::StandardPrepared)
+                                                          {
+                                                              cancelled = true;
+                                                              throw motrack::ProjectError("Adapter cancellation");
+                                                          }
+                                                      });
+    EXPECT_EQ(result.status, motrack::PairedSaveStatus::Cancelled);
+    EXPECT_FALSE(result.standardCurrent || result.nativeCurrent);
+    EXPECT_TRUE(files(temporary).empty());
+}
+
+TEST(PairedSave, AnOldLiveOwnerLockRemainsProtectedWithoutNativeLocking)
+{
+    QTemporaryDir temporary;
+    const auto document = editedDocument();
+    bool checked = false;
+    const auto result = motrack::writePairedDocuments(
+        temporary.filePath("saved.trk"),
+        document,
+        fixture(),
+        nullptr,
+        [&](auto state)
+        {
+            if (state != motrack::PairedSaveProgress::StandardPrepared)
+                return;
+            checked = true;
+            // Copy the active owner's real Qt lock identity to a second claimed lock without
+            // an OS advisory lock, simulating a filesystem that lacks that additional protection.
+            const auto claim = temporary.filePath(".claimed.motrack-save.lock");
+            const auto owner = bytes(temporary.filePath(".saved.motrack-save.lock"));
+            put(claim, owner);
+            QFile age(claim);
+            if (!age.open(QIODevice::ReadWrite) ||
+                !age.setFileTime(QDateTime::currentDateTimeUtc().addSecs(-120), QFileDevice::FileModificationTime))
+                throw std::runtime_error("Could not age the fallback lock fixture.");
+            age.close();
+            const auto nested = motrack::writePairedDocuments(temporary.filePath("claimed.trk"), document, fixture());
+            EXPECT_EQ(nested.status, motrack::PairedSaveStatus::Failed);
+            EXPECT_TRUE(nested.diagnostic.contains("already in progress"));
+            const auto recovery = motrack::recoverPairedDocuments(temporary.filePath(".claimed.motrack-save.json"));
+            EXPECT_EQ(recovery.status, motrack::PairedSaveStatus::RecoveryRequired);
+            EXPECT_TRUE(recovery.diagnostic.contains("already in progress"));
+            EXPECT_EQ(bytes(claim), owner);
+            EXPECT_FALSE(QFileInfo::exists(temporary.filePath("claimed.trk")));
+            EXPECT_TRUE(QFile::remove(claim));
+        });
+    EXPECT_TRUE(checked);
+    EXPECT_EQ(result.status, motrack::PairedSaveStatus::Saved) << result.diagnostic.toStdString();
     EXPECT_EQ(files(temporary), (QStringList{"saved.motrack", "saved.trk"}));
 }
 

@@ -224,7 +224,55 @@ Record readRecord(const QString& path, const QString& directory)
     return result;
 }
 
-void copyAtomic(const Record& record, const Output& entry, const std::atomic_bool* cancelled)
+std::optional<Fingerprint>
+inspectDestination(const Record& record, std::size_t index, PairedSaveResult& result, const std::atomic_bool* cancelled)
+{
+    auto& current = index == 0 ? result.standardCurrent : result.nativeCurrent;
+    try
+    {
+        const auto actual = fingerprint(QDir(record.directory).filePath(record.outputs[index].name), record.directory, cancelled);
+        current = actual == std::optional(record.outputs[index].after);
+        return actual;
+    }
+    catch (const Cancelled&)
+    {
+        throw; // Cancellation does not disprove a known successful commit.
+    }
+    catch (const std::exception&)
+    {
+        current = false;
+        throw;
+    }
+}
+
+void validateDestinations(const Record& record,
+                          const std::array<bool, 2>& committed,
+                          PairedSaveResult& result,
+                          const std::atomic_bool* cancelled)
+{
+    for (std::size_t i = 0; i < record.outputs.size(); ++i)
+    {
+        const auto actual = inspectDestination(record, i, result, cancelled);
+        const auto expected = committed[i] ? std::optional(record.outputs[i].after) : record.outputs[i].before;
+        require(actual == expected, "A destination changed during paired saving; no further replacement is allowed.");
+    }
+}
+
+void validateStages(const Record& record, const std::array<bool, 2>& committed, const std::atomic_bool* cancelled)
+{
+    for (std::size_t i = 0; i < record.outputs.size(); ++i)
+    {
+        const auto& output = record.outputs[i];
+        const auto staged = fingerprint(QDir(record.directory).filePath(output.stage), record.directory, cancelled);
+        require(staged ? staged == std::optional(output.after) : committed[i], "Prepared paired-save content is missing or changed.");
+    }
+}
+
+void copyAtomic(const Record& record,
+                const Output& entry,
+                const std::array<bool, 2>& committed,
+                PairedSaveResult& result,
+                const std::atomic_bool* cancelled)
 {
     const QDir directory(record.directory);
     QFile input(directory.filePath(entry.stage));
@@ -246,8 +294,8 @@ void copyAtomic(const Record& record, const Output& entry, const std::atomic_boo
         copied += count;
     }
     require(copied == entry.after.size && hash.result() == entry.after.digest, "Prepared paired-save content changed while copying.");
-    require(fingerprint(directory.filePath(entry.name), record.directory, cancelled) == entry.before,
-            "A destination changed during paired saving; recovery data was retained.");
+    validateStages(record, committed, cancelled);
+    validateDestinations(record, committed, result, cancelled);
     checkCancelled(cancelled);
     require(output.commit(), "Could not replace a paired-save destination.");
 }
@@ -259,24 +307,17 @@ void commitPair(const Record& record, PairedSaveResult& result, const std::atomi
     for (std::size_t i = 0; i < record.outputs.size(); ++i)
     {
         const auto& output = record.outputs[i];
-        const auto actual = fingerprint(directory.filePath(output.name), record.directory, cancelled);
+        const auto actual = inspectDestination(record, i, result, cancelled);
         current[i] = actual == std::optional(output.after);
-        if (i == 0)
-            result.standardCurrent = current[i];
-        else
-            result.nativeCurrent = current[i];
         require(current[i] || actual == output.before, "A destination changed since paired saving; no further replacement is allowed.");
-        if (!current[i])
-            require(fingerprint(directory.filePath(output.stage), record.directory, cancelled) == std::optional(output.after),
-                    "Prepared paired-save content is missing or changed.");
     }
-    result.standardCurrent = current[0];
-    result.nativeCurrent = current[1];
+    validateStages(record, current, cancelled);
     for (std::size_t i = 0; i < record.outputs.size(); ++i)
     {
         checkCancelled(cancelled);
         if (!current[i])
-            copyAtomic(record, record.outputs[i], cancelled);
+            copyAtomic(record, record.outputs[i], current, result, cancelled);
+        current[i] = true;
         if (i == 0)
         {
             result.standardCurrent = true;
@@ -288,15 +329,10 @@ void commitPair(const Record& record, PairedSaveResult& result, const std::atomi
             notify(observer, PairedSaveProgress::NativeSaved);
         }
     }
-    // Verify both final contents before deleting any recovery material. No rollback can overwrite
-    // an external edit. Missing stages are harmless once their corresponding final file is complete.
-    for (const auto& output : record.outputs)
-    {
-        require(fingerprint(directory.filePath(output.name), record.directory, cancelled) == std::optional(output.after),
-                "A completed paired-save output changed before cleanup.");
-        const auto staged = fingerprint(directory.filePath(output.stage), record.directory, cancelled);
-        require(!staged || staged == std::optional(output.after), "A recovery staging file changed; it was preserved.");
-    }
+    // A conflict or unreadable output clears its current flag. Cancellation and cleanup errors
+    // retain successful output status so callers can distinguish saved data from leftover journals.
+    validateDestinations(record, current, result, cancelled);
+    validateStages(record, current, cancelled);
     // Keep the record until cleanup is complete; recovery accepts already committed outputs even
     // if an interruption occurred after deleting one of these stages.
     for (const auto& output : record.outputs)
@@ -396,6 +432,7 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
                 "Paired saving requires a standard Tracker filename and a same-stem native companion.");
         const auto recoveryPath = directory.filePath(record.name);
         QLockFile lock(lockPath(recoveryPath));
+        lock.setStaleLockTime(0);
         require(lock.tryLock(0), "Another save for this project is already in progress.");
         if (QFileInfo::exists(recoveryPath) || QFileInfo(recoveryPath).isSymLink())
         {
@@ -456,7 +493,7 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
     }
     catch (const std::exception& error)
     {
-        failed(result, error, false);
+        failed(result, error, cancelled && cancelled->load());
     }
     return result;
 }
@@ -474,6 +511,7 @@ PairedSaveResult recoverPairedDocuments(const QString& recoveryPath, const std::
                 "Invalid paired-save recovery filename.");
         result.recoveryPath = QDir(parent).filePath(info.fileName());
         QLockFile lock(lockPath(result.recoveryPath));
+        lock.setStaleLockTime(0);
         require(lock.tryLock(0), "Another save for this project is already in progress.");
         const auto record = readRecord(result.recoveryPath, parent);
         result.standardPath = QDir(parent).filePath(record.outputs[0].name);
@@ -486,7 +524,7 @@ PairedSaveResult recoverPairedDocuments(const QString& recoveryPath, const std::
     }
     catch (const std::exception& error)
     {
-        failed(result, error, false);
+        failed(result, error, cancelled && cancelled->load());
     }
     return result;
 }
