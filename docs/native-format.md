@@ -325,7 +325,9 @@ only their ordered string cells, compacting surviving indices and omitting an em
 Remaining axes, lines/points settings, plot order and guest order are retained. Source reference nodes
 are collected before any removal, so deletion cannot shift a later collection ordinal onto a different
 view. Live-name changes precede this cleanup; reusing a deleted name never transfers its plot data.
-Only modified arrays/collections have whitespace normalized for OSP. Seven native deletion subsets
+Only modified arrays/collections have whitespace normalized for OSP, with a newline before every
+surviving child and after the last child. These separators are required by OSP's line-oriented reader
+even though general XML parsers accept children on the container's line. Seven native deletion subsets
 cover renamed survivors, native close/reopen, repeated export and replacement-name isolation.
 Three independent corpus cases remove the owner, a guest present on both plots, or the first guest
 in an ordered pair. Actual Tracker application acceptance remains required before merging this slice.

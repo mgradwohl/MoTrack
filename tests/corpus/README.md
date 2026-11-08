@@ -789,6 +789,10 @@ The XML oracle permits only the requested object, selection, owner and guest cha
 reject stale links, wrong fallback, missing plots, altered axes/calibration or unrelated XML even
 when all application stages agree. Native tests cover all seven deletion subsets, renamed survivors,
 repeated exports and reusing deleted names after standard reimport without inheriting old links.
+Affected arrays/collections retain one property per line. A native regression rejects collapsed child
+lines; the pinned headless OSP parser reproduced loss of the plot view before the separator fix and
+retained the independently expected owner/guest lists after it. Actual application loading remains a
+separate required check.
 
 These cases require actual Tracker load/save/fresh-process reopen and native reimport in Linux CI;
 local Windows validation does not run the Java desktop application. Custom table owners and scientific
