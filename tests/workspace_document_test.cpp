@@ -558,7 +558,8 @@ TEST(WorkspaceDocument, CancellationDuringStorageWritePreservesExistingDestinati
             QTemporaryDir temporary;
             const auto input = temporary.filePath("source.trz");
             ASSERT_TRUE(motrack::test::writeArchive(
-                input, {{.name = "selected.trk", .bytes = boundXml()}, {.name = "notes.dat", .bytes = QByteArray(128 * 1024, 'x')}}));
+                input,
+                {{.name = "selected.trk", .bytes = boundXml()}, {.name = "notes.dat", .bytes = QByteArray(qsizetype{128} * 1024, 'x')}}));
             const auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(input));
             auto document = motrack::importTrackerDocument(payload->projectPath("selected.trk"));
             if (archived)
