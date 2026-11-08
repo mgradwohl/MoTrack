@@ -1202,6 +1202,40 @@ TEST(TrackerWriter, DeletedPlotOwnersAndGuestsStayDeletedThroughNativeReopenAndL
     }
 }
 
+TEST(TrackerWriter, PlotGuestDeletionPreservesNumericIndicesWhenSourceCellsAreOutOfOrder)
+{
+    auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/plot-guests.trk");
+    const auto tracksEnd = xml.find("    </property>\n    <property name=\"selectedtrack\"");
+    ASSERT_NE(tracksEnd, std::string::npos);
+    xml.insert(tracksEnd,
+               R"(<property name="item" type="object">)"
+               "\n"
+               R"(<object class="org.opensourcephysics.cabrillo.tracker.PointMass">)"
+               "\n"
+               R"(<property name="name" type="string">mass D</property>)"
+               "\n</object>\n</property>\n");
+    const std::string first = R"(<property name="[0]" type="string">mass C</property>)";
+    const std::string second = R"(<property name="[1]" type="string">mass B</property>)";
+    ASSERT_NE(xml.find(first), std::string::npos);
+    ASSERT_NE(xml.find(second), std::string::npos);
+    xml.replace(xml.find(first),
+                first.size(),
+                R"(<property name="[1]" type="string">mass C</property>)"
+                "\n"
+                R"(<property name="[0]" type="string">mass B</property>)");
+    xml.replace(xml.find(second), second.size(), R"(<property name="[2]" type="string">mass D</property>)");
+    const auto imported = motrack::parseTrackerProject(xml);
+    auto project = imported.project;
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.removePointMass(project, 3));
+    const auto output = motrack::parseTrackerProject(motrack::renderTrackerProject(project, imported.source));
+    std::vector<std::string> guests;
+    for (const auto& reference : motrack::indexTrackerReferences(output.source, output.project).references)
+        if (reference.kind == motrack::TrackerReferenceKind::PlotGuest)
+            guests.push_back(reference.originalName);
+    EXPECT_EQ(guests, (std::vector<std::string>{"mass B", "mass C", "mass B"}));
+}
+
 TEST(TrackerWriter, PlotDeletionResolvesAllOriginalCollectionOrdinalsBeforeRemovingOwners)
 {
     auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/plot-guests.trk");

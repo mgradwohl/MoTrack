@@ -693,14 +693,19 @@ void patchTrackerDeletedReferences(QDomDocument& xml, const LegacyProject& proje
             parent.parentNode().removeChild(parent); // Tracker omits empty guest/column/format lists.
             continue;
         }
-        unsigned index = 0;
+        std::map<unsigned, QDomElement> ordered;
         for (auto node = parent.firstChild(); !node.isNull();)
         {
             const auto next = node.nextSibling();
             if (node.isElement())
             {
                 if (parent.attribute("type") == "array")
-                    node.toElement().setAttribute("name", "[" + QString::number(index++) + "]");
+                {
+                    const auto name = node.toElement().attribute("name");
+                    bool numeric = false;
+                    const auto index = name.mid(1, name.size() - 2).toUInt(&numeric);
+                    require(numeric && ordered.emplace(index, node.toElement()).second);
+                }
             }
             else
             {
@@ -708,6 +713,12 @@ void patchTrackerDeletedReferences(QDomDocument& xml, const LegacyProject& proje
                 parent.removeChild(node); // OSP expects consecutive array/collection property lines.
             }
             node = next;
+        }
+        unsigned index = 0;
+        for (auto& [originalIndex, item] : ordered)
+        {
+            parent.appendChild(item); // Array semantics follow numeric indices, not source node order.
+            item.setAttribute("name", "[" + QString::number(index++) + "]");
         }
         for (auto item = parent.firstChildElement(); !item.isNull(); item = item.nextSiblingElement())
             parent.insertBefore(xml.createTextNode("\n"), item);
