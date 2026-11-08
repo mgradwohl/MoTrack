@@ -94,7 +94,7 @@ void DocumentSession::rememberRecovery(const QString& path, const QString& trans
                               { return pending.transaction.isEmpty() && pending.observation <= observation; });
     const auto existing = std::ranges::find(transactions, transaction, &RecoveryObservation::transaction);
     if (existing == transactions.end())
-        transactions.append({transaction, observation});
+        transactions.append({.transaction = transaction, .observation = observation});
     else
         existing->observation = std::max(existing->observation, observation);
     if (!m_RecoveryPaths.contains(path))
