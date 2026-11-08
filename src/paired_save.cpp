@@ -1,6 +1,7 @@
 #include "paired_save.hpp"
 
 #include "local_media_path.hpp"
+#include "save_observation.hpp"
 #include "tracker_archive.hpp"
 #include "tracker_writer.hpp"
 #include "workspace_storage.hpp"
@@ -37,10 +38,7 @@ namespace
 void stampObservation(PairedSaveResult& result)
 {
     if (result.observation == 0)
-    {
-        static std::atomic<std::uint64_t> next{1};
-        result.observation = next.fetch_add(1, std::memory_order_relaxed);
-    }
+        result.observation = nextSaveObservation();
 }
 
 constexpr qint64 BLOCK_BYTES = qint64{64} * 1024;
@@ -594,7 +592,7 @@ SaveDestinationError::SaveDestinationError(SaveDestinationConflict conflict)
       m_Conflict(conflict)
 {}
 
-void writeNativeDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled)
+NativeSaveResult writeNativeDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled)
 {
     checkCancelled(cancelled);
     require(path.endsWith(".motrack", Qt::CaseInsensitive), "Choose a native project filename.");
@@ -611,7 +609,7 @@ void writeNativeDocument(const QString& path, const WorkspaceDocument& document,
     if (QFileInfo::exists(recovery) || QFileInfo(recovery).isSymLink())
         throw SaveDestinationError(SaveDestinationConflict::PendingRecovery);
     checkCancelled(cancelled);
-    writeWorkspaceDocument(physical, document, cancelled);
+    return writeWorkspaceDocument(physical, document, cancelled);
 }
 
 PairedSaveResult recoverPairedDocuments(const QString& recoveryPath,

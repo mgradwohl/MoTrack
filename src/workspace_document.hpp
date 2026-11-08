@@ -6,12 +6,20 @@
 #include <QString>
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 
 namespace motrack
 {
 
 class TrackerArchive;
+
+struct NativeSaveResult
+{
+    bool saved = false;
+    std::uint64_t observation = 0;               // Process-local completion order shared with paired saves.
+    QHash<QString, QString> mediaLocations = {}; // Original-reference bindings; never serialized.
+};
 
 struct WorkspaceDocument
 {
@@ -45,7 +53,9 @@ void refreshWorkspaceMediaLocations(WorkspaceDocument& document, const QString& 
 /// Uses physical project directories and verifies every generated local reference; throws before writing on failure.
 void rebaseWorkspaceMedia(WorkspaceDocument& document, const QString& sourcePath, const QString& destinationPath);
 /// Writes atomically. The caller supplies media paths relative to the destination.
+/// Returns an observed completion for live-session adoption; exceptions leave no successful result.
 /// Cancellation is checked before serialization, while streaming archive data and before replacement.
-void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled = nullptr);
+NativeSaveResult
+writeWorkspaceDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled = nullptr);
 
 } // namespace motrack

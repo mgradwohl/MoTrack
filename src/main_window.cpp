@@ -52,6 +52,7 @@
 #include <cmath>
 #include <iterator>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <utility>
 
@@ -1723,8 +1724,7 @@ bool MainWindow::saveWorkspace(const QString& path)
     statusBar()->showMessage(tr("Saving project…"));
     struct SaveResult
     {
-        bool saved = false;
-        QHash<QString, QString> mediaLocations;
+        NativeSaveResult save;
         std::optional<SaveDestinationConflict> conflict = std::nullopt;
     };
     QFutureWatcher<SaveResult> watcher;
@@ -1739,8 +1739,7 @@ bool MainWindow::saveWorkspace(const QString& path)
                                       return {};
                                   refreshWorkspaceMediaLocations(document, sourcePath);
                                   rebaseWorkspaceMedia(document, sourcePath, path);
-                                  writeNativeDocument(path, document, cancelled.get());
-                                  return {.saved = true, .mediaLocations = std::move(document.mediaLocations)};
+                                  return {.save = writeNativeDocument(path, document, cancelled.get())};
                               }
                               catch (const SaveDestinationError& error)
                               {
@@ -1758,7 +1757,7 @@ bool MainWindow::saveWorkspace(const QString& path)
     }
     finishSaving();
     const auto result = watcher.result();
-    const auto outcome = m_Session.completeSave(checkpoint, path, result.saved);
+    const auto outcome = m_Session.completeSave(checkpoint, path, result.save);
     if (outcome == SaveOutcome::Replaced)
     {
         return false;
@@ -1773,9 +1772,13 @@ bool MainWindow::saveWorkspace(const QString& path)
                 : tr("Could not save this project."));
         return false;
     }
+    if (outcome == SaveOutcome::Superseded)
+    {
+        setWindowModified(m_Session.isModified());
+        return false;
+    }
     // The snapshot may have resolved media restored through a temporary alias since opening.
     // Keep those physical locations for subsequent saves and clip edits after that alias is removed.
-    m_Session.document.mediaLocations = result.mediaLocations;
     refreshImageMediaLocations();
     setWindowTitle(tr("%1[*] — MoTrack").arg(QFileInfo(path).fileName()));
     if (outcome == SaveOutcome::Stale)

@@ -64,7 +64,7 @@ struct PairedSaveResult
     QString diagnostic;
     bool standardCurrent = false;
     bool nativeCurrent = false;
-    // Process-local observation order, assigned before releasing the journal lock; never persisted.
+    // Process-local order shared with native writes, assigned before releasing the journal lock; never persisted.
     std::uint64_t observation = 0;
     // Resolved original-reference bindings from this write's snapshot, for successful live-session adoption.
     // Runtime-only: never serialized in the recovery record or used to reconstruct a recovered snapshot.
@@ -84,7 +84,8 @@ using PairedSaveObserver = std::function<void(PairedSaveProgress)>;
 /// Write a prepared/rebased native copy while holding its sibling paired-save lock.
 /// Refuses unresolved journals without changing any output; copies to other destinations remain available.
 /// The caller still validates/rebases media before invoking this worker-only adapter.
-void writeNativeDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled = nullptr);
+/// The returned completion is stamped while the destination lock is held.
+NativeSaveResult writeNativeDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled = nullptr);
 
 /// Explicitly resume a locally initiated pair. Refuses altered destinations, stages, aliases and escaping paths.
 /// Recovery is never implicitly triggered by opening imported project/archive content.
