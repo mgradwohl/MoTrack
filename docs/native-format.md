@@ -400,7 +400,9 @@ same local-reference checks as inputs, so a parent folder containing `!/` cannot
 archive-style reference. Reopening each generated reference must resolve to the same original image.
 Native desktop Save uses the same physical-directory rebasing and verifies each generated reference
 before writing. Its atomic native writer follows project-file aliases, including a link whose target
-has not been created yet; the saved references are relative to that target's physical directory.
+has not been created yet; the saved references are relative to that target's physical directory. The media
+overwrite guard uses the resolved target's filename as well as its directory, so a dangling alias cannot
+replace a retained missing image or falsely reject a distinct image with the alias's basename.
 Cyclic aliases and links that would be interpreted as archive references fail without changing an
 existing destination or the session's saved state. POSIX desktop regressions reopen through both the
 alias and physical path and compare decoded image pixels; CI runs these on Linux and macOS. Standalone
