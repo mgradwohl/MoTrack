@@ -991,8 +991,11 @@ changed pixels, changed paths and unrelated calibration edits.
 
 Linux CI then opens the new archive in Tracker, checks independent pixels, frame order, timestamps,
 calibration and edited mass/marks, saves through TrackerIO, reopens in a fresh private JVM, and
-reimports that resave in MoTrack. This is an acceptance requirement, not yet recorded as a passing
-application result. Local native tests separately delete the original media, move the package, reopen
+reimports that resave in MoTrack. This full packaged-images case passed at `f8ea95f` in Linux job
+128802309844 of [run 42503907010](https://github.com/mgradwohl/MoTrack/actions/runs/42503907010),
+with all six platform/coverage checks green. Later revisions still require their own current-head CI
+and review; the historical result does not replace those gates. Local native tests separately delete
+the original media, move the package, reopen
 it, embed it in a native document, remove the package, reopen again and save another standard edit.
 The internal packager copies image bytes without converting formats. It does not yet provide a
 packaging dialog, movie/clip export, arbitrary auxiliary-resource collection or general multi-tab authoring.
