@@ -1736,7 +1736,7 @@ bool MainWindow::saveWorkspace(const QString& path)
     statusBar()->showMessage(tr("Saving project…"));
     struct SaveResult
     {
-        NativeSaveResult save;
+        NativeSaveResult save = {};
         std::optional<SaveDestinationConflict> conflict = std::nullopt;
     };
     QFutureWatcher<SaveResult> watcher;

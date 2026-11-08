@@ -72,8 +72,10 @@ replacement. Native files retain project data and IDs, not a serialized undo log
 and the current native save target. It has no widget or decoder dependency. Each replacement gets a
 fresh identity object; save checkpoints retain that identity and the history revision. A completion
 from another session or a replaced document cannot change the current target or mark it clean, even
-when the two histories have the same revision. Failed writes preserve the old checkpoint. A successful
-stale write keeps its destination but invalidates the checkpoint until the latest state is saved.
+when the two histories have the same revision. Failed writes preserve the old checkpoint. Native and
+paired workers share a completion order; an older callback cannot replace a newer destination, media
+bindings or saved checkpoint. The latest completed write of an outdated revision keeps its destination
+but invalidates the checkpoint until the latest state is saved.
 
 Workers receive an owned document snapshot, including shared archive ownership, rather than access
 to the live session. Replacing the session clears only its own history and data; a pending snapshot
