@@ -584,6 +584,33 @@ TEST(TrackerWriter, RemovesOnlyDeletedTableOwnersAfterHistoryNativeReopenAndName
     }
 }
 
+TEST(TrackerWriter, OmitsAnEmptyCustomTableAfterDeletingItsLastOwner)
+{
+    const auto path = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/table-default-format-owners.trk";
+    auto document = motrack::importTrackerDocument(path);
+    const auto original = readBytes(path);
+    motrack::TrackEdits edits;
+    for (int remaining = 3; remaining > 0; --remaining)
+        ASSERT_TRUE(edits.removePointMass(document.project, 0));
+    ASSERT_TRUE(edits.undo(document.project));
+    ASSERT_TRUE(edits.redo(document.project));
+    QTemporaryDir temporary;
+    const auto native = temporary.filePath("empty-table.motrack");
+    motrack::writeWorkspaceDocument(native, document);
+    document = motrack::readWorkspaceDocument(native);
+    ASSERT_TRUE(document.trackerSource);
+    const auto bytes = motrack::renderTrackerProject(document.project, *document.trackerSource);
+    EXPECT_EQ(bytes.find("TableTView"), std::string::npos);
+    QDomDocument parsed;
+    ASSERT_TRUE(parsed.setContent(QByteArray::fromStdString(bytes)));
+    for (auto property = parsed.documentElement().firstChildElement(); !property.isNull(); property = property.nextSiblingElement())
+        EXPECT_NE(property.attribute("name"), "views");
+    EXPECT_TRUE(motrack::parseLegacyProject(bytes).pointMasses.empty());
+    EXPECT_EQ(document.trackerSource->xml, original);
+    EXPECT_NE(bytes.find("selected_view_types"), std::string::npos);
+    EXPECT_NE(bytes.find("null,null;null,null;null,null;null,null"), std::string::npos);
+}
+
 TEST(TrackerWriter, RefusesDependentAndTableDatasetDeletionBeforeTouchingTheDestination)
 {
     auto xml = namedSource();
