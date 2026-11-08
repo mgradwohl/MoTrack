@@ -22,6 +22,7 @@
 #include <set>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 namespace motrack
 {
@@ -871,12 +872,13 @@ bool patchLinkedImagePaths(QDomDocument& xml, const LegacyProject& project, Lega
     expectedClip.mediaReferences = baseline.clip.mediaReferences;
     require(expectedClip == baseline.clip); // Timing and range changes need separate media acceptance.
     const auto& clip = project.clip;
-    require(clip.firstFrame >= 0 && clip.stepSize > 0 && clip.stepCount.value_or(0) > 0 &&
-            static_cast<std::int64_t>(clip.firstFrame) + static_cast<std::int64_t>(*clip.stepCount - 1) * clip.stepSize <
+    const auto steps = clip.stepCount.value_or(0);
+    require(clip.firstFrame >= 0 && clip.stepSize > 0 && steps > 0 &&
+            static_cast<std::int64_t>(clip.firstFrame) + static_cast<std::int64_t>(steps - 1) * clip.stepSize <
                 static_cast<std::int64_t>(count));
     for (const auto& mass : project.pointMasses)
         for (const auto& mark : mass.marks)
-            require(mark.frame >= 0 && static_cast<std::size_t>(mark.frame) < count);
+            require(mark.frame >= 0 && std::cmp_less(mark.frame, count));
     const auto clipObject = uniqueProperty(xml.documentElement(), "videoclip").firstChildElement("object");
     const auto video = uniqueProperty(clipObject, "video").firstChildElement("object");
     require(video.attribute("class") == "org.opensourcephysics.media.core.ImageVideo");
@@ -1182,8 +1184,11 @@ void writeTrackerProject(const QString& path, const LegacyProject& project, cons
 
 void writeTrackerDocument(const QString& path, const WorkspaceDocument& document, const QString& mediaProjectPath)
 {
-    require(document.trackerSource.has_value() && !document.movie && document.movieFrameTimes.empty() && !document.useDisplayOrientation &&
-            !document.archivePayload && !document.archiveMember && document.archiveReference.empty());
+    if (!document.trackerSource)
+        throw ProjectError("Tracker export requires its original source.");
+    const auto& source = *document.trackerSource;
+    require(!document.movie && document.movieFrameTimes.empty() && !document.useDisplayOrientation && !document.archivePayload &&
+            !document.archiveMember && document.archiveReference.empty());
     auto project = document.project;
     const bool linkedImages = !project.clip.mediaReferences.empty();
     if (linkedImages)
@@ -1215,7 +1220,7 @@ void writeTrackerDocument(const QString& path, const WorkspaceDocument& document
             project.clip.sourceFrameCount.reset();
         }
     }
-    writeXml(path, renderTrackerProjectImpl(project, *document.trackerSource, linkedImages));
+    writeXml(path, renderTrackerProjectImpl(project, source, linkedImages));
 }
 
 } // namespace motrack

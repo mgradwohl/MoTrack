@@ -48,6 +48,13 @@ std::string readBytes(const QString& path)
     return input.open(QIODevice::ReadOnly) ? input.readAll().toStdString() : std::string{};
 }
 
+motrack::TrackerSource& retainedSource(motrack::WorkspaceDocument& document)
+{
+    if (!document.trackerSource)
+        throw motrack::ProjectError("Test document lost its Tracker source.");
+    return *document.trackerSource;
+}
+
 TEST(TrackerWriter, SavesLinkedImagesAfterNativeReopenSourceRemovalAndRelocation)
 {
     QTemporaryDir temporary;
@@ -66,7 +73,7 @@ TEST(TrackerWriter, SavesLinkedImagesAfterNativeReopenSourceRemovalAndRelocation
     const auto input = sourceDirectory + "/input.trk";
     ASSERT_TRUE(QFile::copy(fixture + "linked-images.trk", input));
     auto document = motrack::importTrackerDocument(input);
-    const auto originalSource = document.trackerSource->xml;
+    const auto originalSource = retainedSource(document).xml;
     const auto unchanged = sourceDirectory + "/unchanged.trk";
     motrack::writeTrackerDocument(unchanged, document, input);
     EXPECT_EQ(readBytes(unchanged), originalSource);
@@ -89,7 +96,7 @@ TEST(TrackerWriter, SavesLinkedImagesAfterNativeReopenSourceRemovalAndRelocation
     const auto output = outputDirectory + "/saved.trk";
     motrack::writeTrackerDocument(output, document, native);
     EXPECT_EQ(document.project, nativeProject);
-    EXPECT_EQ(document.trackerSource->xml, originalSource);
+    EXPECT_EQ(retainedSource(document).xml, originalSource);
     const auto bytes = readBytes(output);
     const auto exported = motrack::parseTrackerProject(bytes);
     auto expected = nativeProject;
@@ -109,7 +116,7 @@ TEST(TrackerWriter, SavesLinkedImagesAfterNativeReopenSourceRemovalAndRelocation
     ASSERT_TRUE(edits.setPointMassValue(reimported.project, 0, 3.0));
     motrack::writeTrackerDocument(output, reimported, output);
     EXPECT_DOUBLE_EQ(motrack::parseLegacyProject(readBytes(output)).pointMasses.front().mass, 3.0);
-    EXPECT_THROW(motrack::writeTrackerProject(output, document.project, *document.trackerSource), motrack::ProjectError);
+    EXPECT_THROW(motrack::writeTrackerProject(output, document.project, retainedSource(document)), motrack::ProjectError);
 }
 
 TEST(TrackerWriter, RejectsUnsafeLinkedImageExportsBeforeReplacingTheDestination)
@@ -135,6 +142,7 @@ TEST(TrackerWriter, RejectsUnsafeLinkedImageExportsBeforeReplacingTheDestination
         [](auto& doc) { doc.project.clip.mediaReferences[1] = "archive.zip!/frame.png"; },
         [](auto& doc) { doc.project.clip.mediaReferences[1] = ":resource.png"; },
         [](auto& doc) { doc.project.clip.mediaReferences[1] = "line\nbreak.png"; },
+        [](auto& doc) { doc.project.clip.mediaReferences[1] = "bad]]>name.png"; },
         [](auto& doc) { doc.project.clip.mediaReferences.pop_back(); },
         [](auto& doc) { doc.project.clip.sourceFrameCount = 3; },
         [](auto& doc) { doc.project.clip.firstFrame = 1; },
@@ -143,17 +151,37 @@ TEST(TrackerWriter, RejectsUnsafeLinkedImageExportsBeforeReplacingTheDestination
         [](auto& doc) { doc.project.pointMasses.front().marks.front().frame = 4; },
         [](auto& doc)
         {
-            const std::string previous = "<property name=\"path\" type=\"string\">images/frame0.png";
-            const auto position = doc.trackerSource->xml.find(previous);
-            ASSERT_NE(position, std::string::npos);
-            doc.trackerSource->xml.replace(position, previous.size(), "<property name=\"path\" type=\"string\">images/frame1.png");
+            motrack::TrackEdits edits;
+            ASSERT_TRUE(edits.createVector(doc.project, "unsupported image vector"));
         },
         [](auto& doc)
         {
-            const std::string previous = "<property name=\"delta_t\" type=\"double\">125.0";
-            const auto position = doc.trackerSource->xml.find(previous);
+            const std::string type = "org.opensourcephysics.media.core.ImageVideo";
+            const auto position = retainedSource(doc).xml.find(type);
             ASSERT_NE(position, std::string::npos);
-            doc.trackerSource->xml.replace(position, previous.size(), "<property name=\"delta_t\" type=\"double\">250.0");
+            retainedSource(doc).xml.replace(position, type.size(), "org.opensourcephysics.media.xuggle.XuggleVideo");
+        },
+        [](auto& doc)
+        {
+            const std::string start = "<object class=\"org.opensourcephysics.media.core.ImageVideo\">";
+            const auto position = retainedSource(doc).xml.find(start);
+            ASSERT_NE(position, std::string::npos);
+            retainedSource(doc).xml.insert(position + start.size(),
+                                           "\n<property name=\"filters\" type=\"collection\" class=\"java.util.ArrayList\"/>\n");
+        },
+        [](auto& doc)
+        {
+            const std::string previous = R"(<property name="path" type="string">images/frame0.png)";
+            const auto position = retainedSource(doc).xml.find(previous);
+            ASSERT_NE(position, std::string::npos);
+            retainedSource(doc).xml.replace(position, previous.size(), R"(<property name="path" type="string">images/frame1.png)");
+        },
+        [](auto& doc)
+        {
+            const std::string previous = R"(<property name="delta_t" type="double">125.0)";
+            const auto position = retainedSource(doc).xml.find(previous);
+            ASSERT_NE(position, std::string::npos);
+            retainedSource(doc).xml.replace(position, previous.size(), R"(<property name="delta_t" type="double">250.0)");
         }};
     for (std::size_t index = 0; index < mutations.size(); ++index)
     {
@@ -168,6 +196,36 @@ TEST(TrackerWriter, RejectsUnsafeLinkedImageExportsBeforeReplacingTheDestination
     EXPECT_THROW(motrack::writeTrackerDocument(temporary.filePath("missing/output.trk"), original, input), motrack::ProjectError);
     EXPECT_THROW(motrack::writeTrackerDocument(temporary.filePath("output.trz"), original, input), motrack::ProjectError);
     EXPECT_EQ(readBytes(destination), "existing");
+}
+
+TEST(TrackerWriter, AuditsSavedImageFrameCountsAndNeverReplacesALinkedImage)
+{
+    QTemporaryDir temporary;
+    const auto input = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images/linked-images.trk";
+    auto document = motrack::importTrackerDocument(input);
+    const auto output = temporary.filePath("output.trk");
+    const std::string start = "<object class=\"org.opensourcephysics.media.core.VideoClip\">";
+    const auto position = retainedSource(document).xml.find(start);
+    ASSERT_NE(position, std::string::npos);
+    retainedSource(document).xml.insert(position + start.size(), "\n<property name=\"video_framecount\" type=\"int\">4</property>\n");
+    document.project.clip.sourceFrameCount = 4;
+    motrack::writeTrackerDocument(output, document, input);
+    const auto correct = readBytes(output);
+    EXPECT_NE(correct.find("name=\"video_framecount\""), std::string::npos);
+    const std::string count = R"(name="video_framecount" type="int">4)";
+    const auto countPosition = retainedSource(document).xml.find(count);
+    ASSERT_NE(countPosition, std::string::npos);
+    retainedSource(document).xml.replace(countPosition, count.size(), R"(name="video_framecount" type="int">5)");
+    EXPECT_THROW(motrack::writeTrackerDocument(output, document, input), motrack::ProjectError);
+    EXPECT_EQ(readBytes(output), correct);
+
+    document = motrack::importTrackerDocument(input);
+    const auto imageDestination = temporary.filePath("image-with-project-extension.trk");
+    ASSERT_TRUE(QFile::copy(QFileInfo(input).absolutePath() + "/images/frame0.png", imageDestination));
+    const auto originalImage = readBytes(imageDestination);
+    document.project.clip.mediaReferences[0] = imageDestination.toStdString();
+    EXPECT_THROW(motrack::writeTrackerDocument(imageDestination, document, input), motrack::ProjectError);
+    EXPECT_EQ(readBytes(imageDestination), originalImage);
 }
 
 TEST(TrackerWriter, PatchesTheBoundMassAfterNativeReopenAndKeepsUnknownContent)

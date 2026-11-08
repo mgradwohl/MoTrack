@@ -348,18 +348,34 @@ These require actual application acceptance before merging. Custom tables are st
 selection restored by the reference harness; this does not resolve Tracker's unvisited-view data-loss
 limitation tracked by [MoTrack #64](https://github.com/mgradwohl/MoTrack/issues/64).
 
-### Planned linked-media standard output
+### Linked-media standard output
 
-The next phase-3 adapter will receive an immutable document snapshot, the current media project
-location and the chosen standard destination. Current native media references are relative to
-the current document, while the preserved source XML retains its original spellings. The adapter
-must resolve current paths before preparing destination-relative paths; it must not infer the
-original directory from source XML or overwrite the preserved source envelope.
+The internal [writeTrackerDocument adapter](../src/tracker_writer.hpp) receives an immutable document
+snapshot, its current media project location and the chosen standard destination. Current native
+media references are relative to the current document, while preserved source XML retains its
+original spellings. The adapter resolves current paths and prepares destination-relative references
+without inferring the original directory or modifying the source envelope. A removed original XML
+file is therefore unnecessary once the native document has been reopened.
 
-Start with audited local ImageVideo paths, retaining frame order, pixels, calibration and timing.
-Preflight all required files, patch only known path fields, reparse and validate the proposed output
-before an atomic write. Native close/reopen, original XML removal, Unicode/relocated paths, missing
-media and failed writes require tests through this adapter. Movie engines, filters and archive
-members need their own audited path and timing contracts. Archive packaging will preserve untouched
-members and then feed the paired-save transaction/recovery layer; standard Save UI follows that layer.
-The linked-image corpus establishes an independent reference baseline, not implementation of this adapter.
+The first supported media schema is a standalone, unfiltered ImageVideo containing independent point
+masses and coordinate axes. Frame count/order, clip range, interval and time origin must be retained;
+media timing/range edits, vectors, movie state, archives and unaudited fields are refused. A native
+decoded-frame count is accepted only when it equals the complete image list and is treated as derived
+metadata. An optional saved video_framecount must also match. Source path and paths fields must agree.
+
+Every linked file must be readable before output is prepared. The adapter rebases known path fields,
+uses OSP-safe CDATA, validates the complete edited project by reparsing, and writes through QSaveFile.
+It rejects an output that aliases linked media and leaves an existing destination intact on preflight
+or rendering failure. This links existing files; it neither copies media nor marks a session saved.
+The filesystem preflight establishes availability, not general codec validation or protection from
+later external media changes. Long-running save work belongs on the existing worker boundary.
+
+Native regressions cover relocation, Unicode/ampersand paths, history, native close/reopen, source
+removal, repeat export/reimport and failed writes. The independent corpus adds a mass and mark edit
+after relocating all four images; its full-XML and byte oracles permit only the requested edits/paths,
+and the actual Tracker application must preserve all decoded pixels/times and calibrated measurements
+through save and fresh reopen. This application acceptance remains required before merge.
+
+Movie engines, filters and archive members need their own audited path/timing contracts. Archive
+packaging will preserve untouched members and feed the paired-save transaction/recovery layer;
+standard Save UI follows that layer. This internal adapter is not full R03 completion.

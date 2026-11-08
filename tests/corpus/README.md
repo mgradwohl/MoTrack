@@ -866,7 +866,14 @@ reordered frames, altered pixels, dimensions or times fail even if all three ses
 Image reads are bounded to 100 frames of at most 256×256 pixels; filters and movie engines remain
 outside this baseline. A media session without independent expectations is rejected.
 
-This is reference infrastructure for R03/R05, with application acceptance pending CI. It does not
-enable MoTrack standard-file media export. The next slice must resolve current document references
-against their current project location, rebase them for the chosen output location, and prove that
-native close/reopen and removal of the original XML do not break the linked media.
+The reference-only image case has passed actual Tracker save and fresh-process reopen in Linux;
+its PR still requires the complete current-head CI and review gates. This baseline does not by
+itself establish native export acceptance or general media-format parity.
+
+The following native export case relocates all four images into a Unicode/ampersand-named directory,
+changes the mass from 2 to 5 kg and adds the frame-1 mark at image (8,12), world (3,2). It exercises
+undo/redo, saves and closes the native document, removes its original XML copy, reopens, and exports
+through the new document adapter. Independent checks permit only the requested mass, mark/manual
+keys and media paths in the XML, and require all relocated assets to match their pinned bytes.
+The actual Tracker session must then retain every RGB pixel and timestamp, edited measurements and
+manual keys through save/fresh reopen and native reimport. Acceptance remains pending CI.
