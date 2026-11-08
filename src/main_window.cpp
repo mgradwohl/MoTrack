@@ -774,14 +774,16 @@ bool MainWindow::applyProject(const QString& path, PreparedProject prepared, con
     }
     document.alignMovieToClip = document.alignMovieToClip || !path.endsWith(".motrack", Qt::CaseInsensitive);
     m_Session.replace(std::move(document), path);
-    m_Sequence = m_Session.document.movie ? std::nullopt : ImageSequence::open(m_MediaProjectPath, m_Session.document.project.clip);
+    m_Sequence = m_Session.document.movie
+                     ? std::nullopt
+                     : ImageSequence::open(m_MediaProjectPath, m_Session.document.project.clip, m_Session.document.mediaLocations);
     m_MoviePath.clear();
     m_MoviePresentationTimes.clear();
     const auto& clip = m_Session.document.project.clip;
     const auto steps = clip.stepCount.value_or(0);
     if (!m_Sequence && clip.mediaReferences.size() == 1 && steps > 0)
     {
-        const auto movie = resolveLocalMediaPath(m_MediaProjectPath, clip.mediaReferences.front());
+        const auto movie = workspaceMediaPath(m_Session.document, m_MediaProjectPath, clip.mediaReferences.front());
         if (QFileInfo(movie).isFile())
         {
             m_MoviePath = movie;
@@ -985,7 +987,7 @@ void MainWindow::syncClipControls()
     setPlaying(false);
     if (m_Sequence)
     {
-        m_Sequence = ImageSequence::open(m_MediaProjectPath, m_Session.document.project.clip);
+        m_Sequence = ImageSequence::open(m_MediaProjectPath, m_Session.document.project.clip, m_Session.document.mediaLocations);
     }
     const int stepCount =
         m_Sequence ? m_Sequence->stepCount() : (m_MoviePath.isEmpty() ? 0 : m_Session.document.project.clip.stepCount.value_or(0));
