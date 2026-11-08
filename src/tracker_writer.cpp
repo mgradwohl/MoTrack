@@ -986,7 +986,7 @@ bool patchLinkedImagePaths(QDomDocument& xml, const LegacyProject& project, Lega
     return true;
 }
 
-enum class LinkedMedia
+enum class LinkedMedia : std::uint8_t
 {
     None,
     Images,
