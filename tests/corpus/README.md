@@ -16,6 +16,16 @@ Neither check proves MoTrack `.trk`/`.trz` export, complete model/function param
 media decoding, cross-platform Java UI behavior or the required paired-file round trip. A successful
 parser or Java-only resave check must never be reported as a complete MoTrack round trip.
 
+Session failures now identify the case, edit mode, save/reopen stage and input filename, while retaining
+the original process error as the cause. The Java probe reports its input/stage/wait state and, on the
+internal loading deadline, a bounded snapshot of its own event/worker/timer/main thread stacks. It
+does not wait for the event thread to produce diagnostics or alter the loader's completion path.
+The existing private display/home, 256 MB heap, 30-second internal wait and 45-second subprocess limit
+remain; failures still fail immediately, without automatic retries. Failure-path tests cover both
+stages, process/launch/outer-timeout errors, cleanup and unchanged invocation counts.
+This improves evidence for [MoTrack #105](https://github.com/mgradwohl/MoTrack/issues/105); the intermittent
+callback timeout's cause remains under investigation and is not established as fixed or as an upstream defect.
+
 A third command, `roundtrip`, adds **limited** MoTrack standard-export cases. The mass case, labeled
 `motrack_mass_roundtrip`, changes the first point mass's mass in the real protractor experiment,
 saves/reopens native data after removing its input copy, exports `.trk`, opens/resaves/reopens through
