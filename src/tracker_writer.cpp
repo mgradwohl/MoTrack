@@ -536,6 +536,26 @@ std::array<double, 6> trackerInverse(const CalibrationKey& key)
     return inverse;
 }
 
+void requireBoundedMassFrames(const LegacyProject& project, const std::unordered_map<TrackId, QDomElement>& objects)
+{
+    std::size_t frameSlots = 0;
+    for (const auto& mass : project.pointMasses)
+    {
+        int lastFrame = -1;
+        const auto data = uniqueProperty(objects.at(mass.id), "framedata");
+        for (auto item = data.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"))
+        {
+            const auto frame = frameIndex(item.attribute("name"));
+            require(frame <= 500000);
+            lastFrame = std::max(lastFrame, frame);
+        }
+        // Inspect the emitted arrays, including unchanged objects and null placeholders. Reimport
+        // must not reset this budget, and marking a previously empty mass must not bypass it.
+        frameSlots += static_cast<std::size_t>(lastFrame + 1);
+        require(frameSlots <= 1000000);
+    }
+}
+
 void requireTrackerCoordinates(const LegacyProject& project, const Calibration& calibration)
 {
     require(!calibration.keyframes.empty() && calibration.keyframes.front().frame == 0);
@@ -886,6 +906,7 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
     if (membershipChanged)
     {
         validateTrackerTrackMembership(xml, expected, source);
+        require(expected.calibration || uniqueProperty(xml.documentElement(), "coords").isNull());
         if (expected.calibration)
             requireTrackerCoordinates(expected, *expected.calibration);
         require(tracks.attribute("type") == "collection" && tracks.attribute("class") == "java.util.ArrayList");
@@ -1054,6 +1075,7 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
     require(std::ranges::find(expected.unsupportedTrackTypes, "org.opensourcephysics.cabrillo.tracker.VectorSum") ==
             expected.unsupportedTrackTypes.end());
     requireStableVectors(expected, objects);
+    requireBoundedMassFrames(expected, objects);
     // QDom emits UTF-8 bytes; do not retain an input declaration for a different encoding.
     for (auto node = xml.firstChild(); !node.isNull(); node = node.nextSibling())
     {

@@ -525,6 +525,79 @@ TEST(TrackerWriter, CreatesAnotherMassAfterStandardReimportWithHighOriginalFrame
     }
 }
 
+TEST(TrackerWriter, CreatedMassCountsRetainedFrameArraysAndNullPlaceholdersBeforeReplacingDestination)
+{
+    for (const bool nullFrames : {false, true})
+    {
+        const auto sourceFor = [&](int lastFrame)
+        {
+            std::string xml = "<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>\n"
+                              "<property name='tracks' type='collection' class='java.util.ArrayList'>\n";
+            for (int index = 0; index < 2; ++index)
+            {
+                xml += "<property name='item' type='object'><object class='org.opensourcephysics.cabrillo.tracker.PointMass'>\n"
+                       "<property name='name' type='string'>mass " +
+                       std::to_string(index) +
+                       "</property>\n"
+                       "<property name='framedata' type='array' class='[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;'>\n"
+                       "<property name='[" +
+                       std::to_string(lastFrame) + "]' type='object'>";
+                xml += nullFrames ? "null"
+                                  : "<object class='org.opensourcephysics.cabrillo.tracker.PointMass$FrameData'>"
+                                    "<property name='x' type='double'>1</property><property name='y' type='double'>2</property>"
+                                    "</object>";
+                xml += "</property>\n</property>\n</object></property>\n";
+            }
+            return xml + "</property>\n</object>\n";
+        };
+        QTemporaryDir temporary;
+        const auto destination = temporary.filePath("existing.trk");
+        auto imported = motrack::parseTrackerProject(sourceFor(500000));
+        motrack::writeTrackerProject(destination, imported.project, imported.source);
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.createPointMass(imported.project, "new empty mass"));
+        EXPECT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(destination), sourceFor(500000));
+        imported = motrack::parseTrackerProject(sourceFor(499999));
+        edits.clear();
+        ASSERT_TRUE(edits.createPointMass(imported.project, "new empty mass"));
+        EXPECT_NO_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source));
+        const auto saved = readBytes(destination);
+        imported = motrack::parseTrackerProject(saved);
+        edits.clear();
+        ASSERT_TRUE(edits.markPointMass(imported.project, 2, {.frame = 0, .x = 3, .y = 4}));
+        EXPECT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(destination), saved);
+    }
+}
+
+TEST(TrackerWriter, CreatedMassRejectsPresentButUnusableCalibrationAtomically)
+{
+    for (const auto& fields : {std::string("<property name='xscale' type='double'>1</property>"),
+                               std::string("<property name='angle' type='double'>0</property>"
+                                           "<property name='xscale' type='double'>NaN</property>")})
+    {
+        const auto source = namedSource(
+            "<property name='coords' type='object'><object class='org.opensourcephysics.media.core.ImageCoordSystem'>"
+            "<property name='fixedorigin' type='boolean'>true</property><property name='fixedangle' type='boolean'>true</property>"
+            "<property name='fixedscale' type='boolean'>true</property>"
+            "<property name='framedata' type='array' class='[Lorg.opensourcephysics.media.core.ImageCoordSystem$FrameData;'>"
+            "<property name='[0]' type='object'><object class='org.opensourcephysics.media.core.ImageCoordSystem$FrameData'>"
+            "<property name='xorigin' type='double'>0</property><property name='yorigin' type='double'>0</property>" +
+            fields + "<property name='yscale' type='double'>1</property></object></property></property></object></property>");
+        auto imported = motrack::parseTrackerProject(source);
+        ASSERT_FALSE(imported.project.calibration);
+        QTemporaryDir temporary;
+        const auto destination = temporary.filePath("existing.trk");
+        motrack::writeTrackerProject(destination, imported.project, imported.source);
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.createPointMass(imported.project, "new mass"));
+        ASSERT_TRUE(edits.markPointMass(imported.project, 2, {.frame = 1, .x = 2, .y = 3}));
+        EXPECT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(destination), source);
+    }
+}
+
 TEST(TrackerWriter, CreatedMassRejectsCoordinateCancellationWithoutChangingCalibrationOrDestination)
 {
     const auto xml =

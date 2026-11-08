@@ -680,6 +680,11 @@ Native regression cases export a new mass marked at frame 10000 or 500000, reimp
 save/reopen natively, create another mass and export again. The point-mass frame-array schema audit
 uses the same 500000 frame bound as the writer; it does not relax generic array indices, entry/depth
 limits or allocation budgets. The frame-10000 reimport regression failed before this audit correction.
+Additional regressions reproduce retained objects and null placeholders bypassing the dense-array
+budget, plus creation under present-but-unusable calibration (missing angle/nonfinite scale). Edited
+exports now count all emitted point-mass arrays; two arrays of 500000 slots reach the one-million-slot
+boundary, while one additional marked frame refuses without replacing the file. Reimport does not
+reset this limit. Absent coordinates remain supported, but unparseable source coordinates reject creation.
 Linux actual-application acceptance is required before merging this slice.
 
 The historical [Tracker #10 save/load report](https://github.com/OpenSourcePhysics/tracker/issues/10)
