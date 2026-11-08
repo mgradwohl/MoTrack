@@ -570,7 +570,8 @@ void validateTrackerTrackMembership(const QDomDocument& xml, const LegacyProject
             const auto target = originalTracks.find(reference.candidateSourceIndices.front());
             require(target != originalTracks.end());
             // Retained source names must never silently rebind to a newly created track.
-            require(!target->second->nativeId || liveIds.contains(*target->second->nativeId));
+            const auto targetId = target->second->nativeId;
+            require(!targetId || liveIds.contains(*targetId));
             if (reference.kind != TrackerReferenceKind::SelectedTrack)
                 require(target->second->className != std::string(TRACKER) + "CoordAxes");
         }
