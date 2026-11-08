@@ -308,7 +308,10 @@ TEST(TrackerWriter, RenamesBoundVectorWithSelectionsAfterInterleavedEditsAndNati
     const auto native = temporary.filePath("vector-names.motrack");
     motrack::writeWorkspaceDocument(native, document);
     document = motrack::readWorkspaceDocument(native);
-    ASSERT_TRUE(document.trackerSource);
+    if (!document.trackerSource)
+    {
+        FAIL() << "Native reopen lost the original vector source.";
+    }
     const auto output = motrack::parseTrackerProject(motrack::renderTrackerProject(document.project, *document.trackerSource));
     EXPECT_EQ(output.project.vectors, (std::vector<motrack::VectorTrack>{first, second}));
     EXPECT_EQ(output.project.description, imported.project.description);
