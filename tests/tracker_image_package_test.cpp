@@ -121,7 +121,7 @@ TEST(TrackerImagePackage, RefusesUnsupportedDocumentsMissingMediaAndCancellation
             document.project.clip.startTimeMs = 45;
             break;
         case 6:
-            document.movie = "movie.mp4";
+            document.movie = true;
             break;
         case 7:
             document.archiveMember = "experiment.trk";

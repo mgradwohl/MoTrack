@@ -36,11 +36,6 @@ void checkCancelled(const std::atomic_bool* cancelled)
         throw ProjectError("Tracker image packaging was canceled.");
 }
 
-QString pathKey(const QString& path)
-{
-    return path.normalized(QString::NormalizationForm_C).toCaseFolded();
-}
-
 qint64 copyFile(const QString& source, QIODevice& output, qint64 maximum, const std::atomic_bool* cancelled)
 {
     QFile input(source);
@@ -122,7 +117,6 @@ void writeTrackerImagePackage(const QString& path,
     const auto directory = localProjectDirectory(path);
     require(!directory.isEmpty());
     const auto destination = QDir(directory).filePath(QFileInfo(path).fileName());
-    const auto destinationKey = pathKey(destination);
     QTemporaryDir temporary;
     require(temporary.isValid() && QDir(temporary.path()).mkdir("images"));
     auto snapshot = document;
@@ -131,9 +125,11 @@ void writeTrackerImagePackage(const QString& path,
     for (auto& reference : snapshot.project.clip.mediaReferences)
     {
         checkCancelled(cancelled);
+        const auto logical = QString::fromStdString(reference);
+        require(logical.toStdString() == reference && logical.size() <= 4096);
         const auto source = resolveLocalMediaPath(mediaProjectPath, reference);
-        require(!source.isEmpty() && pathKey(source) != destinationKey);
-        const auto suffix = QFileInfo(QString::fromStdString(reference)).suffix();
+        require(!source.isEmpty() && !sameLocalFile(source, destination));
+        const auto suffix = QFileInfo(logical).suffix();
         require(!suffix.isEmpty() && suffix.size() <= 10);
         for (const auto character : suffix)
             require((character >= QLatin1Char('a') && character <= QLatin1Char('z')) ||

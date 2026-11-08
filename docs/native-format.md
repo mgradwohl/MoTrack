@@ -517,3 +517,29 @@ and native reimport at `32c21d6`, Linux job 128747171486 in
 [run 42485770063](https://github.com/mgradwohl/MoTrack/actions/runs/42485770063). Later review fixes
 still require current-revision CI. The desktop controls have separate controller/lifecycle tests and
 require their own current-revision Windows/macOS/Linux checks before acceptance.
+
+
+## Creating a portable image archive
+
+The internal `writeTrackerImagePackage` adapter exports an audited linked-image experiment to a new
+`.trz`. It retains the supported writer's schema/edit restrictions, copies each referenced image byte
+for byte, patches only the known ImageVideo references to generated archive member names, and preserves
+other source XML. The active document, undo state, native source envelope and original media remain unchanged.
+It is an export copy, not a new session save checkpoint or an automatically paired native save.
+
+Preparation uses a private temporary directory, at most 4095 images plus one experiment, 512 MiB total
+extracted content and 544 MiB ZIP bytes, with 64 KiB copy buffers and cancellation checks. The generated
+ZIP has no trailing block padding. The normal archive reader validates it before the destination is
+atomically replaced. Output-file aliases, linked-media overwrites, missing images, movies, existing
+archive inputs, unsupported edits and nonportable image extensions are refused. Image formats are
+preserved, not transcoded; the initial application acceptance fixture consists of four PNGs.
+
+Native tests cover native close/reopen, removal of the original files, relocation, embedded native
+archive reopen and subsequent standard editing. Independent corpus checks cover exact inventory,
+unchanged image hashes and full XML preservation. Actual Tracker load/resave/fresh-reopen acceptance
+is required by the `packaged-images` mode and remains pending until CI reports it. Packaging UI,
+paired native snapshot adoption, movies and arbitrary supporting-resource collection remain unfinished.
+
+Local Windows validation for this slice passes all six CTest suites, formatting, clang-tidy,
+77 Python corpus tests and the native corpus checks, with 95.65% production line coverage
+(8173/8545). Current-revision Windows/macOS/Linux CI and code review remain required before merge.
