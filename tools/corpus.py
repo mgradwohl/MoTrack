@@ -599,9 +599,10 @@ def deletion_roundtrip_expected(case, mode):
         expected["point_masses"] = [track for track in expected["point_masses"] if track["name"] not in removed]
         all_owners = mode == "delete-all-table-owners"
         selected = None if all_owners else "mass A" if "mass B" in removed else "mass B"
+        first = None if all_owners else "mass B" if "mass A" in removed else "mass A"
         case["session_names"] = {"selected_track": None if "mass B" in removed else "mass B",
-                                 "view_tracks": [[None, selected], [None, None], [None, None], [None, None]],
-                                 "packed_view_tracks": f"null,{selected or 'null'};null,null;null,null;null,null"}
+                                 "view_tracks": [[first, selected], [None, first], [None, None], [None, None]],
+                                 "packed_view_tracks": f"{first or 'null'},{selected or 'null'};null,{first or 'null'};null,null;null,null"}
         if all_owners:
             case["session_views"]["tables"] = []
         else:

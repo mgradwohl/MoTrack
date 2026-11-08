@@ -68,12 +68,12 @@
         "selected_track": "mass B",
         "view_tracks": [
           [
-            null,
+            "mass A",
             "mass B"
           ],
           [
             null,
-            null
+            "mass A"
           ],
           [
             null,
@@ -84,7 +84,7 @@
             null
           ]
         ],
-        "packed_view_tracks": "null,mass B;null,null;null,null;null,null"
+        "packed_view_tracks": "mass A,mass B;null,mass A;null,null;null,null"
       },
       "session_views": {
         "tables": [

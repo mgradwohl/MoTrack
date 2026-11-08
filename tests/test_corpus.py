@@ -98,6 +98,9 @@ class CorpusTests(unittest.TestCase):
                         corpus.validate_session(case, invalid, manifest, expected, keys)
             elif mode in corpus.TABLE_DELETION_NAMES:
                 removed = corpus.TABLE_DELETION_NAMES[mode]
+                first = next((name for name in ["mass A", "mass B", "mass C"] if name not in removed), None)
+                self.assertEqual(case["session_names"]["view_tracks"][0][0], first)
+                self.assertEqual(case["session_names"]["view_tracks"][1][1], first)
                 if mode == "delete-all-table-owners":
                     self.assertEqual(case["session_views"]["tables"], [])
                     self.assertEqual(case["session_names"]["view_tracks"], [[None, None]] * 4)

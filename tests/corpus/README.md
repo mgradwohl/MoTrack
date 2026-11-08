@@ -833,6 +833,11 @@ columns, changed number formats, bad selections and unrelated XML edits. Native 
 all seven subsets, renamed survivors, undo/redo, native close/reopen, repeated export and same-name
 replacement isolation. Dataset-index ownership and scientific dependencies remain unsupported.
 
+The pinned frame initializes its default plot at chooser 0 and table at chooser 1 before loading
+the custom table at chooser 0. Both default views select the first surviving mass, while the custom
+table retains its saved selection or applies the deletion fallback. The independent packed-selection
+expectation includes all three view instances, including when every remaining selection is null.
+
 Baseline and edited Tracker application load/save/fresh-process reopen, native reimport, all-platform
 CI and the unchanged coverage gate are required before accepting this slice. These media-free cases
 still do not complete media/archive saving or paired-output recovery in R03.
