@@ -295,3 +295,15 @@ GUI-thread destruction notifications. A local QObject disconnects those callback
 leave scope. This retains the existing parent-destruction behavior while avoiding a Linux Clang 18
 weak-pointer cleanup diagnostic in the portable-export chooser; the existing destruction regressions
 cover both helpers through native, paired and image-package menu actions.
+
+Native-save conflicts carry structured reasons to the desktop: pending recovery explains how to use
+Save Tracker project or choose another destination, while an active sibling save explains retry/copy
+options. Both messages use the translation catalogs; failed saves keep existing files and dirty state.
+
+Desktop portable-image archive export shares that destination lock and refuses unresolved recovery
+journals before packaging. The lock spans preparation and atomic replacement, including cancellation.
+Exports elsewhere remain available and do not change companion files or document save checkpoints.
+
+Prepared project/movie opens use the same synchronous destruction guard while asking whether to save
+the previous document. A dead window cannot receive the prepared result; the local connection context
+disconnects before the guard flag leaves scope. No Qt weak-pointer control block spans these nested calls.

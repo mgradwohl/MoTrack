@@ -14,6 +14,8 @@
     <message><source>Could not export the Tracker archive: %1</source><translation type="unfinished"></translation></message>
     <message><source>Portable Tracker archive exported.</source><translation type="unfinished"></translation></message>
     <message><source>Archive exported. The project changed during export.</source><translation type="unfinished"></translation></message>
+    <message><source>An interrupted paired save needs recovery. Use Save Tracker project for this destination, or save a copy elsewhere.</source><translation type="unfinished"></translation></message>
+    <message><source>Another save is using this destination. Wait for it to finish and retry, or save a copy elsewhere.</source><translation type="unfinished"></translation></message>
     <message><source>An interrupted save needs recovery before continuing.</source><translation type="unfinished"></translation></message>
     <message><source>Both files were saved. Recovery cleanup remains.</source><translation type="unfinished"></translation></message>
     <message><source>Cancel</source><translation type="unfinished"></translation></message>
