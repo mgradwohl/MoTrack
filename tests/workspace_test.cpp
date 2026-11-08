@@ -987,6 +987,40 @@ TEST(Workspace, StandaloneMediaWithANativeSuffixNeverBecomesItsOwnSaveTarget)
     }
 }
 
+TEST(Workspace, NativeMediaProtectionRespectsFilesystemCaseAndUnicodeIdentity)
+{
+    const std::array<std::pair<QString, QString>, 2> names{
+        {{"media.motrack", "MEDIA.motrack"}, {QString::fromUtf8("café.motrack"), QString::fromUtf8("cafe\u0301.motrack")}}};
+    for (const auto& [sourceName, destinationName] : names)
+    {
+        SCOPED_TRACE(destinationName.toStdString());
+        QTemporaryDir temporary;
+        const auto media = temporary.filePath(sourceName);
+        const auto destination = temporary.filePath(destinationName);
+        ASSERT_TRUE(QFile::copy(fixturePath("frames/frame00.ppm"), media));
+        QFile input(media);
+        ASSERT_TRUE(input.open(QIODevice::ReadOnly));
+        const auto original = input.readAll();
+        input.close();
+        motrack::MainWindow window;
+        ASSERT_TRUE(window.openImageSequence({media}, 4.0));
+        if (QFileInfo::exists(destination))
+        {
+            EXPECT_FALSE(window.saveWorkspace(destination));
+        }
+        else
+        {
+            ASSERT_TRUE(window.saveWorkspace(destination));
+            ASSERT_TRUE(window.loadProject(destination));
+            auto* canvas = window.findChild<QWidget*>("videoCanvas");
+            ASSERT_NE(canvas, nullptr);
+            EXPECT_EQ(canvas->accessibleName(), "Frame 0");
+        }
+        ASSERT_TRUE(input.open(QIODevice::ReadOnly));
+        EXPECT_EQ(input.readAll(), original);
+    }
+}
+
 TEST(Workspace, SavesStandaloneMediaBesideADirectoryEndingInExclamation)
 {
     for (const bool movie : {false, true})

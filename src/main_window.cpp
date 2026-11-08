@@ -74,15 +74,13 @@ void rebaseWorkspaceMedia(WorkspaceDocument& document, const QString& sourcePath
         }
         const QDir destination(directory);
         const auto existingTarget = QFileInfo(destinationPath).canonicalFilePath();
-        const auto target = (existingTarget.isEmpty() ? destination.filePath(QFileInfo(destinationPath).fileName()) : existingTarget)
-                                .normalized(QString::NormalizationForm_C)
-                                .toCaseFolded();
+        const auto target = existingTarget.isEmpty() ? destination.filePath(QFileInfo(destinationPath).fileName()) : existingTarget;
         for (auto& reference : document.project.clip.mediaReferences)
         {
             const auto source = resolveLocalMediaPath(sourcePath, reference);
             if (!source.isEmpty())
             {
-                if (QDir::cleanPath(source).normalized(QString::NormalizationForm_C).toCaseFolded() == target)
+                if (sameLocalFile(source, target))
                     throw ProjectError("Native saving cannot overwrite linked media.");
                 const auto rebased = destination.relativeFilePath(source).toStdString();
                 const auto resolved = resolveLocalMediaPath(destinationPath, rebased);
