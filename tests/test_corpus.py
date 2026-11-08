@@ -1304,7 +1304,9 @@ class CorpusTests(unittest.TestCase):
                 patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "run", side_effect=fail_session):
             with self.assertRaisesRegex(ValueError, "session failure"):
                 corpus.check_sessions(manifest, self.root, "java")
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(calls[1][-1], "TrackerSessionDiagnosticsTest")
+        self.assertEqual(calls[2][-1], "save")
         self.assertEqual(list(self.root.glob("session-*")), [])
 
     def test_session_failure_context_distinguishes_save_reopen_and_preserves_cleanup_without_retry(self):
@@ -1346,7 +1348,11 @@ class CorpusTests(unittest.TestCase):
         (self.root / "fixtures").mkdir()
         (self.root / "fixtures/protractor.trk").write_text("<object/>", encoding="utf-8")
         calls = []
+        diagnostics = []
         def session(command, *, display=None):
+            if "TrackerSessionDiagnosticsTest" in command:
+                diagnostics.append(command)
+                self.assertIsNone(display)
             if "TrackerSessionReference" not in command:
                 return
             source, output, stage = command[-3:]
@@ -1367,6 +1373,10 @@ class CorpusTests(unittest.TestCase):
                 patch.object(corpus, "validate_session") as validate:
             corpus.check_sessions(manifest, self.root, "java")
         self.assertEqual([call[2] for call in calls], ["save", "reopen"])
+        self.assertEqual(len(diagnostics), 1)
+        self.assertIn("-Djava.awt.headless=true", diagnostics[0])
+        self.assertIn("-Xmx256m", diagnostics[0])
+        self.assertTrue(any(arg.startswith("-Duser.home=") and arg.endswith("diagnostic-home") for arg in diagnostics[0]))
         self.assertNotEqual(calls[0][1], calls[1][1])
         report = validate.call_args.args[1]
         self.assertEqual(report["before"], {"stage": "save"})

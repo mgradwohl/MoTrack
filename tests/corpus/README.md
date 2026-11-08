@@ -20,6 +20,10 @@ Session failures now identify the case, edit mode, save/reopen stage and input f
 the original process error as the cause. The Java probe reports its input/stage/wait state and, on the
 internal loading deadline, a bounded snapshot of its own event/worker/timer/main thread stacks. It
 does not wait for the event thread to produce diagnostics or alter the loader's completion path.
+Within the same eight-frame-per-thread bound, it retains up to three OSP/reference application frames
+before filling the remaining slots with leading platform frames. A dialog's Tracker caller can sit
+below eight Swing frames; retaining that caller helps identify the cause without dismissing a dialog.
+A headless Java regression checks buried callers, empty/short/long stacks, duplicates and output size.
 The existing private display/home, 256 MB heap, 30-second internal wait and 45-second subprocess limit
 remain; failures still fail immediately, without automatic retries. Failure-path tests cover both
 stages, process/launch/outer-timeout errors, cleanup and unchanged invocation counts.
