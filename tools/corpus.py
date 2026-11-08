@@ -1072,7 +1072,12 @@ def check_sessions(manifest, cache, java, probe=None):
         jar = cache / manifest["reference"]["file"]
         run([str(javac), "-cp", str(jar), "-d", str(classes),
              str(ROOT / "tools/reference/TrackerReference.java"),
-             str(ROOT / "tools/reference/TrackerSessionReference.java"), str(ROOT / "tools/reference/VectorFixture.java")])
+             str(ROOT / "tools/reference/TrackerSessionReference.java"), str(ROOT / "tools/reference/VectorFixture.java"),
+             str(ROOT / "tools/reference/TrackerSessionDiagnosticsTest.java")])
+        diagnostic_home = root / "diagnostic-home"
+        diagnostic_home.mkdir()
+        run([str(java_path), "-Djava.awt.headless=true", f"-Duser.home={diagnostic_home}", "-Xmx256m",
+             "-cp", os.pathsep.join([str(classes), str(jar)]), "TrackerSessionDiagnosticsTest"])
         for case, mode in cases:
             if probe and case.get("session_known_issue"):
                 raise ValueError("Known Tracker defects cannot be used as native export acceptance")

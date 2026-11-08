@@ -112,13 +112,27 @@ public final class TrackerSessionReference {
                 .forEach(entry -> {
                     report.append(bounded(entry.getKey().getName(), 80)).append(' ')
                         .append(entry.getKey().getState()).append('\n');
-                    Arrays.stream(entry.getValue()).limit(8)
+                    diagnosticFrames(entry.getValue()).stream()
                         .forEach(frame -> report.append("  ").append(bounded(frame.toString(), 200)).append('\n'));
                 });
             System.err.println(bounded(report.toString(), 3000));
         } catch (Throwable diagnosticFailure) {
             System.err.println("Tracker timeout thread diagnostics unavailable: " + diagnosticFailure.getClass().getName());
         }
+    }
+
+    static List<StackTraceElement> diagnosticFrames(StackTraceElement[] stack) {
+        // A modal dialog can bury its Tracker caller below eight platform frames. Keep that
+        // caller without expanding the existing per-thread/output bounds or touching AWT.
+        List<StackTraceElement> result = new ArrayList<>();
+        Arrays.stream(stack).filter(frame -> frame.getClassName().startsWith("org.opensourcephysics.")
+                || frame.getClassName().startsWith("TrackerSessionReference"))
+            .distinct().limit(3).forEach(result::add);
+        for (StackTraceElement frame : stack) {
+            if (result.size() == 8) break;
+            if (!result.contains(frame)) result.add(frame);
+        }
+        return List.copyOf(result);
     }
 
     private static Runnable guard(Runnable action) {
