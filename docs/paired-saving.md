@@ -206,3 +206,8 @@ locations from a later write, even if callbacks arrive in reverse order. Confirm
 reconciles pending records by observation order without requiring a transaction UUID; successful
 recovery writes still require the expected UUID. Regressions remove the original alias and older media
 before saving again, and reconcile externally completed journals through the default recovery API.
+
+Successful paired writes retain their lock-observed journal pathname even after deleting the record.
+Session completion reconciles older observations at that path, so an unreported external recovery
+followed by a fresh successful write cannot leave a deleted journal pending. Newer observations at
+the same path and unresolved records at other destinations remain pending in either callback order.
