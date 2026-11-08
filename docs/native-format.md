@@ -483,9 +483,10 @@ failure/cancellation. The corpus independently checks edited XML, every untouche
 record and central metadata. The baseline and edited archive passed actual Tracker `.trz` loading,
 resave, fresh-process reopen and native reimport at `fec0e7a`, Linux job 128733094094 in
 [run 42481133737](https://github.com/mgradwohl/MoTrack/actions/runs/42481133737), including every
-independent pixel/time/geometry expectation. Subsequent destination/member-alias guards still need
-current-head CI. Multi-tab application acceptance, new-archive packaging, broader ZIP/media support
-and paired-save recovery remain unfinished.
+independent pixel/time/geometry expectation. The destination/member-alias guards also passed at `6e35268`, Linux job 128744838260 in
+[run 42484998884](https://github.com/mgradwohl/MoTrack/actions/runs/42484998884). The later immutable-source
+digest protection still requires its own current-revision CI. New-archive packaging, broader ZIP/media
+support and paired-save recovery remain unfinished.
 
 The additional two-experiment corpus case verifies that selected-member editing does not damage a
 second experiment sharing the same images. Its independent archive/XML oracle preserves that
@@ -493,5 +494,7 @@ experiment byte-for-byte. The reference opens the actual archive once, matches l
 explicit member inventory, saves every tab through Tracker, and reopens each saved standard file
 in its own process. Each tab has separate scientific/media expectations, including a different mass
 and track name. Manifest validation and negative oracles reject omitted/duplicate tabs and matching
-but incorrect results across save/reopen. This application gate is pending Linux CI; it does not
-provide native multi-tab workspace editing or expand the supported archive/media schema.
+but incorrect results across save/reopen. Both `tracker_archive_tabs_resave` and
+`motrack_archive_tabs_roundtrip` passed at `505c40c5`, Linux job 128744837376 in
+[run 42484997811](https://github.com/mgradwohl/MoTrack/actions/runs/42484997811). This scoped application
+evidence does not provide native multi-tab workspace editing or expand the supported archive/media schema.
