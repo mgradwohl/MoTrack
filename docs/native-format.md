@@ -342,6 +342,9 @@ If cleanup leaves a custom table with no properties, its saved view slot and any
 view arrays are omitted, matching Tracker's saver. Retained view indices are roles and are not
 renumbered. An empty `TableTView` would pass a missing selected name to the pinned loader's
 null-unsafe `getTrackByName`; removing the empty custom state preserves the selected table-pane type.
+This also covers selection-only tables and already empty column/format arrays when the last
+viewable track is removed. Native cases retain unrelated plot slots in the same and another chooser
+and verify their role indices. Selection fallback still preserves a table when a viewable track remains.
 Original source bindings and undo history remain intact; replacement tracks cannot inherit deleted
 owners' settings. Dataset-index owners and scientific dependencies remain excluded.
 

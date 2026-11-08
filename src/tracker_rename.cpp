@@ -700,6 +700,8 @@ void patchTrackerDeletedReferences(QDomDocument& xml, const LegacyProject& proje
         {
             auto value = referenceProperty(xml.documentElement(), reference.path);
             require(value.text().toStdString() == reference.originalName);
+            if (reference.kind == TrackerReferenceKind::TableSelection && !fallback)
+                changedTableViews.emplace(reference.path.substr(0, reference.path.rfind('/')), value.parentNode().toElement());
             if (reference.kind == TrackerReferenceKind::SelectedTrack || !fallback)
                 value.parentNode().removeChild(value);
             else
@@ -758,9 +760,17 @@ void patchTrackerDeletedReferences(QDomDocument& xml, const LegacyProject& proje
         if (parent.hasChildNodes())
             parent.appendChild(xml.createTextNode("\n"));
     }
-    for (const auto& [path, view] : changedTableViews)
+    for (auto& [path, view] : changedTableViews)
     {
         require(view.attribute("class") == QString(TRACKER) + "TableTView");
+        for (auto child = view.firstChildElement(); !child.isNull();)
+        {
+            const auto next = child.nextSiblingElement();
+            const auto name = child.attribute("name");
+            if ((name == "track_columns" || name == "column_formats") && child.firstChildElement().isNull())
+                view.removeChild(child);
+            child = next;
+        }
         if (!view.firstChildElement().isNull())
             continue;
         // Tracker's TableTView loader passes its missing selection to getTrackByName,
