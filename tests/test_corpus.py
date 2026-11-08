@@ -28,6 +28,71 @@ class Download(io.BytesIO):
 
 
 class CorpusTests(unittest.TestCase):
+    def test_created_mass_expected_values_and_appearance_are_independent(self):
+        manifest = corpus.load_manifest()
+        original = next(case for case in manifest["cases"] if case["id"] == "protractor")
+        baseline = copy.deepcopy(original)
+        for empty in [False, True]:
+            expected, case = corpus.create_mass_roundtrip_expected(original, empty)
+            self.assertEqual(expected["point_masses"][-1]["mass"], 3)
+            self.assertEqual([s["world"] for s in expected["point_masses"][-1]["samples"]],
+                             [] if empty else [[10, 20], [20, 30], [40, 10]])
+            self.assertEqual(case["session_names"], original["session_names"])
+            tracks = []
+            keys = [[0], [0], [] if empty else [1, 4, 8]]
+            for identity in case["session_tracks"]:
+                i = next((i for i, mass in enumerate(expected["point_masses"]) if mass["name"] == identity["name"]), None)
+                mass = expected["point_masses"][i] if i is not None else None
+                tracks.append({**identity, "mass": mass["mass"] if mass else None,
+                               "samples": [{"frame": s["frame"], "points": [s["image"]], "world": s["world"]}
+                                           for s in mass["samples"]] if mass else [],
+                               "key_frames": keys[i] if mass else None,
+                               "appearance": copy.deepcopy(corpus.CREATED_MASS_APPEARANCE)})
+            before = {"saved_views": copy.deepcopy(case["session_views"]), "name_references": copy.deepcopy(case["session_names"]),
+                      "tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                      **corpus.session_units(case, expected)}
+            report = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                      "view_preparation": "visit_custom_tables_restore_selection",
+                      "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
+            corpus.validate_session(case, report, manifest, expected, keys)
+            for field, value in [("mass", 1), ("name", "wrong"), ("key_frames", [2]),
+                                 ("appearance", {**corpus.CREATED_MASS_APPEARANCE, "visible": False}),
+                                 ("appearance", {**corpus.CREATED_MASS_APPEARANCE, "locked": True})]:
+                invalid = copy.deepcopy(report)
+                for stage in ["before", "after_save", "after"]:
+                    invalid[stage]["tracks"][-1][field] = value
+                with self.subTest(empty=empty, field=field), self.assertRaises(ValueError):
+                    corpus.validate_session(case, invalid, manifest, expected, keys)
+        self.assertEqual(original, baseline)
+        with self.assertRaises(ValueError):
+            corpus.create_mass_roundtrip_expected({**original, "id": "wrong"})
+
+    def test_created_mass_xml_oracle_preserves_original_content_and_rejects_wrong_defaults(self):
+        source = ('<!-- keep --><object class="org.opensourcephysics.cabrillo.tracker.TrackerPanel">'
+                  '<property name="description" type="string">old words</property>'
+                  '<property name="tracks" type="collection" class="java.util.ArrayList"></property></object>')
+        new = ('<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">'
+               '<property name="name" type="string"><![CDATA[nouvelle β & <C>]]></property><property name="mass" type="double">3</property>'
+               '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
+               '<property name="locked" type="boolean">false</property><property name="footprint" type="string"><![CDATA[Footprint.Diamond]]></property>'
+               '<property name="color" type="object"><object class="java.awt.Color">'
+               '<property name="red" type="int">255</property><property name="green" type="int">0</property>'
+               '<property name="blue" type="int">0</property><property name="alpha" type="int">255</property></object></property>'
+               '</object></property>')
+        original, exported = self.root / "creation-source.trk", self.root / "creation-export.trk"
+        original.write_text(source, encoding="utf-8")
+        valid = source.replace('class="java.util.ArrayList">', 'class="java.util.ArrayList">' + new)
+        exported.write_text(valid, encoding="utf-8")
+        corpus.verify_create_mass_export_xml(original, exported, True)
+        with self.assertRaises(ValueError):
+            corpus.verify_create_mass_export_xml(original, exported, False)
+        for old, replacement in [('old words', 'lost words'), ('<!-- keep -->', ''), ('>3</property>', '>1</property>'),
+                                 ('name="visible" type="boolean">true', 'name="visible" type="boolean">false'),
+                                 ('<property name="item"', new + '<property name="item"')]:
+            exported.write_text(valid.replace(old, replacement, 1), encoding="utf-8")
+            with self.subTest(change=old), self.assertRaises(ValueError):
+                corpus.verify_create_mass_export_xml(original, exported, True)
+
     def test_rename_oracle_preserves_unrelated_text_and_every_selection(self):
         def source(first="mass A", second="mass B", selected="mass B"):
             return f"""<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>

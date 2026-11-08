@@ -652,3 +652,51 @@ invalid timing, temporary Java frame-count overflow even on timing-only edits, a
 overflow or collapse in milliseconds/seconds. Playback rate, current
 frame, looping state and unrelated content are preserved. Video timing/stretching, VFR, a timing UI
 and the locale-specific time-zero action in #67 remain unfinished.
+
+## Creating point masses
+
+The `create-mass` and `create-empty-mass` modes append `nouvelle β & <C>` to the pinned protractor
+experiment with mass 3. The marked case uses original frames 1/4/8, image positions (330,220),
+(340,210), (360,230), and independently calculated world positions (10,20), (20,30), (40,10).
+Original tracks, views, names, units and calibration stay unchanged. The new mass starts visible,
+with trails, unlocked, a red Diamond footprint. These explicit interchange defaults avoid Tracker's
+missing `visible` field loading as false; pinned `TTrack.Loader` and `PointMass.Loader` bytecode were
+inspected. Empty tracks have no frame/key arrays; marked tracks have manual keys 1/4/8.
+
+The native probe exercises creation/undo, allocation gaps, mass/mark changes, remove/undo, reorder,
+native save/reopen and source-copy removal. The complete XML comparison allows only the appended
+object. Application snapshots now include track appearance, and independent expectations require
+the new mass, keys, coordinates and appearance through Tracker save and fresh-process reopen.
+Both exported and Java-resaved files are reimported natively. No baseline or fixture bytes changed.
+Negative tests reject consistent wrong mass/name/keys/appearance, altered old content, duplicate new
+objects, unsafe names, dangling original references, unsupported schemas/deletions and excessive
+dense frame allocation. Creation also validates existing calibration against every retained/new mark,
+even when the calibration itself was not edited: an origin (16,16), scales (1e-100,2e-100), and a mark
+at (nextafter(16,17),16) expose incompatible affine cancellation and must reject atomically.
+The pinned headless ImageCoordSystem API independently gives X=3.1082702275611665e85, while
+the native result is 3.552713678800501e85; the regression failed before the guard and passes after it.
+Sorted identity inclusion bounds the original-track membership check to linear work.
+Native regression cases export a new mass marked at frame 10000 or 500000, reimport the standard file,
+save/reopen natively, create another mass and export again. The point-mass frame-array schema audit
+uses the same 500000 frame bound as the writer; it does not relax generic array indices, entry/depth
+limits or allocation budgets. The frame-10000 reimport regression failed before this audit correction.
+Additional regressions reproduce retained objects and null placeholders bypassing the dense-array
+budget, plus creation under present-but-unusable calibration (missing angle/nonfinite scale). Edited
+exports now count all emitted point-mass arrays; two arrays of 500000 slots reach the one-million-slot
+boundary, while one additional marked frame refuses without replacing the file. Reimport does not
+reset this limit. Absent coordinates remain supported, but unparseable source coordinates reject creation.
+The budget includes retained inherited mass arrays: renaming a constituent of two centers with
+null-ended arrays at frame 500000 now refuses without replacing the destination. A separate regression
+reproduced creation of 1000 empty masses exceeding the next edit's schema-entry budget; the final
+document is now audited after appended metadata and sample patches. A smaller creation batch can
+still be reimported, renamed and extended. These checks allocate only sparse native XML in tests.
+An empty-mass export followed by standard reimport, marking and native save/reopen reproduced a
+mark-only affine-cancellation bypass with the same independently measured coordinates above. Existing
+mass edits now use the coordinate checks even without membership/calibration changes; present-but-
+unparseable calibration also rejects mark-only exports. Regressions verify the destination stays intact.
+Linux actual-application acceptance is required before merging this slice.
+
+The historical [Tracker #10 save/load report](https://github.com/OpenSourcePhysics/tracker/issues/10)
+and its discussion were refreshed. [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65) remains
+open: these media-free creation cases do not reproduce or resolve the reported MOV/open-entry-point
+failure, media relocation, or all saved table behavior.

@@ -414,7 +414,11 @@ struct RenameSchema
                 }
                 bool parsed = false;
                 const auto index = name.mid(1, name.size() - 2).toUInt(&parsed);
-                require(parsed && index < 10000 && name == "[" + QString::number(index) + "]");
+                // A sparse original frame is not an entry count. Match the writer's mass-frame bound
+                // without relaxing generic array indices or the aggregate schema-entry/depth limits.
+                const bool massFrames =
+                    value.attribute("name") == "framedata" && element == "L" + QString(TRACKER) + "PointMass$FrameData;";
+                require(parsed && index <= (massFrames ? 500000u : 9999u) && name == "[" + QString::number(index) + "]");
                 if (value.attribute("name") == "attachments")
                 {
                     require(index < 2);
@@ -510,6 +514,60 @@ void requireName(const std::string& name)
 }
 } // namespace
 
+void validateTrackerEditSchema(const QDomDocument& xml)
+{
+    RenameSchema{}.object(xml.documentElement(), QString(TRACKER) + "TrackerPanel");
+}
+
+void validateTrackerTrackCreation(const QDomDocument& xml, const LegacyProject& project, const TrackerSource& source)
+{
+    validateTrackerEditSchema(xml);
+    const auto index = indexTrackerReferences(source, project);
+    require(index.malformedPaths.empty());
+    std::set<std::string> originalNames;
+    std::set<std::string> finalNames;
+    const auto collect = [&](const auto& tracks)
+    {
+        for (const auto& track : tracks)
+        {
+            requireName(track.name);
+            require(finalNames.insert(track.name).second);
+        }
+    };
+    collect(project.pointMasses);
+    collect(project.vectors);
+    for (const auto& track : index.tracks)
+    {
+        require(track.className == std::string(TRACKER) + "PointMass" || track.className == std::string(TRACKER) + "Vector" ||
+                track.className == std::string(TRACKER) + "CoordAxes" || track.className == std::string(TRACKER) + "Protractor");
+        if (!track.originalName)
+        {
+            throw ProjectError("Tracker track creation requires every original track name.");
+        }
+        requireName(*track.originalName);
+        require(originalNames.insert(*track.originalName).second);
+        if (!track.nativeId)
+            require(finalNames.insert(*track.originalName).second);
+    }
+    require(finalNames.size() <= 10000);
+    for (const auto& reference : index.references)
+    {
+        // Even a previously dangling name can become a live relationship when a new track is added.
+        require(reference.resolution == TrackerReferenceResolution::Resolved ||
+                reference.resolution == TrackerReferenceResolution::NoTarget);
+        require(reference.kind == TrackerReferenceKind::SelectedTrack || reference.kind == TrackerReferenceKind::PlotSelection ||
+                reference.kind == TrackerReferenceKind::TableSelection || reference.kind == TrackerReferenceKind::TableColumnOwner ||
+                reference.kind == TrackerReferenceKind::TableFormatOwner || reference.kind == TrackerReferenceKind::PlotOwner ||
+                reference.kind == TrackerReferenceKind::PlotGuest);
+        if (reference.resolution == TrackerReferenceResolution::Resolved && reference.kind != TrackerReferenceKind::SelectedTrack)
+        {
+            require(reference.candidateSourceIndices.size() == 1);
+            const auto target = std::ranges::find(index.tracks, reference.candidateSourceIndices.front(), &TrackerSourceTrack::sourceIndex);
+            require(target != index.tracks.end() && target->className != std::string(TRACKER) + "CoordAxes");
+        }
+    }
+}
+
 bool patchTrackerNames(QDomDocument& xml, const LegacyProject& project, LegacyProject& baseline, const TrackerSource& source)
 {
     std::map<TrackId, std::string> renamed;
@@ -527,7 +585,7 @@ bool patchTrackerNames(QDomDocument& xml, const LegacyProject& project, LegacyPr
     collect(project.vectors, baseline.vectors);
     if (renamed.empty())
         return false;
-    RenameSchema{}.object(xml.documentElement(), QString(TRACKER) + "TrackerPanel");
+    validateTrackerEditSchema(xml);
     const auto index = indexTrackerReferences(source, project);
     require(index.malformedPaths.empty());
     std::map<std::size_t, QString> replacements;
