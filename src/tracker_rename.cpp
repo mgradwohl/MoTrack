@@ -564,11 +564,82 @@ void validateTrackerTrackMembership(const QDomDocument& xml, const LegacyProject
             require(reference.candidateSourceIndices.size() == 1);
             const auto target = originalTracks.find(reference.candidateSourceIndices.front());
             require(target != originalTracks.end());
-            // Retained source names must never silently rebind to a newly created track.
-            require(!target->second->nativeId || liveIds.contains(*target->second->nativeId));
+            // Selection-only references have an explicit cleanup policy. Data owners and guests
+            // still need separate deletion semantics and must not rebind to a new same-name track.
+            require(!target->second->nativeId || liveIds.contains(*target->second->nativeId) ||
+                    reference.kind == TrackerReferenceKind::SelectedTrack || reference.kind == TrackerReferenceKind::PlotSelection ||
+                    reference.kind == TrackerReferenceKind::TableSelection);
             if (reference.kind != TrackerReferenceKind::SelectedTrack)
                 require(target->second->className != std::string(TRACKER) + "CoordAxes");
         }
+    }
+}
+
+void patchTrackerDeletedSelections(QDomDocument& xml, const LegacyProject& project, const TrackerSource& source)
+{
+    const auto index = indexTrackerReferences(source, project);
+    std::set<TrackId> liveIds;
+    for (const auto& mass : project.pointMasses)
+        liveIds.insert(mass.id);
+    for (const auto& vector : project.vectors)
+        liveIds.insert(vector.id);
+    std::map<std::size_t, const TrackerSourceTrack*> originalTracks;
+    for (const auto& track : index.tracks)
+        originalTracks.emplace(track.sourceIndex, &track);
+    // Tracker's chooser selects the first remaining viewable track in source order. Names
+    // have already been patched; appended tracks follow the retained original objects.
+    std::optional<QString> fallback;
+    std::size_t ordinal = 0;
+    const auto tracks = property(xml.documentElement(), "tracks");
+    for (auto item = tracks.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"), ++ordinal)
+    {
+        const auto found = originalTracks.find(ordinal);
+        if (found != originalTracks.end() && found->second->nativeId && !liveIds.contains(*found->second->nativeId))
+            continue;
+        const auto object = item.firstChildElement("object");
+        if (object.attribute("class") != QString(TRACKER) + "CoordAxes")
+        {
+            fallback = property(object, "name").text();
+            break;
+        }
+    }
+    QStringList packed;
+    for (const auto& reference : index.references)
+    {
+        if (reference.resolution != TrackerReferenceResolution::Resolved)
+            continue;
+        require(reference.candidateSourceIndices.size() == 1);
+        const auto target = originalTracks.find(reference.candidateSourceIndices.front());
+        require(target != originalTracks.end());
+        if (!target->second->nativeId || liveIds.contains(*target->second->nativeId))
+            continue;
+        require(reference.kind == TrackerReferenceKind::SelectedTrack || reference.kind == TrackerReferenceKind::PlotSelection ||
+                reference.kind == TrackerReferenceKind::TableSelection);
+        if (reference.path.starts_with("/selected_track_views/"))
+        {
+            if (packed.empty())
+                packed = property(xml.documentElement(), "selected_track_views").text().replace(';', ',').split(',');
+            const auto parts = QString::fromStdString(reference.path).split('/');
+            const auto slot = parts[2].toInt() * 2 + (parts[3] == "table" ? 1 : 0);
+            require(packed.size() == 8 && slot >= 0 && slot < 8 && packed[slot].toStdString() == reference.originalName);
+            packed[slot] = fallback.value_or("null");
+        }
+        else
+        {
+            auto value = referenceProperty(xml.documentElement(), reference.path);
+            require(value.text().toStdString() == reference.originalName);
+            if (reference.kind == TrackerReferenceKind::SelectedTrack || !fallback)
+                value.parentNode().removeChild(value);
+            else
+                patchString(xml, value, *fallback);
+        }
+    }
+    if (!packed.empty())
+    {
+        QStringList pairs;
+        for (int i = 0; i < 8; i += 2)
+            pairs.append(packed[i] + "," + packed[i + 1]);
+        patchString(xml, property(xml.documentElement(), "selected_track_views"), pairs.join(';'));
     }
 }
 
@@ -607,7 +678,7 @@ bool patchTrackerNames(QDomDocument& xml, const LegacyProject& project, LegacyPr
         requireName(*track.originalName);
         require(oldNames.insert(*track.originalName).second);
         if (track.nativeId && !liveIds.contains(*track.nativeId))
-            continue; // The membership audit has already rejected references to any deleted track.
+            continue; // Deleted selection references are cleaned up after live-name patches.
         const auto found = track.nativeId ? renamed.find(*track.nativeId) : renamed.end();
         const auto& name = found == renamed.end() ? *track.originalName : found->second;
         require(newNames.insert(name).second);

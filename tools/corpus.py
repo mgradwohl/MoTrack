@@ -580,15 +580,24 @@ CREATED_VECTOR_APPEARANCE = {"visible": True, "trail": True, "locked": False, "f
 
 
 def deletion_roundtrip_expected(case, mode):
-    if (mode == "delete-mass" and case["id"] != "protractor"
+    mass_modes = {"delete-mass", "delete-selected-mass", "delete-all-masses"}
+    if (mode in mass_modes and case["id"] != "protractor"
             or mode in {"delete-vector", "delete-all-vectors"} and case["id"] != "independent-vectors"
-            or mode not in {"delete-mass", "delete-vector", "delete-all-vectors"}):
+            or mode not in mass_modes | {"delete-vector", "delete-all-vectors"}):
         raise ValueError("The deletion oracle requires its pinned mass/vector case")
     expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
     case = copy.deepcopy(case)
     if mode == "delete-mass":
         expected["point_masses"] = expected["point_masses"][1:]
         removed = {"mass A"}
+    elif mode in {"delete-selected-mass", "delete-all-masses"}:
+        expected["point_masses"] = [] if mode == "delete-all-masses" else expected["point_masses"][:1]
+        removed = {"mass A", "mass B"} if mode == "delete-all-masses" else {"mass B"}
+        fallback = "protractor A" if mode == "delete-all-masses" else "mass A"
+        case["session_names"] = {"selected_track": None,
+                                 "view_tracks": [[fallback, None], [None, fallback], [None, None], [None, None]],
+                                 "packed_view_tracks": f"{fallback},null;null,{fallback};null,null;null,null"}
+        case["session_views"]["tables"][0]["selected_track"] = fallback
     else:
         expected["vectors"] = [] if mode == "delete-all-vectors" else expected["vectors"][1:]
         removed = {"vector A", "vector B"} if mode == "delete-all-vectors" else {"vector A"}
@@ -599,11 +608,40 @@ def deletion_roundtrip_expected(case, mode):
 
 
 def verify_deletion_export_xml(original, exported, mode):
-    names = {"delete-mass": {"mass A"}, "delete-vector": {"vector A"}, "delete-all-vectors": {"vector A", "vector B"}}
+    names = {"delete-mass": {"mass A"}, "delete-selected-mass": {"mass B"}, "delete-all-masses": {"mass A", "mass B"},
+             "delete-vector": {"vector A"}, "delete-all-vectors": {"vector A", "vector B"}}
     if mode not in names:
         raise ValueError("Unknown deletion mode")
     expected = minidom.parse(str(original))
     root = expected.documentElement
+    if mode in {"delete-selected-mass", "delete-all-masses"}:
+        fallback = "protractor A" if mode == "delete-all-masses" else "mass A"
+
+        def direct_property(parent, name, value):
+            nodes = [node for node in parent.childNodes if node.nodeType == node.ELEMENT_NODE
+                     and node.tagName == "property" and node.getAttribute("name") == name]
+            if len(nodes) != 1 or nodes[0].getAttribute("type") != "string":
+                raise ValueError("Expected one original selection property")
+            node = nodes[0]
+            if any(c.nodeType not in {c.TEXT_NODE, c.CDATA_SECTION_NODE} for c in node.childNodes):
+                raise ValueError("Unexpected selection content")
+            if "".join(c.data for c in node.childNodes) != value:
+                raise ValueError("Unexpected original selection")
+            return node
+
+        def replace_text(node, text):
+            for child in list(node.childNodes):
+                node.removeChild(child)
+            node.appendChild(expected.createTextNode(text))
+
+        root.removeChild(direct_property(root, "selectedtrack", "mass B"))
+        packed = direct_property(root, "selected_track_views", "mass B,null;null,mass B;null,null;null,null")
+        replace_text(packed, f"{fallback},null;null,{fallback};null,null;null,null")
+        tables = [node for node in root.getElementsByTagName("object")
+                  if node.getAttribute("class") == "org.opensourcephysics.cabrillo.tracker.TableTView"]
+        if len(tables) != 1:
+            raise ValueError("Expected the original custom table")
+        replace_text(direct_property(tables[0], "selected_track", "mass B"), fallback)
     collections = [node for node in root.childNodes if node.nodeType == node.ELEMENT_NODE
                    and node.tagName == "property" and node.getAttribute("name") == "tracks"]
     if len(collections) != 1:
@@ -621,7 +659,7 @@ def verify_deletion_export_xml(original, exported, mode):
             raise ValueError("Expected one original track name")
         name = "".join(node.data for node in labels[0].childNodes if node.nodeType in {node.TEXT_NODE, node.CDATA_SECTION_NODE})
         if name in names[mode]:
-            expected_class = "org.opensourcephysics.cabrillo.tracker." + ("PointMass" if mode == "delete-mass" else "Vector")
+            expected_class = "org.opensourcephysics.cabrillo.tracker." + ("Vector" if "vector" in mode else "PointMass")
             if objects[0].getAttribute("class") != expected_class or name in deleted:
                 raise ValueError("Unexpected deletion target")
             deleted.add(name)
@@ -1325,6 +1363,8 @@ def check_sessions(manifest, cache, java, probe=None):
              ("create-vector", "native_create_vector_roundtrip"), ("create-empty-vector", "native_create_vector_roundtrip"),
              ("delete-mass", "native_delete_mass_roundtrip"), ("delete-vector", "native_delete_vector_roundtrip"),
              ("delete-all-vectors", "native_delete_vector_roundtrip"),
+             ("delete-selected-mass", "native_delete_selected_mass_roundtrip"),
+             ("delete-all-masses", "native_delete_selected_mass_roundtrip"),
              ("name", "native_name_roundtrip"), ("unselected-name", "native_name_roundtrip"),
              ("vector-name", "native_vector_name_roundtrip"),
              ("plot-owner-name", "native_plot_name_roundtrip"), ("plot-guest-name", "native_plot_name_roundtrip"),
@@ -1412,7 +1452,7 @@ def check_sessions(manifest, cache, java, probe=None):
                     empty = mode == "create-empty-vector"
                     verify_create_vector_export_xml(project, exported, empty)
                     expected, case = create_vector_roundtrip_expected(case, empty)
-                elif mode in {"delete-mass", "delete-vector", "delete-all-vectors"}:
+                elif mode in {"delete-mass", "delete-vector", "delete-all-vectors", "delete-selected-mass", "delete-all-masses"}:
                     verify_deletion_export_xml(project, exported, mode)
                     expected, case = deletion_roundtrip_expected(case, mode)
                 elif mode in {"name", "unselected-name", "vector-name", "plot-owner-name", "plot-guest-name", "center-member-name",
@@ -1494,8 +1534,10 @@ def check_sessions(manifest, cache, java, probe=None):
             keys = {"marks": [[0, 3], [7]], "empty-marks": [[], [0]], "first-mark": [[4], [0]]}.get(mode)
             if mode in {"create-mass", "create-empty-mass"}:
                 keys = [[0], [0], [] if mode == "create-empty-mass" else [1, 4, 8]]
-            elif mode == "delete-mass":
+            elif mode in {"delete-mass", "delete-selected-mass"}:
                 keys = [[0]]
+            elif mode == "delete-all-masses":
+                keys = []
             calibration = keyed_calibration_expected(mode == "keyed-calibration") if case["id"] == "keyed-calibration" else None
             if "mixed_calibration_flags" in case:
                 calibration = mixed_calibration_expected(case, mode == "mixed-calibration")

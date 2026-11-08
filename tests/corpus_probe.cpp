@@ -163,7 +163,8 @@ try
          args[1] == "--export-attachment-last-name" || args[1] == "--export-model-booster-name" || args[1] == "--export-clip-timing" ||
          args[1] == "--export-clip-timing-range" || args[1] == "--export-create-mass" || args[1] == "--export-create-empty-mass" ||
          args[1] == "--export-create-vector" || args[1] == "--export-create-empty-vector" || args[1] == "--export-delete-mass" ||
-         args[1] == "--export-delete-vector" || args[1] == "--export-delete-all-vectors"))
+         args[1] == "--export-delete-vector" || args[1] == "--export-delete-all-vectors" || args[1] == "--export-delete-selected-mass" ||
+         args[1] == "--export-delete-all-masses"))
     {
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trk");
@@ -174,14 +175,19 @@ try
         }
         auto document = motrack::importTrackerDocument(source);
         motrack::TrackEdits edits;
-        if (args[1] == "--export-delete-mass" || args[1] == "--export-delete-vector" || args[1] == "--export-delete-all-vectors")
+        if (args[1] == "--export-delete-mass" || args[1] == "--export-delete-vector" || args[1] == "--export-delete-all-vectors" ||
+            args[1] == "--export-delete-selected-mass" || args[1] == "--export-delete-all-masses")
         {
-            const bool mass = args[1] == "--export-delete-mass";
-            if ((mass && (document.project.pointMasses.size() != 2 || !edits.removePointMass(document.project, 0))) ||
+            const bool mass =
+                args[1] == "--export-delete-mass" || args[1] == "--export-delete-selected-mass" || args[1] == "--export-delete-all-masses";
+            const std::size_t massIndex = args[1] == "--export-delete-mass" ? 0 : 1;
+            if ((mass && (document.project.pointMasses.size() != 2 || !edits.removePointMass(document.project, massIndex))) ||
                 (!mass && (document.project.vectors.size() != 2 || !edits.removeVector(document.project, 0))))
                 throw motrack::ProjectError("Could not delete the round-trip track.");
             if (args[1] == "--export-delete-all-vectors" && !edits.removeVector(document.project, 0))
                 throw motrack::ProjectError("Could not delete the final round-trip vector.");
+            if (args[1] == "--export-delete-all-masses" && !edits.removePointMass(document.project, 0))
+                throw motrack::ProjectError("Could not delete the final round-trip mass.");
             if (!edits.undo(document.project) || !edits.redo(document.project))
                 throw motrack::ProjectError("Could not replay the round-trip deletion.");
         }

@@ -74,6 +74,7 @@
       "native_clip_timing_roundtrip": true,
       "native_create_mass_roundtrip": true,
       "native_delete_mass_roundtrip": true,
+      "native_delete_selected_mass_roundtrip": true,
       "native_mark_roundtrip": true,
       "session_names": {
         "selected_track": "mass B",
