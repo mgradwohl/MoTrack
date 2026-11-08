@@ -1,5 +1,6 @@
 #include "main_window.hpp"
 
+#include "local_media_path.hpp"
 #include "measurements.hpp"
 #include "movie_worker.hpp"
 #include "position_plot.hpp"
@@ -17,10 +18,13 @@
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QEventLoop>
+#include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
+#include <QFutureWatcher>
 #include <QHBoxLayout>
+#include <QHash>
 #include <QImageReader>
 #include <QInputDialog>
 #include <QKeySequence>
@@ -37,6 +41,7 @@
 #include <QStatusBar>
 #include <QStyle>
 #include <QTableWidget>
+#include <QTemporaryDir>
 #include <QThreadPool>
 #include <QToolBar>
 #include <QToolButton>
@@ -48,16 +53,77 @@
 #include <cmath>
 #include <iterator>
 #include <limits>
+#include <memory>
 #include <utility>
 
 namespace motrack
 {
+
+namespace
+{
+QString physicalSourcePath(const QString& path)
+{
+    const QFileInfo info(path);
+    const auto physical = info.canonicalFilePath();
+    return physical.isEmpty() ? info.absoluteFilePath() : physical;
+}
+
+void rebaseWorkspaceMedia(WorkspaceDocument& document, const QString& sourcePath, const QString& destinationPath)
+{
+    if (!document.archivePayload)
+    {
+        const auto directory = localProjectDirectory(destinationPath);
+        if (directory.isEmpty())
+        {
+            throw ProjectError("Could not resolve the native project destination.");
+        }
+        const QDir destination(directory);
+        const auto target = localProjectPath(destinationPath);
+        std::unique_ptr<QTemporaryDir> probeDirectory;
+        QFile nameProbe; // Close before its owning temporary directory is removed.
+        for (auto& reference : document.project.clip.mediaReferences)
+        {
+            const auto source = workspaceMediaPath(document, sourcePath, reference);
+            if (source.isEmpty())
+                throw ProjectError("Could not resolve a native project media reference.");
+            if (sameLocalFile(source, target))
+                throw ProjectError("Native saving cannot overwrite linked media.");
+            if (!QFileInfo::exists(source) && !QFileInfo::exists(target) && sameLocalFile(QFileInfo(source).absolutePath(), directory))
+            {
+                // A private child directory inherits the destination filesystem's naming policy.
+                // Keep the full original basenames: adding a UUID prefix can exceed NAME_MAX.
+                if (!nameProbe.isOpen())
+                {
+                    probeDirectory = std::make_unique<QTemporaryDir>(destination.filePath(".motrack-name-XXXXXX"));
+                    if (!probeDirectory->isValid())
+                        throw ProjectError("Could not verify the native destination against missing media filenames.");
+                    nameProbe.setFileName(probeDirectory->filePath(QFileInfo(target).fileName()));
+                    if (!nameProbe.open(QIODevice::WriteOnly | QIODevice::NewOnly))
+                        throw ProjectError("Could not verify the native destination against missing media filenames.");
+                }
+                // This private directory contains only the destination probe. Resolving the
+                // source spelling therefore identifies an alias, including Windows long paths.
+                if (QFileInfo::exists(probeDirectory->filePath(QFileInfo(source).fileName())))
+                    throw ProjectError("Native saving cannot overwrite linked media.");
+            }
+            const auto rebased = destination.relativeFilePath(source).toStdString();
+            const auto resolved = resolveLocalMediaPath(destinationPath, rebased);
+            if (resolved.isEmpty() || QDir::cleanPath(resolved) != QDir::cleanPath(source))
+            {
+                throw ProjectError("Could not preserve a native project media reference.");
+            }
+            reference = rebased;
+        }
+    }
+}
+} // namespace
 
 struct MainWindow::PreparedProject
 {
     WorkspaceDocument document;
     std::shared_ptr<const TrackerArchive> archive;
     QString member;
+    QString mediaProjectPath;
     bool chooseArchiveTab = false;
 };
 
@@ -572,6 +638,7 @@ bool MainWindow::loadProject(const QString& path)
 MainWindow::PreparedProject MainWindow::prepareProject(const QString& path, const std::atomic_bool* cancelled)
 {
     PreparedProject prepared;
+    prepared.mediaProjectPath = physicalSourcePath(path);
     if (path.endsWith(".motrack", Qt::CaseInsensitive))
     {
         prepared.document = readWorkspaceDocument(path, cancelled);
@@ -602,6 +669,8 @@ MainWindow::PreparedProject MainWindow::prepareProject(const QString& path, cons
     {
         prepared.document = importTrackerDocument(path);
     }
+    if (!prepared.archive)
+        retainWorkspaceMediaLocations(prepared.document, prepared.mediaProjectPath);
     return prepared;
 }
 
@@ -716,7 +785,7 @@ bool MainWindow::applyProject(const QString& path, PreparedProject prepared, con
 
     cancelMovieOpen();
     releaseArchive();
-    m_MediaProjectPath = path;
+    m_MediaProjectPath = prepared.mediaProjectPath;
     document.archivePayload = std::move(prepared.archive);
     document.archiveMember = prepared.member.isEmpty() ? std::nullopt : std::optional(prepared.member.toStdString());
     if (document.archivePayload)
@@ -729,14 +798,16 @@ bool MainWindow::applyProject(const QString& path, PreparedProject prepared, con
     }
     document.alignMovieToClip = document.alignMovieToClip || !path.endsWith(".motrack", Qt::CaseInsensitive);
     m_Session.replace(std::move(document), path);
-    m_Sequence = m_Session.document.movie ? std::nullopt : ImageSequence::open(m_MediaProjectPath, m_Session.document.project.clip);
+    m_Sequence = m_Session.document.movie
+                     ? std::nullopt
+                     : ImageSequence::open(m_MediaProjectPath, m_Session.document.project.clip, m_Session.document.mediaLocations);
     m_MoviePath.clear();
     m_MoviePresentationTimes.clear();
     const auto& clip = m_Session.document.project.clip;
     const auto steps = clip.stepCount.value_or(0);
     if (!m_Sequence && clip.mediaReferences.size() == 1 && steps > 0)
     {
-        const auto movie = resolveLocalMediaPath(m_MediaProjectPath, clip.mediaReferences.front());
+        const auto movie = workspaceMediaPath(m_Session.document, m_MediaProjectPath, clip.mediaReferences.front());
         if (QFileInfo(movie).isFile())
         {
             m_MoviePath = movie;
@@ -800,11 +871,14 @@ bool MainWindow::openImageSequence(const QStringList& paths, double frameRate)
     {
         project.clip.frameDurationMs = duration;
     }
-    for (const auto& path : paths)
+    const auto path = physicalSourcePath(paths.front());
+    const QDir mediaDirectory(localProjectDirectory(path));
+    for (const auto& imagePath : paths)
     {
-        project.clip.mediaReferences.push_back(QFileInfo(path).absoluteFilePath().toStdString());
+        const auto physical = QFileInfo(imagePath).canonicalFilePath();
+        project.clip.mediaReferences.push_back(
+            mediaDirectory.relativeFilePath(physical.isEmpty() ? QFileInfo(imagePath).absoluteFilePath() : physical).toStdString());
     }
-    const auto path = QFileInfo(paths.front()).absoluteFilePath();
     auto sequence = ImageSequence::open(path, project.clip);
     const auto first = sequence ? sequence->readStep(0) : std::nullopt;
     if (!first || first->image.isNull())
@@ -820,7 +894,8 @@ bool MainWindow::openImageSequence(const QStringList& paths, double frameRate)
     }
     releaseArchive();
     m_MediaProjectPath = path;
-    m_Session.replace({.project = std::move(project), .movieFrameTimes = {}}, path);
+    m_Session.replace({.project = std::move(project), .movieFrameTimes = {}}, path, DocumentSourceKind::Media);
+    retainWorkspaceMediaLocations(m_Session.document, path);
     m_Sequence = std::move(sequence);
     m_MoviePath.clear();
     m_MoviePresentationTimes.clear();
@@ -833,7 +908,7 @@ void MainWindow::openMovie(const QString& path)
 {
     cancelProjectOpen();
     statusBar()->showMessage(tr("Reading video frames…"));
-    scheduleMovieIndex(path, true);
+    scheduleMovieIndex(physicalSourcePath(path), true);
 }
 
 void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
@@ -876,10 +951,12 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
                         }
                         releaseArchive();
                         m_MediaProjectPath = path;
-                        m_Session.replace({}, path);
+                        m_Session.replace({}, path, DocumentSourceKind::Media);
                         m_Session.document.project.clip.stepCount = index.frameCount;
                         m_Session.document.project.clip.sourceFrameCount = index.frameCount;
-                        m_Session.document.project.clip.mediaReferences.push_back(QFileInfo(path).fileName().toStdString());
+                        m_Session.document.project.clip.mediaReferences.push_back(
+                            QDir(localProjectDirectory(path)).relativeFilePath(QFileInfo(path).canonicalFilePath()).toStdString());
+                        retainWorkspaceMediaLocations(m_Session.document, path);
                         m_Sequence.reset();
                         m_MoviePath = path;
                         m_Session.document.movie = true;
@@ -929,12 +1006,43 @@ void MainWindow::activateProject(const QString& path)
     setWindowTitle(tr("%1[*] — MoTrack").arg(QFileInfo(path).fileName()));
 }
 
+void MainWindow::refreshImageMediaLocations()
+{
+    if (!m_Session.document.movie)
+    {
+        // Keep a known image reader if a temporarily missing, unusually named image cannot
+        // be identified. A later successful save also retries when no reader was available.
+        auto sequence = ImageSequence::open(m_MediaProjectPath, m_Session.document.project.clip, m_Session.document.mediaLocations);
+        if (sequence)
+            m_Sequence = std::move(sequence);
+        if (m_Sequence)
+        {
+            const auto step = m_StepSlider->value();
+            const auto count = m_Sequence->stepCount();
+            {
+                const QSignalBlocker blocker(m_StepSlider);
+                m_StepSlider->setRange(0, std::max(0, count - 1));
+                m_StepSlider->setValue(step);
+            }
+            m_ClipSettings->setEnabled(count > 0);
+            m_Play->setEnabled(m_StepSlider->maximum() > 0);
+            m_StepSlider->setEnabled(m_StepSlider->maximum() > 0);
+            m_Previous->setEnabled(m_StepSlider->value() > 0);
+            m_Next->setEnabled(m_StepSlider->value() < m_StepSlider->maximum());
+            // This is a redraw of the same step, not navigation. Keep pending matches/timers
+            // and do not enqueue a second AutoTracker match for a frame already being processed.
+            if (const auto frame = m_Sequence->readStep(m_StepSlider->value()))
+                displayFrame(*frame, tr("This image frame could not be opened."), false);
+        }
+    }
+}
+
 void MainWindow::syncClipControls()
 {
     setPlaying(false);
     if (m_Sequence)
     {
-        m_Sequence = ImageSequence::open(m_MediaProjectPath, m_Session.document.project.clip);
+        m_Sequence = ImageSequence::open(m_MediaProjectPath, m_Session.document.project.clip, m_Session.document.mediaLocations);
     }
     const int stepCount =
         m_Sequence ? m_Sequence->stepCount() : (m_MoviePath.isEmpty() ? 0 : m_Session.document.project.clip.stepCount.value_or(0));
@@ -1584,18 +1692,6 @@ bool MainWindow::saveWorkspace(const QString& path)
         return false;
     }
     auto document = m_Session.document;
-    const QDir destination(QFileInfo(path).absolutePath());
-    if (!document.archivePayload)
-    {
-        for (auto& reference : document.project.clip.mediaReferences)
-        {
-            const auto source = resolveLocalMediaPath(m_MediaProjectPath, reference);
-            if (!source.isEmpty())
-            {
-                reference = destination.relativeFilePath(source).toStdString();
-            }
-        }
-    }
     // Keep the synchronous result used by Save-before-close, but let the GUI paint and process worker
     // completions. User input is deferred while the owned snapshot is validated and serialized off-thread.
     const auto checkpoint = m_Session.saveCheckpoint();
@@ -1604,19 +1700,26 @@ bool MainWindow::saveWorkspace(const QString& path)
     connect(this, &QObject::destroyed, &loop, [&alive] { alive = false; });
     m_Saving = true;
     statusBar()->showMessage(tr("Saving project…"));
-    QFutureWatcher<bool> watcher;
-    connect(&watcher, &QFutureWatcher<bool>::finished, &loop, &QEventLoop::quit);
+    struct SaveResult
+    {
+        bool saved = false;
+        QHash<QString, QString> mediaLocations;
+    };
+    QFutureWatcher<SaveResult> watcher;
+    connect(&watcher, &QFutureWatcher<SaveResult>::finished, &loop, &QEventLoop::quit);
     watcher.setFuture(QtConcurrent::run(m_SavePool,
-                                        [path, document = std::move(document)]
+                                        [path, sourcePath = m_MediaProjectPath, document = std::move(document)]() mutable -> SaveResult
                                         {
                                             try
                                             {
+                                                refreshWorkspaceMediaLocations(document, sourcePath);
+                                                rebaseWorkspaceMedia(document, sourcePath, path);
                                                 writeWorkspaceDocument(path, document);
-                                                return true;
+                                                return {.saved = true, .mediaLocations = std::move(document.mediaLocations)};
                                             }
                                             catch (const std::exception&)
                                             {
-                                                return false;
+                                                return {};
                                             }
                                         }));
     loop.exec(QEventLoop::ExcludeUserInputEvents);
@@ -1631,7 +1734,8 @@ bool MainWindow::saveWorkspace(const QString& path)
         // Another save may start first, so check the guard again when the queued callback runs.
         QTimer::singleShot(0, this, [this, completion = std::move(completion)]() mutable { completeAfterSave(std::move(completion)); });
     }
-    const auto outcome = m_Session.completeSave(checkpoint, path, watcher.result());
+    const auto result = watcher.result();
+    const auto outcome = m_Session.completeSave(checkpoint, path, result.saved);
     if (outcome == SaveOutcome::Replaced)
     {
         return false;
@@ -1641,6 +1745,10 @@ bool MainWindow::saveWorkspace(const QString& path)
         statusBar()->showMessage(tr("Could not save this project."));
         return false;
     }
+    // The snapshot may have resolved media restored through a temporary alias since opening.
+    // Keep those physical locations for subsequent saves and clip edits after that alias is removed.
+    m_Session.document.mediaLocations = result.mediaLocations;
+    refreshImageMediaLocations();
     setWindowTitle(tr("%1[*] — MoTrack").arg(QFileInfo(path).fileName()));
     if (outcome == SaveOutcome::Stale)
     {
@@ -1735,7 +1843,7 @@ void MainWindow::displayStep(int step)
     }
 }
 
-void MainWindow::displayFrame(const ImageFrame& frame, const QString& failureMessage)
+void MainWindow::displayFrame(const ImageFrame& frame, const QString& failureMessage, bool advanceTracking)
 {
     if (!m_DisplayedFrame || m_DisplayedFrame->number != frame.number)
     {
@@ -1778,7 +1886,8 @@ void MainWindow::displayFrame(const ImageFrame& frame, const QString& failureMes
     schedulePlayback();
     updateAutoTrackerAction();
     updatePointMassActions();
-    autoTrackFrame(frame);
+    if (advanceTracking)
+        autoTrackFrame(frame);
 }
 
 void MainWindow::setPlaying(bool playing)

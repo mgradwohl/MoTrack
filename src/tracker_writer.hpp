@@ -6,6 +6,7 @@
 
 namespace motrack
 {
+struct WorkspaceDocument;
 
 /// Patch audited media-free track, clip/calibration and unit edits, including creation and deletion with saved-view cleanup.
 /// Unsupported edits are refused before output. Native-only relationships are not silently discarded.
@@ -13,5 +14,11 @@ namespace motrack
 [[nodiscard]] std::string renderTrackerProject(const LegacyProject& project, const TrackerSource& source);
 /// Atomically write validated standard .trk XML. Does not write .trz or mark a native session saved.
 void writeTrackerProject(const QString& path, const LegacyProject& project, const TrackerSource& source);
+/// Atomically export a standalone document. mediaProjectPath is the absolute current project file path;
+/// local image references use its physical parent directory, resolving existing filesystem aliases before rebasing.
+/// The source/native snapshot remains unchanged. Movies, archives, filters and media timing/range edits are refused.
+/// All linked files must be readable. Symbolic-link output files and unsafe generated references are refused.
+/// No media is copied and no session save checkpoint is changed.
+void writeTrackerDocument(const QString& path, const WorkspaceDocument& document, const QString& mediaProjectPath);
 
 } // namespace motrack

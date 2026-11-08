@@ -63,7 +63,7 @@ class MainWindow final : public QMainWindow
     void completeAfterSave(std::function<void()> completion);
     void displayStep(int step);
     void displayMarks();
-    void displayFrame(const ImageFrame& frame, const QString& failureMessage);
+    void displayFrame(const ImageFrame& frame, const QString& failureMessage, bool advanceTracking = true);
     void requestMovieFrame(int frame);
     void scheduleMovieIndex(const QString& path, bool standalone);
     void setPlaying(bool playing);
@@ -74,6 +74,7 @@ class MainWindow final : public QMainWindow
     void autoTrackFrame(const ImageFrame& frame);
     void applyAutoTrackMatch(int frame, const std::optional<QPoint>& point);
     void activateProject(const QString& path);
+    void refreshImageMediaLocations();
     void syncClipControls();
     void editClipSettings();
     void undoOrRedo(bool redo);

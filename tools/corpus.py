@@ -406,6 +406,67 @@ def private_display():
                 server.wait(timeout=5)
 
 
+def linked_images_roundtrip_expected(case):
+    if case["id"] != "linked-images":
+        raise ValueError("Linked-image edits require the pinned image experiment")
+    expected = json.loads(expected_path(case).read_text(encoding="utf-8"))["project"]
+    expected["point_masses"][0]["mass"] = 5.0
+    expected["point_masses"][0]["samples"].insert(1, {"frame": 1, "image": [8.0, 12.0], "world": [3.0, 2.0]})
+    return expected
+
+
+def patch_expected_linked_images(document):
+    def elements(node, tag):
+        return [child for child in node.childNodes if child.nodeType == child.ELEMENT_NODE and child.tagName == tag]
+    def prop(node, name):
+        return next(child for child in elements(node, "property") if child.getAttribute("name") == name)
+    def scalar(node, value):
+        for child in list(node.childNodes):
+            node.removeChild(child)
+        node.appendChild(document.createTextNode(value))
+    root = document.documentElement
+    clip = elements(prop(root, "videoclip"), "object")[0]
+    video = elements(prop(clip, "video"), "object")[0]
+    paths = prop(video, "paths")
+    for index in range(4):
+        scalar(prop(paths, f"[{index}]"), f"media é & frames/frame{index}.png")
+    scalar(prop(video, "path"), "media é & frames/frame0.png")
+    mass = next(obj for item in elements(prop(root, "tracks"), "property") for obj in elements(item, "object")
+                if obj.getAttribute("class") == "org.opensourcephysics.cabrillo.tracker.PointMass")
+    scalar(prop(mass, "mass"), "5")
+    data = prop(mass, "framedata")
+    entry = document.createElement("property")
+    entry.setAttribute("name", "[1]")
+    entry.setAttribute("type", "object")
+    obj = document.createElement("object")
+    obj.setAttribute("class", "org.opensourcephysics.cabrillo.tracker.PointMass$FrameData")
+    entry.appendChild(obj)
+    for axis, value in [("x", "8"), ("y", "12")]:
+        coordinate = document.createElement("property")
+        coordinate.setAttribute("name", axis)
+        coordinate.setAttribute("type", "double")
+        coordinate.appendChild(document.createTextNode(value))
+        obj.appendChild(coordinate)
+    data.insertBefore(entry, prop(data, "[2]"))
+    keys = prop(mass, "keyFrames")
+    if elements(keys, "property"):
+        raise ValueError("Pinned linked-image source must have initially automatic mark keys")
+    values = document.createElement("property")
+    values.setAttribute("name", "array")
+    values.setAttribute("type", "string")
+    values.appendChild(document.createTextNode("{0,1,2}"))
+    keys.appendChild(values)
+
+
+def verify_linked_image_export_xml(original, exported, case):
+    with minidom.parse(str(original)) as expected, minidom.parse(str(exported)) as actual:
+        patch_expected_linked_images(expected)
+        if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
+            raise ValueError("Linked-image export changed content beyond the requested paths, mass and mark")
+    for asset in case["assets"]:
+        verify_file(exported.parent / "media é & frames" / asset["file"], asset)
+
+
 def mass_roundtrip_expected(case):
     expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
     if not expected["point_masses"]:
@@ -1539,7 +1600,7 @@ def verify_vector_export_xml(original, exported, expected_project):
 def check_sessions(manifest, cache, java, probe=None):
     if sys.platform != "linux":
         raise ValueError("Session checks currently require Linux with Xvfb")
-    modes = [("mass", "native_mass_roundtrip"), ("marks", "native_mark_roundtrip"),
+    modes = [("linked-images", "native_linked_image_roundtrip"), ("mass", "native_mass_roundtrip"), ("marks", "native_mark_roundtrip"),
              ("empty-marks", "native_mark_roundtrip"), ("first-mark", "native_mark_roundtrip"),
              ("vectors", "native_vector_roundtrip"), ("empty-vectors", "native_vector_roundtrip"),
              ("first-vector", "native_vector_roundtrip"), ("clip", "native_clip_roundtrip"), ("clip-boundary", "native_clip_roundtrip"),
@@ -1635,7 +1696,10 @@ def check_sessions(manifest, cache, java, probe=None):
             elif probe:
                 exported = output / "motrack-export.trk"
                 run([str(Path(probe).resolve()), "--export-" + mode, str(project), str(exported)])
-                if mode == "mass":
+                if mode == "linked-images":
+                    verify_linked_image_export_xml(project, exported, case)
+                    expected = linked_images_roundtrip_expected(case)
+                elif mode == "mass":
                     verify_mass_export_xml(project, exported)
                     expected = mass_roundtrip_expected(case)
                 elif mode in {"create-mass", "create-empty-mass"}:
@@ -1726,6 +1790,8 @@ def check_sessions(manifest, cache, java, probe=None):
                       "before": stages["save"]["loaded"], "after_save": stages["save"]["after_save"],
                       "after": stages["reopen"]["loaded"]}
             keys = {"marks": [[0, 3], [7]], "empty-marks": [[], [0]], "first-mark": [[4], [0]]}.get(mode)
+            if mode == "linked-images":
+                keys = [[0, 1, 2]]
             if mode in {"create-mass", "create-empty-mass"}:
                 keys = [[0], [0], [] if mode == "create-empty-mass" else [1, 4, 8]]
             elif mode in {"delete-mass", "delete-selected-mass"}:

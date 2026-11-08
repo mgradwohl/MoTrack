@@ -375,18 +375,84 @@ Native saving and unchanged byte-preserving rendering retain every failing varia
 affected owners removes their unsafe rows; deleting one cannot waive checks on survivors. Numeric
 format editing, custom order, broader pattern grammars and full view parity remain unfinished.
 
-### Planned linked-media standard output
+### Linked-media standard output
 
-The next phase-3 adapter will receive an immutable document snapshot, the current media project
-location and the chosen standard destination. Current native media references are relative to
-the current document, while the preserved source XML retains its original spellings. The adapter
-must resolve current paths before preparing destination-relative paths; it must not infer the
-original directory from source XML or overwrite the preserved source envelope.
+The internal [writeTrackerDocument adapter](../src/tracker_writer.hpp) receives an immutable document
+snapshot, its current media project location and the chosen standard destination. Current native
+media references are relative to the current document, while preserved source XML retains its
+original spellings. The adapter resolves current paths and prepares destination-relative references
+without inferring the original directory or modifying the source envelope. A removed original XML
+file is therefore unnecessary once the native document has been reopened.
 
-Start with audited local ImageVideo paths, retaining frame order, pixels, calibration and timing.
-Preflight all required files, patch only known path fields, reparse and validate the proposed output
-before an atomic write. Native close/reopen, original XML removal, Unicode/relocated paths, missing
-media and failed writes require tests through this adapter. Movie engines, filters and archive
-members need their own audited path and timing contracts. Archive packaging will preserve untouched
-members and then feed the paired-save transaction/recovery layer; standard Save UI follows that layer.
-The linked-image corpus establishes an independent reference baseline, not implementation of this adapter.
+The first supported media schema is a standalone, unfiltered ImageVideo containing independent point
+masses and coordinate axes. Frame count/order, clip range, interval and time origin must be retained;
+media timing/range edits, vectors, movie state, archives and unaudited fields are refused. A native
+decoded-frame count is accepted only when it equals the complete image list and is treated as derived
+metadata. An optional saved video_framecount must also match. Source path and paths fields must agree.
+
+Every linked file must be readable before output is prepared. The adapter rebases known path fields,
+uses OSP-safe CDATA, validates the complete edited project by reparsing, and writes through QSaveFile.
+The reader and exporter share physical project/media path resolution: existing directory and source-file
+aliases are resolved before computing relative links, including POSIX symlink components followed by `..`.
+The destination's parent must exist; a symbolic-link output file is refused. Generated links pass the
+same local-reference checks as inputs, so a parent folder containing `!/` cannot create an unreadable
+archive-style reference. Reopening each generated reference must resolve to the same original image.
+Native desktop Save uses the same physical-directory rebasing and verifies each generated reference
+before writing. Its atomic native writer follows project-file aliases, including a link whose target
+has not been created yet; the saved references are relative to that target's physical directory. The media
+overwrite guard uses the resolved target's filename as well as its directory, so a dangling alias cannot
+replace a retained missing image or falsely reject a distinct image with the alias's basename. Media
+references also follow dangling file aliases, including aliases restored after open; cyclic aliases are
+refused. Canonicalization errors, including cyclic directory aliases, return an unresolved path rather
+than accepting an unchecked spelling. Retained absolute media locations refresh their physical identity
+before overwrite checks.
+Cyclic aliases and links that would be interpreted as archive references fail without changing an
+existing destination or the session's saved state. POSIX desktop regressions reopen through both the
+alias and physical path and compare decoded image pixels; CI runs these on Linux and macOS. Standalone
+movie imports retain the opened absolute media path so a differently named file alias rebases to
+the real movie. Single-image detection also accepts decoded image headers when the physical file
+has an unrecognized suffix; native save/reopen must not reinterpret that image as a movie.
+
+It rejects an output that aliases linked media and leaves an existing destination intact on preflight
+or rendering failure. This links existing files; it neither copies media nor marks a session saved.
+The filesystem preflight establishes availability, not general codec validation or protection from
+later external media changes. Long-running save work belongs on the existing worker boundary.
+
+Native regressions cover relocation, Unicode/ampersand paths, history, native close/reopen, source
+removal, repeat export/reimport and failed writes. The independent corpus adds a mass and mark edit
+after relocating all four images; its full-XML and byte oracles permit only the requested edits/paths,
+and the actual Tracker application must preserve all decoded pixels/times and calibrated measurements
+through save and fresh reopen. This application acceptance remains required before merge.
+
+Movie engines, filters and archive members need their own audited path/timing contracts. Archive
+packaging will preserve untouched members and feed the paired-save transaction/recovery layer;
+standard Save UI follows that layer. This internal adapter is not full R03 completion.
+
+Desktop sessions retain resolved local media locations separately from serialized references when opening a project. Native Save As and linked-image standard export can therefore rebase those locations even after the original project and its empty directory are removed. These runtime bindings are rebuilt on open and are not serialized; changing a media source must rebuild them. Native saving rejects an unresolved local rebase before replacing the destination.
+
+Successful native saves also adopt the worker snapshot's refreshed physical locations. Restoring media
+through a temporary alias and later removing that alias therefore preserves subsequent saves and
+undo/redo. The active image reader adopts the same locations without resetting frame navigation.
+Failed writes and replaced-document completions do not adopt those runtime bindings. A temporarily
+missing image with an unrecognized suffix retains its known reader; later saves retry image detection
+even when an earlier open could not create a reader. A successful save redraws the current image and
+restores clip controls without moving the playhead; single-image recovery needs no navigation event.
+This redraw preserves AutoTracker timers and pending matches and does not start a duplicate match.
+An empty location captured from an unresolved media alias is retried against the source path after
+repair; nonempty physical bindings retain their original base when the source directory is removed.
+
+When both a native destination and a linked media file are absent in the same physical directory,
+save preflight compares their original basenames inside one private temporary child directory.
+It uses the inherited filesystem naming policy without creating either requested file or globally
+folding names. Keeping the basenames unchanged avoids exceeding the filename limit with a UUID prefix.
+The probe and directory are removed before writing or on failure; existing-file identity checks remain
+in place. If verification cannot be completed, saving stops before replacing the destination.
+[Windows inherits the parent case-sensitivity flag for new directories](https://devblogs.microsoft.com/commandline/improved-per-directory-case-sensitivity-support-in-wsl/#case-sensitivity-inheritance);
+[Linux ext4 likewise inherits its casefold flag](https://github.com/torvalds/linux/blob/master/fs/ext4/ext4.h).
+
+On Windows, existing-file identity queries that fail with ordinary paths retry using canonical
+[extended-length paths](https://learn.microsoft.com/windows/win32/fileio/maximum-file-path-limitation).
+This preserves overwrite protection when Qt can open a long media pathname that the standard-library
+query cannot otherwise inspect. Canonicalization precedes the prefix so dot/parent path handling is
+not changed by Win32's extended-path rules. Long existing-media aliases and long missing-media names
+are covered alongside case and Unicode variants; both failure and success leave no probe artifacts.

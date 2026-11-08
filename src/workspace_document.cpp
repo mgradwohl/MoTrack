@@ -1,5 +1,6 @@
 #include "workspace_document.hpp"
 
+#include "local_media_path.hpp"
 #include "track_identity.hpp"
 #include "tracker_archive.hpp"
 #include "workspace_storage.hpp"
@@ -329,6 +330,36 @@ void validateArchive(const WorkspaceDocument& document)
 }
 
 } // namespace
+
+void retainWorkspaceMediaLocations(WorkspaceDocument& document, const QString& sourcePath)
+{
+    document.mediaLocations.clear();
+    if (document.archivePayload || document.archiveMember || !document.archiveReference.empty())
+        return;
+    for (const auto& reference : document.project.clip.mediaReferences)
+        document.mediaLocations.insert(QString::fromStdString(reference), resolveLocalMediaPath(sourcePath, reference));
+}
+
+QString workspaceMediaPath(const WorkspaceDocument& document, const QString& sourcePath, const std::string& reference)
+{
+    const auto retained = document.mediaLocations.constFind(QString::fromStdString(reference));
+    // An unresolved location captured no physical base. Retry after the original alias is repaired.
+    if (retained == document.mediaLocations.cend() || retained.value().isEmpty())
+        return resolveLocalMediaPath(sourcePath, reference);
+    // Keep the captured base, but refresh restored/dangling file or directory aliases before saving.
+    // The retained path is absolute, so removing the original project directory cannot change its base.
+    return physicalLocalFilePath(retained.value());
+}
+
+void refreshWorkspaceMediaLocations(WorkspaceDocument& document, const QString& sourcePath)
+{
+    if (document.archivePayload || document.archiveMember || !document.archiveReference.empty())
+        return;
+    QHash<QString, QString> resolved;
+    for (const auto& reference : document.project.clip.mediaReferences)
+        resolved.insert(QString::fromStdString(reference), workspaceMediaPath(document, sourcePath, reference));
+    document.mediaLocations = std::move(resolved);
+}
 
 WorkspaceDocument importTrackerDocument(const QString& path)
 {

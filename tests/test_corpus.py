@@ -28,6 +28,46 @@ class Download(io.BytesIO):
 
 
 class CorpusTests(unittest.TestCase):
+    def test_linked_image_export_oracle_checks_edited_geometry_all_xml_and_relocated_assets(self):
+        manifest = corpus.load_manifest()
+        case = next(c for c in manifest["cases"] if c["id"] == "linked-images")
+        original = corpus.local_fixture_path(case)
+        expected = corpus.linked_images_roundtrip_expected(case)
+        self.assertEqual(expected["point_masses"][0]["mass"], 5.0)
+        self.assertEqual(expected["point_masses"][0]["samples"][1],
+                         {"frame": 1, "image": [8.0, 12.0], "world": [3.0, 2.0]})
+        self.assertEqual(expected["clip"]["start_ms"], -250.0)
+        with self.assertRaises(ValueError):
+            corpus.linked_images_roundtrip_expected({**case, "id": "unrelated"})
+        output = self.root / "exported.trk"
+        media = self.root / "media é & frames"
+        media.mkdir()
+        for asset in case["assets"]:
+            (media / asset["file"]).write_bytes(corpus.local_fixture_path(asset).read_bytes())
+        with corpus.minidom.parse(str(original)) as document:
+            corpus.patch_expected_linked_images(document)
+            correct = document.toxml()
+        output.write_text(correct, encoding="utf-8")
+        corpus.verify_linked_image_export_xml(original, output, case)
+        for old, new in [('name="mass" type="double">5', 'name="mass" type="double">6'),
+                         ('name="xorigin" type="double">2.0', 'name="xorigin" type="double">3.0'),
+                         ('name="delta_t" type="double">125.0', 'name="delta_t" type="double">250.0'),
+                         ('media é &amp; frames/frame0.png', 'media é &amp; frames/frame1.png'),
+                         ('{0,1,2}', '{0,2}')]:
+            self.assertIn(old, correct)
+            output.write_text(correct.replace(old, new, 1), encoding="utf-8")
+            with self.subTest(old=old), self.assertRaisesRegex(ValueError, "beyond"):
+                corpus.verify_linked_image_export_xml(original, output, case)
+        output.write_text(correct, encoding="utf-8")
+        frame = media / case["assets"][0]["file"]
+        data = frame.read_bytes()
+        frame.write_bytes(bytes([data[0] ^ 1]) + data[1:])
+        with self.assertRaisesRegex(ValueError, "Checksum"):
+            corpus.verify_linked_image_export_xml(original, output, case)
+        frame.unlink()
+        with self.assertRaisesRegex(ValueError, "Missing"):
+            corpus.verify_linked_image_export_xml(original, output, case)
+
     def test_media_session_requires_independent_pixels_order_and_timing(self):
         manifest = corpus.load_manifest()
         case = next(c for c in manifest["cases"] if c["id"] == "linked-images")

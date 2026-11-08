@@ -1,7 +1,9 @@
 #pragma once
 
 #include "legacy_project.hpp"
+#include "local_media_path.hpp"
 
+#include <QHash>
 #include <QImage>
 #include <QStringList>
 
@@ -16,13 +18,11 @@ struct ImageFrame
     QImage image;
 };
 
-/// Resolves a local media reference from a Tracker document. Archive and URL references return empty.
-QString resolveLocalMediaPath(const QString& projectPath, const std::string& reference);
-
 class ImageSequence
 {
   public:
-    static std::optional<ImageSequence> open(const QString& projectPath, const Clip& clip);
+    static std::optional<ImageSequence>
+    open(const QString& projectPath, const Clip& clip, const QHash<QString, QString>& mediaLocations = {});
 
     [[nodiscard]] int stepCount() const;
     [[nodiscard]] std::optional<ImageFrame> readStep(int step) const;

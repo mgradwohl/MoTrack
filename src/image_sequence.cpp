@@ -1,6 +1,5 @@
 #include "image_sequence.hpp"
 
-#include <QDir>
 #include <QFileInfo>
 #include <QImageReader>
 
@@ -10,17 +9,8 @@
 namespace motrack
 {
 
-QString resolveLocalMediaPath(const QString& projectPath, const std::string& reference)
-{
-    const auto path = QString::fromStdString(reference);
-    if (path.isEmpty() || path.contains("!/") || path.contains("://") || path.startsWith(':'))
-    {
-        return {};
-    }
-    return QDir(QFileInfo(projectPath).absolutePath()).absoluteFilePath(path);
-}
-
-std::optional<ImageSequence> ImageSequence::open(const QString& projectPath, const Clip& clip)
+std::optional<ImageSequence>
+ImageSequence::open(const QString& projectPath, const Clip& clip, const QHash<QString, QString>& mediaLocations)
 {
     if (clip.firstFrame < 0 || clip.stepSize < 1 || clip.mediaReferences.empty() ||
         clip.mediaReferences.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
@@ -34,9 +24,15 @@ std::optional<ImageSequence> ImageSequence::open(const QString& projectPath, con
         return std::nullopt;
     }
 
+    const auto mediaPath = [&](const std::string& reference)
+    {
+        const auto retained = mediaLocations.constFind(QString::fromStdString(reference));
+        return retained == mediaLocations.cend() ? resolveLocalMediaPath(projectPath, reference) : retained.value();
+    };
     const auto firstPath = QString::fromStdString(clip.mediaReferences.front());
     const auto suffix = QFileInfo(firstPath).suffix().toLatin1().toLower();
-    if (count == 1 && !QImageReader::supportedImageFormats().contains(suffix))
+    if (count == 1 && !QImageReader::supportedImageFormats().contains(suffix) &&
+        !QImageReader(mediaPath(clip.mediaReferences.front())).canRead())
     {
         return std::nullopt;
     }
@@ -44,7 +40,7 @@ std::optional<ImageSequence> ImageSequence::open(const QString& projectPath, con
     ImageSequence sequence;
     for (const auto& reference : clip.mediaReferences)
     {
-        sequence.m_Paths.append(resolveLocalMediaPath(projectPath, reference));
+        sequence.m_Paths.append(mediaPath(reference));
     }
     sequence.m_FirstFrame = clip.firstFrame;
     sequence.m_StepSize = clip.stepSize;

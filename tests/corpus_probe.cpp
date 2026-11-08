@@ -6,7 +6,9 @@
 #include "workspace_document.hpp"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -151,6 +153,42 @@ try
 {
     const QCoreApplication application(argc, argv);
     const auto args = application.arguments();
+    if (args.size() == 4 && args[1] == "--export-linked-images")
+    {
+        QTemporaryDir temporary;
+        const auto source = temporary.filePath("input.trk");
+        const auto native = temporary.filePath("saved.motrack");
+        const QDir originalDirectory(QFileInfo(args[2]).absolutePath());
+        const QDir destinationDirectory(QFileInfo(args[3]).absolutePath());
+        const auto mediaDirectory = destinationDirectory.absoluteFilePath(QString::fromUtf8("media é & frames"));
+        if (!temporary.isValid() || !QFile::copy(args[2], source) || !QDir().mkdir(mediaDirectory))
+            throw motrack::ProjectError("Could not prepare linked-image round trip.");
+        auto document = motrack::importTrackerDocument(source);
+        if (document.project.clip.mediaReferences.size() != 4)
+            throw motrack::ProjectError("Expected four reference images.");
+        for (int frame = 0; frame < 4; ++frame)
+        {
+            const auto name = "frame" + QString::number(frame) + ".png";
+            const auto original = "images/" + name;
+            if (document.project.clip.mediaReferences[static_cast<std::size_t>(frame)] != original.toStdString() ||
+                !QFile::copy(originalDirectory.absoluteFilePath(original), mediaDirectory + "/" + name))
+                throw motrack::ProjectError("Could not relocate the reference image.");
+            document.project.clip.mediaReferences[static_cast<std::size_t>(frame)] =
+                QDir(temporary.path()).relativeFilePath(mediaDirectory + "/" + name).toStdString();
+        }
+        motrack::TrackEdits edits;
+        if (!edits.setPointMassValue(document.project, 0, 5.0) ||
+            !edits.markPointMass(document.project, 0, {.frame = 1, .x = 8.0, .y = 12.0}) || !edits.undo(document.project) ||
+            !edits.redo(document.project))
+            throw motrack::ProjectError("Could not edit linked-image reference.");
+        motrack::writeWorkspaceDocument(native, document);
+        document = {};
+        if (!QFile::remove(source))
+            throw motrack::ProjectError("Could not remove linked-image source.");
+        document = motrack::readWorkspaceDocument(native);
+        motrack::writeTrackerDocument(args[3], document, native);
+        return 0;
+    }
     if (args.size() == 4 &&
         (args[1] == "--export-mass" || args[1] == "--export-marks" || args[1] == "--export-empty-marks" ||
          args[1] == "--export-first-mark" || args[1] == "--export-vectors" || args[1] == "--export-empty-vectors" ||
