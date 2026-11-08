@@ -1448,6 +1448,43 @@ TEST(Workspace, ProtectsMissingMediaReachedThroughDanglingAliases)
     }
 }
 
+TEST(Workspace, RetainsDanglingDirectoryAliasTargetsAfterTheOriginalDirectoryIsRemoved)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(QDir(temporary.path()).mkpath("import"));
+    ASSERT_TRUE(QDir(temporary.path()).mkpath("exports"));
+    const auto media = temporary.filePath("restored");
+    const auto alias = temporary.filePath("import/frames");
+    ASSERT_TRUE(QFile::link(media, alias));
+    auto document = motrack::importTrackerDocument(fixturePath("image-sequence.trk"));
+    document.project.clip.mediaReferences = {"frames/frame00.ppm"};
+    document.project.clip.firstFrame = 0;
+    document.project.clip.stepSize = 1;
+    document.project.clip.stepCount = 1;
+    document.project.clip.sourceFrameCount = 1;
+    const auto input = temporary.filePath("import/input.motrack");
+    motrack::writeWorkspaceDocument(input, document);
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(input));
+    EXPECT_EQ(motrack::resolveLocalMediaPath(input, "frames/frame00.ppm"), media + "/frame00.ppm");
+    ASSERT_TRUE(QFile::remove(input));
+    ASSERT_TRUE(QFile::remove(alias));
+    ASSERT_TRUE(QDir(temporary.path()).rmdir("import"));
+    ASSERT_TRUE(QDir().mkpath(media));
+    ASSERT_TRUE(QFile::copy(fixturePath("frames/frame00.ppm"), media + "/frame00.ppm"));
+    const auto output = temporary.filePath("exports/saved.motrack");
+    ASSERT_TRUE(window.saveWorkspace(output));
+    const auto saved = motrack::readWorkspaceDocument(output);
+    EXPECT_EQ(saved.project.clip.mediaReferences, std::vector<std::string>{"../restored/frame00.ppm"});
+    const auto sequence = motrack::ImageSequence::open(output, saved.project.clip);
+    if (!sequence)
+        FAIL() << "Restored media from a dangling directory alias could not be reopened.";
+    const auto frame = sequence->readStep(0);
+    if (!frame)
+        FAIL() << "Restored media has no first frame.";
+    EXPECT_EQ(frame->image, QImage(fixturePath("frames/frame00.ppm")));
+}
+
 TEST(Workspace, RejectsCyclicMediaDirectoriesWithoutReplacingOutput)
 {
     QTemporaryDir temporary;

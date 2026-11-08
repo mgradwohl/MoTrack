@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <optional>
 
 namespace motrack
 {
@@ -57,10 +58,11 @@ using PairedSaveObserver = std::function<void(PairedSaveProgress)>;
 /// Recovery is never implicitly triggered by opening imported project/archive content.
 /// When expectedTransaction is supplied, check it while holding the journal lock, before any output changes.
 /// A different transaction is returned as RecoveryRequired for explicit reconfirmation; an absent one is RecoveryNotNeeded.
-/// Absence can also reconcile an unreadable journal whose transaction ID was never available.
+/// An explicitly supplied empty ID means unidentified: observe a valid ID without committing, requiring reconfirmation.
+/// Omitting expectedTransaction is an unrestricted explicit adapter recovery. Absence can reconcile either form.
 [[nodiscard]] PairedSaveResult recoverPairedDocuments(const QString& recoveryPath,
                                                       const std::atomic_bool* cancelled = nullptr,
                                                       const PairedSaveObserver& observer = {},
-                                                      const QString& expectedTransaction = {});
+                                                      const std::optional<QString>& expectedTransaction = std::nullopt);
 
 } // namespace motrack

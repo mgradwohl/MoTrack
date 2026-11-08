@@ -188,3 +188,8 @@ in one order and reported in another, unknown journals completed externally, and
 Failed recovery attempts also retain their lock-observed journal state, including an unreadable UUID
 or a restored record with the same UUID. A delayed earlier success cannot clear that newer failure;
 the pending journal continues to keep the session modified even after a successful save elsewhere.
+A recovery request may carry a known UUID or an explicitly unidentified expectation from an unreadable
+journal. The adapter checks that expectation under the journal lock. If the journal now has a valid
+UUID, an unidentified request returns its identity without replacing either output; the caller must
+obtain fresh confirmation. An absent journal can be reconciled without writing. Only an adapter call
+that omits the expectation entirely requests unrestricted explicit recovery.
