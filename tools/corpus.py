@@ -166,6 +166,33 @@ def run(command, *, display=None):
         raise ValueError(f"Probe failed ({result.returncode}):\n{(result.stdout + result.stderr)[-5000:]}")
 
 
+def session_file_diagnostic(path):
+    """Observe a failed reference input without changing it or retrying the loader."""
+    try:
+        limit = 1024 * 1024
+        with path.open("rb") as source:
+            data = source.read(limit + 1)
+        if len(data) > limit:
+            return {"inspection": "skipped: input exceeds 1 MiB diagnostic limit"}
+        report = {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+        report["prefix"] = data[:256].decode("utf-8", errors="replace")
+        report["suffix"] = data[-512:].decode("utf-8", errors="replace")
+        try:
+            root = ET.fromstring(data)
+            report.update(xml="well-formed", root=root.tag[:128], root_class=root.get("class", "")[:256])
+        except ET.ParseError as error:
+            report.update(xml="malformed", parse_error=str(error)[:256])
+            line, column = error.position
+            lines = data.splitlines()
+            if 0 < line <= len(lines):
+                # The parser column counts characters, so decode before centering the excerpt.
+                text = lines[line - 1].decode("utf-8", errors="replace")
+                report["error_line_excerpt"] = text[max(0, column - 128):column + 384]
+        return report
+    except (OSError, ValueError, LookupError) as error:
+        return {"inspection_error": str(error)[:256]}
+
+
 def check_cases(manifest, cache, *, java=None, probe=None, record=False):
     for path, artifact in artifacts(manifest, cache):
         verify_file(path, artifact)
@@ -1175,7 +1202,9 @@ def check_sessions(manifest, cache, java, probe=None):
                          "-Xmx256m", "-cp", os.pathsep.join([str(classes), str(jar)]), "TrackerSessionReference",
                          str(source), str(output), stage], display=display)
                 except (ValueError, OSError, subprocess.TimeoutExpired) as error:
-                    raise ValueError(f"{case['id']}/{mode}/{stage}: Tracker reference failed for {source.name}: {error}") from error
+                    diagnostic = json.dumps(session_file_diagnostic(source), ensure_ascii=True)[:3000]
+                    raise ValueError(f"{case['id']}/{mode}/{stage}: Tracker reference failed for {source.name}: {error}"
+                                     f"\nTracker input diagnostic (bounded): {diagnostic}") from error
                 stages[stage] = json.loads((output / ("session-" + stage + ".json")).read_text(encoding="utf-8"))
                 if (stages[stage]["reference_version"] != manifest["reference"]["version"]
                         or stages[stage]["verification_level"] != "tracker_session_" + stage
