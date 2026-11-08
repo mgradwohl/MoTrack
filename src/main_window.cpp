@@ -21,6 +21,8 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
+#include <QFutureWatcher>
+#include <QHash>
 #include <QHBoxLayout>
 #include <QImageReader>
 #include <QInputDialog>
