@@ -331,6 +331,10 @@ def validate_session(case, report, manifest, expected=None, key_frames=None, cal
                 {"frame": sample["frame"], "image": sample["points"][0], "world": sample["world"]}
                 for sample in track["samples"]]})
     compare(expected["point_masses"], masses, tolerance, case["id"] + ".point_masses")
+    if "session_axes" in case:
+        compare(case["session_axes"], before.get("axes"), tolerance, case["id"] + ".axes")
+    if calibration is None:
+        calibration = case.get("session_calibration")
     if calibration is not None:
         compare(calibration, before["calibration"], tolerance, case["id"] + ".calibration")
     vectors = [{"name": track["name"], "samples": track["vector_samples"]} for track in before["tracks"]

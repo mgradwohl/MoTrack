@@ -908,8 +908,13 @@ one experiment tab; actual multi-tab archive acceptance still belongs to phase 3
 packaging, changed media, movie engines, broader ZIP variants and paired-save recovery remain.
 
 The first archive application run (42471529133) loaded all independent media/geometry correctly,
-but snapshotted visible axes at their undrawn default origin before their first normal draw completed.
-Fresh reopen had drawn them at the calibrated origin, causing the strict three-stage
-comparison to fail. The harness now waits for a visible, paintable panel and observes visible axes
-following the current coordinate origin before capturing a snapshot. No coordinates or expected
-values are assigned to the loaded project; the original comparison remains required.
+but compared axes drawing handles at `[0,0]` with `[2,20]` after fresh reopen. Public paint/render
+attempts did not synchronize those transient handles. The pinned `CoordAxes.Loader.saveObject`
+bytecode saves only TTrack appearance and grid settings; scientific origin, scale and angle belong
+to ImageCoordSystem. The session report now excludes axes Step handles and explicitly compares
+serialized grid settings alongside existing appearance. Independent manifest expectations additionally
+require every calibration key/fixed flag, origin `[2,20]`, scale `[2,4]`, zero angle and default grid
+for both image fixtures. Headless tests prove moving a handle does not change serialized axes state,
+while custom grid settings remain observable. Corruption tests reject changed calibration/grid state
+even when it agrees at all three stages. No media pixel, timing, measurement, world-coordinate or
+untouched XML assertion is relaxed. Current-revision application acceptance is still required.

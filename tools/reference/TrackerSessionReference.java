@@ -295,28 +295,6 @@ public final class TrackerSessionReference {
                 return;
             }
             panel.paintImmediately(panel.getVisibleRect());
-            // TrackerIO's snapshot/export path uses render(image), including for unbuffered
-            // video panels. Exercise that public drawing path with a bounded disposable image.
-            if (panel.getWidth() > 1280 || panel.getHeight() > 800)
-                throw new IllegalStateException("Reference drawing bounds exceeded");
-            panel.render(new java.awt.image.BufferedImage(panel.getWidth(), panel.getHeight(),
-                java.awt.image.BufferedImage.TYPE_INT_RGB));
-            // TRZ loading can complete before the first normal axes draw. Observe the live
-            // origin following the current coordinate frame; never inject expected positions.
-            for (TTrack track : panel.getTracks()) if (track instanceof CoordAxes && track.isVisible()) {
-                Step step = track.getStep(0);
-                TPoint[] points = step == null ? null : step.getPoints();
-                double x = panel.getCoords().getOriginX(panel.getFrameNumber());
-                double y = panel.getCoords().getOriginY(panel.getFrameNumber());
-                if (points == null || points.length == 0 || points[0] == null || points[0].x != x || points[0].y != y) {
-                    WAITING.set("visible axes origin draw: " + (points == null || points.length == 0 ? "missing" : points[0])
-                        + " coordinate origin=" + x + "," + y + " panel=" + panel.getSize()
-                        + " gutters=" + Arrays.toString(panel.getGutters()) + " buffered=" + panel.isBuffered()
-                        + " iconified=" + panel.isIconified() + " frame=" + panel.getFrameNumber()
-                        + " drawingDisabled=" + OSPRuntime.disableAllDrawing);
-                    return;
-                }
-            }
             // Tracker schedules attachment refresh after load. Observe normal resolution and point
             // attachment instead of sleeping or calling its protected refresh/repair methods.
             if (!attachmentsReady(panel, attachments)) { WAITING.set("attachment target/point refresh"); return; }
@@ -444,6 +422,19 @@ public final class TrackerSessionReference {
         return result;
     }
 
+    // CoordAxes.Loader saves appearance/grid settings only. Its Step points are transient
+    // screen handles updated by drawing; ImageCoordSystem below owns the scientific geometry.
+    static Step[] persistentSteps(TTrack track) {
+        return track instanceof CoordAxes ? new Step[0] : track.getSteps();
+    }
+
+    static Map<String, Object> axesGrid(CoordAxes axes) {
+        XMLControl control = new XMLControlElement(axes);
+        return TrackerReference.map("visible", control.getBoolean("grid_visible"),
+            "alpha", control.getPropertyNamesRaw().contains("grid_alpha") ? control.getInt("grid_alpha") : null,
+            "argb", control.getPropertyNamesRaw().contains("grid_RGB") ? control.getInt("grid_RGB") : null);
+    }
+
     private static Map<String, Object> snapshot(TrackerPanel panel) {
         VideoClip clip = panel.getPlayer().getVideoClip();
         ImageCoordSystem coords = panel.getCoords();
@@ -452,10 +443,12 @@ public final class TrackerSessionReference {
         List<Object> sums = new ArrayList<>();
         List<Object> attachments = new ArrayList<>();
         List<Object> models = new ArrayList<>();
+        List<Object> axes = new ArrayList<>();
         for (TTrack track : panel.getTracks()) {
             List<Object> samples = new ArrayList<>();
             List<Object> vectorSamples = new ArrayList<>();
-            Step[] steps = track.getSteps();
+            Step[] steps = persistentSteps(track);
+            if (track instanceof CoordAxes axis) axes.add(TrackerReference.map("name", axis.getName(), "grid", axesGrid(axis)));
             if (steps.length > 10000) throw new IllegalArgumentException("Reference step limit exceeded");
             for (Step step : steps) if (step != null) {
                 if (track instanceof TapeMeasure && !clip.includesFrame(step.getFrameNumber())) continue;
@@ -586,7 +579,7 @@ public final class TrackerSessionReference {
             "centers_of_mass", centers,
             "vector_sums", sums,
             "attachments", attachments,
-            "models", models,
+            "models", models, "axes", axes,
             "calibration", TrackerReference.map("fixed_origin", coords.isFixedOrigin(), "fixed_angle", coords.isFixedAngle(),
                 "fixed_scale", coords.isFixedScale(), "keys", calibrationKeys),
             "tracks", tracks, "coordinate_samples", coordinates);

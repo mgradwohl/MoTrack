@@ -37,6 +37,9 @@
           "name": "image mass"
         }
       ],
+      "session_axes": [{"name": "axes", "grid": {"visible": false, "alpha": null, "argb": null}}],
+      "session_calibration": {"fixed_origin": true, "fixed_angle": true, "fixed_scale": true,
+        "keys": [{"frame": 0, "origin": [2.0, 20.0], "angle": 0.0, "scale": [2.0, 4.0]}]},
       "session_selected_track": "image mass",
       "session_frame_duration_ms": 125.0,
       "session_time_samples": [
@@ -139,6 +142,9 @@
           "name": "image mass"
         }
       ],
+      "session_axes": [{"name": "axes", "grid": {"visible": false, "alpha": null, "argb": null}}],
+      "session_calibration": {"fixed_origin": true, "fixed_angle": true, "fixed_scale": true,
+        "keys": [{"frame": 0, "origin": [2.0, 20.0], "angle": 0.0, "scale": [2.0, 4.0]}]},
       "session_selected_track": "image mass",
       "session_frame_duration_ms": 125.0,
       "session_time_samples": [

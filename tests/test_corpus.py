@@ -123,6 +123,7 @@ class CorpusTests(unittest.TestCase):
                         for sample in mass["samples"]]}],
             "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
             "media": copy.deepcopy(case["session_media"]), "frame_duration_ms": 125.0,
+            "axes": copy.deepcopy(case["session_axes"]), "calibration": copy.deepcopy(case["session_calibration"]),
             "time_samples": copy.deepcopy(case["session_time_samples"]),
             "name_references": {"selected_track": "image mass"}, **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
@@ -130,7 +131,7 @@ class CorpusTests(unittest.TestCase):
                  "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest)
         for stages in [["after"], ["before", "after_save", "after"]]:
-            for mutation in ["missing", "pixels", "order", "time", "dimensions", "count"]:
+            for mutation in ["missing", "pixels", "order", "time", "dimensions", "count", "origin", "scale", "axes_grid"]:
                 invalid = copy.deepcopy(valid)
                 for stage in stages:
                     media = invalid[stage]["media"]
@@ -144,6 +145,12 @@ class CorpusTests(unittest.TestCase):
                         media["frames"][2]["time_ms"] = 200.0
                     elif mutation == "dimensions":
                         media["frames"][0]["width"] = 31
+                    elif mutation == "origin":
+                        invalid[stage]["calibration"]["keys"][0]["origin"] = [0.0, 0.0]
+                    elif mutation == "scale":
+                        invalid[stage]["calibration"]["keys"][0]["scale"] = [1.0, 1.0]
+                    elif mutation == "axes_grid":
+                        invalid[stage]["axes"][0]["grid"]["visible"] = True
                     else:
                         media["frame_count"] = 3
                 with self.subTest(stages=stages, mutation=mutation), self.assertRaises(ValueError):
