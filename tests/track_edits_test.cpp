@@ -473,6 +473,104 @@ TEST(TrackEdits, ChangesTimingWithHistoryAndRescalesDerivedMotionAtOriginalFrame
     EXPECT_DOUBLE_EQ(project.clip.frameDurationMs.value(), 500);
 }
 
+TEST(TrackEdits, TimeOriginDoesNotDistortConstantIntervalDerivatives)
+{
+    motrack::LegacyProject project;
+    project.clip.stepCount = 3;
+    project.pointMasses.push_back(
+        {.name = "linear", .marks = {{.frame = 0, .x = 0, .y = 0}, {.frame = 1, .x = 1, .y = 2}, {.frame = 2, .x = 2, .y = 4}}, .mass = 3});
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.setClipTiming(project, 3, 0));
+    for (const auto origin : {0.0, -1e16, 1e16})
+    {
+        project.clip.startTimeMs = origin; // Legacy timing also uses origin-independent native derivatives.
+        const std::array quantities{motrack::PlotQuantity::VelocityX,
+                                    motrack::PlotQuantity::VelocityY,
+                                    motrack::PlotQuantity::AccelerationX,
+                                    motrack::PlotQuantity::AccelerationY,
+                                    motrack::PlotQuantity::MomentumX,
+                                    motrack::PlotQuantity::KineticEnergy};
+        const std::array values{1000.0 / 3.0, 2000.0 / 3.0, 0.0, 0.0, 1000.0, 2500000.0 / 3.0};
+        for (std::size_t index = 0; index < quantities.size(); ++index)
+        {
+            const auto plot = motrack::measurementPlot(project, 0, quantities[index]);
+            ASSERT_EQ(plot.samples.size(), 1u);
+            EXPECT_NEAR(plot.samples.front().vertical, values[index], 1e-8);
+            EXPECT_DOUBLE_EQ(plot.samples.front().horizontal, (origin + 3.0) / 1000.0);
+        }
+    }
+}
+
+TEST(TrackEdits, RangeChangesRefuseOverflowingTimingWithoutLosingRedo)
+{
+    motrack::LegacyProject project;
+    project.clip.stepCount = 1;
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.setClipTiming(project, 1e308, 0));
+    edits.markSaved();
+    ASSERT_TRUE(edits.setTimeUnit(project, "ms"));
+    ASSERT_TRUE(edits.undo(project));
+    const auto original = project;
+    const auto revision = edits.revision();
+    EXPECT_FALSE(edits.setClipRange(project, 0, 2, 1));
+    EXPECT_EQ(project, original);
+    EXPECT_EQ(edits.revision(), revision);
+    EXPECT_FALSE(edits.isModified());
+    EXPECT_TRUE(edits.canRedo());
+}
+
+TEST(TrackEdits, TimingAndRangeHistoryValidateChangedCounterpartsButRestoreLegacyStates)
+{
+    motrack::LegacyProject project;
+    project.clip.stepCount = 3;
+    project.clip.frameDurationMs = 1e308; // A legacy overflowing timebase can be repaired and restored.
+    motrack::TrackEdits edits;
+    const auto legacy = project;
+    ASSERT_TRUE(edits.setClipRange(project, 0, 0, 1));
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_EQ(project, legacy);
+    ASSERT_TRUE(edits.redo(project));
+    project.clip.frameDurationMs = 9e307; // Out-of-band timing change must be checked during range undo.
+    const auto narrow = project;
+    const auto revision = edits.revision();
+    EXPECT_FALSE(edits.undo(project));
+    EXPECT_EQ(project, narrow);
+    EXPECT_EQ(edits.revision(), revision);
+    project.clip.frameDurationMs = 1e308;
+    ASSERT_TRUE(edits.undo(project));
+    project.clip.frameDurationMs = 1e308;
+    project.clip.startTimeMs = 1e308;
+    const auto badOrigin = project;
+    EXPECT_FALSE(edits.redo(project));
+    EXPECT_EQ(project, badOrigin);
+
+    project = {};
+    project.clip.stepCount = 1;
+    edits.clear();
+    ASSERT_TRUE(edits.setClipTiming(project, 1e308, 0));
+    ASSERT_TRUE(edits.undo(project));
+    project.clip.stepCount = 3;
+    const auto wider = project;
+    EXPECT_FALSE(edits.redo(project));
+    EXPECT_EQ(project, wider);
+    project.clip.stepCount = 1;
+    ASSERT_TRUE(edits.redo(project));
+    project.clip.stepCount = 3;
+    ASSERT_TRUE(edits.undo(project)); // Omitted legacy timing remains exactly omitted.
+    EXPECT_FALSE(project.clip.frameDurationMs);
+
+    project = legacy;
+    edits.clear();
+    ASSERT_TRUE(edits.setClipTiming(project, 100, 0));
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_EQ(project, legacy);
+    ASSERT_TRUE(edits.redo(project));
+    project.clip.stepCount = 4;
+    const auto changedRange = project;
+    EXPECT_FALSE(edits.undo(project));
+    EXPECT_EQ(project, changedRange);
+}
+
 TEST(TrackEdits, RefusesInvalidOrUnrepresentableTimingWithoutHistoryChanges)
 {
     motrack::LegacyProject project;
@@ -492,6 +590,8 @@ TEST(TrackEdits, RefusesInvalidOrUnrepresentableTimingWithoutHistoryChanges)
         EXPECT_FALSE(edits.setClipTiming(project, 1, origin));
     }
     EXPECT_FALSE(edits.setClipTiming(project, 1e308, 1e308));
+    EXPECT_FALSE(edits.setClipTiming(project, 3, -1e16));
+    EXPECT_FALSE(edits.setClipTiming(project, 3, 1e16));
     EXPECT_EQ(project, original);
     EXPECT_FALSE(edits.canUndo());
     const std::vector<std::function<void(motrack::Clip&)>> changes{[](auto& clip) { clip.stepCount.reset(); },
@@ -523,6 +623,9 @@ TEST(TrackEdits, RefusesInvalidOrUnrepresentableTimingWithoutHistoryChanges)
     project.clip.firstFrame = 500000;
     project.clip.stepCount = 1;
     EXPECT_TRUE(edits.setClipTiming(project, 250, -500));
+    project.clip.firstFrame = 0;
+    project.clip.stepCount = 500001;
+    EXPECT_TRUE(edits.setClipTiming(project, 1000.0 / 29.97, -500)); // Ordinary long clips retain their intervals.
 }
 
 TEST(TrackEdits, RefusesUnsupportedTimingProvidersWithoutDiscardingHistory)

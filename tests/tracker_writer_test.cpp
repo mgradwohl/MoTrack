@@ -1472,6 +1472,36 @@ TEST(TrackerWriter, RefusesUnauditedTimingStateAtomically)
     }
 }
 
+TEST(TrackerWriter, RefusesDistortedOriginsAndRangeOnlyTimingOverflowAtomically)
+{
+    const auto original = timingSource();
+    auto imported = motrack::parseTrackerProject(original);
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    motrack::writeTrackerProject(destination, imported.project, imported.source);
+    for (const auto origin : {-1e16, 1e16})
+    {
+        auto project = imported.project;
+        project.clip.frameDurationMs = 3;
+        project.clip.startTimeMs = origin;
+        EXPECT_THROW(motrack::writeTrackerProject(destination, project, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(destination), original);
+    }
+    auto xml = original;
+    for (const auto& [before, after] : std::vector<std::pair<std::string, std::string>>{
+             {R"(name="delta_t" type="double">100.0)", R"(name="delta_t" type="double">1e308)"},
+             {R"(name="stepcount" type="int">10)", R"(name="stepcount" type="int">1)"}})
+    {
+        const auto index = xml.find(before);
+        ASSERT_NE(index, std::string::npos);
+        xml.replace(index, before.size(), after);
+    }
+    imported = motrack::parseTrackerProject(xml);
+    imported.project.clip.stepCount = 3;
+    EXPECT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), original);
+}
+
 TEST(TrackerWriter, TimingOnlyExportRefusesOverflowingLegacyTemporaryFrameCount)
 {
     auto xml = timingSource();

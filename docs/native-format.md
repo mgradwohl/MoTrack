@@ -248,3 +248,10 @@ guard: only point masses, independent vectors and retained axes/protractors are 
 edit leaves the project, saved/dirty state and both history directions unchanged. Decoded media timing, model/data time sources and
 desktop timing controls remain separate work. The corpus guide documents the independent negative-origin
 and nonzero-first-frame/stride acceptance cases.
+
+Time origins must also preserve adjacent intervals within relative `1e-9` in both milliseconds and
+seconds, preventing large offsets from materially distorting consumers that subtract absolute times.
+Native constant-time derivatives use original-frame differences and duration directly, so imported
+large origins cannot invent acceleration. Range changes and timing history validate the complete
+candidate span; undo can restore original absent or legacy timing/ranges when the corresponding
+range/timebase is unchanged. Range-only export applies the same timing checks before replacing a file.
