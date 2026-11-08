@@ -5,19 +5,31 @@
 
 #include <filesystem>
 #include <system_error>
+#include <utility>
 
 namespace motrack
 {
-QString localProjectPath(const QString& projectPath)
+namespace
 {
-    QFileInfo project(projectPath);
-    // Match QSaveFile's destination semantics, including a link to a not-yet-created file.
-    for (int depth = 0; project.isSymLink(); ++depth)
+QString followFileAliases(QString path)
+{
+    // Follow even dangling file aliases; canonical/weakly_canonical alone leave those unresolved.
+    for (int depth = 0; QFileInfo(path).isSymLink(); ++depth)
     {
         if (depth == 128)
             return {};
-        project.setFile(project.symLinkTarget());
+        path = QFileInfo(path).symLinkTarget();
     }
+    return path;
+}
+} // namespace
+
+QString localProjectPath(const QString& projectPath)
+{
+    const auto resolved = followFileAliases(projectPath);
+    if (resolved.isEmpty())
+        return {};
+    const QFileInfo project(resolved);
     auto existing = project.canonicalFilePath();
     if (!existing.isEmpty())
         return existing;
@@ -43,6 +55,14 @@ QString resolveLocalMediaPath(const QString& projectPath, const std::string& ref
             return {};
         path = directory + '/' + path;
     }
+    return physicalLocalFilePath(std::move(path));
+}
+
+QString physicalLocalFilePath(QString path)
+{
+    path = followFileAliases(std::move(path));
+    if (path.isEmpty())
+        return {};
     auto existing = QFileInfo(path).canonicalFilePath();
     if (!existing.isEmpty())
         return existing;
