@@ -13,6 +13,26 @@
 namespace motrack
 {
 
+enum class SaveDestinationConflict : std::uint8_t
+{
+    Busy,
+    PendingRecovery
+};
+
+/// Structured adapter failure so desktop callers can provide translated recovery/retry guidance.
+class SaveDestinationError final : public ProjectError
+{
+  public:
+    explicit SaveDestinationError(SaveDestinationConflict conflict);
+    [[nodiscard]] SaveDestinationConflict conflict() const noexcept
+    {
+        return m_Conflict;
+    }
+
+  private:
+    SaveDestinationConflict m_Conflict;
+};
+
 enum class PairedSaveStatus : std::uint8_t
 {
     Saved,

@@ -163,6 +163,7 @@ TEST(PairedWorkspace, NativeCopiesCannotOverwritePendingPairedOutputs)
         if (knownPending)
             EXPECT_FALSE(window.saveTrackerProject(target));
         EXPECT_FALSE(window.saveWorkspace(partial.nativePath));
+        EXPECT_TRUE(window.statusBar()->currentMessage().contains("Use Save Tracker project"));
         EXPECT_TRUE(window.isWindowModified());
         EXPECT_EQ(bytes(target), standardBytes);
         EXPECT_EQ(bytes(partial.nativePath), nativeBytes);
@@ -201,6 +202,7 @@ TEST(PairedWorkspace, NativeCopiesRespectAnActiveSiblingSaveLock)
     lock.setStaleLockTime(0);
     ASSERT_TRUE(lock.tryLock(0));
     EXPECT_FALSE(window.saveWorkspace(target));
+    EXPECT_TRUE(window.statusBar()->currentMessage().contains("Wait for it to finish and retry"));
     EXPECT_EQ(bytes(target), original);
     EXPECT_TRUE(window.isWindowModified());
     ASSERT_TRUE(window.saveWorkspace(temporary.filePath("copy.motrack")));
