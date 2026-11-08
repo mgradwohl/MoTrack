@@ -440,3 +440,9 @@ restores clip controls without moving the playhead; single-image recovery needs 
 This redraw preserves AutoTracker timers and pending matches and does not start a duplicate match.
 An empty location captured from an unresolved media alias is retried against the source path after
 repair; nonempty physical bindings retain their original base when the source directory is removed.
+
+When both a native destination and a linked media file are absent in the same physical directory,
+save preflight compares their names using one uniquely named temporary sibling file. This follows the
+filesystem's case/Unicode rules without creating either requested file or globally folding names.
+The probe is removed before writing or on failure; existing-file identity checks remain unchanged.
+If the filesystem cannot create the verification file, saving stops before replacing the destination.

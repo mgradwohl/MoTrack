@@ -18,6 +18,7 @@
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QEventLoop>
+#include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
@@ -33,6 +34,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QSaveFile>
+#include <QScopeGuard>
 #include <QSignalBlocker>
 #include <QSlider>
 #include <QSpinBox>
@@ -43,6 +45,7 @@
 #include <QThreadPool>
 #include <QToolBar>
 #include <QToolButton>
+#include <QUuid>
 #include <QVBoxLayout>
 #include <QtConcurrentRun>
 
@@ -76,6 +79,17 @@ void rebaseWorkspaceMedia(WorkspaceDocument& document, const QString& sourcePath
         }
         const QDir destination(directory);
         const auto target = localProjectPath(destinationPath);
+        QFile nameProbe;
+        QString probePrefix;
+        const auto cleanupProbe = qScopeGuard(
+            [&nameProbe]
+            {
+                if (nameProbe.isOpen())
+                {
+                    nameProbe.close();
+                    nameProbe.remove();
+                }
+            });
         for (auto& reference : document.project.clip.mediaReferences)
         {
             const auto source = workspaceMediaPath(document, sourcePath, reference);
@@ -83,6 +97,20 @@ void rebaseWorkspaceMedia(WorkspaceDocument& document, const QString& sourcePath
                 throw ProjectError("Could not resolve a native project media reference.");
             if (sameLocalFile(source, target))
                 throw ProjectError("Native saving cannot overwrite linked media.");
+            if (!QFileInfo::exists(source) && !QFileInfo::exists(target) && sameLocalFile(QFileInfo(source).absolutePath(), directory))
+            {
+                // Neither real name exists to compare. One private sibling probe lets the actual
+                // filesystem decide case/Unicode equivalence without touching either requested path.
+                if (!nameProbe.isOpen())
+                {
+                    probePrefix = ".motrack-name-" + QUuid::createUuid().toString(QUuid::WithoutBraces) + '-';
+                    nameProbe.setFileName(destination.filePath(probePrefix + QFileInfo(target).fileName()));
+                    if (!nameProbe.open(QIODevice::WriteOnly | QIODevice::NewOnly))
+                        throw ProjectError("Could not verify the native destination against missing media filenames.");
+                }
+                if (sameLocalFile(nameProbe.fileName(), destination.filePath(probePrefix + QFileInfo(source).fileName())))
+                    throw ProjectError("Native saving cannot overwrite linked media.");
+            }
             const auto rebased = destination.relativeFilePath(source).toStdString();
             const auto resolved = resolveLocalMediaPath(destinationPath, rebased);
             if (resolved.isEmpty() || QDir::cleanPath(resolved) != QDir::cleanPath(source))
