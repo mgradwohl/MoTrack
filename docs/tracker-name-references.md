@@ -165,7 +165,7 @@ column labels and format patterns remain data. No global text replacement is use
 Eligibility additionally requires the explicitly audited media-free schema in
 [`tracker_rename.cpp`](../src/tracker_rename.cpp): axes, point masses, independent vectors, unattached protractors and table/modern plot
 settings, together with their numeric geometry, color, clip and toolbar fields. Unrecognized properties,
-attributes/classes, model/function data, attachment fields, reference frames, legacy/scaled plot fields and dataset
+attributes/classes, model/function data, other attachment modes, reference frames, legacy/scaled plot fields and dataset
 rows reject rename export, even when the partial reference index has no malformed paths. The original
 source and native document remain available. Extend this allowlist only alongside application acceptance.
 
@@ -280,6 +280,28 @@ This is reference-preserving name export, not native center evaluation or consti
 [MoTrack #89](https://github.com/mgradwohl/MoTrack/issues/89), linked to
 [Tracker #14](https://github.com/OpenSourcePhysics/tracker/issues/14), remains open for the later
 combined-momentum and DataTool workflow. No claim is made for moving reference frames or nested centers.
+
+## Tape attachment target rename
+
+The audited read-only TapeMeasure subset now accepts its two attachment slots, fixed position/length
+flags, non-calibrating mode, one initial endpoint record and one stored world length. Each occupied
+attachment must resolve to an original measured PointMass. Other target classes, unknown properties,
+calibrating/editable/varying tape modes and slots beyond the two endpoints fail before replacement.
+A typed null endpoint stays null; an omitted initial slot stays omitted, with the read-only index
+retaining its implicit NoTarget entry. The exporter never fills missing endpoints with coordinates.
+
+Two attachment modes rename mass A or mass B. Full and partial tapes must keep their targets and
+independently expected endpoints and lengths at frames 0/1/2 through normal Tracker save/fresh reopen.
+The two-ended tape measures 5/7.5/10, the first-only tape 10/9/8, and the last-only tape
+sqrt(65)/7.5/sqrt(68) in calibrated length units. Complete-source comparison preserves the original
+geometry and length records, explicit/implicit nulls and an old-name note; native history and reopen
+preserve identity. Exact-head Linux CI supplies application acceptance for each mode.
+
+The upstream endpoint discussions [Tracker #12](https://github.com/OpenSourcePhysics/tracker/issues/12)
+and [#13](https://github.com/OpenSourcePhysics/tracker/issues/13) were refreshed. This preserves existing
+attachments; it does not implement the native two-click calibration workflow or resolve
+[MoTrack #78](https://github.com/mgradwohl/MoTrack/issues/78). Protractor/circle attachments, missing
+marked target frames, cyclic dependencies and native persistent tool editing remain separate work.
 
 Plot/table selections and view owners/guests must be viewable targets. Coordinate axes are valid
 main-panel selections but are ignored by TrackChooserTView; a rename export rejects such view

@@ -521,3 +521,15 @@ weighted positions, missing centers and wrong selections even when all three sna
 Native regressions cover either constituent, reorder/delete/undo, unknown/missing/duplicate/nested
 relationships and atomic refusal for empty/missing member collections. Native dependent evaluation
 and broader dependency-name export remain unfinished.
+
+
+The `attachment-first-name` and `attachment-last-name` modes rename mass A and mass B in the pinned
+three-tape attachment fixture. They retain the fixture checksum, add an old-name note only in a
+temporary input, and exercise repeated edits/undo/redo/native reopen before standard export. Independent
+full-source comparison permits only the PointMass name and matching attachment strings to change;
+empty endpoint slots, stored geometry and stored lengths remain intact. Live application checks require
+both fully attached and partly attached tapes to follow the same masses with the baseline endpoints,
+attached flags and independent lengths at frames 0/1/2 through save and fresh-process reopen. The
+selected tape remains both ends. Consistently stale targets, filled empty slots, changed lengths or
+endpoints, lost tapes and wrong selection all fail the negative oracle. Native reimport also runs.
+Only the documented read-only, fixed, non-calibrating tape subset is eligible for rename export.

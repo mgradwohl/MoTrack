@@ -583,6 +583,83 @@ TEST(TrackerWriter, RejectsLossyOrUnclassifiedCenterMembersBeforeReplacingAFile)
     }
 }
 
+TEST(TrackerWriter, RenamesEitherTapeAttachmentTargetAfterNativeHistoryWithoutFillingEmptySlots)
+{
+    const auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/attachments.trk");
+    const auto imported = motrack::parseTrackerProject(xml);
+    const auto before = motrack::indexTrackerReferences(imported.source, imported.project);
+    for (std::size_t selected : {0u, 1u})
+    {
+        motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+        motrack::TrackEdits edits;
+        const auto old = document.project.pointMasses[selected].name;
+        const auto name = QString::fromUtf8("élève β & <B>").toStdString();
+        ASSERT_TRUE(edits.renamePointMass(document.project, selected, "temporary"));
+        ASSERT_TRUE(edits.renamePointMass(document.project, selected, name));
+        ASSERT_TRUE(edits.undo(document.project));
+        ASSERT_TRUE(edits.redo(document.project));
+        ASSERT_TRUE(edits.removePointMass(document.project, 1 - selected));
+        ASSERT_TRUE(edits.undo(document.project));
+        std::ranges::reverse(document.project.pointMasses);
+        QTemporaryDir temporary;
+        const auto native = temporary.filePath("attachment-name.motrack");
+        motrack::writeWorkspaceDocument(native, document);
+        document = motrack::readWorkspaceDocument(native);
+        if (!document.trackerSource)
+        {
+            FAIL() << "Native reopen lost the original attachment source.";
+        }
+        const auto bytes = motrack::renderTrackerProject(document.project, *document.trackerSource);
+        const auto output = motrack::parseTrackerProject(bytes);
+        auto expected = imported.project;
+        expected.pointMasses[selected].name = name;
+        EXPECT_EQ(output.project, expected);
+        const auto after = motrack::indexTrackerReferences(output.source, output.project);
+        ASSERT_EQ(after.references.size(), before.references.size());
+        ASSERT_EQ(after.references.size(), 7u);
+        for (std::size_t i = 0; i < before.references.size(); ++i)
+        {
+            EXPECT_EQ(after.references[i].path, before.references[i].path);
+            EXPECT_EQ(after.references[i].candidateSourceIndices, before.references[i].candidateSourceIndices);
+            EXPECT_EQ(after.references[i].resolution, before.references[i].resolution);
+            EXPECT_EQ(after.references[i].originalName,
+                      before.references[i].originalName == old ? name : before.references[i].originalName);
+        }
+        EXPECT_EQ(document.trackerSource->xml, xml);
+        EXPECT_EQ(bytes.find(R"(name="[0]" type="object">null</property>)"), std::string::npos); // Keep the implicit gap implicit.
+        EXPECT_NE(bytes.find(R"(name="[1]" type="object">null</property>)"), std::string::npos);
+    }
+}
+
+TEST(TrackerWriter, RejectsUncoveredAttachmentModesTargetsAndSlotsBeforeReplacingAFile)
+{
+    const auto original = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/attachments.trk");
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    const auto unchanged = motrack::parseTrackerProject(original);
+    motrack::writeTrackerProject(destination, unchanged.project, unchanged.source);
+    for (const auto& [from, to] : std::vector<std::pair<std::string, std::string>>{
+             {R"(name="[0]" type="string">mass A)", R"(name="[0]" type="string">missing)"},
+             {R"(name="[0]" type="string">mass A)", R"(name="[0]" type="string">both ends)"},
+             {R"(name="[1]" type="string">mass B)", R"(name="[2]" type="string">mass B)"},
+             {R"(name="[1]" type="object">null)", R"(name="[1]" type="object">missing)"},
+             {R"(name="readonly" type="boolean">true)", R"(name="readonly" type="boolean">false)"},
+             {R"(name="fixedtape" type="boolean">true)", R"(name="fixedtape" type="boolean">false)"},
+             {R"(name="fixedlength" type="boolean">true)", R"(name="fixedlength" type="boolean">false)"},
+             {R"(name="stickmode" type="boolean">false)", R"(name="stickmode" type="boolean">true)"},
+             {R"(name="worldlengths")", R"(name="future_lengths")"},
+             {"cabrillo.tracker.TapeMeasure$FrameData", "cabrillo.tracker.FutureFrameData"}})
+    {
+        auto xml = original;
+        ASSERT_NE(xml.find(from), std::string::npos);
+        xml.replace(xml.find(from), from.size(), to);
+        auto imported = motrack::parseTrackerProject(xml);
+        imported.project.pointMasses[0].name = "renamed";
+        EXPECT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(destination), original);
+    }
+}
+
 TEST(TrackerWriter, RejectsPlotDefinitionsThatJavaWouldCoalesceBeforeReplacingDestination)
 {
     const auto original = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/plot-guests.trk");

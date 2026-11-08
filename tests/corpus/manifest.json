@@ -340,6 +340,7 @@
     },
     {
       "id": "attachments",
+      "native_attachment_name_roundtrip": true,
       "file": "attachments.trk",
       "local_file": "fixtures/attachments.trk",
       "sha256": "8d0c1d73dee56351ddaf5e56dd7463039be2981afadc1494f9e4e22d2a11fcd3",
