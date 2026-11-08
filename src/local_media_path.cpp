@@ -18,7 +18,7 @@ QString localProjectPath(const QString& projectPath)
             return {};
         project.setFile(project.symLinkTarget());
     }
-    const auto existing = project.canonicalFilePath();
+    auto existing = project.canonicalFilePath();
     if (!existing.isEmpty())
         return existing;
     const auto parent = QFileInfo(project.path()).canonicalFilePath();
