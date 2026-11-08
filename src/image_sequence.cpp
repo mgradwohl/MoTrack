@@ -10,7 +10,7 @@ namespace motrack
 {
 
 std::optional<ImageSequence>
-ImageSequence::open(const QString& projectPath, const Clip& clip, const std::map<std::string, QString>& mediaLocations)
+ImageSequence::open(const QString& projectPath, const Clip& clip, const QHash<QString, QString>& mediaLocations)
 {
     if (clip.firstFrame < 0 || clip.stepSize < 1 || clip.mediaReferences.empty() ||
         clip.mediaReferences.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
@@ -26,8 +26,8 @@ ImageSequence::open(const QString& projectPath, const Clip& clip, const std::map
 
     const auto mediaPath = [&](const std::string& reference)
     {
-        const auto retained = mediaLocations.find(reference);
-        return retained == mediaLocations.end() ? resolveLocalMediaPath(projectPath, reference) : retained->second;
+        const auto retained = mediaLocations.constFind(QString::fromStdString(reference));
+        return retained == mediaLocations.cend() ? resolveLocalMediaPath(projectPath, reference) : retained.value();
     };
     const auto firstPath = QString::fromStdString(clip.mediaReferences.front());
     const auto suffix = QFileInfo(firstPath).suffix().toLatin1().toLower();
