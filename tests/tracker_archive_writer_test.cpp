@@ -151,7 +151,56 @@ TEST(TrackerArchiveWriter, PreservesExistingDestinationOnInvalidInputAndCancella
     EXPECT_EQ(readBytes(source.projectPath("selected.trk")), originalXml());
 }
 
-TEST(TrackerArchiveWriter, RefusesCorruptOrUnsupportedZipMetadataBeforeReplacement)
+TEST(TrackerArchiveWriter, RefusesReaderAcceptedButWriterUnsupportedZipLayouts)
+{
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("original.trz");
+    const auto destination = temporary.filePath("existing.trz");
+    ASSERT_TRUE(motrack::test::writeArchive(original, {{.name = "selected.trk", .bytes = originalXml()}}));
+    const auto valid = readBytes(original);
+    const auto central = qFromLittleEndian<quint32>(valid.constData() + valid.size() - 6);
+    ASSERT_TRUE(writeBytes(destination, "existing output"));
+    ASSERT_GE(qFromLittleEndian<quint16>(valid.constData() + central + 30), 4);
+    ASSERT_GE(qFromLittleEndian<quint16>(valid.constData() + 28), 4);
+    for (const int kind : {0, 1, 2, 3})
+    {
+        SCOPED_TRACE(kind);
+        auto unsupported = valid;
+        if (kind == 0)
+        {
+            qToLittleEndian<quint16>(45, unsupported.data() + 4);
+            qToLittleEndian<quint16>(45, unsupported.data() + central + 6);
+        }
+        else if (kind == 1)
+        {
+            const auto extra = central + 46 + qFromLittleEndian<quint16>(unsupported.constData() + central + 28);
+            qToLittleEndian<quint16>(0x1234, unsupported.data() + extra);
+        }
+        else if (kind == 2)
+        {
+            const auto extra = 30 + qFromLittleEndian<quint16>(unsupported.constData() + 26);
+            qToLittleEndian<quint16>(0x1234, unsupported.data() + extra);
+        }
+        else
+        {
+            // A harmless self-extracting-style prefix is readable, but outside the writer's
+            // contiguous ZIP-record contract. Rebase both offsets before the immutable import.
+            constexpr quint32 PREFIX_SIZE = 4;
+            qToLittleEndian<quint32>(PREFIX_SIZE, unsupported.data() + central + 42);
+            qToLittleEndian<quint32>(central + PREFIX_SIZE, unsupported.data() + unsupported.size() - 6);
+            unsupported.prepend("stub");
+        }
+        ASSERT_TRUE(writeBytes(original, unsupported));
+        const auto source = motrack::TrackerArchive::open(original);
+        ASSERT_EQ(readBytes(source.projectPath("selected.trk")), originalXml());
+        ASSERT_EQ(readBytes(source.sourcePath()), unsupported);
+        EXPECT_THROW(motrack::writeTrackerArchive(destination, source, "selected.trk", EDITED_XML), motrack::ProjectError);
+        EXPECT_EQ(readBytes(destination), "existing output");
+        EXPECT_EQ(readBytes(source.sourcePath()), unsupported);
+    }
+}
+
+TEST(TrackerArchiveWriter, RefusesChangedSourceBytesBeforeReplacement)
 {
     QTemporaryDir temporary;
     const auto original = temporary.filePath("original.trz");
