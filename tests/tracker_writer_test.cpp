@@ -254,8 +254,10 @@ TEST(TrackerWriter, RejectsUnsafeGeneratedImageReferencesWithoutReplacingEitherF
     EXPECT_EQ(readBytes(destination), previous);
     EXPECT_EQ(readBytes(input), previous);
     EXPECT_EQ(document.project, before.project);
-    ASSERT_TRUE(before.trackerSource);
-    EXPECT_EQ(retainedSource(document).xml, before.trackerSource->xml);
+    if (!before.trackerSource)
+        FAIL() << "Expected the original source envelope.";
+    const auto expectedXml = before.trackerSource->xml;
+    EXPECT_EQ(retainedSource(document).xml, expectedXml);
     EXPECT_EQ(motrack::resolveLocalMediaPath(input, "images/frame0.png"), QFileInfo(directory + "/images/frame0.png").canonicalFilePath());
     EXPECT_TRUE(motrack::resolveLocalMediaPath(destination, "../source!/images/frame0.png").isEmpty());
     EXPECT_TRUE(motrack::resolveLocalMediaPath(temporary.filePath("missing/base.trk"), "frame.png").isEmpty());
