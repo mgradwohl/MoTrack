@@ -4,7 +4,8 @@ Desktop sessions retain resolved local media locations separately from serialize
 
 Successful native saves also adopt the worker snapshot's refreshed physical locations. Restoring media
 through a temporary alias and later removing that alias therefore preserves subsequent saves and
-undo/redo. Failed writes and replaced-document completions do not adopt those runtime bindings.
+undo/redo. The active image reader adopts the same locations without resetting frame navigation.
+Failed writes and replaced-document completions do not adopt those runtime bindings.
 
 MoTrack saves bounded JSON metadata with `format: "MoTrack"`. The current writer emits version 5;
 the reader accepts versions 1 through 5 and rejects unknown versions. Archive-backed documents use
@@ -510,8 +511,3 @@ but incorrect results across save/reopen. Both `tracker_archive_tabs_resave` and
 `motrack_archive_tabs_roundtrip` passed at `505c40c5`, Linux job 128744837376 in
 [run 42484997811](https://github.com/mgradwohl/MoTrack/actions/runs/42484997811). This scoped application
 evidence does not provide native multi-tab workspace editing or expand the supported archive/media schema.
-
-Successful native saves also adopt the worker snapshot's refreshed physical locations. Restoring media
-through a temporary alias and later removing that alias therefore preserves subsequent saves and
-undo/redo. The active image reader adopts the same locations without resetting frame navigation.
-Failed writes and replaced-document completions do not adopt those runtime bindings.
