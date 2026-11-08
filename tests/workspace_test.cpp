@@ -962,9 +962,11 @@ TEST(Workspace, ReopensASingleImageWithoutARecognizedFilenameExtension)
     const auto saved = motrack::readWorkspaceDocument(destination);
     EXPECT_FALSE(saved.movie);
     const auto sequence = motrack::ImageSequence::open(destination, saved.project.clip);
-    ASSERT_TRUE(sequence.has_value());
+    if (!sequence)
+        FAIL() << "Saved image sequence is missing.";
     const auto frame = sequence->readStep(0);
-    ASSERT_TRUE(frame.has_value());
+    if (!frame)
+        FAIL() << "Saved image frame is missing.";
     EXPECT_EQ(frame->image, QImage(fixturePath("frames/frame00.ppm")));
     ASSERT_TRUE(window.loadProject(destination));
     ASSERT_TRUE(window.saveWorkspace(destination));
@@ -1014,9 +1016,11 @@ TEST(Workspace, SavesAndReopensStandaloneMediaOpenedThroughFileAliases)
         if (!movie)
         {
             const auto sequence = motrack::ImageSequence::open(destination, saved.project.clip);
-            ASSERT_TRUE(sequence.has_value());
+            if (!sequence)
+                FAIL() << "Saved image sequence is missing.";
             const auto frame = sequence->readStep(0);
-            ASSERT_TRUE(frame.has_value());
+            if (!frame)
+                FAIL() << "Saved image frame is missing.";
             EXPECT_EQ(frame->image, QImage(physical));
         }
     }
