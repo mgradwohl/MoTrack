@@ -6,6 +6,7 @@
 #include <QImage>
 #include <QStringList>
 
+#include <map>
 #include <optional>
 
 namespace motrack
@@ -20,7 +21,8 @@ struct ImageFrame
 class ImageSequence
 {
   public:
-    static std::optional<ImageSequence> open(const QString& projectPath, const Clip& clip);
+    static std::optional<ImageSequence>
+    open(const QString& projectPath, const Clip& clip, const std::map<std::string, QString>& mediaLocations = {});
 
     [[nodiscard]] int stepCount() const;
     [[nodiscard]] std::optional<ImageFrame> readStep(int step) const;
