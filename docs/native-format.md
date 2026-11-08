@@ -348,13 +348,15 @@ These require actual application acceptance before merging. Custom tables are st
 selection restored by the reference harness; this does not resolve Tracker's unvisited-view data-loss
 limitation tracked by [MoTrack #64](https://github.com/mgradwohl/MoTrack/issues/64).
 
-A retained point-mass table row containing only `t,x` is now conservatively refused in changed
-standard exports. The pinned three-owner subset fixture remains null even when visible and selected,
-including after an ordinary frame-change experiment. It stays in the corpus as explicitly excluded
-application acceptance, with independent source/geometry expectations retained. Native saving and
-unchanged byte-preserving rendering remain available. Removing the affected owner also removes the
-unsafe row and produces the same output as the independently tested full-column case. Other column
-subsets still require their own evidence; this does not complete table-view parity or close #64.
+Retained point-mass rows containing only `t,x` or the default `t,x,y` columns (including
+reordered `t,y,x`) are conservatively refused in changed standard exports. Pinned Tracker 6.3.5
+produces nulls for the subset case and omits custom view formats/selection for the default-column
+case. Both failing fixtures remain checksum-pinned source/geometry cases explicitly excluded from
+application acceptance. The candidate uses an explicit `frame` column for every owner,
+with independently specified order and formats; its actual application acceptance is still required.
+Native saving and unchanged byte-preserving rendering remain available for failing sources. Removing
+all affected owners removes their unsafe rows; removing only one cannot make other affected rows safe.
+Other column combinations need their own evidence; this does not close #64 or complete table parity.
 
 ### Planned linked-media standard output
 
