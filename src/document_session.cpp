@@ -192,6 +192,9 @@ SaveOutcome DocumentSession::completePairedSave(const SaveCheckpoint& checkpoint
         else
             history.markSaved();
     }
+    if (result.status == PairedSaveStatus::Saved && result.standardCurrent && result.nativeCurrent &&
+        !result.observedRecoveryPath.isEmpty() && result.observation != 0)
+        forgetRecovery(result.observedRecoveryPath, result.transactionId, result.observation, true);
     if (!result.recoveryPath.isEmpty())
         rememberRecovery(result.recoveryPath, result.transactionId, result.observation);
     if (result.status == PairedSaveStatus::RecoveryRequired || !m_RecoveryPaths.isEmpty())

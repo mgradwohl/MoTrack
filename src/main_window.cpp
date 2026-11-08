@@ -1704,7 +1704,7 @@ bool MainWindow::saveWorkspace(const QString& path)
                                       return {};
                                   refreshWorkspaceMediaLocations(document, sourcePath);
                                   rebaseWorkspaceMedia(document, sourcePath, path);
-                                  writeWorkspaceDocument(path, document, cancelled.get());
+                                  writeNativeDocument(path, document, cancelled.get());
                                   return {.saved = true, .mediaLocations = std::move(document.mediaLocations)};
                               }
                               catch (const std::exception&)
