@@ -27,6 +27,11 @@ A headless Java regression checks buried callers, empty/short/long stacks, dupli
 The existing private display/home, 256 MB heap, 30-second internal wait and 45-second subprocess limit
 remain; failures still fail immediately, without automatic retries. Failure-path tests cover both
 stages, process/launch/outer-timeout errors, cleanup and unchanged invocation counts.
+On failure, Python also inspects at most 1 MiB of that input without modifying it. A bounded report
+records its byte count/hash, XML parse status/root class, short beginning/end excerpts and (for
+malformed XML) the parser error and nearby text. Oversized or unavailable inputs are identified
+without replacing the original failure. This distinguishes a truncated/malformed resave from a
+well-formed file that Tracker's loader rejects; XML validity alone is not compatibility acceptance.
 This improves evidence for [MoTrack #105](https://github.com/mgradwohl/MoTrack/issues/105); the intermittent
 callback timeout's cause remains under investigation and is not established as fixed or as an upstream defect.
 
