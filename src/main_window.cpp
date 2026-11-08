@@ -836,7 +836,7 @@ bool MainWindow::openImageSequence(const QStringList& paths, double frameRate)
     }
     releaseArchive();
     m_MediaProjectPath = path;
-    m_Session.replace({.project = std::move(project), .movieFrameTimes = {}}, path);
+    m_Session.replace({.project = std::move(project), .movieFrameTimes = {}}, path, DocumentSourceKind::Media);
     m_Sequence = std::move(sequence);
     m_MoviePath.clear();
     m_MoviePresentationTimes.clear();
@@ -892,7 +892,7 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
                         }
                         releaseArchive();
                         m_MediaProjectPath = path;
-                        m_Session.replace({}, path);
+                        m_Session.replace({}, path, DocumentSourceKind::Media);
                         m_Session.document.project.clip.stepCount = index.frameCount;
                         m_Session.document.project.clip.sourceFrameCount = index.frameCount;
                         m_Session.document.project.clip.mediaReferences.push_back(
