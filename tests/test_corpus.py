@@ -42,8 +42,18 @@ class CorpusTests(unittest.TestCase):
             rejected[field] = value
             path = self.root / "excluded-manifest.json"
             path.write_text(json.dumps(invalid), encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "cannot supply"):
+            with self.assertRaisesRegex(ValueError, "table-owners-subset: session_exclusion conflicts"):
                 corpus.load_manifest(path)
+
+    def test_default_column_table_loss_stays_pinned_outside_acceptance(self):
+        case = next(c for c in corpus.load_manifest()["cases"] if c["id"] == "table-owners-defaults")
+        corpus.verify_file(corpus.local_fixture_path(case), case)
+        self.assertNotIn("session_tracks", case)
+        self.assertEqual(case["session_exclusion"]["issue"], "https://github.com/mgradwohl/MoTrack/issues/64")
+        root = ET.parse(corpus.local_fixture_path(case)).getroot()
+        rows = root.find(".//property[@name='track_columns']")
+        self.assertEqual([[cell.text for cell in row] for row in rows],
+                         [["mass A", "t", "x", "y"], ["mass B", "t", "y", "x"], ["mass C", "t", "x", "y"]])
 
     def test_deletion_oracle_keeps_untouched_measurements_names_and_views(self):
         manifest = corpus.load_manifest()

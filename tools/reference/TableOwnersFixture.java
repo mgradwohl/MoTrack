@@ -20,7 +20,8 @@ import org.opensourcephysics.media.core.VideoClip;
 /** Headless fixture authoring; actual view loading/saving is tested separately in the application. */
 public final class TableOwnersFixture {
     private static XMLProperty property(XMLControlElement owner, String name) {
-        return owner.getPropsRaw().stream().filter(p -> p.getPropertyName().equals(name)).findFirst().orElseThrow();
+        return owner.getPropsRaw().stream().filter(p -> p.getPropertyName().equals(name)).findFirst()
+            .orElseThrow(() -> new IllegalStateException("Missing fixture property: " + name));
     }
 
     // Views need a live TFrame. Author their control structure with OSP's public XML API,
@@ -39,8 +40,9 @@ public final class TableOwnersFixture {
     public static void main(String[] args) {
         try {
             boolean subset = args.length == 2 && args[1].equals("subset");
-            if ((args.length != 1 && !subset) || !OSPRuntime.VERSION.equals("6.3.5"))
-                throw new IllegalArgumentException("Expected Tracker 6.3.5, one fresh output path and optional subset mode");
+            boolean defaults = args.length == 2 && args[1].equals("defaults");
+            if ((args.length != 1 && !subset && !defaults) || !OSPRuntime.VERSION.equals("6.3.5"))
+                throw new IllegalArgumentException("Expected Tracker 6.3.5, one fresh output path and optional subset/defaults mode");
             Path path = Path.of(args[0]).toAbsolutePath();
             if (Files.exists(path)) throw new IllegalArgumentException("Fixture output already exists");
             Locale.setDefault(Locale.US);
@@ -78,8 +80,10 @@ public final class TableOwnersFixture {
             XMLControlElement table = object(chooser, "[1]", TableTView.class);
             table.setValue("selected_track", "mass B");
             table.setValue("track_columns", new String[][] {
-                {"mass A", "t", "x", "y"}, {"mass B", "t", "y", "x"},
-                subset ? new String[] {"mass C", "t", "x"} : new String[] {"mass C", "t", "x", "y"}});
+                subset || defaults ? new String[] {"mass A", "t", "x", "y"} : new String[] {"mass A", "t", "x", "y", "frame"},
+                subset || defaults ? new String[] {"mass B", "t", "y", "x"} : new String[] {"mass B", "t", "y", "x", "frame"},
+                subset ? new String[] {"mass C", "t", "x"} : defaults ? new String[] {"mass C", "t", "x", "y"}
+                    : new String[] {"mass C", "t", "x", "y", "frame"}});
             table.setValue("column_formats", new String[][][] {
                 {{"mass A", "x", "0.000"}, {"mass A", "y", "0.00"}},
                 {{"mass B", "y", "0.0000"}, {"mass B", "t", "0.00"}},

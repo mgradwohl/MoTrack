@@ -163,18 +163,21 @@
                         <property name="[1]" type="string">t</property>
                         <property name="[2]" type="string">x</property>
                         <property name="[3]" type="string">y</property>
+                        <property name="[4]" type="string">frame</property>
                     </property>
                     <property name="[1]" type="array" class="[Ljava.lang.String;">
                         <property name="[0]" type="string">mass B</property>
                         <property name="[1]" type="string">t</property>
                         <property name="[2]" type="string">y</property>
                         <property name="[3]" type="string">x</property>
+                        <property name="[4]" type="string">frame</property>
                     </property>
                     <property name="[2]" type="array" class="[Ljava.lang.String;">
                         <property name="[0]" type="string">mass C</property>
                         <property name="[1]" type="string">t</property>
                         <property name="[2]" type="string">x</property>
                         <property name="[3]" type="string">y</property>
+                        <property name="[4]" type="string">frame</property>
                     </property>
                 </property>
                 <property name="column_formats" type="array" class="[[[Ljava.lang.String;">

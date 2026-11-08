@@ -423,34 +423,50 @@ TEST(TrackerWriter, DeletionAndCreationWithEqualCountsUseIdentityAndPermitSafeNa
     }
 }
 
-TEST(TrackerWriter, RejectsRetainedKnownBrokenTableSubsetButAllowsRemovingItsOwner)
+TEST(TrackerWriter, RejectsKnownLossyTableColumnsUntilAllAffectedOwnersAreRemoved)
 {
     const auto fixtureDirectory = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/";
-    auto subset = motrack::parseTrackerProject(readBytes(fixtureDirectory + "table-owners-subset.trk"));
-    EXPECT_EQ(motrack::renderTrackerProject(subset.project, subset.source), subset.source.xml);
-    const auto original = subset.source.xml;
-    motrack::TrackEdits edits;
-    ASSERT_TRUE(edits.setPointMassValue(subset.project, 0, 5.0));
-    QTemporaryDir temporary;
-    const auto destination = temporary.filePath("existing.trk");
+    for (const auto* fixture : {"table-owners-subset.trk", "table-owners-defaults.trk"})
     {
-        QFile output(destination);
-        ASSERT_TRUE(output.open(QIODevice::WriteOnly));
-        ASSERT_EQ(output.write("existing"), 8);
+        SCOPED_TRACE(fixture);
+        auto imported = motrack::parseTrackerProject(readBytes(fixtureDirectory + fixture));
+        EXPECT_EQ(motrack::renderTrackerProject(imported.project, imported.source), imported.source.xml);
+        const auto original = imported.source.xml;
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.setPointMassValue(imported.project, 0, 5.0));
+        QTemporaryDir temporary;
+        const auto destination = temporary.filePath("existing.trk");
+        {
+            QFile output(destination);
+            ASSERT_TRUE(output.open(QIODevice::WriteOnly));
+            ASSERT_EQ(output.write("existing"), 8);
+        }
+        try
+        {
+            motrack::writeTrackerProject(destination, imported.project, imported.source);
+            FAIL() << "A known lossy table must not replace the destination.";
+        }
+        catch (const motrack::ProjectError& error)
+        {
+            EXPECT_NE(std::string(error.what()).find("mass A"), std::string::npos);
+            EXPECT_NE(std::string(error.what()).find("#64"), std::string::npos);
+        }
+        EXPECT_EQ(readBytes(destination), "existing");
+        ASSERT_TRUE(edits.removePointMass(imported.project, 0));
+        EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(imported.project, imported.source)), motrack::ProjectError);
+        ASSERT_TRUE(edits.removePointMass(imported.project, 0));
+        EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(imported.project, imported.source)), motrack::ProjectError);
+        ASSERT_TRUE(edits.removePointMass(imported.project, 0));
+        const auto cleaned = motrack::renderTrackerProject(imported.project, imported.source);
+        auto complete = motrack::parseTrackerProject(readBytes(fixtureDirectory + "table-owners.trk"));
+        complete.project.pointMasses.clear();
+        EXPECT_EQ(cleaned, motrack::renderTrackerProject(complete.project, complete.source));
+        ASSERT_TRUE(edits.undo(imported.project));
+        EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(imported.project, imported.source)), motrack::ProjectError);
+        ASSERT_TRUE(edits.redo(imported.project));
+        EXPECT_EQ(motrack::renderTrackerProject(imported.project, imported.source), cleaned);
+        EXPECT_EQ(imported.source.xml, original);
     }
-    EXPECT_THROW(motrack::writeTrackerProject(destination, subset.project, subset.source), motrack::ProjectError);
-    EXPECT_EQ(readBytes(destination), "existing");
-    ASSERT_TRUE(edits.removePointMass(subset.project, 2));
-    const auto cleaned = motrack::renderTrackerProject(subset.project, subset.source);
-    auto complete = motrack::parseTrackerProject(readBytes(fixtureDirectory + "table-owners.trk"));
-    complete.project.pointMasses.front().mass = 5.0;
-    complete.project.pointMasses.pop_back();
-    EXPECT_EQ(cleaned, motrack::renderTrackerProject(complete.project, complete.source));
-    ASSERT_TRUE(edits.undo(subset.project));
-    EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(subset.project, subset.source)), motrack::ProjectError);
-    ASSERT_TRUE(edits.redo(subset.project));
-    EXPECT_EQ(motrack::renderTrackerProject(subset.project, subset.source), cleaned);
-    EXPECT_EQ(subset.source.xml, original);
 }
 
 TEST(TrackerWriter, RemovesOnlyDeletedTableOwnersAfterHistoryNativeReopenAndNameReuse)
