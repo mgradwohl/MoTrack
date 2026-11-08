@@ -3,6 +3,7 @@
 #include "tracker_writer.hpp"
 #include "workspace_document.hpp"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -30,6 +31,14 @@ void require(bool valid)
         throw ProjectError("Cannot package this linked-image experiment safely.");
 }
 
+void requireReadable(bool valid, const QString& source)
+{
+    if (!valid)
+        throw ProjectError(QCoreApplication::translate("TrackerImagePackage", "Could not read a file required for the archive: %1")
+                               .arg(source)
+                               .toStdString());
+}
+
 void checkCancelled(const std::atomic_bool* cancelled)
 {
     if (cancelled && *cancelled)
@@ -39,7 +48,7 @@ void checkCancelled(const std::atomic_bool* cancelled)
 qint64 copyFile(const QString& source, QIODevice& output, qint64 maximum, const std::atomic_bool* cancelled)
 {
     QFile input(source);
-    require(QFileInfo(source).isFile() && input.open(QIODevice::ReadOnly));
+    requireReadable(QFileInfo(source).isFile() && input.open(QIODevice::ReadOnly), source);
     const auto size = input.size();
     require(size > 0 && size <= maximum);
     std::array<char, BLOCK_BYTES> buffer{};
@@ -48,7 +57,8 @@ qint64 copyFile(const QString& source, QIODevice& output, qint64 maximum, const 
     {
         checkCancelled(cancelled);
         const auto count = input.read(buffer.data(), static_cast<qint64>(buffer.size()));
-        require(count >= 0 && count <= size - copied);
+        requireReadable(count >= 0, source);
+        require(count <= size - copied);
         if (count == 0)
             break;
         require(output.write(buffer.data(), count) == count);

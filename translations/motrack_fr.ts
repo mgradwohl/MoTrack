@@ -183,4 +183,8 @@
     <message><source>%1 versus %2</source><translation>%1 en fonction de %2</translation></message>
     <message><source>No measurements to plot.</source><translation>Aucune mesure à tracer.</translation></message>
   </context>
+  <context>
+    <name>TrackerImagePackage</name>
+    <message><source>Could not read a file required for the archive: %1</source><translation type="unfinished"></translation></message>
+  </context>
 </TS>

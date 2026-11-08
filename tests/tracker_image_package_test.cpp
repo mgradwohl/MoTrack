@@ -182,6 +182,33 @@ TEST(TrackerImagePackage, RefusesUnsupportedDocumentsMissingMediaAndCancellation
     }
 }
 
+TEST(TrackerImagePackage, NamesMissingOrNonFileSourcesWithoutReplacingOutput)
+{
+    for (const bool directory : {false, true})
+    {
+        SCOPED_TRACE(directory);
+        QTemporaryDir temporary;
+        const auto missing = temporary.filePath(QString::fromUtf8("missing é image.png"));
+        if (directory)
+            ASSERT_TRUE(QDir().mkdir(missing));
+        auto document = motrack::importTrackerDocument(fixture());
+        document.project.clip.mediaReferences[0] = missing.toStdString();
+        const auto target = temporary.filePath("existing.trz");
+        put(target, "original archive");
+        try
+        {
+            motrack::writeTrackerImagePackage(target, document, fixture());
+            FAIL() << "Packaging an unavailable image should fail.";
+        }
+        catch (const motrack::ProjectError& error)
+        {
+            const auto diagnostic = QString::fromUtf8(error.what());
+            EXPECT_TRUE(diagnostic.contains(missing)) << diagnostic.toStdString();
+        }
+        EXPECT_EQ(bytes(target), "original archive");
+    }
+}
+
 TEST(TrackerImagePackage, CannotReplaceLinkedMediaEvenWithAnArchiveSuffix)
 {
     QTemporaryDir temporary;

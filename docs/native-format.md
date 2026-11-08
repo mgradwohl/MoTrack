@@ -543,7 +543,10 @@ preserved, not transcoded; the initial application acceptance fixture consists o
 Native tests cover native close/reopen, removal of the original files, relocation, embedded native
 archive reopen and subsequent standard editing. Independent corpus checks cover exact inventory,
 unchanged image hashes and full XML preservation. Actual Tracker load/resave/fresh-reopen acceptance
-is required by the `packaged-images` mode and remains pending until CI reports it. Packaging UI,
+passed the `packaged-images` mode at `f8ea95f` in Linux job 128802309844 of
+[run 42503907010](https://github.com/mgradwohl/MoTrack/actions/runs/42503907010), with all six platform/coverage
+checks green. Later revisions still require their own CI and review. Missing or unreadable input diagnostics
+include the resolved source path while preserving an existing output. Packaging UI,
 paired native snapshot adoption, movies and arbitrary supporting-resource collection remain unfinished.
 
 Local Windows validation for this slice passes all six CTest suites, formatting, clang-tidy,
