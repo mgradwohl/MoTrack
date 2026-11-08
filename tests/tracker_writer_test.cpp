@@ -789,6 +789,89 @@ TEST(TrackerWriter, RejectsUnknownOrLossyModelDependenciesAndFunctionDefinitions
     }
 }
 
+TEST(TrackerWriter, RejectsTruncatedInitialStateAndMismatchedModelFunctionArraysAtomically)
+{
+    const auto original = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/model-dependencies.trk");
+    const auto unchanged = motrack::parseTrackerProject(original);
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    for (const int mutation : {0, 1, 2, 3, 4, 5, 6, 7})
+    {
+        SCOPED_TRACE(mutation);
+        auto xml = original;
+        if (mutation == 0)
+        {
+            const auto begin = xml.find(R"(<property name="[4]" type="object">)", xml.find(R"(name="initial_values")"));
+            ASSERT_NE(begin, std::string::npos);
+            const auto end = xml.find("</property>", xml.find("</object>", begin)) + std::string("</property>").size();
+            xml.erase(begin, end - begin);
+        }
+        else if (mutation == 1)
+        {
+            const std::string name = R"(name="name" type="string">vx</property>)";
+            xml.replace(xml.find(name), name.size(), R"(name="name" type="string">vz</property>)");
+        }
+        else if (mutation < 6)
+        {
+            const std::string values = R"(<property name="array" type="string">{1.0}</property>)";
+            const auto begin = xml.find(values, xml.find(R"(name="parameter_values")"));
+            ASSERT_NE(begin, std::string::npos);
+            const std::string replacement = mutation == 2   ? R"(<property name="array" type="string">{}</property>)"
+                                            : mutation == 3 ? R"(<property name="array" type="string">{1.0,2.0}</property>)"
+                                            : mutation == 4 ? R"(<property name="array" type="string">{NaN}</property>)"
+                                                            : R"(<property name="[1]" type="double">1.0</property>)";
+            xml.replace(begin, values.size(), replacement);
+        }
+        else
+        {
+            const auto field = xml.find(mutation == 6 ? R"(name="parameter_descriptions")" : R"(name="variables")");
+            const auto begin = xml.find('>', field) + 1;
+            if (mutation == 6)
+            {
+                const auto childEnd = xml.find("</property>", begin) + std::string("</property>").size();
+                xml.erase(begin, childEnd - begin);
+            }
+            else
+            {
+                const auto last = xml.find(R"(<property name="[4]")", begin);
+                ASSERT_NE(last, std::string::npos);
+                const auto childEnd = xml.find("</property>", last) + std::string("</property>").size();
+                xml.erase(begin, childEnd - begin);
+            }
+        }
+        auto imported = motrack::parseTrackerProject(xml);
+        imported.project.pointMasses[0].name = "renamed";
+        motrack::writeTrackerProject(destination, unchanged.project, unchanged.source);
+        EXPECT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
+        EXPECT_TRUE(readBytes(destination) == original);
+    }
+}
+
+TEST(TrackerWriter, ValidatesExpandedModelParameterValuesWithoutRewritingThem)
+{
+    const auto original = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/model-dependencies.trk");
+    const std::string packed = R"(<property name="array" type="string">{1.0}</property>)";
+    const auto begin = original.find(packed, original.find(R"(name="parameter_values")"));
+    ASSERT_NE(begin, std::string::npos);
+    for (const auto& value : {"1.0", "NaN", "1e999", "oops"})
+    {
+        auto xml = original;
+        const auto expanded = std::string(R"(<property name="[0]" type="double">)") + value + "</property>";
+        xml.replace(begin, packed.size(), expanded);
+        auto imported = motrack::parseTrackerProject(xml);
+        imported.project.pointMasses[0].name = "renamed";
+        if (std::string_view(value) == "1.0")
+        {
+            const auto output = motrack::renderTrackerProject(imported.project, imported.source);
+            EXPECT_NE(output.find(expanded), std::string::npos);
+        }
+        else
+        {
+            EXPECT_THROW((void)motrack::renderTrackerProject(imported.project, imported.source), motrack::ProjectError);
+        }
+    }
+}
+
 TEST(TrackerWriter, RejectsNonViewablePlotAndTableSelectionsBeforeReplacingDestination)
 {
     const auto original = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/plot-guests.trk");

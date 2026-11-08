@@ -6,6 +6,7 @@
 #include <QStringList>
 
 #include <algorithm>
+#include <cmath>
 #include <map>
 #include <set>
 
@@ -39,9 +40,55 @@ QDomElement property(const QDomElement& owner, const QString& name)
     return result;
 }
 
-// A reference index alone cannot establish rename eligibility. This first writer admits only the
-// audited media-free mass/vector/protractor/table/plot schema. Unknown fields/classes, models, functions, moving
-// frames and attachments remain preserved by native saving but cannot silently bypass this gate.
+std::size_t denseArraySize(const QDomElement& array)
+{
+    std::size_t count = 0;
+    for (auto cell = array.firstChildElement(); !cell.isNull(); cell = cell.nextSiblingElement())
+    {
+        require(cell.attribute("name") == "[" + QString::number(count) + "]");
+        ++count;
+    }
+    return count;
+}
+
+std::size_t modelNamesSize(const QDomElement& array)
+{
+    const auto count = denseArraySize(array);
+    std::set<QString> names;
+    for (auto cell = array.firstChildElement(); !cell.isNull(); cell = cell.nextSiblingElement())
+        require(!cell.text().isEmpty() && names.insert(cell.text()).second);
+    return count;
+}
+
+std::size_t modelValuesSize(const QDomElement& array)
+{
+    const auto first = array.firstChildElement();
+    if (first.attribute("name") == "array")
+    {
+        const auto text = first.text().trimmed();
+        require(text.size() <= 160000 && text.startsWith('{') && text.endsWith('}'));
+        const auto cells = text.mid(1, text.size() - 2).split(',');
+        require(cells.size() <= 10000);
+        for (const auto& cell : cells)
+        {
+            bool valid = false;
+            const auto value = cell.trimmed().toDouble(&valid);
+            require(valid && std::isfinite(value));
+        }
+        return static_cast<std::size_t>(cells.size());
+    }
+    const auto count = denseArraySize(array);
+    for (auto cell = first; !cell.isNull(); cell = cell.nextSiblingElement())
+    {
+        bool valid = false;
+        const auto value = cell.text().toDouble(&valid);
+        require(valid && std::isfinite(value));
+    }
+    return count;
+}
+
+// A reference index alone cannot establish rename eligibility. Admit only the audited media-free
+// schemas below. Other fields/classes remain preserved by native saving but cannot bypass this gate.
 using Fields = std::map<QString, QString>;
 Fields fields(const QString& name)
 {
@@ -244,11 +291,30 @@ struct RenameSchema
         if (actual == "org.opensourcephysics.tools.Parameter")
             require(seen.contains("name") && seen.contains("function"));
         if (actual == "org.opensourcephysics.tools.UserFunction")
+        {
             require(seen.contains("name") && seen.contains("expression") && seen.contains("variables") &&
                     seen.contains("parameter_names") && seen.contains("parameter_values"));
+            const auto count = modelNamesSize(property(value, "parameter_names"));
+            require(count == modelValuesSize(property(value, "parameter_values")));
+            if (seen.contains("parameter_descriptions"))
+                require(denseArraySize(property(value, "parameter_descriptions")) == count);
+            require(modelNamesSize(property(value, "variables")) > 0);
+        }
         if (actual == QString(TRACKER) + "DynamicParticle" || actual == QString(TRACKER) + "DynamicSystem")
         {
             require(seen.contains("user_parameters") && seen.contains("initial_values") && seen.contains("main_functions"));
+            const auto initial = property(value, "initial_values");
+            require(denseArraySize(initial) == 5);
+            const auto names =
+                actual == QString(TRACKER) + "DynamicParticle"
+                    ? QStringList{"t", "x", "y", "vx", "vy"}
+                    : QStringList{"t", "r_relative", QString::fromUtf8("θ_relative"), "vr_relative", QString::fromUtf8("ω_relative")};
+            auto cell = initial.firstChildElement();
+            for (const auto& name : names)
+            {
+                require(property(cell.firstChildElement(), "name").text() == name);
+                cell = cell.nextSiblingElement();
+            }
             if (actual == QString(TRACKER) + "DynamicParticle")
                 require(property(value, "in_system").text() == "true");
             else

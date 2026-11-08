@@ -304,7 +304,11 @@ marked target frames, cyclic dependencies and native persistent tool editing rem
 The model-booster-name case renames the measured mass A that supplies particle B's initial state.
 The source gate admits audited Cartesian DynamicParticle/DynamicSystem records, Parameter and
 UserFunction fields, with dense nonempty parameter/function arrays, unique names within each array,
-and two main force functions. Each particle is explicitly in a system, belongs to exactly one
+and two main force functions. Initial states require the five canonical ordered fields for the
+Cartesian particle or two-body system. Function parameter names and finite numerical values must
+have matching lengths; optional descriptions match that count and variables are nonempty/unique.
+Packed and expanded numerical arrays are checked without evaluating or rewriting expressions.
+Each particle is explicitly in a system, belongs to exactly one
 two-member system, and has a measured PointMass booster if present. Missing/ambiguous references,
 repeated/shared system members, orphan particles, unknown subclasses, support-function fields,
 malformed arrays and incomplete function records reject export before replacement.
