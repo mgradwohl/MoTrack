@@ -161,7 +161,8 @@ try
          args[1] == "--export-unselected-name" || args[1] == "--export-vector-name" || args[1] == "--export-plot-owner-name" ||
          args[1] == "--export-plot-guest-name" || args[1] == "--export-center-member-name" || args[1] == "--export-attachment-first-name" ||
          args[1] == "--export-attachment-last-name" || args[1] == "--export-model-booster-name" || args[1] == "--export-clip-timing" ||
-         args[1] == "--export-clip-timing-range" || args[1] == "--export-create-mass" || args[1] == "--export-create-empty-mass"))
+         args[1] == "--export-clip-timing-range" || args[1] == "--export-create-mass" || args[1] == "--export-create-empty-mass" ||
+         args[1] == "--export-create-vector" || args[1] == "--export-create-empty-vector"))
     {
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trk");
@@ -172,7 +173,25 @@ try
         }
         auto document = motrack::importTrackerDocument(source);
         motrack::TrackEdits edits;
-        if (args[1] == "--export-create-mass" || args[1] == "--export-create-empty-mass")
+        if (args[1] == "--export-create-vector" || args[1] == "--export-create-empty-vector")
+        {
+            const auto name = QString::fromUtf8("vecteur β & <C>").toStdString();
+            if (document.project.vectors.size() != 2 || !edits.createVector(document.project, "discarded") ||
+                !edits.undo(document.project) || !edits.createVector(document.project, name))
+                throw motrack::ProjectError("Could not create the round-trip vector.");
+            if (args[1] == "--export-create-vector")
+                for (const auto& sample :
+                     std::array<motrack::VectorSample, 3>{{{.frame = 1, .tailX = 100, .tailY = 120, .componentX = 4, .componentY = -8},
+                                                           {.frame = 6, .tailX = 200, .tailY = 180, .componentX = 0, .componentY = 0},
+                                                           {.frame = 8, .tailX = 160, .tailY = 100, .componentX = -6, .componentY = 12}}})
+                    if (!edits.markVector(document.project, 2, sample))
+                        throw motrack::ProjectError("Could not mark the new round-trip vector.");
+            if (!edits.undo(document.project) || !edits.redo(document.project) || !edits.removeVector(document.project, 2) ||
+                !edits.undo(document.project))
+                throw motrack::ProjectError("Could not restore the new round-trip vector.");
+            std::ranges::reverse(document.project.vectors);
+        }
+        else if (args[1] == "--export-create-mass" || args[1] == "--export-create-empty-mass")
         {
             const auto name = QString::fromUtf8("nouvelle β & <C>").toStdString();
             if (document.project.pointMasses.size() != 2 || !edits.createPointMass(document.project, "discarded") ||

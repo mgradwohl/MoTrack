@@ -803,6 +803,43 @@ void requireStableVectors(const LegacyProject& project, const std::unordered_map
     requireTrackerCoordinates(project, *project.calibration);
 }
 
+QDomElement appendNewTrack(QDomDocument& xml, QDomElement tracks, TrackKind kind, const std::string& name)
+{
+    // Native appearance is not yet persisted. Use explicit audited interchange defaults.
+    const bool vector = kind == TrackKind::Vector;
+    auto item = xml.createElement("property");
+    item.setAttribute("name", "item");
+    item.setAttribute("type", "object");
+    auto object = xml.createElement("object");
+    object.setAttribute("class",
+                        vector ? "org.opensourcephysics.cabrillo.tracker.Vector" : "org.opensourcephysics.cabrillo.tracker.PointMass");
+    patchScalar(xml, object, "name", "string", QString::fromStdString(name));
+    if (!vector)
+        patchDouble(xml, object, "mass", 1.0);
+    patchScalar(xml, object, "visible", "boolean", "true");
+    patchScalar(xml, object, "trail", "boolean", "true");
+    patchScalar(xml, object, "locked", "boolean", "false");
+    patchScalar(xml, object, "footprint", "string", vector ? "Footprint.BoldArrow" : "Footprint.Diamond");
+    auto colorProperty = xml.createElement("property");
+    colorProperty.setAttribute("name", "color");
+    colorProperty.setAttribute("type", "object");
+    auto color = xml.createElement("object");
+    color.setAttribute("class", "java.awt.Color");
+    for (const auto& [channel, value] :
+         std::array<std::pair<const char*, int>, 4>{{{"red", 255}, {"green", 0}, {"blue", vector ? 255 : 0}, {"alpha", 255}}})
+        patchScalar(xml, color, channel, "int", QString::number(value));
+    colorProperty.appendChild(xml.createTextNode("\n"));
+    colorProperty.appendChild(color);
+    colorProperty.appendChild(xml.createTextNode("\n"));
+    object.appendChild(colorProperty);
+    object.appendChild(xml.createTextNode("\n"));
+    item.appendChild(xml.createTextNode("\n"));
+    item.appendChild(object);
+    item.appendChild(xml.createTextNode("\n"));
+    tracks.appendChild(item);
+    return object;
+}
+
 void remapIds(LegacyProject& project, const std::unordered_map<TrackId, TrackId>& mapping, TrackId nextId)
 {
     for (auto& track : project.pointMasses)
@@ -842,9 +879,9 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
     remapIds(baseline.project, mapping, project.nextTrackId);
     auto expected = project;
     sortTracks(expected);
-    require(expected.vectors.size() == baseline.project.vectors.size());
     // Both lists are sorted: linear inclusion keeps original identities without a scan per track.
     require(std::ranges::includes(expected.pointMasses, baseline.project.pointMasses, {}, &PointMass::id, &PointMass::id));
+    require(std::ranges::includes(expected.vectors, baseline.project.vectors, {}, &VectorTrack::id, &VectorTrack::id));
 
     QDomDocument xml;
     require(static_cast<bool>(xml.setContent(QByteArray::fromStdString(source.xml), QDomDocument::ParseOption::PreserveSpacingOnlyNodes)));
@@ -861,7 +898,7 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
     bool changed = false;
     bool auditFinalSchema = false;
     bool massCoordinatesChecked = false;
-    if (expected.pointMasses.size() != baseline.project.pointMasses.size())
+    if (expected.pointMasses.size() != baseline.project.pointMasses.size() || expected.vectors.size() != baseline.project.vectors.size())
     {
         validateTrackerTrackCreation(xml, expected, source);
         auditFinalSchema = true;
@@ -896,37 +933,22 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
                 createdFrameSlots += static_cast<std::size_t>(last) + 1;
                 require(createdFrameSlots <= 1000000);
             }
-            auto item = xml.createElement("property");
-            item.setAttribute("name", "item");
-            item.setAttribute("type", "object");
-            auto object = xml.createElement("object");
-            object.setAttribute("class", "org.opensourcephysics.cabrillo.tracker.PointMass");
-            patchScalar(xml, object, "name", "string", QString::fromStdString(current.name));
-            patchDouble(xml, object, "mass", 1.0);
-            patchScalar(xml, object, "visible", "boolean", "true");
-            patchScalar(xml, object, "trail", "boolean", "true");
-            patchScalar(xml, object, "locked", "boolean", "false");
-            patchScalar(xml, object, "footprint", "string", "Footprint.Diamond");
-            auto colorProperty = xml.createElement("property");
-            colorProperty.setAttribute("name", "color");
-            colorProperty.setAttribute("type", "object");
-            auto color = xml.createElement("object");
-            color.setAttribute("class", "java.awt.Color");
-            for (const auto& [channel, value] :
-                 std::array<std::pair<const char*, int>, 4>{{{"red", 255}, {"green", 0}, {"blue", 0}, {"alpha", 255}}})
-                patchScalar(xml, color, channel, "int", QString::number(value));
-            colorProperty.appendChild(xml.createTextNode("\n"));
-            colorProperty.appendChild(color);
-            colorProperty.appendChild(xml.createTextNode("\n"));
-            object.appendChild(colorProperty);
-            object.appendChild(xml.createTextNode("\n"));
-            item.appendChild(xml.createTextNode("\n"));
-            item.appendChild(object);
-            item.appendChild(xml.createTextNode("\n"));
-            tracks.appendChild(item);
+            const auto object = appendNewTrack(xml, tracks, TrackKind::PointMass, current.name);
             objects.emplace(current.id, object);
             mapping.emplace(nextParsedId++, current.id);
             baseline.project.pointMasses.push_back({.name = current.name, .marks = {}, .id = current.id});
+        }
+        for (const auto& current : expected.vectors)
+        {
+            if (objects.contains(current.id))
+                continue;
+            require(expected.pointMasses.empty() &&
+                    std::ranges::all_of(expected.unsupportedTrackTypes,
+                                        [](const auto& type) { return type == "org.opensourcephysics.cabrillo.tracker.CoordAxes"; }));
+            const auto object = appendNewTrack(xml, tracks, TrackKind::Vector, current.name);
+            objects.emplace(current.id, object);
+            mapping.emplace(nextParsedId++, current.id);
+            baseline.project.vectors.push_back({.name = current.name, .samples = {}, .id = current.id});
         }
         for (auto item = tracks.firstChildElement(); !item.isNull(); item = item.nextSiblingElement())
             tracks.insertBefore(xml.createTextNode("\n"), item);

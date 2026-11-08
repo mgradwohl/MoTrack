@@ -296,6 +296,9 @@ def validate_session(case, report, manifest, expected=None, key_frames=None, cal
     if "session_created_mass_appearance" in case:
         compare(case["session_created_mass_appearance"], before["tracks"][-1].get("appearance"),
                 tolerance, case["id"] + ".created_mass_appearance")
+    if "session_created_vector_appearance" in case:
+        compare(case["session_created_vector_appearance"], before["tracks"][-1].get("appearance"),
+                tolerance, case["id"] + ".created_vector_appearance")
     for key in ["clip", "coordinate_samples"]:
         compare(expected[key], before[key], tolerance, case["id"] + "." + key)
     masses = []
@@ -310,6 +313,10 @@ def validate_session(case, report, manifest, expected=None, key_frames=None, cal
     vectors = [{"name": track["name"], "samples": track["vector_samples"]} for track in before["tracks"]
                if track["class"] == "org.opensourcephysics.cabrillo.tracker.Vector"]
     compare(expected["vectors"], vectors, tolerance, case["id"] + ".vectors")
+    if "session_vector_data" in case:
+        calibrated = [{"name": track["name"], "samples": track.get("calibrated_vector_samples")}
+                      for track in before["tracks"] if track["class"] == "org.opensourcephysics.cabrillo.tracker.Vector"]
+        compare(case["session_vector_data"], calibrated, tolerance, case["id"] + ".calibrated_vectors")
     if key_frames is not None:
         actual = [track["key_frames"] for track in before["tracks"]
                   if track["class"] == "org.opensourcephysics.cabrillo.tracker.PointMass"]
@@ -566,6 +573,67 @@ def verify_create_mass_export_xml(original, exported, empty=False):
         document.unlink()
     if not matches:
         raise ValueError("Standard export changed content beyond the requested new point mass")
+
+
+CREATED_VECTOR_NAME = "vecteur β & <C>"
+CREATED_VECTOR_APPEARANCE = {"visible": True, "trail": True, "locked": False, "footprint": "Footprint.BoldArrow", "argb": -65281}
+
+
+def create_vector_roundtrip_expected(case, empty=False):
+    if case["id"] != "independent-vectors":
+        raise ValueError("The created-vector oracle requires the pinned independent-vector case")
+    expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
+    expected["vectors"].append({"name": CREATED_VECTOR_NAME, "samples": [] if empty else [
+        {"frame": 1, "tail": [100.0, 120.0], "components": [4.0, -8.0]},
+        {"frame": 6, "tail": [200.0, 180.0], "components": [0.0, 0.0]},
+        {"frame": 8, "tail": [160.0, 100.0], "components": [-6.0, 12.0]}]})
+    case = copy.deepcopy(case)
+    case["session_tracks"].append({"class": "org.opensourcephysics.cabrillo.tracker.Vector", "name": CREATED_VECTOR_NAME})
+    case["session_created_vector_appearance"] = copy.deepcopy(CREATED_VECTOR_APPEARANCE)
+    # Independent arithmetic for the pinned angle=0, scaleX=2, scaleY=4, image-y-down calibration.
+    # Include old tracks too: identical incorrect values at load/save/reopen must still fail.
+    case["session_vector_data"] = [
+        {"name": "vector A", "samples": [
+            {"frame": 0, "components": [1.5, 1.0], "magnitude": math.sqrt(3.25)},
+            {"frame": 5, "components": [-2.5, -3.0], "magnitude": math.sqrt(15.25)}]},
+        {"name": "vector B", "samples": [{"frame": 2, "components": [0.0, 0.0], "magnitude": 0.0}]},
+        {"name": CREATED_VECTOR_NAME, "samples": [] if empty else [
+            {"frame": 1, "components": [2.0, 2.0], "magnitude": math.sqrt(8.0)},
+            {"frame": 6, "components": [0.0, 0.0], "magnitude": 0.0},
+            {"frame": 8, "components": [-3.0, -3.0], "magnitude": math.sqrt(18.0)}]}]
+    return expected, case
+
+
+def verify_create_vector_export_xml(original, exported, empty=False):
+    expected = minidom.parse(str(original))
+    tracks = [node for node in expected.documentElement.childNodes if node.nodeType == node.ELEMENT_NODE
+              and node.tagName == "property" and node.getAttribute("name") == "tracks"]
+    if len(tracks) != 1:
+        raise ValueError("Expected one original vector collection")
+    framedata = ""
+    if not empty:
+        framedata = ('<property name="framedata" type="array" class="[Lorg.opensourcephysics.cabrillo.tracker.Vector$FrameData;">'
+                     + "".join(f'<property name="[{frame}]" type="object"><object class="org.opensourcephysics.cabrillo.tracker.Vector$FrameData">'
+                               f'<property name="xtail" type="double">{x}</property><property name="ytail" type="double">{y}</property>'
+                               f'<property name="xcomponent" type="double">{cx}</property><property name="ycomponent" type="double">{cy}</property>'
+                               '</object></property>' for frame, x, y, cx, cy in [(1, 100, 120, 4, -8), (6, 200, 180, 0, 0), (8, 160, 100, -6, 12)])
+                     + '</property>')
+    added = minidom.parseString(
+        '<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.Vector">'
+        '<property name="name" type="string"><![CDATA[vecteur β & <C>]]></property>'
+        '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
+        '<property name="locked" type="boolean">false</property><property name="footprint" type="string"><![CDATA[Footprint.BoldArrow]]></property>'
+        '<property name="color" type="object"><object class="java.awt.Color">'
+        '<property name="red" type="int">255</property><property name="green" type="int">0</property>'
+        '<property name="blue" type="int">255</property><property name="alpha" type="int">255</property></object></property>'
+        + framedata + '</object></property>')
+    tracks[0].appendChild(expected.importNode(added.documentElement, True))
+    actual = minidom.parse(str(exported))
+    matches = canonical_tracker_xml(expected) == canonical_tracker_xml(actual)
+    for document in [expected, actual, added]:
+        document.unlink()
+    if not matches:
+        raise ValueError("Standard export changed content beyond the requested new vector")
 
 
 def mark_roundtrip_expected(case, mode="marks"):
@@ -1197,6 +1265,7 @@ def check_sessions(manifest, cache, java, probe=None):
              ("mass-unit", "native_mass_unit_roundtrip"), ("time-unit", "native_time_unit_roundtrip"),
              ("clip-timing", "native_clip_timing_roundtrip"), ("clip-timing-range", "native_clip_timing_roundtrip"),
              ("create-mass", "native_create_mass_roundtrip"), ("create-empty-mass", "native_create_mass_roundtrip"),
+             ("create-vector", "native_create_vector_roundtrip"), ("create-empty-vector", "native_create_vector_roundtrip"),
              ("name", "native_name_roundtrip"), ("unselected-name", "native_name_roundtrip"),
              ("vector-name", "native_vector_name_roundtrip"),
              ("plot-owner-name", "native_plot_name_roundtrip"), ("plot-guest-name", "native_plot_name_roundtrip"),
@@ -1280,6 +1349,10 @@ def check_sessions(manifest, cache, java, probe=None):
                     empty = mode == "create-empty-mass"
                     verify_create_mass_export_xml(project, exported, empty)
                     expected, case = create_mass_roundtrip_expected(case, empty)
+                elif mode in {"create-vector", "create-empty-vector"}:
+                    empty = mode == "create-empty-vector"
+                    verify_create_vector_export_xml(project, exported, empty)
+                    expected, case = create_vector_roundtrip_expected(case, empty)
                 elif mode in {"name", "unselected-name", "vector-name", "plot-owner-name", "plot-guest-name", "center-member-name",
                               "attachment-first-name", "attachment-last-name", "model-booster-name"}:
                     verify_rename_export_xml(project, exported, mode)

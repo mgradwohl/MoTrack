@@ -700,3 +700,33 @@ The historical [Tracker #10 save/load report](https://github.com/OpenSourcePhysi
 and its discussion were refreshed. [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65) remains
 open: these media-free creation cases do not reproduce or resolve the reported MOV/open-entry-point
 failure, media relocation, or all saved table behavior.
+
+## Creating independent vectors
+
+The `create-vector` and `create-empty-vector` modes append `vecteur β & <C>` to the pinned independent
+vector fixture. The marked case uses original frames 1/6/8, tails (100,120)/(200,180)/(160,100), and
+image components (4,-8)/(0,0)/(-6,12). The original nonuniform calibration, two vectors and null frame
+extent remain unchanged. The new vector is visible, has trails, is unlocked and uses magenta BoldArrow.
+There is no mass or point-mass key list. Pinned Vector.Loader bytecode confirms that a missing frame
+array represents an empty vector; the existing endpoint/snapping checks remain mandatory.
+
+The probe covers allocation gaps, creation/undo/redo, sample edits, remove/undo, reordered lists,
+native save/reopen after source-copy removal and repeated export. Native regression coverage also
+includes creation after standard reimport with a vector at original frame 10000, retaining generic
+schema and dense-allocation limits. Whole-source comparison permits
+only the appended object. Independent application expectations check exact names, tails, components,
+appearance and original data through save/fresh-process reopen; native reimport checks both files.
+The Java snapshot also reads the live Vector analysis datasets (`x`, `y`, `mag`, original `frame`),
+whose column layout was checked against the pinned JAR. Independent expectations for scale (2,4)
+and zero angle require new calibrated components (2,2)/(0,0)/(-3,-3), with magnitudes sqrt(8)/0/sqrt(18).
+Both original vectors have separate numerical expectations too. These values are not inferred from
+exported XML or from Java's resave. A regression first reproduced the old oracle accepting the same
+wrong calibrated values at all three stages; the strengthened check rejects them.
+Another regression reproduced 1000 newly appended empty vectors exceeding the schema-entry budget
+after export. The shared final schema audit now refuses before replacing the destination; a smaller
+batch can still be reimported, renamed and extended. Appended metadata and patched samples both count.
+Negative tests reject consistent wrong geometry/appearance/calibrated data and changes to original content. Native
+tests cover collisions, dangling links, vector sums, source deletion, mixed provider types, origin/tip
+snapping across frames, endpoint precision loss and bounded dense allocation. These cases extend
+R03/R07 without accepting dependent vectors or the known VectorSum resave defect (#63). Current-head
+Linux application acceptance and all-platform CI remain required before merging.

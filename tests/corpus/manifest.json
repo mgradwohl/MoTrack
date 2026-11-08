@@ -126,6 +126,7 @@
     },
     {
       "id": "independent-vectors",
+      "native_create_vector_roundtrip": true,
       "native_vector_name_roundtrip": true,
       "native_vector_roundtrip": true,
       "native_clip_roundtrip": true,

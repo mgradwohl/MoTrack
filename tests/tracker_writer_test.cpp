@@ -297,7 +297,7 @@ TEST(TrackerWriter, RejectsUnsafeCreatedTrackNamesReferencesAndSourceSchemasAtom
     }
 }
 
-TEST(TrackerWriter, CreationDoesNotAuthorizeDeletionNewVectorsOrInvalidMarks)
+TEST(TrackerWriter, CreationDoesNotAuthorizeDeletionOrInvalidMarks)
 {
     const auto imported = motrack::parseTrackerProject(namedSource());
     for (const auto& mutate :
@@ -306,10 +306,9 @@ TEST(TrackerWriter, CreationDoesNotAuthorizeDeletionNewVectorsOrInvalidMarks)
              [](auto& project) { project.pointMasses.back().marks = {{.frame = 500001, .x = 1, .y = 2}}; },
              [](auto& project) { project.pointMasses.back().marks = {{.frame = 1, .x = std::numeric_limits<double>::infinity(), .y = 2}}; },
              [](auto& project) { project.pointMasses.back().mass = 0; },
-             [](auto& project) { project.clip.mediaReferences.push_back("movie.mp4"); },
              [](auto& project)
              {
-                 project.vectors.push_back({.name = "new vector", .samples = {}, .id = project.nextTrackId++});
+                 project.clip.mediaReferences.push_back("movie.mp4");
              }})
     {
         auto project = imported.project;
@@ -1567,6 +1566,161 @@ TEST(TrackerWriter, ExportsBoundVectorEditsAfterNativeReopenAndUndoRedo)
     EXPECT_EQ(motrack::parseLegacyProject(saved).vectors, expected);
     EXPECT_NE(saved.find("<!-- retained -->  keep  "), std::string::npos);
     EXPECT_EQ(document.trackerSource->xml, imported.source.xml);
+}
+
+TEST(TrackerWriter, CreatesEmptyAndMarkedVectorsAfterNativeReopenWithoutDuplicatingOrRebindingTracks)
+{
+    const auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk");
+    const auto imported = motrack::parseTrackerProject(xml);
+    for (const bool empty : {false, true})
+    {
+        motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.createVector(document.project, "discarded"));
+        ASSERT_TRUE(edits.undo(document.project));
+        const auto name = QString::fromUtf8("vecteur β & <C>").toStdString();
+        ASSERT_TRUE(edits.createVector(document.project, name));
+        if (!empty)
+        {
+            ASSERT_TRUE(edits.markVector(document.project, 2, {.frame = 1, .tailX = 100, .tailY = 120, .componentX = 4, .componentY = -8}));
+            ASSERT_TRUE(edits.markVector(document.project, 2, {.frame = 6, .tailX = 200, .tailY = 180, .componentX = 0, .componentY = 0}));
+            ASSERT_TRUE(
+                edits.markVector(document.project, 2, {.frame = 8, .tailX = 160, .tailY = 100, .componentX = -6, .componentY = 12}));
+        }
+        ASSERT_TRUE(edits.undo(document.project));
+        ASSERT_TRUE(edits.redo(document.project));
+        ASSERT_TRUE(edits.removeVector(document.project, 2));
+        ASSERT_TRUE(edits.undo(document.project));
+        const auto created = document.project.vectors.back();
+        std::ranges::reverse(document.project.vectors);
+        QTemporaryDir temporary;
+        const auto native = temporary.filePath("creation.motrack");
+        motrack::writeWorkspaceDocument(native, document);
+        document = motrack::readWorkspaceDocument(native);
+        if (!document.trackerSource)
+        {
+            FAIL() << "Native reopen lost the vector source.";
+        }
+        const auto bytes = motrack::renderTrackerProject(document.project, *document.trackerSource);
+        EXPECT_EQ(bytes, motrack::renderTrackerProject(document.project, *document.trackerSource));
+        EXPECT_EQ(document.trackerSource->xml, xml);
+        const auto output = motrack::parseTrackerProject(bytes);
+        ASSERT_EQ(output.project.vectors.size(), 3);
+        EXPECT_EQ(output.project.vectors[0], imported.project.vectors[0]);
+        EXPECT_EQ(output.project.vectors[1], imported.project.vectors[1]);
+        EXPECT_EQ(output.project.vectors.back().name, name);
+        EXPECT_EQ(output.project.vectors.back().samples, created.samples);
+        EXPECT_EQ(motrack::renderTrackerProject(output.project, output.source), bytes);
+        EXPECT_EQ(bytes.find("keyFrames"), std::string::npos);
+    }
+}
+
+TEST(TrackerWriter, CreatesAnotherVectorAfterStandardReimportWithHighOriginalFrames)
+{
+    auto imported =
+        motrack::parseTrackerProject(readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk"));
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.createVector(imported.project, "high frame"));
+    ASSERT_TRUE(edits.markVector(imported.project, 2, {.frame = 10000, .tailX = 100, .tailY = 120, .componentX = 4, .componentY = -8}));
+    imported = motrack::parseTrackerProject(motrack::renderTrackerProject(imported.project, imported.source));
+    motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+    QTemporaryDir temporary;
+    const auto native = temporary.filePath("high-frame.motrack");
+    motrack::writeWorkspaceDocument(native, document);
+    document = motrack::readWorkspaceDocument(native);
+    if (!document.trackerSource)
+    {
+        FAIL() << "Native reopen lost the reimported vector source.";
+    }
+    edits.clear();
+    ASSERT_TRUE(edits.createVector(document.project, "next vector"));
+    const auto result = motrack::parseTrackerProject(motrack::renderTrackerProject(document.project, *document.trackerSource));
+    ASSERT_EQ(result.project.vectors.size(), 4);
+    EXPECT_EQ(result.project.vectors[2].samples, imported.project.vectors[2].samples);
+    EXPECT_EQ(result.project.vectors[3].name, "next vector");
+    EXPECT_EQ(motrack::renderTrackerProject(result.project, result.source), result.source.xml);
+}
+
+TEST(TrackerWriter, CreatedVectorMetadataMustFitTheFinalSchemaBudget)
+{
+    const auto imported =
+        motrack::parseTrackerProject(readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk"));
+    auto project = imported.project;
+    motrack::TrackEdits edits;
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    motrack::writeTrackerProject(destination, imported.project, imported.source);
+    for (int index = 0; index < 1000; ++index)
+        ASSERT_TRUE(edits.createVector(project, "new " + std::to_string(index)));
+    EXPECT_THROW(motrack::writeTrackerProject(destination, project, imported.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), imported.source.xml);
+    project.vectors.resize(502);
+    motrack::writeTrackerProject(destination, project, imported.source);
+    auto reopened = motrack::parseTrackerProject(readBytes(destination));
+    edits.clear();
+    ASSERT_TRUE(edits.createVector(reopened.project, "another vector"));
+    ASSERT_TRUE(edits.renameVector(reopened.project, 0, "renamed"));
+    EXPECT_NO_THROW(motrack::writeTrackerProject(destination, reopened.project, reopened.source));
+}
+
+TEST(TrackerWriter, CreatedVectorsRetainSnappingPrecisionAndAllocationGuardsAtomically)
+{
+    const auto imported =
+        motrack::parseTrackerProject(readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk"));
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    motrack::writeTrackerProject(destination, imported.project, imported.source);
+    for (const auto& sample : std::vector<motrack::VectorSample>{
+             {.frame = 1, .tailX = 321, .tailY = 240, .componentX = 4, .componentY = 2},
+             {.frame = 1, .tailX = 13, .tailY = 17, .componentX = 4, .componentY = 2},
+             {.frame = 1, .tailX = 1e16, .tailY = 100, .componentX = 1, .componentY = 2},
+             {.frame = 1, .tailX = 100, .tailY = 100, .componentX = std::numeric_limits<double>::infinity(), .componentY = 2},
+             {.frame = 500000, .tailX = 100, .tailY = 100, .componentX = 4, .componentY = 2},
+             {.frame = 500001, .tailX = 100, .tailY = 100, .componentX = 4, .componentY = 2}})
+    {
+        auto project = imported.project;
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.createVector(project, "new vector"));
+        project.vectors.back().samples = {sample};
+        EXPECT_THROW(motrack::writeTrackerProject(destination, project, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(destination), imported.source.xml);
+    }
+    auto project = imported.project;
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.createVector(project, "new vector"));
+    ASSERT_TRUE(edits.markVector(project, 2, {.frame = 1, .tailX = 100, .tailY = 120, .componentX = 4, .componentY = -8}));
+    ASSERT_TRUE(edits.markVector(project, 2, {.frame = 6, .tailX = 104, .tailY = 112, .componentX = 2, .componentY = 3}));
+    EXPECT_THROW(motrack::writeTrackerProject(destination, project, imported.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), imported.source.xml);
+    ASSERT_TRUE(edits.removeVector(project, 0));
+    EXPECT_THROW(motrack::writeTrackerProject(destination, project, imported.source), motrack::ProjectError);
+}
+
+TEST(TrackerWriter, CreatedVectorNamesAndUnknownDependenciesRemainAudited)
+{
+    auto mixed = motrack::parseTrackerProject(namedSource());
+    motrack::TrackEdits mixedEdits;
+    ASSERT_TRUE(mixedEdits.createVector(mixed.project, "new vector"));
+    EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(mixed.project, mixed.source)), motrack::ProjectError);
+    const auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk");
+    for (const auto& name : {"vector A", "axes", "new,vector", "null"})
+    {
+        auto imported = motrack::parseTrackerProject(xml);
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.createVector(imported.project, "temporary"));
+        imported.project.vectors.back().name = name;
+        EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(imported.project, imported.source)), motrack::ProjectError);
+    }
+    auto dangling = xml;
+    dangling.insert(dangling.rfind("</object>"), "<property name='selectedtrack' type='string'>new vector</property>\n");
+    auto imported = motrack::parseTrackerProject(dangling);
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.createVector(imported.project, "new vector"));
+    EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(imported.project, imported.source)), motrack::ProjectError);
+    auto sum = motrack::parseTrackerProject(readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/vector-sum.trk"));
+    edits.clear();
+    ASSERT_TRUE(edits.createVector(sum.project, "new vector"));
+    EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(sum.project, sum.source)), motrack::ProjectError);
 }
 
 TEST(TrackerWriter, ExportsEmptyVectorsAndTheirFirstNewSample)
