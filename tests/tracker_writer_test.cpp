@@ -59,6 +59,126 @@ motrack::TrackerSource& retainedSource(motrack::WorkspaceDocument& document)
     return *document.trackerSource;
 }
 
+motrack::WorkspaceDocument indexedMovieDocument(const QString& source)
+{
+    auto document = motrack::importTrackerDocument(source);
+    document.movie = true;
+    document.alignMovieToClip = true;
+    document.movieFrameTimes = {0.0, 0.125, 0.25, 0.375};
+    document.project.clip.sourceFrameCount = 4;
+    return document;
+}
+
+TEST(TrackerWriter, SavesLinkedMovieEditsAfterNativeReopenSourceRemovalAndRelocation)
+{
+    QTemporaryDir temporary;
+    const auto fixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-movie/";
+    const auto original = temporary.filePath("source");
+    const auto media = temporary.filePath(QString::fromUtf8("média & frames"));
+    const auto outputDirectory = temporary.filePath("exports/deep");
+    ASSERT_TRUE(QDir().mkpath(original));
+    ASSERT_TRUE(QDir().mkpath(media));
+    ASSERT_TRUE(QDir().mkpath(outputDirectory));
+    const auto input = original + "/input.trk";
+    const auto movie = media + "/constant-rate.avi";
+    ASSERT_TRUE(QFile::copy(fixture + "linked-movie.trk", input));
+    ASSERT_TRUE(QFile::copy(fixture + "constant-rate.avi", movie));
+    auto document = indexedMovieDocument(input);
+    document.project.clip.mediaReferences = {QDir(original).relativeFilePath(movie).toStdString()};
+    motrack::retainWorkspaceMediaLocations(document, input);
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.setPointMassValue(document.project, 0, 5.0));
+    ASSERT_TRUE(edits.markPointMass(document.project, 0, {.frame = 1, .x = 8.0, .y = 12.0}));
+    const auto edited = document.project;
+    ASSERT_TRUE(edits.undo(document.project));
+    ASSERT_TRUE(edits.redo(document.project));
+    EXPECT_EQ(document.project, edited);
+    const auto native = temporary.filePath("saved.motrack");
+    motrack::rebaseWorkspaceMedia(document, input, native);
+    motrack::writeWorkspaceDocument(native, document);
+    document = {};
+    ASSERT_TRUE(QFile::remove(input));
+    ASSERT_TRUE(QDir().rmdir(original));
+    document = motrack::readWorkspaceDocument(native);
+    const auto snapshot = document.project;
+    const auto sourceBytes = retainedSource(document).xml;
+    const auto output = outputDirectory + "/saved.trk";
+    motrack::writeTrackerDocument(output, document, native);
+    EXPECT_EQ(document.project, snapshot);
+    EXPECT_EQ(retainedSource(document).xml, sourceBytes);
+    auto expected = snapshot;
+    expected.clip.sourceFrameCount.reset();
+    expected.clip.mediaReferences = {QDir(outputDirectory).relativeFilePath(movie).toStdString()};
+    const auto bytes = readBytes(output);
+    EXPECT_EQ(motrack::parseLegacyProject(bytes), expected);
+    EXPECT_EQ(readBytes(movie), readBytes(fixture + "constant-rate.avi"));
+    motrack::writeTrackerDocument(output, document, native);
+    EXPECT_EQ(readBytes(output), bytes);
+    auto reopened = indexedMovieDocument(output);
+    ASSERT_TRUE(edits.setPointMassValue(reopened.project, 0, 3.0));
+    motrack::writeTrackerDocument(output, reopened, output);
+    EXPECT_DOUBLE_EQ(motrack::parseLegacyProject(readBytes(output)).pointMasses.front().mass, 3.0);
+    const auto stable = readBytes(output);
+    ASSERT_TRUE(QFile::remove(movie));
+    EXPECT_THROW(motrack::writeTrackerDocument(output, reopened, output), motrack::ProjectError);
+    EXPECT_EQ(readBytes(output), stable);
+    ASSERT_TRUE(QFile::copy(fixture + "constant-rate.avi", movie));
+    EXPECT_NO_THROW(motrack::writeTrackerDocument(output, reopened, output));
+}
+
+TEST(TrackerWriter, RejectsUnsupportedMovieStateBeforeReplacingExistingOutput)
+{
+    QTemporaryDir temporary;
+    const auto source = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-movie/linked-movie.trk";
+    const auto original = indexedMovieDocument(source);
+    const auto output = temporary.filePath("existing.trk");
+    {
+        QFile file(output);
+        ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+        ASSERT_EQ(file.write("existing"), 8);
+    }
+    const std::vector<std::function<void(motrack::WorkspaceDocument&)>> mutations{
+        [](auto& doc) { doc.movie = false; },
+        [](auto& doc) { doc.alignMovieToClip = false; },
+        [](auto& doc) { doc.useDisplayOrientation = true; },
+        [](auto& doc) { doc.movieFrameTimes.clear(); },
+        [](auto& doc) { doc.movieFrameTimes[2] = 0.26; },
+        [](auto& doc) { doc.movieFrameTimes[0] = std::numeric_limits<double>::quiet_NaN(); },
+        [](auto& doc) { doc.movieFrameTimes.pop_back(); },
+        [](auto& doc) { doc.project.clip.sourceFrameCount = 3; },
+        [](auto& doc) { doc.project.clip.startTimeMs = 0.0; },
+        [](auto& doc) { doc.project.clip.frameDurationMs = 125.0; },
+        [](auto& doc) { doc.project.clip.stepCount = 3; },
+        [](auto& doc) { doc.project.pointMasses.front().name = "renamed"; },
+        [](auto& doc) { doc.project.pointMasses.front().marks.front().frame = 4; },
+        [](auto& doc) { doc.project.pointMasses.clear(); },
+        [](auto& doc) { doc.project.lengthUnit = "cm"; },
+        [](auto& doc) { doc.project.clip.mediaReferences.front() = "missing.avi"; },
+        [](auto& doc)
+        {
+            auto& xml = retainedSource(doc).xml;
+            const std::string token = "org.opensourcephysics.media.xuggle.XuggleVideo";
+            const auto at = xml.find(token);
+            ASSERT_NE(at, std::string::npos);
+            xml.replace(at, token.size(), "org.opensourcephysics.media.core.ImageVideo");
+        },
+        [](auto& doc)
+        {
+            auto& xml = retainedSource(doc).xml;
+            const auto at = xml.find("<property name=\"path\"");
+            ASSERT_NE(at, std::string::npos);
+            xml.insert(at, "<property name=\"filters\" type=\"collection\" class=\"java.util.ArrayList\"/>\n");
+        }};
+    for (std::size_t index = 0; index < mutations.size(); ++index)
+    {
+        SCOPED_TRACE(index);
+        auto document = original;
+        ASSERT_NO_FATAL_FAILURE(mutations[index](document));
+        EXPECT_THROW(motrack::writeTrackerDocument(output, document, source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), "existing");
+    }
+}
+
 TEST(TrackerWriter, SavesLinkedImagesAfterNativeReopenSourceRemovalAndRelocation)
 {
     QTemporaryDir temporary;

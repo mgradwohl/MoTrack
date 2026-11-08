@@ -91,7 +91,7 @@ std::size_t modelValuesSize(const QDomElement& array)
 // A reference index alone cannot establish rename eligibility. Admit only the audited
 // schemas below. Other fields/classes remain preserved by native saving but cannot bypass this gate.
 using Fields = std::map<QString, QString>;
-Fields fields(const QString& name)
+Fields fields(const QString& name, bool movie)
 {
     if (name == QString(TRACKER) + "TrackerPanel")
     {
@@ -111,7 +111,7 @@ Fields fields(const QString& name)
                 {"units_visible", "boolean"},
                 {"radians", "boolean"},
                 {"videoclip", "object:" + QString(MEDIA) + "VideoClip"},
-                {"clipcontrol", "object:" + QString(MEDIA) + "StepperClipControl"},
+                {"clipcontrol", "object:" + QString(MEDIA) + (movie ? "VideoClipControl" : "StepperClipControl")},
                 {"coords", "object:" + QString(MEDIA) + "ImageCoordSystem"},
                 {"tracks", "collection:java.util.ArrayList"},
                 {"selectedtrack", "string"},
@@ -217,7 +217,7 @@ Fields fields(const QString& name)
                 {"stepcount", "int"},
                 {"starttime", "double"},
                 {"readout", "string"},
-                {"video", "object:" + QString(MEDIA) + "ImageVideo"},
+                {"video", movie ? "object:org.opensourcephysics.media.xuggle.XuggleVideo" : "object:" + QString(MEDIA) + "ImageVideo"},
                 {"video_framecount", "int"},
                 {"playallsteps", "boolean"}};
     }
@@ -225,7 +225,9 @@ Fields fields(const QString& name)
     {
         return {{"paths", "array:[Ljava.lang.String;"}, {"path", "string"}, {"delta_t", "double"}};
     }
-    if (name == QString(MEDIA) + "StepperClipControl")
+    if (movie && name == "org.opensourcephysics.media.xuggle.XuggleVideo")
+        return {{"path", "string"}};
+    if (name == QString(MEDIA) + "StepperClipControl" || (movie && name == QString(MEDIA) + "VideoClipControl"))
     {
         return {{"rate", "double"}, {"delta_t", "double"}, {"frame", "int"}};
     }
@@ -280,6 +282,7 @@ Fields fields(const QString& name)
 struct RenameSchema
 {
     unsigned entries = 0;
+    bool movie = false;
 
     void object(const QDomElement& value, const QString& expected, unsigned depth = 0)
     {
@@ -288,7 +291,7 @@ struct RenameSchema
         const auto actual = value.attribute("class");
         require(actual == expected || (expected == QString(TRACKER) + "TView" &&
                                        (actual == QString(TRACKER) + "TableTView" || actual == QString(TRACKER) + "PlotTView")));
-        const auto allowed = fields(actual);
+        const auto allowed = fields(actual, movie);
         std::set<QString> seen;
         for (auto child = value.firstChildElement(); !child.isNull(); child = child.nextSiblingElement())
         {
@@ -548,6 +551,11 @@ void requireName(const std::string& name)
 void validateTrackerEditSchema(const QDomDocument& xml)
 {
     RenameSchema{}.object(xml.documentElement(), QString(TRACKER) + "TrackerPanel");
+}
+
+void validateTrackerMovieEditSchema(const QDomDocument& xml)
+{
+    RenameSchema{.movie = true}.object(xml.documentElement(), QString(TRACKER) + "TrackerPanel");
 }
 
 void validateTrackerTrackMembership(const QDomDocument& xml, const LegacyProject& project, const TrackerSource& source)

@@ -18,7 +18,9 @@ struct WorkspaceDocument;
 void writeTrackerProject(const QString& path, const LegacyProject& project, const TrackerSource& source);
 /// Atomically export a standalone document. mediaProjectPath is the absolute current project file path;
 /// local image references use its physical parent directory, resolving existing filesystem aliases before rebasing.
-/// The source/native snapshot remains unchanged. Movies, archives, filters and media timing/range edits are refused.
+/// The source/native snapshot remains unchanged. Audited constant-rate linked movies permit existing mass/mark edits
+/// after native timestamp indexing; their original timing, calibration and other fields stay unchanged.
+/// Archives, filters, movie rename/membership edits and media timing/range edits are refused.
 /// All linked files must be readable. Symbolic-link output files and unsafe generated references are refused.
 /// No media is copied and no session save checkpoint is changed.
 void writeTrackerDocument(const QString& path, const WorkspaceDocument& document, const QString& mediaProjectPath);

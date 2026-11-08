@@ -224,7 +224,7 @@ class CorpusTests(unittest.TestCase):
         exported = self.root / "packaged.trz"
         selected = self.root / "selected.trk"
         with corpus.minidom.parse(str(original)) as document:
-            corpus.patch_expected_linked_images(document, relocate=False)
+            corpus.patch_expected_linked_media(document, relocate=False)
             xml = document.toxml()
         for index in range(4):
             xml = xml.replace(f"images/frame{index}.png", f"images/frame-{index:06d}.png")
@@ -256,24 +256,55 @@ class CorpusTests(unittest.TestCase):
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
                 corpus.verify_image_package_export(original, exported, selected, case)
 
+    def test_linked_movie_export_oracle_checks_all_xml_and_movie_bytes(self):
+        case = next(c for c in corpus.load_manifest()["cases"] if c["id"] == "linked-movie")
+        original = corpus.local_fixture_path(case)
+        exported = self.root / "movie.trk"
+        media = self.root / "média & movie" / "constant-rate.avi"
+        media.parent.mkdir()
+        movie_bytes = corpus.local_fixture_path(case["assets"][0]).read_bytes()
+        media.write_bytes(movie_bytes)
+        with corpus.minidom.parse(str(original)) as document:
+            corpus.patch_expected_linked_media(document, movie=True)
+            xml = document.toxml()
+        exported.write_text(xml, encoding="utf-8")
+        corpus.verify_linked_movie_export_xml(original, exported, case)
+        expected = corpus.linked_media_roundtrip_expected(case)
+        self.assertEqual(expected["point_masses"][0]["mass"], 5.0)
+        self.assertEqual(expected["point_masses"][0]["samples"][1],
+                         {"frame": 1, "image": [8.0, 12.0], "world": [3.0, 2.0]})
+        for before, after in [('name="mass" type="double">5', 'name="mass" type="double">7'),
+                              ('name="xorigin" type="double">2.0', 'name="xorigin" type="double">3.0'),
+                              ('name="delta_t" type="double">125.0', 'name="delta_t" type="double">250.0'),
+                              ('média &amp; movie', 'different-folder'),
+                              ('name="x" type="double">8', 'name="x" type="double">9')]:
+            self.assertIn(before, xml)
+            exported.write_text(xml.replace(before, after, 1), encoding="utf-8")
+            with self.subTest(change=before), self.assertRaises(ValueError):
+                corpus.verify_linked_movie_export_xml(original, exported, case)
+        exported.write_text(xml, encoding="utf-8")
+        media.write_bytes(movie_bytes[:-1] + bytes([movie_bytes[-1] ^ 1]))
+        with self.assertRaises(ValueError):
+            corpus.verify_linked_movie_export_xml(original, exported, case)
+
     def test_linked_image_export_oracle_checks_edited_geometry_all_xml_and_relocated_assets(self):
         manifest = corpus.load_manifest()
         case = next(c for c in manifest["cases"] if c["id"] == "linked-images")
         original = corpus.local_fixture_path(case)
-        expected = corpus.linked_images_roundtrip_expected(case)
+        expected = corpus.linked_media_roundtrip_expected(case)
         self.assertEqual(expected["point_masses"][0]["mass"], 5.0)
         self.assertEqual(expected["point_masses"][0]["samples"][1],
                          {"frame": 1, "image": [8.0, 12.0], "world": [3.0, 2.0]})
         self.assertEqual(expected["clip"]["start_ms"], -250.0)
         with self.assertRaises(ValueError):
-            corpus.linked_images_roundtrip_expected({**case, "id": "unrelated"})
+            corpus.linked_media_roundtrip_expected({**case, "id": "unrelated"})
         output = self.root / "exported.trk"
         media = self.root / "media é & frames"
         media.mkdir()
         for asset in case["assets"]:
             (media / asset["file"]).write_bytes(corpus.local_fixture_path(asset).read_bytes())
         with corpus.minidom.parse(str(original)) as document:
-            corpus.patch_expected_linked_images(document)
+            corpus.patch_expected_linked_media(document)
             correct = document.toxml()
         output.write_text(correct, encoding="utf-8")
         corpus.verify_linked_image_export_xml(original, output, case)

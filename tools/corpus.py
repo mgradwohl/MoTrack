@@ -464,16 +464,16 @@ def private_display():
                 server.wait(timeout=5)
 
 
-def linked_images_roundtrip_expected(case):
-    if case["id"] not in {"linked-images", "archived-images", "multitab-images"}:
-        raise ValueError("Linked-image edits require the pinned image experiment")
+def linked_media_roundtrip_expected(case):
+    if case["id"] not in {"linked-images", "archived-images", "multitab-images", "linked-movie"}:
+        raise ValueError("Linked-media edits require a pinned experiment")
     expected = json.loads(expected_path(case).read_text(encoding="utf-8"))["project"]
     expected["point_masses"][0]["mass"] = 5.0
     expected["point_masses"][0]["samples"].insert(1, {"frame": 1, "image": [8.0, 12.0], "world": [3.0, 2.0]})
     return expected
 
 
-def patch_expected_linked_images(document, relocate=True, packaged=False):
+def patch_expected_linked_media(document, relocate=True, packaged=False, movie=False):
     def elements(node, tag):
         return [child for child in node.childNodes if child.nodeType == child.ELEMENT_NODE and child.tagName == tag]
     def prop(node, name):
@@ -485,8 +485,10 @@ def patch_expected_linked_images(document, relocate=True, packaged=False):
     root = document.documentElement
     clip = elements(prop(root, "videoclip"), "object")[0]
     video = elements(prop(clip, "video"), "object")[0]
-    paths = prop(video, "paths")
-    if relocate or packaged:
+    if movie:
+        scalar(prop(video, "path"), "média & movie/constant-rate.avi")
+    elif relocate or packaged:
+        paths = prop(video, "paths")
         references = [f"images/frame-{index:06d}.png" if packaged else f"media é & frames/frame{index}.png" for index in range(4)]
         for index in range(4):
             scalar(prop(paths, f"[{index}]"), references[index])
@@ -520,11 +522,19 @@ def patch_expected_linked_images(document, relocate=True, packaged=False):
 
 def verify_linked_image_export_xml(original, exported, case):
     with minidom.parse(str(original)) as expected, minidom.parse(str(exported)) as actual:
-        patch_expected_linked_images(expected)
+        patch_expected_linked_media(expected)
         if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
             raise ValueError("Linked-image export changed content beyond the requested paths, mass and mark")
     for asset in case["assets"]:
         verify_file(exported.parent / "media é & frames" / asset["file"], asset)
+
+
+def verify_linked_movie_export_xml(original, exported, case):
+    with minidom.parse(str(original)) as expected, minidom.parse(str(exported)) as actual:
+        patch_expected_linked_media(expected, movie=True)
+        if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
+            raise ValueError("Linked-movie export changed content beyond the requested path, mass and mark")
+    verify_file(exported.parent / "média & movie" / "constant-rate.avi", case["assets"][0])
 
 
 def verify_image_package_export(original, exported, selected_xml, case):
@@ -542,7 +552,7 @@ def verify_image_package_export(original, exported, selected_xml, case):
                 raise ValueError("Packaged image bytes changed")
         xml = package.read("experiment.trk")
         with minidom.parse(str(original)) as expected, minidom.parseString(xml) as actual:
-            patch_expected_linked_images(expected, packaged=True)
+            patch_expected_linked_media(expected, packaged=True)
             if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
                 raise ValueError("Image package changed XML beyond the requested paths, mass and mark")
         selected_xml.write_bytes(xml)
@@ -569,7 +579,7 @@ def verify_archive_image_export(original, exported, selected_xml, member_count=7
                 if b.compress_type != zipfile.ZIP_STORED or b.flag_bits != a.flag_bits & 0x0800:
                     raise ValueError("Unexpected edited-member encoding")
                 with minidom.parseString(before.read(a)) as expected, minidom.parseString(after.read(b)) as actual:
-                    patch_expected_linked_images(expected, relocate=False)
+                    patch_expected_linked_media(expected, relocate=False)
                     if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
                         raise ValueError("Archive export changed XML beyond the edited mass and mark")
                 selected_xml.write_bytes(after.read(b))
@@ -1747,7 +1757,7 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
         exported = output / "motrack-export.trz"
         run([str(Path(probe).resolve()), "--export-multitab-archive-images", str(source), str(exported)])
         verify_archive_image_export(source, exported, output / "exported-member.trk", member_count=8)
-        expected[0] = linked_images_roundtrip_expected(case)
+        expected[0] = linked_media_roundtrip_expected(case)
         source = exported
     metadata = output / "metadata"
     metadata.mkdir()
@@ -1805,7 +1815,7 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
 def check_sessions(manifest, cache, java, probe=None):
     if sys.platform != "linux":
         raise ValueError("Session checks currently require Linux with Xvfb")
-    modes = [("archive-images", "native_archive_image_roundtrip"), ("linked-images", "native_linked_image_roundtrip"),
+    modes = [("linked-movie", "native_linked_movie_roundtrip"), ("archive-images", "native_archive_image_roundtrip"), ("linked-images", "native_linked_image_roundtrip"),
              ("packaged-images", "native_image_package_roundtrip"),
              ("paired-archive-images", "native_paired_archive_roundtrip"), ("paired-linked-images", "native_paired_linked_roundtrip"),
              ("mass", "native_mass_roundtrip"), ("marks", "native_mark_roundtrip"),
@@ -1904,7 +1914,7 @@ def check_sessions(manifest, cache, java, probe=None):
                 if (output / "media é & frames").exists():
                     raise ValueError("Image package probe retained original external media")
                 project = selected
-                expected = linked_images_roundtrip_expected(case)
+                expected = linked_media_roundtrip_expected(case)
                 native_report = output / "native-export.json"
                 run([str(Path(probe).resolve()), str(project), str(native_report)])
                 compare(expected, json.loads(native_report.read_text(encoding="utf-8")), manifest["tolerance"], case["id"] + ".export")
@@ -1914,7 +1924,7 @@ def check_sessions(manifest, cache, java, probe=None):
                 run([str(Path(probe).resolve()), "--export-" + mode, str(archive_input), str(exported)])
                 project = output / "exported-member.trk"
                 verify_archive_image_export(archive_input, exported, project)
-                expected = linked_images_roundtrip_expected(case)
+                expected = linked_media_roundtrip_expected(case)
                 native_report = output / "native-export.json"
                 run([str(Path(probe).resolve()), str(project), str(native_report)])
                 compare(expected, json.loads(native_report.read_text(encoding="utf-8")), manifest["tolerance"], case["id"] + ".export")
@@ -1933,9 +1943,12 @@ def check_sessions(manifest, cache, java, probe=None):
             elif probe:
                 exported = output / "motrack-export.trk"
                 run([str(Path(probe).resolve()), "--export-" + mode, str(project), str(exported)])
-                if mode in {"linked-images", "paired-linked-images"}:
+                if mode == "linked-movie":
+                    verify_linked_movie_export_xml(project, exported, case)
+                    expected = linked_media_roundtrip_expected(case)
+                elif mode in {"linked-images", "paired-linked-images"}:
                     verify_linked_image_export_xml(project, exported, case)
-                    expected = linked_images_roundtrip_expected(case)
+                    expected = linked_media_roundtrip_expected(case)
                 elif mode == "mass":
                     verify_mass_export_xml(project, exported)
                     expected = mass_roundtrip_expected(case)
@@ -2028,7 +2041,7 @@ def check_sessions(manifest, cache, java, probe=None):
                       "before": stages["save"]["loaded"], "after_save": stages["save"]["after_save"],
                       "after": stages["reopen"]["loaded"]}
             keys = {"marks": [[0, 3], [7]], "empty-marks": [[], [0]], "first-mark": [[4], [0]]}.get(mode)
-            if mode in {"linked-images", "archive-images", "paired-linked-images", "paired-archive-images", "packaged-images"}:
+            if mode in {"linked-movie", "linked-images", "archive-images", "paired-linked-images", "paired-archive-images", "packaged-images"}:
                 keys = [[0, 1, 2]]
             if mode in {"create-mass", "create-empty-mass"}:
                 keys = [[0], [0], [] if mode == "create-empty-mass" else [1, 4, 8]]
