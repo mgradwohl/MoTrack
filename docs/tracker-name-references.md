@@ -256,3 +256,8 @@ They require identical words in an unrelated description to stay unchanged; nati
 unknown/ambiguous relationships. Independent vectors now have a separate selected-vector case.
 Next extend to each dependent
 field with its own application evidence, then creation/deletion and archive/paired saving.
+
+Plot/table selections and view owners/guests must be viewable targets. Coordinate axes are valid
+main-panel selections but are ignored by TrackChooserTView; a rename export rejects such view
+references even when the referenced name is unchanged. Atomic-rejection tests cover nested selection,
+owner, guest and packed plot/table selections.
