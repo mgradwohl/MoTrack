@@ -1086,7 +1086,8 @@ void MainWindow::refreshPlot()
         track >= 0 ? measurementPlot(
                          m_Session.document.project, static_cast<std::size_t>(track), quantity, m_Session.document.movieFrameTimes, offset)
                    : PlotSeries{};
-    const auto horizontal = series.timed ? tr("Time (s)") : tr("Frame");
+    const auto timeUnit = QString::fromStdString(series.timeUnit);
+    const auto horizontal = series.timed ? tr("Time (%1)").arg(timeUnit) : tr("Frame");
     auto unit = series.calibrated ? QString::fromStdString(m_Session.document.project.lengthUnit) : tr("px");
     if (!unit.isEmpty())
     {
@@ -1095,22 +1096,22 @@ void MainWindow::refreshPlot()
         case PlotQuantity::VelocityX:
         case PlotQuantity::VelocityY:
         case PlotQuantity::Speed:
-            unit = tr("%1/s").arg(unit);
+            unit = tr("%1/%2").arg(unit, timeUnit);
             break;
         case PlotQuantity::AccelerationX:
         case PlotQuantity::AccelerationY:
-            unit = tr("%1/s²").arg(unit);
+            unit = tr("%1/%2²").arg(unit, timeUnit);
             break;
         case PlotQuantity::MomentumX:
         case PlotQuantity::MomentumY:
             unit = m_Session.document.project.massUnit.empty()
                        ? QString{}
-                       : tr("%1·%2/s").arg(QString::fromStdString(m_Session.document.project.massUnit), unit);
+                       : tr("%1·%2/%3").arg(QString::fromStdString(m_Session.document.project.massUnit), unit, timeUnit);
             break;
         case PlotQuantity::KineticEnergy:
             unit = m_Session.document.project.massUnit.empty()
                        ? QString{}
-                       : tr("%1·%2²/s²").arg(QString::fromStdString(m_Session.document.project.massUnit), unit);
+                       : tr("%1·%2²/%3²").arg(QString::fromStdString(m_Session.document.project.massUnit), unit, timeUnit);
             break;
         default:
             break;

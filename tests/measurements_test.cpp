@@ -16,6 +16,37 @@ TEST(Measurements, EscapesPlotLabelsAndExportsUntimedSamplesByFrame)
     EXPECT_EQ(motrack::plotCsv(series, "position, \"x\""), "frame,\"position, \"\"x\"\"\"\r\n3,1.5\r\n");
 }
 
+TEST(Measurements, TimeLabelsDoNotRescaleMotionAndAreEscapedInCsvHeaders)
+{
+    motrack::LegacyProject project;
+    project.clip.frameDurationMs = 500;
+    project.clip.startTimeMs = -500;
+    project.pointMasses.push_back(
+        {.name = "A", .marks = {{.frame = 0, .x = 0, .y = 0}, {.frame = 1, .x = 2, .y = 0}, {.frame = 2, .x = 8, .y = 0}}, .mass = 3});
+    const std::array quantities{motrack::PlotQuantity::VelocityX,
+                                motrack::PlotQuantity::AccelerationX,
+                                motrack::PlotQuantity::MomentumX,
+                                motrack::PlotQuantity::KineticEnergy};
+    const std::array expected{8.0, 16.0, 24.0, 96.0};
+    project.timeUnit = "tick, beat";
+    for (std::size_t index = 0; index < quantities.size(); ++index)
+    {
+        const auto series = motrack::measurementPlot(project, 0, quantities[index]);
+        ASSERT_EQ(series.samples.size(), 1u);
+        EXPECT_EQ(series.timeUnit, project.timeUnit);
+        EXPECT_DOUBLE_EQ(series.samples[0].horizontal, 0.0);
+        EXPECT_DOUBLE_EQ(series.samples[0].vertical, expected[index]);
+        EXPECT_TRUE(motrack::plotCsv(series, "value").starts_with("frame,\"time_tick, beat\",value\r\n"));
+    }
+    const auto positions = motrack::measurementPlot(project, 0, motrack::PlotQuantity::PositionX);
+    ASSERT_EQ(positions.samples.size(), 3u);
+    EXPECT_DOUBLE_EQ(positions.samples.front().horizontal, -0.5);
+    EXPECT_DOUBLE_EQ(positions.samples.back().horizontal, 0.5);
+    project.timeUnit = "s";
+    EXPECT_TRUE(
+        motrack::plotCsv(motrack::measurementPlot(project, 0, motrack::PlotQuantity::PositionX), "x").starts_with("frame,time_s,x\r\n"));
+}
+
 TEST(Calibration, UsesLatestKeyframeAndInvertsImageAxes)
 {
     motrack::Calibration calibration;

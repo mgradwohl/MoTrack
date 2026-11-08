@@ -92,6 +92,8 @@ struct LegacyProject
     std::optional<Calibration> calibration;
     std::string lengthUnit;
     std::string massUnit = "kg";
+    /// Display label for the analysis time base; changing it does not convert stored times.
+    std::string timeUnit = "s";
     std::vector<PointMass> pointMasses;
     std::vector<VectorTrack> vectors{};
     std::vector<std::string> unsupportedTrackTypes;

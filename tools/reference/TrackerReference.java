@@ -84,6 +84,7 @@ public final class TrackerReference {
                 "world", world(coords, frame, 13.5, 17.25)));
         Map<String, Object> result = map("source_version", string(root, "semantic_version", ""),
             "length_unit", string(root, "length_unit", ""), "mass_unit", string(root, "mass_unit", "kg"),
+            "time_unit", string(root, "time_unit", "s"),
             "clip", map("first_frame", first, "step_size", stride, "step_count", count,
                 "start_ms", number(clip, "starttime", 0.0)),
             "point_masses", masses, "vectors", vectors, "unsupported_tracks", unsupported,

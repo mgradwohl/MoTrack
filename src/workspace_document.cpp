@@ -388,6 +388,15 @@ WorkspaceDocument readWorkspaceDocument(const QString& path, const std::atomic_b
     {
         project.massUnit = string(unit);
     }
+    if (const auto unit = input.value("timeUnit"); !unit.isUndefined())
+    {
+        project.timeUnit = string(unit);
+    }
+    else if (result.trackerSource)
+    {
+        // Earlier native files retained this label only in the original Tracker XML.
+        project.timeUnit = parseLegacyProject(result.trackerSource->xml).timeUnit;
+    }
     project.unsupportedTrackTypes = strings(input.value("unsupportedTrackTypes"));
     project.calibration = readCalibration(input.value("calibration"));
     project.pointMasses = readTracks(input.value("pointMasses"), version);
@@ -476,6 +485,7 @@ void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& docume
         {"description", QString::fromStdString(project.description)},
         {"lengthUnit", QString::fromStdString(project.lengthUnit)},
         {"massUnit", QString::fromStdString(project.massUnit)},
+        {"timeUnit", QString::fromStdString(project.timeUnit)},
         {"unsupportedTrackTypes", writeStrings(project.unsupportedTrackTypes)},
         {"calibration", writeCalibration(project.calibration)},
         {"pointMasses", writeTracks(project.pointMasses)},

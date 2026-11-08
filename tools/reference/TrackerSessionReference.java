@@ -464,9 +464,13 @@ public final class TrackerSessionReference {
         for (int frame : new int[] {first, last}) coordinates.add(TrackerReference.map("frame", frame,
             "image", List.of(13.5, 17.25),
             "world", List.of(coords.imageToWorldX(frame, 13.5, 17.25), coords.imageToWorldY(frame, 13.5, 17.25))));
+        List<Object> times = new ArrayList<>();
+        for (int frame : new int[] {first, last})
+            times.add(TrackerReference.map("frame", frame, "time_ms", panel.getPlayer().getFrameTime(frame)));
         return TrackerReference.map("clip", TrackerReference.map("first_frame", first,
             "step_size", clip.getStepSize(), "step_count", clip.getStepCount(), "start_ms", clip.getStartTime()),
             "length_unit", panel.getLengthUnit(), "mass_unit", panel.getMassUnit(),
+            "time_unit", panel.getTimeUnit(), "time_samples", times,
             "name_references", nameReferences(panel),
             "saved_views", savedViews(panel),
             "centers_of_mass", centers,

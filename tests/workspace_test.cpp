@@ -339,6 +339,34 @@ TEST(Workspace, PlotsPositionAndSeeksToASelectedMeasurement)
     EXPECT_EQ(plot->accessibleName(), QString::fromUtf8("kinetic energy (kg·m²/s²) versus Time (s)"));
 }
 
+TEST(Workspace, UsesPersistedTimeUnitInPlotsAndDerivedQuantityLabels)
+{
+    QTemporaryDir temporary;
+    auto document = motrack::importTrackerDocument(fixturePath("image-sequence.trk"));
+    for (auto& reference : document.project.clip.mediaReferences)
+        reference = fixturePath(QString::fromStdString(reference)).toStdString();
+    document.project.timeUnit = "tick";
+    const auto path = temporary.filePath("time-unit.motrack");
+    motrack::writeWorkspaceDocument(path, document);
+    motrack::MainWindow window;
+    window.show();
+    ASSERT_TRUE(window.loadProject(path));
+    auto* plot = window.findChild<QWidget*>("positionPlot");
+    auto* quantities = window.findChild<QComboBox*>("plotQuantity");
+    ASSERT_TRUE(plot && quantities);
+    EXPECT_EQ(plot->accessibleName(), "x position (m) versus Time (tick)");
+    quantities->setCurrentIndex(3);
+    EXPECT_EQ(plot->accessibleName(), "y velocity (m/tick) versus Time (tick)");
+    quantities->setCurrentIndex(5);
+    EXPECT_EQ(plot->accessibleName(), QString::fromUtf8("x acceleration (m/tick²) versus Time (tick)"));
+    quantities->setCurrentIndex(7);
+    EXPECT_EQ(plot->accessibleName(), QString::fromUtf8("x momentum (kg·m/tick) versus Time (tick)"));
+    quantities->setCurrentIndex(9);
+    EXPECT_EQ(plot->accessibleName(), QString::fromUtf8("kinetic energy (kg·m²/tick²) versus Time (tick)"));
+    ASSERT_TRUE(window.saveWorkspace(path));
+    EXPECT_EQ(motrack::readWorkspaceDocument(path).project.timeUnit, "tick");
+}
+
 TEST(Workspace, PreservesAndDrawsVectorsAtTheirOriginalFrame)
 {
     QTemporaryDir temporary;

@@ -47,6 +47,15 @@ TEST(LegacyProject, ImportsMetadataAndSparseMarks)
     EXPECT_EQ(result.unsupportedTrackTypes, std::vector<std::string>{"org.opensourcephysics.cabrillo.tracker.CoordAxes"});
 }
 
+TEST(LegacyProject, RetainsTimeLabelsAndDefaultsMissingOrEmptyLabels)
+{
+    EXPECT_EQ(motrack::parseLegacyProject(projectXml("")).timeUnit, "s");
+    EXPECT_EQ(motrack::parseLegacyProject(projectXml("<property name='time_unit' type='string'></property>")).timeUnit, "s");
+    EXPECT_EQ(
+        motrack::parseLegacyProject(projectXml("<property name='time_unit' type='string'><![CDATA[tick & beat]]></property>")).timeUnit,
+        "tick & beat");
+}
+
 TEST(LegacyProject, AssignsDistinctIdentitiesToImportedTracksWithDuplicateNames)
 {
     const auto project = motrack::parseLegacyProject(projectXml(R"(

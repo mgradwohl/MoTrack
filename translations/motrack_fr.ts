@@ -39,8 +39,8 @@
     <message><source>Mass (%1)</source><translation>Masse (%1)</translation></message>
     <message><source>Set point-mass value</source><translation>Définir la valeur de la masse ponctuelle</translation></message>
     <message><source>Enter a finite, positive mass.</source><translation>Saisissez une masse finie et positive.</translation></message>
-    <message><source>%1·%2/s</source><translation>%1·%2/s</translation></message>
-    <message><source>%1·%2²/s²</source><translation>%1·%2²/s²</translation></message>
+    <message><source>%1·%2/%3</source><translation>%1·%2/%3</translation></message>
+    <message><source>%1·%2²/%3²</source><translation>%1·%2²/%3²</translation></message>
     <message><source>Linear fit</source><translation>Ajustement linéaire</translation></message>
     <message><source>&amp;Open project…</source><translation>&amp;Ouvrir un projet…</translation></message>
     <message><source>Save project &amp;as…</source><translation>Enregistrer le projet &amp;sous…</translation></message>
@@ -133,10 +133,10 @@
     <message><source>speed</source><translation>norme de la vitesse</translation></message>
     <message><source>x acceleration</source><translation>accélération x</translation></message>
     <message><source>y acceleration</source><translation>accélération y</translation></message>
-    <message><source>Time (s)</source><translation>Temps (s)</translation></message>
+    <message><source>Time (%1)</source><translation>Temps (%1)</translation></message>
     <message><source>px</source><translation>px</translation></message>
-    <message><source>%1/s</source><translation>%1/s</translation></message>
-    <message><source>%1/s²</source><translation>%1/s²</translation></message>
+    <message><source>%1/%2</source><translation>%1/%2</translation></message>
+    <message><source>%1/%2²</source><translation>%1/%2²</translation></message>
     <message><source>%1 (%2)</source><translation>%1 (%2)</translation></message>
     <message><source>Calibration Stick</source><translation>Bâton de calibration</translation></message>
     <message><source>Click the first calibration endpoint.</source><translation>Cliquez sur la première extrémité du bâton de calibration.</translation></message>

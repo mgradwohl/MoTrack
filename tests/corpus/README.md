@@ -568,3 +568,25 @@ from the pinned source, not generated from native or live resave output. Wrong e
 booster references, missing/reordered members and stale boosted coordinates fail even if all three
 snapshots agree. Java load/save/fresh-process reopen and native reimport provide final acceptance
 in Linux CI. Native model evaluation/editing and broader parameter fidelity remain unfinished.
+
+
+## Time-unit labels
+
+All project snapshots include `time_unit`, read independently by Java's XML reader; adding this field
+was checked against every existing baseline so no prior numerical or structural expectation changed.
+The live application snapshot separately uses `TrackerPanel.getTimeUnit()`.
+
+The `time-unit` protractor case changes the absent/default `s` label to `τ & <tick>` through repeated
+native edits, undo/redo and native save/reopen after source-copy removal. The entire exported XML is
+compared against the original plus only the new `time_unit` field. Actual Tracker load/save and a fresh
+process reopen must keep the label and all existing measurements/views. Independent frame-time
+expectations are 0 ms at frame 0 and 900 ms at frame 9, derived from the original 100 ms interval.
+A consistently wrong label or scaled/changed frame times fails, even when all snapshots agree.
+
+Tracker's time-unit setter changes a label, not the time base. MoTrack likewise leaves numerical time,
+derivatives, momentum and energy unchanged; plot labels and CSV headers carry the saved label. Native
+migration recovers older documents' labels from preserved XML. Tests also cover unsupported labels,
+atomic destination preservation, missing/default fields, history, derived quantities and desktop labels.
+The upstream [time-zero locale report](https://github.com/OpenSourcePhysics/tracker/issues/66) was refreshed;
+[MoTrack #67](https://github.com/mgradwohl/MoTrack/issues/67) remains open because this does not implement
+or verify its separate time-zero action. Desktop unit editing and time-base conversion remain later work.

@@ -966,12 +966,57 @@ class CorpusTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(ValueError):
                 corpus.validate_session(case, invalid, manifest)
 
-        for field in ["length_unit", "mass_unit"]:
+        for field in ["length_unit", "mass_unit", "time_unit"]:
             invalid = copy.deepcopy(valid)
             for state in ["before", "after_save", "after"]:
                 invalid[state][field] = "wrong-unit"
             with self.subTest(field=field), self.assertRaises(ValueError):
                 corpus.validate_session(case, invalid, manifest)
+
+    def test_time_unit_export_preserves_timing_measurements_and_unknown_content(self):
+        original, exported = self.root / "time-source.trk", self.root / "time-export.trk"
+        xml = ('<object><property name="starttime" type="double">-500.0</property>'
+               '<property name="delta_t" type="double">100.0</property><!-- keep --></object>')
+        original.write_text(xml, encoding="utf-8")
+        field = '<property name="time_unit" type="string"><![CDATA[' + corpus.TIME_UNIT_LABEL + ']]></property>'
+        edited = xml.replace('</object>', field + '</object>')
+        exported.write_text(edited, encoding="utf-8")
+        corpus.verify_time_unit_export_xml(original, exported)
+        for invalid in [xml, edited.replace(corpus.TIME_UNIT_LABEL, "s"), edited.replace('>100.0<', '>1.0<'),
+                        edited.replace('>-500.0<', '>0.0<'), edited.replace('<!-- keep -->', '')]:
+            exported.write_text(invalid, encoding="utf-8")
+            with self.assertRaises(ValueError):
+                corpus.verify_time_unit_export_xml(original, exported)
+        case = next(case for case in corpus.load_manifest()["cases"] if case["id"] == "protractor")
+        baseline = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
+        self.assertEqual(corpus.time_unit_roundtrip_expected(case), {**baseline, "time_unit": corpus.TIME_UNIT_LABEL})
+
+    def test_time_unit_session_requires_independent_label_and_unscaled_times(self):
+        manifest = corpus.load_manifest()
+        original = next(case for case in manifest["cases"] if case["id"] == "protractor")
+        times = [{"frame": 0, "time_ms": 0.0}, {"frame": 9, "time_ms": 900.0}]
+        case = {**original, "session_time_samples": times}
+        expected = corpus.time_unit_roundtrip_expected(case)
+        tracks = []
+        for identity in case["session_tracks"]:
+            mass = next((m for m in expected["point_masses"] if m["name"] == identity["name"]), None)
+            tracks.append({**identity, "mass": mass["mass"] if mass else None,
+                           "samples": [{"frame": x["frame"], "points": [x["image"]], "world": x["world"]}
+                                       for x in mass["samples"]] if mass else []})
+        before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                  "name_references": copy.deepcopy(case["session_names"]), "saved_views": copy.deepcopy(case["session_views"]),
+                  "time_samples": copy.deepcopy(times), **corpus.session_units(case, expected)}
+        valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                 "view_preparation": "visit_custom_tables_restore_selection", "before": before,
+                 "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
+        corpus.validate_session(case, valid, manifest, expected)
+        for field, value in [("time_unit", "s"), ("time_samples", [{"frame": 0, "time_ms": 0.0}, {"frame": 9, "time_ms": 0.9}]),
+                             ("time_samples", []), ("time_samples", [{"frame": 0, "time_ms": 0.0}, {"frame": 8, "time_ms": 900.0}])]:
+            invalid = copy.deepcopy(valid)
+            for stage in ["before", "after_save", "after"]:
+                invalid[stage][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                corpus.validate_session(case, invalid, manifest, expected)
 
     def test_mass_unit_export_preserves_mass_values_and_unknown_content(self):
         original = self.root / "original.trk"

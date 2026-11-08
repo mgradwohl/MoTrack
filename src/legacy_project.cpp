@@ -258,6 +258,10 @@ ParsedProject parseProject(std::string_view xml)
     {
         project.massUnit = std::move(unit);
     }
+    if (auto unit = value(panel, "time_unit"); !unit.empty())
+    {
+        project.timeUnit = std::move(unit);
+    }
     const auto tracks = property(panel, "tracks");
     std::size_t index = 0;
     for (auto item = tracks.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"), ++index)

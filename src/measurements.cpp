@@ -156,7 +156,10 @@ PlotSeries measurementPlot(const LegacyProject& project,
 
     const auto frameDurationMs = project.clip.frameDurationMs.value_or(0.0);
     const auto displayOffset = frameTimes.empty() ? 0.0 : presentationOffsetSeconds;
-    PlotSeries series{.samples = {}, .timed = !frameTimes.empty() || frameDurationMs > 0.0, .calibrated = project.calibration.has_value()};
+    PlotSeries series{.samples = {},
+                      .timed = !frameTimes.empty() || frameDurationMs > 0.0,
+                      .calibrated = project.calibration.has_value(),
+                      .timeUnit = project.timeUnit};
     const bool position = quantity == PlotQuantity::PositionX || quantity == PlotQuantity::PositionY;
     if (track >= project.pointMasses.size() || (!position && !series.timed))
     {
@@ -249,7 +252,12 @@ std::string plotCsv(const PlotSeries& series, std::string_view quantity)
     std::ostringstream output;
     output.imbue(std::locale::classic());
     output << std::setprecision(std::numeric_limits<double>::max_digits10);
-    output << (series.timed ? "frame,time_s," : "frame,");
+    output << "frame,";
+    if (series.timed)
+    {
+        writeCsvField(output, "time_" + series.timeUnit);
+        output << ',';
+    }
     writeCsvField(output, quantity);
     output << "\r\n";
     for (const auto& sample : series.samples)
