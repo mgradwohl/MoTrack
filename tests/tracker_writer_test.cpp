@@ -219,7 +219,10 @@ TEST(TrackerWriter, RenamesSelectedMassByIdentityAndPreservesNonReferenceWordsAf
     const auto native = temporary.filePath("names.motrack");
     motrack::writeWorkspaceDocument(native, document);
     document = motrack::readWorkspaceDocument(native);
-    ASSERT_TRUE(document.trackerSource);
+    if (!document.trackerSource)
+    {
+        FAIL() << "Native reopen lost the original source.";
+    }
     const auto originalIndex = motrack::indexTrackerReferences(imported.source, imported.project);
     const auto bytes = motrack::renderTrackerProject(document.project, *document.trackerSource);
     const auto output = motrack::parseTrackerProject(bytes);
