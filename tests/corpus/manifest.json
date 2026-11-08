@@ -73,6 +73,7 @@
       "native_time_unit_roundtrip": true,
       "native_clip_timing_roundtrip": true,
       "native_create_mass_roundtrip": true,
+      "native_delete_mass_roundtrip": true,
       "native_mark_roundtrip": true,
       "session_names": {
         "selected_track": "mass B",
@@ -127,6 +128,7 @@
     {
       "id": "independent-vectors",
       "native_create_vector_roundtrip": true,
+      "native_delete_vector_roundtrip": true,
       "native_vector_name_roundtrip": true,
       "native_vector_roundtrip": true,
       "native_clip_roundtrip": true,

@@ -162,7 +162,8 @@ try
          args[1] == "--export-plot-guest-name" || args[1] == "--export-center-member-name" || args[1] == "--export-attachment-first-name" ||
          args[1] == "--export-attachment-last-name" || args[1] == "--export-model-booster-name" || args[1] == "--export-clip-timing" ||
          args[1] == "--export-clip-timing-range" || args[1] == "--export-create-mass" || args[1] == "--export-create-empty-mass" ||
-         args[1] == "--export-create-vector" || args[1] == "--export-create-empty-vector"))
+         args[1] == "--export-create-vector" || args[1] == "--export-create-empty-vector" || args[1] == "--export-delete-mass" ||
+         args[1] == "--export-delete-vector" || args[1] == "--export-delete-all-vectors"))
     {
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trk");
@@ -173,7 +174,18 @@ try
         }
         auto document = motrack::importTrackerDocument(source);
         motrack::TrackEdits edits;
-        if (args[1] == "--export-create-vector" || args[1] == "--export-create-empty-vector")
+        if (args[1] == "--export-delete-mass" || args[1] == "--export-delete-vector" || args[1] == "--export-delete-all-vectors")
+        {
+            const bool mass = args[1] == "--export-delete-mass";
+            if ((mass && (document.project.pointMasses.size() != 2 || !edits.removePointMass(document.project, 0))) ||
+                (!mass && (document.project.vectors.size() != 2 || !edits.removeVector(document.project, 0))))
+                throw motrack::ProjectError("Could not delete the round-trip track.");
+            if (args[1] == "--export-delete-all-vectors" && !edits.removeVector(document.project, 0))
+                throw motrack::ProjectError("Could not delete the final round-trip vector.");
+            if (!edits.undo(document.project) || !edits.redo(document.project))
+                throw motrack::ProjectError("Could not replay the round-trip deletion.");
+        }
+        else if (args[1] == "--export-create-vector" || args[1] == "--export-create-empty-vector")
         {
             const auto name = QString::fromUtf8("vecteur β & <C>").toStdString();
             if (document.project.vectors.size() != 2 || !edits.createVector(document.project, "discarded") ||

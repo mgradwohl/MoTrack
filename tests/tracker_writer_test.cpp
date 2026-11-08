@@ -237,6 +237,36 @@ TEST(TrackerWriter, DeletesAnUnreferencedMassAfterNativeReopenAndRestoresItThrou
                                     }));
 }
 
+TEST(TrackerWriter, VectorDeletionKeepsTheSurvivingSamplesAndNativeHistory)
+{
+    const auto imported =
+        motrack::parseTrackerProject(readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk"));
+    for (std::size_t deleted = 0; deleted < 2; ++deleted)
+    {
+        motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.removeVector(document.project, deleted));
+        ASSERT_TRUE(edits.undo(document.project));
+        EXPECT_EQ(motrack::renderTrackerProject(document.project, imported.source), imported.source.xml);
+        ASSERT_TRUE(edits.redo(document.project));
+        QTemporaryDir temporary;
+        const auto native = temporary.filePath("deleted-vector.motrack");
+        motrack::writeWorkspaceDocument(native, document);
+        document = motrack::readWorkspaceDocument(native);
+        if (!document.trackerSource)
+        {
+            FAIL() << "Native reopen lost vector source associations.";
+        }
+        const auto bytes = motrack::renderTrackerProject(document.project, *document.trackerSource);
+        const auto output = motrack::parseTrackerProject(bytes);
+        ASSERT_EQ(output.project.vectors.size(), 1);
+        EXPECT_EQ(output.project.vectors.front().name, imported.project.vectors[1 - deleted].name);
+        EXPECT_EQ(output.project.vectors.front().samples, imported.project.vectors[1 - deleted].samples);
+        EXPECT_EQ(motrack::renderTrackerProject(document.project, *document.trackerSource), bytes);
+        EXPECT_EQ(document.trackerSource->xml, imported.source.xml);
+    }
+}
+
 TEST(TrackerWriter, DeletionCompactsParsedIdsAcrossInterleavedMassesAndVectors)
 {
     std::string xml = "<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>\n"

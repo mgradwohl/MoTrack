@@ -7,7 +7,8 @@
 namespace motrack
 {
 
-/// Patch supported mass/vector names and references, samples, clip/calibration and L/M units in media-free projects; reject other edits.
+/// Patch audited media-free track, clip/calibration and unit edits, including independent creation and unreferenced deletion.
+/// Unsupported edits are refused before output. Native-only relationships are not silently discarded.
 /// Requires known source bindings. Unknown XML objects/properties are retained; the baseline stays unchanged.
 [[nodiscard]] std::string renderTrackerProject(const LegacyProject& project, const TrackerSource& source);
 /// Atomically write validated standard .trk XML. Does not write .trz or mark a native session saved.
