@@ -628,3 +628,27 @@ atomic destination preservation, missing/default fields, history, derived quanti
 The upstream [time-zero locale report](https://github.com/OpenSourcePhysics/tracker/issues/66) was refreshed;
 [MoTrack #67](https://github.com/mgradwohl/MoTrack/issues/67) remains open because this does not implement
 or verify its separate time-zero action. Desktop unit editing and time-base conversion remain later work.
+
+## Constant clip timing
+
+The media-free `clip-timing` protractor case changes the interval from 100 to 250 ms and the time
+origin from 0 to -500 ms. Independent expected frame times are -500/1750 ms at frames 0/9.
+`clip-timing-range` also selects original frames 2..8 with stride 2; the expected times are
+-500/1000 ms at frames 2/8. The interval is per original frame, not per selected clip step.
+
+The new reversible command preserves marks, calibration and labels; undo restores an omitted
+duration when appropriate. Native tests verify the consequent velocity, acceleration, momentum
+and energy changes. Both cases save/reopen the native document after source-copy removal, compare
+the entire standard XML while allowing only requested timing/range scalars, and independently
+inspect native duration and first/last times. Tracker's actual `ClipControl.getMeanFrameDuration()`
+and `VideoPlayer.getFrameTime()` supply separate live values through save/fresh-process reopen.
+Consistently wrong values fail even if all three application snapshots agree. Existing baseline
+files and fixture bytes are unchanged. Local checks pass; current-head Linux application acceptance
+is required before merging this slice.
+
+This writer requires an existing audited StepperClipControl and a bounded media-free clip. It rejects
+unknown controller/clip fields, media/frame shifts, data time sources, particle models, missing or
+invalid timing, temporary Java frame-count overflow even on timing-only edits, and times that
+overflow or collapse in milliseconds/seconds. Playback rate, current
+frame, looping state and unrelated content are preserved. Video timing/stretching, VFR, a timing UI
+and the locale-specific time-zero action in #67 remain unfinished.

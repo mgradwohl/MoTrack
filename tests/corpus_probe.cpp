@@ -158,7 +158,8 @@ try
          args[1] == "--export-mass-unit" || args[1] == "--export-time-unit" || args[1] == "--export-name" ||
          args[1] == "--export-unselected-name" || args[1] == "--export-vector-name" || args[1] == "--export-plot-owner-name" ||
          args[1] == "--export-plot-guest-name" || args[1] == "--export-center-member-name" || args[1] == "--export-attachment-first-name" ||
-         args[1] == "--export-attachment-last-name" || args[1] == "--export-model-booster-name"))
+         args[1] == "--export-attachment-last-name" || args[1] == "--export-model-booster-name" || args[1] == "--export-clip-timing" ||
+         args[1] == "--export-clip-timing-range"))
     {
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trk");
@@ -297,6 +298,14 @@ try
                 throw motrack::ProjectError("Could not edit round-trip calibration.");
             }
         }
+        else if (args[1] == "--export-clip-timing" || args[1] == "--export-clip-timing-range")
+        {
+            if ((args[1] == "--export-clip-timing-range" && !edits.setClipRange(document.project, 2, 8, 2)) ||
+                !edits.setClipTiming(document.project, 250, -500) || !edits.undo(document.project) || !edits.redo(document.project))
+            {
+                throw motrack::ProjectError("Could not edit round-trip clip timing.");
+            }
+        }
         else if (args[1] == "--export-clip" || args[1] == "--export-clip-boundary")
         {
             const bool boundary = args[1] == "--export-clip-boundary";
@@ -428,21 +437,45 @@ try
         return 0;
     }
     const bool references = args.size() == 4 && args[1] == "--references";
-    if (args.size() != 3 && !references)
+    const bool timing = args.size() == 4 && args[1] == "--timing";
+    if (args.size() != 3 && !references && !timing)
     {
-        std::fputs("Usage: motrack_corpus_probe [--references] input.trk output.json | --export-<case> input.trk output.trk\n", stderr);
+        std::fputs("Usage: motrack_corpus_probe [--references|--timing] input.trk output.json | --export-<case> input.trk output.trk\n",
+                   stderr);
         return 1;
     }
-    const auto& inputArgument = args[references ? 2 : 1];
+    const auto& inputArgument = args[references || timing ? 2 : 1];
 #ifdef _WIN32
     const std::filesystem::path input(inputArgument.toStdWString());
 #else
     const std::filesystem::path input(inputArgument.toStdString());
 #endif
-    const auto bytes =
-        QJsonDocument(references ? referenceSnapshot(motrack::readTrackerProject(input)) : snapshot(motrack::readLegacyProject(input)))
-            .toJson();
-    QSaveFile output(args[references ? 3 : 2]);
+    const auto report = [&]() -> QJsonObject
+    {
+        if (references)
+        {
+            return referenceSnapshot(motrack::readTrackerProject(input));
+        }
+        const auto project = motrack::readLegacyProject(input);
+        if (!timing)
+        {
+            return snapshot(project);
+        }
+        const auto& clip = project.clip;
+        if (!clip.frameDurationMs || !clip.stepCount || !motrack::validConstantClipTiming(clip))
+        {
+            throw motrack::ProjectError("Expected valid constant clip timing.");
+        }
+        const auto last = clip.firstFrame + (*clip.stepCount - 1) * clip.stepSize;
+        QJsonArray times;
+        for (const auto frame : {clip.firstFrame, last})
+        {
+            times.append(QJsonObject{{"frame", frame}, {"time_ms", clip.startTimeMs + (frame - clip.firstFrame) * *clip.frameDurationMs}});
+        }
+        return {{"frame_duration_ms", *clip.frameDurationMs}, {"time_samples", times}};
+    }();
+    const auto bytes = QJsonDocument(report).toJson();
+    QSaveFile output(args[references || timing ? 3 : 2]);
     if (!output.open(QIODevice::WriteOnly) || output.write(bytes) != bytes.size() || !output.commit())
     {
         throw motrack::ProjectError("Could not write corpus snapshot.");

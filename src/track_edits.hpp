@@ -37,7 +37,15 @@ struct AxesPlacement
     double positiveY;
 };
 
+struct ClipTiming
+{
+    std::optional<double> frameDurationMs;
+    double startTimeMs;
+    bool operator==(const ClipTiming&) const = default;
+};
+
 [[nodiscard]] ClipRange clipRange(const Clip& clip);
+[[nodiscard]] ClipTiming clipTiming(const Clip& clip);
 
 /// An edit history for one project. GUI indices are resolved to persistent IDs when commands are recorded.
 /// Undo/redo reject missing or ambiguous targets without advancing history. Clear on document replacement.
@@ -70,6 +78,9 @@ class TrackEdits
     bool calibrateDistance(LegacyProject& project, CalibrationDistance distance);
     bool setCoordinateAxes(LegacyProject& project, AxesPlacement axes);
     bool setClipRange(LegacyProject& project, int firstFrame, int lastFrame, int stepSize);
+    /// Change an existing bounded media-free clip's constant timing, in milliseconds.
+    /// Model/data and unknown track providers are refused without changing project or history.
+    bool setClipTiming(LegacyProject& project, double frameDurationMs, double startTimeMs);
     [[nodiscard]] bool canUndo() const;
     [[nodiscard]] bool canRedo() const;
     bool undo(LegacyProject& project);
@@ -129,12 +140,20 @@ class TrackEdits
     {
         ClipRange after;
         ClipRange before;
+        ClipTiming originalTiming;
     };
 
     struct ChangeTimeUnit
     {
         std::string after;
         std::string before;
+    };
+
+    struct ChangeClipTiming
+    {
+        ClipTiming after;
+        ClipTiming before;
+        ClipRange originalRange;
     };
 
     struct AddVector
@@ -171,6 +190,7 @@ class TrackEdits
                               ChangeMark,
                               ChangeCalibration,
                               ChangeClip,
+                              ChangeClipTiming,
                               AddVector,
                               RenameVector,
                               RemoveVector,

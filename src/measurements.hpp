@@ -63,6 +63,15 @@ struct LinearFit
 [[nodiscard]] std::optional<double> pointDistance(WorldPoint first, WorldPoint second);
 [[nodiscard]] std::optional<double> interiorAngleDegrees(WorldPoint vertex, WorldPoint first, WorldPoint second);
 
+/// Checks a media-free constant timebase over original frames (0..500000), in milliseconds.
+/// Every frame must have a finite, strictly increasing time both in milliseconds and seconds.
+/// Adjacent absolute timestamps must retain the requested interval within relative 1e-9.
+[[nodiscard]] bool validConstantClipTiming(const Clip& clip);
+
+/// Timing edits/history require media-free projects with no unverified model or data time source.
+/// Point masses, independent vectors and retained axes/protractors are currently supported.
+[[nodiscard]] bool supportsConstantClipTimingEdits(const LegacyProject& project);
+
 /// Exports the saved point-mass marks that fall inside the clip. Unknown world coordinates stay blank.
 [[nodiscard]] std::string measurementsCsv(const LegacyProject& project);
 

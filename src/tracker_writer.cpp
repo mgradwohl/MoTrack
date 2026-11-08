@@ -121,6 +121,8 @@ void patchUnit(QDomDocument& xml, const QString& name, const std::string& unit)
 
 void patchClipRange(QDomDocument& xml, const Clip& clip)
 {
+    if (clip.frameDurationMs)
+        require(validConstantClipTiming(clip));
     const auto count = clip.stepCount.value_or(0);
     require(clip.firstFrame >= 0 && clip.stepSize > 0 && count > 0);
     const auto end = static_cast<std::int64_t>(clip.firstFrame) + static_cast<std::int64_t>(count - 1) * clip.stepSize;
@@ -138,6 +140,80 @@ void patchClipRange(QDomDocument& xml, const Clip& clip)
     patchScalar(xml, object, "startframe", "int", QString::number(clip.firstFrame));
     patchScalar(xml, object, "stepsize", "int", QString::number(clip.stepSize));
     patchScalar(xml, object, "stepcount", "int", QString::number(count));
+}
+
+void patchClipTiming(QDomDocument& xml, const LegacyProject& project)
+{
+    const auto& clip = project.clip;
+    require(validConstantClipTiming(clip));
+    // Data tracks can supply their own time source; models require independent trajectory checks.
+    require(supportsConstantClipTimingEdits(project));
+    const auto clipProperty = uniqueProperty(xml.documentElement(), "videoclip");
+    const auto clipObject = clipProperty.firstChildElement("object");
+    require(clipProperty.attribute("type") == "object" && clipObject.attribute("class") == "org.opensourcephysics.media.core.VideoClip" &&
+            clipObject.nextSiblingElement().isNull());
+    const QStringList clipFields{"startframe", "stepsize", "stepcount", "starttime", "readout", "playallsteps"};
+    for (auto field = clipObject.firstChildElement(); !field.isNull(); field = field.nextSiblingElement())
+    {
+        const auto name = field.attribute("name");
+        require(field.tagName() == "property" && clipFields.contains(name) && field.firstChildElement().isNull());
+        require(!uniqueProperty(clipObject, name).isNull());
+        if (name == "starttime")
+        {
+            bool valid = false;
+            const auto value = field.text().toDouble(&valid);
+            require(field.attribute("type") == "double" && valid && std::isfinite(value));
+        }
+        else if (name == "readout")
+        {
+            require(field.attribute("type") == "string");
+        }
+        else if (name == "playallsteps")
+        {
+            require(field.attribute("type") == "boolean" && (field.text() == "true" || field.text() == "false"));
+        }
+        else
+        {
+            bool valid = false;
+            const auto value = field.text().toInt(&valid);
+            require(field.attribute("type") == "int" && valid && value >= (name == "startframe" ? 0 : 1));
+        }
+    }
+    const auto controlProperty = uniqueProperty(xml.documentElement(), "clipcontrol");
+    const auto control = controlProperty.firstChildElement("object");
+    require(controlProperty.attribute("type") == "object" &&
+            control.attribute("class") == "org.opensourcephysics.media.core.StepperClipControl" && control.nextSiblingElement().isNull());
+    const QStringList controlFields{"rate", "delta_t", "frame", "looping"};
+    for (auto field = control.firstChildElement(); !field.isNull(); field = field.nextSiblingElement())
+    {
+        const auto name = field.attribute("name");
+        require(field.tagName() == "property" && controlFields.contains(name) && field.firstChildElement().isNull());
+        require(!uniqueProperty(control, name).isNull());
+        if (name == "looping")
+        {
+            require(field.attribute("type") == "boolean" && (field.text() == "true" || field.text() == "false"));
+        }
+        else if (name == "frame")
+        {
+            bool valid = false;
+            const auto frame = field.text().toInt(&valid);
+            require(field.attribute("type") == "int" && valid && frame >= 0 && frame <= 500000);
+        }
+        else
+        {
+            bool valid = false;
+            const auto number = field.text().toDouble(&valid);
+            require(field.attribute("type") == "double" && valid && std::isfinite(number) && number > 0.0);
+        }
+    }
+    require(!uniqueProperty(control, "rate").isNull() && !uniqueProperty(control, "delta_t").isNull());
+    patchDouble(xml, clipObject, "starttime", clip.startTimeMs);
+    if (!clip.frameDurationMs)
+    {
+        require(false);
+        return;
+    }
+    patchDouble(xml, control, "delta_t", *clip.frameDurationMs);
 }
 
 QDomElement arrayProperty(QDomDocument& xml, QDomElement object, const QString& name, const QString& type)
@@ -797,6 +873,14 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
         baseline.project.clip.firstFrame = expected.clip.firstFrame;
         baseline.project.clip.stepSize = expected.clip.stepSize;
         baseline.project.clip.stepCount = expected.clip.stepCount;
+        changed = true;
+    }
+    if (expected.clip.frameDurationMs != baseline.project.clip.frameDurationMs ||
+        expected.clip.startTimeMs != baseline.project.clip.startTimeMs)
+    {
+        patchClipTiming(xml, expected);
+        baseline.project.clip.frameDurationMs = expected.clip.frameDurationMs;
+        baseline.project.clip.startTimeMs = expected.clip.startTimeMs;
         changed = true;
     }
     for (std::size_t index = 0; index < expected.pointMasses.size(); ++index)

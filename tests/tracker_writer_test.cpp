@@ -1383,6 +1383,148 @@ TEST(TrackerWriter, RejectsInvalidClipRangesTimingAndUnverifiedLegacyFrameMappin
     EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(legacy.project, legacy.source)), motrack::ProjectError);
 }
 
+std::string timingSource()
+{
+    auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk");
+    xml.insert(xml.find("<property name=\"coords\""), R"xml(
+<property name="clipcontrol" type="object">
+<object class="org.opensourcephysics.media.core.StepperClipControl">
+<property name="rate" type="double">1.25</property>
+<property name="delta_t" type="double">100.0</property>
+<property name="frame" type="int">0</property>
+<property name="looping" type="boolean">false</property>
+<!-- keep controller comment -->
+</object>
+</property>
+)xml");
+    return xml;
+}
+
+TEST(TrackerWriter, ExportsTimingWithNativeReopenHistoryAndUntouchedPlaybackState)
+{
+    const auto imported = motrack::parseTrackerProject(timingSource());
+    motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.setClipRange(document.project, 2, 8, 2));
+    ASSERT_TRUE(edits.setClipTiming(document.project, 250, -500));
+    const auto expected = document.project;
+    ASSERT_TRUE(edits.undo(document.project));
+    ASSERT_TRUE(edits.undo(document.project));
+    EXPECT_EQ(motrack::renderTrackerProject(document.project, imported.source), imported.source.xml);
+    ASSERT_TRUE(edits.redo(document.project));
+    ASSERT_TRUE(edits.redo(document.project));
+    QTemporaryDir temporary;
+    const auto native = temporary.filePath("timing.motrack");
+    motrack::writeWorkspaceDocument(native, document);
+    document = motrack::readWorkspaceDocument(native);
+    if (!document.trackerSource)
+    {
+        FAIL() << "Expected preserved timing source";
+    }
+    const auto output = temporary.filePath("timing.trk");
+    motrack::writeTrackerProject(output, document.project, *document.trackerSource);
+    const auto bytes = readBytes(output);
+    EXPECT_EQ(motrack::parseLegacyProject(bytes), expected);
+    EXPECT_NE(bytes.find(">1.25</property>"), std::string::npos);
+    EXPECT_NE(bytes.find("<!-- keep controller comment -->"), std::string::npos);
+    EXPECT_EQ(document.project.vectors, imported.project.vectors);
+    EXPECT_EQ(document.project.calibration, imported.project.calibration);
+}
+
+TEST(TrackerWriter, RefusesUnauditedTimingStateAtomically)
+{
+    const auto original = timingSource();
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("existing.trk");
+    const auto imported = motrack::parseTrackerProject(original);
+    motrack::writeTrackerProject(output, imported.project, imported.source);
+    const std::vector<std::pair<std::string, std::string>> changes{
+        {"StepperClipControl", "VideoClipControl"},
+        {R"(name="startframe" type="int")", R"(name="startframe" type="string")"},
+        {R"(name="rate" type="double">1.25)", R"(name="rate" type="double">0)"},
+        {R"(name="rate" type="double">1.25)", R"(name="rate" type="string">1.25)"},
+        {R"(name="frame" type="int">0)", R"(name="frame" type="int">-1)"},
+        {R"(name="looping" type="boolean">false)", R"(name="looping" type="boolean">maybe)"},
+        {R"(name="delta_t")", R"(name="future_timing")"},
+        {R"(name="rate")", R"(name="delta_t")"},
+        {"<!-- keep controller comment -->", R"(<property name="time_source" type="string">data</property>)"},
+        {"<!-- keep controller comment -->", R"(<property name="delta_t" type="double">100</property>)"},
+        {R"(<property name="startframe")", R"(<property name="frameshift" type="int">0</property><property name="startframe")"},
+        {"org.opensourcephysics.cabrillo.tracker.CoordAxes", "org.opensourcephysics.cabrillo.tracker.DynamicParticle"}};
+    for (const auto& [before, after] : changes)
+    {
+        auto xml = original;
+        const auto index = xml.find(before);
+        ASSERT_NE(index, std::string::npos);
+        xml.replace(index, before.size(), after);
+        auto project = motrack::parseTrackerProject(xml);
+        project.project.clip.frameDurationMs = 250;
+        project.project.clip.startTimeMs = -500;
+        EXPECT_THROW(motrack::writeTrackerProject(output, project.project, project.source), motrack::ProjectError) << before;
+        EXPECT_EQ(readBytes(output), original);
+    }
+    for (const auto duration : {0.0, -1.0, std::numeric_limits<double>::infinity(), 1e308})
+    {
+        auto project = imported.project;
+        project.clip.frameDurationMs = duration;
+        EXPECT_THROW(motrack::writeTrackerProject(output, project, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), original);
+    }
+}
+
+TEST(TrackerWriter, RefusesDistortedOriginsAndRangeOnlyTimingOverflowAtomically)
+{
+    const auto original = timingSource();
+    auto imported = motrack::parseTrackerProject(original);
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    motrack::writeTrackerProject(destination, imported.project, imported.source);
+    for (const auto origin : {-1e16, 1e16})
+    {
+        auto project = imported.project;
+        project.clip.frameDurationMs = 3;
+        project.clip.startTimeMs = origin;
+        EXPECT_THROW(motrack::writeTrackerProject(destination, project, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(destination), original);
+    }
+    auto xml = original;
+    for (const auto& [before, after] : std::vector<std::pair<std::string, std::string>>{
+             {R"(name="delta_t" type="double">100.0)", R"(name="delta_t" type="double">1e308)"},
+             {R"(name="stepcount" type="int">10)", R"(name="stepcount" type="int">1)"}})
+    {
+        const auto index = xml.find(before);
+        ASSERT_NE(index, std::string::npos);
+        xml.replace(index, before.size(), after);
+    }
+    imported = motrack::parseTrackerProject(xml);
+    imported.project.clip.stepCount = 3;
+    EXPECT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), original);
+}
+
+TEST(TrackerWriter, TimingOnlyExportRefusesOverflowingLegacyTemporaryFrameCount)
+{
+    auto xml = timingSource();
+    for (const auto& [before, after] :
+         std::vector<std::pair<std::string, std::string>>{{R"(name="startframe" type="int">0)", R"(name="startframe" type="int">2)"},
+                                                          {R"(name="stepsize" type="int">1)", R"(name="stepsize" type="int">2147483647)"},
+                                                          {R"(name="stepcount" type="int">10)", R"(name="stepcount" type="int">1)"}})
+    {
+        const auto position = xml.find(before);
+        ASSERT_NE(position, std::string::npos);
+        xml.replace(position, before.size(), after);
+    }
+    const auto imported = motrack::parseTrackerProject(xml);
+    auto project = imported.project;
+    project.clip.frameDurationMs = 250;
+    project.clip.startTimeMs = -500;
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("existing.trk");
+    motrack::writeTrackerProject(output, imported.project, imported.source);
+    EXPECT_THROW(motrack::writeTrackerProject(output, project, imported.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(output), xml);
+}
+
 TEST(TrackerWriter, RejectsOriginAndVectorSnappingWithoutReplacingTheDestination)
 {
     const auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk");
