@@ -1,5 +1,6 @@
 #include "workspace_document.hpp"
 
+#include "local_media_path.hpp"
 #include "track_identity.hpp"
 #include "tracker_archive.hpp"
 #include "workspace_storage.hpp"
@@ -329,6 +330,21 @@ void validateArchive(const WorkspaceDocument& document)
 }
 
 } // namespace
+
+void retainWorkspaceMediaLocations(WorkspaceDocument& document, const QString& sourcePath)
+{
+    document.mediaLocations.clear();
+    if (document.archivePayload || document.archiveMember || !document.archiveReference.empty())
+        return;
+    for (const auto& reference : document.project.clip.mediaReferences)
+        document.mediaLocations.emplace(reference, resolveLocalMediaPath(sourcePath, reference));
+}
+
+QString workspaceMediaPath(const WorkspaceDocument& document, const QString& sourcePath, const std::string& reference)
+{
+    const auto retained = document.mediaLocations.find(reference);
+    return retained == document.mediaLocations.end() ? resolveLocalMediaPath(sourcePath, reference) : retained->second;
+}
 
 WorkspaceDocument importTrackerDocument(const QString& path)
 {

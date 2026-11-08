@@ -950,6 +950,87 @@ TEST(Workspace, SavesEditsAndReopensMediaFromADifferentDirectory)
     EXPECT_EQ(marks->rowCount(), 2);
 }
 
+TEST(Workspace, SavingRetainsMediaLocationsAfterTheOriginalProjectDirectoryIsRemoved)
+{
+    for (const bool movie : {false, true})
+    {
+        for (const bool removeBeforeFirstSave : {false, true})
+        {
+            SCOPED_TRACE(movie);
+            SCOPED_TRACE(removeBeforeFirstSave);
+            QTemporaryDir temporary;
+            ASSERT_TRUE(QDir(temporary.path()).mkpath("import"));
+            ASSERT_TRUE(QDir(temporary.path()).mkpath("media"));
+            ASSERT_TRUE(QDir(temporary.path()).mkpath("exports/deep"));
+            const auto mediaName = movie ? "vfr.mp4" : "frame00.ppm";
+            ASSERT_TRUE(
+                QFile::copy(fixturePath(movie ? "vfr.mp4" : "frames/frame00.ppm"), temporary.filePath(QString("media/") + mediaName)));
+            auto document = motrack::importTrackerDocument(fixturePath("image-sequence.trk"));
+            document.project.clip.mediaReferences = {(QString("../media/") + mediaName).toStdString()};
+            document.project.clip.stepSize = 1;
+            document.project.clip.stepCount = movie ? 4 : 1;
+            document.project.clip.sourceFrameCount = movie ? 4 : 1;
+            document.movie = movie;
+            const auto input = temporary.filePath("import/input.motrack");
+            motrack::writeWorkspaceDocument(input, document);
+            motrack::MainWindow window;
+            window.show();
+            ASSERT_TRUE(window.loadProject(input));
+            auto* canvas = window.findChild<QWidget*>("videoCanvas");
+            auto* save = window.findChild<QAction*>("saveProject");
+            ASSERT_TRUE(canvas && save);
+            ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
+            const auto destination = temporary.filePath("exports/deep/saved.motrack");
+            if (!removeBeforeFirstSave)
+                ASSERT_TRUE(window.saveWorkspace(destination));
+            ASSERT_TRUE(QFile::remove(input));
+            ASSERT_TRUE(QDir(temporary.path()).rmdir("import"));
+            QTest::mouseClick(canvas, Qt::LeftButton, Qt::ShiftModifier, canvas->rect().center());
+            ASSERT_TRUE(window.isWindowModified());
+            if (removeBeforeFirstSave)
+                ASSERT_TRUE(window.saveWorkspace(destination));
+            else
+                save->trigger();
+            EXPECT_FALSE(window.isWindowModified());
+            const auto saved = motrack::readWorkspaceDocument(destination);
+            EXPECT_EQ(saved.project.clip.mediaReferences, std::vector<std::string>{(QString("../../media/") + mediaName).toStdString()});
+            // A second Save As still uses the captured source locations, regardless of the old base.
+            const auto second = temporary.filePath("second.motrack");
+            ASSERT_TRUE(window.saveWorkspace(second));
+            for (const auto& path : {destination, second})
+            {
+                ASSERT_TRUE(window.loadProject(path));
+                ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
+            }
+        }
+    }
+}
+
+TEST(Workspace, UnresolvedMediaRebasingKeepsTheExistingDestinationAndDirtyState)
+{
+    QTemporaryDir temporary;
+    auto document = motrack::importTrackerDocument(fixturePath("image-sequence.trk"));
+    document.project.clip.mediaReferences = {"https://example.invalid/frame.png"};
+    document.project.clip.stepCount = 1;
+    const auto input = temporary.filePath("input.motrack");
+    motrack::writeWorkspaceDocument(input, document);
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(input));
+    auto* add = window.findChild<QAction*>("newPointMass");
+    ASSERT_NE(add, nullptr);
+    add->trigger();
+    ASSERT_TRUE(window.isWindowModified());
+    const auto destination = temporary.filePath("saved.motrack");
+    QFile output(destination);
+    ASSERT_TRUE(output.open(QIODevice::WriteOnly));
+    ASSERT_EQ(output.write("keep existing"), 13);
+    output.close();
+    EXPECT_FALSE(window.saveWorkspace(destination));
+    EXPECT_TRUE(window.isWindowModified());
+    ASSERT_TRUE(output.open(QIODevice::ReadOnly));
+    EXPECT_EQ(output.readAll(), "keep existing");
+}
+
 TEST(Workspace, StandaloneMediaWithANativeSuffixNeverBecomesItsOwnSaveTarget)
 {
     for (const bool movie : {false, true})

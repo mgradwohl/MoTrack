@@ -1,5 +1,7 @@
 # Native document compatibility
 
+Desktop sessions retain resolved local media locations separately from serialized references when opening a project. Native Save As and linked-image standard export can therefore rebase those locations even after the original project and its empty directory are removed. These runtime bindings are rebuilt on open and are not serialized; changing a media source must rebuild them. Native saving rejects an unresolved local rebase before replacing the destination.
+
 MoTrack saves bounded JSON metadata with `format: "MoTrack"`. The current writer emits version 5;
 the reader accepts versions 1 through 5 and rejects unknown versions. Archive-backed documents use
 the native ZIP container described below; other documents remain plain JSON. Existing measurement, calibration,
