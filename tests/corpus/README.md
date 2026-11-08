@@ -357,4 +357,24 @@ The native index expectation is independently transcribed: axes at source node 0
 with IDs 1/2/3, selected owner A, then ordered guest targets 3/2 and 2. Unit cases additionally cover
 legacy plot fields, repeated/duplicate/missing names, unsupported source nodes, malformed arrays,
 shared resource limits and native rename/delete/undo/save/reopen. Legacy application round trips,
-guest editing, table dataset indices, attachments and standard rename export remain separate work.
+guest editing, media-backed table dataset behavior, attachments and standard rename export remain separate work.
+
+## Table dataset source references
+
+[TableDatasetsFixture.java](../../tools/reference/TableDatasetsFixture.java) uses pinned Tracker 6.3.5
+point-mass/LineProfile serializers and OSP XML controls. Its codec check decodes the nonempty
+`String[][]` dataset rows through OSP. Two bounded headless generator processes reproduce identical
+LF-normalized bytes. The generator is developer-only and adds no Java application dependency.
+
+The original source order is axes (node 0), mass A (node 1, native ID 1), profile A (node 2) and profile B
+(node 3). The selected track/table and first column row target A; the second column row targets B.
+Dataset rows deliberately reverse that order: B with setting 3, then A with setting 2. The native-index
+oracle transcribes these targets independently; the settings are data, not names. Both profiles remain
+unsupported source nodes with no native ID. The separate Java XML/coordinate baseline verifies mass
+A's image points (22,32)/(30,16), world points (1,2)/(5,6), and clip/calibration metadata.
+
+This is a **source-structure case only**. There is no media, no `session_tracks` manifest opt-in, and no
+claim that loaded table columns, profile measurements or a Java application resave are verified. A
+media-backed application case remains necessary before dataset editing/export acceptance. Native tests
+cover malformed/noncanonical settings, missing/duplicate names, shared budgets and preservation across
+native rename, reorder, deletion, undo/redo and save/reopen. They do not enable standard rename export.

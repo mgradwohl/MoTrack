@@ -14,8 +14,9 @@ reference now records the protractor table's column/format owner and ordered col
 plot's owner, axis variables and linked-axis flag. These independent original-file expectations are
 compared with serializers of live loaded views at all three stages. A synthetic three-point-mass
 case adds ordered, nonempty comparison guests on two plots, checked through the live view serializers
-and independent point-mass image/world baselines. Nonempty dataset indices, attachments, dynamic
-systems and edited dependency cases remain. The vector-sum reference
+and independent point-mass image/world baselines. A separate Java/OSP-authored source-structure case adds two nonempty table dataset owner rows;
+it has no media and is not an application-session acceptance case. Media-backed dataset behavior,
+attachments, dynamic systems and edited dependency cases remain. The vector-sum reference
 retains named members, independently expected image/world components and missing-member frames, but
 exposes a pinned 6.3.5 defect: the loader leaves pending names uninitialized, so the live sum has no members
 or samples and resave loses the names. The suite classifies this exact failure separately; it is not round-trip
@@ -66,7 +67,7 @@ validated original bindings; native rename/reorder/deletion does not change them
 unknown bindings retain source-node resolution without inventing native IDs.
 
 It reads root `selectedtrack`, `referenceframe`, exactly four plot/table pairs in
-`selected_track_views`, nested table/plot `selected_track`, table column/format owners and
+`selected_track_views`, nested table/plot `selected_track`, table column/format/dataset owners and
 `PlotTrackView.track` owners, plus `CenterOfMass.masses` and `VectorSum.vectors` collections.
 Plot guest arrays under `plot0`–`plot2` retain every ordered name slot. Modern `track_views`
 containers take precedence over legacy direct `PlotTView.plotN` properties. Legacy slot indexing
@@ -77,6 +78,18 @@ unrestricted lookup. Duplicate names remain ambiguous, unsupported targets retai
 and a literal `null` string is a name. Resolution does not certify that a target can supply compatible
 plot data. Malformed guest arrays emit no partial list; sparse/null/non-string entries are diagnosed
 conservatively. Plot nodes and guest cells share the existing nested-entry and candidate budgets.
+Table `dataset_indices` rows retain their ordered owner slots, including repeated owners. Only cell 0
+is a reference; cell 1 is a setting. The conservative codec requires dense two-string rows and canonical
+nonnegative decimal Java-int settings (0 through 2147483647), as emitted by the audited serializer.
+Other encodings (including signed, leading-zero or whitespace spellings that Java might parse) are
+diagnosed; they do not prevent importing or retaining the original XML. It does not validate the
+available dataset range or target's table capabilities. Missing/ambiguous names remain explicit, and
+malformed rows emit no partial dataset-owner list. These rows share the nested-entry/candidate budgets.
+The index includes serialized rows even without `track_columns`; the Java loader only applies them
+inside its non-null `track_columns` branch. Source references do not establish active table state.
+The `table-datasets` fixture uses real LineProfile serializers and the pinned OSP String[][] codec,
+with an independently transcribed native-index oracle. It has no media; actual application resave,
+line-profile measurements and dataset editing/export still require a media-backed reference case.
 Constituents resolve only unique exact `PointMass`/`Vector` candidates; the other base type is excluded.
 Other same-named classes (including nested dependent tracks) yield `Unclassified`, retaining their possible
 source targets. Duplicate eligible names stay `Ambiguous`; this index does not simulate either loader's
@@ -103,7 +116,7 @@ The internal writer rejects edits to any project containing a vector sum, even a
 member samples are removed. Native saving still retains the exact original source; an unchanged
 standard-file copy is also preserved byte-for-byte and is not advertised as repaired Tracker behavior.
 
-This is not a complete dependency graph or an export eligibility check. Dataset indices, attachments
+This is not a complete dependency graph or an export eligibility check. Attachments
 and model boosters are not indexed yet; no malformed paths does not mean a rename is safe.
 The `referenceframe` scalar is indexed, but moving-coordinate behavior still lacks application cases.
 

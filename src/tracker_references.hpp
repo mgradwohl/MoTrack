@@ -26,7 +26,8 @@ enum class TrackerReferenceKind : std::uint8_t
     PlotOwner,
     CenterOfMassMember,
     VectorSumMember,
-    PlotGuest
+    PlotGuest,
+    TableDatasetOwner
 };
 
 enum class TrackerReferenceResolution : std::uint8_t
@@ -65,7 +66,8 @@ struct TrackerReferenceIndex
 /// CenterOfMass.masses and VectorSum.vectors resolve unique exact PointMass/Vector candidates only.
 /// Other same-named classes stay Unclassified; duplicates stay Ambiguous, not simulated Java membership.
 /// Plot guests retain ordered source slots, including duplicate names; lookup does not claim drawable/data compatibility.
-/// Malformed known fields are explicit. Dataset indices, attachments and model dependencies are NOT indexed:
+/// Table dataset rows index owners only; canonical nonnegative Java-int settings remain data, not references.
+/// Malformed known fields are explicit. Attachments and model dependencies are NOT indexed:
 /// an empty malformedPaths list is NOT proof that a rename/export is safe. Tracker's vector-sum reload defect still applies.
 [[nodiscard]] TrackerReferenceIndex indexTrackerReferences(const TrackerSource& source, const LegacyProject& project);
 

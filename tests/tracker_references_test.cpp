@@ -476,6 +476,143 @@ TEST(TrackerReferences, PlotGuestIdentitySurvivesNativeRenameDeleteUndoAndReopen
     EXPECT_EQ(reopened.trackerSource->xml, imported.source.xml);
 }
 
+TEST(TrackerReferences, IndexesTableDatasetOwnersWithoutInterpretingSettingsAsNames)
+{
+    const auto datasets = arrayXml("dataset_indices",
+                                   "[[Ljava.lang.String;",
+                                   stringRow("[0]", property("[0]", "profile") + property("[1]", "2")) +
+                                       stringRow("[1]", property("[0]", "null") + property("[1]", "0")) +
+                                       stringRow("[2]", property("[0]", "profile") + property("[1]", "2147483647")) +
+                                       stringRow("[3]", property("[0]", "élève") + property("[1]", "1")));
+    const auto result =
+        index(project(track("org.opensourcephysics.cabrillo.tracker.LineProfile", "profile") + point("null") + point("2") + point("élève"),
+                      savedViews(viewXml("TableTView", datasets))));
+    EXPECT_TRUE(result.malformedPaths.empty());
+    ASSERT_EQ(result.references.size(), 4u);
+    const std::vector<std::size_t> targets{0, 1, 0, 3};
+    for (std::size_t i = 0; i < targets.size(); ++i)
+    {
+        EXPECT_EQ(result.references[i].kind, Kind::TableDatasetOwner);
+        EXPECT_EQ(result.references[i].resolution, Resolution::Resolved);
+        EXPECT_EQ(result.references[i].path, "/views/1/1/dataset_indices/" + std::to_string(i) + "/0");
+        EXPECT_EQ(result.references[i].candidateSourceIndices, (std::vector<std::size_t>{targets[i]}));
+    }
+    EXPECT_FALSE(result.tracks[0].nativeId);
+    // Serialized references are retained even without track_columns, which gates the Java loader.
+    // They do not establish that a live table or the requested dataset exists.
+    EXPECT_TRUE(index(project({}, savedViews(viewXml("TableTView", arrayXml("dataset_indices", "[[Ljava.lang.String;", {})))))
+                    .malformedPaths.empty());
+}
+
+TEST(TrackerReferences, TableDatasetsKeepMissingAndAmbiguousOwnersExplicit)
+{
+    const auto datasets = arrayXml("dataset_indices",
+                                   "[[Ljava.lang.String;",
+                                   stringRow("[0]", property("[0]", "same") + property("[1]", "0")) +
+                                       stringRow("[1]", property("[0]", "missing") + property("[1]", "1")));
+    const auto result = index(project(point("same") + track("Future", "same"), savedViews(viewXml("TableTView", datasets))));
+    EXPECT_TRUE(result.malformedPaths.empty());
+    ASSERT_EQ(result.references.size(), 2u);
+    EXPECT_EQ(result.references[0].resolution, Resolution::Ambiguous);
+    EXPECT_EQ(result.references[0].candidateSourceIndices, (std::vector<std::size_t>{0, 1}));
+    EXPECT_EQ(result.references[1].resolution, Resolution::Missing);
+}
+
+TEST(TrackerReferences, RejectsMalformedDatasetRowsWithoutEmittingPartialOwners)
+{
+    const auto row = stringRow("[0]", property("[0]", "A") + property("[1]", "2"));
+    const auto valid = arrayXml("dataset_indices", "[[Ljava.lang.String;", row);
+    for (const auto& invalid :
+         {property("dataset_indices", "A"),
+          valid + valid,
+          arrayXml("dataset_indices", "wrong", row),
+          arrayXml("dataset_indices", "[[Ljava.lang.String;", stringRow("[1]", property("[0]", "A") + property("[1]", "2"))),
+          arrayXml("dataset_indices", "[[Ljava.lang.String;", row + row),
+          arrayXml("dataset_indices", "[[Ljava.lang.String;", row + property("[1]", "null")),
+          arrayXml("dataset_indices", "[[Ljava.lang.String;", row + stringRow("[1]", property("[0]", "A"))),
+          arrayXml("dataset_indices", "[[Ljava.lang.String;", row + stringRow("[1]", property("[0]", "A") + property("[2]", "2"))),
+          arrayXml("dataset_indices",
+                   "[[Ljava.lang.String;",
+                   row + stringRow("[1]", property("[0]", "A") + property("[1]", "2") + property("[2]", "3"))),
+          arrayXml("dataset_indices",
+                   "[[Ljava.lang.String;",
+                   row + stringRow("[1]", property("[0]", "A") + "<property name='[1]' type='int'>2</property>")),
+          arrayXml("dataset_indices",
+                   "[[Ljava.lang.String;",
+                   row + stringRow("[1]", property("[0]", std::string(4097, 'a')) + property("[1]", "2")))})
+    {
+        SCOPED_TRACE(invalid);
+        const auto result = index(project(point("A"), savedViews(viewXml("TableTView", invalid))));
+        EXPECT_TRUE(result.references.empty());
+        EXPECT_FALSE(result.malformedPaths.empty());
+    }
+    for (const auto* setting : {"", "-1", "+1", "01", " 1", "1 ", "1.0", "2147483648", "4294967296", "A", "１"})
+    {
+        SCOPED_TRACE(setting);
+        const auto datasets =
+            arrayXml("dataset_indices", "[[Ljava.lang.String;", row + stringRow("[1]", property("[0]", "A") + property("[1]", setting)));
+        const auto result = index(project(point("A"), savedViews(viewXml("TableTView", datasets))));
+        EXPECT_TRUE(result.references.empty());
+        EXPECT_EQ(result.malformedPaths, (std::vector<std::string>{"/views/1/1/dataset_indices/1/1"}));
+    }
+}
+
+TEST(TrackerReferences, TableDatasetsShareNestedEntryAndCandidateBudgets)
+{
+    std::string rows;
+    for (unsigned i = 0; i < 3333; ++i)
+    {
+        rows += stringRow("[" + std::to_string(i) + "]", property("[0]", "A") + property("[1]", "0"));
+    }
+    EXPECT_THROW(
+        (void)index(project(point("A"), savedViews(viewXml("TableTView", arrayXml("dataset_indices", "[[Ljava.lang.String;", rows))))),
+        motrack::ProjectError);
+    std::string tracks;
+    for (unsigned i = 0; i < 400; ++i)
+        tracks += point("same");
+    rows.clear();
+    for (unsigned i = 0; i < 251; ++i)
+    {
+        rows += stringRow("[" + std::to_string(i) + "]", property("[0]", "same") + property("[1]", "0"));
+    }
+    EXPECT_THROW((void)index(project(tracks, savedViews(viewXml("TableTView", arrayXml("dataset_indices", "[[Ljava.lang.String;", rows))))),
+                 motrack::ProjectError);
+}
+
+TEST(TrackerReferences, TableDatasetIdentitySurvivesNativeRenameDeleteUndoRedoAndReopen)
+{
+    const auto fields =
+        arrayXml("dataset_indices", "[[Ljava.lang.String;", stringRow("[0]", property("[0]", "original") + property("[1]", "0")));
+    auto imported = motrack::parseTrackerProject(project(point("original") + point("other"), savedViews(viewXml("TableTView", fields))));
+    const auto id = imported.project.pointMasses[0].id;
+    motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.renamePointMass(document.project, 0, "new name"));
+    std::ranges::reverse(document.project.pointMasses);
+    ASSERT_TRUE(edits.removePointMass(document.project, 1));
+    const auto deleted = motrack::indexTrackerReferences(imported.source, document.project);
+    ASSERT_EQ(deleted.references.size(), 1u);
+    EXPECT_EQ(deleted.tracks[0].nativeId, id);
+    EXPECT_EQ(deleted.references[0].candidateSourceIndices, (std::vector<std::size_t>{0}));
+    ASSERT_TRUE(edits.undo(document.project));
+    ASSERT_TRUE(edits.redo(document.project));
+    ASSERT_TRUE(edits.undo(document.project));
+    QTemporaryDir temporary;
+    const auto file = temporary.filePath("table-datasets.motrack");
+    motrack::writeWorkspaceDocument(file, document);
+    const auto reopened = motrack::readWorkspaceDocument(file);
+    if (!reopened.trackerSource)
+    {
+        FAIL() << "Expected original source";
+    }
+    const auto restored = motrack::indexTrackerReferences(*reopened.trackerSource, reopened.project);
+    ASSERT_EQ(restored.references.size(), 1u);
+    EXPECT_EQ(restored.tracks[0].nativeId, id);
+    EXPECT_EQ(restored.references[0].originalName, "original");
+    EXPECT_EQ(restored.references[0].candidateSourceIndices, (std::vector<std::size_t>{0}));
+    EXPECT_EQ(reopened.trackerSource->xml, imported.source.xml);
+}
+
 TEST(TrackerReferences, RejectsMalformedViewContainersIndicesAndObjects)
 {
     const auto valid = savedViews(viewXml("TableTView", property("selected_track", "A")));
