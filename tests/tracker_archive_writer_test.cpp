@@ -160,8 +160,6 @@ TEST(TrackerArchiveWriter, RefusesReaderAcceptedButWriterUnsupportedZipLayouts)
     const auto valid = readBytes(original);
     const auto central = qFromLittleEndian<quint32>(valid.constData() + valid.size() - 6);
     ASSERT_TRUE(writeBytes(destination, "existing output"));
-    ASSERT_GE(qFromLittleEndian<quint16>(valid.constData() + central + 30), 4);
-    ASSERT_GE(qFromLittleEndian<quint16>(valid.constData() + 28), 4);
     for (const int kind : {0, 1, 2, 3})
     {
         SCOPED_TRACE(kind);
@@ -174,12 +172,19 @@ TEST(TrackerArchiveWriter, RefusesReaderAcceptedButWriterUnsupportedZipLayouts)
         else if (kind == 1)
         {
             const auto extra = central + 46 + qFromLittleEndian<quint16>(unsupported.constData() + central + 28);
-            qToLittleEndian<quint16>(0x1234, unsupported.data() + extra);
+            const auto extraSize = qFromLittleEndian<quint16>(unsupported.constData() + central + 30);
+            qToLittleEndian<quint16>(extraSize + 4, unsupported.data() + central + 30);
+            unsupported.insert(extra, QByteArray::fromHex("34120000"));
+            const auto directorySize = qFromLittleEndian<quint32>(unsupported.constData() + unsupported.size() - 10);
+            qToLittleEndian<quint32>(directorySize + 4, unsupported.data() + unsupported.size() - 10);
         }
         else if (kind == 2)
         {
             const auto extra = 30 + qFromLittleEndian<quint16>(unsupported.constData() + 26);
-            qToLittleEndian<quint16>(0x1234, unsupported.data() + extra);
+            const auto extraSize = qFromLittleEndian<quint16>(unsupported.constData() + 28);
+            qToLittleEndian<quint16>(extraSize + 4, unsupported.data() + 28);
+            unsupported.insert(extra, QByteArray::fromHex("34120000"));
+            qToLittleEndian<quint32>(central + 4, unsupported.data() + unsupported.size() - 6);
         }
         else
         {
