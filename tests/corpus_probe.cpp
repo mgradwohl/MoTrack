@@ -156,7 +156,8 @@ try
          args[1] == "--export-clip-boundary" || args[1] == "--export-keyed-calibration" || args[1] == "--export-mass-unit" ||
          args[1] == "--export-name" || args[1] == "--export-unselected-name" || args[1] == "--export-vector-name" ||
          args[1] == "--export-plot-owner-name" || args[1] == "--export-plot-guest-name" || args[1] == "--export-center-member-name" ||
-         args[1] == "--export-attachment-first-name" || args[1] == "--export-attachment-last-name"))
+         args[1] == "--export-attachment-first-name" || args[1] == "--export-attachment-last-name" ||
+         args[1] == "--export-model-booster-name"))
     {
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trk");
@@ -167,7 +168,16 @@ try
         }
         auto document = motrack::importTrackerDocument(source);
         motrack::TrackEdits edits;
-        if (args[1] == "--export-attachment-first-name" || args[1] == "--export-attachment-last-name")
+        if (args[1] == "--export-model-booster-name")
+        {
+            const auto name = QString::fromUtf8("élève β & <B>").toStdString();
+            if (document.project.pointMasses.size() != 1 || !edits.renamePointMass(document.project, 0, "temporary rename") ||
+                !edits.renamePointMass(document.project, 0, name) || !edits.undo(document.project) || !edits.redo(document.project))
+            {
+                throw motrack::ProjectError("Could not rename the round-trip model booster.");
+            }
+        }
+        else if (args[1] == "--export-attachment-first-name" || args[1] == "--export-attachment-last-name")
         {
             const std::size_t index = args[1] == "--export-attachment-first-name" ? 0 : 1;
             const auto name = QString::fromUtf8("élève β & <B>").toStdString();

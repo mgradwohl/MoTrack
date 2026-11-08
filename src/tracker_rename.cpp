@@ -6,6 +6,7 @@
 #include <QStringList>
 
 #include <algorithm>
+#include <cmath>
 #include <map>
 #include <set>
 
@@ -39,9 +40,55 @@ QDomElement property(const QDomElement& owner, const QString& name)
     return result;
 }
 
-// A reference index alone cannot establish rename eligibility. This first writer admits only the
-// audited media-free mass/vector/protractor/table/plot schema. Unknown fields/classes, models, functions, moving
-// frames and attachments remain preserved by native saving but cannot silently bypass this gate.
+std::size_t denseArraySize(const QDomElement& array)
+{
+    std::size_t count = 0;
+    for (auto cell = array.firstChildElement(); !cell.isNull(); cell = cell.nextSiblingElement())
+    {
+        require(cell.attribute("name") == "[" + QString::number(count) + "]");
+        ++count;
+    }
+    return count;
+}
+
+std::size_t modelNamesSize(const QDomElement& array)
+{
+    const auto count = denseArraySize(array);
+    std::set<QString> names;
+    for (auto cell = array.firstChildElement(); !cell.isNull(); cell = cell.nextSiblingElement())
+        require(!cell.text().isEmpty() && names.insert(cell.text()).second);
+    return count;
+}
+
+std::size_t modelValuesSize(const QDomElement& array)
+{
+    const auto first = array.firstChildElement();
+    if (first.attribute("name") == "array")
+    {
+        const auto text = first.text().trimmed();
+        require(text.size() <= 160000 && text.startsWith('{') && text.endsWith('}'));
+        const auto cells = text.mid(1, text.size() - 2).split(',');
+        require(cells.size() <= 10000);
+        for (const auto& cell : cells)
+        {
+            bool valid = false;
+            const auto value = cell.trimmed().toDouble(&valid);
+            require(valid && std::isfinite(value));
+        }
+        return static_cast<std::size_t>(cells.size());
+    }
+    const auto count = denseArraySize(array);
+    for (auto cell = first; !cell.isNull(); cell = cell.nextSiblingElement())
+    {
+        bool valid = false;
+        const auto value = cell.text().toDouble(&valid);
+        require(valid && std::isfinite(value));
+    }
+    return count;
+}
+
+// A reference index alone cannot establish rename eligibility. Admit only the audited media-free
+// schemas below. Other fields/classes remain preserved by native saving but cannot bypass this gate.
 using Fields = std::map<QString, QString>;
 Fields fields(const QString& name)
 {
@@ -76,7 +123,8 @@ Fields fields(const QString& name)
                 {"track_control_y", "int"}};
     }
     if (name == QString(TRACKER) + "PointMass" || name == QString(TRACKER) + "CenterOfMass" || name == QString(TRACKER) + "Vector" ||
-        name == QString(TRACKER) + "CoordAxes" || name == QString(TRACKER) + "Protractor" || name == QString(TRACKER) + "TapeMeasure")
+        name == QString(TRACKER) + "CoordAxes" || name == QString(TRACKER) + "Protractor" || name == QString(TRACKER) + "TapeMeasure" ||
+        name == QString(TRACKER) + "DynamicParticle" || name == QString(TRACKER) + "DynamicSystem")
     {
         Fields result{{"name", "string"},
                       {"description", "string"},
@@ -110,7 +158,38 @@ Fields fields(const QString& name)
                            {"framedata", "array:[L" + QString(TRACKER) + "TapeMeasure$FrameData;"},
                            {"worldlengths", "array:[Ljava.lang.Double;"}});
         }
+        else if (name.endsWith(".DynamicParticle") || name.endsWith(".DynamicSystem"))
+        {
+            result.insert({{"mass", "double"},
+                           {"user_parameters", "array:[Lorg.opensourcephysics.tools.Parameter;"},
+                           {"initial_values", "array:[Lorg.opensourcephysics.tools.Parameter;"},
+                           {"main_functions", "array:[Lorg.opensourcephysics.tools.UserFunction;"}});
+            if (name.endsWith(".DynamicSystem"))
+                result.emplace("particles", "array:[Ljava.lang.String;");
+            else
+                result.insert({{"in_system", "boolean"}, {"booster", "string"}});
+        }
         return result;
+    }
+    if (name == "org.opensourcephysics.tools.Parameter")
+    {
+        return {{"name", "string"},
+                {"function", "string"},
+                {"editable", "boolean"},
+                {"name_editable", "boolean"},
+                {"description", "string"},
+                {"synced", "boolean"}};
+    }
+    if (name == "org.opensourcephysics.tools.UserFunction")
+    {
+        return {{"name", "string"},
+                {"description", "string"},
+                {"name_editable", "boolean"},
+                {"parameter_names", "array:[Ljava.lang.String;"},
+                {"parameter_values", "array:[D"},
+                {"parameter_descriptions", "array:[Ljava.lang.String;"},
+                {"variables", "array:[Ljava.lang.String;"},
+                {"expression", "string"}};
     }
     if (name == QString(TRACKER) + "PointMass$FrameData")
     {
@@ -209,6 +288,40 @@ struct RenameSchema
             propertyValue(child, allowed.at(name), depth + 1);
         }
         require(actual != QString(TRACKER) + "CenterOfMass" || seen.contains("masses"));
+        if (actual == "org.opensourcephysics.tools.Parameter")
+            require(seen.contains("name") && seen.contains("function"));
+        if (actual == "org.opensourcephysics.tools.UserFunction")
+        {
+            require(seen.contains("name") && seen.contains("expression") && seen.contains("variables") &&
+                    seen.contains("parameter_names") && seen.contains("parameter_values"));
+            const auto count = modelNamesSize(property(value, "parameter_names"));
+            require(count == modelValuesSize(property(value, "parameter_values")));
+            if (seen.contains("parameter_descriptions"))
+                require(denseArraySize(property(value, "parameter_descriptions")) == count);
+            // Both supported force evaluators pass five state values. A mismatched variable list
+            // changes force evaluation; it is not harmless preserved metadata.
+            require(modelNamesSize(property(value, "variables")) == 5);
+        }
+        if (actual == QString(TRACKER) + "DynamicParticle" || actual == QString(TRACKER) + "DynamicSystem")
+        {
+            require(seen.contains("user_parameters") && seen.contains("initial_values") && seen.contains("main_functions"));
+            const auto initial = property(value, "initial_values");
+            require(denseArraySize(initial) == 5);
+            const auto names =
+                actual == QString(TRACKER) + "DynamicParticle"
+                    ? QStringList{"t", "x", "y", "vx", "vy"}
+                    : QStringList{"t", "r_relative", QString::fromUtf8("θ_relative"), "vr_relative", QString::fromUtf8("ω_relative")};
+            auto cell = initial.firstChildElement();
+            for (const auto& name : names)
+            {
+                require(property(cell.firstChildElement(), "name").text() == name);
+                cell = cell.nextSiblingElement();
+            }
+            if (actual == QString(TRACKER) + "DynamicParticle")
+                require(property(value, "in_system").text() == "true");
+            else
+                require(seen.contains("particles"));
+        }
         if (actual == QString(TRACKER) + "TapeMeasure")
         {
             // Only the read-only fixed tape mode has edited-name application acceptance.
@@ -275,7 +388,8 @@ struct RenameSchema
                     require(value.attribute("name") == "tracks" &&
                             (className == QString(TRACKER) + "PointMass" || className == QString(TRACKER) + "CoordAxes" ||
                              className == QString(TRACKER) + "Protractor" || className == QString(TRACKER) + "Vector" ||
-                             className == QString(TRACKER) + "CenterOfMass" || className == QString(TRACKER) + "TapeMeasure"));
+                             className == QString(TRACKER) + "CenterOfMass" || className == QString(TRACKER) + "TapeMeasure" ||
+                             className == QString(TRACKER) + "DynamicParticle" || className == QString(TRACKER) + "DynamicSystem"));
                 }
                 propertyValue(item, "object:" + className, depth + 1);
             }
@@ -287,6 +401,7 @@ struct RenameSchema
             const auto element = expected.mid(1);
             std::set<QString> seen;
             std::set<QString> guests;
+            std::set<QString> modelNames;
             for (auto item = value.firstChildElement(); !item.isNull(); item = item.nextSiblingElement())
             {
                 const auto name = item.attribute("name");
@@ -326,6 +441,19 @@ struct RenameSchema
                 propertyValue(item, childType, depth + 1);
                 // Java ignores an already-present guest. The same guest in another panel is valid.
                 require(value.attribute("name") != "guests" || guests.insert(item.text()).second);
+                if (element == "Lorg.opensourcephysics.tools.Parameter;" || element == "Lorg.opensourcephysics.tools.UserFunction;")
+                {
+                    const auto nameField = property(item.firstChildElement(), "name");
+                    require(!nameField.isNull() && !nameField.text().isEmpty() && modelNames.insert(nameField.text()).second);
+                }
+            }
+            require(value.attribute("name") != "particles" || seen.size() == 2);
+            if (element == "Lorg.opensourcephysics.tools.Parameter;" || element == "Lorg.opensourcephysics.tools.UserFunction;")
+            {
+                require(!seen.empty());
+                for (std::size_t i = 0; i < seen.size(); ++i)
+                    require(seen.contains("[" + QString::number(i) + "]"));
+                require(value.attribute("name") != "main_functions" || seen.size() == 2);
             }
         }
         else
@@ -425,6 +553,7 @@ bool patchTrackerNames(QDomDocument& xml, const LegacyProject& project, LegacyPr
     }
     require(replacements.size() == renamed.size());
     bool packedChanged = false;
+    std::set<std::size_t> systemMembers;
     QStringList packed;
     for (const auto& reference : index.references)
     {
@@ -434,10 +563,13 @@ bool patchTrackerNames(QDomDocument& xml, const LegacyProject& project, LegacyPr
                 reference.kind == TrackerReferenceKind::TableSelection || reference.kind == TrackerReferenceKind::TableColumnOwner ||
                 reference.kind == TrackerReferenceKind::TableFormatOwner || reference.kind == TrackerReferenceKind::PlotOwner ||
                 reference.kind == TrackerReferenceKind::PlotGuest || reference.kind == TrackerReferenceKind::CenterOfMassMember ||
-                reference.kind == TrackerReferenceKind::Attachment);
+                reference.kind == TrackerReferenceKind::Attachment || reference.kind == TrackerReferenceKind::ModelBooster ||
+                reference.kind == TrackerReferenceKind::DynamicSystemMember);
         if (reference.resolution == TrackerReferenceResolution::NoTarget)
             continue;
         require(reference.candidateSourceIndices.size() == 1);
+        if (reference.kind == TrackerReferenceKind::DynamicSystemMember)
+            require(systemMembers.insert(reference.candidateSourceIndices.front()).second); // One system per particle.
         if (reference.kind == TrackerReferenceKind::Attachment)
         {
             const auto target = std::ranges::find(index.tracks, reference.candidateSourceIndices.front(), &TrackerSourceTrack::sourceIndex);
@@ -471,6 +603,9 @@ bool patchTrackerNames(QDomDocument& xml, const LegacyProject& project, LegacyPr
             patchString(xml, value, replacement->second);
         }
     }
+    for (const auto& track : index.tracks)
+        if (track.className == "org.opensourcephysics.cabrillo.tracker.DynamicParticle")
+            require(systemMembers.contains(track.sourceIndex));
     if (packedChanged)
     {
         QStringList pairs;
