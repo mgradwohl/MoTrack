@@ -9,7 +9,6 @@
 #include <cmath>
 #include <map>
 #include <set>
-#include <vector>
 
 namespace motrack
 {
@@ -570,12 +569,13 @@ void validateTrackerTrackMembership(const QDomDocument& xml, const LegacyProject
             require(reference.candidateSourceIndices.size() == 1);
             const auto target = originalTracks.find(reference.candidateSourceIndices.front());
             require(target != originalTracks.end());
-            // Selections and plot links have explicit cleanup policies. Table data and scientific
+            // Saved views have explicit cleanup policies. Dataset selections and scientific
             // dependencies must not silently disappear or rebind to a new same-name track.
             const auto targetId = target->second->nativeId;
             require(!targetId || liveIds.contains(*targetId) || reference.kind == TrackerReferenceKind::SelectedTrack ||
                     reference.kind == TrackerReferenceKind::PlotSelection || reference.kind == TrackerReferenceKind::TableSelection ||
-                    reference.kind == TrackerReferenceKind::PlotOwner || reference.kind == TrackerReferenceKind::PlotGuest);
+                    reference.kind == TrackerReferenceKind::PlotOwner || reference.kind == TrackerReferenceKind::PlotGuest ||
+                    reference.kind == TrackerReferenceKind::TableColumnOwner || reference.kind == TrackerReferenceKind::TableFormatOwner);
             if (reference.kind != TrackerReferenceKind::SelectedTrack)
                 require(target->second->className != std::string(TRACKER) + "CoordAxes");
         }
@@ -612,7 +612,7 @@ void patchTrackerDeletedReferences(QDomDocument& xml, const LegacyProject& proje
         }
     }
     QStringList packed;
-    std::vector<QDomElement> removals;
+    std::map<std::string, QDomElement> removals;
     std::map<std::string, QDomElement> changedParents;
     for (const auto& reference : index.references)
     {
@@ -624,19 +624,32 @@ void patchTrackerDeletedReferences(QDomDocument& xml, const LegacyProject& proje
         const auto targetId = target->second->nativeId;
         if (!targetId || liveIds.contains(*targetId))
             continue;
-        if (reference.kind == TrackerReferenceKind::PlotOwner || reference.kind == TrackerReferenceKind::PlotGuest)
+        if (reference.kind == TrackerReferenceKind::PlotOwner || reference.kind == TrackerReferenceKind::PlotGuest ||
+            reference.kind == TrackerReferenceKind::TableColumnOwner || reference.kind == TrackerReferenceKind::TableFormatOwner)
         {
             auto value = referenceProperty(xml.documentElement(), reference.path);
             require(value.text().toStdString() == reference.originalName);
-            // Resolve every source ordinal before removing any collection entries. An owner's
-            // complete custom view goes away; guests remove only their own ordered string cells.
-            const bool owner = reference.kind == TrackerReferenceKind::PlotOwner;
-            auto removed = owner ? value.parentNode().parentNode().toElement() : value;
-            auto parentPath = reference.path.substr(0, reference.path.rfind('/'));
-            if (owner)
-                parentPath.resize(parentPath.rfind('/'));
+            // Resolve source paths before any removal. Multiple format rows share one owner group;
+            // remove that whole group once, retaining other owners' column/format order.
+            auto removed = value;
+            auto removedPath = reference.path;
+            if (reference.kind == TrackerReferenceKind::PlotOwner)
+            {
+                removed = removed.parentNode().parentNode().toElement();
+                removedPath.resize(removedPath.rfind('/'));
+            }
+            else if (reference.kind != TrackerReferenceKind::PlotGuest)
+            {
+                const int levels = reference.kind == TrackerReferenceKind::TableFormatOwner ? 2 : 1;
+                for (int level = 0; level < levels; ++level)
+                {
+                    removed = removed.parentNode().toElement();
+                    removedPath.resize(removedPath.rfind('/'));
+                }
+            }
+            const auto parentPath = removedPath.substr(0, removedPath.rfind('/'));
             changedParents.emplace(parentPath, removed.parentNode().toElement());
-            removals.push_back(removed);
+            removals.emplace(removedPath, removed);
             continue;
         }
         require(reference.kind == TrackerReferenceKind::SelectedTrack || reference.kind == TrackerReferenceKind::PlotSelection ||
@@ -667,7 +680,7 @@ void patchTrackerDeletedReferences(QDomDocument& xml, const LegacyProject& proje
             pairs.append(packed[i] + "," + packed[i + 1]);
         patchString(xml, property(xml.documentElement(), "selected_track_views"), pairs.join(';'));
     }
-    for (const auto& value : removals)
+    for (const auto& [path, value] : removals)
     {
         auto parent = value.parentNode().toElement();
         require(parent.attribute("type") == "array" || parent.attribute("type") == "collection");
@@ -677,7 +690,7 @@ void patchTrackerDeletedReferences(QDomDocument& xml, const LegacyProject& proje
     {
         if (parent.attribute("type") == "array" && parent.firstChildElement().isNull())
         {
-            parent.parentNode().removeChild(parent); // Tracker omits an empty guest list.
+            parent.parentNode().removeChild(parent); // Tracker omits empty guest/column/format lists.
             continue;
         }
         unsigned index = 0;

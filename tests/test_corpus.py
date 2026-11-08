@@ -33,7 +33,9 @@ class CorpusTests(unittest.TestCase):
         for mode, case_id in [("delete-mass", "protractor"), ("delete-vector", "independent-vectors"),
                               ("delete-all-vectors", "independent-vectors"), ("delete-selected-mass", "protractor"),
                               ("delete-all-masses", "protractor"), ("delete-plot-owner", "plot-guests"),
-                              ("delete-plot-guest", "plot-guests"), ("delete-first-plot-guest", "plot-guests")]:
+                              ("delete-plot-guest", "plot-guests"), ("delete-first-plot-guest", "plot-guests"),
+                              ("delete-first-table-owner", "table-owners"), ("delete-selected-table-owner", "table-owners"),
+                              ("delete-last-table-owner", "table-owners"), ("delete-all-table-owners", "table-owners")]:
             original = next(c for c in manifest["cases"] if c["id"] == case_id)
             unchanged = copy.deepcopy(original)
             expected, case = corpus.deletion_roundtrip_expected(original, mode)
@@ -42,7 +44,8 @@ class CorpusTests(unittest.TestCase):
                 mass = next((v for v in expected["point_masses"] if v["name"] == identity["name"]), None)
                 vector = next((v for v in expected["vectors"] if v["name"] == identity["name"]), None)
                 calibrated = next((v for v in case.get("session_vector_data", []) if v["name"] == identity["name"]), None)
-                keys = [s["frame"] for s in mass["samples"]] if mass and mode in corpus.PLOT_DELETION_NAMES else [0] if mass else None
+                keys = ([s["frame"] for s in mass["samples"]] if mass and mode in corpus.PLOT_DELETION_NAMES.keys() | corpus.TABLE_DELETION_NAMES.keys()
+                        else [0] if mass else None)
                 tracks.append({**identity, "mass": mass["mass"] if mass else None, "key_frames": keys,
                                "samples": [{"frame": s["frame"], "points": [s["image"]], "world": s["world"]}
                                            for s in mass["samples"]] if mass else [],
@@ -57,6 +60,8 @@ class CorpusTests(unittest.TestCase):
             keys = [] if mode == "delete-all-masses" else [[0]] if "mass" in mode else None
             if mode in corpus.PLOT_DELETION_NAMES:
                 keys = [[0, 2], [0, 2]] if mode == "delete-first-plot-guest" else [[0, 2], [1, 3]]
+            elif mode in corpus.TABLE_DELETION_NAMES:
+                keys = [] if mode == "delete-all-table-owners" else [[0, 2], [0, 2]] if mode == "delete-last-table-owner" else [[0, 2], [1, 3]]
             corpus.validate_session(case, report, manifest, expected, keys)
             for mutation in ["resurrect", "lose-survivor", "alter-calibration"]:
                 invalid = copy.deepcopy(report)
@@ -89,6 +94,28 @@ class CorpusTests(unittest.TestCase):
                             invalid[stage]["name_references"]["view_tracks"][0][0] = "axes"
                         else:
                             invalid[stage]["saved_views"]["tables"][0]["track_columns"] = []
+                    with self.subTest(mode=mode, mutation=mutation), self.assertRaises(ValueError):
+                        corpus.validate_session(case, invalid, manifest, expected, keys)
+            elif mode in corpus.TABLE_DELETION_NAMES:
+                removed = corpus.TABLE_DELETION_NAMES[mode]
+                if mode == "delete-all-table-owners":
+                    self.assertEqual(case["session_views"]["tables"], [])
+                    self.assertEqual(case["session_names"]["view_tracks"], [[None, None]] * 4)
+                else:
+                    table = case["session_views"]["tables"][0]
+                    self.assertEqual([row[0] for row in table["track_columns"]], [name for name in ["mass A", "mass B", "mass C"] if name not in removed])
+                    self.assertTrue(all(row[0] not in removed for row in table["column_formats"]))
+                for mutation in ["columns", "formats", "selection"]:
+                    invalid = copy.deepcopy(report)
+                    for stage in ["before", "after_save", "after"]:
+                        if mutation == "selection":
+                            invalid[stage]["name_references"]["view_tracks"][0][1] = "axes"
+                        elif mode == "delete-all-table-owners":
+                            invalid[stage]["saved_views"] = copy.deepcopy(original["session_views"])
+                        elif mutation == "columns":
+                            invalid[stage]["saved_views"]["tables"][0]["track_columns"][0][1:] = ["lost"]
+                        else:
+                            invalid[stage]["saved_views"]["tables"][0]["column_formats"][0][2] = "0.999"
                     with self.subTest(mode=mode, mutation=mutation), self.assertRaises(ValueError):
                         corpus.validate_session(case, invalid, manifest, expected, keys)
             elif mode in corpus.PLOT_DELETION_NAMES:
@@ -213,6 +240,48 @@ class CorpusTests(unittest.TestCase):
             else:
                 invalids.append(good.replace('name="x_var" type="string">t', 'name="x_var" type="string">x'))
                 invalids.append(good.replace('name="[0]" type="string">mass', 'name="[1]" type="string">mass'))
+            for invalid in invalids:
+                self.assertNotEqual(invalid, good)
+                exported.write_text(invalid, encoding="utf-8")
+                with self.subTest(mode=mode), self.assertRaises(ValueError):
+                    corpus.verify_deletion_export_xml(source, exported, mode)
+
+    def test_table_deletion_xml_oracle_preserves_surviving_groups_and_formats(self):
+        source = corpus.CORPUS / "fixtures/table-owners.trk"
+        exported = self.root / "table-deletion.trk"
+        for mode, removed in corpus.TABLE_DELETION_NAMES.items():
+            tree = ET.parse(source)
+            root = tree.getroot()
+            tracks = root.find("property[@name='tracks']")
+            for item in list(tracks):
+                if item.find("object/property[@name='name']").text in removed:
+                    tracks.remove(item)
+            table = root.find(".//object[@class='org.opensourcephysics.cabrillo.tracker.TableTView']")
+            for field in ["track_columns", "column_formats"]:
+                array = table.find(f"property[@name='{field}']")
+                for group in list(array):
+                    owner = group.find("property").text if field == "track_columns" else group.find("property/property").text
+                    if owner in removed:
+                        array.remove(group)
+                if len(array) == 0:
+                    table.remove(array)
+                else:
+                    for i, group in enumerate(array):
+                        group.set("name", f"[{i}]")
+            if "mass B" in removed:
+                root.remove(root.find("property[@name='selectedtrack']"))
+                selected = table.find("property[@name='selected_track']")
+                if mode == "delete-all-table-owners":
+                    table.remove(selected)
+                else:
+                    selected.text = "mass A"
+            tree.write(exported, encoding="utf-8")
+            corpus.verify_deletion_export_xml(source, exported, mode)
+            good = exported.read_text(encoding="utf-8")
+            invalids = [source.read_text(encoding="utf-8"), good.replace('>kg<', '>lost<')]
+            if mode != "delete-all-table-owners":
+                invalids += [good.replace('type="string">x<', 'type="string">lost<'),
+                             good.replace('type="string">0.', 'type="string">9.')]
             for invalid in invalids:
                 self.assertNotEqual(invalid, good)
                 exported.write_text(invalid, encoding="utf-8")

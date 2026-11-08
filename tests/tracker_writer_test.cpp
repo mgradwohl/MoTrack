@@ -423,9 +423,87 @@ TEST(TrackerWriter, DeletionAndCreationWithEqualCountsUseIdentityAndPermitSafeNa
     }
 }
 
-TEST(TrackerWriter, RefusesReferencedTrackDeletionAndReplacementBeforeTouchingTheDestination)
+TEST(TrackerWriter, RemovesOnlyDeletedTableOwnersAfterHistoryNativeReopenAndNameReuse)
 {
-    const auto imported = motrack::parseTrackerProject(namedSource());
+    const auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/table-owners.trk");
+    const auto imported = motrack::parseTrackerProject(xml);
+    for (unsigned removed = 1; removed < 8; ++removed)
+    {
+        SCOPED_TRACE(removed);
+        motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+        motrack::TrackEdits edits;
+        std::map<std::string, unsigned> expectedFormats;
+        for (std::size_t i = 3; i-- > 0;)
+        {
+            if ((removed & (1u << i)) != 0)
+            {
+                ASSERT_TRUE(edits.removePointMass(document.project, i));
+                ASSERT_TRUE(edits.undo(document.project));
+                ASSERT_TRUE(edits.redo(document.project));
+            }
+            else
+            {
+                const auto name = "surviving " + document.project.pointMasses[i].name;
+                ASSERT_TRUE(edits.renamePointMass(document.project, i, name));
+                expectedFormats.emplace(name, i == 2 ? 1u : 2u);
+            }
+        }
+        const std::string reused = (removed & 1u) != 0 ? "mass A" : (removed & 2u) != 0 ? "mass B" : "mass C";
+        ASSERT_TRUE(edits.createPointMass(document.project, reused));
+        auto expected = document.project.pointMasses;
+        std::ranges::reverse(document.project.pointMasses);
+        QTemporaryDir temporary;
+        const auto native = temporary.filePath("table-deletion.motrack");
+        motrack::writeWorkspaceDocument(native, document);
+        document = motrack::readWorkspaceDocument(native);
+        if (!document.trackerSource)
+        {
+            FAIL() << "Native reopen lost the original table source.";
+        }
+        const auto bytes = motrack::renderTrackerProject(document.project, *document.trackerSource);
+        const auto output = motrack::parseTrackerProject(bytes);
+        ASSERT_EQ(output.project.pointMasses.size(), expected.size());
+        for (std::size_t i = 0; i < expected.size(); ++i)
+        {
+            expected[i].id = output.project.pointMasses[i].id;
+            EXPECT_EQ(output.project.pointMasses[i], expected[i]);
+        }
+        const auto references = motrack::indexTrackerReferences(output.source, output.project);
+        EXPECT_TRUE(references.malformedPaths.empty());
+        std::map<std::string, unsigned> formats;
+        std::map<std::string, unsigned> columns;
+        for (const auto& reference : references.references)
+        {
+            EXPECT_EQ(reference.resolution, motrack::TrackerReferenceResolution::Resolved);
+            if (reference.kind == motrack::TrackerReferenceKind::TableColumnOwner)
+                ++columns[reference.originalName];
+            if (reference.kind == motrack::TrackerReferenceKind::TableFormatOwner)
+                ++formats[reference.originalName];
+        }
+        EXPECT_EQ(formats, expectedFormats);
+        ASSERT_EQ(columns.size(), expectedFormats.size());
+        for (const auto& [name, count] : columns)
+        {
+            EXPECT_TRUE(expectedFormats.contains(name));
+            EXPECT_EQ(count, 1);
+        }
+        EXPECT_EQ(document.trackerSource->xml, xml);
+        EXPECT_EQ(motrack::renderTrackerProject(document.project, *document.trackerSource), bytes);
+        EXPECT_EQ(motrack::renderTrackerProject(output.project, output.source), bytes);
+    }
+}
+
+TEST(TrackerWriter, RefusesDependentAndTableDatasetDeletionBeforeTouchingTheDestination)
+{
+    auto xml = namedSource();
+    const auto tableColumns = xml.find("<property name='track_columns'");
+    ASSERT_NE(tableColumns, std::string::npos);
+    xml.insert(tableColumns,
+               "<property name='dataset_indices' type='array' class='[[Ljava.lang.String;'>"
+               "<property name='[0]' type='array' class='[Ljava.lang.String;'>"
+               "<property name='[0]' type='string'>mass B</property><property name='[1]' type='string'>0</property>"
+               "</property></property>");
+    const auto imported = motrack::parseTrackerProject(xml);
     QTemporaryDir temporary;
     const auto destination = temporary.filePath("existing.trk");
     motrack::writeTrackerProject(destination, imported.project, imported.source);
@@ -542,12 +620,11 @@ TEST(TrackerWriter, RejectsUnsafeCreatedTrackNamesReferencesAndSourceSchemasAtom
     }
 }
 
-TEST(TrackerWriter, CreationDoesNotAuthorizeReferencedDeletionOrInvalidMarks)
+TEST(TrackerWriter, CreationDoesNotAuthorizeInvalidMarksOrMedia)
 {
     const auto imported = motrack::parseTrackerProject(namedSource());
     for (const auto& mutate :
          std::vector<std::function<void(motrack::LegacyProject&)>>{
-             [](auto& project) { project.pointMasses.erase(project.pointMasses.begin() + 1); },
              [](auto& project) { project.pointMasses.back().marks = {{.frame = 500001, .x = 1, .y = 2}}; },
              [](auto& project) { project.pointMasses.back().marks = {{.frame = 1, .x = std::numeric_limits<double>::infinity(), .y = 2}}; },
              [](auto& project) { project.pointMasses.back().mass = 0; },
