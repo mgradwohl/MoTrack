@@ -350,6 +350,16 @@ QString workspaceMediaPath(const WorkspaceDocument& document, const QString& sou
     return physicalLocalFilePath(retained.value());
 }
 
+void refreshWorkspaceMediaLocations(WorkspaceDocument& document, const QString& sourcePath)
+{
+    if (document.archivePayload || document.archiveMember || !document.archiveReference.empty())
+        return;
+    QHash<QString, QString> resolved;
+    for (const auto& reference : document.project.clip.mediaReferences)
+        resolved.insert(QString::fromStdString(reference), workspaceMediaPath(document, sourcePath, reference));
+    document.mediaLocations = std::move(resolved);
+}
+
 WorkspaceDocument importTrackerDocument(const QString& path)
 {
     auto imported = readTrackerProject(std::filesystem::path(path.toStdU16String()));
