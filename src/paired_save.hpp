@@ -2,6 +2,7 @@
 
 #include "workspace_document.hpp"
 
+#include <QHash>
 #include <QString>
 
 #include <atomic>
@@ -42,6 +43,9 @@ struct PairedSaveResult
     bool nativeCurrent = false;
     // Process-local observation order, assigned before releasing the journal lock; never persisted.
     std::uint64_t observation = 0;
+    // Resolved original-reference bindings from this write's snapshot, for successful live-session adoption.
+    // Runtime-only: never serialized in the recovery record or used to reconstruct a recovered snapshot.
+    QHash<QString, QString> mediaLocations = {};
 };
 
 /// Worker-only progress observer; it must not access widgets or mutate the supplied document.
