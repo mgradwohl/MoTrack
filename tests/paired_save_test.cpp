@@ -17,6 +17,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <filesystem>
 #include <functional>
 #include <stdexcept>
 
@@ -359,6 +360,43 @@ TEST(PairedSave, InvalidRecoveryRecordsCannotReplaceEitherOutput)
     put(partial.recoveryPath, original);
     EXPECT_EQ(motrack::recoverPairedDocuments(partial.recoveryPath).status, motrack::PairedSaveStatus::Saved);
     EXPECT_EQ(files(temporary), (QStringList{"saved.motrack", "saved.trk"}));
+}
+
+TEST(PairedSave, AJournalUnderAnotherStemCannotWriteAnUnlockedPair)
+{
+    for (const bool hardLink : {false, true})
+    {
+        SCOPED_TRACE(hardLink);
+        QTemporaryDir temporary;
+        std::atomic_bool cancelled{false};
+        const auto partial =
+            motrack::writePairedDocuments(temporary.filePath("saved.trk"),
+                                          editedDocument(),
+                                          fixture(),
+                                          &cancelled,
+                                          [&cancelled](auto state) { cancelled = state == motrack::PairedSaveProgress::RecoveryRecorded; });
+        ASSERT_EQ(partial.status, motrack::PairedSaveStatus::RecoveryRequired);
+        const auto alias = temporary.filePath(".other.motrack-save.json");
+        if (hardLink)
+        {
+            std::error_code error;
+            std::filesystem::create_hard_link(
+                std::filesystem::path(partial.recoveryPath.toStdU16String()), std::filesystem::path(alias.toStdU16String()), error);
+            ASSERT_FALSE(error) << error.message();
+        }
+        else
+            ASSERT_TRUE(QFile::copy(partial.recoveryPath, alias));
+        const auto original = bytes(partial.recoveryPath);
+        const auto before = files(temporary);
+        const auto rejected = motrack::recoverPairedDocuments(alias);
+        EXPECT_EQ(rejected.status, motrack::PairedSaveStatus::RecoveryRequired);
+        EXPECT_FALSE(rejected.standardCurrent || rejected.nativeCurrent);
+        EXPECT_EQ(bytes(partial.recoveryPath), original);
+        EXPECT_EQ(bytes(alias), original);
+        EXPECT_EQ(files(temporary), before);
+        ASSERT_TRUE(QFile::remove(alias));
+        EXPECT_EQ(motrack::recoverPairedDocuments(partial.recoveryPath).status, motrack::PairedSaveStatus::Saved);
+    }
 }
 
 TEST(PairedSave, IdentifiesDifferentTransactionsAtTheSameRecoveryPath)

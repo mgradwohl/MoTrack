@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 
 namespace motrack
@@ -57,8 +58,9 @@ struct PairedSaveResult
     QString standardPath;
     QString nativePath;
     QString recoveryPath;
-    QString observedRecoveryPath; // Journal path observed under the lock, retained even after successful cleanup.
-    QString transactionId;        // Persistent UUID identifies this journal instance, independent of its reusable path.
+    QString observedRecoveryPath;                    // Journal path observed under the lock, retained even after successful cleanup.
+    std::shared_ptr<const QString> recoveryIdentity; // Process-local filesystem slot identity; never serialized.
+    QString transactionId;                           // Persistent UUID identifies this journal instance, independent of its reusable path.
     QString diagnostic;
     bool standardCurrent = false;
     bool nativeCurrent = false;

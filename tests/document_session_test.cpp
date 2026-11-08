@@ -8,6 +8,8 @@
 #include <QTemporaryDir>
 #include <gtest/gtest.h>
 
+#include <array>
+#include <utility>
 #include <vector>
 
 namespace
@@ -642,6 +644,76 @@ TEST(DocumentSession, OlderWriteCallbacksCannotReplaceNewerMediaBindings)
         EXPECT_EQ(session.completePairedSave(session.saveCheckpoint(), saved), motrack::SaveOutcome::Saved);
         EXPECT_FALSE(session.isModified());
     }
+}
+
+TEST(DocumentSession, JournalIdentityFollowsTheFilesystemAcrossCaseVariantsAndDelayedCallbacks)
+{
+    const std::array names{std::pair{QString("Saved"), QString("saved")}, std::pair{QString::fromUtf8("straße"), QString("STRASSE")}};
+    for (const auto& [firstName, secondName] : names)
+        for (const bool olderFirst : {false, true})
+            for (const bool removeOutputs : {false, true})
+            {
+                SCOPED_TRACE(firstName.toStdString());
+                SCOPED_TRACE(olderFirst);
+                SCOPED_TRACE(removeOutputs);
+                QTemporaryDir temporary;
+                const auto source = fixturePath("../corpus/fixtures/linked-images/linked-images.trk");
+                const auto firstPath = temporary.filePath(firstName + ".trk");
+                const auto secondPath = temporary.filePath(secondName + ".trk");
+                motrack::DocumentSession session;
+                session.replace(motrack::importTrackerDocument(source), source);
+                const auto checkpoint = session.saveCheckpoint();
+                std::atomic_bool cancelled{false};
+                const auto interrupt = [&cancelled](auto state)
+                {
+                    cancelled = state == motrack::PairedSaveProgress::StandardSaved;
+                };
+                const auto older = motrack::writePairedDocuments(firstPath, session.document, source, &cancelled, interrupt);
+                ASSERT_EQ(older.status, motrack::PairedSaveStatus::RecoveryRequired);
+                // Test the volume's actual behavior; do not assume Windows/macOS fold every Unicode name.
+                const bool aliases = QFileInfo::exists(secondPath);
+                ASSERT_EQ(motrack::recoverPairedDocuments(older.recoveryPath).status, motrack::PairedSaveStatus::Saved);
+                if (removeOutputs)
+                {
+                    ASSERT_TRUE(QFile::remove(older.standardPath));
+                    ASSERT_TRUE(QFile::remove(older.nativePath));
+                }
+                const auto saved = motrack::writePairedDocuments(secondPath, session.document, source);
+                ASSERT_EQ(saved.status, motrack::PairedSaveStatus::Saved);
+                if (olderFirst)
+                    EXPECT_EQ(session.completePairedSave(checkpoint, older), motrack::SaveOutcome::Partial);
+                static_cast<void>(session.completePairedSave(checkpoint, saved));
+                if (!olderFirst)
+                    EXPECT_EQ(session.completePairedSave(checkpoint, older),
+                              aliases ? motrack::SaveOutcome::Stale : motrack::SaveOutcome::Partial);
+                if (aliases)
+                    EXPECT_TRUE(session.recoveryPath().isEmpty());
+                else
+                {
+                    ASSERT_FALSE(session.recoveryPath().isEmpty());
+                    const auto request = session.recoveryPath();
+                    const auto recoveryCheckpoint = session.saveCheckpoint();
+                    const auto absent = motrack::recoverPairedDocuments(request);
+                    ASSERT_EQ(absent.status, motrack::PairedSaveStatus::RecoveryNotNeeded);
+                    EXPECT_EQ(session.completePairedRecovery(recoveryCheckpoint, request, absent), motrack::SaveOutcome::Recovered);
+                }
+                auto current = session.saveCheckpoint();
+                EXPECT_EQ(session.completePairedSave(current, motrack::writePairedDocuments(secondPath, session.document, source)),
+                          motrack::SaveOutcome::Saved);
+                EXPECT_FALSE(session.isModified());
+                // A newer record may use a different spelling from this session's retained identity.
+                cancelled = false;
+                current = session.saveCheckpoint();
+                const auto newer = motrack::writePairedDocuments(secondPath, session.document, source, &cancelled, interrupt);
+                ASSERT_EQ(newer.status, motrack::PairedSaveStatus::RecoveryRequired);
+                EXPECT_EQ(session.completePairedSave(current, newer), motrack::SaveOutcome::Partial);
+                const auto request = session.recoveryPath();
+                const auto recoveryCheckpoint = session.saveCheckpoint();
+                const auto recovered = motrack::recoverPairedDocuments(request);
+                ASSERT_EQ(recovered.status, motrack::PairedSaveStatus::Saved) << recovered.diagnostic.toStdString();
+                EXPECT_EQ(session.completePairedRecovery(recoveryCheckpoint, request, recovered), motrack::SaveOutcome::Recovered);
+                EXPECT_TRUE(session.recoveryPath().isEmpty());
+            }
 }
 
 TEST(DocumentSession, SuccessfulWritesReconcileOnlyOlderJournalObservationsAtTheirDestination)

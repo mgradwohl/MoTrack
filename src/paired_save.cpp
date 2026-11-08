@@ -23,9 +23,12 @@
 #include <array>
 #include <cmath>
 #include <exception>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 namespace motrack
 {
@@ -44,6 +47,11 @@ constexpr qint64 BLOCK_BYTES = qint64{64} * 1024;
 constexpr qint64 MAX_RECORD_BYTES = qint64{64} * 1024;
 constexpr qint64 MAX_NATIVE_BYTES = MAX_WORKSPACE_JSON_BYTES + MAX_TRACKER_ARCHIVE_BYTES + qint64{8} * 1024 * 1024;
 constexpr auto RECORD_SUFFIX = ".motrack-save.json";
+
+QString lockPath(const QString& recordPath)
+{
+    return recordPath.chopped(5) + ".lock";
+}
 
 struct Cancelled : std::exception
 {
@@ -223,7 +231,7 @@ Record readRecord(const QString& path, const QString& directory)
             "Unsupported paired-save recovery record.");
     const auto outputs = object.value("outputs").toArray();
     require(outputs.size() == 2, "Paired-save recovery requires exactly two outputs.");
-    Record result{.directory = directory, .name = info.fileName(), .transactionId = object.value("transaction").toString(), .outputs = {}};
+    Record result{.directory = directory, .name = {}, .transactionId = object.value("transaction").toString(), .outputs = {}};
     for (int i = 0; i < 2; ++i)
     {
         require(outputs[i].isObject(), "Invalid paired-save output record.");
@@ -238,7 +246,14 @@ Record readRecord(const QString& path, const QString& directory)
         if (!item.value("before").isNull())
             output.before = parseFingerprint(item.value("before"), limit);
     }
+    result.name = '.' + QFileInfo(result.outputs[0].name).completeBaseName() + RECORD_SUFFIX;
     validateRecord(result);
+    const auto declaredPath = QDir(directory).filePath(result.name);
+    // Both spellings must use the lock already held by this caller. File identity alone would
+    // also accept a hard-linked journal under a different stem, whose outputs are not locked.
+    require(sameLocalFile(path, declaredPath) && QFileInfo::exists(lockPath(declaredPath)) &&
+                sameLocalFile(lockPath(path), lockPath(declaredPath)),
+            "Paired-save recovery filename does not match its locked sibling pair.");
     return result;
 }
 
@@ -437,9 +452,21 @@ QString createStage(const QString& nameTemplate)
     return path;
 }
 
-QString lockPath(const QString& recordPath)
+std::shared_ptr<const QString> observeRecoveryIdentity(const QString& path)
 {
-    return recordPath.chopped(5) + ".lock";
+    // Called with this journal's lock held. Its real lock file lets the filesystem decide
+    // case/Unicode equivalence, including per-directory policies, without inventing a fold.
+    // Weak entries live only while results or sessions retain the identity.
+    static std::mutex mutex;
+    static std::vector<std::weak_ptr<const QString>> observed;
+    const std::scoped_lock guard(mutex);
+    std::erase_if(observed, [](const auto& identity) { return identity.expired(); });
+    for (const auto& candidate : observed)
+        if (auto identity = candidate.lock(); identity && sameLocalFile(lockPath(*identity), lockPath(path)))
+            return identity;
+    auto identity = std::make_shared<const QString>(path);
+    observed.emplace_back(identity);
+    return identity;
 }
 
 void failed(PairedSaveResult& result, const std::exception& error, bool cancelled)
@@ -484,6 +511,7 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
         require(lock.tryLock(0), "Another save for this project is already in progress.");
         const auto observation = qScopeGuard([&result] { stampObservation(result); });
         result.observedRecoveryPath = recoveryPath;
+        result.recoveryIdentity = observeRecoveryIdentity(recoveryPath);
         if (QFileInfo::exists(recoveryPath) || QFileInfo(recoveryPath).isSymLink())
         {
             result.recoveryPath = recoveryPath;
@@ -606,6 +634,7 @@ PairedSaveResult recoverPairedDocuments(const QString& recoveryPath,
         require(lock.tryLock(0), "Another save for this project is already in progress.");
         const auto observation = qScopeGuard([&result] { stampObservation(result); });
         result.observedRecoveryPath = result.recoveryPath;
+        result.recoveryIdentity = observeRecoveryIdentity(result.recoveryPath);
         require(!expectedTransaction || expectedTransaction->isEmpty() ||
                     (!QUuid(*expectedTransaction).isNull() &&
                      QUuid(*expectedTransaction).toString(QUuid::WithoutBraces) == *expectedTransaction),
