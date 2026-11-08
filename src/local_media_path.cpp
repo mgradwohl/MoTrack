@@ -70,7 +70,7 @@ QString physicalLocalFilePath(QString path)
     // is removed. Resolve existing prefixes before normalizing '..', including directory aliases.
     std::error_code error;
     const auto normalized = std::filesystem::weakly_canonical(std::filesystem::path(path.toStdU16String()), error);
-    return error ? path : QString::fromStdU16String(normalized.u16string());
+    return error ? QString{} : QString::fromStdU16String(normalized.u16string());
 }
 
 bool sameLocalFile(const QString& first, const QString& second)

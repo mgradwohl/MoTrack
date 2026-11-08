@@ -404,7 +404,9 @@ has not been created yet; the saved references are relative to that target's phy
 overwrite guard uses the resolved target's filename as well as its directory, so a dangling alias cannot
 replace a retained missing image or falsely reject a distinct image with the alias's basename. Media
 references also follow dangling file aliases, including aliases restored after open; cyclic aliases are
-refused. Retained absolute media locations refresh their physical identity before overwrite checks.
+refused. Canonicalization errors, including cyclic directory aliases, return an unresolved path rather
+than accepting an unchecked spelling. Retained absolute media locations refresh their physical identity
+before overwrite checks.
 Cyclic aliases and links that would be interpreted as archive references fail without changing an
 existing destination or the session's saved state. POSIX desktop regressions reopen through both the
 alias and physical path and compare decoded image pixels; CI runs these on Linux and macOS. Standalone
