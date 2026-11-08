@@ -272,6 +272,7 @@ TEST(TrackerWriter, DeletingAllSelectedVectorsClearsSelectionsWithoutChoosingAxe
     EXPECT_TRUE(output.project.vectors.empty());
     EXPECT_EQ(output.source.xml.find("name=\"selectedtrack\""), std::string::npos);
     EXPECT_EQ(output.source.xml.find("name=\"selected_track\""), std::string::npos);
+    EXPECT_EQ(output.source.xml.find("TableTView"), std::string::npos);
     const auto references = motrack::indexTrackerReferences(output.source, output.project);
     ASSERT_EQ(references.references.size(), 8);
     for (const auto& reference : references.references)
@@ -587,28 +588,93 @@ TEST(TrackerWriter, RemovesOnlyDeletedTableOwnersAfterHistoryNativeReopenAndName
 TEST(TrackerWriter, OmitsAnEmptyCustomTableAfterDeletingItsLastOwner)
 {
     const auto path = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/table-default-format-owners.trk";
-    auto document = motrack::importTrackerDocument(path);
-    const auto original = readBytes(path);
-    motrack::TrackEdits edits;
-    for (int remaining = 3; remaining > 0; --remaining)
-        ASSERT_TRUE(edits.removePointMass(document.project, 0));
-    ASSERT_TRUE(edits.undo(document.project));
-    ASSERT_TRUE(edits.redo(document.project));
-    QTemporaryDir temporary;
-    const auto native = temporary.filePath("empty-table.motrack");
-    motrack::writeWorkspaceDocument(native, document);
-    document = motrack::readWorkspaceDocument(native);
-    ASSERT_TRUE(document.trackerSource);
-    const auto bytes = motrack::renderTrackerProject(document.project, *document.trackerSource);
-    EXPECT_EQ(bytes.find("TableTView"), std::string::npos);
-    QDomDocument parsed;
-    ASSERT_TRUE(parsed.setContent(QByteArray::fromStdString(bytes)));
-    for (auto property = parsed.documentElement().firstChildElement(); !property.isNull(); property = property.nextSiblingElement())
-        EXPECT_NE(property.attribute("name"), "views");
-    EXPECT_TRUE(motrack::parseLegacyProject(bytes).pointMasses.empty());
-    EXPECT_EQ(document.trackerSource->xml, original);
-    EXPECT_NE(bytes.find("selected_view_types"), std::string::npos);
-    EXPECT_NE(bytes.find("null,null;null,null;null,null;null,null"), std::string::npos);
+    for (int arrays = 0; arrays < 3; ++arrays)
+    {
+        for (const bool retainOtherViews : {false, true})
+        {
+            SCOPED_TRACE(arrays);
+            SCOPED_TRACE(retainOtherViews);
+            QDomDocument source;
+            ASSERT_TRUE(source.setContent(QByteArray::fromStdString(readBytes(path))));
+            const auto objects = source.elementsByTagName("object");
+            QDomElement table;
+            for (int i = 0; i < objects.size(); ++i)
+                if (objects.at(i).toElement().attribute("class") == "org.opensourcephysics.cabrillo.tracker.TableTView")
+                    table = objects.at(i).toElement();
+            ASSERT_FALSE(table.isNull());
+            if (arrays != 0)
+            {
+                for (auto child = table.firstChildElement(); !child.isNull();)
+                {
+                    const auto next = child.nextSiblingElement();
+                    if (child.attribute("name") != "selected_track")
+                    {
+                        if (arrays == 1)
+                            table.removeChild(child);
+                        else
+                            while (!child.firstChild().isNull())
+                                child.removeChild(child.firstChild());
+                    }
+                    child = next;
+                }
+            }
+            if (retainOtherViews)
+            {
+                QDomDocument other;
+                ASSERT_TRUE(other.setContent(QString(
+                    "<property name='[0]' type='object'><object class='org.opensourcephysics.cabrillo.tracker.PlotTView'/></property>")));
+                auto chooser = table.parentNode().parentNode();
+                chooser.appendChild(source.importNode(other.documentElement(), true));
+                auto secondChooser = source.createElement("property");
+                secondChooser.setAttribute("name", "[3]");
+                secondChooser.setAttribute("type", "array");
+                secondChooser.setAttribute("class", "[Lorg.opensourcephysics.cabrillo.tracker.TView;");
+                secondChooser.appendChild(source.importNode(other.documentElement(), true));
+                chooser.parentNode().appendChild(secondChooser);
+            }
+            const auto original = source.toByteArray().toStdString();
+            const auto imported = motrack::parseTrackerProject(original);
+            motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+            motrack::TrackEdits edits;
+            for (int remaining = 3; remaining > 0; --remaining)
+                ASSERT_TRUE(edits.removePointMass(document.project, 0));
+            ASSERT_TRUE(edits.undo(document.project));
+            ASSERT_TRUE(edits.redo(document.project));
+            QTemporaryDir temporary;
+            const auto native = temporary.filePath("empty-table.motrack");
+            motrack::writeWorkspaceDocument(native, document);
+            document = motrack::readWorkspaceDocument(native);
+            ASSERT_TRUE(document.trackerSource);
+            const auto bytes = motrack::renderTrackerProject(document.project, *document.trackerSource);
+            EXPECT_EQ(bytes.find("TableTView"), std::string::npos);
+            QDomDocument parsed;
+            ASSERT_TRUE(parsed.setContent(QByteArray::fromStdString(bytes)));
+            QDomElement views;
+            for (auto property = parsed.documentElement().firstChildElement(); !property.isNull(); property = property.nextSiblingElement())
+                if (property.attribute("name") == "views")
+                    views = property;
+            EXPECT_EQ(views.isNull(), !retainOtherViews);
+            if (retainOtherViews)
+            {
+                const auto first = views.firstChildElement();
+                const auto last = first.nextSiblingElement();
+                EXPECT_EQ(first.attribute("name"), "[0]");
+                EXPECT_EQ(last.attribute("name"), "[3]");
+                EXPECT_TRUE(last.nextSiblingElement().isNull());
+                for (const auto& chooser : {first, last})
+                {
+                    const auto slot = chooser.firstChildElement();
+                    EXPECT_EQ(slot.attribute("name"), "[0]");
+                    EXPECT_TRUE(slot.nextSiblingElement().isNull());
+                    EXPECT_EQ(slot.firstChildElement().attribute("class"), "org.opensourcephysics.cabrillo.tracker.PlotTView");
+                }
+            }
+            EXPECT_TRUE(motrack::parseLegacyProject(bytes).pointMasses.empty());
+            EXPECT_EQ(document.trackerSource->xml, original);
+            EXPECT_NE(bytes.find("selected_view_types"), std::string::npos);
+            EXPECT_NE(bytes.find("null,null;null,null;null,null;null,null"), std::string::npos);
+        }
+    }
 }
 
 TEST(TrackerWriter, RefusesDependentAndTableDatasetDeletionBeforeTouchingTheDestination)
