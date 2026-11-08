@@ -1567,6 +1567,28 @@ TEST(TrackerWriter, CreatesAnotherVectorAfterStandardReimportWithHighOriginalFra
     EXPECT_EQ(motrack::renderTrackerProject(result.project, result.source), result.source.xml);
 }
 
+TEST(TrackerWriter, CreatedVectorMetadataMustFitTheFinalSchemaBudget)
+{
+    const auto imported =
+        motrack::parseTrackerProject(readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk"));
+    auto project = imported.project;
+    motrack::TrackEdits edits;
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    motrack::writeTrackerProject(destination, imported.project, imported.source);
+    for (int index = 0; index < 1000; ++index)
+        ASSERT_TRUE(edits.createVector(project, "new " + std::to_string(index)));
+    EXPECT_THROW(motrack::writeTrackerProject(destination, project, imported.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), imported.source.xml);
+    project.vectors.resize(502);
+    motrack::writeTrackerProject(destination, project, imported.source);
+    auto reopened = motrack::parseTrackerProject(readBytes(destination));
+    edits.clear();
+    ASSERT_TRUE(edits.createVector(reopened.project, "another vector"));
+    ASSERT_TRUE(edits.renameVector(reopened.project, 0, "renamed"));
+    EXPECT_NO_THROW(motrack::writeTrackerProject(destination, reopened.project, reopened.source));
+}
+
 TEST(TrackerWriter, CreatedVectorsRetainSnappingPrecisionAndAllocationGuardsAtomically)
 {
     const auto imported =
