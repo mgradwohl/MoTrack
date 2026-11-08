@@ -515,9 +515,14 @@ void requireName(const std::string& name)
 }
 } // namespace
 
-void validateTrackerTrackMembership(const QDomDocument& xml, const LegacyProject& project, const TrackerSource& source)
+void validateTrackerEditSchema(const QDomDocument& xml)
 {
     RenameSchema{}.object(xml.documentElement(), QString(TRACKER) + "TrackerPanel");
+}
+
+void validateTrackerTrackMembership(const QDomDocument& xml, const LegacyProject& project, const TrackerSource& source)
+{
+    validateTrackerEditSchema(xml);
     const auto index = indexTrackerReferences(source, project);
     require(index.malformedPaths.empty());
     std::set<std::string> originalNames;
@@ -566,7 +571,8 @@ void validateTrackerTrackMembership(const QDomDocument& xml, const LegacyProject
             require(target != originalTracks.end());
             // Selection-only references have an explicit cleanup policy. Data owners and guests
             // still need separate deletion semantics and must not rebind to a new same-name track.
-            require(!target->second->nativeId || liveIds.contains(*target->second->nativeId) ||
+            const auto targetId = target->second->nativeId;
+            require(!targetId || liveIds.contains(*targetId) ||
                     reference.kind == TrackerReferenceKind::SelectedTrack || reference.kind == TrackerReferenceKind::PlotSelection ||
                     reference.kind == TrackerReferenceKind::TableSelection);
             if (reference.kind != TrackerReferenceKind::SelectedTrack)
@@ -594,7 +600,8 @@ void patchTrackerDeletedSelections(QDomDocument& xml, const LegacyProject& proje
     for (auto item = tracks.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"), ++ordinal)
     {
         const auto found = originalTracks.find(ordinal);
-        if (found != originalTracks.end() && found->second->nativeId && !liveIds.contains(*found->second->nativeId))
+        const auto originalId = found == originalTracks.end() ? std::optional<TrackId>{} : found->second->nativeId;
+        if (originalId && !liveIds.contains(*originalId))
             continue;
         const auto object = item.firstChildElement("object");
         if (object.attribute("class") != QString(TRACKER) + "CoordAxes")
@@ -611,7 +618,8 @@ void patchTrackerDeletedSelections(QDomDocument& xml, const LegacyProject& proje
         require(reference.candidateSourceIndices.size() == 1);
         const auto target = originalTracks.find(reference.candidateSourceIndices.front());
         require(target != originalTracks.end());
-        if (!target->second->nativeId || liveIds.contains(*target->second->nativeId))
+        const auto targetId = target->second->nativeId;
+        if (!targetId || liveIds.contains(*targetId))
             continue;
         require(reference.kind == TrackerReferenceKind::SelectedTrack || reference.kind == TrackerReferenceKind::PlotSelection ||
                 reference.kind == TrackerReferenceKind::TableSelection);
@@ -662,7 +670,7 @@ bool patchTrackerNames(QDomDocument& xml, const LegacyProject& project, LegacyPr
     collect(project.vectors, baseline.vectors);
     if (renamed.empty())
         return false;
-    RenameSchema{}.object(xml.documentElement(), QString(TRACKER) + "TrackerPanel");
+    validateTrackerEditSchema(xml);
     const auto index = indexTrackerReferences(source, project);
     require(index.malformedPaths.empty());
     std::map<std::size_t, QString> replacements;

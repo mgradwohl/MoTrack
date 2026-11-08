@@ -685,6 +685,11 @@ budget, plus creation under present-but-unusable calibration (missing angle/nonf
 exports now count all emitted point-mass arrays; two arrays of 500000 slots reach the one-million-slot
 boundary, while one additional marked frame refuses without replacing the file. Reimport does not
 reset this limit. Absent coordinates remain supported, but unparseable source coordinates reject creation.
+The budget includes retained inherited mass arrays: renaming a constituent of two centers with
+null-ended arrays at frame 500000 now refuses without replacing the destination. A separate regression
+reproduced creation of 1000 empty masses exceeding the next edit's schema-entry budget; the final
+document is now audited after appended metadata and sample patches. A smaller creation batch can
+still be reimported, renamed and extended. These checks allocate only sparse native XML in tests.
 Linux actual-application acceptance is required before merging this slice.
 
 The historical [Tracker #10 save/load report](https://github.com/OpenSourcePhysics/tracker/issues/10)
@@ -713,6 +718,9 @@ and zero angle require new calibrated components (2,2)/(0,0)/(-3,-3), with magni
 Both original vectors have separate numerical expectations too. These values are not inferred from
 exported XML or from Java's resave. A regression first reproduced the old oracle accepting the same
 wrong calibrated values at all three stages; the strengthened check rejects them.
+Another regression reproduced 1000 newly appended empty vectors exceeding the schema-entry budget
+after export. The shared final schema audit now refuses before replacing the destination; a smaller
+batch can still be reimported, renamed and extended. Appended metadata and patched samples both count.
 Negative tests reject consistent wrong geometry/appearance/calibrated data and changes to original content. Native
 tests cover collisions, dangling links, vector sums, unsafe deletion, mixed provider types, origin/tip
 snapping across frames, endpoint precision loss and bounded dense allocation. These cases extend
