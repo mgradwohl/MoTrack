@@ -68,8 +68,15 @@ QString physicalLocalFilePath(QString path)
         return existing;
     // Preserve the physical base even when a missing image is restored after its project directory
     // is removed. Resolve existing prefixes before normalizing '..', including directory aliases.
+    const std::filesystem::path nativePath(path.toStdU16String());
     std::error_code error;
-    const auto normalized = std::filesystem::weakly_canonical(std::filesystem::path(path.toStdU16String()), error);
+    static_cast<void>(std::filesystem::status(nativePath, error));
+    // Some standard libraries discard a failing ancestor status in weakly_canonical. Missing files
+    // are valid retained references; loops, inaccessible paths and non-directory ancestors are not.
+    if (error && error != std::errc::no_such_file_or_directory)
+        return {};
+    error.clear();
+    const auto normalized = std::filesystem::weakly_canonical(nativePath, error);
     return error ? QString{} : QString::fromStdU16String(normalized.u16string());
 }
 
