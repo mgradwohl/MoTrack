@@ -17,7 +17,7 @@ void DocumentSession::replace(WorkspaceDocument incoming, const QString& source)
     m_SourcePath = path;
     m_NativeSavePath = native;
     m_StandardSavePath = source.endsWith(".trk", Qt::CaseInsensitive) || source.endsWith(".trz", Qt::CaseInsensitive) ? path : QString{};
-    m_RecoveryPath.clear();
+    m_RecoveryPaths.clear();
     m_PairedSaving = false;
     history.clear();
 }
@@ -39,7 +39,8 @@ const QString& DocumentSession::standardSavePath() const
 
 const QString& DocumentSession::recoveryPath() const
 {
-    return m_RecoveryPath;
+    static const QString empty;
+    return m_RecoveryPaths.isEmpty() ? empty : m_RecoveryPaths.front();
 }
 
 bool DocumentSession::requiresPairedSave() const
@@ -49,7 +50,7 @@ bool DocumentSession::requiresPairedSave() const
 
 bool DocumentSession::isModified() const
 {
-    return history.isModified() || (m_PairedSaving && (history.isModified(SaveTarget::Tracker) || !m_RecoveryPath.isEmpty()));
+    return history.isModified() || (m_PairedSaving && (history.isModified(SaveTarget::Tracker) || !m_RecoveryPaths.isEmpty()));
 }
 
 DocumentSession::SaveCheckpoint DocumentSession::saveCheckpoint() const
@@ -106,8 +107,9 @@ SaveOutcome DocumentSession::completePairedSave(const SaveCheckpoint& checkpoint
         else
             history.markSaved();
     }
-    m_RecoveryPath = result.recoveryPath;
-    if (result.status == PairedSaveStatus::RecoveryRequired)
+    if (!result.recoveryPath.isEmpty() && !m_RecoveryPaths.contains(result.recoveryPath))
+        m_RecoveryPaths.append(result.recoveryPath);
+    if (result.status == PairedSaveStatus::RecoveryRequired || !m_RecoveryPaths.isEmpty())
         return SaveOutcome::Partial;
     if (result.status != PairedSaveStatus::Saved || !result.standardCurrent || !result.nativeCurrent)
         return SaveOutcome::Failed;
@@ -118,13 +120,17 @@ SaveOutcome DocumentSession::completePairedRecovery(const SaveCheckpoint& checkp
                                                     const QString& requestedRecoveryPath,
                                                     const PairedSaveResult& result)
 {
-    if (checkpoint.identity != m_Identity || m_RecoveryPath.isEmpty() || requestedRecoveryPath != m_RecoveryPath)
+    if (checkpoint.identity != m_Identity || !m_RecoveryPaths.contains(requestedRecoveryPath))
         return SaveOutcome::Replaced;
     if (result.status != PairedSaveStatus::Saved || !result.standardCurrent || !result.nativeCurrent)
         return SaveOutcome::Partial;
-    m_StandardSavePath = QFileInfo(result.standardPath).absoluteFilePath();
-    m_NativeSavePath = QFileInfo(result.nativePath).absoluteFilePath();
-    m_RecoveryPath.clear();
+    const auto recoveredStandard = QFileInfo(result.standardPath).absoluteFilePath();
+    if (m_StandardSavePath.isEmpty() || m_StandardSavePath == recoveredStandard)
+    {
+        m_StandardSavePath = recoveredStandard;
+        m_NativeSavePath = QFileInfo(result.nativePath).absoluteFilePath();
+    }
+    m_RecoveryPaths.removeAll(requestedRecoveryPath);
     // A journal can predate the live session or be recovered after further edits. A fresh paired
     // save establishes its relationship to the current document; recovery alone never does.
     history.invalidateSaved();

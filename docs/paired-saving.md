@@ -127,7 +127,9 @@ Consumed track IDs remain persistent changes even after undoing creation, so bot
 invalidated. A failed write changes neither save point; a stale completion cannot clear newer edits.
 
 `DocumentSession::completePairedSave` applies only confirmed per-output results and retains pending
-recovery state. Once a pair is required, a native-only save cannot clear outstanding Tracker edits.
+recovery records for every interrupted destination. Saving another pair cannot discard an earlier
+record or report the session clean while it remains. Recovery removes only its own record and cannot
+redirect the current save target to an older destination. Once a pair is required, a native-only save cannot clear outstanding Tracker edits.
 A partial pair remains modified even when both replacements finished but recovery cleanup failed.
 Replacement of the document invalidates all earlier completion tokens.
 

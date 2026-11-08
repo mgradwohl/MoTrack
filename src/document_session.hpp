@@ -4,6 +4,8 @@
 #include "track_edits.hpp"
 #include "workspace_document.hpp"
 
+#include <QStringList>
+
 #include <cstdint>
 #include <memory>
 
@@ -41,6 +43,7 @@ class DocumentSession
     [[nodiscard]] const QString& sourcePath() const;
     [[nodiscard]] const QString& nativeSavePath() const;
     [[nodiscard]] const QString& standardSavePath() const;
+    /// First unresolved record; later destinations never discard earlier interrupted saves.
     [[nodiscard]] const QString& recoveryPath() const;
     [[nodiscard]] bool requiresPairedSave() const;
     [[nodiscard]] bool isModified() const;
@@ -67,7 +70,7 @@ class DocumentSession
     QString m_SourcePath;
     QString m_NativeSavePath;
     QString m_StandardSavePath;
-    QString m_RecoveryPath;
+    QStringList m_RecoveryPaths;
     bool m_PairedSaving = false;
 };
 
