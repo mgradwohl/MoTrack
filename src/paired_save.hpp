@@ -17,7 +17,7 @@ enum class PairedSaveStatus : std::uint8_t
     Cancelled,
     Failed,
     RecoveryRequired,
-    RecoveryNotNeeded // A previously identified journal is absent under the lock; no output was changed.
+    RecoveryNotNeeded // The journal is absent under the lock; no output was changed.
 };
 
 enum class PairedSaveProgress : std::uint8_t
@@ -39,6 +39,8 @@ struct PairedSaveResult
     QString diagnostic;
     bool standardCurrent = false;
     bool nativeCurrent = false;
+    // Process-local observation order, assigned before releasing the journal lock; never persisted.
+    std::uint64_t observation = 0;
 };
 
 /// Worker-only progress observer; it must not access widgets or mutate the supplied document.
@@ -55,6 +57,7 @@ using PairedSaveObserver = std::function<void(PairedSaveProgress)>;
 /// Recovery is never implicitly triggered by opening imported project/archive content.
 /// When expectedTransaction is supplied, check it while holding the journal lock, before any output changes.
 /// A different transaction is returned as RecoveryRequired for explicit reconfirmation; an absent one is RecoveryNotNeeded.
+/// Absence can also reconcile an unreadable journal whose transaction ID was never available.
 [[nodiscard]] PairedSaveResult recoverPairedDocuments(const QString& recoveryPath,
                                                       const std::atomic_bool* cancelled = nullptr,
                                                       const PairedSaveObserver& observer = {},

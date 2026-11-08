@@ -245,6 +245,7 @@ void writeTrackerArchive(
     require(temporary.isValid(), "Could not create a temporary Tracker archive directory.");
     // Export reads only this verified private copy. Hashing the owned path and later reopening
     // it would leave a window for changed bytes to enter the exported scientific document.
+    require(!QFileInfo(source.sourcePath()).isSymLink(), "The owned Tracker archive source cannot be a file alias.");
     QFile original(source.sourcePath());
     require(original.open(QIODevice::ReadOnly), "Could not open the owned Tracker archive source.");
     const auto originalSize = original.size();

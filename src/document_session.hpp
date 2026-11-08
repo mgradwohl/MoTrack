@@ -5,7 +5,6 @@
 #include "workspace_document.hpp"
 
 #include <QHash>
-#include <QSet>
 #include <QStringList>
 
 #include <cstdint>
@@ -42,6 +41,8 @@ class DocumentSession
         std::shared_ptr<const Identity> identity;
         std::uint64_t revision;
         QHash<QString, QString> recoveryTransactions;
+        std::uint64_t nativeInvalidation = 0;
+        std::uint64_t trackerInvalidation = 0;
     };
 
     WorkspaceDocument document;
@@ -75,16 +76,25 @@ class DocumentSession
     ~DocumentSession() = default;
 
   private:
-    void rememberRecovery(const QString& path, const QString& transaction);
-    void forgetRecovery(const QString& path, const QString& transaction);
+    struct RecoveryObservation
+    {
+        QString transaction;
+        std::uint64_t observation;
+    };
+    void invalidateSaved(SaveTarget target = SaveTarget::Native);
+    void rememberRecovery(const QString& path, const QString& transaction, std::uint64_t observation);
+    void forgetRecovery(const QString& path, const QString& transaction, std::uint64_t observation, bool cleared);
     // Tokens retain the identity object, preventing reuse after replacement or destruction, even across sessions.
     std::shared_ptr<const Identity> m_Identity = std::make_shared<const Identity>();
     QString m_SourcePath;
     QString m_NativeSavePath;
     QString m_StandardSavePath;
     QStringList m_RecoveryPaths;
-    QHash<QString, QStringList> m_RecoveryTransactions;
-    QSet<QString> m_CompletedRecoveryTransactions;
+    QHash<QString, QList<RecoveryObservation>> m_RecoveryTransactions;
+    QHash<QString, std::uint64_t> m_CompletedRecoveryTransactions;
+    QHash<QString, std::uint64_t> m_ClearedRecoveryObservations;
+    std::uint64_t m_NativeInvalidation = 0;
+    std::uint64_t m_TrackerInvalidation = 0;
     bool m_PairedSaving = false;
 };
 
