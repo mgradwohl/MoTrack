@@ -361,6 +361,62 @@ TEST(PairedSave, InvalidRecoveryRecordsCannotReplaceEitherOutput)
     EXPECT_EQ(files(temporary), (QStringList{"saved.motrack", "saved.trk"}));
 }
 
+TEST(PairedSave, IdentifiesDifferentTransactionsAtTheSameRecoveryPath)
+{
+    QTemporaryDir temporary;
+    const auto target = temporary.filePath("saved.trk");
+    QString previous;
+    for (int i = 0; i < 2; ++i)
+    {
+        std::atomic_bool cancelled{false};
+        const auto partial =
+            motrack::writePairedDocuments(target,
+                                          editedDocument(),
+                                          fixture(),
+                                          &cancelled,
+                                          [&cancelled](auto state) { cancelled = state == motrack::PairedSaveProgress::StandardSaved; });
+        ASSERT_EQ(partial.status, motrack::PairedSaveStatus::RecoveryRequired);
+        ASSERT_FALSE(partial.transactionId.isEmpty());
+        EXPECT_NE(partial.transactionId, previous);
+        EXPECT_EQ(record(partial.recoveryPath).value("transaction").toString(), partial.transactionId);
+        const auto blocked = motrack::writePairedDocuments(target, editedDocument(), fixture());
+        EXPECT_EQ(blocked.status, motrack::PairedSaveStatus::RecoveryRequired);
+        EXPECT_EQ(blocked.transactionId, partial.transactionId);
+        const auto recovered = motrack::recoverPairedDocuments(partial.recoveryPath);
+        ASSERT_EQ(recovered.status, motrack::PairedSaveStatus::Saved);
+        EXPECT_EQ(recovered.transactionId, partial.transactionId);
+        previous = partial.transactionId;
+    }
+}
+
+TEST(PairedSave, RefusesRecoveryWithAnInvalidTransactionIdentity)
+{
+    QTemporaryDir temporary;
+    std::atomic_bool cancelled{false};
+    const auto partial =
+        motrack::writePairedDocuments(temporary.filePath("saved.trk"),
+                                      editedDocument(),
+                                      fixture(),
+                                      &cancelled,
+                                      [&cancelled](auto state) { cancelled = state == motrack::PairedSaveProgress::StandardSaved; });
+    ASSERT_EQ(partial.status, motrack::PairedSaveStatus::RecoveryRequired);
+    const auto original = bytes(partial.recoveryPath);
+    for (const auto* value : {"", "invalid", "00000000-0000-0000-0000-000000000000"})
+    {
+        auto invalid = QJsonDocument::fromJson(original).object();
+        invalid["transaction"] = value;
+        put(partial.recoveryPath, QJsonDocument(invalid).toJson());
+        const auto failed = motrack::recoverPairedDocuments(partial.recoveryPath);
+        EXPECT_EQ(failed.status, motrack::PairedSaveStatus::RecoveryRequired);
+        EXPECT_FALSE(failed.standardCurrent || failed.nativeCurrent);
+        EXPECT_FALSE(QFileInfo::exists(partial.nativePath));
+    }
+    put(partial.recoveryPath, original);
+    const auto recovered = motrack::recoverPairedDocuments(partial.recoveryPath);
+    EXPECT_EQ(recovered.status, motrack::PairedSaveStatus::Saved);
+    EXPECT_EQ(recovered.transactionId, partial.transactionId);
+}
+
 TEST(PairedSave, RecoversAfterTheWriterProcessExitsWithoutCleanup)
 {
     QTemporaryDir temporary;

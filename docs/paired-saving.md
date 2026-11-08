@@ -121,3 +121,8 @@ Prepared-file fingerprints are fixed immediately after each validated write, bef
 observers. A changed stage is rejected before journaling or destination replacement. Linked media is
 compared against both output paths with normalized, case-folded spelling, conservatively protecting
 case-insensitive filesystems even when a media file uses a project-like filename extension.
+
+Every journal contains a persistent transaction UUID, returned by both paired writes and recovery.
+A new transaction at the same pathname receives a new identity. Session completion checks use this
+identity so a delayed result cannot clear a newer pending transaction. Missing/invalid identities are
+refused before recovery modifies either output. This is part of the initial, unmerged journal format.
