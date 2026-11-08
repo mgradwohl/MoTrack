@@ -1,0 +1,164 @@
+{
+  "id": "table-owners",
+  "native_delete_table_roundtrip": true,
+  "file": "table-owners.trk",
+  "local_file": "fixtures/table-owners.trk",
+  "sha256": "854dcf2e4468a60f4c5e6fd21c929c6b1c6bc6aa519f92e64cb424d25dba939d",
+  "bytes": 14090,
+  "tracker_version": "6.3.5",
+  "features": [
+    "three-point-masses",
+    "sparse-marks",
+    "nonuniform-calibration",
+    "custom-table-columns",
+    "explicit-frame-column",
+    "custom-table-formats"
+  ],
+  "requirements": [
+    "R02",
+    "R03",
+    "R15"
+  ],
+  "expected": "expected/table-owners.json",
+  "native_reference_index": "expected/table-owners-modern-references.json",
+  "session_tracks": [
+    {
+      "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+      "name": "axes"
+    },
+    {
+      "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+      "name": "mass A"
+    },
+    {
+      "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+      "name": "mass B"
+    },
+    {
+      "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+      "name": "mass C"
+    }
+  ],
+  "session_names": {
+    "selected_track": "mass B",
+    "view_tracks": [
+      [
+        "mass A",
+        "mass B"
+      ],
+      [
+        null,
+        "mass A"
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ],
+    "packed_view_tracks": "mass A,mass B;null,mass A;null,null;null,null"
+  },
+  "session_views": {
+    "tables": [
+      {
+        "chooser": 0,
+        "selected_track": "mass B",
+        "track_columns": [
+          [
+            "mass A",
+            "t",
+            "x",
+            "y",
+            "frame"
+          ],
+          [
+            "mass B",
+            "t",
+            "y",
+            "x",
+            "frame"
+          ],
+          [
+            "mass C",
+            "t",
+            "x",
+            "y",
+            "frame"
+          ]
+        ],
+        "column_formats": [
+          [
+            "mass A",
+            "frame",
+            "0"
+          ],
+          [
+            "mass A",
+            "step",
+            "0"
+          ],
+          [
+            "mass A",
+            "t",
+            "0.000"
+          ],
+          [
+            "mass A",
+            "x",
+            "0.000"
+          ],
+          [
+            "mass A",
+            "y",
+            "0.00"
+          ],
+          [
+            "mass B",
+            "frame",
+            "0"
+          ],
+          [
+            "mass B",
+            "step",
+            "0"
+          ],
+          [
+            "mass B",
+            "t",
+            "0.00"
+          ],
+          [
+            "mass B",
+            "y",
+            "0.0000"
+          ],
+          [
+            "mass C",
+            "frame",
+            "0"
+          ],
+          [
+            "mass C",
+            "step",
+            "0"
+          ],
+          [
+            "mass C",
+            "t",
+            "0.000"
+          ],
+          [
+            "mass C",
+            "x",
+            "0.00000"
+          ]
+        ],
+        "dataset_indices": []
+      }
+    ],
+    "plots": []
+  }
+}

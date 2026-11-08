@@ -809,83 +809,43 @@ still unfinished, so [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/6
 
 ## Removing custom table owners
 
-[TableOwnersFixture.java](../../tools/reference/TableOwnersFixture.java) authors the same independent
-three-mass geometry as the plot fixture with Tracker's real track/coordinate serializers and OSP's
-public XML API. It defines one table chooser containing three custom owners: mass A has columns
-`t,x,y,frame`, mass B `t,y,x,frame`, and mass C `t,x,y,frame`, with distinct decimal formats. Its LF-normalized bytes are
-checksum-pinned in the manifest; two independent bounded headless generations produced identical
-bytes. Java coordinate-API and native snapshots agree with the independently specified geometry.
-The source-reference oracle independently specifies original identities, column rows and grouped
-format rows before comparing native output. No Java desktop application runs on Windows.
+`TableOwnersFixture.java` authors three point masses with sparse marks and fixed nonuniform
+calibration using the pinned Tracker/OSP serializers. The source reference index records each
+column/format owner independently. Native deletion removes whole original owner rows/groups,
+compacts indices and preserves survivors through rename, name reuse, undo and native close/reopen.
 
-Application expectations include Tracker's pinned default `frame`/`step` pattern `0` and time pattern
-`0.000`, with explicit per-table overrides. The defaults were separately verified through the pinned
-Java API, not learned from an edited export. The normal reference harness visits each custom table
-and restores selection before saving; this remains distinct from immediate unvisited resave and does
-not close [MoTrack #64](https://github.com/mgradwohl/MoTrack/issues/64).
+The current application candidate is **`table-default-format-owners.trk`**, generated in
+`default-formats` mode. A uses `t,x,y,frame`, B uses `t,x,frame`, and C uses `t,y,frame`. Each uses
+only the pinned default numeric formats (frame/step `0`, time `0.000`). Four export cases remove the
+first, selected, last or all owners. The expected XML is independently patched, preserving surviving
+rows, format groups and packed selections; Java load/save/fresh-process reopen must also retain the
+independent geometry, columns and selections. These cases are pending CI acceptance.
 
-Four edits remove the first, selected, last or all table owners. Surviving column order and formats
-must remain exact, while deleted rows and whole format groups disappear without being transferred
-to a replacement name. Deleting selected mass B clears the panel and selects mass A in the table;
-deleting all masses clears both. The XML oracle independently permits only those removals, selection
-changes and contiguous surviving array indices. Negative tests reject stale owners, lost/reordered
-columns, changed number formats, bad selections and unrelated XML edits. Native regressions cover
-all seven subsets, renamed survivors, undo/redo, native close/reopen, repeated export and same-name
-replacement isolation. Dataset-index ownership and scientific dependencies remain unsupported.
+The following earlier failures are retained separately, never counted as passing round trips:
 
-The pinned frame initializes its default plot at chooser 0 and table at chooser 1 before loading
-the custom table at chooser 0. Both default views select the first surviving mass, while the custom
-table retains its saved selection or applies the deletion fallback. The independent packed-selection
-expectation includes all three view instances, including when every remaining selection is null.
-The fixture explicitly selects the table in chooser 0 so the normal visible-table refresh path
-is exercised; merely loading a hidden custom table does not satisfy the visited-view baseline.
-The original two-column mass C variant is retained as checksum-pinned `table-owners-subset.trk`,
-reproducible with the generator's `subset` argument. The earlier harness reported null columns
-for its Swing-visible `t,x` row after normal selection; a separate bounded experiment with one normal
-frame change/restoration did not recover it. Both observations are linked in
-[MoTrack #64](https://github.com/mgradwohl/MoTrack/issues/64). The ineffective frame workaround was
-removed. This variant remains a native/reference-geometry and source-index case, explicitly excluded
-from application round-trip acceptance; the manifest rejects enabling acceptance flags on it.
+- `table-owners-subset.trk` (`subset`): original C `t,x` row remained null in the old collapsed-pane run.
+- `table-owners-defaults.trk` (`defaults`): default columns omitted custom formats and selection
+  in [run 42464749233](https://github.com/mgradwohl/MoTrack/actions/runs/42464749233).
+- `table-owners-legacy-formats.trk` (`legacy-formats`): expanded panes populated columns but custom
+  formats, order and selection were lost in [run 42467068600](https://github.com/mgradwohl/MoTrack/actions/runs/42467068600).
+- `table-owners.trk` (default generator mode): modern per-track format records and packed selections
+  retained the selected track but still lost custom formats/order in
+  [run 42468681114](https://github.com/mgradwohl/MoTrack/actions/runs/42468681114).
+  The original complete strict case remains [table-owners-rejected-session.json](expected/table-owners-rejected-session.json).
+  Corruption tests still reject its observed custom-format and order loss; the oracle was not relaxed.
 
-The default-column variant is also retained as `table-owners-defaults.trk` (generator `defaults`
-mode). In [CI run 42464749233](https://github.com/mgradwohl/MoTrack/actions/runs/42464749233),
-Tracker's baseline load/save/fresh-process reopen omitted the custom tables and their selection.
-Its column saver checks custom state and ignores formatting alone. The acceptance candidate now
-includes an explicit `frame` column for every owner; all previous format and selection assertions
-remain required. These failing variants stay pinned and excluded from application acceptance.
+The harness marker `expand_visit_custom_tables_restore_selection` means ordinary divider actions
+expand panes before custom table visits, then restore their original selection. Swing `isShowing()`
+alone did not imply Tracker's `isViewPaneVisible()`. No expected values or protected refresh methods
+are injected. Earlier subset/default failures need revalidation under this expanded-pane workflow
+before their conservative guards can be lifted.
 
-Changed standard exports retaining point-mass `t,x`, `t,x,y` or `t,y,x` rows are refused before
-replacing the destination. Native saving and unchanged standard rendering retain the source.
-Removing all affected owners permits export; removing only one does not waive checks on others.
-The error identifies the owner and #64. This guards observed reference loss without treating null
-columns, omitted formats or broader untested column combinations as compatibility evidence.
-
-Baseline and edited Tracker application load/save/fresh-process reopen, native reimport, all-platform
-CI and the unchanged coverage gate are required before accepting this slice. These media-free cases
-still do not complete media/archive saving or paired-output recovery in R03.
-
-The table reference harness now explicitly expands collapsed view panes through public divider
-actions after loading. The `expand_visit_custom_tables_restore_selection`
-preparation marker distinguishes this from earlier runs: Swing `isShowing()` was true while
-Tracker's `isViewPaneVisible()` was false, suppressing data-column refresh. All column/format
-assertions remain unchanged. Earlier failing column variants need revalidation under this normal
-expanded-pane workflow before their conservative export guards can be lifted.
-
-The expanded-pane run [42467068600](https://github.com/mgradwohl/MoTrack/actions/runs/42467068600)
-populated the explicit-frame columns but still lost legacy-only custom formats, order and selected
-table owner. Its exact input remains `table-owners-legacy-formats.trk`, reproducible with generator
-mode `legacy-formats` and explicitly excluded from application acceptance. The current candidate
-adds per-track `number_formats` overrides, divider positions and packed selections used by Tracker's
-normal persistence contract. All original independent column-order, decimal-format and selection
-assertions remain required; the expected reference index now also lists all eight packed view slots.
-The generator's other modes still reproduce the earlier files without modernizing their metadata.
-
-The native writer requires custom legacy table patterns to match their per-track overrides. It
-accepts only audited fixed-decimal patterns for x/y/t/frame/step, refuses malformed and unbacked
-records before replacement, and preserves the original envelope for native save/undo. All seven
-deletion subsets preserve surviving per-track records and remove deleted owners' legacy groups.
-Application acceptance of the modern candidate is pending; none of the older failures is counted
-as a successful standard round trip.
+Changed exports refuse observed unsafe column shapes and nondefault point-mass numeric formats,
+even when backed by modern per-track records. Malformed records and unsupported survivors fail
+before replacing the destination; unchanged rendering/native saving still retain their source.
+All four fixtures remain geometry/source-index cases under [#64](https://github.com/mgradwohl/MoTrack/issues/64).
+Deleting all affected owners removes the unsafe settings; deleting only one cannot exempt another.
+Dataset owners, full table editing, media/archive saving and paired-output recovery remain unfinished.
 
 ## Linked image sequence baseline
 

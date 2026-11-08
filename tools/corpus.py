@@ -609,7 +609,7 @@ def deletion_roundtrip_expected(case, mode):
     if (mode in mass_modes and case["id"] != "protractor"
             or mode in {"delete-vector", "delete-all-vectors"} and case["id"] != "independent-vectors"
             or mode in PLOT_DELETION_NAMES and case["id"] != "plot-guests"
-            or mode in TABLE_DELETION_NAMES and case["id"] != "table-owners"
+            or mode in TABLE_DELETION_NAMES and case["id"] != "table-default-format-owners"
             or mode not in mass_modes | {"delete-vector", "delete-all-vectors"} | PLOT_DELETION_NAMES.keys() | TABLE_DELETION_NAMES.keys()):
         raise ValueError("The deletion oracle requires its pinned mass/vector case")
     expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
@@ -766,13 +766,13 @@ def patch_expected_table_deletion(document, mode):
     removed = TABLE_DELETION_NAMES[mode]
     columns = prop(table, "track_columns")
     rows = cells(columns)
-    if [[text(value) for value in cells(row)] for row in rows] != [["mass A", "t", "x", "y", "frame"], ["mass B", "t", "y", "x", "frame"], ["mass C", "t", "x", "y", "frame"]]:
+    if [[text(value) for value in cells(row)] for row in rows] != [["mass A", "t", "x", "y", "frame"], ["mass B", "t", "x", "frame"], ["mass C", "t", "y", "frame"]]:
         raise ValueError("Expected the pinned original table columns")
     formats = prop(table, "column_formats")
     groups = cells(formats)
     if [[[text(value) for value in cells(row)] for row in cells(group)] for group in groups] != [
-            [["mass A", "x", "0.000"], ["mass A", "y", "0.00"]],
-            [["mass B", "y", "0.0000"], ["mass B", "t", "0.00"]], [["mass C", "x", "0.00000"]]]:
+            [["mass A", "frame", "0"], ["mass A", "step", "0"]],
+            [["mass B", "frame", "0"], ["mass B", "t", "0.000"]], [["mass C", "step", "0"]]]:
         raise ValueError("Expected the pinned original table formats")
     for array, entries in [(columns, rows), (formats, groups)]:
         for name, entry in zip(["mass A", "mass B", "mass C"], entries):

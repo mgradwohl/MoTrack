@@ -42,9 +42,10 @@ public final class TableOwnersFixture {
             boolean subset = args.length == 2 && args[1].equals("subset");
             boolean defaults = args.length == 2 && args[1].equals("defaults");
             boolean legacyFormats = args.length == 2 && args[1].equals("legacy-formats");
+            boolean safe = args.length == 2 && args[1].equals("default-formats");
             boolean modern = !subset && !defaults && !legacyFormats;
-            if ((args.length != 1 && !subset && !defaults && !legacyFormats) || !OSPRuntime.VERSION.equals("6.3.5"))
-                throw new IllegalArgumentException("Expected Tracker 6.3.5, one fresh output path and optional subset/defaults/legacy-formats mode");
+            if ((args.length != 1 && !subset && !defaults && !legacyFormats && !safe) || !OSPRuntime.VERSION.equals("6.3.5"))
+                throw new IllegalArgumentException("Expected Tracker 6.3.5, one fresh output path and optional subset/defaults/legacy-formats/default-formats mode");
             Path path = Path.of(args[0]).toAbsolutePath();
             if (Files.exists(path)) throw new IllegalArgumentException("Fixture output already exists");
             Locale.setDefault(Locale.US);
@@ -75,7 +76,7 @@ public final class TableOwnersFixture {
             root.setValue("length_unit", "m");
             root.setValue("mass_unit", "kg");
             root.setValue("tracks", new ArrayList<TTrack>(List.of(new CoordAxes(), first, second, third)));
-            if (modern) {
+            if (modern && !safe) {
                 // TTrack.Loader restores these per-track overrides after panel defaults; legacy
                 // table-only patterns are otherwise replaced during normal initialization.
                 var tracks = property(root, "tracks").getChildControls();
@@ -84,6 +85,7 @@ public final class TableOwnersFixture {
                 tracks[3].setValue("number_formats", new String[] {"x", "0.00000"});
                 root.setValue("dividers", new double[] {0.65, 0.5, 0.75, 0.5});
             }
+            if (safe) root.setValue("dividers", new double[] {0.65, 0.5, 0.75, 0.5});
             root.setValue("selectedtrack", "mass B");
             root.setValue("selected_view_types", new int[] {TView.VIEW_TABLE, TView.VIEW_TABLE, TView.VIEW_WORLD, TView.VIEW_PAGE});
             root.setValue("views", new TView[][] {new TView[0]});
@@ -92,10 +94,13 @@ public final class TableOwnersFixture {
             table.setValue("selected_track", "mass B");
             table.setValue("track_columns", new String[][] {
                 subset || defaults ? new String[] {"mass A", "t", "x", "y"} : new String[] {"mass A", "t", "x", "y", "frame"},
-                subset || defaults ? new String[] {"mass B", "t", "y", "x"} : new String[] {"mass B", "t", "y", "x", "frame"},
-                subset ? new String[] {"mass C", "t", "x"} : defaults ? new String[] {"mass C", "t", "x", "y"}
+                safe ? new String[] {"mass B", "t", "x", "frame"} : subset || defaults ? new String[] {"mass B", "t", "y", "x"} : new String[] {"mass B", "t", "y", "x", "frame"},
+                safe ? new String[] {"mass C", "t", "y", "frame"} : subset ? new String[] {"mass C", "t", "x"} : defaults ? new String[] {"mass C", "t", "x", "y"}
                     : new String[] {"mass C", "t", "x", "y", "frame"}});
-            table.setValue("column_formats", new String[][][] {
+            table.setValue("column_formats", safe ? new String[][][] {
+                {{"mass A", "frame", "0"}, {"mass A", "step", "0"}},
+                {{"mass B", "frame", "0"}, {"mass B", "t", "0.000"}},
+                {{"mass C", "step", "0"}}} : new String[][][] {
                 {{"mass A", "x", "0.000"}, {"mass A", "y", "0.00"}},
                 {{"mass B", "y", "0.0000"}, {"mass B", "t", "0.00"}},
                 {{"mass C", "x", "0.00000"}}});

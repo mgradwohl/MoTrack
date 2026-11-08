@@ -122,8 +122,8 @@ class CorpusTests(unittest.TestCase):
                               ("delete-all-vectors", "independent-vectors"), ("delete-selected-mass", "protractor"),
                               ("delete-all-masses", "protractor"), ("delete-plot-owner", "plot-guests"),
                               ("delete-plot-guest", "plot-guests"), ("delete-first-plot-guest", "plot-guests"),
-                              ("delete-first-table-owner", "table-owners"), ("delete-selected-table-owner", "table-owners"),
-                              ("delete-last-table-owner", "table-owners"), ("delete-all-table-owners", "table-owners")]:
+                              ("delete-first-table-owner", "table-default-format-owners"), ("delete-selected-table-owner", "table-default-format-owners"),
+                              ("delete-last-table-owner", "table-default-format-owners"), ("delete-all-table-owners", "table-default-format-owners")]:
             original = next(c for c in manifest["cases"] if c["id"] == case_id)
             unchanged = copy.deepcopy(original)
             expected, case = corpus.deletion_roundtrip_expected(original, mode)
@@ -339,7 +339,7 @@ class CorpusTests(unittest.TestCase):
                     corpus.verify_deletion_export_xml(source, exported, mode)
 
     def test_table_deletion_xml_oracle_preserves_surviving_groups_and_formats(self):
-        source = corpus.CORPUS / "fixtures/table-owners.trk"
+        source = corpus.CORPUS / "fixtures/table-default-format-owners.trk"
         exported = self.root / "table-deletion.trk"
         for mode, removed in corpus.TABLE_DELETION_NAMES.items():
             tree = ET.parse(source)
@@ -378,7 +378,7 @@ class CorpusTests(unittest.TestCase):
             invalids = [source.read_text(encoding="utf-8"), good.replace('>kg<', '>lost<')]
             if mode != "delete-all-table-owners":
                 invalids += [good.replace('type="string">x<', 'type="string">lost<'),
-                             good.replace('type="string">0.', 'type="string">9.')]
+                             good.replace('type="string">0<', 'type="string">9<')]
             for invalid in invalids:
                 self.assertNotEqual(invalid, good)
                 exported.write_text(invalid, encoding="utf-8")
@@ -1038,8 +1038,10 @@ class CorpusTests(unittest.TestCase):
 
     def test_saved_views_require_original_owners_columns_and_formats(self):
         manifest = corpus.load_manifest()
-        for case_id in ["protractor", "dynamic-sine", "plot-guests"]:
+        for case_id in ["protractor", "dynamic-sine", "plot-guests", "table-owners", "table-default-format-owners"]:
             case = next(case for case in manifest["cases"] if case["id"] == case_id)
+            if "rejected_session_case" in case:
+                case = json.loads((corpus.CORPUS / case["rejected_session_case"]).read_text(encoding="utf-8"))
             expected = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
             tracks = []
             for identity in case["session_tracks"]:
@@ -1069,6 +1071,15 @@ class CorpusTests(unittest.TestCase):
                     (["tables", 0, "dataset_indices"], [["protractor A", "1"]]),
                     (["tables"], []),
                 ]
+            elif case_id.startswith("table-"):
+                changes = [
+                    (["tables", 0, "selected_track"], "mass A"),
+                    (["tables", 0, "track_columns", 1], ["mass B", "t", "x", "y", "frame"]),
+                    (["tables", 0, "column_formats"], []),
+                    (["tables"], []),
+                ]
+                if case_id == "table-owners":
+                    changes.append((["tables", 0, "column_formats", 3, 2], ""))
             else:
                 changes = [
                     (["plots", 0, "chooser"], 1),
