@@ -772,6 +772,16 @@ def patch_expected_table_deletion(document, mode):
         selected = prop(table, "selected_track")
         if mode == "delete-all-table-owners":
             table.removeChild(selected)
+            # The pinned saver omits a table with no custom state. An empty TableTView
+            # would pass a null selection to TrackerPanel.getTrackByName during load.
+            slot = table.parentNode
+            chooser = slot.parentNode
+            views = chooser.parentNode
+            chooser.removeChild(slot)
+            if not any(child.nodeType == child.ELEMENT_NODE for child in chooser.childNodes):
+                views.removeChild(chooser)
+            if not any(child.nodeType == child.ELEMENT_NODE for child in views.childNodes):
+                root.removeChild(views)
         else:
             for child in list(selected.childNodes):
                 selected.removeChild(child)

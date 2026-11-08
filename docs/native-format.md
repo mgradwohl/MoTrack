@@ -338,13 +338,19 @@ its whole `String[][]` group from `column_formats`. Every row in a format group 
 same unambiguous owner. Multiple reference rows therefore identify one removal target, deduplicated
 by original path before mutation. Surviving row/group indices are compacted, empty properties omitted,
 and OSP property line separators restored. Remaining columns, formats and owner order are retained.
+If cleanup leaves a custom table with no properties, its saved view slot and any empty enclosing
+view arrays are omitted, matching Tracker's saver. Retained view indices are roles and are not
+renumbered. An empty `TableTView` would pass a missing selected name to the pinned loader's
+null-unsafe `getTrackByName`; removing the empty custom state preserves the selected table-pane type.
 Original source bindings and undo history remain intact; replacement tracks cannot inherit deleted
 owners' settings. Dataset-index owners and scientific dependencies remain excluded.
 
 Four independent application cases remove the first, selected or last owner, or all owners from
 `table-default-format-owners.trk`. This separate fixture uses three explicit-frame column sets and
 only Tracker's default frame/step/time formats. Seven native subsets additionally exercise renamed
-survivors, name reuse and native save/reopen. Application acceptance is pending. The reference
+survivors, name reuse and native save/reopen. The first three cases passed actual Tracker resave,
+fresh reopen and native reimport in Linux job 128705864359 (run 42469588233). The all-owner case
+exposed the empty-table loader failure above; its corrected export still requires CI acceptance. The reference
 harness expands panes through public divider actions, visits custom tables and restores their
 selection; this does not establish immediate unvisited-resave fidelity.
 
