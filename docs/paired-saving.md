@@ -283,3 +283,9 @@ Successful paired writes retain their lock-observed journal pathname even after 
 Session completion reconciles older observations at that path, so an unreported external recovery
 followed by a fresh successful write cannot leave a deleted journal pending. Newer observations at
 the same path and unresolved records at other destinations remain pending in either callback order.
+
+Desktop native saves hold the destination's sibling paired-save lock through replacement. An active
+writer or an unresolved journal blocks replacement of that companion, including a file alias to it;
+saving a native copy at another destination remains available. The worker checks the filesystem even
+when this session has not yet observed the journal. Normal paired saving requires explicit recovery
+before that companion can change, preserving its recorded fingerprints and staged recovery data.

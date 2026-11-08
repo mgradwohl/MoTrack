@@ -59,6 +59,11 @@ using PairedSaveObserver = std::function<void(PairedSaveProgress)>;
                                                     const QString& mediaProjectPath,
                                                     const std::atomic_bool* cancelled = nullptr,
                                                     const PairedSaveObserver& observer = {});
+/// Write a prepared/rebased native copy while holding its sibling paired-save lock.
+/// Refuses unresolved journals without changing any output; copies to other destinations remain available.
+/// The caller still validates/rebases media before invoking this worker-only adapter.
+void writeNativeDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled = nullptr);
+
 /// Explicitly resume a locally initiated pair. Refuses altered destinations, stages, aliases and escaping paths.
 /// Recovery is never implicitly triggered by opening imported project/archive content.
 /// When expectedTransaction is supplied, check it while holding the journal lock, before any output changes.
