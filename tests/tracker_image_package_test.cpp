@@ -94,6 +94,45 @@ TEST(TrackerImagePackage, RetainsEditedDataAndMediaAfterNativeReopenAndSourceRem
     EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(again.projectPath("experiment.trk")).project.pointMasses.at(0).mass, 7);
 }
 
+TEST(TrackerImagePackage, RetainedMediaBindingsAreReplacedByPrivatePackageMembers)
+{
+    for (const bool matchingNames : {false, true})
+    {
+        SCOPED_TRACE(matchingNames);
+        QTemporaryDir temporary;
+        ASSERT_TRUE(QDir(temporary.path()).mkdir("import"));
+        ASSERT_TRUE(QDir(temporary.path()).mkdir("images"));
+        auto xml = bytes(fixture());
+        for (int frame = 0; frame < 4; ++frame)
+        {
+            const auto original = "images/frame" + QString::number(frame) + ".png";
+            const auto member = QStringLiteral("images/frame-%1.png").arg(frame, 6, 10, QLatin1Char('0'));
+            ASSERT_TRUE(QFile::copy(fixture(original), temporary.filePath(member)));
+            xml.replace(original.toUtf8(), (matchingNames ? member : "../" + member).toUtf8());
+        }
+        const auto input = temporary.filePath(matchingNames ? "input.trk" : "import/input.trk");
+        put(input, xml);
+        auto document = motrack::importTrackerDocument(input);
+        motrack::retainWorkspaceMediaLocations(document, input);
+        const auto bindings = document.mediaLocations;
+        ASSERT_EQ(bindings.size(), 4u);
+        ASSERT_TRUE(QFile::remove(input));
+        ASSERT_TRUE(QDir(temporary.path()).rmdir("import"));
+        const auto target = temporary.filePath("portable.trz");
+        motrack::writeTrackerImagePackage(target, document, input);
+        EXPECT_EQ(document.mediaLocations, bindings);
+        const auto archive = motrack::TrackerArchive::open(target);
+        const auto reopened = motrack::importTrackerDocument(archive.projectPath("experiment.trk"));
+        ASSERT_EQ(reopened.project.clip.mediaReferences.size(), 4u);
+        for (int frame = 0; frame < 4; ++frame)
+        {
+            const auto member = QStringLiteral("images/frame-%1.png").arg(frame, 6, 10, QLatin1Char('0'));
+            EXPECT_EQ(reopened.project.clip.mediaReferences[static_cast<std::size_t>(frame)], member.toStdString());
+            EXPECT_EQ(bytes(QDir(archive.root()).filePath(member)), bytes(fixture("images/frame" + QString::number(frame) + ".png")));
+        }
+    }
+}
+
 TEST(TrackerImagePackage, RefusesUnsupportedDocumentsMissingMediaAndCancellationWithoutReplacingOutput)
 {
     for (int kind = 0; kind < 11; ++kind)

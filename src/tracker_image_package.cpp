@@ -127,7 +127,7 @@ void writeTrackerImagePackage(const QString& path,
         checkCancelled(cancelled);
         const auto logical = QString::fromStdString(reference);
         require(logical.toStdString() == reference && logical.size() <= 4096);
-        const auto source = resolveLocalMediaPath(mediaProjectPath, reference);
+        const auto source = workspaceMediaPath(document, mediaProjectPath, reference);
         require(!source.isEmpty() && !sameLocalFile(source, destination));
         const auto suffix = QFileInfo(logical).suffix();
         require(!suffix.isEmpty() && suffix.size() <= 10);
@@ -143,6 +143,7 @@ void writeTrackerImagePackage(const QString& path,
         members.append(member);
         reference = member.toStdString();
     }
+    snapshot.mediaLocations.clear(); // Generated members now resolve inside the private package.
     const auto projectMember = QStringLiteral("experiment.trk");
     const auto projectPath = temporary.filePath(projectMember);
     writeTrackerDocument(projectPath, snapshot, projectPath);
