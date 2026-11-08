@@ -311,6 +311,7 @@ TEST(TrackerArchiveWriter, ExportsAnEditedImageDocumentAfterNativeReopenAndOrigi
     motrack::TrackEdits edits;
     ASSERT_TRUE(edits.setPointMassValue(document.project, 0, 5));
     ASSERT_TRUE(edits.markPointMass(document.project, 0, {.frame = 1, .x = 8, .y = 12}));
+    ASSERT_TRUE(edits.setClipRange(document.project, 1, 3, 2));
     ASSERT_TRUE(edits.undo(document.project));
     ASSERT_TRUE(edits.redo(document.project));
     motrack::writeWorkspaceDocument(native, document);
@@ -325,6 +326,9 @@ TEST(TrackerArchiveWriter, ExportsAnEditedImageDocumentAfterNativeReopenAndOrigi
     const auto edited = motrack::importTrackerDocument(reopened.projectPath("nested/selected.trk"));
     ASSERT_EQ(edited.project.pointMasses.size(), 1);
     EXPECT_DOUBLE_EQ(edited.project.pointMasses.front().mass, 5);
+    EXPECT_EQ(edited.project.clip.firstFrame, 1);
+    EXPECT_EQ(edited.project.clip.stepSize, 2);
+    EXPECT_EQ(edited.project.clip.stepCount, 2);
     EXPECT_EQ(edited.project.pointMasses.front().marks, document.project.pointMasses.front().marks);
     EXPECT_EQ(edited.project.clip.mediaReferences,
               (std::vector<std::string>{"images/frame0.png", "images/frame1.png", "images/frame2.png", "images/frame3.png"}));

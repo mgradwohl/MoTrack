@@ -658,12 +658,18 @@ public final class TrackerSessionReference {
             throw new IllegalStateException("Expected unfiltered pinned reference media");
         int count = video.getFrameCount();
         if (count < 1 || count > 100) throw new IllegalStateException("Reference media frame limit exceeded");
+        int first = video.getStartFrameNumber();
+        int last = video.getEndFrameNumber();
+        if (first < 0 || last < first || last >= count) throw new IllegalStateException("Invalid reference media bounds");
         List<Object> frames = new ArrayList<>();
         int original = video.getFrameNumber();
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            for (int frame = 0; frame < count; frame++) {
+            // VideoAdapter clamps seeks to these bounds. Do not change the live clip to inspect
+            // excluded frames: independent asset hashes verify the complete saved inventory.
+            for (int frame = first; frame <= last; frame++) {
                 video.setFrameNumber(frame);
+                if (video.getFrameNumber() != frame) throw new IllegalStateException("Reference frame seek was clamped");
                 java.awt.image.BufferedImage image = video.getImage();
                 if (image == null || image.getWidth() > 256 || image.getHeight() > 256)
                     throw new IllegalStateException("Missing or oversized reference image");

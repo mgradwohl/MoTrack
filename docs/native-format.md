@@ -417,10 +417,18 @@ without inferring the original directory or modifying the source envelope. A rem
 file is therefore unnecessary once the native document has been reopened.
 
 The first supported media schema is a standalone, unfiltered ImageVideo containing independent point
-masses and coordinate axes. Frame count/order, clip range, interval and time origin must be retained;
-media timing/range edits, vectors, movie state, archives and unaudited fields are refused. A native
+masses and coordinate axes. Clip start, step size and step count can change within the original image
+inventory, including a single-frame clip. Source frame count/order, interval and time origin must be
+retained; numeric timing edits, vectors, movie state, archives and unaudited fields are refused. A native
 decoded-frame count is accepted only when it equals the complete image list and is treated as derived
 metadata. An optional saved video_framecount must also match. Source path and paths fields must agree.
+
+Range edits patch only VideoClip's startframe, stepsize and stepcount. Original frame numbers, every
+image reference and all measurements remain, including marks and images outside the selected range.
+No media is cut, reordered or encoded. Native and desktop paired-save tests cover undo/redo, native
+reopen and source removal. Independent corpus cases check strided and single-frame linked clips,
+an edited existing image archive and a new portable image package; actual Tracker application
+load/resave/fresh-reopen acceptance for these new range cases remains pending.
 
 Every linked file must be readable before output is prepared. The adapter rebases known path fields,
 uses OSP-safe CDATA, validates the complete edited project by reparsing, and writes through QSaveFile.
@@ -460,7 +468,7 @@ Movie engines, filters and archive members need their own audited path/timing co
 packaging will preserve untouched members and feed the paired-save transaction/recovery layer;
 standard Save UI follows that layer. This internal adapter is not full R03 completion.
 
-### Selected-member Tracker archive output (application acceptance pending)
+### Selected-member Tracker archive output
 
 The internal archive document adapter exports supported edits to one original `.trk` member after
 native close/reopen, including after the original `.trz` is removed. It verifies that the source
@@ -474,9 +482,10 @@ members, so even an in-root rename/alias cannot produce links to files absent fr
 Digest checks use bounded blocks, honor cancellation and avoid rereading duplicate
 references. Native save/reopen recreates these digests from the owned archive bytes. An immutable
 copy prepares member-relative ImageVideo paths; external/replaced media,
-movies, filters and unsupported timing/range edits remain refused. The source envelope and owned
-original archive bytes are unchanged. The internal [paired-save adapter](paired-saving.md) now uses this writer; its acceptance gates
-are pending. Desktop standard Save integration remains unfinished.
+movies, filters and numeric timing edits remain refused. Supported image clip range/stride edits
+retain the complete original media inventory and measurements. The source envelope and owned
+original archive bytes are unchanged. The [paired-save adapter](paired-saving.md) and desktop standard
+Save use this writer; their current-revision CI and review gates remain separate from archive acceptance.
 
 The writer supports bounded, single-disk classic ZIP archives with stored or deflated members. It
 uses the [ZIP format specification](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT)
@@ -521,9 +530,11 @@ record and central metadata. The baseline and edited archive passed actual Track
 resave, fresh-process reopen and native reimport at `fec0e7a`, Linux job 128733094094 in
 [run 42481133737](https://github.com/mgradwohl/MoTrack/actions/runs/42481133737), including every
 independent pixel/time/geometry expectation. The destination/member-alias guards also passed at `6e35268`, Linux job 128744838260 in
-[run 42484998884](https://github.com/mgradwohl/MoTrack/actions/runs/42484998884). The later immutable-source
-digest protection still requires its own current-revision CI. New-archive packaging, broader ZIP/media
-support and paired-save recovery remain unfinished.
+[run 42484998884](https://github.com/mgradwohl/MoTrack/actions/runs/42484998884). The immutable-source
+digest and later guards passed all six checks at `875c3fa` in
+[run 42534429062](https://github.com/mgradwohl/MoTrack/actions/runs/42534429062), including actual Tracker
+archive acceptance and 95.26% combined C++ coverage, before PR #121 merged. Broader ZIP/media support
+remains unfinished. Portable image packaging and paired recovery have their own contracts below.
 
 The additional two-experiment corpus case verifies that selected-member editing does not damage a
 second experiment sharing the same images. Its independent archive/XML oracle preserves that
@@ -533,7 +544,9 @@ in its own process. Each tab has separate scientific/media expectations, includi
 and track name. Manifest validation and negative oracles reject omitted/duplicate tabs and matching
 but incorrect results across save/reopen. Both `tracker_archive_tabs_resave` and
 `motrack_archive_tabs_roundtrip` passed at `505c40c5`, Linux job 128744837376 in
-[run 42484997811](https://github.com/mgradwohl/MoTrack/actions/runs/42484997811). This scoped application
+[run 42484997811](https://github.com/mgradwohl/MoTrack/actions/runs/42484997811), and at reviewed head
+`4a7ccb0` in [run 42534428777](https://github.com/mgradwohl/MoTrack/actions/runs/42534428777) before
+PR #124 merged with all six checks green. This scoped application
 evidence does not provide native multi-tab workspace editing or expand the supported archive/media schema.
 
 
@@ -563,6 +576,9 @@ The internal `writeTrackerImagePackage` adapter exports an audited linked-image 
 for byte, patches only the known ImageVideo references to generated archive member names, and preserves
 other source XML. The active document, undo state, native source envelope and original media remain unchanged.
 It is an export copy, not a new session save checkpoint or an automatically paired native save.
+An edited clip range/stride retains all source images and marks in the package, including those
+outside the clip. Single-frame packaging has independent native/XML/media coverage; its new actual
+Tracker application acceptance case remains pending.
 
 Preparation uses a private temporary directory, at most 4095 images plus one experiment, 512 MiB total
 extracted content and 544 MiB ZIP bytes, with 64 KiB copy buffers and cancellation checks. The generated

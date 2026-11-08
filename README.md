@@ -75,6 +75,10 @@ updates to existing image archives. The first linked-movie writer supports mass 
 audited constant-rate imports after timestamp indexing; its edited-file Tracker save/reopen acceptance
 has passed for the pinned four-frame AVI case. Later revisions still require their own CI and review.
 Movie timing/calibration/track-identity edits, movie packaging, filters and broader settings remain unfinished. An unsupported export is refused; save a MoTrack copy to retain work.
+Image experiments can retain Clip Settings changes to the starting frame, ending frame and frame
+interval in linked `.trk` files, existing image archives and portable image exports. All source images
+and marks remain available, including those outside the selected clip; image timing stays unchanged.
+The new range-edit cases still require actual Tracker application acceptance before merge.
 The [format guide](docs/native-format.md) records the exact supported edits and compatibility evidence.
 
 ### Export a portable image experiment

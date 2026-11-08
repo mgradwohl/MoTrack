@@ -46,6 +46,7 @@ TEST(TrackerImagePackage, RetainsEditedDataAndMediaAfterNativeReopenAndSourceRem
     motrack::TrackEdits edits;
     ASSERT_TRUE(edits.setPointMassValue(document.project, 0, 5));
     ASSERT_TRUE(edits.markPointMass(document.project, 0, {.frame = 1, .x = 8, .y = 12}));
+    ASSERT_TRUE(edits.setClipRange(document.project, 2, 2, 1));
     document.project.clip.sourceFrameCount = 4;
     const auto native = temporary.filePath("saved.motrack");
     motrack::writeWorkspaceDocument(native, document);
@@ -79,6 +80,8 @@ TEST(TrackerImagePackage, RetainsEditedDataAndMediaAfterNativeReopenAndSourceRem
         EXPECT_EQ(bytes(QDir(archive->root()).filePath(member)), bytes(fixture("images/frame" + QString::number(frame) + ".png")));
     }
     EXPECT_EQ(reopened.project, expected);
+    EXPECT_EQ(reopened.project.clip.firstFrame, 2);
+    EXPECT_EQ(reopened.project.clip.stepCount, 1);
     reopened.archivePayload = std::move(archive);
     reopened.archiveMember = "experiment.trk";
     const auto portableNative = temporary.filePath("portable.motrack");

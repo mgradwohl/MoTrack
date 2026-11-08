@@ -299,6 +299,62 @@ TEST(TrackerWriter, SavesLinkedImagesAfterNativeReopenSourceRemovalAndRelocation
     EXPECT_THROW(motrack::writeTrackerProject(output, document.project, retainedSource(document)), motrack::ProjectError);
 }
 
+TEST(TrackerWriter, SavesTrimmedImageClipsWithStrideAndPreservesAllSourceFrames)
+{
+    const auto fixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images/";
+    const std::array ranges{std::array{1, 3, 2}, std::array{1, 2, 1}, std::array{2, 2, 1}, std::array{0, 2, 2}};
+    for (const bool explicitCount : {false, true})
+        for (const auto& range : ranges)
+        {
+            SCOPED_TRACE(explicitCount);
+            SCOPED_TRACE(::testing::PrintToString(range));
+            QTemporaryDir temporary;
+            ASSERT_TRUE(QDir(temporary.path()).mkdir("images"));
+            const auto input = temporary.filePath("input.trk");
+            ASSERT_TRUE(QFile::copy(fixture + "linked-images.trk", input));
+            for (int frame = 0; frame < 4; ++frame)
+            {
+                const auto name = "images/frame" + QString::number(frame) + ".png";
+                ASSERT_TRUE(QFile::copy(fixture + name, temporary.filePath(name)));
+            }
+            auto document = motrack::importTrackerDocument(input);
+            if (explicitCount)
+            {
+                const std::string start = "<object class=\"org.opensourcephysics.media.core.VideoClip\">";
+                const auto position = retainedSource(document).xml.find(start);
+                ASSERT_NE(position, std::string::npos);
+                retainedSource(document).xml.insert(position + start.size(),
+                                                    "\n<property name=\"video_framecount\" type=\"int\">4</property>\n");
+            }
+            const auto original = document.project;
+            motrack::TrackEdits edits;
+            ASSERT_TRUE(edits.setClipRange(document.project, range[0], range[1], range[2]));
+            const auto expected = document.project;
+            ASSERT_TRUE(edits.undo(document.project));
+            EXPECT_EQ(document.project, original);
+            ASSERT_TRUE(edits.redo(document.project));
+            const auto native = temporary.filePath("clip.motrack");
+            motrack::writeWorkspaceDocument(native, document);
+            ASSERT_TRUE(QFile::remove(input));
+            document = motrack::readWorkspaceDocument(native);
+            const auto output = temporary.filePath("clip.trk");
+            ASSERT_NO_THROW(motrack::writeTrackerDocument(output, document, native));
+            const auto bytes = readBytes(output);
+            const auto reopened = motrack::parseLegacyProject(bytes);
+            EXPECT_EQ(reopened, expected);
+            EXPECT_EQ(reopened.pointMasses, original.pointMasses);
+            EXPECT_EQ(reopened.clip.mediaReferences, original.clip.mediaReferences);
+            for (int frame = 0; frame < 4; ++frame)
+            {
+                const auto name = "images/frame" + QString::number(frame) + ".png";
+                EXPECT_EQ(readBytes(temporary.filePath(name)), readBytes(fixture + name));
+            }
+            document = motrack::importTrackerDocument(output);
+            EXPECT_NO_THROW(motrack::writeTrackerDocument(output, document, output));
+            EXPECT_EQ(readBytes(output), bytes);
+        }
+}
+
 TEST(TrackerWriter, RetainedMediaLocationsSurviveRemovalOfTheOriginalProjectDirectory)
 {
     QTemporaryDir temporary;
