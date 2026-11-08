@@ -152,7 +152,7 @@ if(BUILD_TESTING)
     add_dependencies(motrack_tests motrack_corpus_probe)
     target_compile_definitions(motrack_tests PRIVATE MOTRACK_CORPUS_PROBE="$<TARGET_FILE:motrack_corpus_probe>")
     target_link_libraries(motrack_corpus_probe PRIVATE motrack_project)
-    add_executable(motrack_workspace_tests tests/paired_workspace_test.cpp tests/workspace_test.cpp tests/workspace_document_test.cpp tests/document_session_test.cpp)
+    add_executable(motrack_workspace_tests tests/image_package_workspace_test.cpp tests/paired_workspace_test.cpp tests/workspace_test.cpp tests/workspace_document_test.cpp tests/document_session_test.cpp)
     target_link_libraries(motrack_workspace_tests PRIVATE motrack_workspace GTest::gtest Qt6::Test motrack_archive)
     add_dependencies(motrack_workspace_tests motrack)
     target_compile_definitions(motrack_workspace_tests PRIVATE
