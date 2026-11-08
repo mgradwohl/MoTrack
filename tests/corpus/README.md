@@ -924,7 +924,7 @@ even when it agrees at all three stages. No media pixel, timing, measurement, wo
 untouched XML assertion is relaxed. Current-revision application acceptance is still required.
 
 
-### Multiple experiments in one image archive (application acceptance pending)
+### Multiple experiments in one image archive (Linux application acceptance recorded)
 
 `LinkedImagesFixture` accepts an optional `secondary` mode. It writes the same independently known
 four frames and calibration with a distinct track, `other image mass`, of 3.5 kg. Both modes were
@@ -955,7 +955,10 @@ world (3,2)), including undo/redo and native save/reopen after removing the orig
 The independent ZIP/XML oracle requires the complete `second.trk`, supporting files and compressed
 media records to remain unchanged. Actual Tracker must then load both experiments, resave each,
 reopen each in a fresh process, and pass native reimport comparisons. Local native, headless API
-and negative-oracle checks pass; actual multi-tab application acceptance remains a Linux CI gate.
+and negative-oracle checks pass. Both `tracker_archive_tabs_resave` and
+`motrack_archive_tabs_roundtrip` passed at `505c40c5`, Linux job 128744837376 in
+[run 42484997811](https://github.com/mgradwohl/MoTrack/actions/runs/42484997811), including all loaded
+tabs saved and individually reopened. These checks remain required for subsequent revisions.
 This does not implement MoTrack workspace tabs, new archive packaging, movie media or Tracker's
 archive-authoring dialog. It does not reproduce or resolve the historical MOV/Open Recent report
 linked from MoTrack #65.

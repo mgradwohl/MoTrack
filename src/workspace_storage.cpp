@@ -3,6 +3,7 @@
 #include "tracker_archive.hpp"
 
 #include <QBuffer>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QSaveFile>
@@ -105,7 +106,7 @@ la_ssize_t writeBlock(archive*, void* context, const void* data, std::size_t siz
     return static_cast<la_ssize_t>(output.write(static_cast<const char*>(data), static_cast<qint64>(size)));
 }
 
-void writeMember(archive* writer, const char* name, QIODevice& input, qint64 size)
+void writeMember(archive* writer, const char* name, QIODevice& input, qint64 size, const QByteArray& expectedDigest = {})
 {
     const std::unique_ptr<archive_entry, decltype(&archive_entry_free)> entry(archive_entry_new(), &archive_entry_free);
     require(static_cast<bool>(entry));
@@ -115,6 +116,7 @@ void writeMember(archive* writer, const char* name, QIODevice& input, qint64 siz
     archive_entry_set_size(entry.get(), size);
     require(archive_write_header(writer, entry.get()) == ARCHIVE_OK);
     std::array<char, BLOCK_BYTES> buffer{};
+    QCryptographicHash digest(QCryptographicHash::Sha256);
     qint64 copied = 0;
     for (;;)
     {
@@ -125,8 +127,10 @@ void writeMember(archive* writer, const char* name, QIODevice& input, qint64 siz
             break;
         }
         require(archive_write_data(writer, buffer.data(), static_cast<std::size_t>(count)) == count);
+        digest.addData(QByteArrayView(buffer.data(), count));
         copied += count;
     }
+    require(expectedDigest.isEmpty() || digest.result() == expectedDigest);
     require(copied == size && archive_write_finish_entry(writer) == ARCHIVE_OK);
 }
 
@@ -168,7 +172,7 @@ void writeWorkspaceStorage(const QString& path, const QByteArray& json, const st
             archive_write_set_options(writer.get(), "zip:compression=store") == ARCHIVE_OK &&
             archive_write_open(writer.get(), &output, nullptr, &writeBlock, nullptr) == ARCHIVE_OK);
     writeMember(writer.get(), "project.json", metadata, json.size());
-    writeMember(writer.get(), "tracker/source.trz", payload, payloadSize);
+    writeMember(writer.get(), "tracker/source.trz", payload, payloadSize, source->sourceDigest());
     require(archive_write_close(writer.get()) == ARCHIVE_OK);
     writer.reset();
     require(output.commit());
