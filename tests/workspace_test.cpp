@@ -1237,25 +1237,41 @@ TEST(Workspace, SavesStandaloneMediaBesideADirectoryEndingInExclamation)
 
 TEST(Workspace, ReopensASingleImageWithoutARecognizedFilenameExtension)
 {
-    QTemporaryDir temporary;
-    const auto image = temporary.filePath("image.data");
-    ASSERT_TRUE(QFile::copy(fixturePath("frames/frame00.ppm"), image));
-    motrack::MainWindow window;
-    ASSERT_TRUE(window.openImageSequence({image}, 4.0));
-    const auto destination = temporary.filePath("image.motrack");
-    ASSERT_TRUE(window.saveWorkspace(destination));
-    const auto saved = motrack::readWorkspaceDocument(destination);
-    EXPECT_FALSE(saved.movie);
-    const auto sequence = motrack::ImageSequence::open(destination, saved.project.clip);
-    if (!sequence)
-        FAIL() << "Saved image sequence is missing.";
-    const auto frame = sequence->readStep(0);
-    if (!frame)
-        FAIL() << "Saved image frame is missing.";
-    EXPECT_EQ(frame->image, QImage(fixturePath("frames/frame00.ppm")));
-    ASSERT_TRUE(window.loadProject(destination));
-    ASSERT_TRUE(window.saveWorkspace(destination));
-    EXPECT_FALSE(motrack::readWorkspaceDocument(destination).movie);
+    for (const auto& name : {QString("image.data"), QString("physical-image.motrack")})
+    {
+        SCOPED_TRACE(name.toStdString());
+        QTemporaryDir temporary;
+        const auto image = temporary.filePath(name);
+        ASSERT_TRUE(QFile::copy(fixturePath("frames/frame00.ppm"), image));
+        motrack::MainWindow window;
+        ASSERT_TRUE(window.openImageSequence({image}, 4.0));
+        auto* slider = window.findChild<QSlider*>("stepSlider");
+        auto* canvas = window.findChild<QWidget*>("videoCanvas");
+        ASSERT_TRUE(slider && canvas);
+        const auto destination = temporary.filePath("saved.motrack");
+        ASSERT_TRUE(window.saveWorkspace(destination));
+        ASSERT_TRUE(QFile::remove(image));
+        ASSERT_TRUE(window.saveWorkspace(destination));
+        // Request the sole frame through the normal slider signal while missing and restored.
+        ASSERT_TRUE(QMetaObject::invokeMethod(slider, "valueChanged", Q_ARG(int, 0)));
+        EXPECT_EQ(canvas->accessibleName(), "This image frame could not be opened.");
+        ASSERT_TRUE(QFile::copy(fixturePath("frames/frame00.ppm"), image));
+        ASSERT_TRUE(window.saveWorkspace(destination));
+        ASSERT_TRUE(QMetaObject::invokeMethod(slider, "valueChanged", Q_ARG(int, 0)));
+        EXPECT_EQ(canvas->accessibleName(), "Frame 0");
+        const auto saved = motrack::readWorkspaceDocument(destination);
+        EXPECT_FALSE(saved.movie);
+        const auto sequence = motrack::ImageSequence::open(destination, saved.project.clip);
+        if (!sequence)
+            FAIL() << "Saved image sequence is missing.";
+        const auto frame = sequence->readStep(0);
+        if (!frame)
+            FAIL() << "Saved image frame is missing.";
+        EXPECT_EQ(frame->image, QImage(fixturePath("frames/frame00.ppm")));
+        ASSERT_TRUE(window.loadProject(destination));
+        ASSERT_TRUE(window.saveWorkspace(destination));
+        EXPECT_FALSE(motrack::readWorkspaceDocument(destination).movie);
+    }
 }
 
 #ifndef Q_OS_WIN
