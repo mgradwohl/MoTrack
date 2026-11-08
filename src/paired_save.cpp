@@ -31,6 +31,15 @@ namespace motrack
 {
 namespace
 {
+void stampObservation(PairedSaveResult& result)
+{
+    if (result.observation == 0)
+    {
+        static std::atomic<std::uint64_t> next{1};
+        result.observation = next.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
 constexpr qint64 BLOCK_BYTES = qint64{64} * 1024;
 constexpr qint64 MAX_RECORD_BYTES = qint64{64} * 1024;
 constexpr qint64 MAX_NATIVE_BYTES = MAX_WORKSPACE_JSON_BYTES + MAX_TRACKER_ARCHIVE_BYTES + qint64{8} * 1024 * 1024;
@@ -409,7 +418,7 @@ void protectSourceFiles(const Record& record, const WorkspaceDocument& document,
     {
         for (const auto& reference : document.project.clip.mediaReferences)
         {
-            const auto media = resolveLocalMediaPath(mediaProjectPath, reference);
+            const auto media = workspaceMediaPath(document, mediaProjectPath, reference);
             for (const auto& output : record.outputs)
                 require(media.isEmpty() || !sameLocalFile(media, directory.filePath(output.name)),
                         "Paired saving cannot overwrite linked media.");
@@ -473,6 +482,7 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
         QLockFile lock(lockPath(recoveryPath));
         lock.setStaleLockTime(0);
         require(lock.tryLock(0), "Another save for this project is already in progress.");
+        const auto observation = qScopeGuard([&result] { stampObservation(result); });
         if (QFileInfo::exists(recoveryPath) || QFileInfo(recoveryPath).isSymLink())
         {
             result.recoveryPath = recoveryPath;
@@ -565,13 +575,15 @@ PairedSaveResult recoverPairedDocuments(const QString& recoveryPath,
         QLockFile lock(lockPath(result.recoveryPath));
         lock.setStaleLockTime(0);
         require(lock.tryLock(0), "Another save for this project is already in progress.");
+        const auto observation = qScopeGuard([&result] { stampObservation(result); });
         require(expectedTransaction.isEmpty() || (!QUuid(expectedTransaction).isNull() &&
                                                   QUuid(expectedTransaction).toString(QUuid::WithoutBraces) == expectedTransaction),
                 "Invalid expected recovery transaction.");
-        if (!expectedTransaction.isEmpty() && !QFileInfo::exists(result.recoveryPath) && !QFileInfo(result.recoveryPath).isSymLink())
+        if (!QFileInfo::exists(result.recoveryPath) && !QFileInfo(result.recoveryPath).isSymLink())
         {
             result.transactionId = expectedTransaction;
             result.status = PairedSaveStatus::RecoveryNotNeeded;
+            stampObservation(result); // Set before return-value construction, independently of NRVO.
             return result;
         }
         const auto record = readRecord(result.recoveryPath, parent);

@@ -475,6 +475,74 @@ TEST(PairedSave, RecoversAfterTheWriterProcessExitsWithoutCleanup)
     EXPECT_EQ(files(temporary), (QStringList{"saved.motrack", "saved.trk"}));
 }
 
+TEST(PairedSave, RetainedMediaCannotBeOverwrittenAfterItsProjectDirectoryIsRemoved)
+{
+    for (const auto* mediaName : {"saved.trk", "saved.motrack"})
+    {
+        SCOPED_TRACE(mediaName);
+        QTemporaryDir temporary;
+        ASSERT_TRUE(QDir(temporary.path()).mkdir("import"));
+        ASSERT_TRUE(QDir(temporary.path()).mkdir("media"));
+        const auto input = temporary.filePath("import/input.trk");
+        put(input, bytes(fixture()));
+        const auto standard = temporary.filePath("media/saved.trk");
+        const auto native = temporary.filePath("media/saved.motrack");
+        put(standard, "keep standard");
+        put(native, "keep native");
+        put(temporary.filePath(QString("media/") + mediaName), bytes(fixture("images/frame0.png")));
+        const auto standardBefore = bytes(standard);
+        const auto nativeBefore = bytes(native);
+        auto document = motrack::importTrackerDocument(input);
+        for (int frame = 0; frame < 4; ++frame)
+            document.project.clip.mediaReferences[static_cast<std::size_t>(frame)] =
+                fixture("images/frame" + QString::number(frame) + ".png").toStdString();
+        document.project.clip.mediaReferences.front() = (QString("../media/") + mediaName).toStdString();
+        motrack::retainWorkspaceMediaLocations(document, input);
+        ASSERT_TRUE(QFile::remove(input));
+        ASSERT_TRUE(QDir(temporary.path()).rmdir("import"));
+        const auto result = motrack::writePairedDocuments(standard, document, input);
+        EXPECT_EQ(result.status, motrack::PairedSaveStatus::Failed);
+        EXPECT_FALSE(result.standardCurrent || result.nativeCurrent);
+        EXPECT_EQ(bytes(standard), standardBefore);
+        EXPECT_EQ(bytes(native), nativeBefore);
+    }
+}
+
+TEST(PairedSave, ReconcilesAnAbsentUnidentifiedJournalWithOrderedObservations)
+{
+    QTemporaryDir temporary;
+    const auto target = temporary.filePath("saved.trk");
+    std::atomic_bool cancelled{false};
+    const auto document = editedDocument();
+    const auto partial =
+        motrack::writePairedDocuments(target,
+                                      document,
+                                      fixture(),
+                                      &cancelled,
+                                      [&cancelled](auto state) { cancelled = state == motrack::PairedSaveProgress::StandardSaved; });
+    ASSERT_EQ(partial.status, motrack::PairedSaveStatus::RecoveryRequired);
+    ASSERT_GT(partial.observation, 0u);
+    const auto journal = bytes(partial.recoveryPath);
+    put(partial.recoveryPath, "temporarily unreadable journal");
+    const auto blocked = motrack::writePairedDocuments(target, document, fixture());
+    ASSERT_EQ(blocked.status, motrack::PairedSaveStatus::RecoveryRequired);
+    EXPECT_TRUE(blocked.transactionId.isEmpty());
+    EXPECT_GT(blocked.observation, partial.observation);
+    put(partial.recoveryPath, journal);
+    const auto external = motrack::recoverPairedDocuments(partial.recoveryPath);
+    ASSERT_EQ(external.status, motrack::PairedSaveStatus::Saved);
+    EXPECT_GT(external.observation, blocked.observation);
+    const auto standardBefore = bytes(target);
+    const auto nativeBefore = bytes(partial.nativePath);
+    const auto absent = motrack::recoverPairedDocuments(partial.recoveryPath);
+    EXPECT_EQ(absent.status, motrack::PairedSaveStatus::RecoveryNotNeeded);
+    EXPECT_TRUE(absent.transactionId.isEmpty());
+    EXPECT_FALSE(absent.standardCurrent || absent.nativeCurrent);
+    EXPECT_GT(absent.observation, external.observation);
+    EXPECT_EQ(bytes(target), standardBefore);
+    EXPECT_EQ(bytes(partial.nativePath), nativeBefore);
+}
+
 TEST(PairedSave, LinkedMediaCollisionChecksFollowFilesystemIdentity)
 {
     for (const auto* mediaName : {"saved.MOTRACK", "saved.TRK", "saved.motrack", "saved.trk"})
