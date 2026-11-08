@@ -25,6 +25,7 @@ void DocumentSession::replace(WorkspaceDocument incoming, const QString& source,
     m_RecoveryTransactions.clear();
     m_CompletedRecoveryTransactions.clear();
     m_ClearedRecoveryObservations.clear();
+    m_RecoveryLocationIdentities.clear();
     m_NativeInvalidation = 0;
     m_TrackerInvalidation = 0;
     m_PairedSaving = false;
@@ -153,10 +154,13 @@ SaveOutcome DocumentSession::completePairedSave(const SaveCheckpoint& checkpoint
 {
     if (checkpoint.identity != m_Identity)
         return SaveOutcome::Replaced;
+    if (result.recoveryIdentity)
+        m_RecoveryLocationIdentities.insert(*result.recoveryIdentity, result.recoveryIdentity);
+    const auto recovery = result.recoveryIdentity ? *result.recoveryIdentity : result.recoveryPath;
+    const auto observed = result.recoveryIdentity ? *result.recoveryIdentity : result.observedRecoveryPath;
     if ((!result.transactionId.isEmpty() && m_CompletedRecoveryTransactions.contains(result.transactionId) &&
          result.observation <= m_CompletedRecoveryTransactions.value(result.transactionId)) ||
-        (!result.recoveryPath.isEmpty() && result.observation != 0 &&
-         result.observation <= m_ClearedRecoveryObservations.value(result.recoveryPath)))
+        (!result.recoveryPath.isEmpty() && result.observation != 0 && result.observation <= m_ClearedRecoveryObservations.value(recovery)))
         return SaveOutcome::Stale;
     if (!result.standardCurrent && !result.nativeCurrent && result.status != PairedSaveStatus::RecoveryRequired)
         return SaveOutcome::Failed;
@@ -194,9 +198,9 @@ SaveOutcome DocumentSession::completePairedSave(const SaveCheckpoint& checkpoint
     }
     if (result.status == PairedSaveStatus::Saved && result.standardCurrent && result.nativeCurrent &&
         !result.observedRecoveryPath.isEmpty() && result.observation != 0)
-        forgetRecovery(result.observedRecoveryPath, result.transactionId, result.observation, true);
+        forgetRecovery(observed, result.transactionId, result.observation, true);
     if (!result.recoveryPath.isEmpty())
-        rememberRecovery(result.recoveryPath, result.transactionId, result.observation);
+        rememberRecovery(recovery, result.transactionId, result.observation);
     if (result.status == PairedSaveStatus::RecoveryRequired || !m_RecoveryPaths.isEmpty())
         return SaveOutcome::Partial;
     if (result.status != PairedSaveStatus::Saved || !result.standardCurrent || !result.nativeCurrent)
@@ -210,6 +214,8 @@ SaveOutcome DocumentSession::completePairedRecovery(const SaveCheckpoint& checkp
 {
     if (checkpoint.identity != m_Identity)
         return SaveOutcome::Replaced;
+    if (result.recoveryIdentity)
+        m_RecoveryLocationIdentities.insert(*result.recoveryIdentity, result.recoveryIdentity);
     if (!checkpoint.recoveryTransactions.contains(requestedRecoveryPath))
         return m_RecoveryPaths.contains(requestedRecoveryPath) ? SaveOutcome::Stale : SaveOutcome::Replaced;
     const auto transaction = checkpoint.recoveryTransactions.value(requestedRecoveryPath);
