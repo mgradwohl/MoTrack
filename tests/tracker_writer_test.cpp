@@ -476,7 +476,27 @@ TEST(TrackerWriter, RejectsKnownLossyTableColumnsUntilAllAffectedOwnersAreRemove
 
 TEST(TrackerWriter, RejectsMalformedOrCustomPointMassNumberFormats)
 {
-    const auto original = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/table-owners.trk");
+    QDomDocument baseline;
+    ASSERT_TRUE(baseline.setContent(
+        QByteArray::fromStdString(readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/table-default-format-owners.trk"))));
+    QDomDocument defaults;
+    ASSERT_TRUE(defaults.setContent(
+        QString("<property name='number_formats' type='array' class='[Ljava.lang.String;'>"
+                "<property name='[0]' type='string'>frame</property><property name='[1]' type='string'>0</property>"
+                "<property name='[2]' type='string'>t</property><property name='[3]' type='string'>0.000</property></property>")));
+    const auto objects = baseline.elementsByTagName("object");
+    bool added = false;
+    for (int i = 0; i < objects.size() && !added; ++i)
+    {
+        auto object = objects.at(i).toElement();
+        if (object.attribute("class") == "org.opensourcephysics.cabrillo.tracker.PointMass")
+        {
+            object.appendChild(baseline.importNode(defaults.documentElement(), true));
+            added = true;
+        }
+    }
+    ASSERT_TRUE(added);
+    const auto original = baseline.toByteArray(-1).toStdString();
     const std::vector<std::function<void(QDomElement&)>> mutations{
         [](auto& formats) { formats.removeChild(formats.lastChildElement()); },
         [](auto& formats) { formats.lastChildElement().setAttribute("name", "[9]"); },
@@ -486,14 +506,15 @@ TEST(TrackerWriter, RejectsMalformedOrCustomPointMassNumberFormats)
         [](auto& formats) { formats.firstChildElement().nextSiblingElement().firstChild().setNodeValue("0.0000"); },
         [](auto& formats)
         {
-            formats.lastChildElement().previousSiblingElement().firstChild().setNodeValue("x");
+            formats.lastChildElement().previousSiblingElement().firstChild().setNodeValue("frame");
         }};
     QTemporaryDir temporary;
     const auto destination = temporary.filePath("existing.trk");
-    QFile file(destination);
-    ASSERT_TRUE(file.open(QIODevice::WriteOnly));
-    ASSERT_EQ(file.write("existing"), 8);
-    file.close();
+    auto valid = motrack::parseTrackerProject(original);
+    valid.project.pointMasses.front().mass = 5;
+    ASSERT_NO_THROW(motrack::writeTrackerProject(destination, valid.project, valid.source));
+    const auto saved = readBytes(destination);
+    ASSERT_DOUBLE_EQ(motrack::parseLegacyProject(saved).pointMasses.front().mass, 5);
     for (std::size_t i = 0; i < mutations.size(); ++i)
     {
         SCOPED_TRACE(i);
@@ -509,7 +530,7 @@ TEST(TrackerWriter, RejectsMalformedOrCustomPointMassNumberFormats)
         auto imported = motrack::parseTrackerProject(xml.toByteArray(-1).toStdString());
         imported.project.pointMasses.front().mass = 5;
         ASSERT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
-        EXPECT_EQ(readBytes(destination), "existing");
+        EXPECT_EQ(readBytes(destination), saved);
     }
 }
 
@@ -644,8 +665,12 @@ TEST(TrackerWriter, OmitsAnEmptyCustomTableAfterDeletingItsLastOwner)
             const auto native = temporary.filePath("empty-table.motrack");
             motrack::writeWorkspaceDocument(native, document);
             document = motrack::readWorkspaceDocument(native);
-            ASSERT_TRUE(document.trackerSource);
-            const auto bytes = motrack::renderTrackerProject(document.project, *document.trackerSource);
+            if (!document.trackerSource)
+            {
+                FAIL() << "Native reopen lost the source table state.";
+            }
+            const auto retained = *document.trackerSource;
+            const auto bytes = motrack::renderTrackerProject(document.project, retained);
             EXPECT_EQ(bytes.find("TableTView"), std::string::npos);
             QDomDocument parsed;
             ASSERT_TRUE(parsed.setContent(QByteArray::fromStdString(bytes)));
@@ -670,7 +695,7 @@ TEST(TrackerWriter, OmitsAnEmptyCustomTableAfterDeletingItsLastOwner)
                 }
             }
             EXPECT_TRUE(motrack::parseLegacyProject(bytes).pointMasses.empty());
-            EXPECT_EQ(document.trackerSource->xml, original);
+            EXPECT_EQ(retained.xml, original);
             EXPECT_NE(bytes.find("selected_view_types"), std::string::npos);
             EXPECT_NE(bytes.find("null,null;null,null;null,null;null,null"), std::string::npos);
         }
