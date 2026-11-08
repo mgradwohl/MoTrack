@@ -170,7 +170,7 @@ geometry. Full dependent-vector/display semantics must replace these restriction
 It requires known source associations, preserves unknown XML objects/properties and
 normalizes changed output to a matching UTF-8 declaration. Unchanged output is byte-exact. It rejects
 every other changed domain field before opening its atomic replacement file, including media-based
-timing, moving reference frames, fixed-flag changes, new vectors and original-track deletions. Range exports require a known `VideoClip` without
+timing, moving reference frames, fixed-flag changes and original-track deletions. Range exports require a known `VideoClip` without
 video, frame-shift or saved-video-frame-count properties. They reject missing/invalid counts, endpoints
 beyond Tracker 6.3.5's media-free frame 500000 limit, and overflow in its temporary frame-count arithmetic.
 Media references are rejected until relocation
