@@ -28,6 +28,68 @@ class Download(io.BytesIO):
 
 
 class CorpusTests(unittest.TestCase):
+    def test_created_vector_oracle_requires_original_and_new_geometry_and_appearance(self):
+        manifest = corpus.load_manifest()
+        original = next(case for case in manifest["cases"] if case["id"] == "independent-vectors")
+        baseline = copy.deepcopy(original)
+        for empty in [False, True]:
+            expected, case = corpus.create_vector_roundtrip_expected(original, empty)
+            self.assertEqual(expected["vectors"][-1]["samples"], [] if empty else [
+                {"frame": 1, "tail": [100, 120], "components": [4, -8]},
+                {"frame": 6, "tail": [200, 180], "components": [0, 0]},
+                {"frame": 8, "tail": [160, 100], "components": [-6, 12]}])
+            tracks = []
+            for identity in case["session_tracks"]:
+                vector = next((v for v in expected["vectors"] if v["name"] == identity["name"]), None)
+                tracks.append({**identity, "samples": [], "vector_samples": vector["samples"] if vector else [],
+                               "appearance": copy.deepcopy(corpus.CREATED_VECTOR_APPEARANCE)})
+            before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                      **corpus.session_units(case, expected)}
+            report = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                      "view_preparation": "visit_custom_tables_restore_selection",
+                      "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
+            corpus.validate_session(case, report, manifest, expected)
+            for field, value in [("name", "wrong"), ("vector_samples", [{"frame": 1, "tail": [101, 120], "components": [4, -8]}]),
+                                 ("appearance", {**corpus.CREATED_VECTOR_APPEARANCE, "visible": False}),
+                                 ("appearance", {**corpus.CREATED_VECTOR_APPEARANCE, "footprint": "Footprint.Diamond"})]:
+                invalid = copy.deepcopy(report)
+                for stage in ["before", "after_save", "after"]:
+                    invalid[stage]["tracks"][-1][field] = value
+                with self.subTest(empty=empty, field=field), self.assertRaises(ValueError):
+                    corpus.validate_session(case, invalid, manifest, expected)
+        self.assertEqual(original, baseline)
+        with self.assertRaises(ValueError):
+            corpus.create_vector_roundtrip_expected({**original, "id": "wrong"})
+
+    def test_created_vector_xml_oracle_preserves_original_tracks_and_rejects_extra_keys(self):
+        case = next(case for case in corpus.load_manifest()["cases"] if case["id"] == "independent-vectors")
+        source = corpus.local_fixture_path(case).read_text(encoding="utf-8")
+        original, exported = self.root / "vector-creation-source.trk", self.root / "vector-creation-export.trk"
+        original.write_text(source, encoding="utf-8")
+        new = ('<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.Vector">'
+               '<property name="name" type="string"><![CDATA[vecteur β & <C>]]></property>'
+               '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
+               '<property name="locked" type="boolean">false</property><property name="footprint" type="string"><![CDATA[Footprint.BoldArrow]]></property>'
+               '<property name="color" type="object"><object class="java.awt.Color">'
+               '<property name="red" type="int">255</property><property name="green" type="int">0</property>'
+               '<property name="blue" type="int">255</property><property name="alpha" type="int">255</property></object></property>'
+               '</object></property>')
+        point = source.rfind('</property>')
+        valid = source[:point] + new + source[point:]
+        exported.write_text(valid, encoding="utf-8")
+        corpus.verify_create_vector_export_xml(original, exported, True)
+        with self.assertRaises(ValueError):
+            corpus.verify_create_vector_export_xml(original, exported, False)
+        for old, replacement in [('>vector A<', '>lost original<'), ('<![CDATA[vecteur β & <C>]]>', '<![CDATA[wrong]]>'),
+                                 ('name="xcomponent" type="double">3.0', 'name="xcomponent" type="double">7.0'),
+                                 ('<![CDATA[Footprint.BoldArrow]]>', '<![CDATA[Footprint.Arrow]]>'),
+                                 ('<![CDATA[vecteur β & <C>]]></property>',
+                                  '<![CDATA[vecteur β & <C>]]></property><property name="keyFrames" type="array" class="[I"/>')]:
+            self.assertIn(old, valid)
+            exported.write_text(valid.replace(old, replacement, 1), encoding="utf-8")
+            with self.subTest(change=old), self.assertRaises(ValueError):
+                corpus.verify_create_vector_export_xml(original, exported, True)
+
     def test_created_mass_expected_values_and_appearance_are_independent(self):
         manifest = corpus.load_manifest()
         original = next(case for case in manifest["cases"] if case["id"] == "protractor")
