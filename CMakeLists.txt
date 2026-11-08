@@ -151,7 +151,7 @@ if(BUILD_TESTING)
     add_executable(motrack_corpus_probe tests/corpus_probe.cpp)
     add_dependencies(motrack_tests motrack_corpus_probe)
     target_compile_definitions(motrack_tests PRIVATE MOTRACK_CORPUS_PROBE="$<TARGET_FILE:motrack_corpus_probe>")
-    target_link_libraries(motrack_corpus_probe PRIVATE motrack_project)
+    target_link_libraries(motrack_corpus_probe PRIVATE motrack_project motrack_media)
     add_executable(motrack_workspace_tests
         tests/image_package_workspace_test.cpp
         tests/paired_workspace_test.cpp

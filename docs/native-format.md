@@ -584,3 +584,32 @@ Controller regressions cover clean/dirty export, undo/redo, ordinary Save after 
 missing inputs, cancellation, overlapping saves, queued project opens, stale filename dialogs and window
 destruction during both filename selection and worker progress. The four-PNG actual-Tracker acceptance
 above verifies the underlying format; new desktop-controller revisions require their own platform checks.
+
+### Linked constant-rate movie edits
+
+The document writer accepts the explicitly audited `XuggleVideo`/`VideoClipControl` schema only through
+its movie adapter. Existing point-mass values and image-coordinate marks, plus the linked media path,
+may change. Original names, membership, calibration, unit labels, clip timing/range and other parsed
+fields must remain unchanged. Filters, vectors, other track types except axes, display-orientation
+transforms and archived movies remain refused. This opt-in schema does not enable movie renames or
+membership edits through the media-free writer.
+
+A completed native timestamp index must start at zero and agree with the preserved positive Tracker
+frame interval within one microsecond for every decoded frame, up to the existing two-million-frame
+index limit. Clip endpoints and marks must fit that index. The native runtime frame bound must match
+the complete index or the clip endpoint inferred on import; it is removed from the export snapshot,
+not written as a standard-file edit. Existing saved `video_framecount`, when present, must match the
+index. Decoded timestamps stay in seconds; preserved XML clip time origin and interval use milliseconds.
+Native movie analysis remains aligned to the imported clip's time origin.
+
+Movie links use the same physical-directory, retained-location and atomic-write checks as images.
+Preflight verifies current readability and identity, not general codec compatibility or protection
+from subsequent external media replacement. The original movie bytes are never rewritten. Missing
+media, an incomplete/nonconstant index or unsupported edits preserve an existing destination.
+
+Local tests edit, undo/redo, native save/reopen, remove the original project/directory, relocate media,
+export, reimport and edit again. The desktop test uses the real background indexer and paired save,
+then reopens the native companion and saves another mass edit. The corpus probe also uses the real
+native decoder; independent XML and movie-byte oracles allow only the requested mass, mark and path.
+Actual Tracker edited-file load/save/fresh reopen and native reimport remain required in Linux CI.
+This is an implementation awaiting that acceptance, not full movie interchange or resolution of #65.
