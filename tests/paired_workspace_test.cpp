@@ -454,29 +454,33 @@ TEST(PairedWorkspace, FileMenuAsksBeforeReplacingAnUnrelatedCompanion)
         QTimer watchdog;
         bool choseFile = false;
         bool choseCompanion = false;
-        QObject::connect(&poll,
-                         &QTimer::timeout,
-                         &window,
-                         [&]
-                         {
-                             if (!choseFile)
-                             {
-                                 if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget()))
-                                 {
-                                     choseFile = true;
-                                     dialog->selectFile(target);
-                                     EXPECT_TRUE(
-                                         QTest::qWaitFor([dialog, &target] { return dialog->selectedFiles() == QStringList{target}; }));
-                                     QMetaObject::invokeMethod(dialog, "accept");
-                                 }
-                             }
-                             else if (auto* message = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
-                             {
-                                 choseCompanion = true;
-                                 message->button(replace ? QMessageBox::Yes : QMessageBox::Cancel)->click();
-                                 poll.stop();
-                             }
-                         });
+        QObject::connect(
+            &poll,
+            &QTimer::timeout,
+            &window,
+            [&]
+            {
+                if (!choseFile)
+                {
+                    if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget()))
+                    {
+                        choseFile = true;
+                        // Qt leaves a focused filename editor unchanged in selectFile().
+                        if (auto* focused = dialog->focusWidget())
+                            focused->clearFocus();
+                        dialog->selectFile(target);
+                        ASSERT_TRUE(QTest::qWaitFor([dialog, &target] { return dialog->selectedFiles() == QStringList{target}; }, 1500))
+                            << dialog->selectedFiles().join(", ").toStdString();
+                        QMetaObject::invokeMethod(dialog, "accept");
+                    }
+                }
+                else if (auto* message = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
+                {
+                    choseCompanion = true;
+                    message->button(replace ? QMessageBox::Yes : QMessageBox::Cancel)->click();
+                    poll.stop();
+                }
+            });
         QObject::connect(&watchdog,
                          &QTimer::timeout,
                          &window,
@@ -535,34 +539,38 @@ TEST(PairedWorkspace, PendingOpensInvalidateTheTrackerChooserAndCompanionConfirm
             replaced = window.windowTitle().contains("replacement.trk");
             EXPECT_TRUE(replaced);
         };
-        QObject::connect(&poll,
-                         &QTimer::timeout,
-                         &window,
-                         [&]
-                         {
-                             if (!choseFile)
-                             {
-                                 if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget()))
-                                 {
-                                     choseFile = true;
-                                     if (!duringCompanion)
-                                     {
-                                         poll.stop();
-                                         replace();
-                                     }
-                                     dialog->selectFile(target);
-                                     EXPECT_TRUE(
-                                         QTest::qWaitFor([dialog, &target] { return dialog->selectedFiles() == QStringList{target}; }));
-                                     QMetaObject::invokeMethod(dialog, "accept");
-                                 }
-                             }
-                             else if (auto* message = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
-                             {
-                                 poll.stop();
-                                 replace();
-                                 message->button(QMessageBox::Yes)->click();
-                             }
-                         });
+        QObject::connect(
+            &poll,
+            &QTimer::timeout,
+            &window,
+            [&]
+            {
+                if (!choseFile)
+                {
+                    if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget()))
+                    {
+                        choseFile = true;
+                        if (!duringCompanion)
+                        {
+                            poll.stop();
+                            replace();
+                        }
+                        // Qt leaves a focused filename editor unchanged in selectFile().
+                        if (auto* focused = dialog->focusWidget())
+                            focused->clearFocus();
+                        dialog->selectFile(target);
+                        ASSERT_TRUE(QTest::qWaitFor([dialog, &target] { return dialog->selectedFiles() == QStringList{target}; }, 1500))
+                            << dialog->selectedFiles().join(", ").toStdString();
+                        QMetaObject::invokeMethod(dialog, "accept");
+                    }
+                }
+                else if (auto* message = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
+                {
+                    poll.stop();
+                    replace();
+                    message->button(QMessageBox::Yes)->click();
+                }
+            });
         QObject::connect(&watchdog,
                          &QTimer::timeout,
                          &window,
@@ -629,7 +637,8 @@ TEST(PairedWorkspace, PendingOpenInvalidatesRecoveryConfirmationAndItsSaveDestin
                      &window,
                      [&]
                      {
-                         QPointer<QMessageBox> message = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+                         // The outer confirmation remains on the stack throughout this callback.
+                         auto* message = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
                          if (!message || !message->button(QMessageBox::Yes))
                              return;
                          poll.stop();
@@ -640,11 +649,8 @@ TEST(PairedWorkspace, PendingOpenInvalidatesRecoveryConfirmationAndItsSaveDestin
                          replaced = window.windowTitle().contains("replacement.trk");
                          EXPECT_TRUE(replaced);
                          discard.stop();
-                         if (message)
-                         {
-                             confirmed = true;
-                             message->button(QMessageBox::Yes)->click();
-                         }
+                         confirmed = true;
+                         message->button(QMessageBox::Yes)->click();
                      });
     QObject::connect(&watchdog,
                      &QTimer::timeout,
@@ -689,29 +695,33 @@ TEST(PairedWorkspace, DestroyingTheWindowDuringSaveCancelsAndReleasesTheWorker)
         QTimer poll;
         QTimer watchdog;
         bool choseFile = false;
-        QObject::connect(&poll,
-                         &QTimer::timeout,
-                         [&]
-                         {
-                             if (throughMenu && !choseFile)
-                             {
-                                 if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget()))
-                                 {
-                                     choseFile = true;
-                                     dialog->selectFile(target);
-                                     EXPECT_TRUE(
-                                         QTest::qWaitFor([dialog, &target] { return dialog->selectedFiles() == QStringList{target}; }));
-                                     QMetaObject::invokeMethod(dialog, "accept");
-                                 }
-                                 return;
-                             }
-                             if (window && window->findChild<QDialog*>("pairedSaveProgress"))
-                             {
-                                 poll.stop();
-                                 release.release();
-                                 delete window.data();
-                             }
-                         });
+        QObject::connect(
+            &poll,
+            &QTimer::timeout,
+            [&]
+            {
+                if (throughMenu && !choseFile)
+                {
+                    if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget()))
+                    {
+                        choseFile = true;
+                        // Qt leaves a focused filename editor unchanged in selectFile().
+                        if (auto* focused = dialog->focusWidget())
+                            focused->clearFocus();
+                        dialog->selectFile(target);
+                        ASSERT_TRUE(QTest::qWaitFor([dialog, &target] { return dialog->selectedFiles() == QStringList{target}; }, 1500))
+                            << dialog->selectedFiles().join(", ").toStdString();
+                        QMetaObject::invokeMethod(dialog, "accept");
+                    }
+                    return;
+                }
+                if (window && window->findChild<QDialog*>("pairedSaveProgress"))
+                {
+                    poll.stop();
+                    release.release();
+                    delete window.data();
+                }
+            });
         QObject::connect(&watchdog,
                          &QTimer::timeout,
                          [&]
