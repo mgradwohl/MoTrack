@@ -266,6 +266,33 @@ TEST(TrackerWriter, RenamesUnselectedMassAndSwapsNamesWithoutResolvingAgainstEdi
     EXPECT_EQ(references.references[0].candidateSourceIndices, original.references[0].candidateSourceIndices);
 }
 
+TEST(TrackerWriter, RejectsReservedOriginalNamesWithoutReplacingDestinationOrChangingUneditedSources)
+{
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    for (const std::string oldName : {"null", "bad,name", "bad;name"})
+    {
+        auto xml = namedSource();
+        std::size_t position = 0;
+        while ((position = xml.find("mass B", position)) != std::string::npos)
+        {
+            xml.replace(position, 6, oldName);
+            position += oldName.size();
+        }
+        const auto imported = motrack::parseTrackerProject(xml);
+        motrack::writeTrackerProject(destination, imported.project, imported.source);
+        EXPECT_EQ(readBytes(destination), xml);
+        // Even an unchanged reserved-name track makes another track's rename ambiguous.
+        for (std::size_t selected : {0u, 1u})
+        {
+            auto project = imported.project;
+            project.pointMasses[selected].name = "valid name";
+            EXPECT_THROW(motrack::writeTrackerProject(destination, project, imported.source), motrack::ProjectError);
+            EXPECT_EQ(readBytes(destination), xml);
+        }
+    }
+}
+
 TEST(TrackerWriter, UndoingANameEditRestoresByteExactSource)
 {
     auto imported = motrack::parseTrackerProject(namedSource());
