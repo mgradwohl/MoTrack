@@ -335,6 +335,38 @@ def mass_roundtrip_expected(case):
     return expected
 
 
+RENAME_LABEL = "élève β & <B>"
+
+
+def rename_roundtrip_expected(case, mode):
+    if case["id"] != "protractor" or mode not in {"name", "unselected-name"}:
+        raise ValueError("Rename acceptance requires the pinned protractor case")
+    expected = json.loads(expected_path(case).read_text(encoding="utf-8"))["project"]
+    index = 1 if mode == "name" else 0
+    if [mass["name"] for mass in expected["point_masses"]] != ["mass A", "mass B"]:
+        raise ValueError("Unexpected rename source identities")
+    expected["point_masses"][index]["name"] = RENAME_LABEL
+    updated = copy.deepcopy(case)
+    old = "mass B" if index == 1 else "mass A"
+    for track in updated["session_tracks"]:
+        if track["class"] == "org.opensourcephysics.cabrillo.tracker.PointMass" and track["name"] == old:
+            track["name"] = RENAME_LABEL
+    names = updated["session_names"]
+    if names["selected_track"] == old:
+        names["selected_track"] = RENAME_LABEL
+    names["view_tracks"] = [[RENAME_LABEL if name == old else name for name in pair] for pair in names["view_tracks"]]
+    names["packed_view_tracks"] = ";".join(",".join(name if name is not None else "null" for name in pair)
+                                            for pair in names["view_tracks"])
+    for table in updated["session_views"]["tables"]:
+        if table["selected_track"] == old:
+            table["selected_track"] = RENAME_LABEL
+        for key in ["track_columns", "column_formats"]:
+            for row in table[key]:
+                if row[0] == old:
+                    row[0] = RENAME_LABEL
+    return expected, updated
+
+
 def mass_unit_roundtrip_expected(case):
     if case["id"] != "protractor":
         raise ValueError("The mass-unit oracle requires the pinned protractor case")
@@ -624,6 +656,65 @@ def verify_mass_export_xml(original, exported):
         raise ValueError("Standard export changed content beyond the requested mass edit")
 
 
+def verify_rename_export_xml(original, exported, mode):
+    if mode not in {"name", "unselected-name"}:
+        raise ValueError("Unexpected rename mode")
+    expected = minidom.parse(str(original))
+    def props(node):
+        return [child for child in node.childNodes if child.nodeType == child.ELEMENT_NODE and child.tagName == "property"]
+    def prop(node, name):
+        found = [child for child in props(node) if child.getAttribute("name") == name]
+        if len(found) != 1:
+            raise ValueError("Unexpected rename field: " + name)
+        return found[0]
+    def value(node):
+        if node.getAttribute("type") != "string" or any(child.nodeType == child.ELEMENT_NODE for child in node.childNodes):
+            raise ValueError("Unexpected rename string")
+        return "".join(child.data for child in node.childNodes if child.nodeType in {child.TEXT_NODE, child.CDATA_SECTION_NODE})
+    def set_value(node, text):
+        cells = [child for child in node.childNodes if child.nodeType in {child.TEXT_NODE, child.CDATA_SECTION_NODE}]
+        if not cells:
+            raise ValueError("Missing rename string")
+        cells[0].data = text
+        for cell in cells[1:]:
+            node.removeChild(cell)
+    root = expected.documentElement
+    masses = [obj for obj in prop(root, "tracks").getElementsByTagName("object")
+              if obj.getAttribute("class") == "org.opensourcephysics.cabrillo.tracker.PointMass"]
+    if len(masses) != 2 or [value(prop(mass, "name")) for mass in masses] != ["mass A", "mass B"]:
+        raise ValueError("Unexpected rename source tracks")
+    old = "mass B" if mode == "name" else "mass A"
+    set_value(prop(masses[1 if mode == "name" else 0], "name"), RENAME_LABEL)
+    selected = prop(root, "selectedtrack")
+    if value(selected) == old:
+        set_value(selected, RENAME_LABEL)
+    packed = prop(root, "selected_track_views")
+    pairs = [pair.split(",") for pair in value(packed).split(";")]
+    if len(pairs) != 4 or any(len(pair) != 2 for pair in pairs):
+        raise ValueError("Unexpected packed rename selections")
+    set_value(packed, ";".join(",".join(RENAME_LABEL if name == old else name for name in pair) for pair in pairs))
+    for table in expected.getElementsByTagName("object"):
+        if table.getAttribute("class") != "org.opensourcephysics.cabrillo.tracker.TableTView":
+            continue
+        selected = prop(table, "selected_track")
+        if value(selected) == old:
+            set_value(selected, RENAME_LABEL)
+        for group in props(table):
+            if group.getAttribute("name") not in {"track_columns", "column_formats"}:
+                continue
+            for row in group.getElementsByTagName("property"):
+                if row.getAttribute("type") == "array" and row.getAttribute("class") == "[Ljava.lang.String;":
+                    owner = prop(row, "[0]")
+                    if value(owner) == old:
+                        set_value(owner, RENAME_LABEL)
+    actual = minidom.parse(str(exported))
+    same = canonical_tracker_xml(expected) == canonical_tracker_xml(actual)
+    expected.unlink()
+    actual.unlink()
+    if not same:
+        raise ValueError("Standard export changed content beyond the requested rename and references")
+
+
 def verify_mark_export_xml(original, exported, expected_project, mode="marks"):
     expected = minidom.parse(str(original))
     def elements(node, tag):
@@ -766,7 +857,8 @@ def check_sessions(manifest, cache, java, probe=None):
              ("snap-origin", "native_vector_roundtrip"), ("snap-vector", "native_vector_roundtrip"),
              ("calibration", "native_calibration_roundtrip"), ("length-unit", "native_length_unit_roundtrip"),
              ("keyed-calibration", "native_keyed_calibration_roundtrip"),
-             ("mass-unit", "native_mass_unit_roundtrip")] if probe else [("session", "session_tracks")]
+             ("mass-unit", "native_mass_unit_roundtrip"),
+             ("name", "native_name_roundtrip"), ("unselected-name", "native_name_roundtrip")] if probe else [("session", "session_tracks")]
     cases = [(case, mode) for case in manifest["cases"] if "session_tracks" in case
              for mode, flag in modes if case.get(flag)]
     if not cases:
@@ -792,6 +884,14 @@ def check_sessions(manifest, cache, java, probe=None):
             java_home = output / "java-home"
             java_home.mkdir(parents=True)
             project = project_path(case, cache)
+            if mode in {"name", "unselected-name"}:
+                # Preserve the pinned original. Add a non-reference note to the temporary source,
+                # keeping OSP's line-oriented XML layout, so blind text substitution cannot pass.
+                text = project.read_text(encoding="utf-8")
+                before, after = text.rsplit("</object>", 1)
+                project = output / "rename-source.trk"
+                project.write_text(before + '<property name="description" type="string"><![CDATA['
+                                   'mass A and mass B are words in this note.]]></property>\n</object>' + after, encoding="utf-8")
             if mode == "first-mark":
                 project = root / (case["id"] + "-empty-marks") / "tracker-resaved.trk"
             elif mode == "first-vector":
@@ -820,6 +920,9 @@ def check_sessions(manifest, cache, java, probe=None):
                 if mode == "mass":
                     verify_mass_export_xml(project, exported)
                     expected = mass_roundtrip_expected(case)
+                elif mode in {"name", "unselected-name"}:
+                    verify_rename_export_xml(project, exported, mode)
+                    expected, case = rename_roundtrip_expected(case, mode)
                 elif mode == "mass-unit":
                     expected = mass_unit_roundtrip_expected(case)
                     verify_mass_unit_export_xml(project, exported)

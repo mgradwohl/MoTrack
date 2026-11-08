@@ -60,6 +60,7 @@
     {
       "id": "protractor",
       "native_reference_index": "expected/protractor-references.json",
+      "native_name_roundtrip": true,
       "native_mass_roundtrip": true,
       "native_mass_unit_roundtrip": true,
       "native_mark_roundtrip": true,

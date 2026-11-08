@@ -28,6 +28,59 @@ class Download(io.BytesIO):
 
 
 class CorpusTests(unittest.TestCase):
+    def test_rename_oracle_preserves_unrelated_text_and_every_selection(self):
+        def source(first="mass A", second="mass B", selected="mass B"):
+            return f"""<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>
+<property name='description' type='string'>mass A and mass B stay in this note</property>
+<property name='tracks' type='collection' class='java.util.ArrayList'>
+<property name='item' type='object'><object class='org.opensourcephysics.cabrillo.tracker.PointMass'>
+<property name='name' type='string'><![CDATA[{first}]]></property></object></property>
+<property name='item' type='object'><object class='org.opensourcephysics.cabrillo.tracker.PointMass'>
+<property name='name' type='string'><![CDATA[{second}]]></property></object></property></property>
+<property name='selectedtrack' type='string'><![CDATA[{selected}]]></property>
+<property name='selected_track_views' type='string'><![CDATA[{selected},null;null,{selected};null,null;null,null]]></property>
+<property name='views' type='array'><property name='[1]' type='object'>
+<object class='org.opensourcephysics.cabrillo.tracker.TableTView'>
+<property name='selected_track' type='string'><![CDATA[{selected}]]></property>
+<property name='track_columns' type='array'><property name='[0]' type='array' class='[Ljava.lang.String;'>
+<property name='[0]' type='string'><![CDATA[{selected}]]></property>
+<property name='[1]' type='string'>mass B</property></property></property>
+</object></property></property></object>"""
+        original = self.root / "original-name.trk"
+        exported = self.root / "exported-name.trk"
+        original.write_text(source(), encoding="utf-8")
+        for mode in ["name", "unselected-name"]:
+            text = source(second=corpus.RENAME_LABEL, selected=corpus.RENAME_LABEL) if mode == "name" else source(first=corpus.RENAME_LABEL)
+            exported.write_text(text, encoding="utf-8")
+            corpus.verify_rename_export_xml(original, exported, mode)
+            for before, after in [("mass A and mass B stay", "renamed words stay"),
+                                  (">mass B</property>", ">wrong label</property>"),
+                                  (";null,null;null,null", ";null,wrong;null,null"),
+                                  ("<property name='selectedtrack'", "<property name='wrong_selection'"),
+                                  ("</object>", "<property name='unexpected' type='string'>new</property></object>")]:
+                exported.write_text(text.replace(before, after, 1), encoding="utf-8")
+                with self.subTest(mode=mode, change=before), self.assertRaises(ValueError):
+                    corpus.verify_rename_export_xml(original, exported, mode)
+
+    def test_rename_expectations_use_original_identity_and_independent_baseline(self):
+        manifest = corpus.load_manifest()
+        case = next(case for case in manifest["cases"] if case["id"] == "protractor")
+        original = copy.deepcopy(case)
+        expected, selected = corpus.rename_roundtrip_expected(case, "name")
+        self.assertEqual(expected["point_masses"][1]["name"], "élève β & <B>")
+        self.assertEqual(selected["session_names"]["selected_track"], "élève β & <B>")
+        self.assertEqual(selected["session_names"]["view_tracks"][1], [None, "élève β & <B>"])
+        self.assertEqual(selected["session_views"]["tables"][0]["selected_track"], "élève β & <B>")
+        self.assertEqual(selected["session_views"]["tables"][0]["track_columns"], [["protractor A", "t", "θ"]])
+        expected, unselected = corpus.rename_roundtrip_expected(case, "unselected-name")
+        self.assertEqual(expected["point_masses"][0]["name"], "élève β & <B>")
+        self.assertEqual(unselected["session_names"], case["session_names"])
+        self.assertEqual(case, original)
+        with self.assertRaises(ValueError):
+            corpus.rename_roundtrip_expected({**case, "id": "other"}, "name")
+        with self.assertRaises(ValueError):
+            corpus.rename_roundtrip_expected(case, "wrong")
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix="motrack-corpus-test-")
         self.addCleanup(self.directory.cleanup)

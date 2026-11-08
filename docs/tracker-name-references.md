@@ -1,9 +1,10 @@
 # Tracker track names and source references
 
-This records the partial phase-3 source-reference implementation and proposed rename architecture.
-Standard-file rename export is not implemented.
-Native names already have undo/redo and persistent identities; standard export still rejects their
-changes. The [full-port plan](migration-plan.md) remains the requirements/status authority.
+This records the partial phase-3 source-reference implementation and rename architecture.
+The internal standard writer now supports a conservative point-mass rename subset with selected/unselected
+protractor round-trip cases. Native names have undo/redo and persistent identities. Broader rename/export
+eligibility and desktop standard Save remain unfinished.
+The [full-port plan](migration-plan.md) remains the requirements/status authority.
 
 The first reference-only slice records independent protractor selected-track and plot/table targets
 in the corpus manifest. Its actual-Tracker probe compares live selections and the normal packed-string
@@ -16,7 +17,7 @@ compared with serializers of live loaded views at all three stages. A synthetic 
 case adds ordered, nonempty comparison guests on two plots, checked through the live view serializers
 and independent point-mass image/world baselines. A separate Java/OSP-authored source-structure case adds two nonempty table dataset owner rows;
 it has no media and is not an application-session acceptance case. Media-backed dataset behavior,
-protractor/circle attachment behavior, dynamic systems and edited dependency cases remain. A separate
+protractor/circle attachment behavior, broader dynamics and edited dependency cases remain. A separate
 tape-attachment fixture requires two attached endpoints and each partly attached tape to follow point
 masses and retain independently calculated lengths through normal Java load/save/reopen. The vector-sum reference
 retains named members, independently expected image/world components and missing-member frames, but
@@ -154,7 +155,34 @@ This is not a complete dependency graph or an export eligibility check.
 No malformed paths does not mean a rename is safe.
 The `referenceframe` scalar is indexed, but moving-coordinate behavior still lacks application cases.
 
-## Proposed rename architecture
+## Implemented rename subset and remaining architecture
+
+The internal writer uses original source identities to patch point-mass names, root/packed view
+selections, nested table selections and table column/format owners. Native reorder, repeated renames,
+undo/redo and reopen do not change which original object is patched. Other words in descriptions,
+column labels and format patterns remain data. No global text replacement is used.
+
+Eligibility additionally requires the explicitly audited media-free schema in
+[`tracker_rename.cpp`](../src/tracker_rename.cpp): axes, point masses, unattached protractors and table
+settings, together with their numeric geometry, color, clip and toolbar fields. Unrecognized properties,
+attributes/classes, model/function data, attachment fields, reference frames, plot objects and dataset
+rows reject rename export, even when the partial reference index has no malformed paths. The original
+source and native document remain available. Extend this allowlist only alongside application acceptance.
+
+All source/final names must be unique, including unsupported protractors and axes. Every indexed
+relationship must resolve uniquely or explicitly mean no target. New labels must be valid round-tripping
+UTF-8, nonempty/trimmed, at most 4096 UTF-16 units, without controls/format characters, the packed
+delimiters comma/semicolon, the reserved `null` token or the CDATA terminator. The schema walk limits
+depth to 32 and aggregate properties/array indices to 10000. Rejection happens before replacing a file.
+These conservative restrictions apply to this exporter, not ordinary native naming.
+
+The protractor cases rename selected mass B and, separately, unselected mass A to `élève β & <B>`,
+after repeated native edits and undo/redo. Native save/reopen removes dependence on the input copy.
+An independent complete-source comparison permits only the name/reference edits, including a temporary
+note containing the old names. Tracker must retain selected plot/table objects, custom table definitions,
+untouched measurements and the renamed label through load/save/fresh-process reopen and native reimport.
+The existing visited-table preparation remains explicit; [MoTrack #64](https://github.com/mgradwohl/MoTrack/issues/64)
+is not closed or established safe for immediate unvisited Tracker resaves by this change.
 
 Extend the partial source-reference index alongside the existing original-object bindings. Its source nodes
 include the original collection position, Java class and original name. Editable nodes resolve to
@@ -200,6 +228,7 @@ transient undo history.
    full standard Save. In phase 5, use the audited graph for native dependent-track evaluation with
    cycle detection and revision-based invalidation, following the main plan's intervening UI work.
 
-The first rename case must include the protractor experiment's selected `mass B`, rather than only
-an isolated track with no references. Additional cases must prove that identical words in an unrelated
-description stay unchanged and that an unknown or ambiguous relationship cannot be silently rewritten.
+The first rename cases include the protractor experiment's selected `mass B` and unselected `mass A`.
+They require identical words in an unrelated description to stay unchanged; native regressions reject
+unknown/ambiguous relationships. Next extend to independent vectors, plot guests and each dependent
+field with its own application evidence, then creation/deletion and archive/paired saving.
