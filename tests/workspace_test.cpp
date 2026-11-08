@@ -987,6 +987,14 @@ TEST(Workspace, SavingRetainsMediaLocationsAfterTheOriginalProjectDirectoryIsRem
             ASSERT_TRUE(QDir(temporary.path()).rmdir("import"));
             QTest::mouseClick(canvas, Qt::LeftButton, Qt::ShiftModifier, canvas->rect().center());
             ASSERT_TRUE(window.isWindowModified());
+            auto* undo = window.findChild<QAction*>("undoEdit");
+            auto* redo = window.findChild<QAction*>("redoEdit");
+            ASSERT_TRUE(undo && redo);
+            undo->trigger();
+            ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
+            redo->trigger();
+            ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
+            ASSERT_TRUE(window.isWindowModified());
             if (removeBeforeFirstSave)
                 ASSERT_TRUE(window.saveWorkspace(destination));
             else
