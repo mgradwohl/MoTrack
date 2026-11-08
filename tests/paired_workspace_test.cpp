@@ -14,9 +14,7 @@
 #include <QInputDialog>
 #include <QLocale>
 #include <QMessageBox>
-#include <QPointer>
 #include <QPushButton>
-#include <QScopeGuard>
 #include <QSemaphore>
 #include <QStatusBar>
 #include <QTemporaryDir>
@@ -25,6 +23,7 @@
 #include <QTimer>
 #include <gtest/gtest.h>
 
+#include <memory>
 #include <stdexcept>
 
 namespace
@@ -680,8 +679,7 @@ TEST(PairedWorkspace, DestroyingTheWindowDuringSaveCancelsAndReleasesTheWorker)
         const auto target = temporary.filePath("saved.trk");
         QSemaphore entered;
         QSemaphore release;
-        QPointer<motrack::MainWindow> window = new motrack::MainWindow;
-        const auto cleanup = qScopeGuard([&window] { delete window.data(); });
+        auto window = std::make_unique<motrack::MainWindow>();
         ASSERT_TRUE(window->loadProject(fixture()));
         auto* pool = window->findChild<QThreadPool*>("workspaceSavePool");
         ASSERT_NE(pool, nullptr);
@@ -719,7 +717,7 @@ TEST(PairedWorkspace, DestroyingTheWindowDuringSaveCancelsAndReleasesTheWorker)
                 {
                     poll.stop();
                     release.release();
-                    delete window.data();
+                    window.reset();
                 }
             });
         QObject::connect(&watchdog,
@@ -741,7 +739,7 @@ TEST(PairedWorkspace, DestroyingTheWindowDuringSaveCancelsAndReleasesTheWorker)
         }
         else
             EXPECT_FALSE(window->saveTrackerProject(target));
-        EXPECT_TRUE(window.isNull());
+        EXPECT_EQ(window, nullptr);
     }
 }
 
