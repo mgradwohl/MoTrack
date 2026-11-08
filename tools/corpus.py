@@ -193,6 +193,20 @@ def session_file_diagnostic(path):
         return {"inspection_error": str(error)[:256]}
 
 
+def format_session_file_diagnostic(path):
+    report = session_file_diagnostic(path)
+    # Bound each escaped string before serializing. Cutting the finished JSON can drop
+    # parser metadata entirely when corrupted bytes expand to six-character escapes.
+    # At most six string fields (including the 64-character hash) keep the report below 3000.
+    for key, value in report.items():
+        if isinstance(value, str):
+            while len(json.dumps(value, ensure_ascii=True)) > 512:
+                size = len(value) // 2
+                value = value[-size:] if key == "suffix" else value[:size]
+            report[key] = value
+    return json.dumps(report, ensure_ascii=True)
+
+
 def check_cases(manifest, cache, *, java=None, probe=None, record=False):
     for path, artifact in artifacts(manifest, cache):
         verify_file(path, artifact)
@@ -1056,7 +1070,7 @@ def check_sessions(manifest, cache, java, probe=None):
                          "-Xmx256m", "-cp", os.pathsep.join([str(classes), str(jar)]), "TrackerSessionReference",
                          str(source), str(output), stage], display=display)
                 except (ValueError, OSError, subprocess.TimeoutExpired) as error:
-                    diagnostic = json.dumps(session_file_diagnostic(source), ensure_ascii=True)[:3000]
+                    diagnostic = format_session_file_diagnostic(source)
                     raise ValueError(f"{case['id']}/{mode}/{stage}: Tracker reference failed for {source.name}: {error}"
                                      f"\nTracker input diagnostic (bounded): {diagnostic}") from error
                 stages[stage] = json.loads((output / ("session-" + stage + ".json")).read_text(encoding="utf-8"))

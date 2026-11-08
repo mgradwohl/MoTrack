@@ -32,6 +32,8 @@ records its byte count/hash, XML parse status/root class, short beginning/end ex
 malformed XML) the parser error and nearby text. Oversized or unavailable inputs are identified
 without replacing the original failure. This distinguishes a truncated/malformed resave from a
 well-formed file that Tracker's loader rejects; XML validity alone is not compatibility acceptance.
+Each escaped string is bounded before JSON serialization, keeping the complete report below 3000
+characters without dropping parser metadata when corrupt bytes or Unicode expand into escapes.
 This improves evidence for [MoTrack #105](https://github.com/mgradwohl/MoTrack/issues/105); the intermittent
 callback timeout's cause remains under investigation and is not established as fixed or as an upstream defect.
 
