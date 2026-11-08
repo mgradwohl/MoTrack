@@ -2,6 +2,7 @@
 
 #include "measurements.hpp"
 #include "track_edits.hpp"
+#include "tracker_references.hpp"
 #include "workspace_document.hpp"
 
 #include <QFile>
@@ -164,6 +165,220 @@ TEST(TrackerWriter, RejectsUnsupportedOrInvalidEditsBeforeReplacingTheDestinatio
     catch (const motrack::ProjectError& error)
     {
         EXPECT_TRUE(std::string_view(error.what()).starts_with("Could not write Tracker project:"));
+    }
+}
+
+std::string namedSource(const std::string& extra = "")
+{
+    return "<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>\n"
+           "<property name='description' type='string'><![CDATA[mass A and mass B are words in this note.]]></property>\n"
+           "<property name='tracks' type='collection' class='java.util.ArrayList'>\n"
+           "<property name='item' type='object'><object class='org.opensourcephysics.cabrillo.tracker.PointMass'>\n"
+           "<property name='name' type='string'>mass A</property><property name='mass' type='double'>1</property>\n"
+           "</object></property>\n"
+           "<property name='item' type='object'><object class='org.opensourcephysics.cabrillo.tracker.Protractor'>\n"
+           "<property name='name' type='string'>protractor</property>\n"
+           "<property name='framedata' type='array' class='[[D'><property name='array' "
+           "type='string'>{{0,0,1,0,0,1}}</property></property>\n"
+           "</object></property>\n"
+           "<property name='item' type='object'><object class='org.opensourcephysics.cabrillo.tracker.PointMass'>\n"
+           "<property name='name' type='string'>mass B</property></object></property></property>\n"
+           "<property name='selectedtrack' type='string'>mass B</property>\n"
+           "<property name='selected_track_views' type='string'>mass B,null;null,mass B;null,null;null,null</property>\n"
+           "<property name='views' type='array' class='[[Lorg.opensourcephysics.cabrillo.tracker.TView;'>\n"
+           "<property name='[1]' type='array' class='[Lorg.opensourcephysics.cabrillo.tracker.TView;'>\n"
+           "<property name='[1]' type='object'><object class='org.opensourcephysics.cabrillo.tracker.TableTView'>\n"
+           "<property name='selected_track' type='string'>mass B</property>\n"
+           "<property name='track_columns' type='array' class='[[Ljava.lang.String;'>\n"
+           "<property name='[0]' type='array' class='[Ljava.lang.String;'>\n"
+           "<property name='[0]' type='string'>mass B</property><property name='[1]' type='string'>mass B</property>\n"
+           "</property></property>\n"
+           "<property name='column_formats' type='array' class='[[[Ljava.lang.String;'>\n"
+           "<property name='[0]' type='array' class='[[Ljava.lang.String;'><property name='[0]' type='array' class='[Ljava.lang.String;'>\n"
+           "<property name='[0]' type='string'>mass B</property><property name='[1]' type='string'>mass B</property>\n"
+           "<property name='[2]' type='string'>0.00</property></property></property></property>\n"
+           "</object></property></property></property>\n" +
+           extra + "</object>\n";
+}
+
+TEST(TrackerWriter, RenamesSelectedMassByIdentityAndPreservesNonReferenceWordsAfterNativeReopen)
+{
+    const auto imported = motrack::parseTrackerProject(namedSource());
+    motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+    motrack::TrackEdits edits;
+    const auto name = QString::fromUtf8("élève β & <B>").toStdString();
+    ASSERT_TRUE(edits.renamePointMass(document.project, 1, "temporary"));
+    ASSERT_TRUE(edits.setPointMassValue(document.project, 0, 4));
+    ASSERT_TRUE(edits.renamePointMass(document.project, 1, name));
+    ASSERT_TRUE(edits.undo(document.project));
+    ASSERT_TRUE(edits.redo(document.project));
+    ASSERT_TRUE(edits.removePointMass(document.project, 0));
+    ASSERT_TRUE(edits.undo(document.project));
+    std::ranges::reverse(document.project.pointMasses);
+    QTemporaryDir temporary;
+    const auto native = temporary.filePath("names.motrack");
+    motrack::writeWorkspaceDocument(native, document);
+    document = motrack::readWorkspaceDocument(native);
+    if (!document.trackerSource)
+    {
+        FAIL() << "Native reopen lost the original source.";
+    }
+    const auto originalIndex = motrack::indexTrackerReferences(imported.source, imported.project);
+    const auto bytes = motrack::renderTrackerProject(document.project, *document.trackerSource);
+    const auto output = motrack::parseTrackerProject(bytes);
+    EXPECT_EQ(output.project.pointMasses[1].name, name);
+    EXPECT_EQ(output.project.pointMasses[0].mass, 4);
+    EXPECT_EQ(output.project.description, imported.project.description);
+    EXPECT_EQ(document.trackerSource->xml, imported.source.xml);
+    const auto updated = motrack::indexTrackerReferences(output.source, output.project);
+    ASSERT_EQ(updated.references.size(), originalIndex.references.size());
+    for (std::size_t i = 0; i < updated.references.size(); ++i)
+    {
+        EXPECT_EQ(updated.references[i].path, originalIndex.references[i].path);
+        EXPECT_EQ(updated.references[i].candidateSourceIndices, originalIndex.references[i].candidateSourceIndices);
+        EXPECT_EQ(updated.references[i].resolution, originalIndex.references[i].resolution);
+        EXPECT_EQ(updated.references[i].originalName,
+                  originalIndex.references[i].originalName == "mass B" ? name : originalIndex.references[i].originalName);
+    }
+    // Column labels remain data even when identical to a renamed track.
+    const std::string label = R"(name="[1]" type="string">mass B</property>)";
+    const auto firstLabel = bytes.find(label);
+    ASSERT_NE(firstLabel, std::string::npos);
+    EXPECT_NE(bytes.find(label, firstLabel + label.size()), std::string::npos);
+}
+
+TEST(TrackerWriter, RenamesUnselectedMassAndSwapsNamesWithoutResolvingAgainstEditedLabels)
+{
+    auto imported = motrack::parseTrackerProject(namedSource());
+    const auto original = motrack::indexTrackerReferences(imported.source, imported.project);
+    imported.project.pointMasses[0].name = "new A";
+    auto output = motrack::parseTrackerProject(motrack::renderTrackerProject(imported.project, imported.source));
+    auto references = motrack::indexTrackerReferences(output.source, output.project);
+    EXPECT_EQ(output.project.pointMasses[0].name, "new A");
+    EXPECT_EQ(references.references[0].originalName, "mass B");
+    imported.project.pointMasses[0].name = "mass B";
+    imported.project.pointMasses[1].name = "mass A";
+    output = motrack::parseTrackerProject(motrack::renderTrackerProject(imported.project, imported.source));
+    references = motrack::indexTrackerReferences(output.source, output.project);
+    EXPECT_EQ(output.project.pointMasses[0].name, "mass B");
+    EXPECT_EQ(output.project.pointMasses[1].name, "mass A");
+    EXPECT_EQ(references.references[0].originalName, "mass A");
+    EXPECT_EQ(references.references[0].candidateSourceIndices, original.references[0].candidateSourceIndices);
+}
+
+TEST(TrackerWriter, RejectsReservedOriginalNamesWithoutReplacingDestinationOrChangingUneditedSources)
+{
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    for (const std::string oldName : {"null", "bad,name", "bad;name"})
+    {
+        auto xml = namedSource();
+        std::size_t position = 0;
+        while ((position = xml.find("mass B", position)) != std::string::npos)
+        {
+            xml.replace(position, 6, oldName);
+            position += oldName.size();
+        }
+        const auto imported = motrack::parseTrackerProject(xml);
+        motrack::writeTrackerProject(destination, imported.project, imported.source);
+        EXPECT_EQ(readBytes(destination), xml);
+        // Even an unchanged reserved-name track makes another track's rename ambiguous.
+        for (std::size_t selected : {0u, 1u})
+        {
+            auto project = imported.project;
+            project.pointMasses[selected].name = "valid name";
+            EXPECT_THROW(motrack::writeTrackerProject(destination, project, imported.source), motrack::ProjectError);
+            EXPECT_EQ(readBytes(destination), xml);
+        }
+    }
+}
+
+TEST(TrackerWriter, UndoingANameEditRestoresByteExactSource)
+{
+    auto imported = motrack::parseTrackerProject(namedSource());
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.renamePointMass(imported.project, 1, "new name"));
+    ASSERT_TRUE(edits.undo(imported.project));
+    EXPECT_EQ(motrack::renderTrackerProject(imported.project, imported.source), imported.source.xml);
+}
+
+TEST(TrackerWriter, BoundsRenameSchemaAndRejectsUnclassifiedFieldsAndEncodings)
+{
+    for (const auto& [from, to] : std::vector<std::pair<std::string, std::string>>{
+             {"name='description' type='string'", "name='description' type='string' future='mass B'"},
+             {"class='org.opensourcephysics.cabrillo.tracker.TableTView'", "class='org.opensourcephysics.cabrillo.tracker.PlotTView'"},
+             {"name='[1]' type='array' class='[Lorg", "name='[10000]' type='array' class='[Lorg"},
+             {"name='[1]' type='array' class='[Lorg", "name='[01]' type='array' class='[Lorg"},
+             {"name='column_formats'", "name='dataset_indices'"},
+             {"name='description' type='string'", "name='attachments' type='string'"},
+             {"name='selectedtrack' type='string'>mass B", "name='selectedtrack' type='string'><!-- cannot patch -->mass B"},
+             {"class='java.util.ArrayList'", "class='java.util.LinkedList'"},
+             {"name='[0]' type='string'>mass B", "name='[0]' type='object'>mass B"},
+             {"type='array' class='[[D'", "type='array' class='[[I'"}})
+    {
+        auto xml = namedSource();
+        ASSERT_NE(xml.find(from), std::string::npos);
+        xml.replace(xml.find(from), from.size(), to);
+        auto imported = motrack::parseTrackerProject(xml);
+        imported.project.pointMasses[1].name = "new name";
+        EXPECT_THROW((void)motrack::renderTrackerProject(imported.project, imported.source), motrack::ProjectError);
+    }
+    std::string many = "<property name='selected_view_types' type='array' class='[I'>";
+    for (int i = 0; i < 10000; ++i)
+        many += "<property name='[" + std::to_string(i) + "]' type='int'>0</property>";
+    many += "</property>";
+    auto bounded = motrack::parseTrackerProject(namedSource(many));
+    bounded.project.pointMasses[1].name = "new name";
+    EXPECT_THROW((void)motrack::renderTrackerProject(bounded.project, bounded.source), motrack::ProjectError);
+}
+
+TEST(TrackerWriter, RejectsUnsafeRenameNamesAndUnknownRelationshipsWithoutReplacingAFile)
+{
+    QTemporaryDir temporary;
+    const auto path = temporary.filePath("existing.trk");
+    const auto imported = motrack::parseTrackerProject(namedSource());
+    motrack::writeTrackerProject(path, imported.project, imported.source);
+    for (const auto& name : {std::string{},
+                             std::string("null"),
+                             std::string("mass A"),
+                             std::string("protractor"),
+                             std::string("comma,name"),
+                             std::string("semi;colon"),
+                             std::string(" spaced "),
+                             std::string("line\nbreak"),
+                             std::string("end]]>"),
+                             std::string(4097, 'x'),
+                             std::string("\xff")})
+    {
+        auto project = imported.project;
+        project.pointMasses[1].name = name;
+        EXPECT_THROW(motrack::writeTrackerProject(path, project, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(path), imported.source.xml);
+    }
+    for (const auto& field : {"<property name='future_link' type='string'>mass B</property>",
+                              "<property name='referenceframe' type='string'>mass B</property>",
+                              "<property name='description' type='string'>duplicate</property>",
+                              "<property name='description' type='object'><object class='Future'/></property>"})
+    {
+        auto unknown = motrack::parseTrackerProject(namedSource(field));
+        unknown.project.pointMasses[1].name = "renamed";
+        EXPECT_THROW(motrack::writeTrackerProject(path, unknown.project, unknown.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(path), imported.source.xml);
+    }
+    for (const auto& [from, to] : std::vector<std::pair<std::string, std::string>>{
+             {">mass A<", ">mass B<"},
+             {">mass B</property>\n<property name='selected_track_views'", ">missing</property>\n<property name='selected_track_views'"},
+             {"cabrillo.tracker.Protractor", "cabrillo.tracker.FutureTrack"},
+             {"type='string'>mass B,null", "type='double'>mass B,null"},
+             {"name='[1]' type='array' class='[Lorg", "name='[9]' type='array' class='[Lorg"}})
+    {
+        auto xml = namedSource();
+        ASSERT_NE(xml.find(from), std::string::npos);
+        xml.replace(xml.find(from), from.size(), to);
+        auto malformed = motrack::parseTrackerProject(xml);
+        malformed.project.pointMasses[1].name = "renamed";
+        EXPECT_THROW(motrack::writeTrackerProject(path, malformed.project, malformed.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(path), imported.source.xml);
     }
 }
 

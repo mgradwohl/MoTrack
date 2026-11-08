@@ -1,6 +1,7 @@
 #include "tracker_writer.hpp"
 
 #include "measurements.hpp"
+#include "tracker_rename.hpp"
 
 #include <QByteArray>
 #include <QDomDocument>
@@ -742,7 +743,7 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
             objects.emplace(found->second, item.firstChildElement("object"));
         }
     }
-    bool changed = false;
+    bool changed = patchTrackerPointMassNames(xml, expected, baseline.project, source);
     if (expected.calibration != baseline.project.calibration)
     {
         if (!expected.calibration || !baseline.project.calibration)

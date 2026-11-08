@@ -34,7 +34,8 @@ and keyframes still have to match exactly.
 The vector cases change tails/components, insert/delete samples, clear a vector, then add its first
 sample after Java resaves the empty vector. They compare unchanged XML, image-space tails/components,
 loaded Java vectors and native reimport. Clip ranges, fixed calibration and length labels have additional
-cases described below. Names, partly fixed calibration and track-membership edits, media/archive
+cases described below. Selected/unselected point-mass names have a conservative protractor round trip.
+Broader names/dependencies, partly fixed calibration and track-membership edits, media/archive
 round trips, desktop export UI and paired saves remain unfinished.
 
 ## Sources and cases
@@ -441,3 +442,27 @@ and system at node 4. Selection targets node 4; B's booster targets node 1; orde
 nodes 2/3. Unsupported models receive no invented native IDs. Unit cases cover polar source targets,
 wrong base types, unknown classes, repeated/missing/ambiguous names, malformed arrays, shared bounds
 and retained source identity across native rename/delete/undo/redo/save/reopen.
+
+## Point-mass standard rename round trip
+
+The `name` and `unselected-name` export modes rename protractor's mass B and mass A respectively to
+`élève β & <B>`. The native probe applies repeated renames with undo/redo, saves/reopens a native
+document after removing its input copy, and exports from the retained source/identity bindings.
+The pinned source download remains unchanged. A temporary source copy adds a note containing both
+old names so the full-source DOM comparison rejects blind text replacement.
+
+Independent Python expectations change only the chosen track identity and affected root/packed/nested
+table selections. The original custom table belongs to protractor A, so its owners, angle column and
+number formats must stay intact. The complete XML comparison also checks comments, other properties
+and the note. Java load, normal save and fresh-process reopen then validate selected live track/view
+objects, unchanged scientific data and the Unicode label; native reimport must match. The selected
+case cannot pass by changing the displayed track name while leaving stale references behind.
+
+The writer admits only the audited media-free mass/axes/unattached-protractor/table schema described
+in the [name-reference guide](../../docs/tracker-name-references.md). Unknown attributes/properties,
+ambiguous/missing names, unsupported dependent objects and unrepresentable new labels fail before
+replacing an existing file. Unit cases cover name swaps against original identities, interleaved mass
+edits, reorder/delete/undo, malformed/bounded settings and unchanged column labels containing old names.
+Vector/dependent renames, creation/deletion, archive packaging, paired saves and desktop standard Save
+remain. Java's known immediate unvisited-table resave limitation remains separately tracked in #64;
+these cases use the explicitly reported visited-table preparation.
