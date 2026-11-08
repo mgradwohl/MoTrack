@@ -128,3 +128,9 @@ Every journal contains a persistent transaction UUID, returned by both paired wr
 A new transaction at the same pathname receives a new identity. Session completion checks use this
 identity so a delayed result cannot clear a newer pending transaction. Missing/invalid identities are
 refused before recovery modifies either output. This is part of the initial, unmerged journal format.
+
+A recovery request may carry a known UUID or an explicitly unidentified expectation from an unreadable
+journal. The adapter checks that expectation under the journal lock. If the journal now has a valid
+UUID, an unidentified request returns its identity without replacing either output; the caller must
+obtain fresh confirmation. An absent journal can be reconciled without writing. Only an adapter call
+that omits the expectation entirely requests unrestricted explicit recovery.
