@@ -718,6 +718,9 @@ and zero angle require new calibrated components (2,2)/(0,0)/(-3,-3), with magni
 Both original vectors have separate numerical expectations too. These values are not inferred from
 exported XML or from Java's resave. A regression first reproduced the old oracle accepting the same
 wrong calibrated values at all three stages; the strengthened check rejects them.
+Another regression reproduced 1000 newly appended empty vectors exceeding the schema-entry budget
+after export. The shared final schema audit now refuses before replacing the destination; a smaller
+batch can still be reimported, renamed and extended. Appended metadata and patched samples both count.
 Negative tests reject consistent wrong geometry/appearance/calibrated data and changes to original content. Native
 tests cover collisions, dangling links, vector sums, source deletion, mixed provider types, origin/tip
 snapping across frames, endpoint precision loss and bounded dense allocation. These cases extend
