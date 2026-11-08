@@ -14,6 +14,7 @@
 #include <QFileInfo>
 #include <QInputDialog>
 #include <QLocale>
+#include <QLockFile>
 #include <QPushButton>
 #include <QSemaphore>
 #include <QStatusBar>
@@ -79,6 +80,66 @@ bool editMass(motrack::MainWindow& window, double value)
                        });
     action->trigger();
     return accepted;
+}
+
+TEST(ImagePackageWorkspace, PreservesPendingPairedArchiveAndCompanionUntilExplicitRecovery)
+{
+    QTemporaryDir temporary;
+    const auto target = temporary.filePath("saved.trz");
+    auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(fixture("archived-images.trz")));
+    auto document = motrack::importTrackerDocument(payload->projectPath("experiment.trk"));
+    payload->resolveMedia(document.project, "experiment.trk");
+    document.archivePayload = payload;
+    document.archiveMember = "experiment.trk";
+    std::atomic_bool cancelled{false};
+    const auto partial =
+        motrack::writePairedDocuments(target,
+                                      document,
+                                      fixture(),
+                                      &cancelled,
+                                      [&cancelled](auto state) { cancelled = state == motrack::PairedSaveProgress::StandardSaved; });
+    ASSERT_EQ(partial.status, motrack::PairedSaveStatus::RecoveryRequired);
+    const auto archiveBytes = bytes(target);
+    const auto journalBytes = bytes(partial.recoveryPath);
+    EXPECT_FALSE(QFileInfo::exists(partial.nativePath));
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(fixture()));
+    ASSERT_TRUE(editMass(window, 7));
+    EXPECT_FALSE(window.exportTrackerArchive(target));
+    EXPECT_TRUE(window.statusBar()->currentMessage().contains("Use Save Tracker project"));
+    EXPECT_EQ(bytes(target), archiveBytes);
+    EXPECT_EQ(bytes(partial.recoveryPath), journalBytes);
+    EXPECT_FALSE(QFileInfo::exists(partial.nativePath));
+    EXPECT_TRUE(window.isWindowModified());
+    ASSERT_TRUE(window.exportTrackerArchive(temporary.filePath("copy.trz")));
+    EXPECT_EQ(bytes(target), archiveBytes);
+    ASSERT_EQ(motrack::recoverPairedDocuments(partial.recoveryPath, nullptr, {}, partial.transactionId).status,
+              motrack::PairedSaveStatus::Saved);
+    const auto companion = bytes(partial.nativePath);
+    ASSERT_TRUE(window.exportTrackerArchive(target));
+    EXPECT_EQ(bytes(partial.nativePath), companion);
+    EXPECT_TRUE(window.isWindowModified());
+    const auto exported = motrack::TrackerArchive::open(target);
+    EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(exported.projectPath("experiment.trk")).project.pointMasses.front().mass, 7);
+}
+
+TEST(ImagePackageWorkspace, RefusesAnActiveSiblingSaveLockAndAllowsOtherDestinations)
+{
+    QTemporaryDir temporary;
+    const auto target = temporary.filePath("saved.trz");
+    put(target, "original archive");
+    QLockFile lock(temporary.filePath(".saved.motrack-save.lock"));
+    lock.setStaleLockTime(0);
+    ASSERT_TRUE(lock.tryLock(0));
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(fixture()));
+    EXPECT_FALSE(window.exportTrackerArchive(target));
+    EXPECT_TRUE(window.statusBar()->currentMessage().contains("Wait for it to finish and retry"));
+    EXPECT_EQ(bytes(target), "original archive");
+    ASSERT_TRUE(window.exportTrackerArchive(temporary.filePath("copy.trz")));
+    lock.unlock();
+    ASSERT_TRUE(window.exportTrackerArchive(target));
+    EXPECT_FALSE(bytes(target).isEmpty());
 }
 
 TEST(ImagePackageWorkspace, ExportKeepsDirtyStateUndoAndOrdinarySaveDestinations)

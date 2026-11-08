@@ -13,6 +13,26 @@
 namespace motrack
 {
 
+enum class SaveDestinationConflict : std::uint8_t
+{
+    Busy,
+    PendingRecovery
+};
+
+/// Structured adapter failure so desktop callers can provide translated recovery/retry guidance.
+class SaveDestinationError final : public ProjectError
+{
+  public:
+    explicit SaveDestinationError(SaveDestinationConflict conflict);
+    [[nodiscard]] SaveDestinationConflict conflict() const noexcept
+    {
+        return m_Conflict;
+    }
+
+  private:
+    SaveDestinationConflict m_Conflict;
+};
+
 enum class PairedSaveStatus : std::uint8_t
 {
     Saved,
@@ -63,6 +83,13 @@ using PairedSaveObserver = std::function<void(PairedSaveProgress)>;
 /// Refuses unresolved journals without changing any output; copies to other destinations remain available.
 /// The caller still validates/rebases media before invoking this worker-only adapter.
 void writeNativeDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled = nullptr);
+
+/// Export a standalone image archive copy under the same per-stem destination lock as paired saving.
+/// Refuses pending journals and file aliases; no session checkpoints or companion files are changed.
+void writeTrackerImagePackageCopy(const QString& path,
+                                  const WorkspaceDocument& document,
+                                  const QString& mediaProjectPath,
+                                  const std::atomic_bool* cancelled = nullptr);
 
 /// Explicitly resume a locally initiated pair. Refuses altered destinations, stages, aliases and escaping paths.
 /// Recovery is never implicitly triggered by opening imported project/archive content.
