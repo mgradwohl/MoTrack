@@ -1369,6 +1369,43 @@ TEST(Workspace, SavesAndReopensMediaThroughDirectoryAndProjectAliases)
     }
 }
 
+TEST(Workspace, ResolvesDanglingSaveAliasesBeforeProtectingMissingMedia)
+{
+    for (const bool targetIsMedia : {true, false})
+    {
+        SCOPED_TRACE(targetIsMedia);
+        QTemporaryDir temporary;
+        ASSERT_TRUE(QDir(temporary.path()).mkpath("physical"));
+        const auto target = temporary.filePath("physical/actual.motrack");
+        const auto alias = temporary.filePath("alias.motrack");
+        ASSERT_TRUE(QFile::link(target, alias));
+        auto document = motrack::importTrackerDocument(fixturePath("image-sequence.trk"));
+        // The real target must be protected; a missing image sharing only the alias basename must not block saving.
+        document.project.clip.mediaReferences = {targetIsMedia ? "physical/actual.motrack" : "physical/alias.motrack"};
+        document.project.clip.firstFrame = 0;
+        document.project.clip.stepSize = 1;
+        document.project.clip.stepCount = 1;
+        document.project.clip.sourceFrameCount = 1;
+        const auto input = temporary.filePath("input.motrack");
+        motrack::writeWorkspaceDocument(input, document);
+        motrack::MainWindow window;
+        ASSERT_TRUE(window.loadProject(input));
+        auto* create = window.findChild<QAction*>("newPointMass");
+        ASSERT_NE(create, nullptr);
+        create->trigger();
+        EXPECT_EQ(window.saveWorkspace(alias), !targetIsMedia);
+        EXPECT_EQ(window.isWindowModified(), targetIsMedia);
+        EXPECT_TRUE(QFileInfo(alias).isSymLink());
+        EXPECT_EQ(QFileInfo::exists(target), !targetIsMedia);
+        if (!targetIsMedia)
+        {
+            const auto saved = motrack::readWorkspaceDocument(target);
+            EXPECT_EQ(saved.project.clip.mediaReferences, std::vector<std::string>{"alias.motrack"});
+            EXPECT_FALSE(QFileInfo::exists(temporary.filePath("physical/alias.motrack")));
+        }
+    }
+}
+
 TEST(ImageSequence, RejectsCyclicProjectAliases)
 {
     QTemporaryDir temporary;
