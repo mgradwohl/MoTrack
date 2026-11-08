@@ -1,10 +1,12 @@
 #include "workspace_document.hpp"
 
+#include "local_media_path.hpp"
 #include "track_identity.hpp"
 #include "tracker_archive.hpp"
 #include "workspace_storage.hpp"
 
 #include <QByteArray>
+#include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -456,6 +458,33 @@ WorkspaceDocument readWorkspaceDocument(const QString& path, const std::atomic_b
     }
     validateArchive(result);
     return result;
+}
+
+void rebaseWorkspaceMedia(WorkspaceDocument& document, const QString& sourcePath, const QString& destinationPath)
+{
+    if (!document.archivePayload)
+    {
+        const auto directory = localProjectDirectory(destinationPath);
+        if (directory.isEmpty())
+        {
+            throw ProjectError("Could not resolve the native project destination.");
+        }
+        const QDir destination(directory);
+        for (auto& reference : document.project.clip.mediaReferences)
+        {
+            const auto source = resolveLocalMediaPath(sourcePath, reference);
+            if (!source.isEmpty())
+            {
+                const auto rebased = destination.relativeFilePath(source).toStdString();
+                const auto resolved = resolveLocalMediaPath(destinationPath, rebased);
+                if (resolved.isEmpty() || QDir::cleanPath(resolved) != QDir::cleanPath(source))
+                {
+                    throw ProjectError("Could not preserve a native project media reference.");
+                }
+                reference = rebased;
+            }
+        }
+    }
 }
 
 void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& document)

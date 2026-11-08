@@ -54,36 +54,6 @@
 namespace motrack
 {
 
-namespace
-{
-void rebaseWorkspaceMedia(WorkspaceDocument& document, const QString& sourcePath, const QString& destinationPath)
-{
-    if (!document.archivePayload)
-    {
-        const auto directory = localProjectDirectory(destinationPath);
-        if (directory.isEmpty())
-        {
-            throw ProjectError("Could not resolve the native project destination.");
-        }
-        const QDir destination(directory);
-        for (auto& reference : document.project.clip.mediaReferences)
-        {
-            const auto source = resolveLocalMediaPath(sourcePath, reference);
-            if (!source.isEmpty())
-            {
-                const auto rebased = destination.relativeFilePath(source).toStdString();
-                const auto resolved = resolveLocalMediaPath(destinationPath, rebased);
-                if (resolved.isEmpty() || QDir::cleanPath(resolved) != QDir::cleanPath(source))
-                {
-                    throw ProjectError("Could not preserve a native project media reference.");
-                }
-                reference = rebased;
-            }
-        }
-    }
-}
-} // namespace
-
 struct MainWindow::PreparedProject
 {
     WorkspaceDocument document;
