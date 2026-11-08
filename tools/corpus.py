@@ -1019,9 +1019,12 @@ def check_sessions(manifest, cache, java, probe=None):
                 home = java_home if stage == "save" else output / "java-reopen-home"
                 home.mkdir(exist_ok=True)
                 source = project if stage == "save" else output / "tracker-resaved.trk"
-                run([str(java_path), f"-Duser.home={home}", "-Duser.language=en", "-Duser.country=US",
-                     "-Xmx256m", "-cp", os.pathsep.join([str(classes), str(jar)]), "TrackerSessionReference",
-                     str(source), str(output), stage], display=display)
+                try:
+                    run([str(java_path), f"-Duser.home={home}", "-Duser.language=en", "-Duser.country=US",
+                         "-Xmx256m", "-cp", os.pathsep.join([str(classes), str(jar)]), "TrackerSessionReference",
+                         str(source), str(output), stage], display=display)
+                except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+                    raise ValueError(f"{case['id']}/{mode}/{stage}: Tracker reference failed for {source.name}: {error}") from error
                 stages[stage] = json.loads((output / ("session-" + stage + ".json")).read_text(encoding="utf-8"))
                 if (stages[stage]["reference_version"] != manifest["reference"]["version"]
                         or stages[stage]["verification_level"] != "tracker_session_" + stage
