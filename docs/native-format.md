@@ -403,7 +403,10 @@ before writing. Its atomic native writer follows project-file aliases, including
 has not been created yet; the saved references are relative to that target's physical directory.
 Cyclic aliases and links that would be interpreted as archive references fail without changing an
 existing destination or the session's saved state. POSIX desktop regressions reopen through both the
-alias and physical path and compare decoded image pixels; CI runs these on Linux and macOS.
+alias and physical path and compare decoded image pixels; CI runs these on Linux and macOS. Standalone
+movie imports retain the opened absolute media path so a differently named file alias rebases to
+the real movie. Single-image detection also accepts decoded image headers when the physical file
+has an unrecognized suffix; native save/reopen must not reinterpret that image as a movie.
 
 It rejects an output that aliases linked media and leaves an existing destination intact on preflight
 or rendering failure. This links existing files; it neither copies media nor marks a session saved.
