@@ -6,6 +6,7 @@
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QSaveFile>
 #include <QTemporaryDir>
 
@@ -161,6 +162,7 @@ void writeWorkspaceStorage(const QString& path, const QByteArray& json, const st
         require(output.open(QIODevice::WriteOnly) && output.write(json) == json.size() && output.commit());
         return;
     }
+    require(!QFileInfo(source->sourcePath()).isSymLink());
     QFile payload(source->sourcePath());
     require(payload.open(QIODevice::ReadOnly) && payload.size() > 0 && payload.size() <= MAX_TRACKER_ARCHIVE_BYTES);
     const auto payloadSize = payload.size();
