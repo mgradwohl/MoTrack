@@ -29,8 +29,8 @@
       "native_delete_table_roundtrip": true,
       "file": "table-owners.trk",
       "local_file": "fixtures/table-owners.trk",
-      "sha256": "5f7749afee042ba9040ef04b01d59887fd900d94a194af63e403f335ca589c8e",
-      "bytes": 12391,
+      "sha256": "2a93db64ddb884748c95cb19c6238182813883e7ed6940d4a3b9b1d1a8545aa3",
+      "bytes": 12539,
       "tracker_version": "6.3.5",
       "features": [
         "three-point-masses",
