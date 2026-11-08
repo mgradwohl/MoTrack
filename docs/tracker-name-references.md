@@ -158,14 +158,14 @@ The `referenceframe` scalar is indexed, but moving-coordinate behavior still lac
 ## Implemented rename subset and remaining architecture
 
 The internal writer uses original source identities to patch point-mass/vector names, root/packed view
-selections, nested table selections and table column/format owners. Native reorder, repeated renames,
+selections, nested table/plot selections, table column/format owners and modern plot owners/guests. Native reorder, repeated renames,
 undo/redo and reopen do not change which original object is patched. Other words in descriptions,
 column labels and format patterns remain data. No global text replacement is used.
 
 Eligibility additionally requires the explicitly audited media-free schema in
-[`tracker_rename.cpp`](../src/tracker_rename.cpp): axes, point masses, independent vectors, unattached protractors and table
+[`tracker_rename.cpp`](../src/tracker_rename.cpp): axes, point masses, independent vectors, unattached protractors and table/modern plot
 settings, together with their numeric geometry, color, clip and toolbar fields. Unrecognized properties,
-attributes/classes, model/function data, attachment fields, reference frames, plot objects and dataset
+attributes/classes, model/function data, attachment fields, reference frames, legacy/scaled plot fields and dataset
 rows reject rename export, even when the partial reference index has no malformed paths. The original
 source and native document remain available. Extend this allowlist only alongside application acceptance.
 
@@ -189,11 +189,27 @@ is not closed or established safe for immediate unvisited Tracker resaves by thi
 The independent-vector case adds explicit root/packed selections for vector B in a temporary source
 copy, then performs the same Unicode rename, native reopen and application round trip. Vector frame-data
 and typed null cells that retain the array extent remain untouched. The schema accepts canonical null
-Vector frame-data entries only; arbitrary missing named objects remain unsupported. All existing vector
+Vector/PointMass frame-data entries only; arbitrary missing named objects remain unsupported. All existing vector
 export safeguards still apply, including fixed coordinates, supported arrow footprints, bounded frame
 arrays and distances from origins/other vector heads that avoid Tracker's first-draw snapping.
 This does not extend export to vector sums or mixed dependent scenes; [MoTrack #63](https://github.com/mgradwohl/MoTrack/issues/63)
 remains an explicit external compatibility blocker.
+
+Modern `PlotTView.track_views` collections now admit audited `PlotTrackView` owners and their
+`plot0`–`plot2` panels with x/y variables, lines/points flags and ordered guest names. Reference paths
+walk collection members by ordinal even though their XML labels repeat `item`. Two plot-guests modes
+rename owner mass A and guest mass B separately. Every affected owner, selection and guest slot must
+retain its original target; C/B and B guest ordering and all three masses' sparse scientific data are
+independent expectations. Variable labels remain data even when equal to a track name.
+
+Track-view owners must be unique within each view collection, and guests must be unique within each
+panel. Java otherwise overwrites repeated owners or coalesces repeated guests on resave. The same guest
+in separate panels remains supported. Invalid definitions reject export before replacing a file.
+The current acceptance case uses explicitly unlinked axes (`linked=false`). Rename export refuses
+linked, omitted or malformed settings: Tracker synchronizes linked x axes during panel loading, which
+can replace an earlier panel's variable with a later panel's variable. Native regressions use conflicting
+`t`/`x` axes and verify that refusal preserves an existing destination. Linked-plot acceptance remains.
+Legacy direct plots, fixed plot ranges/scaling, datasets and dependent-track edits remain outside this writer subset.
 
 Extend the partial source-reference index alongside the existing original-object bindings. Its source nodes
 include the original collection position, Java class and original name. Editable nodes resolve to
@@ -242,5 +258,10 @@ transient undo history.
 The first rename cases include the protractor experiment's selected `mass B` and unselected `mass A`.
 They require identical words in an unrelated description to stay unchanged; native regressions reject
 unknown/ambiguous relationships. Independent vectors now have a separate selected-vector case.
-Next extend to plot guests and each dependent
+Next extend to each dependent
 field with its own application evidence, then creation/deletion and archive/paired saving.
+
+Plot/table selections and view owners/guests must be viewable targets. Coordinate axes are valid
+main-panel selections but are ignored by TrackChooserTView; a rename export rejects such view
+references even when the referenced name is unchanged. Atomic-rejection tests cover nested selection,
+owner, guest and packed plot/table selections.

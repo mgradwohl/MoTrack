@@ -387,6 +387,234 @@ TEST(TrackerWriter, VectorRenamesKeepSnappingUnknownDataAndNameCollisionGuards)
     }
 }
 
+TEST(TrackerWriter, RenamesPlotOwnerAndGuestThroughNativeHistoryWithoutChangingTargetsOrMeasurements)
+{
+    const auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/plot-guests.trk");
+    const auto imported = motrack::parseTrackerProject(xml);
+    const auto before = motrack::indexTrackerReferences(imported.source, imported.project);
+    for (std::size_t selected : {0u, 1u})
+    {
+        motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+        motrack::TrackEdits edits;
+        const auto old = document.project.pointMasses[selected].name;
+        const auto name = QString::fromUtf8("élève β & <B>").toStdString();
+        ASSERT_TRUE(edits.renamePointMass(document.project, selected, "temporary"));
+        ASSERT_TRUE(edits.renamePointMass(document.project, selected, name));
+        ASSERT_TRUE(edits.undo(document.project));
+        ASSERT_TRUE(edits.redo(document.project));
+        ASSERT_TRUE(edits.removePointMass(document.project, 2));
+        ASSERT_TRUE(edits.undo(document.project));
+        std::ranges::reverse(document.project.pointMasses);
+        QTemporaryDir temporary;
+        const auto native = temporary.filePath("plot-name.motrack");
+        motrack::writeWorkspaceDocument(native, document);
+        document = motrack::readWorkspaceDocument(native);
+        if (!document.trackerSource)
+        {
+            FAIL() << "Native reopen lost the original plot source.";
+        }
+        const auto output = motrack::parseTrackerProject(motrack::renderTrackerProject(document.project, *document.trackerSource));
+        auto expected = imported.project;
+        expected.pointMasses[selected].name = name;
+        EXPECT_EQ(output.project, expected);
+        const auto after = motrack::indexTrackerReferences(output.source, output.project);
+        ASSERT_EQ(after.references.size(), before.references.size());
+        for (std::size_t i = 0; i < before.references.size(); ++i)
+        {
+            EXPECT_EQ(after.references[i].path, before.references[i].path);
+            EXPECT_EQ(after.references[i].candidateSourceIndices, before.references[i].candidateSourceIndices);
+            EXPECT_EQ(after.references[i].originalName,
+                      before.references[i].originalName == old ? name : before.references[i].originalName);
+        }
+        EXPECT_EQ(document.trackerSource->xml, xml);
+    }
+}
+
+TEST(TrackerWriter, RenameWalksPlotCollectionsByOrdinalAndLeavesVariableTextAlone)
+{
+    const std::string xml =
+        "<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>"
+        "<property name='tracks' type='collection' class='java.util.ArrayList'>"
+        "<property name='item' type='object'><object class='org.opensourcephysics.cabrillo.tracker.PointMass'>"
+        "<property name='name' type='string'>A</property></object></property>"
+        "<property name='item' type='object'><object class='org.opensourcephysics.cabrillo.tracker.PointMass'>"
+        "<property name='name' type='string'>B</property></object></property></property>"
+        "<property name='views' type='array' class='[[Lorg.opensourcephysics.cabrillo.tracker.TView;'>"
+        "<property name='[0]' type='array' class='[Lorg.opensourcephysics.cabrillo.tracker.TView;'>"
+        "<property name='[0]' type='object'><object class='org.opensourcephysics.cabrillo.tracker.PlotTView'>"
+        "<property name='selected_track' type='string'>A</property>"
+        "<property name='track_views' type='collection' class='java.util.ArrayList'>"
+        "<property name='item' type='object'><object class='org.opensourcephysics.cabrillo.tracker.PlotTrackView'>"
+        "<property name='linked' type='boolean'>false</property>"
+        "<property name='track' type='string'>A</property></object></property>"
+        "<property name='item' type='object'><object class='org.opensourcephysics.cabrillo.tracker.PlotTrackView'>"
+        "<property name='linked' type='boolean'>false</property>"
+        "<property name='track' type='string'>B</property>"
+        "<property name='plot0' type='object'><object class='org.opensourcephysics.cabrillo.tracker.TrackPlottingPanel'>"
+        "<property name='x_var' type='string'>A</property><property name='y_var' type='string'>B</property>"
+        "<property name='guests' type='array' class='[Ljava.lang.String;'>"
+        "<property name='[0]' type='string'>A</property></property></object></property>"
+        "</object></property></property></object></property></property></property></object>";
+    auto imported = motrack::parseTrackerProject(xml);
+    imported.project.pointMasses[0].name = "new A";
+    imported.project.pointMasses[1].name = "new B";
+    const auto bytes = motrack::renderTrackerProject(imported.project, imported.source);
+    const auto output = motrack::parseTrackerProject(bytes);
+    const auto after = motrack::indexTrackerReferences(output.source, output.project);
+    ASSERT_EQ(after.references.size(), 4u);
+    EXPECT_EQ(after.references[2].path, "/views/0/0/track_views/1/track");
+    EXPECT_EQ(after.references[2].originalName, "new B");
+    EXPECT_EQ(after.references[3].originalName, "new A");
+    EXPECT_NE(bytes.find(R"(name="x_var" type="string">A</property>)"), std::string::npos);
+    EXPECT_NE(bytes.find(R"(name="y_var" type="string">B</property>)"), std::string::npos);
+}
+
+TEST(TrackerWriter, RejectsMissingAmbiguousMalformedAndUncoveredPlotRenameRelationships)
+{
+    const auto original = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/plot-guests.trk");
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    const auto unchanged = motrack::parseTrackerProject(original);
+    motrack::writeTrackerProject(destination, unchanged.project, unchanged.source);
+    for (const auto& [from, to] :
+         std::vector<std::pair<std::string, std::string>>{{">mass C</property>", ">mass B</property>"},
+                                                          {R"(name="[0]" type="string">mass C)", R"(name="[0]" type="string">missing)"},
+                                                          {R"(name="guests" type="array")", R"(name="future_guests" type="array")"},
+                                                          {R"(name="[1]" type="string">mass B)", R"(name="[3]" type="string">mass B)"},
+                                                          {"cabrillo.tracker.PlotTrackView", "cabrillo.tracker.FuturePlotView"},
+                                                          {R"(name="track" type="string">mass A)", R"(name="track" type="object">mass A)"},
+                                                          {R"(name="track_views" type="collection")", R"(name="track_views" type="array")"},
+                                                          {R"(name="linked" type="boolean")", R"(name="scaled" type="boolean")"}})
+    {
+        auto xml = original;
+        ASSERT_NE(xml.find(from), std::string::npos);
+        xml.replace(xml.find(from), from.size(), to);
+        auto imported = motrack::parseTrackerProject(xml);
+        imported.project.pointMasses[1].name = "renamed";
+        EXPECT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(destination), original);
+    }
+}
+
+TEST(TrackerWriter, RejectsPlotDefinitionsThatJavaWouldCoalesceBeforeReplacingDestination)
+{
+    const auto original = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/plot-guests.trk");
+    const auto unchanged = motrack::parseTrackerProject(original);
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    for (const int mutation : {0, 1, 2})
+    {
+        SCOPED_TRACE(mutation);
+        auto xml = original;
+        if (mutation == 0)
+        {
+            const std::string guest = R"(name="[0]" type="string">mass C</property>)";
+            ASSERT_NE(xml.find(guest), std::string::npos);
+            xml.replace(xml.find(guest), guest.size(), R"(name="[0]" type="string">mass B</property>)");
+        }
+        else if (mutation == 1)
+        {
+            const auto owner = xml.find(R"(<object class="org.opensourcephysics.cabrillo.tracker.PlotTrackView">)");
+            ASSERT_NE(owner, std::string::npos);
+            const auto begin = xml.rfind("<property", owner);
+            ASSERT_NE(begin, std::string::npos);
+            std::size_t cursor = owner + 7;
+            int depth = 1;
+            while (depth > 0)
+            {
+                const auto next = xml.find("<object", cursor);
+                const auto end = xml.find("</object>", cursor);
+                ASSERT_NE(end, std::string::npos);
+                if (next != std::string::npos && next < end)
+                {
+                    ++depth;
+                    cursor = next + 7;
+                }
+                else
+                {
+                    --depth;
+                    cursor = end + 9;
+                }
+            }
+            const auto end = xml.find("</property>", cursor);
+            ASSERT_NE(end, std::string::npos);
+            xml.insert(end + 11, xml.substr(begin, end + 11 - begin));
+        }
+        else
+        {
+            const std::string owner = R"(<property name="track" type="string">mass A</property>)";
+            ASSERT_NE(xml.find(owner), std::string::npos);
+            xml.erase(xml.find(owner), owner.size());
+        }
+        auto imported = motrack::parseTrackerProject(xml);
+        EXPECT_EQ(motrack::renderTrackerProject(imported.project, imported.source), xml);
+        imported.project.pointMasses[0].name = "renamed";
+        motrack::writeTrackerProject(destination, unchanged.project, unchanged.source);
+        EXPECT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
+        EXPECT_TRUE(readBytes(destination) == original) << "Unsupported plot rename replaced the existing destination.";
+    }
+}
+
+TEST(TrackerWriter, RejectsUnauditedLinkedPlotSettingsBeforeReplacingDestination)
+{
+    const auto original = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/plot-guests.trk");
+    const auto unchanged = motrack::parseTrackerProject(original);
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    for (const std::string linked : {"true", "", "missing", "invalid"})
+    {
+        SCOPED_TRACE(linked);
+        auto xml = original;
+        const std::string field = R"(<property name="linked" type="boolean">false</property>)";
+        ASSERT_NE(xml.find(field), std::string::npos);
+        xml.replace(xml.find(field),
+                    field.size(),
+                    linked == "missing" ? "" : R"(<property name="linked" type="boolean">)" + linked + "</property>");
+        // Linked loading synchronizes x axes: the later panel's x can replace the earlier t.
+        const std::string variable = R"(<property name="x_var" type="string">t</property>)";
+        ASSERT_NE(xml.rfind(variable), xml.find(variable));
+        xml.replace(xml.rfind(variable), variable.size(), R"(<property name="x_var" type="string">x</property>)");
+        auto imported = motrack::parseTrackerProject(xml);
+        EXPECT_EQ(motrack::renderTrackerProject(imported.project, imported.source), xml);
+        imported.project.pointMasses[1].name = "renamed";
+        motrack::writeTrackerProject(destination, unchanged.project, unchanged.source);
+        EXPECT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
+        EXPECT_TRUE(readBytes(destination) == original);
+    }
+}
+
+TEST(TrackerWriter, RejectsNonViewablePlotAndTableSelectionsBeforeReplacingDestination)
+{
+    const auto original = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/plot-guests.trk");
+    const auto unchanged = motrack::parseTrackerProject(original);
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    for (const int selection : {0, 1, 2, 3, 4})
+    {
+        SCOPED_TRACE(selection);
+        auto xml = original;
+        if (selection < 3)
+        {
+            const std::string field = selection == 0 ? "selected_track" : selection == 1 ? "track" : "[0]";
+            const auto old = "name=\"" + field + R"(" type="string">)" + (selection == 2 ? "mass C" : "mass A") + "</property>";
+            ASSERT_NE(xml.find(old), std::string::npos);
+            xml.replace(xml.find(old), old.size(), "name=\"" + field + R"(" type="string">axes</property>)");
+        }
+        else
+        {
+            const auto end = xml.rfind("</object>");
+            xml.insert(end,
+                       "<property name='selected_track_views' type='string'>" + std::string(selection == 3 ? "axes,null" : "null,axes") +
+                           ";null,null;null,null;null,null</property>\n");
+        }
+        auto imported = motrack::parseTrackerProject(xml);
+        imported.project.pointMasses[1].name = "renamed";
+        motrack::writeTrackerProject(destination, unchanged.project, unchanged.source);
+        EXPECT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
+        EXPECT_TRUE(readBytes(destination) == original);
+    }
+}
+
 TEST(TrackerWriter, BoundsRenameSchemaAndRejectsUnclassifiedFieldsAndEncodings)
 {
     for (const auto& [from, to] : std::vector<std::pair<std::string, std::string>>{

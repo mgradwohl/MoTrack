@@ -485,3 +485,23 @@ Independent baseline data and the complete-source comparison verify that name ex
 geometry. Application checks require the selected vector/view targets to survive save/fresh reopen.
 The existing first-draw snapping guards remain active; native regressions combine renamed vectors with
 unsafe geometry to ensure export still refuses before replacing a file. VectorSum #63 remains blocked.
+
+The `plot-owner-name` and `plot-guest-name` modes use the pinned three-mass plot-guests fixture.
+They rename mass A (selected plot and plot owner) and mass B (guest in both plots) separately, through
+repeated edits, undo/redo and native reopen. A temporary source note keeps old names as ordinary text.
+The independent complete-source comparison permits only the selected track's name and its known
+root/plot owner/guest references. It also checks null PointMass frame-data extent and every measurement.
+Application expectations require the selected root track, selected plot owner, per-track plot owner,
+C/B then B guest ordering, variables, line/point visibility and unchanged sparse mass/coordinate values across Java resave.
+Consistently wrong selections, reordered/dropped guests or wrong ownership fail even if all snapshots
+agree with one another. Native tests additionally cover later collection ordinals, duplicate/missing
+names, malformed arrays and variable labels identical to renamed tracks.
+
+Only modern track-view collections with explicit `linked=false` and the audited unscaled plot fields are eligible; legacy direct
+plot slots, fixed ranges/scaling, dataset settings and dependent tracks remain unsupported for rename
+export. These checks preserve saved relationships and scientific data, not rendered plot pixels or
+native comparison-plot editing.
+Linked axes require a separate application case because loading conflicting x variables synchronizes
+them. Native regressions refuse linked/missing/malformed settings before replacing a destination.
+The line/point flags are independently transcribed as true/true from both the pinned plot-guests and
+dynamic-sine source panels, and checked through the live serializers before/after Java save/reopen.

@@ -40,7 +40,7 @@ QDomElement property(const QDomElement& owner, const QString& name)
 }
 
 // A reference index alone cannot establish rename eligibility. This first writer admits only the
-// audited media-free mass/vector/protractor/table schema. Unknown fields/classes, models, functions, moving
+// audited media-free mass/vector/protractor/table/plot schema. Unknown fields/classes, models, functions, moving
 // frames and attachments remain preserved by native saving but cannot silently bypass this gate.
 using Fields = std::map<QString, QString>;
 Fields fields(const QString& name)
@@ -155,6 +155,20 @@ Fields fields(const QString& name)
                 {"stretch", "int"},
                 {"stretch_acceleration", "int"}};
     }
+    if (name == QString(TRACKER) + "PlotTView")
+    {
+        return {{"selected_track", "string"}, {"track_views", "collection:java.util.ArrayList"}};
+    }
+    if (name == QString(TRACKER) + "PlotTrackView")
+    {
+        const auto plot = "object:" + QString(TRACKER) + "TrackPlottingPanel";
+        return {{"track", "string"}, {"linked", "boolean"}, {"plot0", plot}, {"plot1", plot}, {"plot2", plot}};
+    }
+    if (name == QString(TRACKER) + "TrackPlottingPanel")
+    {
+        return {
+            {"x_var", "string"}, {"y_var", "string"}, {"lines", "boolean"}, {"points", "boolean"}, {"guests", "array:[Ljava.lang.String;"}};
+    }
     require(false);
     return {};
 }
@@ -168,7 +182,8 @@ struct RenameSchema
         require(depth < 32 && value.tagName() == "object");
         require(value.attributes().size() == 1 && value.hasAttribute("class"));
         const auto actual = value.attribute("class");
-        require(actual == expected || (expected == QString(TRACKER) + "TView" && actual == QString(TRACKER) + "TableTView"));
+        require(actual == expected || (expected == QString(TRACKER) + "TView" &&
+                                       (actual == QString(TRACKER) + "TableTView" || actual == QString(TRACKER) + "PlotTView")));
         const auto allowed = fields(actual);
         std::set<QString> seen;
         for (auto child = value.firstChildElement(); !child.isNull(); child = child.nextSiblingElement())
@@ -177,6 +192,10 @@ struct RenameSchema
             require(seen.insert(name).second && allowed.contains(name));
             propertyValue(child, allowed.at(name), depth + 1);
         }
+        // Tracker synchronizes linked x axes while loading each panel. Until that behavior has
+        // its own application acceptance case, admit only explicitly unlinked custom plots.
+        if (actual == QString(TRACKER) + "PlotTrackView")
+            require(property(value, "linked").text() == "false");
     }
 
     void propertyValue(const QDomElement& value, const QString& signature, unsigned depth)
@@ -190,9 +209,11 @@ struct RenameSchema
         if (type == "object")
         {
             const auto nested = value.firstChildElement();
-            // The Vector serializer retains its frame-array extent with a typed null final cell.
+            // Track serializers retain frame-array extent with typed null final cells.
             // This is geometry data, not a missing named object or permission for arbitrary nulls.
-            if (nested.isNull() && expected == QString(TRACKER) + "Vector$FrameData" && value.text() == "null")
+            if (nested.isNull() &&
+                (expected == QString(TRACKER) + "Vector$FrameData" || expected == QString(TRACKER) + "PointMass$FrameData") &&
+                value.text() == "null")
             {
                 return;
             }
@@ -202,11 +223,22 @@ struct RenameSchema
         else if (type == "collection")
         {
             require(value.attribute("class") == expected);
+            std::set<QString> owners;
             for (auto item = value.firstChildElement(); !item.isNull(); item = item.nextSiblingElement())
             {
                 const auto className = item.firstChildElement().attribute("class");
-                require(className == QString(TRACKER) + "PointMass" || className == QString(TRACKER) + "CoordAxes" ||
-                        className == QString(TRACKER) + "Protractor" || className == QString(TRACKER) + "Vector");
+                if (value.attribute("name") == "track_views")
+                {
+                    require(className == QString(TRACKER) + "PlotTrackView");
+                    // The Java loader reuses one view per owner; later duplicates overwrite it.
+                    require(owners.insert(property(item.firstChildElement(), "track").text()).second);
+                }
+                else
+                {
+                    require(value.attribute("name") == "tracks" &&
+                            (className == QString(TRACKER) + "PointMass" || className == QString(TRACKER) + "CoordAxes" ||
+                             className == QString(TRACKER) + "Protractor" || className == QString(TRACKER) + "Vector"));
+                }
                 propertyValue(item, "object:" + className, depth + 1);
             }
         }
@@ -215,6 +247,7 @@ struct RenameSchema
             require(value.attribute("class") == expected && expected.startsWith('['));
             const auto element = expected.mid(1);
             std::set<QString> seen;
+            std::set<QString> guests;
             for (auto item = value.firstChildElement(); !item.isNull(); item = item.nextSiblingElement())
             {
                 const auto name = item.attribute("name");
@@ -242,6 +275,8 @@ struct RenameSchema
                 else
                     require(false);
                 propertyValue(item, childType, depth + 1);
+                // Java ignores an already-present guest. The same guest in another panel is valid.
+                require(value.attribute("name") != "guests" || guests.insert(item.text()).second);
             }
         }
         else
@@ -271,8 +306,17 @@ QDomElement referenceProperty(const QDomElement& root, const std::string& path)
         if (current.tagName() == "property" && current.attribute("type") == "object")
             current = current.firstChildElement("object");
         bool numeric = false;
-        (void)part.toUInt(&numeric);
-        current = property(current, numeric ? "[" + part + "]" : part);
+        const auto ordinal = part.toUInt(&numeric);
+        if (numeric && current.attribute("type") == "collection")
+        {
+            auto item = current.firstChildElement("property");
+            for (unsigned index = 0; index < ordinal && !item.isNull(); ++index)
+                item = item.nextSiblingElement("property");
+            require(!item.isNull());
+            current = item; // Collection paths use source ordinals, not the serializer's repeated "item" labels.
+        }
+        else
+            current = property(current, numeric ? "[" + part + "]" : part);
     }
     return current;
 }
@@ -339,10 +383,19 @@ bool patchTrackerNames(QDomDocument& xml, const LegacyProject& project, LegacyPr
                 reference.resolution == TrackerReferenceResolution::NoTarget);
         require(reference.kind == TrackerReferenceKind::SelectedTrack || reference.kind == TrackerReferenceKind::PlotSelection ||
                 reference.kind == TrackerReferenceKind::TableSelection || reference.kind == TrackerReferenceKind::TableColumnOwner ||
-                reference.kind == TrackerReferenceKind::TableFormatOwner);
+                reference.kind == TrackerReferenceKind::TableFormatOwner || reference.kind == TrackerReferenceKind::PlotOwner ||
+                reference.kind == TrackerReferenceKind::PlotGuest);
         if (reference.resolution == TrackerReferenceResolution::NoTarget)
             continue;
         require(reference.candidateSourceIndices.size() == 1);
+        if (reference.kind == TrackerReferenceKind::PlotSelection || reference.kind == TrackerReferenceKind::TableSelection ||
+            reference.kind == TrackerReferenceKind::PlotOwner || reference.kind == TrackerReferenceKind::PlotGuest ||
+            reference.kind == TrackerReferenceKind::TableColumnOwner || reference.kind == TrackerReferenceKind::TableFormatOwner)
+        {
+            const auto target = std::ranges::find(index.tracks, reference.candidateSourceIndices.front(), &TrackerSourceTrack::sourceIndex);
+            // TrackChooserTView ignores CoordAxes even when the named source object exists.
+            require(target != index.tracks.end() && target->className != "org.opensourcephysics.cabrillo.tracker.CoordAxes");
+        }
         const auto replacement = replacements.find(reference.candidateSourceIndices.front());
         if (replacement == replacements.end())
             continue;
