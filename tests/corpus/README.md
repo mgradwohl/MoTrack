@@ -463,6 +463,15 @@ in the [name-reference guide](../../docs/tracker-name-references.md). Unknown at
 ambiguous/missing names, unsupported dependent objects and unrepresentable new labels fail before
 replacing an existing file. Unit cases cover name swaps against original identities, interleaved mass
 edits, reorder/delete/undo, malformed/bounded settings and unchanged column labels containing old names.
-Vector/dependent renames, creation/deletion, archive packaging, paired saves and desktop standard Save
+Dependent renames, creation/deletion, archive packaging, paired saves and desktop standard Save
 remain. Java's known immediate unvisited-table resave limitation remains separately tracked in #64;
 these cases use the explicitly reported visited-table preparation.
+
+The `vector-name` mode extends the same workflow to vector B in the pinned independent-vector fixture.
+A temporary source copy adds selected-track/plot/table names and a note containing vector A/B; the
+committed fixture/checksum is unchanged. The name becomes `élève β & <B>` while every tail, component,
+original frame, zero vector, calibration value and null frame-array extent must remain unchanged.
+Independent baseline data and the complete-source comparison verify that name export does not rewrite
+geometry. Application checks require the selected vector/view targets to survive save/fresh reopen.
+The existing first-draw snapping guards remain active; native regressions combine renamed vectors with
+unsafe geometry to ensure export still refuses before replacing a file. VectorSum #63 remains blocked.

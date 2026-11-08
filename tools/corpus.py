@@ -339,17 +339,24 @@ RENAME_LABEL = "élève β & <B>"
 
 
 def rename_roundtrip_expected(case, mode):
-    if case["id"] != "protractor" or mode not in {"name", "unselected-name"}:
-        raise ValueError("Rename acceptance requires the pinned protractor case")
+    vector = mode == "vector-name"
+    if not ((vector and case["id"] == "independent-vectors") or
+            (case["id"] == "protractor" and mode in {"name", "unselected-name"})):
+        raise ValueError("Rename acceptance requires a pinned name case")
     expected = json.loads(expected_path(case).read_text(encoding="utf-8"))["project"]
-    index = 1 if mode == "name" else 0
-    if [mass["name"] for mass in expected["point_masses"]] != ["mass A", "mass B"]:
+    index = 0 if mode == "unselected-name" else 1
+    kind, key, prefix = ("Vector", "vectors", "vector") if vector else ("PointMass", "point_masses", "mass")
+    if [track["name"] for track in expected[key]] != [prefix + " A", prefix + " B"]:
         raise ValueError("Unexpected rename source identities")
-    expected["point_masses"][index]["name"] = RENAME_LABEL
+    expected[key][index]["name"] = RENAME_LABEL
     updated = copy.deepcopy(case)
-    old = "mass B" if index == 1 else "mass A"
+    old = prefix + (" B" if index == 1 else " A")
+    if vector:
+        updated["session_names"] = {"selected_track": "vector B",
+                                    "view_tracks": [["vector B", None], [None, "vector B"], [None, None], [None, None]],
+                                    "packed_view_tracks": "vector B,null;null,vector B;null,null;null,null"}
     for track in updated["session_tracks"]:
-        if track["class"] == "org.opensourcephysics.cabrillo.tracker.PointMass" and track["name"] == old:
+        if track["class"] == "org.opensourcephysics.cabrillo.tracker." + kind and track["name"] == old:
             track["name"] = RENAME_LABEL
     names = updated["session_names"]
     if names["selected_track"] == old:
@@ -357,7 +364,7 @@ def rename_roundtrip_expected(case, mode):
     names["view_tracks"] = [[RENAME_LABEL if name == old else name for name in pair] for pair in names["view_tracks"]]
     names["packed_view_tracks"] = ";".join(",".join(name if name is not None else "null" for name in pair)
                                             for pair in names["view_tracks"])
-    for table in updated["session_views"]["tables"]:
+    for table in updated.get("session_views", {}).get("tables", []):
         if table["selected_track"] == old:
             table["selected_track"] = RENAME_LABEL
         for key in ["track_columns", "column_formats"]:
@@ -657,7 +664,7 @@ def verify_mass_export_xml(original, exported):
 
 
 def verify_rename_export_xml(original, exported, mode):
-    if mode not in {"name", "unselected-name"}:
+    if mode not in {"name", "unselected-name", "vector-name"}:
         raise ValueError("Unexpected rename mode")
     expected = minidom.parse(str(original))
     def props(node):
@@ -679,12 +686,14 @@ def verify_rename_export_xml(original, exported, mode):
         for cell in cells[1:]:
             node.removeChild(cell)
     root = expected.documentElement
-    masses = [obj for obj in prop(root, "tracks").getElementsByTagName("object")
-              if obj.getAttribute("class") == "org.opensourcephysics.cabrillo.tracker.PointMass"]
-    if len(masses) != 2 or [value(prop(mass, "name")) for mass in masses] != ["mass A", "mass B"]:
+    kind, prefix = ("Vector", "vector") if mode == "vector-name" else ("PointMass", "mass")
+    tracks = [obj for obj in prop(root, "tracks").getElementsByTagName("object")
+              if obj.getAttribute("class") == "org.opensourcephysics.cabrillo.tracker." + kind]
+    if len(tracks) != 2 or [value(prop(track, "name")) for track in tracks] != [prefix + " A", prefix + " B"]:
         raise ValueError("Unexpected rename source tracks")
-    old = "mass B" if mode == "name" else "mass A"
-    set_value(prop(masses[1 if mode == "name" else 0], "name"), RENAME_LABEL)
+    index = 0 if mode == "unselected-name" else 1
+    old = prefix + (" B" if index == 1 else " A")
+    set_value(prop(tracks[index], "name"), RENAME_LABEL)
     selected = prop(root, "selectedtrack")
     if value(selected) == old:
         set_value(selected, RENAME_LABEL)
@@ -858,7 +867,8 @@ def check_sessions(manifest, cache, java, probe=None):
              ("calibration", "native_calibration_roundtrip"), ("length-unit", "native_length_unit_roundtrip"),
              ("keyed-calibration", "native_keyed_calibration_roundtrip"),
              ("mass-unit", "native_mass_unit_roundtrip"),
-             ("name", "native_name_roundtrip"), ("unselected-name", "native_name_roundtrip")] if probe else [("session", "session_tracks")]
+             ("name", "native_name_roundtrip"), ("unselected-name", "native_name_roundtrip"),
+             ("vector-name", "native_vector_name_roundtrip")] if probe else [("session", "session_tracks")]
     cases = [(case, mode) for case in manifest["cases"] if "session_tracks" in case
              for mode, flag in modes if case.get(flag)]
     if not cases:
@@ -884,14 +894,19 @@ def check_sessions(manifest, cache, java, probe=None):
             java_home = output / "java-home"
             java_home.mkdir(parents=True)
             project = project_path(case, cache)
-            if mode in {"name", "unselected-name"}:
+            if mode in {"name", "unselected-name", "vector-name"}:
                 # Preserve the pinned original. Add a non-reference note to the temporary source,
                 # keeping OSP's line-oriented XML layout, so blind text substitution cannot pass.
                 text = project.read_text(encoding="utf-8")
                 before, after = text.rsplit("</object>", 1)
                 project = output / "rename-source.trk"
-                project.write_text(before + '<property name="description" type="string"><![CDATA['
-                                   'mass A and mass B are words in this note.]]></property>\n</object>' + after, encoding="utf-8")
+                prefix = "vector" if mode == "vector-name" else "mass"
+                selection = ('<property name="selectedtrack" type="string">vector B</property>\n'
+                             '<property name="selected_track_views" type="string">'
+                             'vector B,null;null,vector B;null,null;null,null</property>\n') if mode == "vector-name" else ""
+                project.write_text(before + selection + '<property name="description" type="string"><![CDATA['
+                                   + prefix + ' A and ' + prefix + ' B are words in this note.]]></property>\n</object>' + after,
+                                   encoding="utf-8")
             if mode == "first-mark":
                 project = root / (case["id"] + "-empty-marks") / "tracker-resaved.trk"
             elif mode == "first-vector":
@@ -920,7 +935,7 @@ def check_sessions(manifest, cache, java, probe=None):
                 if mode == "mass":
                     verify_mass_export_xml(project, exported)
                     expected = mass_roundtrip_expected(case)
-                elif mode in {"name", "unselected-name"}:
+                elif mode in {"name", "unselected-name", "vector-name"}:
                     verify_rename_export_xml(project, exported, mode)
                     expected, case = rename_roundtrip_expected(case, mode)
                 elif mode == "mass-unit":
