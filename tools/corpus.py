@@ -193,6 +193,20 @@ def session_file_diagnostic(path):
         return {"inspection_error": str(error)[:256]}
 
 
+def format_session_file_diagnostic(path):
+    report = session_file_diagnostic(path)
+    # Bound each escaped string before serializing. Cutting the finished JSON can drop
+    # parser metadata entirely when corrupted bytes expand to six-character escapes.
+    # At most six string fields (including the 64-character hash) keep the report below 3000.
+    for key, value in report.items():
+        if isinstance(value, str):
+            while len(json.dumps(value, ensure_ascii=True)) > 512:
+                size = len(value) // 2
+                value = value[-size:] if key == "suffix" else value[:size]
+            report[key] = value
+    return json.dumps(report, ensure_ascii=True)
+
+
 def check_cases(manifest, cache, *, java=None, probe=None, record=False):
     for path, artifact in artifacts(manifest, cache):
         verify_file(path, artifact)
@@ -1202,7 +1216,7 @@ def check_sessions(manifest, cache, java, probe=None):
                          "-Xmx256m", "-cp", os.pathsep.join([str(classes), str(jar)]), "TrackerSessionReference",
                          str(source), str(output), stage], display=display)
                 except (ValueError, OSError, subprocess.TimeoutExpired) as error:
-                    diagnostic = json.dumps(session_file_diagnostic(source), ensure_ascii=True)[:3000]
+                    diagnostic = format_session_file_diagnostic(source)
                     raise ValueError(f"{case['id']}/{mode}/{stage}: Tracker reference failed for {source.name}: {error}"
                                      f"\nTracker input diagnostic (bounded): {diagnostic}") from error
                 stages[stage] = json.loads((output / ("session-" + stage + ".json")).read_text(encoding="utf-8"))
@@ -1210,8 +1224,14 @@ def check_sessions(manifest, cache, java, probe=None):
                         or stages[stage]["verification_level"] != "tracker_session_" + stage
                         or stages[stage].get("view_preparation") != "visit_custom_tables_restore_selection"):
                     raise ValueError("Unexpected Tracker session stage")
+                callbacks = stages[stage].get("loader_callbacks")
+                if type(callbacks) is not int or callbacks < 1:
+                    raise ValueError("Missing Tracker loader callback evidence")
+                if callbacks > 1:
+                    print(f"{case['id']}/{mode}/{stage}: observed {callbacks} loader callbacks; reference action ran once")
             report = {"reference_version": stages["save"]["reference_version"], "verification_level": "tracker_session_resave",
                       "view_preparation": stages["save"]["view_preparation"],
+                      "loader_callbacks": {stage: stages[stage]["loader_callbacks"] for stage in stages},
                       "before": stages["save"]["loaded"], "after_save": stages["save"]["after_save"],
                       "after": stages["reopen"]["loaded"]}
             keys = {"marks": [[0, 3], [7]], "empty-marks": [[], [0]], "first-mark": [[4], [0]]}.get(mode)
