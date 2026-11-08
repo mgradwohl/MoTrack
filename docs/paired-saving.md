@@ -151,8 +151,10 @@ remains separate.
 
 Prepared-file fingerprints are fixed immediately after each validated write, before notifying progress
 observers. A changed stage is rejected before journaling or destination replacement. Linked media is
-compared against both output paths with normalized, case-folded spelling, conservatively protecting
-case-insensitive filesystems even when a media file uses a project-like filename extension.
+compared against both output paths by filesystem identity, including aliases and hard links. Distinct
+case or Unicode spellings remain usable when the filesystem distinguishes them; a media file with a
+project-like filename extension still cannot be overwritten. When identity is unavailable, the fallback
+compares exact absolute paths rather than unconditionally folding their case.
 
 The combined review-corrected stack passed all six Windows suites with 95.54% line coverage
 (7803/8167); this includes immutable archive export, unsupported ZIP layouts imported before
@@ -238,3 +240,7 @@ A fresh write must follow that invalidation. The desktop recovery-and-save seque
 before capturing the fresh write checkpoint, or explicitly carry forward only that operation’s recovery
 invalidation while retaining the original snapshot revision. Real-file regressions cover writes committed
 in one order and reported in another, unknown journals completed externally, and newer/restored records.
+
+Failed recovery attempts also retain their lock-observed journal state, including an unreadable UUID
+or a restored record with the same UUID. A delayed earlier success cannot clear that newer failure;
+the pending journal continues to keep the session modified even after a successful save elsewhere.
