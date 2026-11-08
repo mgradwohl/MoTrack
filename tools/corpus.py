@@ -1217,8 +1217,10 @@ def check_sessions(manifest, cache, java, probe=None):
                          str(source), str(output), stage], display=display)
                 except (ValueError, OSError, subprocess.TimeoutExpired) as error:
                     diagnostic = format_session_file_diagnostic(source)
+                    resave = ("\nTracker resave diagnostic (bounded): " + format_session_file_diagnostic(output / "tracker-resaved.trk")
+                              if stage == "save" else "")
                     raise ValueError(f"{case['id']}/{mode}/{stage}: Tracker reference failed for {source.name}: {error}"
-                                     f"\nTracker input diagnostic (bounded): {diagnostic}") from error
+                                     f"\nTracker input diagnostic (bounded): {diagnostic}{resave}") from error
                 stages[stage] = json.loads((output / ("session-" + stage + ".json")).read_text(encoding="utf-8"))
                 if (stages[stage]["reference_version"] != manifest["reference"]["version"]
                         or stages[stage]["verification_level"] != "tracker_session_" + stage
