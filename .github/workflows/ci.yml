@@ -63,6 +63,33 @@ jobs:
           llvm="$(dirname "$(xcrun --find clang++)")"
           echo "$llvm" >> "$GITHUB_PATH"
           echo "LLVM_BIN=$llvm" >> "$GITHUB_ENV"
+      - name: Restore pinned vcpkg bootstrap
+        id: vcpkg-bootstrap-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            .dev-tools/vcpkg
+            !.dev-tools/vcpkg/buildtrees/**
+            !.dev-tools/vcpkg/packages/**
+            !.dev-tools/vcpkg/installed/**
+            !.dev-tools/vcpkg/downloads/**
+            !.dev-tools/vcpkg/binary-cache/**
+          key: vcpkg-bootstrap-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/media_sdk.py') }}
+      - name: Verify and prepare pinned vcpkg bootstrap
+        shell: bash
+        run: python tools/media_sdk.py bootstrap
+      - name: Save verified vcpkg bootstrap
+        if: steps.vcpkg-bootstrap-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            .dev-tools/vcpkg
+            !.dev-tools/vcpkg/buildtrees/**
+            !.dev-tools/vcpkg/packages/**
+            !.dev-tools/vcpkg/installed/**
+            !.dev-tools/vcpkg/downloads/**
+            !.dev-tools/vcpkg/binary-cache/**
+          key: ${{ steps.vcpkg-bootstrap-cache.outputs.cache-primary-key }}
       - uses: actions/cache@v4
         with:
           path: .dev-tools/vcpkg-binary-cache
@@ -168,6 +195,33 @@ jobs:
         os: [ubuntu-24.04, macos-15]
     steps:
       - uses: actions/checkout@v4
+      - name: Restore pinned vcpkg bootstrap
+        id: vcpkg-bootstrap-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            .dev-tools/vcpkg
+            !.dev-tools/vcpkg/buildtrees/**
+            !.dev-tools/vcpkg/packages/**
+            !.dev-tools/vcpkg/installed/**
+            !.dev-tools/vcpkg/downloads/**
+            !.dev-tools/vcpkg/binary-cache/**
+          key: vcpkg-bootstrap-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/media_sdk.py') }}
+      - name: Verify and prepare pinned vcpkg bootstrap
+        shell: bash
+        run: python3 tools/media_sdk.py bootstrap
+      - name: Save verified vcpkg bootstrap
+        if: steps.vcpkg-bootstrap-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            .dev-tools/vcpkg
+            !.dev-tools/vcpkg/buildtrees/**
+            !.dev-tools/vcpkg/packages/**
+            !.dev-tools/vcpkg/installed/**
+            !.dev-tools/vcpkg/downloads/**
+            !.dev-tools/vcpkg/binary-cache/**
+          key: ${{ steps.vcpkg-bootstrap-cache.outputs.cache-primary-key }}
       - uses: actions/cache@v4
         with:
           path: .dev-tools/vcpkg-binary-cache

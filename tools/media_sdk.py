@@ -26,7 +26,7 @@ def triplet():
     raise SystemExit(f"Automatic FFmpeg setup is unavailable for {sys.platform}/{machine}.")
 
 
-def install(target):
+def bootstrap():
     binary = ROOT / ("vcpkg.exe" if sys.platform == "win32" else "vcpkg")
     if not (ROOT / ".git").is_dir():
         ROOT.parent.mkdir(parents=True, exist_ok=True)
@@ -37,8 +37,13 @@ def install(target):
     if revision != VCPKG_COMMIT:
         raise SystemExit(f"Unexpected vcpkg revision {revision}. Expected {VCPKG_COMMIT}.")
     if not binary.is_file():
-        bootstrap = ["cmd.exe", "/d", "/c", "bootstrap-vcpkg.bat"] if sys.platform == "win32" else ["./bootstrap-vcpkg.sh"]
-        subprocess.run([*bootstrap, "-disableMetrics"], cwd=ROOT, check=True)
+        command = ["cmd.exe", "/d", "/c", "bootstrap-vcpkg.bat"] if sys.platform == "win32" else ["./bootstrap-vcpkg.sh"]
+        subprocess.run([*command, "-disableMetrics"], cwd=ROOT, check=True)
+    return binary
+
+
+def install(target):
+    binary = bootstrap()
     binary_cache = ROOT.with_name("vcpkg-binary-cache")
     binary_cache.mkdir(exist_ok=True)
     env = {**os.environ, "VCPKG_DEFAULT_BINARY_CACHE": str(binary_cache),
@@ -59,10 +64,12 @@ def install(target):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["install", "prefix"])
+    parser.add_argument("command", choices=["bootstrap", "install", "prefix"])
     args = parser.parse_args()
     target = triplet()
-    if args.command == "install":
+    if args.command == "bootstrap":
+        bootstrap()
+    elif args.command == "install":
         install(target)
     else:
         print((ROOT / "installed" / target).as_posix())
