@@ -56,6 +56,13 @@ namespace motrack
 
 namespace
 {
+QString physicalSourcePath(const QString& path)
+{
+    const QFileInfo info(path);
+    const auto physical = info.canonicalFilePath();
+    return physical.isEmpty() ? info.absoluteFilePath() : physical;
+}
+
 void rebaseWorkspaceMedia(WorkspaceDocument& document, const QString& sourcePath, const QString& destinationPath)
 {
     if (!document.archivePayload)
@@ -89,6 +96,7 @@ struct MainWindow::PreparedProject
     WorkspaceDocument document;
     std::shared_ptr<const TrackerArchive> archive;
     QString member;
+    QString mediaProjectPath;
     bool chooseArchiveTab = false;
 };
 
@@ -603,6 +611,7 @@ bool MainWindow::loadProject(const QString& path)
 MainWindow::PreparedProject MainWindow::prepareProject(const QString& path, const std::atomic_bool* cancelled)
 {
     PreparedProject prepared;
+    prepared.mediaProjectPath = physicalSourcePath(path);
     if (path.endsWith(".motrack", Qt::CaseInsensitive))
     {
         prepared.document = readWorkspaceDocument(path, cancelled);
@@ -747,7 +756,7 @@ bool MainWindow::applyProject(const QString& path, PreparedProject prepared, con
 
     cancelMovieOpen();
     releaseArchive();
-    m_MediaProjectPath = path;
+    m_MediaProjectPath = prepared.mediaProjectPath;
     document.archivePayload = std::move(prepared.archive);
     document.archiveMember = prepared.member.isEmpty() ? std::nullopt : std::optional(prepared.member.toStdString());
     if (document.archivePayload)
@@ -831,7 +840,7 @@ bool MainWindow::openImageSequence(const QStringList& paths, double frameRate)
     {
         project.clip.frameDurationMs = duration;
     }
-    const auto path = QFileInfo(paths.front()).absoluteFilePath();
+    const auto path = physicalSourcePath(paths.front());
     const QDir mediaDirectory(localProjectDirectory(path));
     for (const auto& imagePath : paths)
     {
@@ -867,7 +876,7 @@ void MainWindow::openMovie(const QString& path)
 {
     cancelProjectOpen();
     statusBar()->showMessage(tr("Reading video frames…"));
-    scheduleMovieIndex(path, true);
+    scheduleMovieIndex(physicalSourcePath(path), true);
 }
 
 void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
