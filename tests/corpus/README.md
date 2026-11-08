@@ -32,8 +32,19 @@ records its byte count/hash, XML parse status/root class, short beginning/end ex
 malformed XML) the parser error and nearby text. Oversized or unavailable inputs are identified
 without replacing the original failure. This distinguishes a truncated/malformed resave from a
 well-formed file that Tracker's loader rejects; XML validity alone is not compatibility acceptance.
+Each escaped string is bounded before JSON serialization, keeping the complete report below 3000
+characters without dropping parser metadata when corrupt bytes or Unicode expand into escapes.
 This improves evidence for [MoTrack #105](https://github.com/mgradwohl/MoTrack/issues/105); the intermittent
 callback timeout's cause remains under investigation and is not established as fixed or as an upstream defect.
+
+The pinned loader can call its completion hook from both `checkDone` and `doneAsync`. The reference
+harness now admits that hook once per requested load, so a second callback cannot start another
+evaluation timer and overwrite the resave while the process exits. Callback counts are retained in
+successful reports and repeated callbacks are identified in CI output. The normal application
+loader/saver and all scientific comparisons remain in place; the helper also rejects an empty save.
+Headless regressions cover duplicate, reentrant and failed callbacks without retrying failed work.
+Issue #105 records the observed zero-byte resave and bounded application evidence; actual application
+callback counts and current-head save/reopen CI are required before calling this lifecycle fix verified.
 
 A third command, `roundtrip`, adds **limited** MoTrack standard-export cases. The mass case, labeled
 `motrack_mass_roundtrip`, changes the first point mass's mass in the real protractor experiment,

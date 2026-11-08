@@ -1422,6 +1422,26 @@ class CorpusTests(unittest.TestCase):
         source.write_bytes(b'<?xml version="1.0" encoding="no-such-encoding"?><object/>')
         self.assertIn("inspection_error", corpus.session_file_diagnostic(source))
 
+    def test_corrupt_byte_excerpts_cannot_truncate_parser_diagnostics(self):
+        source = self.root / "corrupt.trk"
+        for value in [b"<object>" + b"\0" * 800,
+                      ('<object class="' + "\U0001f52c" * 256 + '">' + "\U0001f52c" * 800 + '</object>').encode("utf-8")]:
+            with self.subTest(prefix=value[:15]):
+                source.write_bytes(value)
+                formatted = corpus.format_session_file_diagnostic(source)
+                self.assertLessEqual(len(formatted), 3000)
+                report = json.loads(formatted)
+                self.assertEqual(report["bytes"], len(value))
+                self.assertEqual(report["sha256"], hashlib.sha256(value).hexdigest())
+                self.assertIn("xml", report)
+                if b"\0" in value:
+                    self.assertEqual(report["xml"], "malformed")
+                    self.assertIn("parse_error", report)
+                else:
+                    self.assertEqual(report["xml"], "well-formed")
+                    self.assertIn("root_class", report)
+                self.assertEqual(source.read_bytes(), value)
+
     def test_session_failure_context_distinguishes_save_reopen_and_preserves_cleanup_without_retry(self):
         manifest = corpus.load_manifest()
         manifest["cases"] = [next(case for case in manifest["cases"] if case["id"] == "protractor")]
@@ -1441,7 +1461,7 @@ class CorpusTests(unittest.TestCase):
                         raise failure
                     output = Path(output)
                     (output / "tracker-resaved.trk").write_text("<object>\n<property>", encoding="utf-8")
-                    report = {"reference_version": "6.3.5", "verification_level": "tracker_session_save",
+                    report = {"reference_version": "6.3.5", "verification_level": "tracker_session_save", "loader_callbacks": 2,
                               "view_preparation": "visit_custom_tables_restore_selection", "loaded": {}, "after_save": {}}
                     (output / "session-save.json").write_text(json.dumps(report), encoding="utf-8")
                 with self.subTest(stage=failing_stage, error=type(failure).__name__), \
@@ -1479,7 +1499,7 @@ class CorpusTests(unittest.TestCase):
             else:
                 self.assertEqual(Path(source).name, "tracker-resaved.trk")
                 self.assertTrue(Path(source).is_file())
-            report = {"reference_version": "6.3.5", "verification_level": "tracker_session_" + stage,
+            report = {"reference_version": "6.3.5", "verification_level": "tracker_session_" + stage, "loader_callbacks": 2,
                       "view_preparation": "visit_custom_tables_restore_selection",
                       "loaded": {"stage": stage}, "after_save": {"stage": "after_save"}}
             (output / ("session-" + stage + ".json")).write_text(json.dumps(report), encoding="utf-8")
