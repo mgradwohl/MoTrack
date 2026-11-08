@@ -154,7 +154,7 @@ still retain the exact original source. An unchanged standard-file copy remains 
 not repair this upstream behavior.
 
 The initial internal standard writer can patch point-mass mass values, mark positions/additions/deletions,
-independent-vector tails/components/additions/deletions, clip start/stride/count, length/mass/time-unit labels,
+independent-vector tails/components/additions/deletions, clip start/stride/count and constant timing, length/mass/time-unit labels,
 audited track names, and supported fixed/partly fixed/fully varying coordinate-system keys in media-free projects after a native reopen.
 Clip edits retain all measurements, including frames outside the clip.
 Vector exports reject nonfinite endpoints and components that Tracker's endpoint subtraction would
@@ -170,7 +170,7 @@ geometry. Full dependent-vector/display semantics must replace these restriction
 It requires known source associations, preserves unknown XML objects/properties and
 normalizes changed output to a matching UTF-8 declaration. Unchanged output is byte-exact. It rejects
 every other changed domain field before opening its atomic replacement file, including
-clip timing, moving reference frames, fixed-flag changes and track-membership edits. Range exports require a known `VideoClip` without
+media-based timing, moving reference frames, fixed-flag changes and track-membership edits. Range exports require a known `VideoClip` without
 video, frame-shift or saved-video-frame-count properties. They reject missing/invalid counts, endpoints
 beyond Tracker 6.3.5's media-free frame 500000 limit, and overflow in its temporary frame-count arithmetic.
 Media references are rejected until relocation
@@ -243,6 +243,8 @@ Java's independently recorded default for an omitted label, and labels after Jav
 Constant media-free clip timing can now be edited through history using the existing frame-duration
 and start-time fields, both in milliseconds. No native format version change is required. Undo restores
 the prior optional duration exactly. Standard export requires the audited StepperClipControl subset
-and finite increasing times at original frames; decoded media timing, model/data time sources and
+and finite increasing times at original frames. Edits, undo/redo and standard export share a provider
+guard: only point masses, independent vectors and retained axes/protractors are accepted. A refused
+edit leaves the project, saved/dirty state and both history directions unchanged. Decoded media timing, model/data time sources and
 desktop timing controls remain separate work. The corpus guide documents the independent negative-origin
 and nonzero-first-frame/stride acceptance cases.

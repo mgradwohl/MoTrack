@@ -67,6 +67,10 @@ struct LinearFit
 /// Every frame must have a finite, strictly increasing time both in milliseconds and seconds.
 [[nodiscard]] bool validConstantClipTiming(const Clip& clip);
 
+/// Timing edits/history require media-free projects with no unverified model or data time source.
+/// Point masses, independent vectors and retained axes/protractors are currently supported.
+[[nodiscard]] bool supportsConstantClipTimingEdits(const LegacyProject& project);
+
 /// Exports the saved point-mass marks that fall inside the clip. Unknown world coordinates stay blank.
 [[nodiscard]] std::string measurementsCsv(const LegacyProject& project);
 

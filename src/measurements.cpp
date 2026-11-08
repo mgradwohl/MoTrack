@@ -13,6 +13,16 @@
 
 namespace motrack
 {
+bool supportsConstantClipTimingEdits(const LegacyProject& project)
+{
+    return project.clip.mediaReferences.empty() &&
+           std::ranges::all_of(project.unsupportedTrackTypes,
+                               [](const auto& type) {
+                                   return type == "org.opensourcephysics.cabrillo.tracker.CoordAxes" ||
+                                          type == "org.opensourcephysics.cabrillo.tracker.Protractor";
+                               });
+}
+
 bool validConstantClipTiming(const Clip& clip)
 {
     if (!clip.mediaReferences.empty() || !clip.frameDurationMs || !std::isfinite(*clip.frameDurationMs) || *clip.frameDurationMs <= 0.0 ||
