@@ -950,6 +950,43 @@ TEST(Workspace, SavesEditsAndReopensMediaFromADifferentDirectory)
     EXPECT_EQ(marks->rowCount(), 2);
 }
 
+TEST(Workspace, StandaloneMediaWithANativeSuffixNeverBecomesItsOwnSaveTarget)
+{
+    for (const bool movie : {false, true})
+    {
+        SCOPED_TRACE(movie);
+        QTemporaryDir temporary;
+        const auto media = temporary.filePath("media.motrack");
+        ASSERT_TRUE(QFile::copy(fixturePath(movie ? "vfr.mp4" : "frames/frame00.ppm"), media));
+        QFile input(media);
+        ASSERT_TRUE(input.open(QIODevice::ReadOnly));
+        const auto original = input.readAll();
+        input.close();
+        motrack::MainWindow window;
+        auto* canvas = window.findChild<QWidget*>("videoCanvas");
+        auto* save = window.findChild<QAction*>("saveProject");
+        ASSERT_TRUE(canvas && save);
+        if (movie)
+        {
+            window.openMovie(media);
+            ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
+        }
+        else
+        {
+            ASSERT_TRUE(window.openImageSequence({media}, 4.0));
+        }
+        EXPECT_FALSE(window.saveWorkspace(media));
+        const auto destination = temporary.filePath("saved.motrack");
+        triggerFileDialog(*save, window, destination);
+        ASSERT_TRUE(QFile::exists(destination));
+        ASSERT_TRUE(input.open(QIODevice::ReadOnly));
+        EXPECT_EQ(input.readAll(), original);
+        input.close();
+        ASSERT_TRUE(window.loadProject(destination));
+        ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
+    }
+}
+
 TEST(Workspace, SavesStandaloneMediaBesideADirectoryEndingInExclamation)
 {
     for (const bool movie : {false, true})
@@ -1029,7 +1066,7 @@ TEST(Workspace, SavesAndReopensStandaloneMediaOpenedThroughFileAliases)
         SCOPED_TRACE(movie);
         QTemporaryDir temporary;
         ASSERT_TRUE(QDir().mkpath(temporary.filePath("physical")));
-        const auto physical = temporary.filePath(movie ? "physical/movie.mp4" : "physical/image.data");
+        const auto physical = temporary.filePath(movie ? "physical/movie.motrack" : "physical/image.motrack");
         const auto alias = temporary.filePath(movie ? "different-name.mp4" : "image.ppm");
         ASSERT_TRUE(QFile::copy(fixturePath(movie ? "vfr.mp4" : "frames/frame00.ppm"), physical));
         ASSERT_TRUE(QFile::link(physical, alias));
