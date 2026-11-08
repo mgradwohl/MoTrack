@@ -464,16 +464,27 @@ void requireTrackerCoordinates(const LegacyProject& project, const Calibration& 
     require(!calibration.keyframes.empty() && calibration.keyframes.front().frame == 0);
     std::vector<std::array<double, 6>> inverses;
     int previous = -1;
-    auto componentCalibration = calibration;
-    for (auto& key : componentCalibration.keyframes)
+    for (const auto& key : calibration.keyframes)
     {
         require(key.frame > previous && key.frame <= 500000 && std::isfinite(key.originX) && std::isfinite(key.originY) &&
                 std::isfinite(key.angleDegrees) && std::abs(key.angleDegrees) <= 180 && std::isfinite(key.scaleX) &&
                 std::isfinite(key.scaleY) && key.scaleX != 0 && key.scaleY != 0);
         const auto determinant = key.scaleX * key.scaleY;
         require(std::isfinite(determinant) && determinant != 0);
-        inverses.push_back(trackerInverse(key));
         previous = key.frame;
+    }
+    auto componentCalibration = calibration;
+    for (auto& key : componentCalibration.keyframes)
+    {
+        // Fixed origin/angle use the last loaded key, while fixed scale uses the first.
+        // Compare Java's inverse with that effective calibration, not each raw source record.
+        const auto effective = calibrationAt(calibration, key.frame);
+        if (!effective)
+        {
+            require(false);
+            return;
+        }
+        inverses.push_back(trackerInverse(*effective));
         key.originX = 0;
         key.originY = 0;
     }
@@ -539,10 +550,11 @@ void patchCalibration(QDomDocument& xml, const Calibration& original, const Cali
     const bool fixed = original.fixedOrigin && original.fixedAngle && original.fixedScale && current.fixedOrigin && current.fixedAngle &&
                        current.fixedScale && original.keyframes.size() == 1 && current.keyframes.size() == 1 &&
                        original.keyframes.front().frame == 0 && current.keyframes.front().frame == 0;
-    const bool varying = !original.fixedOrigin && !original.fixedAngle && !original.fixedScale && !current.fixedOrigin &&
-                         !current.fixedAngle && !current.fixedScale && !original.keyframes.empty() &&
-                         original.keyframes.front().frame == 0 && project.vectors.empty();
-    require(fixed || varying); // Mixed fixed flags and varying vector coordinates need separate reference cases.
+    const bool keyed = !(original.fixedOrigin && original.fixedAngle && original.fixedScale) &&
+                       original.fixedOrigin == current.fixedOrigin && original.fixedAngle == current.fixedAngle &&
+                       original.fixedScale == current.fixedScale && !original.keyframes.empty() && original.keyframes.front().frame == 0 &&
+                       project.vectors.empty();
+    require(fixed || keyed); // Changing fixed flags and varying vector coordinates need separate reference cases.
     requireTrackerCoordinates(project, current);
     // Existing commands add or edit calibration keys. Key removal needs its own reversible command/oracle.
     for (const auto& key : original.keyframes)
@@ -564,7 +576,7 @@ void patchCalibration(QDomDocument& xml, const Calibration& original, const Cali
         require(frame <= 500000); // Includes null entries in OSP's dense array allocation.
         lastFrame = std::max(lastFrame, frame);
     }
-    if (varying)
+    if (keyed)
     {
         const auto count = project.clip.stepCount.value_or(1);
         require(project.clip.firstFrame >= 0 && project.clip.stepSize > 0 && count > 0);
@@ -585,7 +597,9 @@ void patchCalibration(QDomDocument& xml, const Calibration& original, const Cali
         std::size_t frameUpdates = 0;
         for (const auto& key : current.keyframes)
         {
-            frameUpdates += static_cast<std::size_t>(lastFrame - key.frame) + 1;
+            // Fixed origin/angle setters update the entire dense range for each loaded key.
+            const auto firstAffected = current.fixedOrigin || current.fixedAngle ? 0 : key.frame;
+            frameUpdates += static_cast<std::size_t>(lastFrame - firstAffected) + 1;
             require(frameUpdates <= 1000000);
         }
     }

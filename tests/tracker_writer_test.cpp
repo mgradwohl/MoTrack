@@ -1900,6 +1900,116 @@ TEST(TrackerWriter, ExportsAddedAndEditedCalibrationKeysThroughHistoryAndNativeR
     }
 }
 
+TEST(TrackerWriter, ExportsAllPartlyFixedCalibrationsThroughHistoryAndNativeReopen)
+{
+    const std::array<std::array<double, 10>, 6> worlds{{{-35, 17.5, -17.5, -35, -8.75, 4.375, -8.75, 4.375, -8.75, -35},
+                                                        {-55, -155, -17.5, -35, -7.5, -13.75, -7.5, -13.75, -13.75, -50},
+                                                        {-17.5, -35, -17.5, -35, -4.375, -8.75, -4.375, -8.75, -8.75, -35},
+                                                        {-38.75, 6.875, -2.1875, -8.75, -13.75, 3.75, -13.75, 3.75, -3.4375, -12.5},
+                                                        {-8.75, 2.1875, -2.1875, -8.75, -8.75, 2.1875, -8.75, 2.1875, -2.1875, -8.75},
+                                                        {-6.875, -38.75, -2.1875, -8.75, -3.75, -13.75, -3.75, -13.75, -3.4375, -12.5}}};
+    for (int flags = 1; flags < 7; ++flags)
+    {
+        SCOPED_TRACE(flags);
+        const auto xml =
+            readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/mixed-calibration-" + QString::number(flags) + ".trk");
+        const auto imported = motrack::parseTrackerProject(xml);
+        motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.calibrateDistance(
+            document.project,
+            {.frame = 4, .imageDeltaX = 8, .imageDeltaY = 0, .knownLength = 1, .defaultOriginX = 0, .defaultOriginY = 0, .unit = "m"}));
+        ASSERT_TRUE(
+            edits.setCoordinateAxes(document.project, {.frame = 4, .originX = 120, .originY = 140, .positiveX = 128, .positiveY = 140}));
+        ASSERT_TRUE(
+            edits.setCoordinateAxes(document.project, {.frame = 3, .originX = 80, .originY = 90, .positiveX = 80, .positiveY = 98}));
+        const auto expected = document.project;
+        for (int i = 0; i < 3; ++i)
+            ASSERT_TRUE(edits.undo(document.project));
+        EXPECT_EQ(document.project, imported.project);
+        for (int i = 0; i < 3; ++i)
+            ASSERT_TRUE(edits.redo(document.project));
+        QTemporaryDir temporary;
+        const auto native = temporary.filePath("mixed.motrack");
+        const auto standard = temporary.filePath("mixed.trk");
+        motrack::writeWorkspaceDocument(native, document);
+        document = motrack::readWorkspaceDocument(native);
+        if (!document.trackerSource || !document.project.calibration)
+        {
+            FAIL() << "Native reopen lost partly fixed calibration or original source.";
+        }
+        motrack::writeTrackerProject(standard, document.project, *document.trackerSource);
+        EXPECT_EQ(motrack::parseLegacyProject(readBytes(standard)), expected);
+        EXPECT_EQ(document.project.pointMasses, imported.project.pointMasses);
+        const auto& calibration = *document.project.calibration;
+        EXPECT_EQ(calibration.fixedOrigin, (flags & 1) != 0);
+        EXPECT_EQ(calibration.fixedAngle, (flags & 2) != 0);
+        EXPECT_EQ(calibration.fixedScale, (flags & 4) != 0);
+        EXPECT_EQ(calibration.keyframes.size(), flags == 3 ? 3u : 4u);
+        for (std::size_t i = 0; i < document.project.pointMasses.front().marks.size(); ++i)
+        {
+            const auto actual = motrack::worldPosition(calibration, document.project.pointMasses.front().marks[i]);
+            if (!actual)
+            {
+                FAIL() << "Missing partly fixed world coordinate.";
+            }
+            EXPECT_NEAR(actual->x, worlds[static_cast<std::size_t>(flags - 1)][2 * i], 1e-10);
+            EXPECT_NEAR(actual->y, worlds[static_cast<std::size_t>(flags - 1)][2 * i + 1], 1e-10);
+        }
+    }
+}
+
+TEST(TrackerWriter, RejectsMixedCalibrationFlagChangesAndExcessiveGlobalUpdatesAtomically)
+{
+    for (int flags = 1; flags < 7; ++flags)
+    {
+        const auto xml =
+            readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/mixed-calibration-" + QString::number(flags) + ".trk");
+        const auto imported = motrack::parseTrackerProject(xml);
+        QTemporaryDir temporary;
+        const auto output = temporary.filePath("existing.trk");
+        motrack::writeTrackerProject(output, imported.project, imported.source);
+        for (int component : {0, 1, 2})
+        {
+            auto changed = imported.project;
+            if (!changed.calibration)
+            {
+                FAIL() << "Missing fixture calibration.";
+            }
+            auto& calibration = *changed.calibration;
+            if (component == 0)
+                calibration.fixedOrigin = !calibration.fixedOrigin;
+            else if (component == 1)
+                calibration.fixedAngle = !calibration.fixedAngle;
+            else
+                calibration.fixedScale = !calibration.fixedScale;
+            EXPECT_THROW(motrack::writeTrackerProject(output, changed, imported.source), motrack::ProjectError);
+            EXPECT_EQ(readBytes(output), xml);
+        }
+    }
+    auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/mixed-calibration-1.trk");
+    for (const auto& [before, after] :
+         std::vector<std::pair<std::string, std::string>>{{R"(name="[4]" type="object")", R"(name="[100000]" type="object")"},
+                                                          {R"(name="[9]" type="object")", R"(name="[200000]" type="object")"},
+                                                          {R"(name="stepcount" type="int">10)", R"(name="stepcount" type="int">400001)"}})
+    {
+        ASSERT_NE(xml.find(before), std::string::npos);
+        xml.replace(xml.find(before), before.size(), after);
+    }
+    auto imported = motrack::parseTrackerProject(xml);
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("existing.trk");
+    motrack::writeTrackerProject(output, imported.project, imported.source);
+    if (!imported.project.calibration)
+    {
+        FAIL() << "Missing source calibration.";
+    }
+    imported.project.calibration->keyframes.back().originX += 1;
+    // Relative key-to-end ranges total 900003, but fixed-origin setters touch 1200003 frames.
+    EXPECT_THROW(motrack::writeTrackerProject(output, imported.project, imported.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(output), xml);
+}
+
 TEST(TrackerWriter, RejectsUnsupportedOrUnstableCalibrationKeysWithoutReplacingFiles)
 {
     const auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/keyed-calibration.trk");
