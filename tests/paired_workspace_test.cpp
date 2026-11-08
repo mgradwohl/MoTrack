@@ -14,6 +14,7 @@
 #include <QFileDialog>
 #include <QInputDialog>
 #include <QLocale>
+#include <QLockFile>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSemaphore>
@@ -132,6 +133,80 @@ TEST(PairedWorkspace, SavesEditedLinkedAndArchivedProjectsAndUsesThePairForOrdin
         ASSERT_NE(canvas, nullptr);
         EXPECT_EQ(canvas->accessibleName(), "Frame 0");
     }
+}
+
+TEST(PairedWorkspace, NativeCopiesCannotOverwritePendingPairedOutputs)
+{
+    for (const bool knownPending : {false, true})
+    {
+        SCOPED_TRACE(knownPending);
+        QTemporaryDir temporary;
+        const auto target = temporary.filePath("saved.trk");
+        auto earlier = motrack::importTrackerDocument(fixture());
+        ASSERT_EQ(motrack::writePairedDocuments(target, earlier, fixture()).status, motrack::PairedSaveStatus::Saved);
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.setPointMassValue(earlier.project, 0, 5));
+        std::atomic_bool cancelled{false};
+        const auto partial =
+            motrack::writePairedDocuments(target,
+                                          earlier,
+                                          fixture(),
+                                          &cancelled,
+                                          [&cancelled](auto state) { cancelled = state == motrack::PairedSaveProgress::StandardSaved; });
+        ASSERT_EQ(partial.status, motrack::PairedSaveStatus::RecoveryRequired);
+        const auto standardBytes = bytes(target);
+        const auto nativeBytes = bytes(partial.nativePath);
+        const auto journalBytes = bytes(partial.recoveryPath);
+        motrack::MainWindow window;
+        ASSERT_TRUE(window.loadProject(fixture()));
+        ASSERT_TRUE(editMass(window, 7));
+        if (knownPending)
+            EXPECT_FALSE(window.saveTrackerProject(target));
+        EXPECT_FALSE(window.saveWorkspace(partial.nativePath));
+        EXPECT_TRUE(window.isWindowModified());
+        EXPECT_EQ(bytes(target), standardBytes);
+        EXPECT_EQ(bytes(partial.nativePath), nativeBytes);
+        EXPECT_EQ(bytes(partial.recoveryPath), journalBytes);
+#ifndef Q_OS_WIN
+        const auto alias = temporary.filePath("alias.motrack");
+        ASSERT_TRUE(QFile::link(partial.nativePath, alias));
+        EXPECT_FALSE(window.saveWorkspace(alias));
+        EXPECT_EQ(bytes(partial.nativePath), nativeBytes);
+#endif
+        const auto copy = temporary.filePath("copy.motrack");
+        ASSERT_TRUE(window.saveWorkspace(copy));
+        EXPECT_DOUBLE_EQ(motrack::readWorkspaceDocument(copy).project.pointMasses.at(0).mass, 7);
+        EXPECT_EQ(bytes(target), standardBytes);
+        EXPECT_EQ(bytes(partial.nativePath), nativeBytes);
+        EXPECT_EQ(bytes(partial.recoveryPath), journalBytes);
+        if (!knownPending)
+            EXPECT_FALSE(window.saveTrackerProject(target));
+        ASSERT_TRUE(window.saveTrackerProject(target, true));
+        EXPECT_FALSE(QFileInfo::exists(partial.recoveryPath));
+        EXPECT_DOUBLE_EQ(motrack::readWorkspaceDocument(partial.nativePath).project.pointMasses.at(0).mass, 7);
+        EXPECT_FALSE(window.isWindowModified());
+    }
+}
+
+TEST(PairedWorkspace, NativeCopiesRespectAnActiveSiblingSaveLock)
+{
+    QTemporaryDir temporary;
+    const auto target = temporary.filePath("saved.motrack");
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(fixture()));
+    ASSERT_TRUE(window.saveWorkspace(target));
+    const auto original = bytes(target);
+    ASSERT_TRUE(editMass(window, 7));
+    QLockFile lock(temporary.filePath(".saved.motrack-save.lock"));
+    lock.setStaleLockTime(0);
+    ASSERT_TRUE(lock.tryLock(0));
+    EXPECT_FALSE(window.saveWorkspace(target));
+    EXPECT_EQ(bytes(target), original);
+    EXPECT_TRUE(window.isWindowModified());
+    ASSERT_TRUE(window.saveWorkspace(temporary.filePath("copy.motrack")));
+    lock.unlock();
+    ASSERT_TRUE(window.saveWorkspace(target));
+    EXPECT_DOUBLE_EQ(motrack::readWorkspaceDocument(target).project.pointMasses.at(0).mass, 7);
 }
 
 TEST(PairedWorkspace, RecoversAnOlderPairThenSavesCurrentEdits)
