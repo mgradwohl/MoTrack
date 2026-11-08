@@ -298,7 +298,9 @@ struct RenameSchema
             require(count == modelValuesSize(property(value, "parameter_values")));
             if (seen.contains("parameter_descriptions"))
                 require(denseArraySize(property(value, "parameter_descriptions")) == count);
-            require(modelNamesSize(property(value, "variables")) > 0);
+            // Both supported force evaluators pass five state values. A mismatched variable list
+            // changes force evaluation; it is not harmless preserved metadata.
+            require(modelNamesSize(property(value, "variables")) == 5);
         }
         if (actual == QString(TRACKER) + "DynamicParticle" || actual == QString(TRACKER) + "DynamicSystem")
         {

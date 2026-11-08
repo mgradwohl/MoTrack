@@ -310,7 +310,11 @@ The source gate admits audited Cartesian DynamicParticle/DynamicSystem records, 
 UserFunction fields, with dense nonempty parameter/function arrays, unique names within each array,
 and two main force functions. Initial states require the five canonical ordered fields for the
 Cartesian particle or two-body system. Function parameter names and finite numerical values must
-have matching lengths; optional descriptions match that count and variables are nonempty/unique.
+have matching lengths; optional descriptions match that count. Each force function has exactly five
+unique variables, matching the evaluators' state-vector width. Truncated and oversized lists reject atomically
+for every particle/system force. A bounded headless probe of the pinned public `evaluateMyVal` method
+returns 0 for expression `m=3` with one/four variables, versus 3 with five; malformed widths are not
+accepted as valid zero-force models.
 Packed and expanded numerical arrays are checked without evaluating or rewriting expressions.
 Each particle is explicitly in a system, belongs to exactly one
 two-member system, and has a measured PointMass booster if present. Missing/ambiguous references,

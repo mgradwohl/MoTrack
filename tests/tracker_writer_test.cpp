@@ -849,6 +849,46 @@ TEST(TrackerWriter, RejectsTruncatedInitialStateAndMismatchedModelFunctionArrays
     }
 }
 
+TEST(TrackerWriter, RejectsForceFunctionsWithWrongStateWidthBeforeReplacingDestination)
+{
+    const auto original = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/model-dependencies.trk");
+    const auto unchanged = motrack::parseTrackerProject(original);
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    for (int function = 0; function < 6; ++function)
+    {
+        SCOPED_TRACE(function);
+        std::size_t variables = 0;
+        for (int index = 0; index <= function; ++index)
+        {
+            variables = original.find(R"(<property name="variables")", variables);
+            ASSERT_NE(variables, std::string::npos);
+            ++variables;
+        }
+        const auto last = original.find(R"(<property name="[4]")", variables);
+        ASSERT_NE(last, std::string::npos);
+        const auto end = original.find("</property>", last) + std::string("</property>").size();
+        for (int count : {1, 4, 6})
+        {
+            SCOPED_TRACE(count);
+            auto xml = original;
+            if (count < 5)
+            {
+                const auto firstRemoved = xml.find("<property name=\"[" + std::to_string(count) + "]\"", variables);
+                ASSERT_NE(firstRemoved, std::string::npos);
+                xml.erase(firstRemoved, end - firstRemoved);
+            }
+            else
+                xml.insert(end, "\n<property name='[5]' type='string'>extra</property>\n");
+            auto imported = motrack::parseTrackerProject(xml);
+            imported.project.pointMasses[0].name = "renamed";
+            motrack::writeTrackerProject(destination, unchanged.project, unchanged.source);
+            EXPECT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
+            EXPECT_TRUE(readBytes(destination) == original);
+        }
+    }
+}
+
 TEST(TrackerWriter, ValidatesExpandedModelParameterValuesWithoutRewritingThem)
 {
     const auto original = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/model-dependencies.trk");
