@@ -76,7 +76,7 @@ Fields fields(const QString& name)
                 {"track_control_y", "int"}};
     }
     if (name == QString(TRACKER) + "PointMass" || name == QString(TRACKER) + "CenterOfMass" || name == QString(TRACKER) + "Vector" ||
-        name == QString(TRACKER) + "CoordAxes" || name == QString(TRACKER) + "Protractor")
+        name == QString(TRACKER) + "CoordAxes" || name == QString(TRACKER) + "Protractor" || name == QString(TRACKER) + "TapeMeasure")
     {
         Fields result{{"name", "string"},
                       {"description", "string"},
@@ -100,6 +100,16 @@ Fields fields(const QString& name)
         {
             result.insert({{"fixed", "boolean"}, {"framedata", "array:[[D"}, {"ruler_visible", "boolean"}});
         }
+        else if (name.endsWith(".TapeMeasure"))
+        {
+            result.insert({{"attachments", "array:[Ljava.lang.String;"},
+                           {"fixedtape", "boolean"},
+                           {"fixedlength", "boolean"},
+                           {"readonly", "boolean"},
+                           {"stickmode", "boolean"},
+                           {"framedata", "array:[L" + QString(TRACKER) + "TapeMeasure$FrameData;"},
+                           {"worldlengths", "array:[Ljava.lang.Double;"}});
+        }
         return result;
     }
     if (name == QString(TRACKER) + "PointMass$FrameData")
@@ -109,6 +119,10 @@ Fields fields(const QString& name)
     if (name == QString(TRACKER) + "Vector$FrameData")
     {
         return {{"xtail", "double"}, {"ytail", "double"}, {"xcomponent", "double"}, {"ycomponent", "double"}};
+    }
+    if (name == QString(TRACKER) + "TapeMeasure$FrameData")
+    {
+        return {{"x1", "double"}, {"y1", "double"}, {"x2", "double"}, {"y2", "double"}};
     }
     if (name == "java.awt.Color")
     {
@@ -195,6 +209,18 @@ struct RenameSchema
             propertyValue(child, allowed.at(name), depth + 1);
         }
         require(actual != QString(TRACKER) + "CenterOfMass" || seen.contains("masses"));
+        if (actual == QString(TRACKER) + "TapeMeasure")
+        {
+            // Only the read-only fixed tape mode has edited-name application acceptance.
+            require(seen.contains("attachments") && property(value, "readonly").text() == "true" &&
+                    property(value, "fixedtape").text() == "true" && property(value, "fixedlength").text() == "true" &&
+                    property(value, "stickmode").text() == "false");
+            for (const auto& field : {"framedata", "worldlengths"})
+            {
+                const auto item = property(value, field).firstChildElement();
+                require(!item.isNull() && item.attribute("name") == "[0]" && item.nextSiblingElement().isNull());
+            }
+        }
     }
 
     void propertyValue(const QDomElement& value, const QString& signature, unsigned depth)
@@ -241,7 +267,7 @@ struct RenameSchema
                     require(value.attribute("name") == "tracks" &&
                             (className == QString(TRACKER) + "PointMass" || className == QString(TRACKER) + "CoordAxes" ||
                              className == QString(TRACKER) + "Protractor" || className == QString(TRACKER) + "Vector" ||
-                             className == QString(TRACKER) + "CenterOfMass"));
+                             className == QString(TRACKER) + "CenterOfMass" || className == QString(TRACKER) + "TapeMeasure"));
                 }
                 propertyValue(item, "object:" + className, depth + 1);
             }
@@ -265,15 +291,25 @@ struct RenameSchema
                 bool parsed = false;
                 const auto index = name.mid(1, name.size() - 2).toUInt(&parsed);
                 require(parsed && index < 10000 && name == "[" + QString::number(index) + "]");
+                if (value.attribute("name") == "attachments")
+                {
+                    require(index < 2);
+                    if (item.attribute("type") == "object")
+                    {
+                        require(depth + 1 < 32 && item.tagName() == "property" && item.attributes().size() == 2 &&
+                                item.firstChildElement().isNull() && item.text() == "null" && ++entries <= 10000);
+                        continue; // Explicit empty endpoint; implicit gaps remain untouched too.
+                    }
+                }
                 QString childType;
                 if (element.startsWith('['))
                     childType = "array:" + element;
                 else if (element == "Ljava.lang.String;")
                     childType = "string";
+                else if (element == "D" || element == "Ljava.lang.Double;")
+                    childType = "double";
                 else if (element.startsWith('L') && element.endsWith(';'))
                     childType = "object:" + element.mid(1, element.size() - 2);
-                else if (element == "D")
-                    childType = "double";
                 else if (element == "I")
                     childType = "int";
                 else
@@ -386,10 +422,16 @@ bool patchTrackerNames(QDomDocument& xml, const LegacyProject& project, LegacyPr
         require(reference.kind == TrackerReferenceKind::SelectedTrack || reference.kind == TrackerReferenceKind::PlotSelection ||
                 reference.kind == TrackerReferenceKind::TableSelection || reference.kind == TrackerReferenceKind::TableColumnOwner ||
                 reference.kind == TrackerReferenceKind::TableFormatOwner || reference.kind == TrackerReferenceKind::PlotOwner ||
-                reference.kind == TrackerReferenceKind::PlotGuest || reference.kind == TrackerReferenceKind::CenterOfMassMember);
+                reference.kind == TrackerReferenceKind::PlotGuest || reference.kind == TrackerReferenceKind::CenterOfMassMember ||
+                reference.kind == TrackerReferenceKind::Attachment);
         if (reference.resolution == TrackerReferenceResolution::NoTarget)
             continue;
         require(reference.candidateSourceIndices.size() == 1);
+        if (reference.kind == TrackerReferenceKind::Attachment)
+        {
+            const auto target = std::ranges::find(index.tracks, reference.candidateSourceIndices.front(), &TrackerSourceTrack::sourceIndex);
+            require(target != index.tracks.end() && target->className == "org.opensourcephysics.cabrillo.tracker.PointMass");
+        }
         const auto replacement = replacements.find(reference.candidateSourceIndices.front());
         if (replacement == replacements.end())
             continue;
