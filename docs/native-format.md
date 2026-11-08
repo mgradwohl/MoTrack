@@ -280,4 +280,7 @@ only independent vectors and coordinate axes. Empty and sparse/zero-vector cases
 application oracles. All existing snapping, endpoint reconstruction, calibrated-coordinate and dense
 allocation checks still apply, including other frames' visible tips. Adding an empty vector does not
 authorize dropping original tracks, changing dependent links or weakening the measured-vector guards.
+The source audit also admits the writer's original-frame index range for vector `framedata`; a native
+regression exports and reimports a mark at frame 10000, then creates and exports another vector. Other
+array indices and aggregate schema/allocation limits remain unchanged.
 Both point-mass and vector membership checks use linear sorted-ID inclusion before appending objects.

@@ -697,7 +697,9 @@ There is no mass or point-mass key list. Pinned Vector.Loader bytecode confirms 
 array represents an empty vector; the existing endpoint/snapping checks remain mandatory.
 
 The probe covers allocation gaps, creation/undo/redo, sample edits, remove/undo, reordered lists,
-native save/reopen after source-copy removal and repeated export. Whole-source comparison permits
+native save/reopen after source-copy removal and repeated export. Native regression coverage also
+includes creation after standard reimport with a vector at original frame 10000, retaining generic
+schema and dense-allocation limits. Whole-source comparison permits
 only the appended object. Independent application expectations check exact names, tails, components,
 appearance and original data through save/fresh-process reopen; native reimport checks both files.
 The Java snapshot also reads the live Vector analysis datasets (`x`, `y`, `mag`, original `frame`),

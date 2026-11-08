@@ -414,11 +414,12 @@ struct RenameSchema
                 }
                 bool parsed = false;
                 const auto index = name.mid(1, name.size() - 2).toUInt(&parsed);
-                // A sparse original frame is not an entry count. Match the writer's mass-frame bound
+                // A sparse original frame is not an entry count. Match the writer's track-frame bound
                 // without relaxing generic array indices or the aggregate schema-entry/depth limits.
-                const bool massFrames =
-                    value.attribute("name") == "framedata" && element == "L" + QString(TRACKER) + "PointMass$FrameData;";
-                require(parsed && index <= (massFrames ? 500000u : 9999u) && name == "[" + QString::number(index) + "]");
+                const bool trackFrames =
+                    value.attribute("name") == "framedata" &&
+                    (element == "L" + QString(TRACKER) + "PointMass$FrameData;" || element == "L" + QString(TRACKER) + "Vector$FrameData;");
+                require(parsed && index <= (trackFrames ? 500000u : 9999u) && name == "[" + QString::number(index) + "]");
                 if (value.attribute("name") == "attachments")
                 {
                     require(index < 2);
