@@ -42,6 +42,7 @@ void retainWorkspaceMediaLocations(WorkspaceDocument& document, const QString& s
 /// Uses physical project directories and verifies every generated local reference; throws before writing on failure.
 void rebaseWorkspaceMedia(WorkspaceDocument& document, const QString& sourcePath, const QString& destinationPath);
 /// Writes atomically. The caller supplies media paths relative to the destination.
-void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& document);
+/// Cancellation is checked before serialization, while streaming archive data and before replacement.
+void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled = nullptr);
 
 } // namespace motrack

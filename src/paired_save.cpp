@@ -522,7 +522,7 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
         checkCancelled(cancelled);
         auto snapshot = document;
         rebaseWorkspaceMedia(snapshot, mediaProjectPath, result.nativePath);
-        writeWorkspaceDocument(native, snapshot);
+        writeWorkspaceDocument(native, snapshot, cancelled);
         validateNativeSnapshot(snapshot, readWorkspaceDocument(native, cancelled));
         const auto nativeFingerprint = fingerprint(native, parent, cancelled);
         if (!nativeFingerprint)

@@ -258,3 +258,8 @@ Filename, companion, recovery and save/discard prompts are parent-owned heap dia
 their nested event loops. Closing the owning window during any prompt cannot delete a stack widget
 or resume a save through a destroyed controller. Prepared project/movie opens also check lifetime
 before updating status after a discarded prompt. These cases have direct menu/open/close regressions.
+
+Native-only saves share the owned cancellation token used by paired saves. Window destruction cancels
+a queued save before it starts; native storage checks cancellation while copying embedded archives and
+immediately before atomic replacement. Destruction tests preserve an existing destination through both
+the direct and menu save entry points, with worker release ordered after cancellation.
