@@ -163,6 +163,69 @@ TEST(TrackerWriter, RetainedMediaLocationsSurviveRemovalOfTheOriginalProjectDire
     }
 }
 
+TEST(TrackerWriter, RestoredMissingMediaCanBeSavedWithoutReopeningTheProject)
+{
+    for (const bool removeOriginalDirectory : {false, true})
+    {
+        SCOPED_TRACE(removeOriginalDirectory);
+        QTemporaryDir temporary;
+        const auto fixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images/";
+        ASSERT_TRUE(QDir(temporary.path()).mkpath("import"));
+        ASSERT_TRUE(QDir(temporary.path()).mkpath("media"));
+        ASSERT_TRUE(QDir(temporary.path()).mkpath("exports"));
+        auto xml = QByteArray::fromStdString(readBytes(fixture + "linked-images.trk"));
+        xml.replace("images/", "../media/");
+        const auto input = temporary.filePath("import/input.trk");
+        QFile source(input);
+        ASSERT_TRUE(source.open(QIODevice::WriteOnly));
+        ASSERT_EQ(source.write(xml), xml.size());
+        source.close();
+        auto document = motrack::importTrackerDocument(input);
+        motrack::retainWorkspaceMediaLocations(document, input);
+        const auto output = temporary.filePath("exports/saved.trk");
+        EXPECT_THROW(motrack::writeTrackerDocument(output, document, input), motrack::ProjectError);
+        EXPECT_FALSE(QFileInfo::exists(output));
+        for (int frame = 0; frame < 4; ++frame)
+        {
+            const auto name = "frame" + QString::number(frame) + ".png";
+            ASSERT_TRUE(QFile::copy(fixture + "images/" + name, temporary.filePath("media/" + name)));
+        }
+        if (removeOriginalDirectory)
+        {
+            ASSERT_TRUE(QFile::remove(input));
+            ASSERT_TRUE(QDir(temporary.path()).rmdir("import"));
+        }
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.setPointMassValue(document.project, 0, 5));
+        EXPECT_NO_THROW(motrack::writeTrackerDocument(output, document, input));
+        const auto reopened = motrack::importTrackerDocument(output);
+        EXPECT_EQ(reopened.project.pointMasses.front().mass, 5);
+        for (int frame = 0; frame < 4; ++frame)
+        {
+            const auto name = "frame" + QString::number(frame) + ".png";
+            EXPECT_EQ(readBytes(motrack::resolveLocalMediaPath(output, reopened.project.clip.mediaReferences.at(frame))),
+                      readBytes(fixture + "images/" + name));
+        }
+#ifndef Q_OS_WIN
+        // A restored image may itself be an alias; refresh its identity without changing the retained base.
+        const auto first = temporary.filePath("media/frame0.png");
+        ASSERT_TRUE(QFile::remove(first));
+        ASSERT_TRUE(QFile::link(fixture + "images/frame0.png", first));
+        EXPECT_NO_THROW(motrack::writeTrackerDocument(output, document, input));
+        const auto aliased = motrack::importTrackerDocument(output);
+        EXPECT_EQ(readBytes(motrack::resolveLocalMediaPath(output, aliased.project.clip.mediaReferences.front())),
+                  readBytes(fixture + "images/frame0.png"));
+#endif
+        auto nativeSnapshot = document;
+        const auto native = temporary.filePath("exports/saved.motrack");
+        motrack::rebaseWorkspaceMedia(nativeSnapshot, input, native);
+        motrack::writeWorkspaceDocument(native, nativeSnapshot);
+        const auto nativeReopened = motrack::readWorkspaceDocument(native);
+        EXPECT_EQ(readBytes(motrack::resolveLocalMediaPath(native, nativeReopened.project.clip.mediaReferences.front())),
+                  readBytes(fixture + "images/frame0.png"));
+    }
+}
+
 TEST(TrackerWriter, RejectsHardLinkedMediaDestinationsWithoutChangingEitherName)
 {
     QTemporaryDir temporary;
