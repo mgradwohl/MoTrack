@@ -20,6 +20,7 @@
   "cases": [
     {
       "id": "linked-images",
+      "native_linked_image_roundtrip": true,
       "tracker_version": "6.3.5",
       "file": "linked-images.trk",
       "local_file": "fixtures/linked-images/linked-images.trk",

@@ -1188,16 +1188,20 @@ void writeTrackerDocument(const QString& path, const WorkspaceDocument& document
     const bool linkedImages = !project.clip.mediaReferences.empty();
     if (linkedImages)
     {
-        require(!mediaProjectPath.isEmpty() && QFileInfo(mediaProjectPath).isAbsolute());
+        require(project.clip.mediaReferences.size() <= 10000 && !mediaProjectPath.isEmpty() && QFileInfo(mediaProjectPath).isAbsolute());
         const QDir sourceDirectory(QFileInfo(mediaProjectPath).absolutePath());
         const QDir targetDirectory(QFileInfo(path).absolutePath());
         for (auto& reference : project.clip.mediaReferences)
         {
             const auto local = QString::fromStdString(reference);
-            require(!local.isEmpty() && local.size() <= 4096 && !local.contains("!/") && !local.contains("://") && !local.startsWith(':'));
+            require(!local.isEmpty() && local.size() <= 4096 && local.toStdString() == reference && !local.contains("!/") &&
+                    !local.contains("://") && !local.startsWith(':') && !local.contains("]]>"));
             for (const auto point : local.toUcs4())
                 require(QChar::category(point) != QChar::Other_Control && QChar::category(point) != QChar::Other_Format);
             const auto resolved = sourceDirectory.absoluteFilePath(local);
+            require(QDir::cleanPath(resolved) != QFileInfo(path).absoluteFilePath() &&
+                    (QFileInfo(path).canonicalFilePath().isEmpty() ||
+                     QFileInfo(path).canonicalFilePath() != QFileInfo(resolved).canonicalFilePath()));
             QFile file(resolved);
             if (!QFileInfo(resolved).isFile() || !file.open(QIODevice::ReadOnly))
                 throw ProjectError("Linked media is missing or unreadable: " + resolved.toStdString());
