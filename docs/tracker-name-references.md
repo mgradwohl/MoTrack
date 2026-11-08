@@ -59,8 +59,8 @@ complete inventory of every name/reference field.
 | [CircleFitter](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/CircleFitter.java) | `step_attachment` | A separate track name for fitting to that track's steps; distinct from the point-attachment slots and their frame-range settings. Source indexing only; application behavior remains unverified. |
 | [CenterOfMass](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/CenterOfMass.java) | `masses` | Collection of constituent point-mass names. The audited loader scans matching `PointMass` drawables and can add multiple same-named masses; duplicate-name behavior needs application cases. |
 | [VectorSum](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/VectorSum.java) | `vectors` | Collection of constituent vector names resolved with `getTrackByName(Vector.class, name)`. The reference case has two unique member names, but the pinned loader does not reset `initialized`; live resolution never runs and resave loses the names. This case is a known compatibility failure. Duplicates and nested sums need separate cases. |
-| [DynamicSystem](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/DynamicSystem.java) | `particles` | Array of component particle names. |
-| [DynamicParticle](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/DynamicParticle.java) | `booster` | Name of a point mass resolved through `getTrackByName(PointMass.class, boosterName)` during normal drawing. Its model-initialization behavior needs an actual-application case. |
+| [DynamicSystem](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/DynamicSystem.java) | `particles` | Ordered array of up to two component particle names, resolved during normal initialization/drawing. |
+| [DynamicParticle](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/DynamicParticle.java) | `booster` | Name of a point mass resolved through `getTrackByName(PointMass.class, boosterName)` during normal drawing. The model-dependencies case requires the booster to replace deliberately stale initial coordinates. |
 
 ## Partial native index
 
@@ -111,6 +111,18 @@ the loaded objects or the independent measurement expectations. Normal deferred 
 membership, attached points and matching endpoints; the harness never repairs the loaded objects.
 Protractor/circle application cases, absent target steps, cycles, unknown classes and edited attachment
 round trips remain. These are preserved source relationships, not native attachment evaluation.
+Exact `DynamicParticle`, `DynamicParticlePolar` and `DynamicSystem` owners now index their optional
+`booster` field. Exact `PointMass` targets resolve; the known wrong base `Vector` type is excluded,
+while other same-named classes remain conservatively `Unclassified`. Systems also index optional
+`particles` arrays with zero to two dense, non-null string slots. Cartesian and polar dynamic particles
+are known eligible member classes; base point masses/vectors are excluded, and other classes (including
+nested systems) remain unclassified. Repeated member slots remain separate; missing/duplicate targets,
+malformed arrays and shared resource bounds are explicit. This does not certify a valid simulation.
+The `model-dependencies` fixture authors a static two-particle system and one named point-mass booster
+through the pinned serializers and OSP controls. Independent initial positions and mass-weighted system
+positions must survive normal application loading, saving and fresh-process reopening. Live serializers
+expose resolved relationships; the harness does not repair loaded objects. Polar dynamics, moving
+boosters, missing target frames, interacting forces, cycles and edited model exports remain separate cases.
 Constituents resolve only unique exact `PointMass`/`Vector` candidates; the other base type is excluded.
 Other same-named classes (including nested dependent tracks) yield `Unclassified`, retaining their possible
 source targets. Duplicate eligible names stay `Ambiguous`; this index does not simulate either loader's
@@ -138,8 +150,8 @@ The internal writer rejects edits to any project containing a vector sum, even a
 member samples are removed. Native saving still retains the exact original source; an unchanged
 standard-file copy is also preserved byte-for-byte and is not advertised as repaired Tracker behavior.
 
-This is not a complete dependency graph or an export eligibility check. Dynamic-system
-particles and model boosters are not indexed yet; no malformed paths does not mean a rename is safe.
+This is not a complete dependency graph or an export eligibility check.
+No malformed paths does not mean a rename is safe.
 The `referenceframe` scalar is indexed, but moving-coordinate behavior still lacks application cases.
 
 ## Proposed rename architecture

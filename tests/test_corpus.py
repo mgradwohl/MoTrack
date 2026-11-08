@@ -382,6 +382,44 @@ class CorpusTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             corpus.validate_session(case, invalid, manifest)
 
+    def test_models_require_boosters_members_and_independent_positions(self):
+        manifest = corpus.load_manifest()
+        case = next(case for case in manifest["cases"] if case["id"] == "model-dependencies")
+        expected = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
+        tracks = []
+        for identity in case["session_tracks"]:
+            mass = next((mass for mass in expected["point_masses"] if mass["name"] == identity["name"]), None)
+            tracks.append({**identity, "mass": mass["mass"] if mass else None,
+                           "samples": [{"frame": s["frame"], "points": [s["image"]], "world": s["world"]}
+                                       for s in mass["samples"]] if mass else []})
+        before = {"models": copy.deepcopy(case["session_models"]), "tracks": tracks,
+                  "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                  **corpus.session_units(case, expected)}
+        valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                 "view_preparation": "visit_custom_tables_restore_selection",
+                 "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
+        corpus.validate_session(case, valid, manifest)
+        changes = [([1, "booster"], None), ([1, "booster"], "wrong"), ([2, "particles"], []),
+                   ([2, "particles"], ["particle B", "particle A"]), ([2, "particles"], ["particle A", "particle A"]),
+                   ([2, "mass"], 0.0), ([0, "mass"], 3.0), ([1, "samples"], []),
+                   ([1, "samples", 0, "world"], [100.0, 100.0]), ([1, "samples", 0, "image"], [220.0, -160.0]),
+                   ([2, "samples", 2, "world"], [2.0, 3.0]), ([2, "samples", 2, "frame"], 3)]
+        for path, value in changes:
+            for states in [["before", "after_save", "after"], ["after_save"], ["after"]]:
+                invalid = copy.deepcopy(valid)
+                for state in states:
+                    target = invalid[state]["models"]
+                    for key in path[:-1]:
+                        target = target[key]
+                    target[path[-1]] = value
+                with self.subTest(path=path, states=states), self.assertRaises(ValueError):
+                    corpus.validate_session(case, invalid, manifest)
+        invalid = copy.deepcopy(valid)
+        for state in ["before", "after_save", "after"]:
+            del invalid[state]["models"]
+        with self.assertRaises(ValueError):
+            corpus.validate_session(case, invalid, manifest)
+
     def test_vector_sum_requires_members_recomputed_components_and_missing_frames(self):
         manifest = corpus.load_manifest()
         case = next(case for case in manifest["cases"] if case["id"] == "vector-sum")

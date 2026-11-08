@@ -60,6 +60,7 @@ are likewise pinned and reproducible; expected values come only from the Java re
 | Center of mass (synthetic) | 6.3.5 | Two unequal point masses at sparse frames; independently expected constituent names, total mass and weighted image/world positions in the Java session | Native center-of-mass editing/evaluation and moving reference frames |
 | Vector sum (synthetic) | 6.3.5 | Two named vectors and independent sums including zero/missing frames expose a pinned 6.3.5 member-initialization defect; explicitly classified failure, not accepted compatibility | Native dependent-vector evaluation/editing and safe standard-file handling |
 | Plot guests (synthetic) | 6.3.5 | Three point masses with sparse marks/nonuniform calibration; two plots with ordered C/B and B comparisons; native reference index and actual Java session resave | Native comparison-plot UI and safe standard rename export |
+| Model dependencies (synthetic) | 6.3.5 | A named booster, two Cartesian particles and their system; independent static positions, component masses and center across Java resave; native source-reference index | Native models/solvers, polar/interacting dynamics and edited model export |
 | Dynamic sine | 5.1.2 | Clip and calibration; dynamic particle is reported as unsupported | Model parameters, functions and plot settings |
 
 The probe reads the `.trk` member selected by the manifest from BallToss's `.trz`. It does not exercise
@@ -411,3 +412,32 @@ edit/undo/redo/save/reopen. This is Java's own resave baseline, not MoTrack expo
 persistent tools, protractor/circle application behavior, missing target frames, cycles and edited
 attachment round trips still need their own coverage. Calibration creation issues in MoTrack #78 remain
 separate; these read-only tapes do not exercise interactive calibration or tool placement.
+
+## Model dependency reference
+
+[ModelDependenciesFixture.java](../../tools/reference/ModelDependenciesFixture.java) uses real
+Tracker serializers for a point mass, two Cartesian dynamic particles and an empty system. Constructing
+a nonempty system requires a live panel, so its named members and one component's booster are authored
+through public OSP XML controls. This is source authoring, not a repair of loaded application objects.
+Two fresh bounded headless runs reproduce identical pinned bytes.
+
+At frames 0/1/2, the marked booster mass A stays at image (26,32), world (3,4), with mass 2 kg.
+Particle A has initial world position (1,2), zero velocity/force and mass 1 kg. Particle B has mass 3 kg,
+zero velocity/force and deliberately stale initial position (100,100); its named booster must initialize
+it to (3,4). With origin (20,40), scale (2,2) and downward image y, the expected image positions are
+A=(22,36), B=(26,32). The system must have mass 4 kg and center
+`(1*(1,2) + 3*(3,4))/4 = (2.5,3.5)`, image (25,33), on all three frames.
+The booster changes initial state, not the component's mass. These expectations are independently
+calculated in the manifest, not recorded from session output or produced by MoTrack.
+
+The normal application loader/draw path must resolve both named relationships. The harness observes
+the live models' normal serializers and evaluated steps, then compares names, ordered members, masses
+and positions before save, after save and after fresh-process reopen. Consistently stale coordinates,
+wrong membership, wrong mass or dropped boosters must fail. This is a static dependency case, not
+evidence for moving/polar particles, interacting forces, general numerical solvers or native model export.
+
+The native oracle transcribes axes at node 0, mass A at node 1 (native ID 1), particles A/B at nodes 2/3,
+and system at node 4. Selection targets node 4; B's booster targets node 1; ordered system members target
+nodes 2/3. Unsupported models receive no invented native IDs. Unit cases cover polar source targets,
+wrong base types, unknown classes, repeated/missing/ambiguous names, malformed arrays, shared bounds
+and retained source identity across native rename/delete/undo/redo/save/reopen.
