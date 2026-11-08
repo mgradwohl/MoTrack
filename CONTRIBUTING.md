@@ -51,6 +51,14 @@ cmake --preset dev -DMOTRACK_BUILD_BENCHMARKS=ON
 git ls-files -z -- 'src/*.cpp' 'tests/*.cpp' 'benchmarks/*.cpp' | xargs -0 clang-tidy -p build/dev
 ```
 
+CI caches the verified vcpkg checkout and bootstrap executable by platform, architecture and the
+media setup script hash. `python tools/media_sdk.py bootstrap` checks the pinned revision and prepares
+that executable before library installation. The bootstrap cache is saved at that point, so a later
+build or test failure does not force the next run to download the same tool again. Library builds,
+installed prefixes and downloads stay outside this cache; vcpkg's existing binary cache continues to
+validate compiled dependencies against its build configuration. Cache misses still use the pinned
+upstream downloads and can fail during an upstream outage.
+
 CI builds and tests on all three OSes. New behavior needs tests through its normal entry points. Use exact comparisons where appropriate and explicit tolerances for scientific results. The combined production line coverage must stay at or above **90%**. Keep suppressions narrow, explain each in the code, and include known compatibility limits in the pull request.
 
 ## Pull requests and review
