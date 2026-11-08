@@ -166,6 +166,47 @@ def run(command, *, display=None):
         raise ValueError(f"Probe failed ({result.returncode}):\n{(result.stdout + result.stderr)[-5000:]}")
 
 
+def session_file_diagnostic(path):
+    """Observe a failed reference input without changing it or retrying the loader."""
+    try:
+        limit = 1024 * 1024
+        with path.open("rb") as source:
+            data = source.read(limit + 1)
+        if len(data) > limit:
+            return {"inspection": "skipped: input exceeds 1 MiB diagnostic limit"}
+        report = {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+        report["prefix"] = data[:256].decode("utf-8", errors="replace")
+        report["suffix"] = data[-512:].decode("utf-8", errors="replace")
+        try:
+            root = ET.fromstring(data)
+            report.update(xml="well-formed", root=root.tag[:128], root_class=root.get("class", "")[:256])
+        except ET.ParseError as error:
+            report.update(xml="malformed", parse_error=str(error)[:256])
+            line, column = error.position
+            lines = data.splitlines()
+            if 0 < line <= len(lines):
+                # The parser column counts characters, so decode before centering the excerpt.
+                text = lines[line - 1].decode("utf-8", errors="replace")
+                report["error_line_excerpt"] = text[max(0, column - 128):column + 384]
+        return report
+    except (OSError, ValueError, LookupError) as error:
+        return {"inspection_error": str(error)[:256]}
+
+
+def format_session_file_diagnostic(path):
+    report = session_file_diagnostic(path)
+    # Bound each escaped string before serializing. Cutting the finished JSON can drop
+    # parser metadata entirely when corrupted bytes expand to six-character escapes.
+    # At most six string fields (including the 64-character hash) keep the report below 3000.
+    for key, value in report.items():
+        if isinstance(value, str):
+            while len(json.dumps(value, ensure_ascii=True)) > 512:
+                size = len(value) // 2
+                value = value[-size:] if key == "suffix" else value[:size]
+            report[key] = value
+    return json.dumps(report, ensure_ascii=True)
+
+
 def check_cases(manifest, cache, *, java=None, probe=None, record=False):
     for path, artifact in artifacts(manifest, cache):
         verify_file(path, artifact)
@@ -1057,14 +1098,24 @@ def check_sessions(manifest, cache, java, probe=None):
                          "-Xmx256m", "-cp", os.pathsep.join([str(classes), str(jar)]), "TrackerSessionReference",
                          str(source), str(output), stage], display=display)
                 except (ValueError, OSError, subprocess.TimeoutExpired) as error:
-                    raise ValueError(f"{case['id']}/{mode}/{stage}: Tracker reference failed for {source.name}: {error}") from error
+                    diagnostic = format_session_file_diagnostic(source)
+                    resave = ("\nTracker resave diagnostic (bounded): " + format_session_file_diagnostic(output / "tracker-resaved.trk")
+                              if stage == "save" else "")
+                    raise ValueError(f"{case['id']}/{mode}/{stage}: Tracker reference failed for {source.name}: {error}"
+                                     f"\nTracker input diagnostic (bounded): {diagnostic}{resave}") from error
                 stages[stage] = json.loads((output / ("session-" + stage + ".json")).read_text(encoding="utf-8"))
                 if (stages[stage]["reference_version"] != manifest["reference"]["version"]
                         or stages[stage]["verification_level"] != "tracker_session_" + stage
                         or stages[stage].get("view_preparation") != "visit_custom_tables_restore_selection"):
                     raise ValueError("Unexpected Tracker session stage")
+                callbacks = stages[stage].get("loader_callbacks")
+                if type(callbacks) is not int or callbacks < 1:
+                    raise ValueError("Missing Tracker loader callback evidence")
+                if callbacks > 1:
+                    print(f"{case['id']}/{mode}/{stage}: observed {callbacks} loader callbacks; reference action ran once")
             report = {"reference_version": stages["save"]["reference_version"], "verification_level": "tracker_session_resave",
                       "view_preparation": stages["save"]["view_preparation"],
+                      "loader_callbacks": {stage: stages[stage]["loader_callbacks"] for stage in stages},
                       "before": stages["save"]["loaded"], "after_save": stages["save"]["after_save"],
                       "after": stages["reopen"]["loaded"]}
             keys = {"marks": [[0, 3], [7]], "empty-marks": [[], [0]], "first-mark": [[4], [0]]}.get(mode)

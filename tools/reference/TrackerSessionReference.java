@@ -11,6 +11,8 @@ import java.util.TreeMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import org.opensourcephysics.cabrillo.tracker.CenterOfMass;
@@ -46,6 +48,7 @@ public final class TrackerSessionReference {
     private static final AtomicReference<Throwable> FAILURE = new AtomicReference<>();
     private static final AtomicReference<String> WAITING = new AtomicReference<>("application loader callback");
     private static final AtomicReference<Map<String, Object>> REPORT = new AtomicReference<>();
+    private static final AtomicInteger LOADER_CALLBACKS = new AtomicInteger();
 
     public static void main(String[] args) {
         int status = 1;
@@ -64,10 +67,10 @@ public final class TrackerSessionReference {
             List<ModelRequirement> modelRequirements = modelRequirements(input);
             SwingUtilities.invokeAndWait(guard(() -> {
                 TFrame originalFrame = new TFrame();
-                TrackerIO.openURL(input.toString(), originalFrame, guard(() -> whenEvaluated(originalFrame, attachmentRequirements, modelRequirements, () -> {
+                Runnable loaded = once(guard(() -> whenEvaluated(originalFrame, attachmentRequirements, modelRequirements, () -> {
                     TrackerPanel panel = onlyPanel(originalFrame);
                     Map<String, Object> before = snapshot(panel);
-                    if (save && (TrackerIO.save(saved.toFile(), panel) == null || !Files.isRegularFile(saved)))
+                    if (save && (TrackerIO.save(saved.toFile(), panel) == null || !Files.isRegularFile(saved) || saved.toFile().length() == 0))
                         throw new IllegalStateException("Tracker did not save the loaded session");
                     REPORT.set(TrackerReference.map("reference_version", OSPRuntime.VERSION,
                         "verification_level", "tracker_session_" + args[2],
@@ -75,6 +78,12 @@ public final class TrackerSessionReference {
                         "after_save", save ? snapshot(panel) : null));
                     DONE.countDown();
                 })));
+                // Pinned AsyncLoader can reach doneLoading from both checkDone and doneAsync.
+                // A repeated callback must not launch another timer/save after DONE is released.
+                TrackerIO.openURL(input.toString(), originalFrame, () -> {
+                    LOADER_CALLBACKS.incrementAndGet();
+                    loaded.run();
+                });
             }));
             if (!DONE.await(30, TimeUnit.SECONDS)) {
                 printWaitingThreads();
@@ -82,6 +91,7 @@ public final class TrackerSessionReference {
             }
             if (FAILURE.get() != null) throw new IllegalStateException("Tracker session failed", FAILURE.get());
             if (REPORT.get() == null) throw new IllegalStateException("Tracker produced no session report");
+            REPORT.get().put("loader_callbacks", LOADER_CALLBACKS.get());
             Files.writeString(directory.resolve("session-" + args[2] + ".json"), TrackerReference.json(REPORT.get()) + "\n", StandardCharsets.UTF_8);
             status = 0;
         } catch (Throwable error) {
@@ -133,6 +143,13 @@ public final class TrackerSessionReference {
             if (!result.contains(frame)) result.add(frame);
         }
         return List.copyOf(result);
+    }
+
+    static Runnable once(Runnable action) {
+        AtomicBoolean started = new AtomicBoolean();
+        return () -> {
+            if (started.compareAndSet(false, true)) action.run();
+        };
     }
 
     private static Runnable guard(Runnable action) {

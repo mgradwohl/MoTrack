@@ -27,8 +27,31 @@ A headless Java regression checks buried callers, empty/short/long stacks, dupli
 The existing private display/home, 256 MB heap, 30-second internal wait and 45-second subprocess limit
 remain; failures still fail immediately, without automatic retries. Failure-path tests cover both
 stages, process/launch/outer-timeout errors, cleanup and unchanged invocation counts.
-This improves evidence for [MoTrack #105](https://github.com/mgradwohl/MoTrack/issues/105); the intermittent
-callback timeout's cause remains under investigation and is not established as fixed or as an upstream defect.
+On failure, Python also inspects at most 1 MiB of that input without modifying it. A bounded report
+records its byte count/hash, XML parse status/root class, short beginning/end excerpts and (for
+malformed XML) the parser error and nearby text. Oversized or unavailable inputs are identified
+without replacing the original failure. This distinguishes a truncated/malformed resave from a
+well-formed file that Tracker's loader rejects; XML validity alone is not compatibility acceptance.
+Each escaped string is bounded before JSON serialization, keeping the complete report below 3000
+characters without dropping parser metadata when corrupt bytes or Unicode expand into escapes.
+Save-stage failures include separate bounded input and resave-output reports, including a missing
+or empty output, before temporary-directory cleanup. Reopen failures inspect that same resave as
+their input. The original process failure remains the cause in both cases.
+This provides evidence for [MoTrack #105](https://github.com/mgradwohl/MoTrack/issues/105). The observed
+attachment-reopen timeout was Tracker's bad-file dialog after a zero-byte reference resave.
+
+The pinned loader can call its completion hook from both `checkDone` and `doneAsync`. The reference
+harness now admits that hook once per requested load, so a second callback cannot start another
+evaluation timer and overwrite the resave while the process exits. Callback counts are retained in
+successful reports and repeated callbacks are identified in CI output. The normal application
+loader/saver and all scientific comparisons remain in place; the helper also rejects an empty save.
+Headless regressions cover duplicate, reentrant and failed callbacks without retrying failed work.
+[CI run 42447119293](https://github.com/mgradwohl/MoTrack/actions/runs/42447119293), at reference-fix
+revision `e23a2255268757feb9b1e2ce03603228894737d7`, observed two loader callbacks in the save and
+reopen stages, including the previously failing attachment cases. Admitting the action once passed
+the full application/edited-export suite and all six platform/coverage checks (94.72% combined line
+coverage). This fixes the harness's repeated-save lifecycle; it does not patch Tracker's loader or
+claim that all upstream save defects are resolved. Current-head CI and review remain merge gates.
 
 A third command, `roundtrip`, adds **limited** MoTrack standard-export cases. The mass case, labeled
 `motrack_mass_roundtrip`, changes the first point mass's mass in the real protractor experiment,
