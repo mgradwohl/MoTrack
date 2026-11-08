@@ -312,6 +312,27 @@
         }
       ],
       "provenance": "Authored by tools/reference/VectorSumFixture.java through checksum-pinned Tracker 6.3.5 APIs and serializers; reproduced byte-for-byte. Named members and deliberately stale zero cached components require actual application evaluation. Independent component sums and missing-member expectations; no MoTrack output used."
+    },
+    {
+      "id": "table-datasets",
+      "file": "table-datasets.trk",
+      "local_file": "fixtures/table-datasets.trk",
+      "sha256": "ac51d844baece27bbebb7364a8a5ce535e4249da0d93a040ee1d47fdd3913bba",
+      "bytes": 9808,
+      "tracker_version": "6.3.5",
+      "features": [
+        "point-mass",
+        "unsupported-line-profiles",
+        "table-dataset-owner-source-structure"
+      ],
+      "requirements": [
+        "R02",
+        "R03",
+        "R15"
+      ],
+      "expected": "expected/table-datasets.json",
+      "native_reference_index": "expected/table-datasets-references.json",
+      "provenance": "Authored by tools/reference/TableDatasetsFixture.java using pinned Tracker track serializers and the OSP String[][] codec. Source-structure and native-index case only: no media, application session or export acceptance. Multi-frame line-profile measurements need a media-backed application case."
     }
   ]
 }

@@ -230,6 +230,13 @@ struct ReferenceReader
     using Array = std::map<unsigned, QDomElement>;
     using Owners = std::vector<std::pair<std::string, QString>>;
 
+    enum class RowKind : std::uint8_t
+    {
+        Columns,
+        Formats,
+        Datasets
+    };
+
     void countEntry()
     {
         if (++entries > 10000)
@@ -268,7 +275,7 @@ struct ReferenceReader
 
     // All cells must be well-formed strings, but only the first cell is an owner reference.
     // Preserve column/format text as data, including text identical to another track's name.
-    std::optional<Owners> rows(const Property& value, const std::string& path, bool formats)
+    std::optional<Owners> rows(const Property& value, const std::string& path, RowKind kind)
     {
         const auto rows = array(value, "[[Ljava.lang.String;", path);
         if (!rows)
@@ -276,7 +283,8 @@ struct ReferenceReader
             return std::nullopt;
         }
         Owners owners;
-        if (formats && (rows->empty() || rows->begin()->first != 0 || rows->rbegin()->first != rows->size() - 1))
+        if ((kind == RowKind::Formats && rows->empty()) ||
+            (kind != RowKind::Columns && !rows->empty() && (rows->begin()->first != 0 || rows->rbegin()->first != rows->size() - 1)))
         {
             result.malformedPaths.push_back(path);
             return std::nullopt;
@@ -290,7 +298,7 @@ struct ReferenceReader
                 return std::nullopt;
             }
             if (columns->empty() || columns->begin()->first != 0 || columns->rbegin()->first != columns->size() - 1 ||
-                (formats && columns->size() != 3))
+                (kind == RowKind::Formats && columns->size() != 3) || (kind == RowKind::Datasets && columns->size() != 2))
             {
                 result.malformedPaths.push_back(rowPath);
                 return std::nullopt;
@@ -305,12 +313,24 @@ struct ReferenceReader
                 }
                 if (columnIndex == 0)
                 {
-                    if (formats && !owners.empty() && owners.front().second != *text)
+                    if (kind == RowKind::Formats && !owners.empty() && owners.front().second != *text)
                     {
                         result.malformedPaths.push_back(rowPath + "/0");
                         return std::nullopt;
                     }
                     owners.emplace_back(rowPath + "/0", *text);
+                }
+                else if (kind == RowKind::Datasets)
+                {
+                    // The serializer emits Integer.toString(index) only when index >= 0.
+                    // Index source owners conservatively; this does not validate the available dataset range.
+                    bool parsed = false;
+                    const auto dataset = text->toUInt(&parsed);
+                    if (!parsed || dataset > 2147483647U || *text != QString::number(dataset))
+                    {
+                        result.malformedPaths.push_back(rowPath + "/1");
+                        return std::nullopt;
+                    }
                 }
             }
         }
@@ -323,11 +343,22 @@ struct ReferenceReader
         const auto columns = property(object, "track_columns");
         if (!columns.element.isNull())
         {
-            if (const auto owners = rows(columns, path + "/track_columns", false))
+            if (const auto owners = rows(columns, path + "/track_columns", RowKind::Columns))
             {
                 for (const auto& [ownerPath, name] : *owners)
                 {
                     addReference(result, names, TrackerReferenceKind::TableColumnOwner, ownerPath, name, false);
+                }
+            }
+        }
+        const auto datasets = property(object, "dataset_indices");
+        if (!datasets.element.isNull())
+        {
+            if (const auto owners = rows(datasets, path + "/dataset_indices", RowKind::Datasets))
+            {
+                for (const auto& [ownerPath, name] : *owners)
+                {
+                    addReference(result, names, TrackerReferenceKind::TableDatasetOwner, ownerPath, name, false);
                 }
             }
         }
@@ -348,7 +379,7 @@ struct ReferenceReader
         }
         for (const auto& [groupIndex, group] : *groups)
         {
-            if (const auto owners = rows({.element = group}, path + "/column_formats/" + std::to_string(groupIndex), true))
+            if (const auto owners = rows({.element = group}, path + "/column_formats/" + std::to_string(groupIndex), RowKind::Formats))
             {
                 for (const auto& [ownerPath, name] : *owners)
                 {
