@@ -468,15 +468,25 @@ metadata or a failed destination leaves the existing destination intact. Output 
 owned source snapshot or extracted files, including their physical spelling through a symbolic-link
 temporary-directory ancestor. Archive output-file aliases (including dangling links) are refused.
 
+The compressed source also has an immutable SHA-256 digest captured during the original bounded
+snapshot. Standard export copies it into a private working file while hashing the exact copied bytes,
+requires the import digest, and performs all ZIP edits from that verified copy. Native bundle saving
+hashes the actual bytes fed to its ZIP writer and checks the same digest before committing. Replacing
+the writable owned source with a different valid archive, even with identical project XML and member
+names, therefore cannot silently change embedded pixels or supporting content in either saved format.
+A regression proves both existing destinations survive such a replacement and saving resumes only
+after restoring the original bytes.
+
 Native tests cover first/middle/last member replacement, other tabs, opaque binary/support files,
 Unicode names, Java deflation/descriptors/comments, native reopen, history, repeated export and
 failure/cancellation. The corpus independently checks edited XML, every untouched payload/compressed
 record and central metadata. The baseline and edited archive passed actual Tracker `.trz` loading,
 resave, fresh-process reopen and native reimport at `fec0e7a`, Linux job 128733094094 in
 [run 42481133737](https://github.com/mgradwohl/MoTrack/actions/runs/42481133737), including every
-independent pixel/time/geometry expectation. Subsequent destination/member-alias guards still need
-current-head CI. Multi-tab application acceptance, new-archive packaging, broader ZIP/media support
-and paired-save recovery remain unfinished.
+independent pixel/time/geometry expectation. The destination/member-alias guards also passed at `6e35268`, Linux job 128744838260 in
+[run 42484998884](https://github.com/mgradwohl/MoTrack/actions/runs/42484998884). The later immutable-source
+digest protection still requires its own current-revision CI. New-archive packaging, broader ZIP/media
+support and paired-save recovery remain unfinished.
 
 The additional two-experiment corpus case verifies that selected-member editing does not damage a
 second experiment sharing the same images. Its independent archive/XML oracle preserves that
@@ -484,11 +494,14 @@ experiment byte-for-byte. The reference opens the actual archive once, matches l
 explicit member inventory, saves every tab through Tracker, and reopens each saved standard file
 in its own process. Each tab has separate scientific/media expectations, including a different mass
 and track name. Manifest validation and negative oracles reject omitted/duplicate tabs and matching
-but incorrect results across save/reopen. This application gate is pending Linux CI; it does not
-provide native multi-tab workspace editing or expand the supported archive/media schema.
+but incorrect results across save/reopen. Both `tracker_archive_tabs_resave` and
+`motrack_archive_tabs_roundtrip` passed at `505c40c5`, Linux job 128744837376 in
+[run 42484997811](https://github.com/mgradwohl/MoTrack/actions/runs/42484997811). This scoped application
+evidence does not provide native multi-tab workspace editing or expand the supported archive/media schema.
 
 
-### Paired standard and native output (internal adapter; acceptance pending)
+
+### Paired standard and native output (internal adapter)
 
 The [paired-saving contract](paired-saving.md) defines sibling `.trk`/`.trz` plus `.motrack` output,
 separate atomic replacements, bounded journaling, explicit conflict-safe recovery and per-output
@@ -496,3 +509,8 @@ results. The adapter stages and validates both files, commits standard first, an
 data after interruption. It reuses the supported standard writers and does not broaden their schemas.
 Native desktop Save now shares its physical media-path rebasing helper with this adapter. Desktop
 standard actions, per-output history checkpoints and recovery prompts remain to be implemented.
+
+Both recovered linked-image and archived-image modes passed actual Tracker load/save/fresh reopen
+and native reimport at `32c21d6`, Linux job 128747171486 in
+[run 42485770063](https://github.com/mgradwohl/MoTrack/actions/runs/42485770063). Later review fixes
+still require current-revision CI; desktop paired Save remains a separate implementation slice.

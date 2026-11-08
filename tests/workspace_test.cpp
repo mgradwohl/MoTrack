@@ -950,6 +950,54 @@ TEST(Workspace, SavesEditsAndReopensMediaFromADifferentDirectory)
     EXPECT_EQ(marks->rowCount(), 2);
 }
 
+TEST(Workspace, SavesStandaloneMediaBesideADirectoryEndingInExclamation)
+{
+    for (const bool movie : {false, true})
+    {
+        SCOPED_TRACE(movie);
+        QTemporaryDir temporary;
+        ASSERT_TRUE(QDir().mkpath(temporary.filePath("source!")));
+        const auto media = temporary.filePath(movie ? "source!/movie.mp4" : "source!/image.ppm");
+        ASSERT_TRUE(QFile::copy(fixturePath(movie ? "vfr.mp4" : "frames/frame00.ppm"), media));
+        motrack::MainWindow window;
+        auto* canvas = window.findChild<QWidget*>("videoCanvas");
+        auto* slider = window.findChild<QSlider*>("stepSlider");
+        ASSERT_TRUE(canvas && slider);
+        if (movie)
+        {
+            window.openMovie(media);
+            ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
+        }
+        else
+        {
+            ASSERT_TRUE(window.openImageSequence({media}, 4.0));
+        }
+        const auto destination = temporary.filePath("source!/saved.motrack");
+        ASSERT_TRUE(window.saveWorkspace(destination));
+        const auto saved = motrack::readWorkspaceDocument(destination);
+        ASSERT_EQ(saved.project.clip.mediaReferences.size(), 1u);
+        EXPECT_EQ(saved.project.clip.mediaReferences.front(), movie ? "movie.mp4" : "image.ppm");
+        ASSERT_TRUE(window.loadProject(destination));
+        ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
+        if (movie)
+        {
+            EXPECT_EQ(slider->maximum(), 3);
+            slider->setValue(3);
+            ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 3"; }));
+        }
+        else
+        {
+            const auto sequence = motrack::ImageSequence::open(destination, saved.project.clip);
+            if (!sequence)
+                FAIL() << "Saved image sequence is missing.";
+            const auto frame = sequence->readStep(0);
+            if (!frame)
+                FAIL() << "Saved image frame is missing.";
+            EXPECT_EQ(frame->image, QImage(media));
+        }
+    }
+}
+
 TEST(Workspace, ReopensASingleImageWithoutARecognizedFilenameExtension)
 {
     QTemporaryDir temporary;
@@ -1001,6 +1049,9 @@ TEST(Workspace, SavesAndReopensStandaloneMediaOpenedThroughFileAliases)
         const auto destination = temporary.filePath("saved.motrack");
         ASSERT_TRUE(window.saveWorkspace(destination));
         ASSERT_TRUE(QFile::remove(alias));
+        // Save the still-open document again before reopening: its media base must survive
+        // deletion of the original alias, rather than being recomputed from its former location.
+        ASSERT_TRUE(window.saveWorkspace(destination));
         ASSERT_TRUE(window.loadProject(destination));
         ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
         if (movie)
@@ -1052,6 +1103,8 @@ TEST(Workspace, SavesAndReopensMediaThroughDirectoryAndProjectAliases)
         ASSERT_NE(create, nullptr);
         create->trigger();
         ASSERT_TRUE(window.isWindowModified());
+        ASSERT_TRUE(window.saveWorkspace(destination));
+        ASSERT_TRUE(QFile::remove(input));
         ASSERT_TRUE(window.saveWorkspace(destination));
         EXPECT_FALSE(window.isWindowModified());
         EXPECT_TRUE(QFileInfo(alias).isSymLink());

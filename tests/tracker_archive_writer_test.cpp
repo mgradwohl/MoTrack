@@ -82,6 +82,51 @@ TEST(TrackerArchiveWriter, ReplacesOnlyTheChosenMemberAndKeepsTheOwnedSource)
     }
 }
 
+TEST(TrackerArchiveWriter, RefusesAValidReplacementOfTheOwnedSourceInBothFormats)
+{
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("original.trz");
+    const auto destination = temporary.filePath("saved.trz");
+    const auto native = temporary.filePath("saved.motrack");
+    const QDir fixtures(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images");
+    const auto sourceXml = readBytes(fixtures.filePath("linked-images.trk"));
+    std::vector<motrack::test::ArchiveEntry> members{
+        {.name = "selected.trk", .bytes = sourceXml},
+        {.name = "images/frame0.png", .bytes = readBytes(fixtures.filePath("images/frame0.png"))},
+        {.name = "images/frame1.png", .bytes = readBytes(fixtures.filePath("images/frame1.png"))},
+        {.name = "images/frame2.png", .bytes = readBytes(fixtures.filePath("images/frame2.png"))},
+        {.name = "images/frame3.png", .bytes = readBytes(fixtures.filePath("images/frame3.png"))}};
+    ASSERT_TRUE(motrack::test::writeArchive(original, members));
+    auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(original));
+    auto document = motrack::importTrackerDocument(payload->projectPath("selected.trk"));
+    payload->resolveMedia(document.project, "selected.trk");
+    document.archivePayload = payload;
+    document.archiveMember = "selected.trk";
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.setPointMassValue(document.project, 0, 5));
+    motrack::writeTrackerArchiveDocument(destination, document);
+    motrack::writeWorkspaceDocument(native, document);
+    const auto standardBytes = readBytes(destination);
+    const auto nativeBytes = readBytes(native);
+    const auto originalBytes = readBytes(payload->sourcePath());
+    const auto originalDigest = payload->sourceDigest();
+    members[1].bytes = members[2].bytes;
+    ASSERT_TRUE(motrack::test::writeArchive(payload->sourcePath(), members));
+    const auto replacement = motrack::TrackerArchive::open(payload->sourcePath());
+    ASSERT_EQ(replacement.projects(), payload->projects());
+    ASSERT_EQ(readBytes(replacement.projectPath("selected.trk")), sourceXml);
+    ASSERT_NE(replacement.sourceDigest(), originalDigest);
+    ASSERT_TRUE(payload->memberMatchesSource("images/frame0.png"));
+    EXPECT_THROW(motrack::writeTrackerArchiveDocument(destination, document), motrack::ProjectError);
+    EXPECT_THROW(motrack::writeWorkspaceDocument(native, document), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), standardBytes);
+    EXPECT_EQ(readBytes(native), nativeBytes);
+    EXPECT_EQ(payload->sourceDigest(), originalDigest);
+    ASSERT_TRUE(writeBytes(payload->sourcePath(), originalBytes));
+    EXPECT_NO_THROW(motrack::writeTrackerArchiveDocument(destination, document));
+    EXPECT_NO_THROW(motrack::writeWorkspaceDocument(native, document));
+}
+
 TEST(TrackerArchiveWriter, PreservesExistingDestinationOnInvalidInputAndCancellation)
 {
     QTemporaryDir temporary;
@@ -106,7 +151,61 @@ TEST(TrackerArchiveWriter, PreservesExistingDestinationOnInvalidInputAndCancella
     EXPECT_EQ(readBytes(source.projectPath("selected.trk")), originalXml());
 }
 
-TEST(TrackerArchiveWriter, RefusesCorruptOrUnsupportedZipMetadataBeforeReplacement)
+TEST(TrackerArchiveWriter, RefusesReaderAcceptedButWriterUnsupportedZipLayouts)
+{
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("original.trz");
+    const auto destination = temporary.filePath("existing.trz");
+    ASSERT_TRUE(motrack::test::writeArchive(original, {{.name = "selected.trk", .bytes = originalXml()}}));
+    const auto valid = readBytes(original);
+    const auto central = qFromLittleEndian<quint32>(valid.constData() + valid.size() - 6);
+    ASSERT_TRUE(writeBytes(destination, "existing output"));
+    for (const int kind : {0, 1, 2, 3})
+    {
+        SCOPED_TRACE(kind);
+        auto unsupported = valid;
+        if (kind == 0)
+        {
+            qToLittleEndian<quint16>(45, unsupported.data() + 4);
+            qToLittleEndian<quint16>(45, unsupported.data() + central + 6);
+        }
+        else if (kind == 1)
+        {
+            const auto extra = central + 46 + qFromLittleEndian<quint16>(unsupported.constData() + central + 28);
+            const auto extraSize = qFromLittleEndian<quint16>(unsupported.constData() + central + 30);
+            qToLittleEndian<quint16>(extraSize + 4, unsupported.data() + central + 30);
+            unsupported.insert(extra, QByteArray::fromHex("34120000"));
+            const auto directorySize = qFromLittleEndian<quint32>(unsupported.constData() + unsupported.size() - 10);
+            qToLittleEndian<quint32>(directorySize + 4, unsupported.data() + unsupported.size() - 10);
+        }
+        else if (kind == 2)
+        {
+            const auto extra = 30 + qFromLittleEndian<quint16>(unsupported.constData() + 26);
+            const auto extraSize = qFromLittleEndian<quint16>(unsupported.constData() + 28);
+            qToLittleEndian<quint16>(extraSize + 4, unsupported.data() + 28);
+            unsupported.insert(extra, QByteArray::fromHex("34120000"));
+            qToLittleEndian<quint32>(central + 4, unsupported.data() + unsupported.size() - 6);
+        }
+        else
+        {
+            // A harmless self-extracting-style prefix is readable, but outside the writer's
+            // contiguous ZIP-record contract. Rebase both offsets before the immutable import.
+            constexpr quint32 PREFIX_SIZE = 4;
+            qToLittleEndian<quint32>(PREFIX_SIZE, unsupported.data() + central + 42);
+            qToLittleEndian<quint32>(central + PREFIX_SIZE, unsupported.data() + unsupported.size() - 6);
+            unsupported.prepend("stub");
+        }
+        ASSERT_TRUE(writeBytes(original, unsupported));
+        const auto source = motrack::TrackerArchive::open(original);
+        ASSERT_EQ(readBytes(source.projectPath("selected.trk")), originalXml());
+        ASSERT_EQ(readBytes(source.sourcePath()), unsupported);
+        EXPECT_THROW(motrack::writeTrackerArchive(destination, source, "selected.trk", EDITED_XML), motrack::ProjectError);
+        EXPECT_EQ(readBytes(destination), "existing output");
+        EXPECT_EQ(readBytes(source.sourcePath()), unsupported);
+    }
+}
+
+TEST(TrackerArchiveWriter, RefusesChangedSourceBytesBeforeReplacement)
 {
     QTemporaryDir temporary;
     const auto original = temporary.filePath("original.trz");

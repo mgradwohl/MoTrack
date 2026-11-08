@@ -21,6 +21,7 @@
 
 #include <array>
 #include <cmath>
+#include <exception>
 #include <optional>
 #include <stdexcept>
 #include <utility>
@@ -245,16 +246,42 @@ inspectDestination(const Record& record, std::size_t index, PairedSaveResult& re
     }
 }
 
+std::array<std::optional<Fingerprint>, 2>
+inspectDestinations(const Record& record, PairedSaveResult& result, const std::atomic_bool* cancelled)
+{
+    std::array<std::optional<Fingerprint>, 2> actual{};
+    std::exception_ptr firstError;
+    for (std::size_t i = 0; i < record.outputs.size(); ++i)
+    {
+        try
+        {
+            actual[i] = inspectDestination(record, i, result, cancelled);
+        }
+        catch (const Cancelled&)
+        {
+            throw;
+        }
+        catch (const std::exception&)
+        {
+            if (!firstError)
+                firstError = std::current_exception();
+        }
+    }
+    if (firstError)
+        std::rethrow_exception(firstError);
+    return actual;
+}
+
 void validateDestinations(const Record& record,
                           const std::array<bool, 2>& committed,
                           PairedSaveResult& result,
                           const std::atomic_bool* cancelled)
 {
+    const auto actual = inspectDestinations(record, result, cancelled);
     for (std::size_t i = 0; i < record.outputs.size(); ++i)
     {
-        const auto actual = inspectDestination(record, i, result, cancelled);
         const auto expected = committed[i] ? std::optional(record.outputs[i].after) : record.outputs[i].before;
-        require(actual == expected, "A destination changed during paired saving; no further replacement is allowed.");
+        require(actual[i] == expected, "A destination changed during paired saving; no further replacement is allowed.");
     }
 }
 
@@ -304,12 +331,12 @@ void commitPair(const Record& record, PairedSaveResult& result, const std::atomi
 {
     const QDir directory(record.directory);
     std::array<bool, 2> current{};
+    const auto actual = inspectDestinations(record, result, cancelled);
     for (std::size_t i = 0; i < record.outputs.size(); ++i)
     {
         const auto& output = record.outputs[i];
-        const auto actual = inspectDestination(record, i, result, cancelled);
-        current[i] = actual == std::optional(output.after);
-        require(current[i] || actual == output.before, "A destination changed since paired saving; no further replacement is allowed.");
+        current[i] = actual[i] == std::optional(output.after);
+        require(current[i] || actual[i] == output.before, "A destination changed since paired saving; no further replacement is allowed.");
     }
     validateStages(record, current, cancelled);
     for (std::size_t i = 0; i < record.outputs.size(); ++i)
@@ -376,7 +403,10 @@ void protectSourceFiles(const Record& record, const WorkspaceDocument& document,
         {
             const auto media = resolveLocalMediaPath(mediaProjectPath, reference);
             for (const auto& output : record.outputs)
-                require(media.isEmpty() || media != directory.filePath(output.name), "Paired saving cannot overwrite linked media.");
+                require(media.isEmpty() ||
+                            QDir::cleanPath(media).normalized(QString::NormalizationForm_C).toCaseFolded() !=
+                                QDir::cleanPath(directory.filePath(output.name)).normalized(QString::NormalizationForm_C).toCaseFolded(),
+                        "Paired saving cannot overwrite linked media.");
         }
     }
 }
@@ -464,19 +494,27 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
             writeTrackerArchiveDocument(standard, document, cancelled);
         else
             writeTrackerDocument(standard, document, mediaProjectPath);
+        const auto standardFingerprint = fingerprint(standard, parent, cancelled);
+        if (!standardFingerprint)
+            throw ProjectError("Prepared standard file disappeared.");
+        record.outputs[0].after = *standardFingerprint;
         notify(observer, PairedSaveProgress::StandardPrepared);
         checkCancelled(cancelled);
         auto snapshot = document;
         rebaseWorkspaceMedia(snapshot, mediaProjectPath, result.nativePath);
         writeWorkspaceDocument(native, snapshot);
         validateNativeSnapshot(snapshot, readWorkspaceDocument(native, cancelled));
+        const auto nativeFingerprint = fingerprint(native, parent, cancelled);
+        if (!nativeFingerprint)
+            throw ProjectError("Prepared native file disappeared.");
+        record.outputs[1].after = *nativeFingerprint;
         notify(observer, PairedSaveProgress::NativePrepared);
         for (auto& output : record.outputs)
         {
             const auto prepared = fingerprint(directory.filePath(output.stage), parent, cancelled);
             if (!prepared)
                 throw ProjectError("Prepared paired-save file disappeared.");
-            output.after = prepared.value();
+            require(*prepared == output.after, "A prepared paired-save file changed.");
             require(fingerprint(directory.filePath(output.name), parent, cancelled) == output.before,
                     "A destination changed during paired-save preparation.");
         }

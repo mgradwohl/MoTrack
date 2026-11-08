@@ -55,7 +55,7 @@ bool safeMember(const QString& path)
                                 });
 }
 
-void snapshotArchive(const QString& path, const QString& destination, const std::atomic_bool* cancelled)
+QByteArray snapshotArchive(const QString& path, const QString& destination, const std::atomic_bool* cancelled)
 {
     require(!cancelled || !*cancelled);
     QFile input(path);
@@ -65,6 +65,7 @@ void snapshotArchive(const QString& path, const QString& destination, const std:
     QFile output(destination);
     require(output.open(QIODevice::WriteOnly | QIODevice::NewOnly));
     std::array<char, READ_BLOCK_BYTES> buffer{};
+    QCryptographicHash digest(QCryptographicHash::Sha256);
     qint64 copied = 0;
     for (;;)
     {
@@ -76,9 +77,11 @@ void snapshotArchive(const QString& path, const QString& destination, const std:
             break;
         }
         require(output.write(buffer.data(), count) == count);
+        digest.addData(QByteArrayView(buffer.data(), count));
         copied += count;
     }
     require(copied == expected && output.flush());
+    return digest.result();
 }
 
 } // namespace
@@ -89,7 +92,7 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
     require(result.m_Directory.isValid() && result.m_SourceDirectory.isValid());
     result.m_CanonicalRoot = QFileInfo(result.m_Directory.path()).canonicalFilePath();
     require(!result.m_CanonicalRoot.isEmpty());
-    snapshotArchive(path, result.sourcePath(), cancelled);
+    result.m_SourceDigest = snapshotArchive(path, result.sourcePath(), cancelled);
 #ifndef _WIN32
     // libarchive converts ZIP names through the calling thread's character locale,
     // even when archive_entry_pathname_utf8 is requested. A C locale rejects Unicode.
@@ -193,6 +196,11 @@ QString TrackerArchive::root() const
 QString TrackerArchive::sourcePath() const
 {
     return m_SourceDirectory.filePath("source.trz");
+}
+
+const QByteArray& TrackerArchive::sourceDigest() const
+{
+    return m_SourceDigest;
 }
 
 bool TrackerArchive::memberMatchesSource(const QString& member, const std::atomic_bool* cancelled) const

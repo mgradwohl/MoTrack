@@ -56,11 +56,22 @@
 namespace motrack
 {
 
+namespace
+{
+QString physicalSourcePath(const QString& path)
+{
+    const QFileInfo info(path);
+    const auto physical = info.canonicalFilePath();
+    return physical.isEmpty() ? info.absoluteFilePath() : physical;
+}
+} // namespace
+
 struct MainWindow::PreparedProject
 {
     WorkspaceDocument document;
     std::shared_ptr<const TrackerArchive> archive;
     QString member;
+    QString mediaProjectPath;
     bool chooseArchiveTab = false;
 };
 
@@ -582,6 +593,7 @@ bool MainWindow::loadProject(const QString& path)
 MainWindow::PreparedProject MainWindow::prepareProject(const QString& path, const std::atomic_bool* cancelled)
 {
     PreparedProject prepared;
+    prepared.mediaProjectPath = physicalSourcePath(path);
     if (path.endsWith(".motrack", Qt::CaseInsensitive))
     {
         prepared.document = readWorkspaceDocument(path, cancelled);
@@ -726,7 +738,7 @@ bool MainWindow::applyProject(const QString& path, PreparedProject prepared, con
 
     cancelMovieOpen();
     releaseArchive();
-    m_MediaProjectPath = path;
+    m_MediaProjectPath = prepared.mediaProjectPath;
     document.archivePayload = std::move(prepared.archive);
     document.archiveMember = prepared.member.isEmpty() ? std::nullopt : std::optional(prepared.member.toStdString());
     if (document.archivePayload)
@@ -810,11 +822,14 @@ bool MainWindow::openImageSequence(const QStringList& paths, double frameRate)
     {
         project.clip.frameDurationMs = duration;
     }
-    for (const auto& path : paths)
+    const auto path = physicalSourcePath(paths.front());
+    const QDir mediaDirectory(localProjectDirectory(path));
+    for (const auto& imagePath : paths)
     {
-        project.clip.mediaReferences.push_back(QFileInfo(path).absoluteFilePath().toStdString());
+        const auto physical = QFileInfo(imagePath).canonicalFilePath();
+        project.clip.mediaReferences.push_back(
+            mediaDirectory.relativeFilePath(physical.isEmpty() ? QFileInfo(imagePath).absoluteFilePath() : physical).toStdString());
     }
-    const auto path = QFileInfo(paths.front()).absoluteFilePath();
     auto sequence = ImageSequence::open(path, project.clip);
     const auto first = sequence ? sequence->readStep(0) : std::nullopt;
     if (!first || first->image.isNull())
@@ -843,7 +858,7 @@ void MainWindow::openMovie(const QString& path)
 {
     cancelProjectOpen();
     statusBar()->showMessage(tr("Reading video frames…"));
-    scheduleMovieIndex(path, true);
+    scheduleMovieIndex(physicalSourcePath(path), true);
 }
 
 void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
@@ -889,7 +904,8 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
                         m_Session.replace({}, path);
                         m_Session.document.project.clip.stepCount = index.frameCount;
                         m_Session.document.project.clip.sourceFrameCount = index.frameCount;
-                        m_Session.document.project.clip.mediaReferences.push_back(QFileInfo(path).absoluteFilePath().toStdString());
+                        m_Session.document.project.clip.mediaReferences.push_back(
+                            QDir(localProjectDirectory(path)).relativeFilePath(QFileInfo(path).canonicalFilePath()).toStdString());
                         m_Sequence.reset();
                         m_MoviePath = path;
                         m_Session.document.movie = true;
