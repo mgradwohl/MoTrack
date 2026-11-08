@@ -197,7 +197,14 @@ A new transaction at the same pathname receives a new identity. Session completi
 identity so a delayed result cannot clear a newer pending transaction. Missing/invalid identities are
 refused before recovery modifies either output. This is part of the initial, unmerged journal format.
 
-Recovery checkpoints capture the pending path-to-transaction identities. Applying a delayed result
+The session retains every known pending transaction identity, including multiple successive identities
+at one journal pathname when worker completions arrive out of order. A recovery checkpoint selects
+the first pending identity at each path; applying its result removes only that identity, leaving newer
+ones pending. Completed/obsolete UUIDs remain remembered until document replacement, so even an
+original write result captured before registration cannot resurrect a recovered transaction. Unknown
+retry errors never replace known identities. A successful save elsewhere cannot hide these entries.
+
+Recovery checkpoints capture the selected pending path-to-transaction identities. Applying a delayed result
 requires the recorded transaction still to match both the checkpoint and result. A newer transaction
 at the same path therefore remains pending. Recovery also preserves an existing native Save As
 target, including one selected while recovery was running; only an unset native target is adopted.

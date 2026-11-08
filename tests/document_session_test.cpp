@@ -358,7 +358,7 @@ TEST(DocumentSession, DelayedRecoveryCannotRemoveANewerTransactionAtTheSamePath)
     ASSERT_EQ(first.recoveryPath, second.recoveryPath);
     ASSERT_NE(first.transactionId, second.transactionId);
     ASSERT_EQ(session.completePairedSave(session.saveCheckpoint(), second), motrack::SaveOutcome::Partial);
-    EXPECT_EQ(session.completePairedRecovery(firstCheckpoint, first.recoveryPath, firstRecovery), motrack::SaveOutcome::Stale);
+    EXPECT_EQ(session.completePairedRecovery(firstCheckpoint, first.recoveryPath, firstRecovery), motrack::SaveOutcome::Recovered);
     EXPECT_EQ(session.recoveryPath(), second.recoveryPath);
     EXPECT_TRUE(QFileInfo::exists(second.recoveryPath));
     const auto current = motrack::writePairedDocuments(temporary.filePath("current.trk"), session.document, source);
@@ -377,6 +377,78 @@ TEST(DocumentSession, DelayedRecoveryCannotRemoveANewerTransactionAtTheSamePath)
     ASSERT_EQ(saved.status, motrack::PairedSaveStatus::Saved);
     EXPECT_EQ(session.completePairedSave(session.saveCheckpoint(), saved), motrack::SaveOutcome::Saved);
     EXPECT_FALSE(session.isModified());
+}
+
+TEST(DocumentSession, RetainsNewTransactionsWhoseCheckpointsPredateAnOlderSaveRegistration)
+{
+    QTemporaryDir temporary;
+    const auto source = fixturePath("../corpus/fixtures/linked-images/linked-images.trk");
+    const auto target = temporary.filePath("paired.trk");
+    motrack::DocumentSession session;
+    session.replace(motrack::importTrackerDocument(source), source);
+    const auto firstCheckpoint = session.saveCheckpoint();
+    const auto secondCheckpoint = session.saveCheckpoint();
+    ASSERT_TRUE(secondCheckpoint.recoveryTransactions.isEmpty());
+    std::atomic_bool cancelled{false};
+    const auto interrupt = [&cancelled](auto state)
+    {
+        cancelled = state == motrack::PairedSaveProgress::StandardSaved;
+    };
+    const auto first = motrack::writePairedDocuments(target, session.document, source, &cancelled, interrupt);
+    ASSERT_EQ(session.completePairedSave(firstCheckpoint, first), motrack::SaveOutcome::Partial);
+    const auto recoveryCheckpoint = session.saveCheckpoint();
+    const auto firstRecovery = motrack::recoverPairedDocuments(first.recoveryPath);
+    ASSERT_EQ(firstRecovery.status, motrack::PairedSaveStatus::Saved);
+    ASSERT_TRUE(session.history.setPointMassValue(session.document.project, 0, 7));
+    cancelled = false;
+    const auto second = motrack::writePairedDocuments(target, session.document, source, &cancelled, interrupt);
+    ASSERT_EQ(second.status, motrack::PairedSaveStatus::RecoveryRequired);
+    EXPECT_EQ(session.completePairedSave(secondCheckpoint, second), motrack::SaveOutcome::Partial);
+    EXPECT_EQ(session.completePairedRecovery(recoveryCheckpoint, session.recoveryPath(), firstRecovery), motrack::SaveOutcome::Recovered);
+    EXPECT_EQ(session.recoveryPath(), second.recoveryPath);
+    EXPECT_EQ(session.saveCheckpoint().recoveryTransactions.value(second.recoveryPath), second.transactionId);
+    const auto other = motrack::writePairedDocuments(temporary.filePath("other.trk"), session.document, source);
+    ASSERT_EQ(other.status, motrack::PairedSaveStatus::Saved);
+    EXPECT_EQ(session.completePairedSave(session.saveCheckpoint(), other), motrack::SaveOutcome::Partial);
+    EXPECT_TRUE(session.isModified());
+    EXPECT_TRUE(QFileInfo::exists(second.recoveryPath));
+    const auto secondRecovery = motrack::recoverPairedDocuments(second.recoveryPath);
+    EXPECT_EQ(session.completePairedRecovery(session.saveCheckpoint(), session.recoveryPath(), secondRecovery),
+              motrack::SaveOutcome::Recovered);
+    const auto saved = motrack::writePairedDocuments(other.standardPath, session.document, source);
+    EXPECT_EQ(session.completePairedSave(session.saveCheckpoint(), saved), motrack::SaveOutcome::Saved);
+    EXPECT_FALSE(session.isModified());
+}
+
+TEST(DocumentSession, OriginalInterruptedResultsCannotResurrectTransactionsCompletedThroughARetry)
+{
+    QTemporaryDir temporary;
+    const auto source = fixturePath("../corpus/fixtures/linked-images/linked-images.trk");
+    const auto target = temporary.filePath("paired.trk");
+    motrack::DocumentSession session;
+    session.replace(motrack::importTrackerDocument(source), source);
+    const auto originalCheckpoint = session.saveCheckpoint();
+    std::atomic_bool cancelled{false};
+    const auto first =
+        motrack::writePairedDocuments(target,
+                                      session.document,
+                                      source,
+                                      &cancelled,
+                                      [&cancelled](auto state) { cancelled = state == motrack::PairedSaveProgress::StandardSaved; });
+    ASSERT_EQ(first.status, motrack::PairedSaveStatus::RecoveryRequired);
+    const auto retry = motrack::writePairedDocuments(target, session.document, source);
+    ASSERT_EQ(retry.transactionId, first.transactionId);
+    ASSERT_EQ(session.completePairedSave(session.saveCheckpoint(), retry), motrack::SaveOutcome::Partial);
+    const auto recovered = motrack::recoverPairedDocuments(first.recoveryPath);
+    ASSERT_EQ(session.completePairedRecovery(session.saveCheckpoint(), session.recoveryPath(), recovered), motrack::SaveOutcome::Recovered);
+    EXPECT_EQ(session.completePairedSave(originalCheckpoint, first), motrack::SaveOutcome::Stale);
+    EXPECT_TRUE(session.recoveryPath().isEmpty());
+    EXPECT_TRUE(session.saveCheckpoint().recoveryTransactions.isEmpty());
+    const auto saved = motrack::writePairedDocuments(temporary.filePath("other.trk"), session.document, source);
+    EXPECT_EQ(session.completePairedSave(session.saveCheckpoint(), saved), motrack::SaveOutcome::Saved);
+    EXPECT_FALSE(session.isModified());
+    session.replace(motrack::importTrackerDocument(source), source);
+    EXPECT_EQ(session.completePairedSave(originalCheckpoint, first), motrack::SaveOutcome::Replaced);
 }
 
 TEST(DocumentSession, DelayedBlockedRetriesCannotReplaceNewerOrClearedRecoveryIdentities)
