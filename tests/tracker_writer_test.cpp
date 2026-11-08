@@ -566,9 +566,9 @@ TEST(TrackerWriter, RejectsNonViewablePlotAndTableSelectionsBeforeReplacingDesti
         if (selection < 3)
         {
             const std::string field = selection == 0 ? "selected_track" : selection == 1 ? "track" : "[0]";
-            const auto old = "name=\"" + field + "\" type=\"string\">" + (selection == 2 ? "mass C" : "mass A") + "</property>";
+            const auto old = "name=\"" + field + R"(" type="string">)" + (selection == 2 ? "mass C" : "mass A") + "</property>";
             ASSERT_NE(xml.find(old), std::string::npos);
-            xml.replace(xml.find(old), old.size(), "name=\"" + field + "\" type=\"string\">axes</property>");
+            xml.replace(xml.find(old), old.size(), "name=\"" + field + R"(" type="string">axes</property>)");
         }
         else
         {
