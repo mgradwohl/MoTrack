@@ -14,6 +14,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import org.opensourcephysics.cabrillo.tracker.CenterOfMass;
+import org.opensourcephysics.cabrillo.tracker.DynamicParticle;
+import org.opensourcephysics.cabrillo.tracker.DynamicSystem;
 import org.opensourcephysics.cabrillo.tracker.ParticleModel;
 import org.opensourcephysics.cabrillo.tracker.PointMass;
 import org.opensourcephysics.cabrillo.tracker.Step;
@@ -59,9 +61,10 @@ public final class TrackerSessionReference {
             Path saved = directory.resolve("tracker-resaved.trk");
             if (save && Files.exists(saved)) throw new IllegalArgumentException("Output must be a fresh test directory");
             List<AttachmentRequirement> attachmentRequirements = attachmentRequirements(input);
+            List<ModelRequirement> modelRequirements = modelRequirements(input);
             SwingUtilities.invokeAndWait(guard(() -> {
                 TFrame originalFrame = new TFrame();
-                TrackerIO.openURL(input.toString(), originalFrame, guard(() -> whenEvaluated(originalFrame, attachmentRequirements, () -> {
+                TrackerIO.openURL(input.toString(), originalFrame, guard(() -> whenEvaluated(originalFrame, attachmentRequirements, modelRequirements, () -> {
                     TrackerPanel panel = onlyPanel(originalFrame);
                     Map<String, Object> before = snapshot(panel);
                     if (save && (TrackerIO.save(saved.toFile(), panel) == null || !Files.isRegularFile(saved)))
@@ -101,6 +104,37 @@ public final class TrackerSessionReference {
     }
 
     private record AttachmentRequirement(String owner, String[] targets) {}
+    private record ModelRequirement(String owner, String booster, String[] particles) {}
+
+    private static List<ModelRequirement> modelRequirements(Path input) {
+        XMLControlElement source = new XMLControlElement(input.toString());
+        List<ModelRequirement> result = new ArrayList<>();
+        for (XMLControl track : TrackerReference.objects(TrackerReference.property(source, "tracks"))) {
+            String kind = track.getObjectClassName();
+            if (!(kind.equals(DynamicParticle.class.getName()) || kind.equals(DynamicSystem.class.getName())
+                    || kind.equals("org.opensourcephysics.cabrillo.tracker.DynamicParticlePolar"))) continue;
+            String booster = track.getString("booster");
+            String[] particles = kind.equals(DynamicSystem.class.getName()) ? (String[]) track.getObject("particles") : null;
+            if (particles != null && (particles.length > 2 || Arrays.stream(particles).anyMatch(name -> name == null)))
+                throw new IllegalStateException("Unexpected system member requirements");
+            if (booster != null || particles != null) {
+                if (result.size() >= 10000) throw new IllegalStateException("Model requirement limit exceeded");
+                result.add(new ModelRequirement(track.getString("name"), booster, particles));
+            }
+        }
+        source.dispose();
+        return result;
+    }
+
+    private static boolean modelDependenciesReady(TrackerPanel panel, List<ModelRequirement> requirements) {
+        for (ModelRequirement requirement : requirements) {
+            XMLControlElement live = new XMLControlElement(uniqueTrack(panel, requirement.owner()));
+            if (requirement.booster() != null && !requirement.booster().equals(live.getString("booster"))) return false;
+            if (requirement.particles() != null && !Arrays.equals(requirement.particles(), (String[]) live.getObject("particles")))
+                return false;
+        }
+        return true;
+    }
 
     private static List<AttachmentRequirement> attachmentRequirements(Path input) {
         XMLControlElement source = new XMLControlElement(input.toString());
@@ -124,7 +158,7 @@ public final class TrackerSessionReference {
 
     private static TTrack uniqueTrack(TrackerPanel panel, String name) {
         List<TTrack> matches = panel.getTracks().stream().filter(track -> track.getName().equals(name)).toList();
-        if (matches.size() != 1) throw new IllegalStateException("Missing or ambiguous attachment track: " + name);
+        if (matches.size() != 1) throw new IllegalStateException("Missing or ambiguous reference track: " + name);
         return matches.get(0);
     }
 
@@ -160,7 +194,7 @@ public final class TrackerSessionReference {
         return true;
     }
 
-    private static void whenEvaluated(TFrame frame, List<AttachmentRequirement> attachments, Runnable action) {
+    private static void whenEvaluated(TFrame frame, List<AttachmentRequirement> attachments, List<ModelRequirement> models, Runnable action) {
         TrackerPanel panel = onlyPanel(frame);
         WAITING.set("showing the loaded experiment");
         VideoClip clip = panel.getPlayer().getVideoClip();
@@ -176,6 +210,7 @@ public final class TrackerSessionReference {
             // Tracker schedules attachment refresh after load. Observe normal resolution and point
             // attachment instead of sleeping or calling its protected refresh/repair methods.
             if (!attachmentsReady(panel, attachments)) { WAITING.set("attachment target/point refresh"); return; }
+            if (!modelDependenciesReady(panel, models)) { WAITING.set("model dependency resolution"); return; }
             // Named constituents are resolved by CenterOfMass's normal initialize/draw path.
             for (TTrack track : panel.getTracks()) if (track instanceof CenterOfMass center
                     && center.getMasses().length == 0) { WAITING.set("center members: " + center.getName()); return; }
@@ -247,6 +282,7 @@ public final class TrackerSessionReference {
         List<Object> centers = new ArrayList<>();
         List<Object> sums = new ArrayList<>();
         List<Object> attachments = new ArrayList<>();
+        List<Object> models = new ArrayList<>();
         for (TTrack track : panel.getTracks()) {
             List<Object> samples = new ArrayList<>();
             List<Object> vectorSamples = new ArrayList<>();
@@ -288,6 +324,20 @@ public final class TrackerSessionReference {
             tracks.add(TrackerReference.map("class", track.getClass().getName(), "name", track.getName(),
                 "mass", track instanceof PointMass mass ? mass.getMass() : null, "samples", samples, "key_frames", keys,
                 "vector_samples", vectorSamples));
+            if (track instanceof DynamicParticle model) {
+                XMLControlElement live = new XMLControlElement(model);
+                String[] members = model instanceof DynamicSystem ? (String[]) live.getObject("particles") : null;
+                List<Object> positions = new ArrayList<>();
+                for (Step step : steps) if (step != null) {
+                    int frame = step.getFrameNumber();
+                    TPoint point = step.getPoints()[0];
+                    positions.add(TrackerReference.map("frame", frame, "image", List.of(point.x, point.y),
+                        "world", List.of(coords.imageToWorldX(frame, point.x, point.y), coords.imageToWorldY(frame, point.x, point.y))));
+                }
+                models.add(TrackerReference.map("name", model.getName(), "mass", model.getMass(),
+                    "booster", live.getString("booster"), "particles", members == null ? List.of() : Arrays.asList(members),
+                    "samples", positions));
+            }
             if (track instanceof TapeMeasure tape && tape.isAttached()) {
                 List<String> targets = new ArrayList<>();
                 for (TTrack target : tape.getAttachments()) targets.add(target == null ? null : target.getName());
@@ -355,6 +405,7 @@ public final class TrackerSessionReference {
             "centers_of_mass", centers,
             "vector_sums", sums,
             "attachments", attachments,
+            "models", models,
             "calibration", TrackerReference.map("fixed_origin", coords.isFixedOrigin(), "fixed_angle", coords.isFixedAngle(),
                 "fixed_scale", coords.isFixedScale(), "keys", calibrationKeys),
             "tracks", tracks, "coordinate_samples", coordinates);

@@ -20,6 +20,8 @@ constexpr qsizetype MAX_NAME_UNITS = 4096;
 constexpr qsizetype MAX_VIEW_UNITS = 65536;
 constexpr std::string_view POINT_MASS_CLASS = "org.opensourcephysics.cabrillo.tracker.PointMass";
 constexpr std::string_view VECTOR_CLASS = "org.opensourcephysics.cabrillo.tracker.Vector";
+constexpr std::string_view DYNAMIC_PARTICLE_CLASS = "org.opensourcephysics.cabrillo.tracker.DynamicParticle";
+constexpr std::string_view POLAR_PARTICLE_CLASS = "org.opensourcephysics.cabrillo.tracker.DynamicParticlePolar";
 
 struct Property
 {
@@ -120,7 +122,8 @@ void addReference(TrackerReferenceIndex& result,
         for (const auto sourceIndex : found->second)
         {
             const auto& className = result.tracks[sourceIndex].className;
-            if (!constituentClass.empty() && className != constituentClass)
+            const bool knownPolarMember = constituentClass == DYNAMIC_PARTICLE_CLASS && className == POLAR_PARTICLE_CLASS;
+            if (!constituentClass.empty() && className != constituentClass && !knownPolarMember)
             {
                 if (className == POINT_MASS_CLASS || className == VECTOR_CLASS)
                 {
@@ -149,7 +152,8 @@ void panelReference(TrackerReferenceIndex& result,
                     const QString& field,
                     TrackerReferenceKind kind,
                     const std::string& prefix = {},
-                    bool required = false)
+                    bool required = false,
+                    std::string_view constituentClass = {})
 {
     const auto value = property(panel, field);
     if (value.element.isNull() && !required)
@@ -163,7 +167,7 @@ void panelReference(TrackerReferenceIndex& result,
         result.malformedPaths.push_back(path);
         return;
     }
-    addReference(result, names, kind, path, *name, false);
+    addReference(result, names, kind, path, *name, false, constituentClass);
 }
 
 void viewReferences(TrackerReferenceIndex& result, NameTargets& names, const QDomElement& panel)
@@ -546,6 +550,54 @@ struct ReferenceReader
         }
     }
 
+    void modelDependencies(const QDomElement& object, std::size_t sourceIndex)
+    {
+        const auto className = object.attribute("class").toStdString();
+        const bool system = className == "org.opensourcephysics.cabrillo.tracker.DynamicSystem";
+        if (!system && className != DYNAMIC_PARTICLE_CLASS && className != POLAR_PARTICLE_CLASS)
+        {
+            return;
+        }
+        const auto trackPath = "/tracks/" + std::to_string(sourceIndex);
+        panelReference(result, names, object, "booster", TrackerReferenceKind::ModelBooster, trackPath, false, POINT_MASS_CLASS);
+        if (!system)
+        {
+            return;
+        }
+        const auto value = property(object, "particles");
+        if (value.element.isNull())
+        {
+            return; // Empty systems omit their particles field in the normal serializer.
+        }
+        const auto path = trackPath + "/particles";
+        const auto members = array(value, "[Ljava.lang.String;", path, 2);
+        if (!members)
+        {
+            return;
+        }
+        if (!members->empty() && (members->begin()->first != 0 || members->rbegin()->first != members->size() - 1))
+        {
+            result.malformedPaths.push_back(path);
+            return;
+        }
+        Owners targets;
+        for (const auto& [slot, item] : *members)
+        {
+            const auto memberPath = path + "/" + std::to_string(slot);
+            const auto name = stringValue({.element = item}, MAX_NAME_UNITS);
+            if (!name)
+            {
+                result.malformedPaths.push_back(memberPath);
+                return;
+            }
+            targets.emplace_back(memberPath, *name);
+        }
+        for (const auto& [memberPath, name] : targets)
+        {
+            addReference(result, names, TrackerReferenceKind::DynamicSystemMember, memberPath, name, false, DYNAMIC_PARTICLE_CLASS);
+        }
+    }
+
     void constituents(const QDomElement& object, std::size_t sourceIndex)
     {
         const auto className = object.attribute("class");
@@ -707,6 +759,7 @@ TrackerReferenceIndex indexTrackerReferences(const TrackerSource& source, const 
     {
         reader.constituents(object, sourceIndex);
         reader.attachments(object, sourceIndex);
+        reader.modelDependencies(object, sourceIndex);
     }
     return result;
 }

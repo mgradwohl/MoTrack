@@ -16,9 +16,10 @@ std::string property(std::string_view name, std::string_view text)
     return "<property name='" + std::string(name) + "' type='string'><![CDATA[" + std::string(text) + "]]></property>";
 }
 
-std::string track(std::string_view type, std::string_view name)
+std::string track(std::string_view type, std::string_view name, std::string_view fields = {})
 {
-    return "<property name='item'><object class='" + std::string(type) + "'>" + property("name", name) + "</object></property>";
+    return "<property name='item'><object class='" + std::string(type) + "'>" + property("name", name) + std::string(fields) +
+           "</object></property>";
 }
 
 std::string point(std::string_view name)
@@ -753,6 +754,138 @@ TEST(TrackerReferences, AttachmentIdentitySurvivesNativeEditsUndoAndReopen)
     EXPECT_EQ(restored.tracks[0].nativeId, id);
     EXPECT_EQ(restored.references[1].originalName, "original");
     EXPECT_EQ(restored.references[1].candidateSourceIndices, (std::vector<std::size_t>{0}));
+    EXPECT_EQ(reopened.trackerSource->xml, imported.source.xml);
+}
+
+TEST(TrackerReferences, IndexesModelBoostersAndCartesianPolarSystemMembers)
+{
+    const auto result = index(project(
+        point("base") + track("org.opensourcephysics.cabrillo.tracker.DynamicParticle", "A", property("booster", "base")) +
+        track("org.opensourcephysics.cabrillo.tracker.DynamicParticlePolar", "B", property("booster", "base")) +
+        dependent("DynamicSystem", property("booster", "base") + stringRow("particles", property("[0]", "A") + property("[1]", "B")))));
+    EXPECT_TRUE(result.malformedPaths.empty());
+    ASSERT_EQ(result.references.size(), 5u);
+    for (std::size_t i = 0; i < 3; ++i)
+    {
+        EXPECT_EQ(result.references[i].kind, Kind::ModelBooster);
+        EXPECT_EQ(result.references[i].path, "/tracks/" + std::to_string(i + 1) + "/booster");
+        EXPECT_EQ(result.references[i].resolution, Resolution::Resolved);
+        EXPECT_EQ(result.references[i].candidateSourceIndices, (std::vector<std::size_t>{0}));
+    }
+    for (std::size_t i = 0; i < 2; ++i)
+    {
+        EXPECT_EQ(result.references[i + 3].kind, Kind::DynamicSystemMember);
+        EXPECT_EQ(result.references[i + 3].path, "/tracks/3/particles/" + std::to_string(i));
+        EXPECT_EQ(result.references[i + 3].resolution, Resolution::Resolved);
+        EXPECT_EQ(result.references[i + 3].candidateSourceIndices, (std::vector<std::size_t>{i + 1}));
+        EXPECT_FALSE(result.tracks[i + 1].nativeId);
+    }
+    EXPECT_EQ(result.tracks[0].nativeId, 1u);
+    EXPECT_TRUE(index(project(dependent("DynamicSystem", {}))).malformedPaths.empty());
+    EXPECT_TRUE(index(project(dependent("DynamicSystem", stringRow("particles", {})))).malformedPaths.empty());
+}
+
+TEST(TrackerReferences, ModelReferencesFilterKnownWrongTypesAndRetainUnclassifiedCandidates)
+{
+    const auto fields = property("booster", "same") + stringRow("particles", property("[0]", "same"));
+    const auto result =
+        index(project(point("same") + track("org.opensourcephysics.cabrillo.tracker.Vector", "same") +
+                      track("org.opensourcephysics.cabrillo.tracker.DynamicParticle", "same") + dependent("DynamicSystem", fields)));
+    ASSERT_EQ(result.references.size(), 2u);
+    EXPECT_EQ(result.references[0].resolution, Resolution::Unclassified); // Possible PointMass subclass booster.
+    EXPECT_EQ(result.references[0].candidateSourceIndices, (std::vector<std::size_t>{0, 2}));
+    EXPECT_EQ(result.references[1].resolution, Resolution::Resolved);
+    EXPECT_EQ(result.references[1].candidateSourceIndices, (std::vector<std::size_t>{2}));
+    const auto unknown = index(project(track("FutureModel", "same") + dependent("DynamicSystem", fields)));
+    ASSERT_EQ(unknown.references.size(), 2u);
+    EXPECT_EQ(unknown.references[0].resolution, Resolution::Unclassified);
+    EXPECT_EQ(unknown.references[1].resolution, Resolution::Unclassified);
+    const auto duplicate = index(project(track("org.opensourcephysics.cabrillo.tracker.DynamicParticle", "same") +
+                                         track("org.opensourcephysics.cabrillo.tracker.DynamicParticlePolar", "same") +
+                                         dependent("DynamicSystem", stringRow("particles", property("[0]", "same")))));
+    ASSERT_EQ(duplicate.references.size(), 1u);
+    EXPECT_EQ(duplicate.references[0].resolution, Resolution::Ambiguous);
+    EXPECT_EQ(duplicate.references[0].candidateSourceIndices, (std::vector<std::size_t>{0, 1}));
+    const auto missing = index(project(point("same") + dependent("DynamicSystem", stringRow("particles", property("[0]", "same")))));
+    ASSERT_EQ(missing.references.size(), 1u);
+    EXPECT_EQ(missing.references[0].resolution, Resolution::Missing);
+    const auto literal =
+        index(project(track("org.opensourcephysics.cabrillo.tracker.DynamicParticle", "null") +
+                      dependent("DynamicSystem", stringRow("particles", property("[0]", "null") + property("[1]", "null")))));
+    ASSERT_EQ(literal.references.size(), 2u);
+    EXPECT_EQ(literal.references[0].resolution, Resolution::Resolved);
+    EXPECT_EQ(literal.references[1].candidateSourceIndices, (std::vector<std::size_t>{0}));
+}
+
+TEST(TrackerReferences, RejectsMalformedModelDependenciesWithoutPartialMemberLists)
+{
+    const auto member = property("[0]", "A");
+    const auto valid = stringRow("particles", member);
+    for (const auto& fields : {property("particles", "A"),
+                               valid + valid,
+                               arrayXml("particles", "wrong", member),
+                               stringRow("particles", property("[1]", "A")),
+                               stringRow("particles", member + member),
+                               stringRow("particles", member + property("[2]", "A")),
+                               stringRow("particles", member + "<property name='[1]' type='object'>null</property>"),
+                               stringRow("particles", member + property("[1]", std::string(4097, 'a'))),
+                               property("booster", "A") + property("booster", "A"),
+                               std::string("<property name='booster' type='object'>null</property>")})
+    {
+        SCOPED_TRACE(fields);
+        const auto result = index(project(dependent("DynamicSystem", fields)));
+        EXPECT_TRUE(result.references.empty());
+        EXPECT_FALSE(result.malformedPaths.empty());
+    }
+    const auto unknown = index(project(dependent("FutureModel", property("booster", "A") + valid)));
+    EXPECT_TRUE(unknown.references.empty());
+    EXPECT_TRUE(unknown.malformedPaths.empty()); // Unknown owner semantics are not guessed.
+}
+
+TEST(TrackerReferences, ModelDependenciesShareEntryAndCandidateBudgets)
+{
+    std::string tracks = track("org.opensourcephysics.cabrillo.tracker.DynamicParticle", "A");
+    for (unsigned i = 0; i < 5000; ++i)
+        tracks += dependent("DynamicSystem", stringRow("particles", property("[0]", "A") + property("[1]", "A")));
+    EXPECT_THROW((void)index(project(tracks, savedViews(viewXml("TableTView", {})))), motrack::ProjectError);
+    tracks.clear();
+    for (unsigned i = 0; i < 400; ++i)
+        tracks += point("same");
+    for (unsigned i = 0; i < 251; ++i)
+        tracks += dependent("DynamicParticle", property("booster", "same"));
+    EXPECT_THROW((void)index(project(tracks)), motrack::ProjectError);
+}
+
+TEST(TrackerReferences, BoosterSourceIdentitySurvivesNativeEditsUndoAndReopen)
+{
+    auto imported = motrack::parseTrackerProject(
+        project(point("original") + point("other") + dependent("DynamicParticle", property("booster", "original"))));
+    const auto id = imported.project.pointMasses[0].id;
+    motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.renamePointMass(document.project, 0, "new name"));
+    std::ranges::reverse(document.project.pointMasses);
+    ASSERT_TRUE(edits.removePointMass(document.project, 1));
+    const auto deleted = motrack::indexTrackerReferences(imported.source, document.project);
+    ASSERT_EQ(deleted.references.size(), 1u);
+    EXPECT_EQ(deleted.tracks[0].nativeId, id);
+    EXPECT_EQ(deleted.references[0].candidateSourceIndices, (std::vector<std::size_t>{0}));
+    ASSERT_TRUE(edits.undo(document.project));
+    ASSERT_TRUE(edits.redo(document.project));
+    ASSERT_TRUE(edits.undo(document.project));
+    QTemporaryDir temporary;
+    const auto file = temporary.filePath("model-links.motrack");
+    motrack::writeWorkspaceDocument(file, document);
+    const auto reopened = motrack::readWorkspaceDocument(file);
+    if (!reopened.trackerSource)
+    {
+        FAIL() << "Expected original source";
+    }
+    const auto restored = motrack::indexTrackerReferences(*reopened.trackerSource, reopened.project);
+    ASSERT_EQ(restored.references.size(), 1u);
+    EXPECT_EQ(restored.tracks[0].nativeId, id);
+    EXPECT_EQ(restored.references[0].originalName, "original");
+    EXPECT_EQ(restored.references[0].candidateSourceIndices, (std::vector<std::size_t>{0}));
     EXPECT_EQ(reopened.trackerSource->xml, imported.source.xml);
 }
 

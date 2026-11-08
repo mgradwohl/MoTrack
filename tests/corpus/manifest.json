@@ -573,6 +573,178 @@
         }
       ],
       "provenance": "Authored by tools/reference/AttachmentsFixture.java through pinned Tracker 6.3.5 APIs/serializers. Three tapes start with deliberately stale attached endpoints. Independent per-frame endpoint/length expectations require normal attachment resolution and evaluation. Leading implicit and trailing explicit null slots remain unattached; normal application saves may omit trailing null extent. No native output supplies expected values."
+    },
+    {
+      "id": "model-dependencies",
+      "file": "model-dependencies.trk",
+      "local_file": "fixtures/model-dependencies.trk",
+      "sha256": "fad9b0f4dff4f4f8d3e755f0f5ba0fc3353a19c03055d7e6a67eaa88656d26dc",
+      "bytes": 31011,
+      "tracker_version": "6.3.5",
+      "features": [
+        "model-booster",
+        "two-particle-system",
+        "resolved-model-members",
+        "independent-static-positions"
+      ],
+      "requirements": [
+        "R02",
+        "R03",
+        "R19"
+      ],
+      "expected": "expected/model-dependencies.json",
+      "native_reference_index": "expected/model-dependencies-references.json",
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "mass A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.DynamicParticle",
+          "name": "particle A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.DynamicParticle",
+          "name": "particle B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.DynamicSystem",
+          "name": "system"
+        }
+      ],
+      "session_models": [
+        {
+          "name": "particle A",
+          "mass": 1,
+          "booster": null,
+          "particles": [],
+          "samples": [
+            {
+              "frame": 0,
+              "image": [
+                22,
+                36
+              ],
+              "world": [
+                1,
+                2
+              ]
+            },
+            {
+              "frame": 1,
+              "image": [
+                22,
+                36
+              ],
+              "world": [
+                1,
+                2
+              ]
+            },
+            {
+              "frame": 2,
+              "image": [
+                22,
+                36
+              ],
+              "world": [
+                1,
+                2
+              ]
+            }
+          ]
+        },
+        {
+          "name": "particle B",
+          "mass": 3,
+          "booster": "mass A",
+          "particles": [],
+          "samples": [
+            {
+              "frame": 0,
+              "image": [
+                26,
+                32
+              ],
+              "world": [
+                3,
+                4
+              ]
+            },
+            {
+              "frame": 1,
+              "image": [
+                26,
+                32
+              ],
+              "world": [
+                3,
+                4
+              ]
+            },
+            {
+              "frame": 2,
+              "image": [
+                26,
+                32
+              ],
+              "world": [
+                3,
+                4
+              ]
+            }
+          ]
+        },
+        {
+          "name": "system",
+          "mass": 4,
+          "booster": null,
+          "particles": [
+            "particle A",
+            "particle B"
+          ],
+          "samples": [
+            {
+              "frame": 0,
+              "image": [
+                25,
+                33
+              ],
+              "world": [
+                2.5,
+                3.5
+              ]
+            },
+            {
+              "frame": 1,
+              "image": [
+                25,
+                33
+              ],
+              "world": [
+                2.5,
+                3.5
+              ]
+            },
+            {
+              "frame": 2,
+              "image": [
+                25,
+                33
+              ],
+              "world": [
+                2.5,
+                3.5
+              ]
+            }
+          ]
+        }
+      ],
+      "provenance": "Authored by tools/reference/ModelDependenciesFixture.java through pinned Tracker 6.3.5 serializers and public OSP controls. Empty-system serialized controls receive named members; one component receives a named booster and deliberately stale initial position. Independent static positions and mass-weighted center require normal application resolution/evaluation. No native output supplies expected values."
     }
   ]
 }
