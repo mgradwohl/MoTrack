@@ -70,7 +70,6 @@
     },
     {
       "id": "table-owners",
-      "native_delete_table_roundtrip": true,
       "file": "table-owners.trk",
       "local_file": "fixtures/table-owners.trk",
       "sha256": "854dcf2e4468a60f4c5e6fd21c929c6b1c6bc6aa519f92e64cb424d25dba939d",
@@ -83,6 +82,35 @@
         "custom-table-columns",
         "explicit-frame-column",
         "custom-table-formats"
+      ],
+      "requirements": [
+        "R02",
+        "R03",
+        "R15"
+      ],
+      "expected": "expected/table-owners.json",
+      "native_reference_index": "expected/table-owners-modern-references.json",
+      "session_exclusion": {
+        "issue": "https://github.com/mgradwohl/MoTrack/issues/64",
+        "reason": "Modern per-track formats still lose custom patterns and column order in expanded-pane CI run 42468681114. Original strict expectations retained in rejected_session_case; not accepted evidence."
+      },
+      "rejected_session_case": "expected/table-owners-rejected-session.json"
+    },
+    {
+      "id": "table-default-format-owners",
+      "native_delete_table_roundtrip": true,
+      "file": "table-default-format-owners.trk",
+      "local_file": "fixtures/table-default-format-owners.trk",
+      "sha256": "4708ef79a46e0c93d63d8edcf084ad0b5d9d322cb251786a905c58c954c70e17",
+      "bytes": 12952,
+      "tracker_version": "6.3.5",
+      "features": [
+        "three-point-masses",
+        "sparse-marks",
+        "nonuniform-calibration",
+        "custom-table-columns",
+        "explicit-frame-column",
+        "default-number-formats"
       ],
       "requirements": [
         "R02",
@@ -147,14 +175,12 @@
               [
                 "mass B",
                 "t",
-                "y",
                 "x",
                 "frame"
               ],
               [
                 "mass C",
                 "t",
-                "x",
                 "y",
                 "frame"
               ]
@@ -176,16 +202,6 @@
                 "0.000"
               ],
               [
-                "mass A",
-                "x",
-                "0.000"
-              ],
-              [
-                "mass A",
-                "y",
-                "0.00"
-              ],
-              [
                 "mass B",
                 "frame",
                 "0"
@@ -198,12 +214,7 @@
               [
                 "mass B",
                 "t",
-                "0.00"
-              ],
-              [
-                "mass B",
-                "y",
-                "0.0000"
+                "0.000"
               ],
               [
                 "mass C",
@@ -219,18 +230,14 @@
                 "mass C",
                 "t",
                 "0.000"
-              ],
-              [
-                "mass C",
-                "x",
-                "0.00000"
               ]
             ],
             "dataset_indices": []
           }
         ],
         "plots": []
-      }
+      },
+      "provenance": "Separate default-format deletion baseline authored by TableOwnersFixture default-formats mode. Does not replace or relax the retained custom-format failure oracles."
     },
     {
       "id": "plot-guests",

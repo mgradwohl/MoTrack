@@ -341,30 +341,27 @@ and OSP property line separators restored. Remaining columns, formats and owner 
 Original source bindings and undo history remain intact; replacement tracks cannot inherit deleted
 owners' settings. Dataset-index owners and scientific dependencies remain excluded.
 
-A Java-authored three-mass table fixture independently specifies different column order and number
-formats for each owner. Four application cases remove the first, selected or last owner, or all owners;
-seven native subsets additionally exercise renamed survivors, name reuse and native save/reopen.
-These require actual application acceptance before merging. Custom tables are still visited and their
-selection restored by the reference harness; this does not resolve Tracker's unvisited-view data-loss
-limitation tracked by [MoTrack #64](https://github.com/mgradwohl/MoTrack/issues/64).
+Four independent application cases remove the first, selected or last owner, or all owners from
+`table-default-format-owners.trk`. This separate fixture uses three explicit-frame column sets and
+only Tracker's default frame/step/time formats. Seven native subsets additionally exercise renamed
+survivors, name reuse and native save/reopen. Application acceptance is pending. The reference
+harness expands panes through public divider actions, visits custom tables and restores their
+selection; this does not establish immediate unvisited-resave fidelity.
 
-Retained point-mass rows containing only `t,x`, `t,x,y` or reordered `t,y,x` are conservatively
-refused in changed standard exports pending a proven application workflow. Early null-column
-observations occurred with a pane that Swing reported showing but Tracker considered collapsed;
-the harness now expands that pane through public divider actions. The old cases remain pinned,
-not accepted evidence. With the pane expanded, the legacy-only format fixture populated columns
-but still lost custom formats, order and table selection. It is pinned separately as well.
+Four earlier variants remain checksum-pinned failures under [MoTrack #64](https://github.com/mgradwohl/MoTrack/issues/64).
+The original subset/default-column cases were loaded with a pane that Swing considered showing but
+Tracker considered collapsed. Expanding it populated columns in the explicit-frame legacy case,
+but formats, order and selection were lost. Adding modern per-track format records and packed
+selections retained the selected owner but still lost custom patterns and order in run 42468681114.
+Its original strict session oracle remains in `table-owners-rejected-session.json`, exercised by
+Python corruption tests; its losses are not accepted as the new expected result.
 
-Current per-track `number_formats` records take precedence over legacy table-only formats during
-Tracker initialization. The candidate fixture includes these overrides, explicit divider positions
-and packed view selections. The writer audits dense unique variable/pattern pairs for point masses:
-`x`, `y`, `t`, `frame`, `step`, with pattern `0` or up to twelve fixed decimal zeroes. These records
-are preserved, not edited. Custom legacy table patterns must match the corresponding per-track
-record; unbacked patterns are refused before replacement. Pinned default frame/step/time patterns
-remain allowed. Malformed/sparse/duplicate/unknown format records and mismatched patterns have
-atomic-failure tests, including mass-only edits.
+Changed exports conservatively refuse the observed `t,x`, `t,x,y`, `t,y,x` and `t,y,x,frame` rows,
+and custom point-mass numeric patterns in either legacy tables or per-track records. Only default
+frame/step `0`, time `0.000`, or an empty table override are accepted. Dense, unique per-track
+variable/pattern grammar remains audited before use, including mass-only edits. This does not claim
+broader column combinations are verified. All failures leave an existing destination untouched.
 
-Native saves and unchanged byte-preserving rendering retain all three failing variants. Removing
-all affected owners removes their unsafe rows; removing only one cannot waive checks on survivors.
-The modern candidate still requires actual Tracker load/save/fresh-reopen acceptance. Full numeric
-format editing, broader pattern grammars and other column combinations remain unfinished; #64 stays open.
+Native saving and unchanged byte-preserving rendering retain every failing variant. Removing all
+affected owners removes their unsafe rows; deleting one cannot waive checks on survivors. Numeric
+format editing, custom order, broader pattern grammars and full view parity remain unfinished.

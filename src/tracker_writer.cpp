@@ -577,19 +577,24 @@ void requireStableTableColumns(const QDomDocument& xml, const LegacyProject& pro
             break;
         }
     }
-    std::unordered_map<std::string, std::map<std::string, std::string>> formatsByMass;
+    const auto defaultPattern = [](const std::string& variable, const std::string& pattern)
+    {
+        return ((variable == "frame" || variable == "step") && pattern == "0") || (variable == "t" && pattern == "0.000") ||
+               pattern.empty();
+    };
     for (int index = 0; index < objects.size(); ++index)
     {
         const auto object = objects.at(index).toElement();
         if (object.attribute("class") != "org.opensourcephysics.cabrillo.tracker.PointMass")
             continue;
-        auto& formats = formatsByMass[uniqueProperty(object, "name").text().toStdString()];
+        const auto owner = uniqueProperty(object, "name").text().toStdString();
         for (auto cell = uniqueProperty(object, "number_formats").firstChildElement(); !cell.isNull();)
         {
             const auto variable = cell.text().toStdString();
             cell = cell.nextSiblingElement();
             require(!cell.isNull());
-            formats.emplace(variable, cell.text().toStdString());
+            if (!defaultPattern(variable, cell.text().toStdString()))
+                throw ProjectError("Tracker cannot retain custom number formats for '" + owner + "' (MoTrack issue #64).");
             cell = cell.nextSiblingElement();
         }
     }
@@ -612,7 +617,9 @@ void requireStableTableColumns(const QDomDocument& xml, const LegacyProject& pro
             // Pinned 6.3.5 can serialize t,x as null columns, or omit a default-column view's
             // custom formats/order. Preserve these source rows natively until a safe reference
             // workflow has evidence; do not let a changed standard save imply fidelity.
-            if (subset || defaults)
+            const bool reordered =
+                second == "y" && third.text() == "x" && uniqueProperty(row, "[4]").text() == "frame" && uniqueProperty(row, "[5]").isNull();
+            if (subset || defaults || reordered)
                 throw ProjectError("Tracker cannot safely resave the table columns for '" + owner + "' (MoTrack issue #64).");
         }
         for (auto group = uniqueProperty(object, "column_formats").firstChildElement(); !group.isNull(); group = group.nextSiblingElement())
@@ -624,12 +631,8 @@ void requireStableTableColumns(const QDomDocument& xml, const LegacyProject& pro
                     continue;
                 const auto variable = uniqueProperty(row, "[1]").text().toStdString();
                 const auto pattern = uniqueProperty(row, "[2]").text().toStdString();
-                const bool defaultPattern = ((variable == "frame" || variable == "step") && pattern == "0") ||
-                                            (variable == "t" && pattern == "0.000") || pattern.empty();
-                const auto mass = formatsByMass.find(owner);
-                if (!defaultPattern &&
-                    (mass == formatsByMass.end() || !mass->second.contains(variable) || mass->second.at(variable) != pattern))
-                    throw ProjectError("Tracker cannot retain legacy-only table formats for '" + owner + "' (MoTrack issue #64).");
+                if (!defaultPattern(variable, pattern))
+                    throw ProjectError("Tracker cannot retain custom table formats for '" + owner + "' (MoTrack issue #64).");
             }
         }
     }
