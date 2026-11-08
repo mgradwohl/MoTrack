@@ -966,10 +966,10 @@ TEST(Workspace, SavingRetainsMediaLocationsAfterTheOriginalProjectDirectoryIsRem
             ASSERT_TRUE(
                 QFile::copy(fixturePath(movie ? "vfr.mp4" : "frames/frame00.ppm"), temporary.filePath(QString("media/") + mediaName)));
             auto document = motrack::importTrackerDocument(fixturePath("image-sequence.trk"));
-            document.project.clip.mediaReferences = {(QString("../media/") + mediaName).toStdString()};
+            document.project.clip.mediaReferences.assign(movie ? 1u : 3u, (QString("../media/") + mediaName).toStdString());
             document.project.clip.stepSize = 1;
-            document.project.clip.stepCount = movie ? 4 : 1;
-            document.project.clip.sourceFrameCount = movie ? 4 : 1;
+            document.project.clip.stepCount = movie ? 4 : 3;
+            document.project.clip.sourceFrameCount = movie ? 4 : 3;
             document.movie = movie;
             const auto input = temporary.filePath("import/input.motrack");
             motrack::writeWorkspaceDocument(input, document);
@@ -989,7 +989,39 @@ TEST(Workspace, SavingRetainsMediaLocationsAfterTheOriginalProjectDirectoryIsRem
             ASSERT_TRUE(window.isWindowModified());
             auto* undo = window.findChild<QAction*>("undoEdit");
             auto* redo = window.findChild<QAction*>("redoEdit");
-            ASSERT_TRUE(undo && redo);
+            auto* slider = window.findChild<QSlider*>("stepSlider");
+            auto* clipSettings = window.findChild<QAction*>("clipSettings");
+            ASSERT_TRUE(undo && redo && slider && clipSettings);
+            slider->setValue(0); // Marking advances to the next frame.
+            ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
+            QTimer watchdog;
+            watchdog.setSingleShot(true);
+            QObject::connect(&watchdog,
+                             &QTimer::timeout,
+                             &window,
+                             []
+                             {
+                                 if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
+                                     dialog->reject();
+                             });
+            bool changedClip = false;
+            QTimer::singleShot(0,
+                               &window,
+                               [&]
+                               {
+                                   auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+                                   ASSERT_NE(dialog, nullptr);
+                                   auto* stride = dialog->findChild<QSpinBox*>("clipStride");
+                                   ASSERT_NE(stride, nullptr);
+                                   stride->setValue(2);
+                                   changedClip = stride->value() == 2;
+                                   dialog->accept();
+                               });
+            watchdog.start(2000);
+            clipSettings->trigger();
+            watchdog.stop();
+            ASSERT_TRUE(changedClip);
+            ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
             undo->trigger();
             ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
             redo->trigger();
@@ -1001,7 +1033,8 @@ TEST(Workspace, SavingRetainsMediaLocationsAfterTheOriginalProjectDirectoryIsRem
                 save->trigger();
             EXPECT_FALSE(window.isWindowModified());
             const auto saved = motrack::readWorkspaceDocument(destination);
-            EXPECT_EQ(saved.project.clip.mediaReferences, std::vector<std::string>{(QString("../../media/") + mediaName).toStdString()});
+            EXPECT_EQ(saved.project.clip.mediaReferences,
+                      std::vector<std::string>(movie ? 1u : 3u, (QString("../../media/") + mediaName).toStdString()));
             // A second Save As still uses the captured source locations, regardless of the old base.
             const auto second = temporary.filePath("second.motrack");
             ASSERT_TRUE(window.saveWorkspace(second));
