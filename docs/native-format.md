@@ -442,7 +442,17 @@ An empty location captured from an unresolved media alias is retried against the
 repair; nonempty physical bindings retain their original base when the source directory is removed.
 
 When both a native destination and a linked media file are absent in the same physical directory,
-save preflight compares their names using one uniquely named temporary sibling file. This follows the
-filesystem's case/Unicode rules without creating either requested file or globally folding names.
-The probe is removed before writing or on failure; existing-file identity checks remain unchanged.
-If the filesystem cannot create the verification file, saving stops before replacing the destination.
+save preflight compares their original basenames inside one private temporary child directory.
+It uses the inherited filesystem naming policy without creating either requested file or globally
+folding names. Keeping the basenames unchanged avoids exceeding the filename limit with a UUID prefix.
+The probe and directory are removed before writing or on failure; existing-file identity checks remain
+in place. If verification cannot be completed, saving stops before replacing the destination.
+[Windows inherits the parent case-sensitivity flag for new directories](https://devblogs.microsoft.com/commandline/improved-per-directory-case-sensitivity-support-in-wsl/#case-sensitivity-inheritance);
+[Linux ext4 likewise inherits its casefold flag](https://github.com/torvalds/linux/blob/master/fs/ext4/ext4.h).
+
+On Windows, existing-file identity queries that fail with ordinary paths retry using canonical
+[extended-length paths](https://learn.microsoft.com/windows/win32/fileio/maximum-file-path-limitation).
+This preserves overwrite protection when Qt can open a long media pathname that the standard-library
+query cannot otherwise inspect. Canonicalization precedes the prefix so dot/parent path handling is
+not changed by Win32's extended-path rules. Long existing-media aliases and long missing-media names
+are covered alongside case and Unicode variants; both failure and success leave no probe artifacts.

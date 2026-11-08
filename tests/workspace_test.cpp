@@ -1221,8 +1221,10 @@ TEST(Workspace, StandaloneMediaWithANativeSuffixNeverBecomesItsOwnSaveTarget)
 
 TEST(Workspace, NativeMediaProtectionRespectsFilesystemCaseAndUnicodeIdentity)
 {
-    const std::array<std::pair<QString, QString>, 2> names{
-        {{"media.motrack", "MEDIA.motrack"}, {QString::fromUtf8("café.motrack"), QString::fromUtf8("cafe\u0301.motrack")}}};
+    const auto longName = QString(212, 'a') + ".motrack";
+    const std::array<std::pair<QString, QString>, 3> names{{{"media.motrack", "MEDIA.motrack"},
+                                                            {QString::fromUtf8("café.motrack"), QString::fromUtf8("cafe\u0301.motrack")},
+                                                            {longName, longName.toUpper()}}};
     for (const auto& [sourceName, destinationName] : names)
     {
         SCOPED_TRACE(destinationName.toStdString());
@@ -1255,9 +1257,14 @@ TEST(Workspace, NativeMediaProtectionRespectsFilesystemCaseAndUnicodeIdentity)
 
 TEST(Workspace, NativeSaveProtectsMissingMediaNamesUsingFilesystemIdentity)
 {
-    const std::array<std::pair<QString, QString>, 3> names{{{"media.motrack", "MEDIA.motrack"},
+    const auto longName = QString(212, 'a') + ".motrack";
+    const auto longUnicodeName = QString::fromUtf8("é").repeated(106) + ".motrack";
+    const std::array<std::pair<QString, QString>, 6> names{{{"media.motrack", "MEDIA.motrack"},
                                                             {QString::fromUtf8("café.motrack"), QString::fromUtf8("cafe\u0301.motrack")},
-                                                            {QString::fromUtf8("straße.motrack"), "STRASSE.motrack"}}};
+                                                            {QString::fromUtf8("straße.motrack"), "STRASSE.motrack"},
+                                                            {"missing.ppm", longName},
+                                                            {longName, longName.toUpper()},
+                                                            {"missing.ppm", longUnicodeName}}};
     for (const auto& [sourceName, destinationName] : names)
     {
         SCOPED_TRACE(destinationName.toStdString());
@@ -1271,7 +1278,7 @@ TEST(Workspace, NativeSaveProtectsMissingMediaNamesUsingFilesystemIdentity)
         ASSERT_TRUE(QFile::remove(media));
         EXPECT_EQ(window.saveWorkspace(destination), !aliases);
         EXPECT_FALSE(QFileInfo::exists(media));
-        EXPECT_EQ(QDir(temporary.path()).entryList(QDir::Files | QDir::Hidden | QDir::NoDotAndDotDot),
+        EXPECT_EQ(QDir(temporary.path()).entryList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot),
                   aliases ? QStringList{} : QStringList{destinationName});
         ASSERT_TRUE(QFile::copy(fixturePath("frames/frame00.ppm"), media));
         const auto safe = temporary.filePath("separate.motrack");

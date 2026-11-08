@@ -34,7 +34,6 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QSaveFile>
-#include <QScopeGuard>
 #include <QSignalBlocker>
 #include <QSlider>
 #include <QSpinBox>
@@ -42,10 +41,10 @@
 #include <QStatusBar>
 #include <QStyle>
 #include <QTableWidget>
+#include <QTemporaryDir>
 #include <QThreadPool>
 #include <QToolBar>
 #include <QToolButton>
-#include <QUuid>
 #include <QVBoxLayout>
 #include <QtConcurrentRun>
 
@@ -54,6 +53,7 @@
 #include <cmath>
 #include <iterator>
 #include <limits>
+#include <memory>
 #include <utility>
 
 namespace motrack
@@ -79,17 +79,8 @@ void rebaseWorkspaceMedia(WorkspaceDocument& document, const QString& sourcePath
         }
         const QDir destination(directory);
         const auto target = localProjectPath(destinationPath);
-        QFile nameProbe;
-        QString probePrefix;
-        const auto cleanupProbe = qScopeGuard(
-            [&nameProbe]
-            {
-                if (nameProbe.isOpen())
-                {
-                    nameProbe.close();
-                    nameProbe.remove();
-                }
-            });
+        std::unique_ptr<QTemporaryDir> probeDirectory;
+        QFile nameProbe; // Close before its owning temporary directory is removed.
         for (auto& reference : document.project.clip.mediaReferences)
         {
             const auto source = workspaceMediaPath(document, sourcePath, reference);
@@ -99,16 +90,20 @@ void rebaseWorkspaceMedia(WorkspaceDocument& document, const QString& sourcePath
                 throw ProjectError("Native saving cannot overwrite linked media.");
             if (!QFileInfo::exists(source) && !QFileInfo::exists(target) && sameLocalFile(QFileInfo(source).absolutePath(), directory))
             {
-                // Neither real name exists to compare. One private sibling probe lets the actual
-                // filesystem decide case/Unicode equivalence without touching either requested path.
+                // A private child directory inherits the destination filesystem's naming policy.
+                // Keep the full original basenames: adding a UUID prefix can exceed NAME_MAX.
                 if (!nameProbe.isOpen())
                 {
-                    probePrefix = ".motrack-name-" + QUuid::createUuid().toString(QUuid::WithoutBraces) + '-';
-                    nameProbe.setFileName(destination.filePath(probePrefix + QFileInfo(target).fileName()));
+                    probeDirectory = std::make_unique<QTemporaryDir>(destination.filePath(".motrack-name-XXXXXX"));
+                    if (!probeDirectory->isValid())
+                        throw ProjectError("Could not verify the native destination against missing media filenames.");
+                    nameProbe.setFileName(probeDirectory->filePath(QFileInfo(target).fileName()));
                     if (!nameProbe.open(QIODevice::WriteOnly | QIODevice::NewOnly))
                         throw ProjectError("Could not verify the native destination against missing media filenames.");
                 }
-                if (sameLocalFile(nameProbe.fileName(), destination.filePath(probePrefix + QFileInfo(source).fileName())))
+                // This private directory contains only the destination probe. Resolving the
+                // source spelling therefore identifies an alias, including Windows long paths.
+                if (QFileInfo::exists(probeDirectory->filePath(QFileInfo(source).fileName())))
                     throw ProjectError("Native saving cannot overwrite linked media.");
             }
             const auto rebased = destination.relativeFilePath(source).toStdString();
