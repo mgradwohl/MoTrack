@@ -592,7 +592,9 @@ The document writer accepts the explicitly audited `XuggleVideo`/`VideoClipContr
 its movie adapter. Existing point-mass values and image-coordinate marks, plus the linked media path,
 may change. Original names, membership, calibration, unit labels, clip timing/range and other parsed
 fields must remain unchanged. Filters, vectors, other track types except axes, display-orientation
-transforms and archived movies remain refused. This opt-in schema does not enable movie renames or
+transforms and archived movies remain refused. The archive entry point rejects movie documents before
+clearing archive metadata for its internal snapshot; this also applies after indexing and native reopen.
+This opt-in schema does not enable movie renames or
 membership edits through the media-free writer.
 
 Default point-mass number formats use the same movie-aware schema audit and remain in the exported
