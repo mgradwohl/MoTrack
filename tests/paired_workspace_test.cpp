@@ -25,6 +25,7 @@
 
 #include <memory>
 #include <stdexcept>
+#include <utility>
 
 namespace
 {
@@ -589,6 +590,57 @@ TEST(PairedWorkspace, PendingOpensInvalidateTheTrackerChooserAndCompanionConfirm
     }
 }
 
+TEST(PairedWorkspace, PendingOpensInvalidateTheNativeSaveChooser)
+{
+    QTemporaryDir temporary;
+    const auto replacement = temporary.filePath("replacement.trk");
+    ASSERT_TRUE(QFile::copy(fixture(), replacement));
+    const auto target = temporary.filePath("saved.motrack");
+    put(target, "keep existing destination");
+    motrack::MainWindow window;
+    window.show();
+    ASSERT_TRUE(window.loadProject(fixture()));
+    auto* action = window.findChild<QAction*>("saveWorkspace");
+    ASSERT_NE(action, nullptr);
+    QTimer poll;
+    QTimer watchdog;
+    bool replaced = false;
+    QObject::connect(&poll,
+                     &QTimer::timeout,
+                     &window,
+                     [&]
+                     {
+                         auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
+                         if (!dialog)
+                             return;
+                         poll.stop();
+                         window.openProject(replacement);
+                         ASSERT_TRUE(QThreadPool::globalInstance()->waitForDone(5000));
+                         QCoreApplication::sendPostedEvents();
+                         replaced = window.windowTitle().contains("replacement.trk");
+                         ASSERT_TRUE(replaced);
+                         dialog->setOption(QFileDialog::DontConfirmOverwrite);
+                         if (auto* focused = dialog->focusWidget())
+                             focused->clearFocus();
+                         dialog->selectFile(target);
+                         ASSERT_TRUE(QTest::qWaitFor([dialog, &target] { return dialog->selectedFiles() == QStringList{target}; }, 1500));
+                         QMetaObject::invokeMethod(dialog, "accept");
+                     });
+    QObject::connect(&watchdog,
+                     &QTimer::timeout,
+                     &window,
+                     []
+                     {
+                         if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
+                             dialog->reject();
+                     });
+    poll.start(10);
+    watchdog.start(7000);
+    action->trigger();
+    EXPECT_TRUE(replaced);
+    EXPECT_EQ(bytes(target), "keep existing destination");
+}
+
 TEST(PairedWorkspace, PendingOpenInvalidatesRecoveryConfirmationAndItsSaveDestination)
 {
     QTemporaryDir temporary;
@@ -672,11 +724,13 @@ TEST(PairedWorkspace, PendingOpenInvalidatesRecoveryConfirmationAndItsSaveDestin
 
 TEST(PairedWorkspace, DestroyingTheWindowDuringSaveCancelsAndReleasesTheWorker)
 {
-    for (const bool throughMenu : {false, true})
+    for (const auto [native, throughMenu] :
+         {std::pair{false, false}, std::pair{false, true}, std::pair{true, false}, std::pair{true, true}})
     {
+        SCOPED_TRACE(native);
         SCOPED_TRACE(throughMenu);
         QTemporaryDir temporary;
-        const auto target = temporary.filePath("saved.trk");
+        const auto target = temporary.filePath(native ? "saved.motrack" : "saved.trk");
         QSemaphore entered;
         QSemaphore release;
         auto window = std::make_unique<motrack::MainWindow>();
@@ -713,7 +767,8 @@ TEST(PairedWorkspace, DestroyingTheWindowDuringSaveCancelsAndReleasesTheWorker)
                     }
                     return;
                 }
-                if (window && window->findChild<QDialog*>("pairedSaveProgress"))
+                if (window && (native ? window->statusBar()->currentMessage() == "Saving project…"
+                                      : window->findChild<QDialog*>("pairedSaveProgress") != nullptr))
                 {
                     poll.stop();
                     release.release();
@@ -732,13 +787,13 @@ TEST(PairedWorkspace, DestroyingTheWindowDuringSaveCancelsAndReleasesTheWorker)
         watchdog.start(3000);
         if (throughMenu)
         {
-            auto* action = window->findChild<QAction*>("saveTrackerProject");
+            auto* action = window->findChild<QAction*>(native ? "saveWorkspace" : "saveTrackerProject");
             ASSERT_NE(action, nullptr);
             action->trigger();
             EXPECT_TRUE(choseFile);
         }
         else
-            EXPECT_FALSE(window->saveTrackerProject(target));
+            EXPECT_FALSE(native ? window->saveWorkspace(target) : window->saveTrackerProject(target));
         EXPECT_EQ(window, nullptr);
     }
 }

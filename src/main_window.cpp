@@ -1594,10 +1594,19 @@ void MainWindow::pickCalibrationPoint(const QPointF& position)
 
 bool MainWindow::chooseWorkspacePath()
 {
-    QFileDialog dialog(this, tr("Save MoTrack project"), {}, tr("MoTrack projects (*.motrack)"));
-    dialog.setAcceptMode(QFileDialog::AcceptSave);
-    dialog.setDefaultSuffix("motrack");
-    return dialog.exec() == QDialog::Accepted && saveWorkspace(dialog.selectedFiles().value(0));
+    if (m_Saving)
+        return false;
+    const auto checkpoint = m_Session.saveCheckpoint();
+    QString path;
+    {
+        QFileDialog dialog(this, tr("Save MoTrack project"), {}, tr("MoTrack projects (*.motrack)"));
+        dialog.setAcceptMode(QFileDialog::AcceptSave);
+        dialog.setDefaultSuffix("motrack");
+        if (dialog.exec() != QDialog::Accepted || checkpoint.identity != m_Session.saveCheckpoint().identity)
+            return false;
+        path = dialog.selectedFiles().value(0);
+    }
+    return saveWorkspace(path);
 }
 
 bool MainWindow::saveCurrentWorkspace()
