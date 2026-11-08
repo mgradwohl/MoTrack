@@ -12,4 +12,7 @@ namespace motrack
 /// Resolves local media using the physical project directory. Archive/URL references return empty.
 /// Existing paths are canonicalized before '..' can be lexically collapsed across a symbolic link.
 [[nodiscard]] QString resolveLocalMediaPath(const QString& projectPath, const std::string& reference);
+/// Compare existing file identities using the actual filesystem, preserving distinct case/Unicode spellings.
+/// Missing paths compare by their absolute spelling; callers resolve directory aliases first.
+[[nodiscard]] bool sameLocalFile(const QString& first, const QString& second);
 } // namespace motrack
