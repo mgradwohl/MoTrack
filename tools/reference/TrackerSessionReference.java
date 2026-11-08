@@ -69,6 +69,10 @@ public final class TrackerSessionReference {
             List<ModelRequirement> modelRequirements = modelRequirements(input);
             SwingUtilities.invokeAndWait(guard(() -> {
                 TFrame originalFrame = new TFrame();
+                // Open from a running desktop, as a user would. A hidden frame suppresses table
+                // refresh while the asynchronous loader schedules restored column order.
+                originalFrame.setVisible(true);
+                originalFrame.validate();
                 Runnable loaded = once(guard(() -> whenEvaluated(originalFrame, attachmentRequirements, modelRequirements, () -> {
                     TrackerPanel panel = onlyPanel(originalFrame);
                     Map<String, Object> before = snapshot(panel);
@@ -76,7 +80,7 @@ public final class TrackerSessionReference {
                         throw new IllegalStateException("Tracker did not save the loaded session");
                     REPORT.set(TrackerReference.map("reference_version", OSPRuntime.VERSION,
                         "verification_level", "tracker_session_" + args[2],
-                        "view_preparation", "visit_custom_tables_restore_selection", "loaded", before,
+                        "view_preparation", "expand_visit_custom_tables_restore_selection", "loaded", before,
                         "after_save", save ? snapshot(panel) : null));
                     DONE.countDown();
                 })));
@@ -314,14 +318,31 @@ public final class TrackerSessionReference {
             }
         }
         if (visits.isEmpty()) { action.run(); return; }
+        if (visits.stream().anyMatch(visit -> !visit.view().isViewPaneVisible())) {
+            // isShowing() alone is insufficient: Tracker also gates refresh on its divider
+            // fractions. Expand the ordinary view panes using the public layout action.
+            // Pinned TFrame layout indices: main/right, plot/table, main/bottom, world/page.
+            TFrame frame = panel.getTFrame();
+            frame.setDividerLocation(panel, 0, 0.65);
+            frame.setDividerLocation(panel, 1, 0.5);
+            frame.setDividerLocation(panel, 2, 0.75);
+            frame.setDividerLocation(panel, 3, 0.5);
+            frame.validate();
+        }
         // Tracker refreshes a table's column model only while that track is displayed. In 6.3.5,
         // immediately resaving an unvisited custom table can serialize null columns. Exercise the
         // normal selection/refresh path, observe populated columns, then restore the saved selection.
         // This is a visited-view baseline, not proof of fidelity for an immediate unvisited resave.
         int[] index = {0};
-        visits.get(0).view().setSelectedTrack(visits.get(0).track());
+        boolean[] selected = {false};
         Timer timer = new Timer(25, event -> guard(() -> {
             TableVisit visit = visits.get(index[0]);
+            if (!visit.view().isViewPaneVisible()) { WAITING.set("expanded table pane layout"); return; }
+            if (!selected[0]) {
+                visit.view().setSelectedTrack(visit.track());
+                selected[0] = true;
+                return;
+            }
             if (visit.view().getSelectedTrack() != visit.track())
                 throw new IllegalStateException("Tracker did not select the table owner");
             visit.view().paintImmediately(visit.view().getVisibleRect());
@@ -348,7 +369,7 @@ public final class TrackerSessionReference {
             if (++index[0] == visits.size()) {
                 ((Timer) event.getSource()).stop();
                 action.run();
-            } else visits.get(index[0]).view().setSelectedTrack(visits.get(index[0]).track());
+            } else selected[0] = false;
         }).run());
         timer.start();
     }

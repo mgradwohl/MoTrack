@@ -82,7 +82,7 @@ class CorpusTests(unittest.TestCase):
                       "name_references": case.get("session_names"), "saved_views": case.get("session_views"),
                       **corpus.session_units(case, expected)}
             report = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                      "view_preparation": "visit_custom_tables_restore_selection", "before": before,
+                      "view_preparation": "expand_visit_custom_tables_restore_selection", "before": before,
                       "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
             keys = [] if mode == "delete-all-masses" else [[0]] if "mass" in mode else None
             if mode in corpus.PLOT_DELETION_NAMES:
@@ -339,7 +339,7 @@ class CorpusTests(unittest.TestCase):
             before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                       **corpus.session_units(case, expected)}
             report = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                      "view_preparation": "visit_custom_tables_restore_selection",
+                      "view_preparation": "expand_visit_custom_tables_restore_selection",
                       "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
             corpus.validate_session(case, report, manifest, expected)
             for field, value in [("name", "wrong"), ("vector_samples", [{"frame": 1, "tail": [101, 120], "components": [4, -8]}]),
@@ -420,7 +420,7 @@ class CorpusTests(unittest.TestCase):
                       "tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                       **corpus.session_units(case, expected)}
             report = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                      "view_preparation": "visit_custom_tables_restore_selection",
+                      "view_preparation": "expand_visit_custom_tables_restore_selection",
                       "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
             corpus.validate_session(case, report, manifest, expected, keys)
             for field, value in [("mass", 1), ("name", "wrong"), ("key_frames", [2]),
@@ -591,7 +591,7 @@ class CorpusTests(unittest.TestCase):
                       "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                       **corpus.session_units(updated, expected)}
             valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                     "view_preparation": "visit_custom_tables_restore_selection", "before": before,
+                     "view_preparation": "expand_visit_custom_tables_restore_selection", "before": before,
                      "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
             corpus.validate_session(updated, valid, manifest, expected)
             plots = before["saved_views"]["plots"][0]["track_views"][0]["plots"]
@@ -655,7 +655,7 @@ class CorpusTests(unittest.TestCase):
                   "name_references": {"selected_track": "center"}, "clip": expected["clip"],
                   "coordinate_samples": expected["coordinate_samples"], **corpus.session_units(updated, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                 "view_preparation": "visit_custom_tables_restore_selection", "before": before,
+                 "view_preparation": "expand_visit_custom_tables_restore_selection", "before": before,
                  "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(updated, valid, manifest, expected)
         for path, value in [(["centers_of_mass", 0, "members"], ["mass A", "mass B"]),
@@ -712,7 +712,7 @@ class CorpusTests(unittest.TestCase):
                       "name_references": {"selected_track": "both ends"}, "clip": expected["clip"],
                       "coordinate_samples": expected["coordinate_samples"], **corpus.session_units(updated, expected)}
             valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                     "view_preparation": "visit_custom_tables_restore_selection", "before": before,
+                     "view_preparation": "expand_visit_custom_tables_restore_selection", "before": before,
                      "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
             corpus.validate_session(updated, valid, manifest, expected)
             for path, value in [(["attachments", 0, "targets"], ["mass A", "mass B"]),
@@ -897,7 +897,7 @@ class CorpusTests(unittest.TestCase):
                   "tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                 "view_preparation": "visit_custom_tables_restore_selection",
+                 "view_preparation": "expand_visit_custom_tables_restore_selection",
                  "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest)
         edited_expected = corpus.mass_roundtrip_expected(case)
@@ -941,7 +941,7 @@ class CorpusTests(unittest.TestCase):
                   "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                 "view_preparation": "visit_custom_tables_restore_selection",
+                 "view_preparation": "expand_visit_custom_tables_restore_selection",
                  "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest)
         for field, value in [("selected_track", "mass A"), ("selected_track", None),
@@ -981,7 +981,7 @@ class CorpusTests(unittest.TestCase):
             if "session_names" in case:
                 before["name_references"] = copy.deepcopy(case["session_names"])
             valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                     "view_preparation": "visit_custom_tables_restore_selection",
+                     "view_preparation": "expand_visit_custom_tables_restore_selection",
                      "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
             corpus.validate_session(case, valid, manifest)
             if case_id == "protractor":
@@ -1048,7 +1048,7 @@ class CorpusTests(unittest.TestCase):
                   "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                 "view_preparation": "visit_custom_tables_restore_selection",
+                 "view_preparation": "expand_visit_custom_tables_restore_selection",
                  "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest)
         for field, value in [("members", ["mass A"]), ("members", ["mass A", "mass A"]),
@@ -1091,7 +1091,7 @@ class CorpusTests(unittest.TestCase):
                   "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                 "view_preparation": "visit_custom_tables_restore_selection",
+                 "view_preparation": "expand_visit_custom_tables_restore_selection",
                  "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest)
         changes = [([0, "name"], "wrong"), ([0, "targets"], []),
@@ -1138,7 +1138,7 @@ class CorpusTests(unittest.TestCase):
             if renamed:
                 before["name_references"] = {"selected_track": "system"}
             valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                     "view_preparation": "visit_custom_tables_restore_selection",
+                     "view_preparation": "expand_visit_custom_tables_restore_selection",
                      "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
             corpus.validate_session(case, valid, manifest, expected)
             changes = [([1, "booster"], None), ([1, "booster"], "wrong"), ([2, "particles"], []),
@@ -1185,7 +1185,7 @@ class CorpusTests(unittest.TestCase):
                   "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                 "view_preparation": "visit_custom_tables_restore_selection",
+                 "view_preparation": "expand_visit_custom_tables_restore_selection",
                  "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest)
         changes = [(["name"], "other sum"), (["members"], ["vector A"]),
@@ -1225,7 +1225,7 @@ class CorpusTests(unittest.TestCase):
                   "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   **corpus.session_units(case, expected)}
         defect = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                  "view_preparation": "visit_custom_tables_restore_selection",
+                  "view_preparation": "expand_visit_custom_tables_restore_selection",
                   "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         saved = self.root / "known-defect.trk"
         xml = ('<object><property name="tracks"><property><object class="org.opensourcephysics.cabrillo.tracker.VectorSum">'
@@ -1291,7 +1291,7 @@ class CorpusTests(unittest.TestCase):
                 before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                           "calibration": calibration, **corpus.session_units(case, expected)}
                 valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                         "view_preparation": "visit_custom_tables_restore_selection", "before": before,
+                         "view_preparation": "expand_visit_custom_tables_restore_selection", "before": before,
                          "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
                 corpus.validate_session(case, valid, manifest, expected, calibration=calibration)
                 changes = [(["calibration", "fixed_origin"], not calibration["fixed_origin"]),
@@ -1368,7 +1368,7 @@ class CorpusTests(unittest.TestCase):
         before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                 "view_preparation": "visit_custom_tables_restore_selection",
+                 "view_preparation": "expand_visit_custom_tables_restore_selection",
                  "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest)
         for index in range(len(mass["samples"])):
@@ -1418,7 +1418,7 @@ class CorpusTests(unittest.TestCase):
                   "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   "calibration": calibration, **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                 "view_preparation": "visit_custom_tables_restore_selection",
+                 "view_preparation": "expand_visit_custom_tables_restore_selection",
                  "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest, expected, calibration=calibration)
         for field, value in [("frame", 2), ("origin", [81, 90]), ("scale", [3, 4]), ("angle", 90)]:
@@ -1472,7 +1472,7 @@ class CorpusTests(unittest.TestCase):
         before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                 "view_preparation": "visit_custom_tables_restore_selection",
+                 "view_preparation": "expand_visit_custom_tables_restore_selection",
                  "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest)
         for field, value in [("tail", [11.0, 20.0]), ("components", [3.0, 4.0]), ("frame", 1)]:
@@ -1523,7 +1523,7 @@ class CorpusTests(unittest.TestCase):
                   "name_references": copy.deepcopy(case["session_names"]), "saved_views": copy.deepcopy(case["session_views"]),
                   "time_samples": copy.deepcopy(times), **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                 "view_preparation": "visit_custom_tables_restore_selection", "before": before,
+                 "view_preparation": "expand_visit_custom_tables_restore_selection", "before": before,
                  "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest, expected)
         for field, value in [("time_unit", "s"), ("time_samples", [{"frame": 0, "time_ms": 0.0}, {"frame": 9, "time_ms": 0.9}]),
@@ -1576,7 +1576,7 @@ class CorpusTests(unittest.TestCase):
                       "name_references": copy.deepcopy(case["session_names"]), "saved_views": copy.deepcopy(case["session_views"]),
                       **copy.deepcopy(timing), **corpus.session_units(case, expected)}
             valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                     "view_preparation": "visit_custom_tables_restore_selection", "before": before,
+                     "view_preparation": "expand_visit_custom_tables_restore_selection", "before": before,
                      "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
             corpus.validate_session(case, valid, manifest, expected)
             mutations = [("frame_duration_ms", 100.0), ("frame_duration_ms", None), ("time_samples", []),
@@ -1716,7 +1716,7 @@ class CorpusTests(unittest.TestCase):
                   "tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                   **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
-                 "view_preparation": "visit_custom_tables_restore_selection",
+                 "view_preparation": "expand_visit_custom_tables_restore_selection",
                  "before": before, "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest, expected, keys)
         for field, value in [("key_frames", [0]), ("samples", tracks[1]["samples"][:1])]:
@@ -1962,7 +1962,7 @@ class CorpusTests(unittest.TestCase):
                     output = Path(output)
                     (output / "tracker-resaved.trk").write_text("<object>\n<property>", encoding="utf-8")
                     report = {"reference_version": "6.3.5", "verification_level": "tracker_session_save", "loader_callbacks": 2,
-                              "view_preparation": "visit_custom_tables_restore_selection", "loaded": {}, "after_save": {}}
+                              "view_preparation": "expand_visit_custom_tables_restore_selection", "loaded": {}, "after_save": {}}
                     (output / "session-save.json").write_text(json.dumps(report), encoding="utf-8")
                 with self.subTest(stage=failing_stage, error=type(failure).__name__), \
                         patch.object(corpus.sys, "platform", "linux"), \
@@ -2005,7 +2005,7 @@ class CorpusTests(unittest.TestCase):
                 self.assertEqual(Path(source).name, "tracker-resaved.trk")
                 self.assertTrue(Path(source).is_file())
             report = {"reference_version": "6.3.5", "verification_level": "tracker_session_" + stage, "loader_callbacks": 2,
-                      "view_preparation": "visit_custom_tables_restore_selection",
+                      "view_preparation": "expand_visit_custom_tables_restore_selection",
                       "loaded": {"stage": stage}, "after_save": {"stage": "after_save"}}
             (output / ("session-" + stage + ".json")).write_text(json.dumps(report), encoding="utf-8")
         with patch.object(corpus.sys, "platform", "linux"), \
