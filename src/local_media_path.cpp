@@ -35,7 +35,13 @@ QString resolveLocalMediaPath(const QString& projectPath, const std::string& ref
         path = directory + '/' + path;
     }
     const auto existing = QFileInfo(path).canonicalFilePath();
-    return existing.isEmpty() ? path : existing;
+    if (!existing.isEmpty())
+        return existing;
+    // Preserve the physical base even when a missing image is restored after its project directory
+    // is removed. Resolve existing prefixes before normalizing '..', including directory aliases.
+    std::error_code error;
+    const auto normalized = std::filesystem::weakly_canonical(std::filesystem::path(path.toStdU16String()), error);
+    return error ? path : QString::fromStdU16String(normalized.u16string());
 }
 
 bool sameLocalFile(const QString& first, const QString& second)
