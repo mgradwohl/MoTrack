@@ -97,3 +97,23 @@ Local Windows validation on 2026-11-08: all six CTest suites passed, including p
 combined production coverage was 95.32% (7632/8007 lines). Formatting and clang-tidy passed, as did
 76 corpus-harness tests, native corpus checks and both recovered-export XML/media/ZIP oracles.
 These local results do not substitute for the pending Linux/macOS and actual Tracker application gates.
+
+
+## Per-output session checkpoints (internal model; desktop integration pending)
+
+The edit history keeps separate native and Tracker save points. Undo/redo can return either output
+to its saved state independently; a new branch of edits invalidates save points in discarded history.
+Consumed track IDs remain persistent changes even after undoing creation, so both save points are
+invalidated. A failed write changes neither save point; a stale completion cannot clear newer edits.
+
+`DocumentSession::completePairedSave` applies only confirmed per-output results and retains pending
+recovery state. Once a pair is required, a native-only save cannot clear outstanding Tracker edits.
+A partial pair remains modified even when both replacements finished but recovery cleanup failed.
+Replacement of the document invalidates all earlier completion tokens.
+
+`completePairedRecovery` deliberately does not mark the live document saved: the record can refer
+to an older snapshot or predate this session. Successful recovery clears the pending record and
+requires a fresh paired save to establish both output checkpoints for the current live snapshot.
+This preserves new edits made after interruption. The desktop controller must use these session
+queries and completion methods when standard Save/recovery actions are connected; those actions
+are still pending.

@@ -12,6 +12,39 @@
 namespace
 {
 
+TEST(TrackEdits, KeepsIndependentSaveTargetsAcrossUndoRedoAndNewHistoryBranches)
+{
+    motrack::LegacyProject project;
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.createPointMass(project, "mass"));
+    edits.markSaved();
+    edits.markSaved(motrack::SaveTarget::Tracker);
+    ASSERT_TRUE(edits.setPointMassValue(project, 0, 2));
+    edits.markSaved();
+    EXPECT_FALSE(edits.isModified());
+    EXPECT_TRUE(edits.isModified(motrack::SaveTarget::Tracker));
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_TRUE(edits.isModified());
+    EXPECT_FALSE(edits.isModified(motrack::SaveTarget::Tracker));
+    ASSERT_TRUE(edits.redo(project));
+    EXPECT_FALSE(edits.isModified());
+    edits.markSaved(motrack::SaveTarget::Tracker);
+    ASSERT_TRUE(edits.undo(project));
+    ASSERT_TRUE(edits.renamePointMass(project, 0, "new branch"));
+    EXPECT_TRUE(edits.isModified());
+    EXPECT_TRUE(edits.isModified(motrack::SaveTarget::Tracker));
+    edits.markSaved();
+    edits.markSaved(motrack::SaveTarget::Tracker);
+    ASSERT_TRUE(edits.createVector(project, "vector"));
+    ASSERT_TRUE(edits.undo(project));
+    // Undo cannot reuse the consumed track identity; both serialized snapshots remain stale.
+    EXPECT_TRUE(edits.isModified());
+    EXPECT_TRUE(edits.isModified(motrack::SaveTarget::Tracker));
+    edits.clear();
+    EXPECT_FALSE(edits.isModified());
+    EXPECT_FALSE(edits.isModified(motrack::SaveTarget::Tracker));
+}
+
 TEST(TrackEdits, PointMassCommandsFollowIdentityAfterTheTrackOrderChanges)
 {
     motrack::LegacyProject project;

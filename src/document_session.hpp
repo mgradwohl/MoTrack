@@ -1,5 +1,6 @@
 #pragma once
 
+#include "paired_save.hpp"
 #include "track_edits.hpp"
 #include "workspace_document.hpp"
 
@@ -14,10 +15,12 @@ enum class SaveOutcome : std::uint8_t
     Saved,
     Failed,
     Stale,
-    Replaced
+    Replaced,
+    Partial,
+    Recovered
 };
 
-/// One live document, its undo history and native save checkpoint. GUI-thread owned; workers receive copies of document.
+/// One live document, its undo history and per-output save checkpoints. GUI-thread owned; workers receive copies.
 class DocumentSession
 {
     struct Identity
@@ -37,9 +40,19 @@ class DocumentSession
     void replace(WorkspaceDocument incoming, const QString& source);
     [[nodiscard]] const QString& sourcePath() const;
     [[nodiscard]] const QString& nativeSavePath() const;
+    [[nodiscard]] const QString& standardSavePath() const;
+    [[nodiscard]] const QString& recoveryPath() const;
+    [[nodiscard]] bool requiresPairedSave() const;
+    [[nodiscard]] bool isModified() const;
     [[nodiscard]] SaveCheckpoint saveCheckpoint() const;
     /// Failed/replaced writes leave this session untouched. A successful stale write keeps its destination but stays dirty.
     [[nodiscard]] SaveOutcome completeSave(const SaveCheckpoint& checkpoint, const QString& destination, bool success);
+    /// Apply a new paired-write result, marking only outputs confirmed current for this revision.
+    [[nodiscard]] SaveOutcome completePairedSave(const SaveCheckpoint& checkpoint, const PairedSaveResult& result);
+    /// Recovery may belong to an older snapshot, even after restart. Never marks the live document clean.
+    /// Successful recovery clears the pending record but requires a fresh save of the current snapshot.
+    [[nodiscard]] SaveOutcome
+    completePairedRecovery(const SaveCheckpoint& checkpoint, const QString& requestedRecoveryPath, const PairedSaveResult& result);
 
     DocumentSession() = default;
     DocumentSession(const DocumentSession&) = delete;
@@ -53,6 +66,9 @@ class DocumentSession
     std::shared_ptr<const Identity> m_Identity = std::make_shared<const Identity>();
     QString m_SourcePath;
     QString m_NativeSavePath;
+    QString m_StandardSavePath;
+    QString m_RecoveryPath;
+    bool m_PairedSaving = false;
 };
 
 } // namespace motrack

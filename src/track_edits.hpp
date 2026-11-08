@@ -2,6 +2,7 @@
 
 #include "legacy_project.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <variant>
@@ -47,16 +48,22 @@ struct ClipTiming
 [[nodiscard]] ClipRange clipRange(const Clip& clip);
 [[nodiscard]] ClipTiming clipTiming(const Clip& clip);
 
+enum class SaveTarget : std::uint8_t
+{
+    Native,
+    Tracker
+};
+
 /// An edit history for one project. GUI indices are resolved to persistent IDs when commands are recorded.
 /// Undo/redo reject missing or ambiguous targets without advancing history. Clear on document replacement.
 class TrackEdits
 {
   public:
     void clear();
-    void markSaved();
+    void markSaved(SaveTarget target = SaveTarget::Native);
     /// The file no longer represents a known history state (for example, a completed stale save).
-    void invalidateSaved();
-    [[nodiscard]] bool isModified() const;
+    void invalidateSaved(SaveTarget target = SaveTarget::Native);
+    [[nodiscard]] bool isModified(SaveTarget target = SaveTarget::Native) const;
     /// Changes after each edit, undo, redo or document reset; detects stale asynchronous save snapshots.
     [[nodiscard]] std::uint64_t revision() const;
     bool createPointMass(LegacyProject& project, std::string name);
@@ -200,7 +207,7 @@ class TrackEdits
 
     std::vector<Edit> m_Commands;
     std::size_t m_Head = 0;
-    std::optional<std::size_t> m_SavedHead = 0;
+    std::array<std::optional<std::size_t>, 2> m_SavedHeads{0, 0};
     std::uint64_t m_Revision = 0;
 };
 
