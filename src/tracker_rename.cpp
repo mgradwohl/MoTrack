@@ -510,30 +510,34 @@ void requireName(const std::string& name)
 }
 } // namespace
 
-void validateTrackerTrackCreation(const QDomDocument& xml, const LegacyProject& project, const TrackerSource& source)
+void validateTrackerTrackMembership(const QDomDocument& xml, const LegacyProject& project, const TrackerSource& source)
 {
     RenameSchema{}.object(xml.documentElement(), QString(TRACKER) + "TrackerPanel");
     const auto index = indexTrackerReferences(source, project);
     require(index.malformedPaths.empty());
     std::set<std::string> originalNames;
     std::set<std::string> finalNames;
+    std::set<TrackId> liveIds;
+    std::map<std::size_t, const TrackerSourceTrack*> originalTracks;
     const auto collect = [&](const auto& tracks)
     {
         for (const auto& track : tracks)
         {
             requireName(track.name);
             require(finalNames.insert(track.name).second);
+            liveIds.insert(track.id);
         }
     };
     collect(project.pointMasses);
     collect(project.vectors);
     for (const auto& track : index.tracks)
     {
+        originalTracks.emplace(track.sourceIndex, &track);
         require(track.className == std::string(TRACKER) + "PointMass" || track.className == std::string(TRACKER) + "Vector" ||
                 track.className == std::string(TRACKER) + "CoordAxes" || track.className == std::string(TRACKER) + "Protractor");
         if (!track.originalName)
         {
-            throw ProjectError("Tracker track creation requires every original track name.");
+            throw ProjectError("Tracker membership edits require every original track name.");
         }
         requireName(*track.originalName);
         require(originalNames.insert(*track.originalName).second);
@@ -550,11 +554,15 @@ void validateTrackerTrackCreation(const QDomDocument& xml, const LegacyProject& 
                 reference.kind == TrackerReferenceKind::TableSelection || reference.kind == TrackerReferenceKind::TableColumnOwner ||
                 reference.kind == TrackerReferenceKind::TableFormatOwner || reference.kind == TrackerReferenceKind::PlotOwner ||
                 reference.kind == TrackerReferenceKind::PlotGuest);
-        if (reference.resolution == TrackerReferenceResolution::Resolved && reference.kind != TrackerReferenceKind::SelectedTrack)
+        if (reference.resolution == TrackerReferenceResolution::Resolved)
         {
             require(reference.candidateSourceIndices.size() == 1);
-            const auto target = std::ranges::find(index.tracks, reference.candidateSourceIndices.front(), &TrackerSourceTrack::sourceIndex);
-            require(target != index.tracks.end() && target->className != std::string(TRACKER) + "CoordAxes");
+            const auto target = originalTracks.find(reference.candidateSourceIndices.front());
+            require(target != originalTracks.end());
+            // Retained source names must never silently rebind to a newly created track.
+            require(!target->second->nativeId || liveIds.contains(*target->second->nativeId));
+            if (reference.kind != TrackerReferenceKind::SelectedTrack)
+                require(target->second->className != std::string(TRACKER) + "CoordAxes");
         }
     }
 }
@@ -562,11 +570,13 @@ void validateTrackerTrackCreation(const QDomDocument& xml, const LegacyProject& 
 bool patchTrackerNames(QDomDocument& xml, const LegacyProject& project, LegacyProject& baseline, const TrackerSource& source)
 {
     std::map<TrackId, std::string> renamed;
+    std::set<TrackId> liveIds;
     const auto collect = [&](const auto& current, const auto& original)
     {
         require(current.size() == original.size());
         for (std::size_t i = 0; i < current.size(); ++i)
         {
+            liveIds.insert(current[i].id);
             require(current[i].id == original[i].id);
             if (current[i].name != original[i].name)
                 renamed.emplace(current[i].id, current[i].name);
@@ -591,6 +601,8 @@ bool patchTrackerNames(QDomDocument& xml, const LegacyProject& project, LegacyPr
         // Original labels use the same packed codec: "null" cannot distinguish a track from no selection.
         requireName(*track.originalName);
         require(oldNames.insert(*track.originalName).second);
+        if (track.nativeId && !liveIds.contains(*track.nativeId))
+            continue; // The membership audit has already rejected references to any deleted track.
         const auto found = track.nativeId ? renamed.find(*track.nativeId) : renamed.end();
         const auto& name = found == renamed.end() ? *track.originalName : found->second;
         require(newNames.insert(name).second);

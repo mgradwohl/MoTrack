@@ -17,6 +17,7 @@
 #include <numbers>
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace motrack
 {
@@ -836,7 +837,6 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
     require(project.clip.mediaReferences.empty()); // Relocation/packaging is not implemented by this initial writer.
     validateTrackerSource(source, project);
     auto baseline = parseTrackerProject(source.xml);
-    auto nextParsedId = baseline.project.nextTrackId;
     if (!source.bindings || !baseline.source.bindings)
     {
         throw ProjectError("Tracker export requires original object associations.");
@@ -854,9 +854,17 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
     remapIds(baseline.project, mapping, project.nextTrackId);
     auto expected = project;
     sortTracks(expected);
-    // Both lists are sorted: linear inclusion keeps original identities without a scan per track.
-    require(std::ranges::includes(expected.pointMasses, baseline.project.pointMasses, {}, &PointMass::id, &PointMass::id));
-    require(std::ranges::includes(expected.vectors, baseline.project.vectors, {}, &VectorTrack::id, &VectorTrack::id));
+    const bool membershipChanged =
+        !std::ranges::equal(expected.pointMasses, baseline.project.pointMasses, {}, &PointMass::id, &PointMass::id) ||
+        !std::ranges::equal(expected.vectors, baseline.project.vectors, {}, &VectorTrack::id, &VectorTrack::id);
+    std::unordered_set<TrackId> liveIds;
+    for (const auto& track : expected.pointMasses)
+        liveIds.insert(track.id);
+    for (const auto& track : expected.vectors)
+        liveIds.insert(track.id);
+    // Reparse assigns compact IDs in surviving XML order, not the original/native ID order.
+    mapping.clear();
+    TrackId nextParsedId = 1;
 
     QDomDocument xml;
     require(static_cast<bool>(xml.setContent(QByteArray::fromStdString(source.xml), QDomDocument::ParseOption::PreserveSpacingOnlyNodes)));
@@ -868,12 +876,14 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
         if (const auto found = sourceIds.find(position); found != sourceIds.end())
         {
             objects.emplace(found->second, item.firstChildElement("object"));
+            if (liveIds.contains(found->second))
+                mapping.emplace(nextParsedId++, found->second);
         }
     }
     bool changed = false;
-    if (expected.pointMasses.size() != baseline.project.pointMasses.size() || expected.vectors.size() != baseline.project.vectors.size())
+    if (membershipChanged)
     {
-        validateTrackerTrackCreation(xml, expected, source);
+        validateTrackerTrackMembership(xml, expected, source);
         if (expected.calibration)
             requireTrackerCoordinates(expected, *expected.calibration);
         require(tracks.attribute("type") == "collection" && tracks.attribute("class") == "java.util.ArrayList");
@@ -920,13 +930,24 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
             mapping.emplace(nextParsedId++, current.id);
             baseline.project.vectors.push_back({.name = current.name, .samples = {}, .id = current.id});
         }
-        for (auto item = tracks.firstChildElement(); !item.isNull(); item = item.nextSiblingElement())
-            tracks.insertBefore(xml.createTextNode("\n"), item);
-        tracks.appendChild(xml.createTextNode("\n"));
+        std::erase_if(baseline.project.pointMasses, [&](const auto& track) { return !liveIds.contains(track.id); });
+        std::erase_if(baseline.project.vectors, [&](const auto& track) { return !liveIds.contains(track.id); });
         sortTracks(baseline.project);
         changed = true;
     }
     changed = patchTrackerNames(xml, expected, baseline.project, source) || changed;
+    // Name patching uses original source ordinals, so erase nodes only after its reference updates.
+    if (membershipChanged)
+    {
+        for (const auto& [id, object] : objects)
+        {
+            if (!liveIds.contains(id))
+                tracks.removeChild(object.parentNode());
+        }
+        for (auto item = tracks.firstChildElement(); !item.isNull(); item = item.nextSiblingElement())
+            tracks.insertBefore(xml.createTextNode("\n"), item);
+        tracks.appendChild(xml.createTextNode("\n"));
+    }
     if (expected.calibration != baseline.project.calibration)
     {
         if (!expected.calibration || !baseline.project.calibration)
