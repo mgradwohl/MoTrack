@@ -905,8 +905,8 @@ one experiment tab; actual multi-tab archive acceptance still belongs to phase 3
 packaging, changed media, movie engines, broader ZIP variants and paired-save recovery remain.
 
 The first archive application run (42471529133) loaded all independent media/geometry correctly,
-but snapshotted visible axes at their undrawn default origin before the archive loader released its
-painting hold. Fresh reopen had drawn them at the calibrated origin, causing the strict three-stage
+but snapshotted visible axes at their undrawn default origin before their first normal draw completed.
+Fresh reopen had drawn them at the calibrated origin, causing the strict three-stage
 comparison to fail. The harness now waits for a visible, paintable panel and observes visible axes
 following the current coordinate origin before capturing a snapshot. No coordinates or expected
 values are assigned to the loaded project; the original comparison remains required.

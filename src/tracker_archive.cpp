@@ -97,8 +97,13 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
     for (auto status = archive_read_next_header(reader.get(), &entry); status != ARCHIVE_EOF;
          status = archive_read_next_header(reader.get(), &entry))
     {
-        require((!cancelled || !*cancelled) && status == ARCHIVE_OK && ++members <= MAX_MEMBERS && entry &&
-                archive_entry_is_encrypted(entry) == 0 && !archive_entry_hardlink(entry));
+        if (status != ARCHIVE_OK)
+        {
+            const auto* error = archive_error_string(reader.get());
+            throw ProjectError(std::string("Could not read Tracker archive member: ") + (error ? error : "unknown archive error"));
+        }
+        require((!cancelled || !*cancelled) && ++members <= MAX_MEMBERS && entry && archive_entry_is_encrypted(entry) == 0 &&
+                !archive_entry_hardlink(entry));
         const auto type = archive_entry_filetype(entry);
         require(type == AE_IFREG || type == AE_IFDIR);
         const auto* utf8 = archive_entry_pathname_utf8(entry);

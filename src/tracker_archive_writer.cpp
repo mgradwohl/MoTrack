@@ -20,15 +20,15 @@ namespace
 constexpr qint64 BLOCK_BYTES = qint64{64} * 1024;
 constexpr qint64 MAX_DIRECTORY_BYTES = qint64{8} * 1024 * 1024;
 
-void require(bool valid)
+void require(bool valid, const char* message = "Invalid or unsupported Tracker archive export structure.")
 {
     if (!valid)
-        throw ProjectError("Invalid, cancelled or unsupported Tracker archive export.");
+        throw ProjectError(message);
 }
 
 void checkCancelled(const std::atomic_bool* cancelled)
 {
-    require(!cancelled || !cancelled->load());
+    require(!cancelled || !cancelled->load(), "Tracker archive export cancelled.");
 }
 
 template <typename T> T number(const QByteArray& bytes, qsizetype offset)
@@ -201,20 +201,21 @@ quint32 checksum(const std::string& bytes)
 
 void copyRange(QFile& input, QIODevice& output, qint64 first, qint64 last, const std::atomic_bool* cancelled)
 {
-    require(first >= 0 && last >= first && last <= input.size() && input.seek(first));
+    require(first >= 0 && last >= first && last <= input.size() && input.seek(first), "Could not seek Tracker archive input.");
     std::array<char, BLOCK_BYTES> buffer{};
     while (first < last)
     {
         checkCancelled(cancelled);
         const auto size = std::min(BLOCK_BYTES, last - first);
-        require(input.read(buffer.data(), size) == size && output.write(buffer.data(), size) == size);
+        require(input.read(buffer.data(), size) == size, "Could not read Tracker archive input.");
+        require(output.write(buffer.data(), size) == size, "Could not write Tracker archive output.");
         first += size;
     }
 }
 
 void writeBytes(QIODevice& output, const QByteArray& bytes)
 {
-    require(output.write(bytes) == bytes.size());
+    require(output.write(bytes) == bytes.size(), "Could not write Tracker archive metadata.");
 }
 } // namespace
 
@@ -232,7 +233,8 @@ void writeTrackerArchive(
         require(!destination.startsWith(source.root() + '/', Qt::CaseInsensitive) &&
                 !destination.startsWith(QFileInfo(source.sourcePath()).absolutePath() + '/', Qt::CaseInsensitive));
     QFile input(source.sourcePath());
-    require(input.open(QIODevice::ReadOnly) && input.size() > 0 && input.size() <= MAX_TRACKER_ARCHIVE_BYTES);
+    require(input.open(QIODevice::ReadOnly), "Could not open the owned Tracker archive source.");
+    require(input.size() > 0 && input.size() <= MAX_TRACKER_ARCHIVE_BYTES);
     auto directory = readDirectory(input, member, cancelled);
     const auto selected = std::ranges::find_if(directory.entries, [](const Entry& entry) { return entry.selected; });
     require(selected != directory.entries.end());
@@ -247,13 +249,14 @@ void writeTrackerArchive(
     const qint64 delta = local.size() + static_cast<qint64>(xml.size()) - (selected->end - selected->offset);
     require(input.size() + delta > 0 && input.size() + delta <= MAX_TRACKER_ARCHIVE_BYTES);
     QTemporaryDir temporary;
-    require(temporary.isValid());
+    require(temporary.isValid(), "Could not create a temporary Tracker archive directory.");
     const auto stagedPath = temporary.filePath("validated.trz");
     QFile staged(stagedPath);
-    require(staged.open(QIODevice::WriteOnly | QIODevice::NewOnly));
+    require(staged.open(QIODevice::WriteOnly | QIODevice::NewOnly), "Could not create a staged Tracker archive.");
     copyRange(input, staged, 0, selected->offset, cancelled);
     writeBytes(staged, local);
-    require(staged.write(xml.data(), static_cast<qint64>(xml.size())) == static_cast<qint64>(xml.size()));
+    require(staged.write(xml.data(), static_cast<qint64>(xml.size())) == static_cast<qint64>(xml.size()),
+            "Could not write the edited Tracker archive member.");
     copyRange(input, staged, selected->end, directory.offset, cancelled);
     for (auto& entry : directory.entries)
     {
@@ -272,7 +275,7 @@ void writeTrackerArchive(
     }
     setNumber<quint32>(directory.endRecord, 16, static_cast<quint32>(directory.offset + delta));
     writeBytes(staged, directory.endRecord);
-    require(staged.flush() && staged.size() == input.size() + delta);
+    require(staged.flush() && staged.size() == input.size() + delta, "Could not finish writing the staged Tracker archive.");
     staged.close();
     {
         const auto verified = TrackerArchive::open(stagedPath, cancelled);
@@ -281,11 +284,11 @@ void writeTrackerArchive(
         require(edited.open(QIODevice::ReadOnly) && edited.size() == static_cast<qint64>(xml.size()) &&
                 edited.readAll().toStdString() == xml);
     }
-    require(staged.open(QIODevice::ReadOnly));
+    require(staged.open(QIODevice::ReadOnly), "Could not reopen the staged Tracker archive.");
     QSaveFile output(path);
-    require(output.open(QIODevice::WriteOnly));
+    require(output.open(QIODevice::WriteOnly), "Could not open the Tracker archive destination.");
     copyRange(staged, output, 0, staged.size(), cancelled);
     checkCancelled(cancelled);
-    require(output.commit());
+    require(output.commit(), "Could not replace the Tracker archive destination.");
 }
 } // namespace motrack
