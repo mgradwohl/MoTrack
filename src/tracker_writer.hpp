@@ -25,5 +25,12 @@ void writeTrackerDocument(const QString& path, const WorkspaceDocument& document
 /// Export the selected original archive member, retaining all other members and embedded media.
 /// Requires the owned source payload; replacing embedded media or the selected source is refused.
 void writeTrackerArchiveDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled = nullptr);
+/// Create a portable .trz from an audited linked-image document, copying each image without conversion.
+/// The document and its native/source bindings stay unchanged. Existing archives, movies and unsupported edits are refused.
+/// Stage and validate the bounded package before atomic replacement; cancellation leaves the destination unchanged.
+void writeTrackerImagePackage(const QString& path,
+                              const WorkspaceDocument& document,
+                              const QString& mediaProjectPath,
+                              const std::atomic_bool* cancelled = nullptr);
 
 } // namespace motrack

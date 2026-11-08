@@ -217,6 +217,43 @@ class CorpusTests(unittest.TestCase):
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
                 corpus.verify_archive_image_export(original, exported, selected)
 
+    def test_image_package_oracle_checks_inventory_media_and_all_xml(self):
+        case = next(c for c in corpus.load_manifest()["cases"] if c["id"] == "linked-images")
+        original = corpus.local_fixture_path(case)
+        exported = self.root / "packaged.trz"
+        selected = self.root / "selected.trk"
+        with corpus.minidom.parse(str(original)) as document:
+            corpus.patch_expected_linked_images(document, relocate=False)
+            xml = document.toxml()
+        for index in range(4):
+            xml = xml.replace(f"images/frame{index}.png", f"images/frame-{index:06d}.png")
+
+        def build(mutation=None):
+            with zipfile.ZipFile(exported, "w") as package:
+                data = xml
+                if mutation == "xml":
+                    data = data.replace('name="xorigin" type="double">2.0', 'name="xorigin" type="double">3.0')
+                elif mutation == "path":
+                    data = data.replace("images/frame-000000.png", "images/frame-000001.png", 1)
+                package.writestr("experiment.trk", data)
+                for index, asset in enumerate(case["assets"]):
+                    if mutation == "missing" and index == 0:
+                        continue
+                    payload = corpus.local_fixture_path(asset).read_bytes()
+                    if mutation == "pixels" and index == 0:
+                        payload = bytes([payload[0] ^ 1]) + payload[1:]
+                    package.writestr(f"images/frame-{index:06d}.png", payload)
+                if mutation == "extra":
+                    package.writestr("unexpected.txt", "unexpected")
+
+        build()
+        corpus.verify_image_package_export(original, exported, selected, case)
+        self.assertEqual(selected.read_text(encoding="utf-8"), xml)
+        for mutation in ["xml", "path", "pixels", "missing", "extra"]:
+            build(mutation)
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                corpus.verify_image_package_export(original, exported, selected, case)
+
     def test_linked_image_export_oracle_checks_edited_geometry_all_xml_and_relocated_assets(self):
         manifest = corpus.load_manifest()
         case = next(c for c in manifest["cases"] if c["id"] == "linked-images")
