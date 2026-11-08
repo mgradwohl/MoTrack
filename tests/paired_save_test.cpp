@@ -389,6 +389,46 @@ TEST(PairedSave, IdentifiesDifferentTransactionsAtTheSameRecoveryPath)
     }
 }
 
+TEST(PairedSave, ChecksTheExpectedTransactionBeforeRecoveryCanChangeEitherOutput)
+{
+    QTemporaryDir temporary;
+    const auto target = temporary.filePath("saved.trk");
+    std::atomic_bool cancelled{false};
+    const auto interrupt = [&cancelled](auto state)
+    {
+        cancelled = state == motrack::PairedSaveProgress::StandardSaved;
+    };
+    const auto first = motrack::writePairedDocuments(target, editedDocument(), fixture(), &cancelled, interrupt);
+    ASSERT_EQ(first.status, motrack::PairedSaveStatus::RecoveryRequired);
+    ASSERT_EQ(motrack::recoverPairedDocuments(first.recoveryPath).status, motrack::PairedSaveStatus::Saved);
+    const auto absent = motrack::recoverPairedDocuments(first.recoveryPath, nullptr, {}, first.transactionId);
+    EXPECT_EQ(absent.status, motrack::PairedSaveStatus::RecoveryNotNeeded);
+    EXPECT_EQ(absent.transactionId, first.transactionId);
+    EXPECT_FALSE(absent.standardCurrent || absent.nativeCurrent);
+    auto newer = editedDocument();
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.setPointMassValue(newer.project, 0, 7));
+    cancelled = false;
+    const auto second = motrack::writePairedDocuments(target, newer, fixture(), &cancelled, interrupt);
+    ASSERT_EQ(second.status, motrack::PairedSaveStatus::RecoveryRequired);
+    ASSERT_NE(second.transactionId, first.transactionId);
+    const auto standard = bytes(target);
+    const auto native = bytes(second.nativePath);
+    const auto journal = bytes(second.recoveryPath);
+    const auto refused = motrack::recoverPairedDocuments(first.recoveryPath, nullptr, {}, first.transactionId);
+    EXPECT_EQ(refused.status, motrack::PairedSaveStatus::RecoveryRequired);
+    EXPECT_EQ(refused.transactionId, second.transactionId);
+    EXPECT_FALSE(refused.standardCurrent || refused.nativeCurrent);
+    EXPECT_EQ(bytes(target), standard);
+    EXPECT_EQ(bytes(second.nativePath), native);
+    EXPECT_EQ(bytes(second.recoveryPath), journal);
+    EXPECT_EQ(motrack::recoverPairedDocuments(second.recoveryPath, nullptr, {}, "invalid").status,
+              motrack::PairedSaveStatus::RecoveryRequired);
+    EXPECT_EQ(motrack::recoverPairedDocuments(second.recoveryPath, nullptr, {}, second.transactionId).status,
+              motrack::PairedSaveStatus::Saved);
+    EXPECT_DOUBLE_EQ(motrack::readWorkspaceDocument(second.nativePath).project.pointMasses.at(0).mass, 7);
+}
+
 TEST(PairedSave, RefusesRecoveryWithAnInvalidTransactionIdentity)
 {
     QTemporaryDir temporary;
@@ -435,9 +475,9 @@ TEST(PairedSave, RecoversAfterTheWriterProcessExitsWithoutCleanup)
     EXPECT_EQ(files(temporary), (QStringList{"saved.motrack", "saved.trk"}));
 }
 
-TEST(PairedSave, RejectsLinkedMediaCollidingWithEitherOutputIgnoringCase)
+TEST(PairedSave, LinkedMediaCollisionChecksFollowFilesystemIdentity)
 {
-    for (const auto* mediaName : {"saved.MOTRACK", "saved.TRK"})
+    for (const auto* mediaName : {"saved.MOTRACK", "saved.TRK", "saved.motrack", "saved.trk"})
     {
         SCOPED_TRACE(mediaName);
         QTemporaryDir temporary;
@@ -453,13 +493,14 @@ TEST(PairedSave, RejectsLinkedMediaCollidingWithEitherOutputIgnoringCase)
         xml.replace("images/frame0.png", mediaName);
         put(source, xml);
         const auto document = motrack::importTrackerDocument(source);
+        const bool collision = QFileInfo::exists(temporary.filePath("saved.trk")) || QFileInfo::exists(temporary.filePath("saved.motrack"));
         bool prepared = false;
         const auto result = motrack::writePairedDocuments(
             temporary.filePath("saved.trk"), document, source, nullptr, [&prepared](auto) { prepared = true; });
-        EXPECT_EQ(result.status, motrack::PairedSaveStatus::Failed);
-        EXPECT_TRUE(result.diagnostic.contains("overwrite linked media"));
-        EXPECT_FALSE(prepared);
-        EXPECT_FALSE(result.standardCurrent || result.nativeCurrent);
+        EXPECT_EQ(result.status, collision ? motrack::PairedSaveStatus::Failed : motrack::PairedSaveStatus::Saved);
+        EXPECT_EQ(result.diagnostic.contains("overwrite linked media"), collision);
+        EXPECT_EQ(prepared, !collision);
+        EXPECT_EQ(result.standardCurrent && result.nativeCurrent, !collision);
         EXPECT_TRUE(result.recoveryPath.isEmpty());
         EXPECT_EQ(bytes(media), original);
         EXPECT_TRUE(QDir(temporary.path()).entryList({".motrack-stage-*"}, QDir::Files | QDir::Hidden).isEmpty());
