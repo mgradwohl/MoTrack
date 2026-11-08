@@ -191,6 +191,7 @@
     },
     {
       "id": "center-of-mass",
+      "native_center_name_roundtrip": true,
       "local_file": "fixtures/center-of-mass.trk",
       "file": "center-of-mass.trk",
       "bytes": 7798,

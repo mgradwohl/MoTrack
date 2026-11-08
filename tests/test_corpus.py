@@ -182,6 +182,64 @@ class CorpusTests(unittest.TestCase):
                     with self.subTest(mode=mode, path=path, states=states), self.assertRaises(ValueError):
                         corpus.validate_session(updated, invalid, manifest, expected)
 
+    def test_center_member_rename_preserves_complete_source_and_independent_physics(self):
+        manifest = corpus.load_manifest()
+        case = next(case for case in manifest["cases"] if case["id"] == "center-of-mass")
+        baseline = copy.deepcopy(case)
+        expected, updated = corpus.rename_roundtrip_expected(case, "center-member-name")
+        self.assertEqual(case, baseline)
+        center = updated["session_centers"][0]
+        self.assertEqual(center["members"], [corpus.RENAME_LABEL, "mass B"])
+        self.assertEqual(center["mass"], 5.0)
+        self.assertEqual(center["samples"], case["session_centers"][0]["samples"])
+        source = corpus.local_fixture_path(case).read_text(encoding="utf-8")
+        before, after = source.rsplit("</object>", 1)
+        source = before + '<property name="description" type="string">mass A</property>\n</object>' + after
+        text = source
+        for field in ["name", "item"]:
+            text = text.replace(f'name="{field}" type="string">mass A</property>',
+                                f'name="{field}" type="string"><![CDATA[{corpus.RENAME_LABEL}]]></property>')
+        original, exported = self.root / "center-source.trk", self.root / "center-export.trk"
+        original.write_text(source, encoding="utf-8")
+        exported.write_text(text, encoding="utf-8")
+        corpus.verify_rename_export_xml(original, exported, "center-member-name")
+        for old, new in [('name="description" type="string">mass A', 'name="description" type="string">changed'),
+                         ('name="mass" type="double">5.0', 'name="mass" type="double">4.0'),
+                         ('name="item" type="string">mass B', 'name="item" type="string">wrong'),
+                         ('name="selectedtrack" type="string">center', 'name="selectedtrack" type="string">mass B')]:
+            self.assertIn(old, text)
+            exported.write_text(text.replace(old, new, 1), encoding="utf-8")
+            with self.subTest(change=old), self.assertRaises(ValueError):
+                corpus.verify_rename_export_xml(original, exported, "center-member-name")
+
+        tracks = []
+        for identity in updated["session_tracks"]:
+            mass = next((mass for mass in expected["point_masses"] if mass["name"] == identity["name"]), None)
+            tracks.append({**identity, "mass": mass["mass"] if mass else None,
+                           "samples": [{"frame": s["frame"], "points": [s["image"]], "world": s["world"]}
+                                       for s in mass["samples"]] if mass else []})
+        before = {"tracks": tracks, "centers_of_mass": copy.deepcopy(updated["session_centers"]),
+                  "name_references": {"selected_track": "center"}, "clip": expected["clip"],
+                  "coordinate_samples": expected["coordinate_samples"], **corpus.session_units(updated, expected)}
+        valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                 "view_preparation": "visit_custom_tables_restore_selection", "before": before,
+                 "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
+        corpus.validate_session(updated, valid, manifest, expected)
+        for path, value in [(["centers_of_mass", 0, "members"], ["mass A", "mass B"]),
+                            (["centers_of_mass", 0, "members"], [corpus.RENAME_LABEL]),
+                            (["centers_of_mass", 0, "mass"], 4.0),
+                            (["centers_of_mass", 0, "samples", 0, "world"], [0.0, 0.0]),
+                            (["centers_of_mass"], []), (["name_references", "selected_track"], "mass B")]:
+            for states in [["before", "after_save", "after"], ["after"]]:
+                invalid = copy.deepcopy(valid)
+                for state in states:
+                    target = invalid[state]
+                    for key in path[:-1]:
+                        target = target[key]
+                    target[path[-1]] = value
+                with self.subTest(path=path, states=states), self.assertRaises(ValueError):
+                    corpus.validate_session(updated, invalid, manifest, expected)
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix="motrack-corpus-test-")
         self.addCleanup(self.directory.cleanup)

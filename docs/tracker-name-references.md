@@ -258,8 +258,28 @@ transient undo history.
 The first rename cases include the protractor experiment's selected `mass B` and unselected `mass A`.
 They require identical words in an unrelated description to stay unchanged; native regressions reject
 unknown/ambiguous relationships. Independent vectors now have a separate selected-vector case.
-Next extend to each dependent
-field with its own application evidence, then creation/deletion and archive/paired saving.
+Center-of-mass members now have a separate renamed-constituent case. Next extend to the remaining dependent
+fields with their own application evidence, then creation/deletion and archive/paired saving.
+
+## Center-of-mass constituent rename
+
+The audited CenterOfMass schema admits its ordinary mass/style/frame fields and a nonempty
+`masses` string collection. Each member must resolve to an original measured point mass; duplicate,
+missing, ambiguous, nested-center, model or unknown targets reject export before replacing a file.
+The upstream loader adds unique object identities, so duplicate source entries are conservatively
+rejected rather than silently coalesced. Missing/empty member collections are outside this subset.
+
+The center-member-name case renames mass A to `élève β & <B>` through native undo/redo and native
+save/reopen. Export updates its original member slot, leaving mass B, selected center, the source
+note and all measurements unchanged. Application acceptance requires the same resolved members,
+5 kg total mass and independent center coordinates (4,-6) and (6,-8) at frames 0 and 2 before save,
+after save and after fresh-process reopen. Native reimport and a complete-source comparison also
+run. Exact-head Linux CI supplies the application evidence; Windows only runs native/headless tests.
+
+This is reference-preserving name export, not native center evaluation or constituent editing.
+[MoTrack #89](https://github.com/mgradwohl/MoTrack/issues/89), linked to
+[Tracker #14](https://github.com/OpenSourcePhysics/tracker/issues/14), remains open for the later
+combined-momentum and DataTool workflow. No claim is made for moving reference frames or nested centers.
 
 Plot/table selections and view owners/guests must be viewable targets. Coordinate axes are valid
 main-panel selections but are ignored by TrackChooserTView; a rename export rejects such view
