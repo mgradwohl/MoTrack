@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import org.opensourcephysics.cabrillo.tracker.CenterOfMass;
+import org.opensourcephysics.cabrillo.tracker.CoordAxes;
 import org.opensourcephysics.cabrillo.tracker.DynamicParticle;
 import org.opensourcephysics.cabrillo.tracker.DynamicSystem;
 import org.opensourcephysics.cabrillo.tracker.ParticleModel;
@@ -280,7 +281,25 @@ public final class TrackerSessionReference {
         frame.validate();
         panel.getPlayer().setStepNumber(clip.getStepCount() - 1);
         Timer timer = new Timer(25, event -> guard(() -> {
+            if (!frame.isPaintable() || frame.hasPaintHold() || !panel.isShowing() || panel.getVisibleRect().isEmpty()) {
+                WAITING.set("visible experiment paintable=" + frame.isPaintable() + " hold=" + frame.hasPaintHold()
+                    + " showing=" + panel.isShowing() + " bounds=" + panel.getVisibleRect());
+                return;
+            }
             panel.paintImmediately(panel.getVisibleRect());
+            // TRZ loading can complete before the first normal axes draw. Observe the live
+            // origin following the current coordinate frame; never inject expected positions.
+            for (TTrack track : panel.getTracks()) if (track instanceof CoordAxes && track.isVisible()) {
+                Step step = track.getStep(0);
+                TPoint[] points = step == null ? null : step.getPoints();
+                double x = panel.getCoords().getOriginX(panel.getFrameNumber());
+                double y = panel.getCoords().getOriginY(panel.getFrameNumber());
+                if (points == null || points.length == 0 || points[0] == null || points[0].x != x || points[0].y != y) {
+                    WAITING.set("visible axes origin draw: " + (points == null || points.length == 0 ? "missing" : points[0])
+                        + " coordinate origin=" + x + "," + y);
+                    return;
+                }
+            }
             // Tracker schedules attachment refresh after load. Observe normal resolution and point
             // attachment instead of sleeping or calling its protected refresh/repair methods.
             if (!attachmentsReady(panel, attachments)) { WAITING.set("attachment target/point refresh"); return; }
