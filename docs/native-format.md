@@ -432,4 +432,5 @@ Desktop sessions retain resolved local media locations separately from serialize
 
 Successful native saves also adopt the worker snapshot's refreshed physical locations. Restoring media
 through a temporary alias and later removing that alias therefore preserves subsequent saves and
-undo/redo. Failed writes and replaced-document completions do not adopt those runtime bindings.
+undo/redo. The active image reader adopts the same locations without resetting frame navigation.
+Failed writes and replaced-document completions do not adopt those runtime bindings.
