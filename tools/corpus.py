@@ -579,6 +579,63 @@ CREATED_VECTOR_NAME = "vecteur β & <C>"
 CREATED_VECTOR_APPEARANCE = {"visible": True, "trail": True, "locked": False, "footprint": "Footprint.BoldArrow", "argb": -65281}
 
 
+def deletion_roundtrip_expected(case, mode):
+    if (mode == "delete-mass" and case["id"] != "protractor"
+            or mode in {"delete-vector", "delete-all-vectors"} and case["id"] != "independent-vectors"
+            or mode not in {"delete-mass", "delete-vector", "delete-all-vectors"}):
+        raise ValueError("The deletion oracle requires its pinned mass/vector case")
+    expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
+    case = copy.deepcopy(case)
+    if mode == "delete-mass":
+        expected["point_masses"] = expected["point_masses"][1:]
+        removed = {"mass A"}
+    else:
+        expected["vectors"] = [] if mode == "delete-all-vectors" else expected["vectors"][1:]
+        removed = {"vector A", "vector B"} if mode == "delete-all-vectors" else {"vector A"}
+        case["session_vector_data"] = [] if mode == "delete-all-vectors" else [
+            {"name": "vector B", "samples": [{"frame": 2, "components": [0.0, 0.0], "magnitude": 0.0}]}]
+    case["session_tracks"] = [track for track in case["session_tracks"] if track["name"] not in removed]
+    return expected, case
+
+
+def verify_deletion_export_xml(original, exported, mode):
+    names = {"delete-mass": {"mass A"}, "delete-vector": {"vector A"}, "delete-all-vectors": {"vector A", "vector B"}}
+    if mode not in names:
+        raise ValueError("Unknown deletion mode")
+    expected = minidom.parse(str(original))
+    root = expected.documentElement
+    collections = [node for node in root.childNodes if node.nodeType == node.ELEMENT_NODE
+                   and node.tagName == "property" and node.getAttribute("name") == "tracks"]
+    if len(collections) != 1:
+        raise ValueError("Expected one original track collection")
+    deleted = set()
+    for item in list(collections[0].childNodes):
+        if item.nodeType != item.ELEMENT_NODE:
+            continue
+        objects = [node for node in item.childNodes if node.nodeType == node.ELEMENT_NODE and node.tagName == "object"]
+        if len(objects) != 1:
+            raise ValueError("Expected one original track object")
+        labels = [node for node in objects[0].childNodes if node.nodeType == node.ELEMENT_NODE
+                  and node.tagName == "property" and node.getAttribute("name") == "name"]
+        if len(labels) != 1:
+            raise ValueError("Expected one original track name")
+        name = "".join(node.data for node in labels[0].childNodes if node.nodeType in {node.TEXT_NODE, node.CDATA_SECTION_NODE})
+        if name in names[mode]:
+            expected_class = "org.opensourcephysics.cabrillo.tracker." + ("PointMass" if mode == "delete-mass" else "Vector")
+            if objects[0].getAttribute("class") != expected_class or name in deleted:
+                raise ValueError("Unexpected deletion target")
+            deleted.add(name)
+            collections[0].removeChild(item)
+    if deleted != names[mode]:
+        raise ValueError("Missing deletion target")
+    actual = minidom.parse(str(exported))
+    matches = canonical_tracker_xml(expected) == canonical_tracker_xml(actual)
+    expected.unlink()
+    actual.unlink()
+    if not matches:
+        raise ValueError("Standard export changed content beyond the requested track deletion")
+
+
 def create_vector_roundtrip_expected(case, empty=False):
     if case["id"] != "independent-vectors":
         raise ValueError("The created-vector oracle requires the pinned independent-vector case")
@@ -1266,6 +1323,8 @@ def check_sessions(manifest, cache, java, probe=None):
              ("clip-timing", "native_clip_timing_roundtrip"), ("clip-timing-range", "native_clip_timing_roundtrip"),
              ("create-mass", "native_create_mass_roundtrip"), ("create-empty-mass", "native_create_mass_roundtrip"),
              ("create-vector", "native_create_vector_roundtrip"), ("create-empty-vector", "native_create_vector_roundtrip"),
+             ("delete-mass", "native_delete_mass_roundtrip"), ("delete-vector", "native_delete_vector_roundtrip"),
+             ("delete-all-vectors", "native_delete_vector_roundtrip"),
              ("name", "native_name_roundtrip"), ("unselected-name", "native_name_roundtrip"),
              ("vector-name", "native_vector_name_roundtrip"),
              ("plot-owner-name", "native_plot_name_roundtrip"), ("plot-guest-name", "native_plot_name_roundtrip"),
@@ -1353,6 +1412,9 @@ def check_sessions(manifest, cache, java, probe=None):
                     empty = mode == "create-empty-vector"
                     verify_create_vector_export_xml(project, exported, empty)
                     expected, case = create_vector_roundtrip_expected(case, empty)
+                elif mode in {"delete-mass", "delete-vector", "delete-all-vectors"}:
+                    verify_deletion_export_xml(project, exported, mode)
+                    expected, case = deletion_roundtrip_expected(case, mode)
                 elif mode in {"name", "unselected-name", "vector-name", "plot-owner-name", "plot-guest-name", "center-member-name",
                               "attachment-first-name", "attachment-last-name", "model-booster-name"}:
                     verify_rename_export_xml(project, exported, mode)
@@ -1432,6 +1494,8 @@ def check_sessions(manifest, cache, java, probe=None):
             keys = {"marks": [[0, 3], [7]], "empty-marks": [[], [0]], "first-mark": [[4], [0]]}.get(mode)
             if mode in {"create-mass", "create-empty-mass"}:
                 keys = [[0], [0], [] if mode == "create-empty-mass" else [1, 4, 8]]
+            elif mode == "delete-mass":
+                keys = [[0]]
             calibration = keyed_calibration_expected(mode == "keyed-calibration") if case["id"] == "keyed-calibration" else None
             if "mixed_calibration_flags" in case:
                 calibration = mixed_calibration_expected(case, mode == "mixed-calibration")

@@ -669,13 +669,13 @@ object. Application snapshots now include track appearance, and independent expe
 the new mass, keys, coordinates and appearance through Tracker save and fresh-process reopen.
 Both exported and Java-resaved files are reimported natively. No baseline or fixture bytes changed.
 Negative tests reject consistent wrong mass/name/keys/appearance, altered old content, duplicate new
-objects, unsafe names, dangling original references, unsupported schemas/deletions and excessive
+objects, unsafe names, dangling original references, unsupported schemas/referenced deletions and excessive
 dense frame allocation. Creation also validates existing calibration against every retained/new mark,
 even when the calibration itself was not edited: an origin (16,16), scales (1e-100,2e-100), and a mark
 at (nextafter(16,17),16) expose incompatible affine cancellation and must reject atomically.
 The pinned headless ImageCoordSystem API independently gives X=3.1082702275611665e85, while
 the native result is 3.552713678800501e85; the regression failed before the guard and passes after it.
-Sorted identity inclusion bounds the original-track membership check to linear work.
+Sorted identity comparisons bound membership-change detection to linear work; the writer remaps surviving source identities explicitly.
 Native regression cases export a new mass marked at frame 10000 or 500000, reimport the standard file,
 save/reopen natively, create another mass and export again. The point-mass frame-array schema audit
 uses the same 500000 frame bound as the writer; it does not relax generic array indices, entry/depth
@@ -726,7 +726,29 @@ Another regression reproduced 1000 newly appended empty vectors exceeding the sc
 after export. The shared final schema audit now refuses before replacing the destination; a smaller
 batch can still be reimported, renamed and extended. Appended metadata and patched samples both count.
 Negative tests reject consistent wrong geometry/appearance/calibrated data and changes to original content. Native
-tests cover collisions, dangling links, vector sums, source deletion, mixed provider types, origin/tip
+tests cover collisions, dangling links, vector sums, unsafe deletion, mixed provider types, origin/tip
 snapping across frames, endpoint precision loss and bounded dense allocation. These cases extend
 R03/R07 without accepting dependent vectors or the known VectorSum resave defect (#63). Current-head
 Linux application acceptance and all-platform CI remain required before merging.
+
+
+## Removing unreferenced tracks
+
+The `delete-mass` case removes unreferenced mass A from the pinned protractor experiment. Mass B,
+its manual key, the protractor, calibration, selections, table columns/formats and all other source
+content must survive. The `delete-vector` case removes vector A while retaining vector B's zero
+sample and live calibrated dataset; `delete-all-vectors` retains the axes and original clip/calibration
+with no vectors. The XML oracle permits only the exact requested collection-object removals.
+Independent expected values remove specified identities from the unchanged baseline; no values are
+learned from the export or Java's resave. Negative tests reject consistently resurrected/extra/missing
+tracks, changed calibration and altered untouched XML at all three application stages.
+
+The native probe removes a track through normal history, undoes/redoes the deletion, saves/reopens
+`.motrack` after removing its temporary input copy, then exports. Native tests exercise first/middle/last
+and all deletions across interleaved mass/vector source objects, reordered native lists, allocation
+gaps, same-count delete/create, safe name reuse and repeated exports. Original bindings remain in the
+native envelope; reimported compact IDs are mapped in surviving source order. Referenced/dependent
+removals, replacement-by-the-same-name rebinding, malformed/unknown schemas and ambiguous names refuse
+before replacing an existing destination. The historical MOV/open-entry-point report remains tracked
+by [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65); these media-free cases do not close it.
+Actual Tracker save/fresh-process reopen and all-platform CI must pass before merging this slice.

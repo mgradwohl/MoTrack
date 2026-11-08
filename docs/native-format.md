@@ -170,7 +170,7 @@ geometry. Full dependent-vector/display semantics must replace these restriction
 It requires known source associations, preserves unknown XML objects/properties and
 normalizes changed output to a matching UTF-8 declaration. Unchanged output is byte-exact. It rejects
 every other changed domain field before opening its atomic replacement file, including media-based
-timing, moving reference frames, fixed-flag changes and original-track deletions. Range exports require a known `VideoClip` without
+timing, moving reference frames, fixed-flag changes and referenced-track deletions. Range exports require a known `VideoClip` without
 video, frame-shift or saved-video-frame-count properties. They reject missing/invalid counts, endpoints
 beyond Tracker 6.3.5's media-free frame 500000 limit, and overflow in its temporary frame-count arithmetic.
 Media references are rejected until relocation
@@ -259,7 +259,7 @@ range/timebase is unchanged. Range-only export applies the same timing checks be
 New independent point masses can be appended to an audited media-free source after native save/reopen.
 Original bindings stay unchanged in the native envelope. Each export maps newly allocated IDs to fresh
 source objects, so repeated exports do not duplicate tracks and reordered native lists cannot change
-original relationships. Original bound tracks must remain present. The source must use the audited
+original relationships. Referenced original tracks must remain present. The source must use the audited
 mass/vector/axes/unattached-protractor/view schema with unique names and resolved links; an unresolved
 name could otherwise become a new dependency merely by adding a track. New names obey the rename codec.
 
@@ -276,7 +276,7 @@ coordinates retain the existing media-free behavior. The source schema audit per
 the same frame range specifically for point-mass `framedata`, so later creation after standard reimport
 does not impose a smaller index limit. Generic array indices, aggregate entry counts and nesting limits
 remain bounded separately. The native source XML stays
-unchanged. Deleting original tracks, dependent creation, media-backed creation, desktop
+unchanged. Deleting referenced tracks, dependent creation, media-backed creation, desktop
 standard saving and paired-output transactions remain separate work. The corpus has independent empty
 and marked creation cases, including actual Tracker appearance, keys and scientific coordinates.
 Mark-only edits apply the same coordinate checks after standard reimport and native save/reopen.
@@ -288,8 +288,23 @@ unlocked magenta BoldArrow defaults and no point-mass key list. Creation require
 only independent vectors and coordinate axes. Empty and sparse/zero-vector cases have independent
 application oracles. All existing snapping, endpoint reconstruction, calibrated-coordinate and dense
 allocation checks still apply, including other frames' visible tips. Adding an empty vector does not
-authorize dropping original tracks, changing dependent links or weakening the measured-vector guards.
+authorize dropping referenced tracks, changing dependent links or weakening the measured-vector guards.
 The source audit also admits the writer's original-frame index range for vector `framedata`; a native
 regression exports and reimports a mark at frame 10000, then creates and exports another vector. Other
 array indices and aggregate schema/allocation limits remain unchanged.
-Both point-mass and vector membership checks use linear sorted-ID inclusion before appending objects.
+Membership comparisons use sorted IDs; surviving source-order IDs are remapped explicitly before final reparse.
+
+Unreferenced original point masses and independent vectors may also be removed from an audited source.
+The source envelope and its original bindings remain intact in `.motrack`; each export removes only
+bound objects absent from the live document. A source reference to any removed identity refuses export,
+even if a new track reuses the old name. Selections, plot/table owners/guests and dependent links are
+never silently redirected. Unknown schemas, missing/ambiguous references and dependent-track sources
+remain excluded from membership edits.
+
+Deletion compacts IDs assigned during standard reimport, so the writer rebuilds their native mapping
+in surviving XML order before appending new objects. Equal-count delete/create operations compare
+identities, not sizes. Existing-name updates happen before node deletion to preserve original source
+paths. An unreferenced name can be reused by a surviving renamed track after that audit. Original
+objects and their content remain unchanged except for explicitly supported edits; only collection
+whitespace is normalized for OSP. Selected/view-target removal and dependent-link cleanup require a
+separate policy and application acceptance before being enabled.

@@ -28,6 +28,80 @@ class Download(io.BytesIO):
 
 
 class CorpusTests(unittest.TestCase):
+    def test_deletion_oracle_keeps_untouched_measurements_names_and_views(self):
+        manifest = corpus.load_manifest()
+        for mode, case_id in [("delete-mass", "protractor"), ("delete-vector", "independent-vectors"),
+                              ("delete-all-vectors", "independent-vectors")]:
+            original = next(c for c in manifest["cases"] if c["id"] == case_id)
+            unchanged = copy.deepcopy(original)
+            expected, case = corpus.deletion_roundtrip_expected(original, mode)
+            tracks = []
+            for identity in case["session_tracks"]:
+                mass = next((v for v in expected["point_masses"] if v["name"] == identity["name"]), None)
+                vector = next((v for v in expected["vectors"] if v["name"] == identity["name"]), None)
+                calibrated = next((v for v in case.get("session_vector_data", []) if v["name"] == identity["name"]), None)
+                tracks.append({**identity, "mass": mass["mass"] if mass else None, "key_frames": [0] if mass else None,
+                               "samples": [{"frame": s["frame"], "points": [s["image"]], "world": s["world"]}
+                                           for s in mass["samples"]] if mass else [],
+                               "vector_samples": vector["samples"] if vector else [],
+                               "calibrated_vector_samples": calibrated["samples"] if calibrated else []})
+            before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                      "name_references": case.get("session_names"), "saved_views": case.get("session_views"),
+                      **corpus.session_units(case, expected)}
+            report = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                      "view_preparation": "visit_custom_tables_restore_selection", "before": before,
+                      "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
+            keys = [[0]] if mode == "delete-mass" else None
+            corpus.validate_session(case, report, manifest, expected, keys)
+            for mutation in ["resurrect", "lose-survivor", "alter-calibration"]:
+                invalid = copy.deepcopy(report)
+                for stage in ["before", "after_save", "after"]:
+                    if mutation == "resurrect":
+                        invalid[stage]["tracks"].append({"class": "org.opensourcephysics.cabrillo.tracker.Vector", "name": "vector A"})
+                    elif mutation == "lose-survivor":
+                        invalid[stage]["tracks"].pop()
+                    else:
+                        invalid[stage]["coordinate_samples"][0]["world"][0] += 10
+                with self.subTest(mode=mode, mutation=mutation), self.assertRaises(ValueError):
+                    corpus.validate_session(case, invalid, manifest, expected, keys)
+            self.assertEqual(original, unchanged)
+            if mode == "delete-mass":
+                self.assertEqual([m["name"] for m in expected["point_masses"]], ["mass B"])
+                self.assertEqual(case["session_names"], original["session_names"])
+                self.assertEqual(case["session_views"], original["session_views"])
+            else:
+                self.assertEqual([v["name"] for v in expected["vectors"]], [] if mode == "delete-all-vectors" else ["vector B"])
+        for mode, case_id in [("invalid", "protractor"), ("delete-mass", "independent-vectors"), ("delete-vector", "protractor")]:
+            original = next(c for c in manifest["cases"] if c["id"] == case_id)
+            with self.assertRaises(ValueError):
+                corpus.deletion_roundtrip_expected(original, mode)
+
+    def test_deletion_xml_oracle_allows_only_exact_original_object_removal(self):
+        original, exported = self.root / "deletion-source.trk", self.root / "deletion-output.trk"
+        for mode in ["delete-mass", "delete-vector", "delete-all-vectors"]:
+            kind, prefix = ("PointMass", "mass") if mode == "delete-mass" else ("Vector", "vector")
+            items = [f'<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.{kind}">'
+                     f'<property name="name" type="string">{prefix} {name}</property></object></property>' for name in ["A", "B"]]
+            opening = ('<object class="org.opensourcephysics.cabrillo.tracker.TrackerPanel">'
+                       '<property name="description" type="string">preserved</property>'
+                       '<property name="tracks" type="collection" class="java.util.ArrayList">')
+            closing = '</property></object>'
+            source = opening + "".join(items) + closing
+            remaining = "" if mode == "delete-all-vectors" else items[1]
+            valid = opening + remaining + closing
+            original.write_text(source, encoding="utf-8")
+            exported.write_text(valid, encoding="utf-8")
+            corpus.verify_deletion_export_xml(original, exported, mode)
+            for invalid in [source, valid.replace("preserved", "lost"), opening + items[0] + closing]:
+                exported.write_text(invalid, encoding="utf-8")
+                with self.subTest(mode=mode), self.assertRaises(ValueError):
+                    corpus.verify_deletion_export_xml(original, exported, mode)
+            original.write_text(source.replace(f">{prefix} A<", ">missing<"), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                corpus.verify_deletion_export_xml(original, exported, mode)
+        with self.assertRaises(ValueError):
+            corpus.verify_deletion_export_xml(original, exported, "invalid")
+
     def test_created_vector_oracle_requires_original_and_new_geometry_and_appearance(self):
         manifest = corpus.load_manifest()
         original = next(case for case in manifest["cases"] if case["id"] == "independent-vectors")
