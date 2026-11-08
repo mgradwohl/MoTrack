@@ -6,7 +6,7 @@ XML loader and `ImageCoordSystem` implementation bundled in the official **Track
 
 The original report names its verification level `xml_and_coordinate_api`. A separate session probe
 uses Tracker's actual application/async-loader lifecycle to open the media-free experiments, an audited image sequence,
-and a newly added constant-rate movie baseline whose application acceptance is still pending,
+and an audited constant-rate movie baseline,
 save through Tracker's normal saver and reopen in a fresh Java process. Its report is labeled
 `tracker_session_resave`. It checks loaded track classes/names, mass values, step points, clip bounds,
 units and coordinate probes before/after Java's own resave, and compares available point-mass/coordinate
@@ -905,8 +905,12 @@ exactly on Windows. These are decoder/parser checks, **not actual Tracker applic
 
 The new session case uses the normal Tracker application loader, saver and fresh-process reopen
 under Linux Xvfb. It retains the existing 100-frame/256×256 sampling bounds, private homes,
-256 MB heap, deadlines and independent negative oracles. Its current-revision CI acceptance is
-pending. It enables no MoTrack movie standard export and does not close
+256 MB heap, deadlines and independent negative oracles. The `linked-movie` application load/save/fresh
+reopen case passed at `ce9122a`, Linux job 128842318578 in
+[run 42517071494](https://github.com/mgradwohl/MoTrack/actions/runs/42517071494). Both save and reopen
+observed two loader callbacks but executed the reference action once. That run failed later in a
+separate desktop-dialog static-analysis check; it is not whole-PR CI acceptance. Subsequent revisions
+still require their own checks. This case enables no MoTrack movie standard export and does not close
 [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65) or claim to reproduce Tracker's historical
 MOV/Open Recent report. Variable-rate movies, other codecs, missing/relocated media, edited standard
 exports and the broader movie/view-preservation matrix remain separate acceptance work.
