@@ -3,10 +3,10 @@
 #include "legacy_project.hpp"
 #include "local_media_path.hpp"
 
+#include <QHash>
 #include <QImage>
 #include <QStringList>
 
-#include <map>
 #include <optional>
 
 namespace motrack
@@ -22,7 +22,7 @@ class ImageSequence
 {
   public:
     static std::optional<ImageSequence>
-    open(const QString& projectPath, const Clip& clip, const std::map<std::string, QString>& mediaLocations = {});
+    open(const QString& projectPath, const Clip& clip, const QHash<QString, QString>& mediaLocations = {});
 
     [[nodiscard]] int stepCount() const;
     [[nodiscard]] std::optional<ImageFrame> readStep(int step) const;
