@@ -483,6 +483,7 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
         lock.setStaleLockTime(0);
         require(lock.tryLock(0), "Another save for this project is already in progress.");
         const auto observation = qScopeGuard([&result] { stampObservation(result); });
+        result.observedRecoveryPath = recoveryPath;
         if (QFileInfo::exists(recoveryPath) || QFileInfo(recoveryPath).isSymLink())
         {
             result.recoveryPath = recoveryPath;
@@ -578,6 +579,7 @@ PairedSaveResult recoverPairedDocuments(const QString& recoveryPath,
         lock.setStaleLockTime(0);
         require(lock.tryLock(0), "Another save for this project is already in progress.");
         const auto observation = qScopeGuard([&result] { stampObservation(result); });
+        result.observedRecoveryPath = result.recoveryPath;
         require(!expectedTransaction || expectedTransaction->isEmpty() ||
                     (!QUuid(*expectedTransaction).isNull() &&
                      QUuid(*expectedTransaction).toString(QUuid::WithoutBraces) == *expectedTransaction),

@@ -278,3 +278,8 @@ Storage progress callbacks expose archive chunks and the final pre-commit bounda
 thread. Deterministic cancellation regressions stop during source-archive streaming and immediately
 before plain/ZIP commit, preserving every original destination byte. Successful paired saves also
 refresh the active image reader, preserving navigation after a temporary media alias is removed.
+
+Successful paired writes retain their lock-observed journal pathname even after deleting the record.
+Session completion reconciles older observations at that path, so an unreported external recovery
+followed by a fresh successful write cannot leave a deleted journal pending. Newer observations at
+the same path and unresolved records at other destinations remain pending in either callback order.
