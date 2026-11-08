@@ -31,7 +31,7 @@ public final class ArchiveImagesFixture {
             output.setComment("MoTrack archive-preservation reference; comments must survive.");
             for (Member member : members) {
                 ZipEntry entry = new ZipEntry(member.name());
-                entry.setTimeLocal(LocalDateTime.of(1980, 1, 1, 0, 0));
+                entry.setTimeLocal(LocalDateTime.of(1980, 1, 2, 0, 0));
                 entry.setComment("Original metadata: " + member.name());
                 output.putNextEntry(entry);
                 output.write(member.bytes());

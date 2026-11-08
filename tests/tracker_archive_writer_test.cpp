@@ -175,7 +175,6 @@ TEST(TrackerArchiveWriter, ExportsAnEditedImageDocumentAfterNativeReopenAndOrigi
     ASSERT_TRUE(QFile::remove(original));
     document = motrack::readWorkspaceDocument(native);
     ASSERT_TRUE(document.archivePayload);
-    ASSERT_TRUE(document.trackerSource);
     motrack::writeTrackerArchiveDocument(destination, document);
     const auto firstOutput = readBytes(destination);
     const auto reopened = motrack::TrackerArchive::open(destination);
@@ -191,6 +190,8 @@ TEST(TrackerArchiveWriter, ExportsAnEditedImageDocumentAfterNativeReopenAndOrigi
         EXPECT_EQ(readBytes(QDir(reopened.root()).filePath(QString("nested/images/frame%1.png").arg(i))),
                   readBytes(fixtures.filePath(QString("images/frame%1.png").arg(i))));
     EXPECT_EQ(readBytes(document.archivePayload->sourcePath()), originalBytes);
+    if (!document.trackerSource)
+        FAIL() << "Archive export removed the retained source envelope.";
     EXPECT_EQ(document.trackerSource->xml, sourceXml.toStdString());
     motrack::writeTrackerArchiveDocument(destination, document);
     EXPECT_EQ(readBytes(destination), firstOutput);
@@ -215,6 +216,21 @@ TEST(TrackerArchiveWriter, ExportsAnEditedImageDocumentAfterNativeReopenAndOrigi
         EXPECT_THROW(motrack::writeTrackerArchiveDocument(destination, invalid), motrack::ProjectError);
         EXPECT_EQ(readBytes(destination), firstOutput);
     }
+    // A replacement can still be a valid image at the same member path. Reject it rather than
+    // copying the original compressed pixels while pretending to save the displayed replacement.
+    const auto media = QDir(document.archivePayload->root()).filePath("nested/images/frame0.png");
+    const auto originalImage = readBytes(media);
+    ASSERT_TRUE(writeBytes(media, readBytes(fixtures.filePath("images/frame1.png"))));
+    EXPECT_THROW(motrack::writeTrackerArchiveDocument(destination, document), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), firstOutput);
+    EXPECT_EQ(readBytes(document.archivePayload->sourcePath()), originalBytes);
+    ASSERT_TRUE(QFile::remove(media));
+    EXPECT_THROW(motrack::writeTrackerArchiveDocument(destination, document), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), firstOutput);
+    ASSERT_TRUE(writeBytes(media, originalImage));
+    motrack::writeTrackerArchiveDocument(destination, document);
+    EXPECT_EQ(readBytes(destination), firstOutput);
+
     const std::atomic_bool cancelled{true};
     EXPECT_THROW(motrack::writeTrackerArchiveDocument(destination, document, &cancelled), motrack::ProjectError);
     EXPECT_EQ(readBytes(destination), firstOutput);

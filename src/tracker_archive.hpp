@@ -2,7 +2,8 @@
 
 #include "legacy_project.hpp"
 
-#include <QSet>
+#include <QByteArray>
+#include <QHash>
 #include <QStringList>
 #include <QTemporaryDir>
 
@@ -24,12 +25,14 @@ class TrackerArchive
     /// Exact compressed input snapshot, owned until this archive is destroyed. Extraction uses these bytes.
     [[nodiscard]] QString sourcePath() const;
     void resolveMedia(LegacyProject& project, const QString& projectMember) const;
+    /// Checks extracted bytes against their immutable import-time digest, with bounded, cancellable I/O.
+    [[nodiscard]] bool memberMatchesSource(const QString& member, const std::atomic_bool* cancelled = nullptr) const;
 
   private:
     QTemporaryDir m_Directory;
     QTemporaryDir m_SourceDirectory;
     QStringList m_Projects;
-    QSet<QString> m_Files;
+    QHash<QString, QByteArray> m_MemberDigests;
 };
 
 } // namespace motrack

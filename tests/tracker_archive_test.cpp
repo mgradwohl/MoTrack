@@ -74,6 +74,30 @@ TEST(TrackerArchive, ResolvesMediaOnlyFromExtractedMembers)
     EXPECT_FALSE(QFileInfo::exists(extracted));
 }
 
+TEST(TrackerArchive, DetectsReplacedAndMissingExtractedMembers)
+{
+    QTemporaryDir temporary;
+    const auto path = temporary.filePath("source.trz");
+    writeArchive(path, {"experiment.trk", "media.bin"});
+    const auto archive = motrack::TrackerArchive::open(path);
+    EXPECT_TRUE(archive.memberMatchesSource("media.bin"));
+    EXPECT_FALSE(archive.memberMatchesSource("missing.bin"));
+    EXPECT_FALSE(archive.memberMatchesSource("../media.bin"));
+    QFile media(archive.root() + "/media.bin");
+    ASSERT_TRUE(media.open(QIODevice::WriteOnly));
+    ASSERT_EQ(media.write("b"), 1); // Equal size, different contents: checking paths or sizes is insufficient.
+    media.close();
+    EXPECT_FALSE(archive.memberMatchesSource("media.bin"));
+    ASSERT_TRUE(media.remove());
+    EXPECT_FALSE(archive.memberMatchesSource("media.bin"));
+    ASSERT_TRUE(media.open(QIODevice::WriteOnly));
+    ASSERT_EQ(media.write("a"), 1);
+    media.close();
+    EXPECT_TRUE(archive.memberMatchesSource("media.bin"));
+    const std::atomic_bool cancelled{true};
+    EXPECT_THROW(std::ignore = archive.memberMatchesSource("media.bin", &cancelled), motrack::ProjectError);
+}
+
 TEST(TrackerArchive, RejectsDangerousAndAmbiguousNames)
 {
     QTemporaryDir temporary;

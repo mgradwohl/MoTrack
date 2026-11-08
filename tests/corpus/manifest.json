@@ -23,10 +23,10 @@
       "tracker_version": "6.3.5",
       "file": "archived-images.trz",
       "local_file": "fixtures/linked-images/archived-images.trz",
-      "sha256": "8658ded3eefc643b584cc51aa604a72e781e4e43158556a20088966d13da431a",
-      "bytes": 8073,
+      "sha256": "98f34f949e9f7efd0d033aac9b0ed10d00f78ceabeb1d7c93d5f6901b7676b42",
+      "bytes": 7947,
       "expected": "expected/linked-images.json",
-      "provenance": "ArchiveImagesFixture packages the existing Java/OSP-authored linked-images experiment with standard JDK 17 ZIP APIs, fixed timestamps, compressed media and opaque supporting members. Two generations are byte-identical.",
+      "provenance": "ArchiveImagesFixture packages the existing Java/OSP-authored linked-images experiment with standard JDK 17 ZIP APIs, fixed timestamps, compressed media and opaque supporting members. UTC, America/Los_Angeles and Pacific/Kiritimati generations are byte-identical.",
       "session_tracks": [
         {
           "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",

@@ -814,12 +814,14 @@ calibration using the pinned Tracker/OSP serializers. The source reference index
 column/format owner independently. Native deletion removes whole original owner rows/groups,
 compacts indices and preserves survivors through rename, name reuse, undo and native close/reopen.
 
-The current application candidate is **`table-default-format-owners.trk`**, generated in
+The accepted application fixture is **`table-default-format-owners.trk`**, generated in
 `default-formats` mode. A uses `t,x,y,frame`, B uses `t,x,frame`, and C uses `t,y,frame`. Each uses
 only the pinned default numeric formats (frame/step `0`, time `0.000`). Four export cases remove the
 first, selected, last or all owners. The expected XML is independently patched, preserving surviving
 rows, format groups and packed selections; Java load/save/fresh-process reopen must also retain the
-independent geometry, columns and selections. These cases are pending CI acceptance.
+independent geometry, columns and selections. All four cases passed at `7586d95` in
+[run 42477554192](https://github.com/mgradwohl/MoTrack/actions/runs/42477554192), Linux job
+128722151613, including the corrected empty-table export after deleting all owners.
 
 The following earlier failures are retained separately, never counted as passing round trips:
 
@@ -885,8 +887,10 @@ resolution fixes still require current-revision application and cross-platform c
 [ArchiveImagesFixture.java](../../tools/reference/ArchiveImagesFixture.java) packages the existing
 Tracker/OSP-authored image experiment with standard JDK 17 ZIP APIs. It fixes timestamps, uses
 UTF-8 names and deflation/data descriptors, and includes entry/archive comments, a Unicode-named
-supporting document and opaque bytes. Two generations of `linked-images/archived-images.trz` are
-byte-identical: 8073 bytes, SHA-256 `8658ded3eefc643b584cc51aa604a72e781e4e43158556a20088966d13da431a`.
+supporting document and opaque bytes. Generations of `linked-images/archived-images.trz` under UTC, America/Los_Angeles and
+Pacific/Kiritimati are byte-identical: 7947 bytes, SHA-256 `98f34f949e9f7efd0d033aac9b0ed10d00f78ceabeb1d7c93d5f6901b7676b42`.
+The fixed local ZIP timestamp is 1980-01-02, away from the DOS epoch boundary. The prior
+1980-01-01 fixture reproduced different bytes across time zones.
 Regenerate with the linked-image fixture directory followed by a fresh output path as arguments.
 
 The `archived-images` case shares the independent four-image pixel, timing and calibrated-position

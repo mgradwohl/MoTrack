@@ -351,9 +351,10 @@ owners' settings. Dataset-index owners and scientific dependencies remain exclud
 Four independent application cases remove the first, selected or last owner, or all owners from
 `table-default-format-owners.trk`. This separate fixture uses three explicit-frame column sets and
 only Tracker's default frame/step/time formats. Seven native subsets additionally exercise renamed
-survivors, name reuse and native save/reopen. The first three cases passed actual Tracker resave,
-fresh reopen and native reimport in Linux job 128705864359 (run 42469588233). The all-owner case
-exposed the empty-table loader failure above; its corrected export still requires CI acceptance. The reference
+survivors, name reuse and native save/reopen. All four cases passed actual Tracker resave,
+fresh reopen and native reimport at `7586d95`, Linux job 128722151613 in
+[run 42477554192](https://github.com/mgradwohl/MoTrack/actions/runs/42477554192), merged as PR #118.
+The all-owner case includes the corrected empty-table loader failure above. The reference
 harness expands panes through public divider actions, visits custom tables and restores their
 selection; this does not establish immediate unvisited-resave fidelity.
 
@@ -424,7 +425,11 @@ standard Save UI follows that layer. This internal adapter is not full R03 compl
 The internal archive document adapter exports supported edits to one original `.trk` member after
 native close/reopen, including after the original `.trz` is removed. It verifies that the source
 XML still matches that member and that current media references resolve to the original embedded
-files. An immutable copy prepares member-relative ImageVideo paths; external/replaced media,
+files. Each referenced extracted file must also match the SHA-256 digest captured while reading
+its original archive member; missing or same-path replaced files are rejected before destination
+replacement. Digest checks use bounded blocks, honor cancellation and avoid rereading duplicate
+references. Native save/reopen recreates these digests from the owned archive bytes. An immutable
+copy prepares member-relative ImageVideo paths; external/replaced media,
 movies, filters and unsupported timing/range edits remain refused. The source envelope and owned
 original archive bytes are unchanged. No desktop Save action or paired-output transaction uses this
 adapter yet.
