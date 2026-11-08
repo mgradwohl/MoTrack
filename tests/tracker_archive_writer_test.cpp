@@ -338,6 +338,37 @@ TEST(TrackerArchiveWriter, ExportsAnEditedImageDocumentAfterNativeReopenAndOrigi
 }
 
 #ifndef Q_OS_WIN
+TEST(TrackerArchiveWriter, RejectsOwnedSourceFileAliasesBeforeStandardOrNativeReplacement)
+{
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("original.trz");
+    ASSERT_TRUE(motrack::test::writeArchive(original, {{.name = "selected.trk", .bytes = originalXml()}}));
+    auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(original));
+    auto document = motrack::importTrackerDocument(payload->projectPath("selected.trk"));
+    document.archivePayload = payload;
+    document.archiveMember = "selected.trk";
+    const auto native = temporary.filePath("saved.motrack");
+    motrack::writeWorkspaceDocument(native, document);
+    const auto nativeBytes = readBytes(native);
+    const auto originalBytes = readBytes(payload->sourcePath());
+    const auto external = temporary.filePath("external.trz");
+    ASSERT_TRUE(writeBytes(external, originalBytes));
+    ASSERT_TRUE(QFile::remove(payload->sourcePath()));
+    ASSERT_TRUE(QFile::link(external, payload->sourcePath()));
+    ASSERT_TRUE(QFileInfo(payload->sourcePath()).isSymLink());
+    EXPECT_THROW(motrack::writeTrackerArchive(external, *payload, "selected.trk", EDITED_XML), motrack::ProjectError);
+    EXPECT_THROW(motrack::writeWorkspaceDocument(native, document), motrack::ProjectError);
+    EXPECT_EQ(readBytes(external), originalBytes);
+    EXPECT_EQ(readBytes(payload->sourcePath()), originalBytes);
+    EXPECT_EQ(readBytes(native), nativeBytes);
+    ASSERT_TRUE(QFile::remove(payload->sourcePath()));
+    ASSERT_TRUE(writeBytes(payload->sourcePath(), originalBytes));
+    motrack::writeTrackerArchive(external, *payload, "selected.trk", EDITED_XML);
+    motrack::writeWorkspaceDocument(native, document);
+    EXPECT_EQ(readBytes(payload->sourcePath()), originalBytes);
+    EXPECT_EQ(readBytes(motrack::TrackerArchive::open(external).projectPath("selected.trk")), QByteArray(EDITED_XML));
+}
+
 TEST(TrackerArchiveWriter, ProtectsCanonicalOwnedPathsAndRejectsDanglingDestinationAliases)
 {
     QTemporaryDir temporary;
