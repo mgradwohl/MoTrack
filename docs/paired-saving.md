@@ -184,3 +184,7 @@ A fresh write must follow that invalidation. The desktop recovery-and-save seque
 before capturing the fresh write checkpoint, or explicitly carry forward only that operation’s recovery
 invalidation while retaining the original snapshot revision. Real-file regressions cover writes committed
 in one order and reported in another, unknown journals completed externally, and newer/restored records.
+
+Failed recovery attempts also retain their lock-observed journal state, including an unreadable UUID
+or a restored record with the same UUID. A delayed earlier success cannot clear that newer failure;
+the pending journal continues to keep the session modified even after a successful save elsewhere.
