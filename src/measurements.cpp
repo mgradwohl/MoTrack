@@ -22,7 +22,8 @@ bool validConstantClipTiming(const Clip& clip)
     }
     const auto span = static_cast<std::int64_t>(*clip.stepCount - 1) * clip.stepSize;
     const auto end = static_cast<std::int64_t>(clip.firstFrame) + span;
-    if (end > 500000 || (clip.sourceFrameCount && end >= *clip.sourceFrameCount))
+    // Tracker's loader also computes first + count * stride in a Java int, even for one step.
+    if (end > 500000 || end + clip.stepSize > std::numeric_limits<int>::max() || (clip.sourceFrameCount && end >= *clip.sourceFrameCount))
     {
         return false;
     }

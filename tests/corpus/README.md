@@ -644,6 +644,7 @@ is required before merging this slice.
 
 This writer requires an existing audited StepperClipControl and a bounded media-free clip. It rejects
 unknown controller/clip fields, media/frame shifts, data time sources, particle models, missing or
-invalid timing, and times that overflow or collapse in milliseconds/seconds. Playback rate, current
+invalid timing, temporary Java frame-count overflow even on timing-only edits, and times that
+overflow or collapse in milliseconds/seconds. Playback rate, current
 frame, looping state and unrelated content are preserved. Video timing/stretching, VFR, a timing UI
 and the locale-specific time-zero action in #67 remain unfinished.

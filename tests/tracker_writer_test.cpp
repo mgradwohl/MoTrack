@@ -1472,6 +1472,29 @@ TEST(TrackerWriter, RefusesUnauditedTimingStateAtomically)
     }
 }
 
+TEST(TrackerWriter, TimingOnlyExportRefusesOverflowingLegacyTemporaryFrameCount)
+{
+    auto xml = timingSource();
+    for (const auto& [before, after] :
+         std::vector<std::pair<std::string, std::string>>{{R"(name="startframe" type="int">0)", R"(name="startframe" type="int">2)"},
+                                                          {R"(name="stepsize" type="int">1)", R"(name="stepsize" type="int">2147483647)"},
+                                                          {R"(name="stepcount" type="int">10)", R"(name="stepcount" type="int">1)"}})
+    {
+        const auto position = xml.find(before);
+        ASSERT_NE(position, std::string::npos);
+        xml.replace(position, before.size(), after);
+    }
+    const auto imported = motrack::parseTrackerProject(xml);
+    auto project = imported.project;
+    project.clip.frameDurationMs = 250;
+    project.clip.startTimeMs = -500;
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("existing.trk");
+    motrack::writeTrackerProject(output, imported.project, imported.source);
+    EXPECT_THROW(motrack::writeTrackerProject(output, project, imported.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(output), xml);
+}
+
 TEST(TrackerWriter, RejectsOriginAndVectorSnappingWithoutReplacingTheDestination)
 {
     const auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk");

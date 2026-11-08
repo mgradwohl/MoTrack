@@ -499,6 +499,12 @@ TEST(TrackEdits, RefusesInvalidOrUnrepresentableTimingWithoutHistoryChanges)
                                                                    [](auto& clip) { clip.firstFrame = -1; },
                                                                    [](auto& clip) { clip.stepSize = 0; },
                                                                    [](auto& clip) { clip.stepCount = 500002; },
+                                                                   [](auto& clip)
+                                                                   {
+                                                                       clip.firstFrame = 2;
+                                                                       clip.stepCount = 1;
+                                                                       clip.stepSize = std::numeric_limits<int>::max();
+                                                                   },
                                                                    [](auto& clip) { clip.sourceFrameCount = 3; },
                                                                    [](auto& clip)
                                                                    {
