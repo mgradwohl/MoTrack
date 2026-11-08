@@ -1,7 +1,8 @@
 # Standard and native paired saving
 
-Status: proposed implementation contract for the next phase-3 slice. The current desktop still
-saves only native documents; this document does not claim paired saving or recovery is available.
+Status: internal phase-3 paired writer and explicit recovery adapter implemented; cross-platform CI
+and actual Tracker acceptance are pending. The desktop still saves only native documents. Per-output
+session checkpoints, standard Save actions and translated recovery choices remain separate work.
 The [full-port plan](migration-plan.md#implementation-order-and-exit-gates) and
 [format guide](native-format.md) remain the canonical status and supported-schema references.
 
@@ -64,3 +65,35 @@ separate contracts. Recovery records from imported archives are data, never auto
   actions and translated recovery messaging follow the tested internal API, not an assumed atomic pair.
 - Actual Tracker load/save/fresh reopen and native reimport pass for emitted standard files on the
   pinned corpus. Windows/macOS/Linux checks and the 90% combined production coverage gate remain required.
+
+## Internal implementation and verification
+
+`writePairedDocuments` and `recoverPairedDocuments` live in `paired_save.hpp`. They operate on an
+owned snapshot without widgets or Java. The result reports a diagnostic, each output path and whether
+each output is current; `RecoveryRequired` retains the journal path for explicit follow-up. An existing
+journal prevents another pair from replacing its outputs. The same physical-path rebasing helper is
+used by native desktop Save and by the native companion.
+
+Stages use reserved sibling names and release their temporary-file handles before the atomic
+writers replace them, including on Windows. A scope guard removes uncommitted stages; ownership
+passes to the journal only after its atomic write succeeds. Recovery permits cleanup after one stage
+has already been removed, but refuses to delete altered staging content. Bounds are 64 KiB for the
+record, 32 MiB for standard XML, the archive reader's existing 544 MiB for TRZ, and the native format's
+bounded metadata plus archive payload. Fingerprints use streaming SHA-256 with 64 KiB blocks.
+
+Public-entry-point regressions cover standalone and two-tab archive pairs, native reopen, original
+archive removal, existing-output preservation, cancellation at all five progress boundaries,
+external edits, missing/corrupt stages, malformed/escaping records, concurrent cooperative writers,
+physical-directory aliases and output/stage/record file aliases. A bounded child probe exits without
+destructors after the first replacement; the parent process must recover through the stale lock and
+remove only the transaction's files. This exercises process interruption, not power-loss durability.
+
+Two additional corpus modes interrupt a pair after its standard commit, recover it, and reopen the
+native companion before passing the recovered standard file through the existing independent
+XML/ZIP/media oracle and actual Tracker load/save/fresh-process reopen/native-reimport gate.
+Those application results must pass in Linux CI before this slice can be accepted.
+
+Local Windows validation on 2026-11-08: all six CTest suites passed, including process-loss recovery;
+combined production coverage was 95.32% (7632/8007 lines). Formatting and clang-tidy passed, as did
+76 corpus-harness tests, native corpus checks and both recovered-export XML/media/ZIP oracles.
+These local results do not substitute for the pending Linux/macOS and actual Tracker application gates.

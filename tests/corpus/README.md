@@ -959,3 +959,15 @@ and negative-oracle checks pass; actual multi-tab application acceptance remains
 This does not implement MoTrack workspace tabs, new archive packaging, movie media or Tracker's
 archive-authoring dialog. It does not reproduce or resolve the historical MOV/Open Recent report
 linked from MoTrack #65.
+
+
+### Paired-save recovery acceptance
+
+The linked-image and single-experiment image-archive cases also run `paired-linked-images` and
+`paired-archive-images`. The native probe interrupts after the standard file is committed, requires
+a retained recovery record, completes the companion through the recovery API and reopens it to check
+the edited snapshot and original XML. The recovered standard file then goes through the same full
+independent XML/ZIP, pixel, timing, geometry, actual Tracker resave/fresh-reopen and native-reimport
+checks as the direct export cases. These modes add recovery acceptance; they do not replace direct
+writer coverage or establish desktop paired Save availability. The native test executable separately
+launches a bounded child probe that exits without destructors and recovers its stale-lock transaction.

@@ -438,8 +438,8 @@ Digest checks use bounded blocks, honor cancellation and avoid rereading duplica
 references. Native save/reopen recreates these digests from the owned archive bytes. An immutable
 copy prepares member-relative ImageVideo paths; external/replaced media,
 movies, filters and unsupported timing/range edits remain refused. The source envelope and owned
-original archive bytes are unchanged. No desktop Save action or paired-output transaction uses this
-adapter yet.
+original archive bytes are unchanged. The internal [paired-save adapter](paired-saving.md) now uses this writer; its acceptance gates
+are pending. Desktop standard Save integration remains unfinished.
 
 The writer supports bounded, single-disk classic ZIP archives with stored or deflated members. It
 uses the [ZIP format specification](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT)
@@ -486,3 +486,13 @@ in its own process. Each tab has separate scientific/media expectations, includi
 and track name. Manifest validation and negative oracles reject omitted/duplicate tabs and matching
 but incorrect results across save/reopen. This application gate is pending Linux CI; it does not
 provide native multi-tab workspace editing or expand the supported archive/media schema.
+
+
+### Paired standard and native output (internal adapter; acceptance pending)
+
+The [paired-saving contract](paired-saving.md) defines sibling `.trk`/`.trz` plus `.motrack` output,
+separate atomic replacements, bounded journaling, explicit conflict-safe recovery and per-output
+results. The adapter stages and validates both files, commits standard first, and retains recovery
+data after interruption. It reuses the supported standard writers and does not broaden their schemas.
+Native desktop Save now shares its physical media-path rebasing helper with this adapter. Desktop
+standard actions, per-output history checkpoints and recovery prompts remain to be implemented.

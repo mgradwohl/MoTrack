@@ -15,6 +15,7 @@
 #include <QLockFile>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QScopeGuard>
 #include <QSet>
 #include <QTemporaryFile>
 
@@ -28,8 +29,8 @@ namespace motrack
 {
 namespace
 {
-constexpr qint64 BLOCK_BYTES = 64 * 1024;
-constexpr qint64 MAX_RECORD_BYTES = 64 * 1024;
+constexpr qint64 BLOCK_BYTES = qint64{64} * 1024;
+constexpr qint64 MAX_RECORD_BYTES = qint64{64} * 1024;
 constexpr qint64 MAX_NATIVE_BYTES = MAX_WORKSPACE_JSON_BYTES + MAX_TRACKER_ARCHIVE_BYTES + qint64{8} * 1024 * 1024;
 constexpr auto RECORD_SUFFIX = ".motrack-save.json";
 
@@ -140,7 +141,7 @@ Fingerprint parseFingerprint(const QJsonValue& value, qint64 limit)
     const auto size = object.value("size");
     const auto digest = object.value("sha256");
     static const QRegularExpression sha256("^[0-9a-f]{64}$");
-    require(size.isDouble() && std::isfinite(size.toDouble()) && size.toDouble() >= 0 && size.toDouble() <= limit &&
+    require(size.isDouble() && std::isfinite(size.toDouble()) && size.toDouble() >= 0 && size.toDouble() <= static_cast<double>(limit) &&
                 std::trunc(size.toDouble()) == size.toDouble() && digest.isString() && digest.toString().contains(sha256),
             "Invalid paired-save fingerprint.");
     return {.size = static_cast<qint64>(size.toDouble()), .digest = QByteArray::fromHex(digest.toString().toLatin1())};
@@ -195,7 +196,9 @@ Record readRecord(const QString& path, const QString& directory)
     QFile input(path);
     require(input.open(QIODevice::ReadOnly) && input.size() > 0 && input.size() <= MAX_RECORD_BYTES,
             "Could not read bounded paired-save recovery information.");
-    const auto json = QJsonDocument::fromJson(input.read(MAX_RECORD_BYTES + 1));
+    const auto bytes = input.read(MAX_RECORD_BYTES + 1);
+    require(bytes.size() <= MAX_RECORD_BYTES && input.atEnd(), "Paired-save recovery record changed while reading.");
+    const auto json = QJsonDocument::fromJson(bytes);
     require(json.isObject(), "Invalid paired-save recovery JSON.");
     const auto object = json.object();
     require(object.value("format") == "MoTrackPairedSave" && object.value("version") == 1 && object.value("outputs").isArray(),
@@ -258,6 +261,10 @@ void commitPair(const Record& record, PairedSaveResult& result, const std::atomi
         const auto& output = record.outputs[i];
         const auto actual = fingerprint(directory.filePath(output.name), record.directory, cancelled);
         current[i] = actual == std::optional(output.after);
+        if (i == 0)
+            result.standardCurrent = current[i];
+        else
+            result.nativeCurrent = current[i];
         require(current[i] || actual == output.before, "A destination changed since paired saving; no further replacement is allowed.");
         if (!current[i])
             require(fingerprint(directory.filePath(output.stage), record.directory, cancelled) == std::optional(output.after),
@@ -338,6 +345,17 @@ void protectSourceFiles(const Record& record, const WorkspaceDocument& document,
     }
 }
 
+QString createStage(const QString& nameTemplate)
+{
+    QTemporaryFile file(nameTemplate);
+    require(file.open(), "Could not create a paired-save staging file.");
+    const auto path = file.fileName();
+    file.setAutoRemove(false);
+    // Destruction releases the native handle. QTemporaryFile::close alone may retain it,
+    // preventing an atomic writer from replacing this reserved file on Windows.
+    return path;
+}
+
 QString lockPath(const QString& recordPath)
 {
     return recordPath.chopped(5) + ".lock";
@@ -387,36 +405,47 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
         protectSourceFiles(record, document, mediaProjectPath);
         for (auto& output : record.outputs)
             output.before = fingerprint(directory.filePath(output.name), parent, cancelled);
-        QTemporaryFile standard(directory.filePath(".motrack-stage-XXXXXX." + target.suffix()));
-        QTemporaryFile native(directory.filePath(".motrack-stage-XXXXXX.motrack"));
-        require(standard.open() && native.open(), "Could not create paired-save staging files.");
-        standard.close();
-        native.close();
-        record.outputs[0].stage = QFileInfo(standard.fileName()).fileName();
-        record.outputs[1].stage = QFileInfo(native.fileName()).fileName();
+        QString standard;
+        QString native;
+        bool retainStages = false;
+        const auto cleanup = qScopeGuard(
+            [&]
+            {
+                if (!retainStages)
+                {
+                    if (!standard.isEmpty())
+                        QFile::remove(standard);
+                    if (!native.isEmpty())
+                        QFile::remove(native);
+                }
+            });
+        standard = createStage(directory.filePath(".motrack-stage-XXXXXX." + target.suffix()));
+        native = createStage(directory.filePath(".motrack-stage-XXXXXX.motrack"));
+        record.outputs[0].stage = QFileInfo(standard).fileName();
+        record.outputs[1].stage = QFileInfo(native).fileName();
         if (target.suffix().compare("trz", Qt::CaseInsensitive) == 0)
-            writeTrackerArchiveDocument(standard.fileName(), document, cancelled);
+            writeTrackerArchiveDocument(standard, document, cancelled);
         else
-            writeTrackerDocument(standard.fileName(), document, mediaProjectPath);
+            writeTrackerDocument(standard, document, mediaProjectPath);
         notify(observer, PairedSaveProgress::StandardPrepared);
         checkCancelled(cancelled);
         auto snapshot = document;
         rebaseWorkspaceMedia(snapshot, mediaProjectPath, result.nativePath);
-        writeWorkspaceDocument(native.fileName(), snapshot);
-        validateNativeSnapshot(snapshot, readWorkspaceDocument(native.fileName(), cancelled));
+        writeWorkspaceDocument(native, snapshot);
+        validateNativeSnapshot(snapshot, readWorkspaceDocument(native, cancelled));
         notify(observer, PairedSaveProgress::NativePrepared);
         for (auto& output : record.outputs)
         {
             const auto prepared = fingerprint(directory.filePath(output.stage), parent, cancelled);
-            require(prepared.has_value(), "Prepared paired-save file disappeared.");
+            if (!prepared)
+                throw ProjectError("Prepared paired-save file disappeared.");
             output.after = prepared.value();
             require(fingerprint(directory.filePath(output.name), parent, cancelled) == output.before,
                     "A destination changed during paired-save preparation.");
         }
         checkCancelled(cancelled);
         writeRecord(record);
-        standard.setAutoRemove(false);
-        native.setAutoRemove(false);
+        retainStages = true;
         result.recoveryPath = recoveryPath;
         notify(observer, PairedSaveProgress::RecoveryRecorded);
         commitPair(record, result, cancelled, observer);

@@ -325,6 +325,7 @@
       "project_member": "experiment.trk",
       "session_archive": true,
       "native_archive_image_roundtrip": true,
+      "native_paired_archive_roundtrip": true,
       "features": [
         "archive-selected-member",
         "opaque-supporting-members",
@@ -335,6 +336,7 @@
     {
       "id": "linked-images",
       "native_linked_image_roundtrip": true,
+      "native_paired_linked_roundtrip": true,
       "tracker_version": "6.3.5",
       "file": "linked-images.trk",
       "local_file": "fixtures/linked-images/linked-images.trk",
