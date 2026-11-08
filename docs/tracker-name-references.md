@@ -319,3 +319,8 @@ source position for boosted particle B must resolve normally to (3,4); the harne
 This preserves a covered reference while renaming a measured track. Native dynamic models, solvers,
 model/parameter editing, polar/interaction cases, arbitrary parameter fidelity and broader model
 export remain unfinished under R19. This is not a new native modeling feature.
+
+Plot/table selections and view owners/guests must be viewable targets. Coordinate axes are valid
+main-panel selections but are ignored by TrackChooserTView; a rename export rejects such view
+references even when the referenced name is unchanged. Atomic-rejection tests cover nested selection,
+owner, guest and packed plot/table selections.

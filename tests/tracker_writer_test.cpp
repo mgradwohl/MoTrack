@@ -789,6 +789,38 @@ TEST(TrackerWriter, RejectsUnknownOrLossyModelDependenciesAndFunctionDefinitions
     }
 }
 
+TEST(TrackerWriter, RejectsNonViewablePlotAndTableSelectionsBeforeReplacingDestination)
+{
+    const auto original = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/plot-guests.trk");
+    const auto unchanged = motrack::parseTrackerProject(original);
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    for (const int selection : {0, 1, 2, 3, 4})
+    {
+        SCOPED_TRACE(selection);
+        auto xml = original;
+        if (selection < 3)
+        {
+            const std::string field = selection == 0 ? "selected_track" : selection == 1 ? "track" : "[0]";
+            const auto old = "name=\"" + field + R"(" type="string">)" + (selection == 2 ? "mass C" : "mass A") + "</property>";
+            ASSERT_NE(xml.find(old), std::string::npos);
+            xml.replace(xml.find(old), old.size(), "name=\"" + field + R"(" type="string">axes</property>)");
+        }
+        else
+        {
+            const auto end = xml.rfind("</object>");
+            xml.insert(end,
+                       "<property name='selected_track_views' type='string'>" + std::string(selection == 3 ? "axes,null" : "null,axes") +
+                           ";null,null;null,null;null,null</property>\n");
+        }
+        auto imported = motrack::parseTrackerProject(xml);
+        imported.project.pointMasses[1].name = "renamed";
+        motrack::writeTrackerProject(destination, unchanged.project, unchanged.source);
+        EXPECT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
+        EXPECT_TRUE(readBytes(destination) == original);
+    }
+}
+
 TEST(TrackerWriter, BoundsRenameSchemaAndRejectsUnclassifiedFieldsAndEncodings)
 {
     for (const auto& [from, to] : std::vector<std::pair<std::string, std::string>>{
