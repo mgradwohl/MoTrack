@@ -428,6 +428,15 @@ Unicode names and supporting files survive. The edited member retains timestamps
 supported timestamp/Unix-identity/Unicode-name extra fields. Unknown extra fields on that edited
 member are refused; untouched members' extra fields remain opaque.
 
+The macOS reference archive exposed libarchive's UTF-8-to-C-locale filename conversion failure
+(run 42473238462, job 128714134485). On POSIX systems the reader now scopes a UTF-8 character
+locale to the archive call, using `newlocale`/`uselocale` and restoring the caller's thread locale
+on success or failure. It never changes the global locale or accepts lossy conversion warnings.
+Windows retains the existing wide-path API. Native regression coverage opens the Unicode-member
+fixture under an explicit C thread locale and verifies successful extraction and locale restoration.
+See the [Apple thread-locale contract](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/uselocale.3.html).
+The POSIX regression requires macOS/Linux CI; local Windows checks cannot establish that result.
+
 The limits are 544 MiB compressed, 512 MiB extracted, 4096 members, 8 MiB central metadata and
 32 MiB selected XML. Copying uses 64 KiB blocks and cancellation checks. ZIP64, encryption, split
 archives, signatures, ambiguous/noncontiguous layouts and unaudited encodings are refused. A private

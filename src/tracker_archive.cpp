@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QScopeGuard>
 
 #include <algorithm>
 #include <array>
@@ -11,6 +12,13 @@
 
 #include <archive.h>
 #include <archive_entry.h>
+
+#ifndef _WIN32
+#include <locale.h>
+#ifdef __APPLE__
+#include <xlocale.h>
+#endif
+#endif
 
 namespace motrack
 {
@@ -80,6 +88,21 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
     TrackerArchive result;
     require(result.m_Directory.isValid() && result.m_SourceDirectory.isValid());
     snapshotArchive(path, result.sourcePath(), cancelled);
+#ifndef _WIN32
+    // libarchive converts ZIP names through the calling thread's character locale,
+    // even when archive_entry_pathname_utf8 is requested. A C locale rejects Unicode.
+    // Keep this conversion local to the archive call; never change the global locale.
+    auto textLocale = newlocale(LC_CTYPE_MASK, "C.UTF-8", nullptr);
+    if (!textLocale)
+        textLocale = newlocale(LC_CTYPE_MASK, "en_US.UTF-8", nullptr);
+    if (!textLocale)
+        throw ProjectError("Could not create a UTF-8 locale for Tracker archive names.");
+    const auto freeTextLocale = qScopeGuard([textLocale] { freelocale(textLocale); });
+    const auto previousLocale = uselocale(textLocale);
+    if (!previousLocale)
+        throw ProjectError("Could not select a UTF-8 locale for Tracker archive names.");
+    const auto restoreTextLocale = qScopeGuard([previousLocale] { uselocale(previousLocale); });
+#endif
     const std::unique_ptr<archive, decltype(&archive_read_free)> reader(archive_read_new(), &archive_read_free);
     require(reader && archive_read_support_format_zip_seekable(reader.get()) == ARCHIVE_OK);
 #ifdef _WIN32

@@ -2,16 +2,25 @@
 
 #include <QFile>
 #include <QFileInfo>
+#include <QScopeGuard>
 #include <QTemporaryDir>
 #include <gtest/gtest.h>
 
 #include <array>
+#include <clocale>
 #include <initializer_list>
 #include <memory>
 #include <tuple>
 
 #include <archive.h>
 #include <archive_entry.h>
+
+#ifndef _WIN32
+#include <locale.h>
+#ifdef __APPLE__
+#include <xlocale.h>
+#endif
+#endif
 
 namespace
 {
@@ -98,6 +107,29 @@ TEST(TrackerArchive, CancelsExtraction)
     const std::atomic_bool cancelled{true};
     EXPECT_THROW(std::ignore = motrack::TrackerArchive::open(fixturePath("archive.trz"), &cancelled), motrack::ProjectError);
 }
+
+#ifndef _WIN32
+TEST(TrackerArchive, ReadsUnicodeMembersInTheCLocaleAndRestoresCallerState)
+{
+    const auto callerLocale = newlocale(LC_ALL_MASK, "C", nullptr);
+    ASSERT_NE(callerLocale, nullptr);
+    const auto freeCallerLocale = qScopeGuard([callerLocale] { freelocale(callerLocale); });
+    const auto previousLocale = uselocale(callerLocale);
+    ASSERT_NE(previousLocale, nullptr);
+    const auto restoreCallerLocale = qScopeGuard([previousLocale] { uselocale(previousLocale); });
+    const std::string globalLocale = std::setlocale(LC_CTYPE, nullptr);
+    const auto archive = motrack::TrackerArchive::open(fixturePath("../corpus/fixtures/linked-images/archived-images.trz"));
+    EXPECT_EQ(archive.projects(), QStringList{"experiment.trk"});
+    QFile notes(archive.root() + QString::fromUtf8("/support/notes é.txt"));
+    ASSERT_TRUE(notes.open(QIODevice::ReadOnly));
+    EXPECT_FALSE(notes.readAll().isEmpty());
+    EXPECT_EQ(uselocale(nullptr), callerLocale);
+    EXPECT_EQ(globalLocale, std::setlocale(LC_CTYPE, nullptr));
+    EXPECT_THROW(std::ignore = motrack::TrackerArchive::open(fixturePath("point-mass.trk")), motrack::ProjectError);
+    EXPECT_EQ(uselocale(nullptr), callerLocale);
+    EXPECT_EQ(globalLocale, std::setlocale(LC_CTYPE, nullptr));
+}
+#endif
 
 TEST(TrackerArchive, OwnsTheOriginalSnapshotUntilTheLastOwnerIsDestroyed)
 {
