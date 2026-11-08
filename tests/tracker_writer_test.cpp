@@ -494,6 +494,65 @@ TEST(TrackerWriter, RejectsMissingAmbiguousMalformedAndUncoveredPlotRenameRelati
     }
 }
 
+TEST(TrackerWriter, RejectsPlotDefinitionsThatJavaWouldCoalesceBeforeReplacingDestination)
+{
+    const auto original = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/plot-guests.trk");
+    const auto unchanged = motrack::parseTrackerProject(original);
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    for (const int mutation : {0, 1, 2})
+    {
+        SCOPED_TRACE(mutation);
+        auto xml = original;
+        if (mutation == 0)
+        {
+            const std::string guest = R"(name="[0]" type="string">mass C</property>)";
+            ASSERT_NE(xml.find(guest), std::string::npos);
+            xml.replace(xml.find(guest), guest.size(), R"(name="[0]" type="string">mass B</property>)");
+        }
+        else if (mutation == 1)
+        {
+            const auto owner = xml.find(R"(<object class="org.opensourcephysics.cabrillo.tracker.PlotTrackView">)");
+            ASSERT_NE(owner, std::string::npos);
+            const auto begin = xml.rfind("<property", owner);
+            ASSERT_NE(begin, std::string::npos);
+            std::size_t cursor = owner + 7;
+            int depth = 1;
+            while (depth > 0)
+            {
+                const auto next = xml.find("<object", cursor);
+                const auto end = xml.find("</object>", cursor);
+                ASSERT_NE(end, std::string::npos);
+                if (next != std::string::npos && next < end)
+                {
+                    ++depth;
+                    cursor = next + 7;
+                }
+                else
+                {
+                    --depth;
+                    cursor = end + 9;
+                }
+            }
+            const auto end = xml.find("</property>", cursor);
+            ASSERT_NE(end, std::string::npos);
+            xml.insert(end + 11, xml.substr(begin, end + 11 - begin));
+        }
+        else
+        {
+            const std::string owner = R"(<property name="track" type="string">mass A</property>)";
+            ASSERT_NE(xml.find(owner), std::string::npos);
+            xml.erase(xml.find(owner), owner.size());
+        }
+        auto imported = motrack::parseTrackerProject(xml);
+        EXPECT_EQ(motrack::renderTrackerProject(imported.project, imported.source), xml);
+        imported.project.pointMasses[0].name = "renamed";
+        motrack::writeTrackerProject(destination, unchanged.project, unchanged.source);
+        EXPECT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
+        EXPECT_TRUE(readBytes(destination) == original) << "Unsupported plot rename replaced the existing destination.";
+    }
+}
+
 TEST(TrackerWriter, BoundsRenameSchemaAndRejectsUnclassifiedFieldsAndEncodings)
 {
     for (const auto& [from, to] : std::vector<std::pair<std::string, std::string>>{

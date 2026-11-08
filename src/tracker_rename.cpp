@@ -219,12 +219,15 @@ struct RenameSchema
         else if (type == "collection")
         {
             require(value.attribute("class") == expected);
+            std::set<QString> owners;
             for (auto item = value.firstChildElement(); !item.isNull(); item = item.nextSiblingElement())
             {
                 const auto className = item.firstChildElement().attribute("class");
                 if (value.attribute("name") == "track_views")
                 {
                     require(className == QString(TRACKER) + "PlotTrackView");
+                    // The Java loader reuses one view per owner; later duplicates overwrite it.
+                    require(owners.insert(property(item.firstChildElement(), "track").text()).second);
                 }
                 else
                 {
@@ -240,6 +243,7 @@ struct RenameSchema
             require(value.attribute("class") == expected && expected.startsWith('['));
             const auto element = expected.mid(1);
             std::set<QString> seen;
+            std::set<QString> guests;
             for (auto item = value.firstChildElement(); !item.isNull(); item = item.nextSiblingElement())
             {
                 const auto name = item.attribute("name");
@@ -267,6 +271,8 @@ struct RenameSchema
                 else
                     require(false);
                 propertyValue(item, childType, depth + 1);
+                // Java ignores an already-present guest. The same guest in another panel is valid.
+                require(value.attribute("name") != "guests" || guests.insert(item.text()).second);
             }
         }
         else
