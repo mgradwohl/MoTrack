@@ -258,6 +258,8 @@ The listed exit gates are required results, not statements that their harnesses 
 | 10 — Complete presentation and output | Finish world/page views, notes/drawings/documents, preferences, layout controls, full data/image/print export, then video/clip export with filtered images and overlays. Depends on the final rendering and scientific pipelines. | Representative lessons can be authored, annotated, exported and reopened; rendered/exported timing, coordinates, units and saved layouts remain correct. |
 | 11 — Complete library workflows | Add local collection reading, metadata/search and cache, then remote browsing/download/cancel/offline behavior, collection editing and portable sharing. Reuse tested archive I/O and document presentation. | Reference collections and portable experiments open with relative paths and documents intact; offline and interrupted transfers preserve existing local work. |
 | 12 — Close parity and ship readiness | Finish every baseline locale, keyboard/accessibility/RTL checks, diagnostics/help, file associations, installer/upgrades and clean-machine verification. Review licenses/notices, dependencies, signing/notarization, SBOM and provenance. | All requirements closed with evidence; full corpus and interactive acceptance pass on the supported OS/CPU matrix; release artifacts verified with no development SDK on the machine. |
+| 13 — Resolve the remaining issue backlog | After full-port acceptance, refresh every open MoTrack issue and group related work by shared cause/component. Address data loss, incorrect science, security and crashes first, then compatibility/workflow defects, usability and remaining feature work. Keep upstream/native links and evidence current. | Every applicable issue has a verified fix and linked PR/evidence. Duplicates and investigated non-reproductions have explicit evidence-based dispositions; unresolved decisions or external blockers remain visible and are not closed just to empty the queue. |
+| 14 — Audit the complete codebase and resolve findings | After the existing issues are fully addressed, conduct a thorough review of production code, adapters, workers/UI lifetimes, scientific algorithms, persistence/migrations, archive/XML/media boundaries, tests, dependencies, setup and CI. File actionable findings as MoTrack issues, prioritize them and group coherent fixes into reviewable PRs. | All audit findings are addressed with regression evidence and reviewed current-head CI. Recheck affected areas after fixes and refresh the issue inventory before declaring the expanded task complete. |
 
 Critical dependencies are **reference → preservation/IDs → standard round trips → sessions/shared
 editing → full track/media/analysis/model behavior → complete output/library UX → release acceptance**.
@@ -322,6 +324,31 @@ or standard-file compatibility gates.
 
 Unresolved decisions stay visible in the plan. Routine implementation choices can be made within the
 authorized port scope; any change to required behavior or declared compatibility must be recorded.
+
+## Post-port completion work
+
+The maintainer extended the objective on 2026-11-08: completing the full Tracker port is followed by
+resolving the remaining MoTrack issue backlog, then a complete code review, issue filing and resolution
+of the review findings. These are additional completion gates, not replacements for unfinished parity.
+Phases 13–14 have not started. Continue fixing defects discovered during implementation before adding
+unrelated features; do not defer a current data-loss or scientific failure to the later audit.
+
+At each sweep, record the issue inventory and priority, relevant reproduction/expected behavior,
+related upstream report, affected requirements and intended PR grouping. Group issues when one
+coherent change resolves the same cause; keep unrelated changes separate. Close issues with linked
+fixes and concrete validation, or a documented investigated disposition where appropriate. Do not
+silently discard applicable work or treat an unverified report as a proven fix.
+
+The final audit applies the [review checklist](code-review.md) across the whole repository, including
+cross-component interactions and representative user workflows. Record actionable findings with a
+reproduction or concrete failure scenario, severity and acceptance criteria before implementing fixes.
+Preserve the [upstream triage](upstream-issues.md) distinction between native fixes and Tracker's own
+resolution. Deferred upstream proposals remain outside the frozen parity baseline; the post-port
+sweep tracks the MoTrack issues that remain after the port.
+
+Every resulting PR still requires passing review, current-revision Windows/macOS/Linux CI and the
+unchanged 90% combined C++ coverage gate. Clean verified merged branches and obsolete task outputs
+after merging. Release publication and signing still require separate authorization.
 
 ## Verification and definition of done
 
