@@ -288,10 +288,13 @@ public final class TrackerSessionReference {
                     + " showing=" + panel.isShowing() + " bounds=" + panel.getVisibleRect());
                 return;
             }
-            // DrawingPanel can blit an already cached image in paintImmediately. Its public
-            // render path redraws the ordinary drawable list, as an application image export does.
-            panel.render();
             panel.paintImmediately(panel.getVisibleRect());
+            // TrackerIO's snapshot/export path uses render(image), including for unbuffered
+            // video panels. Exercise that public drawing path with a bounded disposable image.
+            if (panel.getWidth() > 1280 || panel.getHeight() > 800)
+                throw new IllegalStateException("Reference drawing bounds exceeded");
+            panel.render(new java.awt.image.BufferedImage(panel.getWidth(), panel.getHeight(),
+                java.awt.image.BufferedImage.TYPE_INT_RGB));
             // TRZ loading can complete before the first normal axes draw. Observe the live
             // origin following the current coordinate frame; never inject expected positions.
             for (TTrack track : panel.getTracks()) if (track instanceof CoordAxes && track.isVisible()) {
@@ -303,7 +306,8 @@ public final class TrackerSessionReference {
                     WAITING.set("visible axes origin draw: " + (points == null || points.length == 0 ? "missing" : points[0])
                         + " coordinate origin=" + x + "," + y + " panel=" + panel.getSize()
                         + " gutters=" + Arrays.toString(panel.getGutters()) + " buffered=" + panel.isBuffered()
-                        + " iconified=" + panel.isIconified() + " frame=" + panel.getFrameNumber());
+                        + " iconified=" + panel.isIconified() + " frame=" + panel.getFrameNumber()
+                        + " drawingDisabled=" + OSPRuntime.disableAllDrawing);
                     return;
                 }
             }
