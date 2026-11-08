@@ -71,6 +71,7 @@ public final class TableOwnersFixture {
             root.setValue("mass_unit", "kg");
             root.setValue("tracks", new ArrayList<TTrack>(List.of(new CoordAxes(), first, second, third)));
             root.setValue("selectedtrack", "mass B");
+            root.setValue("selected_view_types", new int[] {TView.VIEW_TABLE, TView.VIEW_TABLE, TView.VIEW_WORLD, TView.VIEW_PAGE});
             root.setValue("views", new TView[][] {new TView[0]});
             XMLProperty chooser = (XMLProperty) property(root, "views").getPropertyContent().get(0);
             XMLControlElement table = object(chooser, "[1]", TableTView.class);

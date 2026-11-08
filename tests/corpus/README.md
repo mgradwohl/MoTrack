@@ -837,6 +837,8 @@ The pinned frame initializes its default plot at chooser 0 and table at chooser 
 the custom table at chooser 0. Both default views select the first surviving mass, while the custom
 table retains its saved selection or applies the deletion fallback. The independent packed-selection
 expectation includes all three view instances, including when every remaining selection is null.
+The fixture explicitly selects the table in chooser 0 so the normal visible-table refresh path
+is exercised; merely loading a hidden custom table does not satisfy the visited-view baseline.
 
 Baseline and edited Tracker application load/save/fresh-process reopen, native reimport, all-platform
 CI and the unchanged coverage gate are required before accepting this slice. These media-free cases
