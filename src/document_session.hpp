@@ -5,6 +5,7 @@
 #include "workspace_document.hpp"
 
 #include <QHash>
+#include <QSet>
 #include <QStringList>
 
 #include <cstdint>
@@ -74,13 +75,16 @@ class DocumentSession
     ~DocumentSession() = default;
 
   private:
+    void rememberRecovery(const QString& path, const QString& transaction);
+    void forgetRecovery(const QString& path, const QString& transaction);
     // Tokens retain the identity object, preventing reuse after replacement or destruction, even across sessions.
     std::shared_ptr<const Identity> m_Identity = std::make_shared<const Identity>();
     QString m_SourcePath;
     QString m_NativeSavePath;
     QString m_StandardSavePath;
     QStringList m_RecoveryPaths;
-    QHash<QString, QString> m_RecoveryTransactions;
+    QHash<QString, QStringList> m_RecoveryTransactions;
+    QSet<QString> m_CompletedRecoveryTransactions;
     bool m_PairedSaving = false;
 };
 
