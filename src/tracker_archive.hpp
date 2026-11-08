@@ -31,6 +31,7 @@ class TrackerArchive
   private:
     QTemporaryDir m_Directory;
     QTemporaryDir m_SourceDirectory;
+    QString m_CanonicalRoot;
     QStringList m_Projects;
     QHash<QString, QByteArray> m_MemberDigests;
 };

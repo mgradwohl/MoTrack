@@ -427,7 +427,9 @@ native close/reopen, including after the original `.trz` is removed. It verifies
 XML still matches that member and that current media references resolve to the original embedded
 files. Each referenced extracted file must also match the SHA-256 digest captured while reading
 its original archive member; missing or same-path replaced files are rejected before destination
-replacement. Digest checks use bounded blocks, honor cancellation and avoid rereading duplicate
+replacement. Selected XML and images must also resolve within the physical extraction root captured
+at import; identical-byte external file/parent-directory aliases cannot redirect exported links.
+Digest checks use bounded blocks, honor cancellation and avoid rereading duplicate
 references. Native save/reopen recreates these digests from the owned archive bytes. An immutable
 copy prepares member-relative ImageVideo paths; external/replaced media,
 movies, filters and unsupported timing/range edits remain refused. The source envelope and owned

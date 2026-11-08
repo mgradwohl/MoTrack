@@ -1334,6 +1334,7 @@ void writeTrackerArchiveDocument(const QString& path, const WorkspaceDocument& d
     const auto& archive = *document.archivePayload;
     const auto member = QString::fromStdString(*document.archiveMember);
     require(member.toStdString() == *document.archiveMember);
+    require(archive.memberMatchesSource(member, cancelled));
     const auto originalPath = archive.projectPath(member);
     QFile original(originalPath);
     require(original.open(QIODevice::ReadOnly) && original.size() <= static_cast<qint64>(MAX_TRACKER_XML_BYTES) &&
