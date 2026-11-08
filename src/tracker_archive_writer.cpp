@@ -227,11 +227,16 @@ void writeTrackerArchive(
             xml.size() <= MAX_TRACKER_XML_BYTES);
     static_cast<void>(parseLegacyProject(xml));
     const QFileInfo target(path);
-    for (const auto& destination : {target.absoluteFilePath(),
-                                    target.canonicalFilePath(),
-                                    QFileInfo(target.absolutePath()).canonicalFilePath() + '/' + target.fileName()})
-        require(!destination.startsWith(source.root() + '/', Qt::CaseInsensitive) &&
-                !destination.startsWith(QFileInfo(source.sourcePath()).absolutePath() + '/', Qt::CaseInsensitive));
+    require(!target.isSymLink(), "Tracker archive output cannot replace a file alias.");
+    const auto parent = QFileInfo(target.absolutePath()).canonicalFilePath();
+    require(!parent.isEmpty(), "The Tracker archive destination directory must exist.");
+    const auto destination = parent + '/' + target.fileName();
+    for (const auto& owned : {source.root(), QFileInfo(source.sourcePath()).absolutePath()})
+    {
+        const auto root = QFileInfo(owned).canonicalFilePath();
+        require(!root.isEmpty() && destination != root && !destination.startsWith(root + '/'),
+                "Tracker archive output cannot replace owned source or extracted files.");
+    }
     QFile input(source.sourcePath());
     require(input.open(QIODevice::ReadOnly), "Could not open the owned Tracker archive source.");
     require(input.size() > 0 && input.size() <= MAX_TRACKER_ARCHIVE_BYTES);
