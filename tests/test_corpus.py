@@ -230,7 +230,7 @@ class CorpusTests(unittest.TestCase):
 
     def test_saved_views_require_original_owners_columns_and_formats(self):
         manifest = corpus.load_manifest()
-        for case_id in ["protractor", "dynamic-sine"]:
+        for case_id in ["protractor", "dynamic-sine", "plot-guests"]:
             case = next(case for case in manifest["cases"] if case["id"] == case_id)
             expected = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
             tracks = []
@@ -268,11 +268,19 @@ class CorpusTests(unittest.TestCase):
                     (["plots", 0, "track_views", 0, "track"], "axes"),
                     (["plots", 0, "track_views", 0, "linked"], True),
                     (["plots", 0, "track_views", 0, "plots", 0, "x_var"], "x"),
-                    (["plots", 0, "track_views", 0, "plots", 0, "y_var"], "x"),
+                    (["plots", 0, "track_views", 0, "plots", 0, "y_var"], "invalid-variable"),
                     (["plots", 0, "track_views", 0, "plots", 0, "guests"], ["axes"]),
                     (["plots", 0, "track_views"], []),
                     (["plots"], []),
                 ]
+                if case_id == "plot-guests":
+                    changes.extend([
+                        (["plots", 0, "track_views", 0, "plots", 0, "guests"], []),
+                        (["plots", 0, "track_views", 0, "plots", 0, "guests"], ["mass B", "mass C"]),
+                        (["plots", 0, "track_views", 0, "plots", 0, "guests"], ["mass B"]),
+                        (["plots", 0, "track_views", 0, "plots", 0, "guests"], ["mass C", "mass C"]),
+                        (["plots", 0, "track_views", 0, "plots", 1, "guests"], ["mass C"]),
+                    ])
             for path, value in changes:
                 # Reject a consistently wrong load as well as changes during saving/reopening.
                 for states in [["before", "after_save", "after"], ["after_save"], ["after"]]:

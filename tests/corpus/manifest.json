@@ -19,6 +19,33 @@
   },
   "cases": [
     {
+      "id": "plot-guests",
+      "file": "plot-guests.trk",
+      "local_file": "fixtures/plot-guests.trk",
+      "sha256": "886eb2b29a14ed511029e03237a15fb65ce691d70aeed40ce0820e0b75a8b709",
+      "bytes": 10966,
+      "tracker_version": "6.3.5",
+      "features": ["three-point-masses", "sparse-marks", "nonuniform-calibration", "ordered-plot-guests"],
+      "requirements": ["R02", "R03", "R15"],
+      "expected": "expected/plot-guests.json",
+      "native_reference_index": "expected/plot-guests-references.json",
+      "session_tracks": [
+        {"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes", "name": "axes"},
+        {"class": "org.opensourcephysics.cabrillo.tracker.PointMass", "name": "mass A"},
+        {"class": "org.opensourcephysics.cabrillo.tracker.PointMass", "name": "mass B"},
+        {"class": "org.opensourcephysics.cabrillo.tracker.PointMass", "name": "mass C"}
+      ],
+      "session_views": {
+        "tables": [],
+        "plots": [{"chooser": 0, "selected_track": "mass A", "track_views": [
+          {"track": "mass A", "linked": false, "plots": [
+            {"x_var": "t", "y_var": "x", "guests": ["mass C", "mass B"]},
+            {"x_var": "t", "y_var": "y", "guests": ["mass B"]}
+          ]}
+        ]}]
+      }
+    },
+    {
       "id": "ball-toss",
       "file": "BallToss.trz",
       "url": "https://raw.githubusercontent.com/OpenSourcePhysics/tracker/020692a3d23781763dd8a7a19d73bf004c3faefe/examples/BallToss.trz",
