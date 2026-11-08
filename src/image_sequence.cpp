@@ -25,7 +25,8 @@ std::optional<ImageSequence> ImageSequence::open(const QString& projectPath, con
 
     const auto firstPath = QString::fromStdString(clip.mediaReferences.front());
     const auto suffix = QFileInfo(firstPath).suffix().toLatin1().toLower();
-    if (count == 1 && !QImageReader::supportedImageFormats().contains(suffix))
+    if (count == 1 && !QImageReader::supportedImageFormats().contains(suffix) &&
+        !QImageReader(resolveLocalMediaPath(projectPath, clip.mediaReferences.front())).canRead())
     {
         return std::nullopt;
     }
