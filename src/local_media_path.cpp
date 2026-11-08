@@ -3,6 +3,9 @@
 #include <QDir>
 #include <QFileInfo>
 
+#include <filesystem>
+#include <system_error>
+
 namespace motrack
 {
 QString localProjectDirectory(const QString& projectPath)
@@ -33,5 +36,15 @@ QString resolveLocalMediaPath(const QString& projectPath, const std::string& ref
     }
     const auto existing = QFileInfo(path).canonicalFilePath();
     return existing.isEmpty() ? path : existing;
+}
+
+bool sameLocalFile(const QString& first, const QString& second)
+{
+    std::error_code error;
+    const bool equivalent =
+        std::filesystem::equivalent(std::filesystem::path(first.toStdU16String()), std::filesystem::path(second.toStdU16String()), error);
+    if (!error)
+        return equivalent;
+    return QFileInfo(first).absoluteFilePath() == QFileInfo(second).absoluteFilePath();
 }
 } // namespace motrack
