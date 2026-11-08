@@ -306,6 +306,11 @@ class CorpusTests(unittest.TestCase):
                     table.remove(selected)
                 else:
                     selected.text = "mass A"
+            remaining = [name for name in ["mass A", "mass B", "mass C"] if name not in removed]
+            first = remaining[0] if remaining else "null"
+            a = "mass A" if "mass A" in remaining else first
+            b = "mass B" if "mass B" in remaining else first
+            root.find("property[@name='selected_track_views']").text = f"{a},{b};null,{a};null,null;null,null"
             tree.write(exported, encoding="utf-8")
             corpus.verify_deletion_export_xml(source, exported, mode)
             good = exported.read_text(encoding="utf-8")

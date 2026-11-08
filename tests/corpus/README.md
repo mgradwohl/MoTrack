@@ -840,8 +840,8 @@ expectation includes all three view instances, including when every remaining se
 The fixture explicitly selects the table in chooser 0 so the normal visible-table refresh path
 is exercised; merely loading a hidden custom table does not satisfy the visited-view baseline.
 The original two-column mass C variant is retained as checksum-pinned `table-owners-subset.trk`,
-reproducible with the generator's `subset` argument. Tracker 6.3.5 continuously reports null columns
-for its visible `t,x` row after normal selection; a separate bounded experiment with one normal
+reproducible with the generator's `subset` argument. The earlier harness reported null columns
+for its Swing-visible `t,x` row after normal selection; a separate bounded experiment with one normal
 frame change/restoration did not recover it. Both observations are linked in
 [MoTrack #64](https://github.com/mgradwohl/MoTrack/issues/64). The ineffective frame workaround was
 removed. This variant remains a native/reference-geometry and source-index case, explicitly excluded
@@ -852,7 +852,7 @@ mode). In [CI run 42464749233](https://github.com/mgradwohl/MoTrack/actions/runs
 Tracker's baseline load/save/fresh-process reopen omitted the custom tables and their selection.
 Its column saver checks custom state and ignores formatting alone. The acceptance candidate now
 includes an explicit `frame` column for every owner; all previous format and selection assertions
-remain required. Both failing variants stay pinned and excluded from application acceptance.
+remain required. These failing variants stay pinned and excluded from application acceptance.
 
 Changed standard exports retaining point-mass `t,x`, `t,x,y` or `t,y,x` rows are refused before
 replacing the destination. Native saving and unchanged standard rendering retain the source.
@@ -870,3 +870,19 @@ preparation marker distinguishes this from earlier runs: Swing `isShowing()` was
 Tracker's `isViewPaneVisible()` was false, suppressing data-column refresh. All column/format
 assertions remain unchanged. Earlier failing column variants need revalidation under this normal
 expanded-pane workflow before their conservative export guards can be lifted.
+
+The expanded-pane run [42467068600](https://github.com/mgradwohl/MoTrack/actions/runs/42467068600)
+populated the explicit-frame columns but still lost legacy-only custom formats, order and selected
+table owner. Its exact input remains `table-owners-legacy-formats.trk`, reproducible with generator
+mode `legacy-formats` and explicitly excluded from application acceptance. The current candidate
+adds per-track `number_formats` overrides, divider positions and packed selections used by Tracker's
+normal persistence contract. All original independent column-order, decimal-format and selection
+assertions remain required; the expected reference index now also lists all eight packed view slots.
+The generator's other modes still reproduce the earlier files without modernizing their metadata.
+
+The native writer requires custom legacy table patterns to match their per-track overrides. It
+accepts only audited fixed-decimal patterns for x/y/t/frame/step, refuses malformed and unbacked
+records before replacement, and preserves the original envelope for native save/undo. All seven
+deletion subsets preserve surviving per-track records and remove deleted owners' legacy groups.
+Application acceptance of the modern candidate is pending; none of the older failures is counted
+as a successful standard round trip.

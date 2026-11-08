@@ -54,12 +54,27 @@
       "provenance": "Pinned default-column variant: baseline Tracker 6.3.5 application load/save/reopen omitted custom table formats and selected owner in CI run 42464749233. Reproduce with TableOwnersFixture defaults mode."
     },
     {
+      "tracker_version": "6.3.5",
+      "expected": "expected/table-owners.json",
+      "native_reference_index": "expected/table-owners-references.json",
+      "id": "table-owners-legacy-formats",
+      "file": "table-owners-legacy-formats.trk",
+      "local_file": "fixtures/table-owners-legacy-formats.trk",
+      "sha256": "6051ad165c8615d065dc8cdec21ba3997aa32f7343f73aaed195ff94303b526f",
+      "bytes": 12839,
+      "session_exclusion": {
+        "issue": "https://github.com/mgradwohl/MoTrack/issues/64",
+        "reason": "Legacy-only formats/order/selection fail the expanded-pane application baseline; retained as source/geometry evidence only."
+      },
+      "provenance": "The earlier explicit-frame-column fixture with legacy table-only formats. Expanded-pane CI run 42467068600 populated columns but lost custom formats, column order and selected table owner. Reproduce with TableOwnersFixture legacy-formats mode."
+    },
+    {
       "id": "table-owners",
       "native_delete_table_roundtrip": true,
       "file": "table-owners.trk",
       "local_file": "fixtures/table-owners.trk",
-      "sha256": "6051ad165c8615d065dc8cdec21ba3997aa32f7343f73aaed195ff94303b526f",
-      "bytes": 12839,
+      "sha256": "854dcf2e4468a60f4c5e6fd21c929c6b1c6bc6aa519f92e64cb424d25dba939d",
+      "bytes": 14090,
       "tracker_version": "6.3.5",
       "features": [
         "three-point-masses",
@@ -75,7 +90,7 @@
         "R15"
       ],
       "expected": "expected/table-owners.json",
-      "native_reference_index": "expected/table-owners-references.json",
+      "native_reference_index": "expected/table-owners-modern-references.json",
       "session_tracks": [
         {
           "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",

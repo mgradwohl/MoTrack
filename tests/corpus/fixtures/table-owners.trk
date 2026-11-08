@@ -79,6 +79,12 @@
                 <property name="[9]" type="object">null</property>
             </property>
             <property name="keyFrames" type="array" class="[I"/>
+            <property name="number_formats" type="array" class="[Ljava.lang.String;">
+                <property name="[0]" type="string">x</property>
+                <property name="[1]" type="string">0.000</property>
+                <property name="[2]" type="string">y</property>
+                <property name="[3]" type="string">0.00</property>
+            </property>
         </object>
         </property>
         <property name="item" type="object">
@@ -112,6 +118,12 @@
                 <property name="[9]" type="object">null</property>
             </property>
             <property name="keyFrames" type="array" class="[I"/>
+            <property name="number_formats" type="array" class="[Ljava.lang.String;">
+                <property name="[0]" type="string">y</property>
+                <property name="[1]" type="string">0.0000</property>
+                <property name="[2]" type="string">t</property>
+                <property name="[3]" type="string">0.00</property>
+            </property>
         </object>
         </property>
         <property name="item" type="object">
@@ -145,8 +157,15 @@
                 <property name="[9]" type="object">null</property>
             </property>
             <property name="keyFrames" type="array" class="[I"/>
+            <property name="number_formats" type="array" class="[Ljava.lang.String;">
+                <property name="[0]" type="string">x</property>
+                <property name="[1]" type="string">0.00000</property>
+            </property>
         </object>
         </property>
+    </property>
+    <property name="dividers" type="array" class="[D">
+        <property name="array" type="string">{0.65,0.5,0.75,0.5}</property>
     </property>
     <property name="selectedtrack" type="string">mass B</property>
     <property name="selected_view_types" type="array" class="[I">
@@ -217,4 +236,5 @@
             </property>
         </property>
     </property>
+    <property name="selected_track_views" type="string">mass A,mass B;null,mass A;null,null;null,null</property>
 </object>

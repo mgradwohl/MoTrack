@@ -5,6 +5,7 @@
 #include "tracker_references.hpp"
 #include "workspace_document.hpp"
 
+#include <QDomDocument>
 #include <QFile>
 #include <QTemporaryDir>
 #include <QXmlStreamReader>
@@ -170,6 +171,7 @@ TEST(TrackerWriter, RejectsUnsupportedOrInvalidEditsBeforeReplacingTheDestinatio
 
 std::string namedSource(const std::string& extra = "")
 {
+    // Opaque labels exercise name isolation; an empty pattern requests no numeric override.
     return "<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>\n"
            "<property name='description' type='string'><![CDATA[mass A and mass B are words in this note.]]></property>\n"
            "<property name='tracks' type='collection' class='java.util.ArrayList'>\n"
@@ -196,7 +198,7 @@ std::string namedSource(const std::string& extra = "")
            "<property name='column_formats' type='array' class='[[[Ljava.lang.String;'>\n"
            "<property name='[0]' type='array' class='[[Ljava.lang.String;'><property name='[0]' type='array' class='[Ljava.lang.String;'>\n"
            "<property name='[0]' type='string'>mass B</property><property name='[1]' type='string'>mass B</property>\n"
-           "<property name='[2]' type='string'>0.00</property></property></property></property>\n"
+           "<property name='[2]' type='string'></property></property></property></property>\n"
            "</object></property></property></property>\n" +
            extra + "</object>\n";
 }
@@ -426,7 +428,7 @@ TEST(TrackerWriter, DeletionAndCreationWithEqualCountsUseIdentityAndPermitSafeNa
 TEST(TrackerWriter, RejectsKnownLossyTableColumnsUntilAllAffectedOwnersAreRemoved)
 {
     const auto fixtureDirectory = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/";
-    for (const auto* fixture : {"table-owners-subset.trk", "table-owners-defaults.trk"})
+    for (const auto* fixture : {"table-owners-subset.trk", "table-owners-defaults.trk", "table-owners-legacy-formats.trk"})
     {
         SCOPED_TRACE(fixture);
         auto imported = motrack::parseTrackerProject(readBytes(fixtureDirectory + fixture));
@@ -458,14 +460,53 @@ TEST(TrackerWriter, RejectsKnownLossyTableColumnsUntilAllAffectedOwnersAreRemove
         EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(imported.project, imported.source)), motrack::ProjectError);
         ASSERT_TRUE(edits.removePointMass(imported.project, 0));
         const auto cleaned = motrack::renderTrackerProject(imported.project, imported.source);
-        auto complete = motrack::parseTrackerProject(readBytes(fixtureDirectory + "table-owners.trk"));
-        complete.project.pointMasses.clear();
-        EXPECT_EQ(cleaned, motrack::renderTrackerProject(complete.project, complete.source));
+        EXPECT_TRUE(motrack::parseLegacyProject(cleaned).pointMasses.empty());
+        EXPECT_EQ(cleaned.find("column_formats"), std::string::npos);
+        EXPECT_EQ(cleaned.find("track_columns"), std::string::npos);
         ASSERT_TRUE(edits.undo(imported.project));
         EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(imported.project, imported.source)), motrack::ProjectError);
         ASSERT_TRUE(edits.redo(imported.project));
         EXPECT_EQ(motrack::renderTrackerProject(imported.project, imported.source), cleaned);
         EXPECT_EQ(imported.source.xml, original);
+    }
+}
+
+TEST(TrackerWriter, RejectsMalformedOrUnbackedPointMassNumberFormats)
+{
+    const auto original = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/table-owners.trk");
+    const std::vector<std::function<void(QDomElement&)>> mutations{
+        [](auto& formats) { formats.removeChild(formats.lastChildElement()); },
+        [](auto& formats) { formats.lastChildElement().setAttribute("name", "[9]"); },
+        [](auto& formats) { formats.firstChildElement().firstChild().setNodeValue("temperature"); },
+        [](auto& formats) { formats.firstChildElement().nextSiblingElement().firstChild().setNodeValue("invalid["); },
+        [](auto& formats) { formats.firstChildElement().nextSiblingElement().firstChild().setNodeValue("0\n"); },
+        [](auto& formats) { formats.firstChildElement().nextSiblingElement().firstChild().setNodeValue("0.0000"); },
+        [](auto& formats)
+        {
+            formats.lastChildElement().previousSiblingElement().firstChild().setNodeValue("x");
+        }};
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    QFile file(destination);
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+    ASSERT_EQ(file.write("existing"), 8);
+    file.close();
+    for (std::size_t i = 0; i < mutations.size(); ++i)
+    {
+        SCOPED_TRACE(i);
+        QDomDocument xml;
+        ASSERT_TRUE(xml.setContent(QByteArray::fromStdString(original)));
+        const auto properties = xml.elementsByTagName("property");
+        QDomElement formats;
+        for (int index = 0; index < properties.size() && formats.isNull(); ++index)
+            if (properties.at(index).toElement().attribute("name") == "number_formats")
+                formats = properties.at(index).toElement();
+        ASSERT_FALSE(formats.isNull());
+        mutations[i](formats);
+        auto imported = motrack::parseTrackerProject(xml.toByteArray(-1).toStdString());
+        imported.project.pointMasses.front().mass = 5;
+        ASSERT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(destination), "existing");
     }
 }
 
@@ -520,7 +561,9 @@ TEST(TrackerWriter, RemovesOnlyDeletedTableOwnersAfterHistoryNativeReopenAndName
         std::map<std::string, unsigned> columns;
         for (const auto& reference : references.references)
         {
-            EXPECT_EQ(reference.resolution, motrack::TrackerReferenceResolution::Resolved);
+            EXPECT_EQ(reference.resolution,
+                      reference.originalName == "null" ? motrack::TrackerReferenceResolution::NoTarget
+                                                       : motrack::TrackerReferenceResolution::Resolved);
             if (reference.kind == motrack::TrackerReferenceKind::TableColumnOwner)
                 ++columns[reference.originalName];
             if (reference.kind == motrack::TrackerReferenceKind::TableFormatOwner)

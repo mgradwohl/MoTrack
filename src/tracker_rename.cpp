@@ -3,6 +3,7 @@
 #include "tracker_references.hpp"
 
 #include <QDomDocument>
+#include <QRegularExpression>
 #include <QStringList>
 
 #include <algorithm>
@@ -137,6 +138,8 @@ Fields fields(const QString& name)
         {
             result.insert(
                 {{"mass", "double"}, {"framedata", "array:[L" + QString(TRACKER) + "PointMass$FrameData;"}, {"keyFrames", "array:[I"}});
+            if (name.endsWith(".PointMass"))
+                result.emplace("number_formats", "array:[Ljava.lang.String;");
             if (name.endsWith(".CenterOfMass"))
                 result.emplace("masses", "collection:java.util.ArrayList");
         }
@@ -288,6 +291,22 @@ struct RenameSchema
             propertyValue(child, allowed.at(name), depth + 1);
         }
         require(actual != QString(TRACKER) + "CenterOfMass" || seen.contains("masses"));
+        if (actual == QString(TRACKER) + "PointMass" && seen.contains("number_formats"))
+        {
+            const auto formats = property(value, "number_formats");
+            require(denseArraySize(formats) % 2 == 0);
+            static const QRegularExpression decimal(R"(\A0(?:\.0{1,12})?\z)");
+            std::set<QString> variables;
+            for (auto cell = formats.firstChildElement(); !cell.isNull();)
+            {
+                const auto variable = cell.text();
+                require((variable == "x" || variable == "y" || variable == "t" || variable == "frame" || variable == "step") &&
+                        variables.insert(variable).second);
+                cell = cell.nextSiblingElement();
+                require(!cell.isNull() && decimal.match(cell.text()).hasMatch());
+                cell = cell.nextSiblingElement();
+            }
+        }
         if (actual == "org.opensourcephysics.tools.Parameter")
             require(seen.contains("name") && seen.contains("function"));
         if (actual == "org.opensourcephysics.tools.UserFunction")
