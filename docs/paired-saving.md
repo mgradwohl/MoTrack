@@ -1,8 +1,8 @@
 # Standard and native paired saving
 
-Status: internal phase-3 paired writer and explicit recovery adapter implemented; cross-platform CI
-and actual Tracker acceptance are pending. The desktop still saves only native documents. Per-output
-session checkpoints, standard Save actions and translated recovery choices remain separate work.
+Status: internal phase-3 paired writer, explicit recovery adapter and per-output session checkpoints
+are implemented. Earlier three-platform and actual Tracker acceptance is recorded below; later review
+fixes require current-revision CI. Desktop standard Save actions and recovery choices are the next slice.
 The [full-port plan](migration-plan.md#implementation-order-and-exit-gates) and
 [format guide](native-format.md) remain the canonical status and supported-schema references.
 
@@ -129,7 +129,8 @@ invalidated. A failed write changes neither save point; a stale completion canno
 `DocumentSession::completePairedSave` applies only confirmed per-output results and retains pending
 recovery records for every interrupted destination. Saving another pair cannot discard an earlier
 record or report the session clean while it remains. Recovery removes only its own record and cannot
-redirect the current save target to an older destination. Once a pair is required, a native-only save cannot clear outstanding Tracker edits.
+redirect the current save target to an older destination. Once a pair is required, a native-only save
+cannot clear outstanding Tracker edits.
 A partial pair remains modified even when both replacements finished but recovery cleanup failed.
 Replacement of the document invalidates all earlier completion tokens.
 
@@ -140,11 +141,18 @@ This preserves new edits made after interruption. The desktop controller must us
 queries and completion methods when standard Save/recovery actions are connected; those actions
 are still pending.
 
-The combined checkpoint/recovery revision passes all six Windows suites with 95.43% combined
-production line coverage (7726/8096). Checkpoint formatting/static checks pass. Cross-platform CI
-and desktop integration are pending.
+The multiple-destination recovery correction passes all six Windows suites with 95.46% combined
+production line coverage (7780/8150). Checkpoint formatting/static checks pass. Its regression performs
+two interrupted saves, saves a third destination, recovers both earlier records and finally saves the
+current pair. Later inherited corrections still require combined current-revision CI; desktop integration
+remains separate.
 
 Prepared-file fingerprints are fixed immediately after each validated write, before notifying progress
 observers. A changed stage is rejected before journaling or destination replacement. Linked media is
 compared against both output paths with normalized, case-folded spelling, conservatively protecting
 case-insensitive filesystems even when a media file uses a project-like filename extension.
+
+The combined review-corrected stack passed all six Windows suites with 95.54% line coverage
+(7803/8167); this includes immutable archive export, unsupported ZIP layouts imported before
+validation, multiple recovery destinations, case-folded media collisions and prepared-stage changes.
+Current-revision cross-platform CI remains required before merging.
