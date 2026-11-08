@@ -880,7 +880,7 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
                         m_Session.replace({}, path);
                         m_Session.document.project.clip.stepCount = index.frameCount;
                         m_Session.document.project.clip.sourceFrameCount = index.frameCount;
-                        m_Session.document.project.clip.mediaReferences.push_back(QFileInfo(path).fileName().toStdString());
+                        m_Session.document.project.clip.mediaReferences.push_back(QFileInfo(path).absoluteFilePath().toStdString());
                         m_Sequence.reset();
                         m_MoviePath = path;
                         m_Session.document.movie = true;

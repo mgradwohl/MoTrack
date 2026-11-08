@@ -261,6 +261,19 @@ TEST(TrackerArchiveWriter, ProtectsCanonicalOwnedPathsAndRejectsDanglingDestinat
     ASSERT_TRUE(qputenv("TMPDIR", alias.toUtf8()));
     const auto source = motrack::TrackerArchive::open(original);
     const auto bytes = readBytes(source.sourcePath());
+    // QTemporaryDir canonicalizes TMPDIR on supported Qt builds. Introduce an alias after
+    // importing so the retained spelling and physical root deliberately differ everywhere.
+    const auto retainedDirectory = QFileInfo(source.sourcePath()).absolutePath();
+    const auto movedDirectory = temporary.filePath("relocated-owned-source");
+    ASSERT_TRUE(QDir().rename(retainedDirectory, movedDirectory));
+    const auto restoreDirectory = qScopeGuard(
+        [&retainedDirectory, &movedDirectory]
+        {
+            if (QFileInfo(retainedDirectory).isSymLink())
+                QFile::remove(retainedDirectory);
+            QDir().rename(movedDirectory, retainedDirectory);
+        });
+    ASSERT_TRUE(QFile::link(movedDirectory, retainedDirectory));
     const auto canonical = QFileInfo(source.sourcePath()).canonicalFilePath();
     ASSERT_NE(source.sourcePath(), canonical);
     EXPECT_THROW(motrack::writeTrackerArchive(canonical, source, "selected.trk", EDITED_XML), motrack::ProjectError);
