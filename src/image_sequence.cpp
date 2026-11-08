@@ -9,7 +9,8 @@
 namespace motrack
 {
 
-std::optional<ImageSequence> ImageSequence::open(const QString& projectPath, const Clip& clip)
+std::optional<ImageSequence>
+ImageSequence::open(const QString& projectPath, const Clip& clip, const std::map<std::string, QString>& mediaLocations)
 {
     if (clip.firstFrame < 0 || clip.stepSize < 1 || clip.mediaReferences.empty() ||
         clip.mediaReferences.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
@@ -23,10 +24,15 @@ std::optional<ImageSequence> ImageSequence::open(const QString& projectPath, con
         return std::nullopt;
     }
 
+    const auto mediaPath = [&](const std::string& reference)
+    {
+        const auto retained = mediaLocations.find(reference);
+        return retained == mediaLocations.end() ? resolveLocalMediaPath(projectPath, reference) : retained->second;
+    };
     const auto firstPath = QString::fromStdString(clip.mediaReferences.front());
     const auto suffix = QFileInfo(firstPath).suffix().toLatin1().toLower();
     if (count == 1 && !QImageReader::supportedImageFormats().contains(suffix) &&
-        !QImageReader(resolveLocalMediaPath(projectPath, clip.mediaReferences.front())).canRead())
+        !QImageReader(mediaPath(clip.mediaReferences.front())).canRead())
     {
         return std::nullopt;
     }
@@ -34,7 +40,7 @@ std::optional<ImageSequence> ImageSequence::open(const QString& projectPath, con
     ImageSequence sequence;
     for (const auto& reference : clip.mediaReferences)
     {
-        sequence.m_Paths.append(resolveLocalMediaPath(projectPath, reference));
+        sequence.m_Paths.append(mediaPath(reference));
     }
     sequence.m_FirstFrame = clip.firstFrame;
     sequence.m_StepSize = clip.stepSize;
