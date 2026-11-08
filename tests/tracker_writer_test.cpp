@@ -571,6 +571,56 @@ TEST(TrackerWriter, CreatedMassCountsRetainedFrameArraysAndNullPlaceholdersBefor
     }
 }
 
+TEST(TrackerWriter, RetainedInheritedMassArraysCountTowardTheExportAllocationLimit)
+{
+    std::string xml = "<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>\n"
+                      "<property name='tracks' type='collection' class='java.util.ArrayList'>\n"
+                      "<property name='item' type='object'><object class='org.opensourcephysics.cabrillo.tracker.PointMass'>"
+                      "<property name='name' type='string'>mass A</property></object></property>\n";
+    for (int index = 0; index < 2; ++index)
+    {
+        xml += "<property name='item' type='object'><object class='org.opensourcephysics.cabrillo.tracker.CenterOfMass'>"
+               "<property name='name' type='string'>center " +
+               std::to_string(index) +
+               "</property>"
+               "<property name='framedata' type='array' class='[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;'>"
+               "<property name='[500000]' type='object'>null</property></property>"
+               "<property name='masses' type='collection' class='java.util.ArrayList'>"
+               "<property name='item' type='string'>mass A</property></property></object></property>\n";
+    }
+    xml += "</property>\n</object>\n";
+    auto imported = motrack::parseTrackerProject(xml);
+    ASSERT_EQ(imported.project.pointMasses.size(), 1);
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    motrack::writeTrackerProject(destination, imported.project, imported.source);
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.renamePointMass(imported.project, 0, "renamed"));
+    EXPECT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), xml);
+}
+
+TEST(TrackerWriter, CreatedTrackMetadataMustFitTheFinalSchemaBudget)
+{
+    const auto imported = motrack::parseTrackerProject(namedSource());
+    auto project = imported.project;
+    motrack::TrackEdits edits;
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    motrack::writeTrackerProject(destination, imported.project, imported.source);
+    for (int index = 0; index < 1000; ++index)
+        ASSERT_TRUE(edits.createPointMass(project, "new " + std::to_string(index)));
+    EXPECT_THROW(motrack::writeTrackerProject(destination, project, imported.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), namedSource());
+    project.pointMasses.resize(502);
+    motrack::writeTrackerProject(destination, project, imported.source);
+    auto reopened = motrack::parseTrackerProject(readBytes(destination));
+    edits.clear();
+    ASSERT_TRUE(edits.createPointMass(reopened.project, "another mass"));
+    ASSERT_TRUE(edits.renamePointMass(reopened.project, 0, "renamed"));
+    EXPECT_NO_THROW(motrack::writeTrackerProject(destination, reopened.project, reopened.source));
+}
+
 TEST(TrackerWriter, CreatedMassRejectsPresentButUnusableCalibrationAtomically)
 {
     for (const auto& fields : {std::string("<property name='xscale' type='double'>1</property>"),
@@ -1722,6 +1772,28 @@ TEST(TrackerWriter, CreatesAnotherVectorAfterStandardReimportWithHighOriginalFra
     EXPECT_EQ(result.project.vectors[2].samples, imported.project.vectors[2].samples);
     EXPECT_EQ(result.project.vectors[3].name, "next vector");
     EXPECT_EQ(motrack::renderTrackerProject(result.project, result.source), result.source.xml);
+}
+
+TEST(TrackerWriter, CreatedVectorMetadataMustFitTheFinalSchemaBudget)
+{
+    const auto imported =
+        motrack::parseTrackerProject(readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk"));
+    auto project = imported.project;
+    motrack::TrackEdits edits;
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    motrack::writeTrackerProject(destination, imported.project, imported.source);
+    for (int index = 0; index < 1000; ++index)
+        ASSERT_TRUE(edits.createVector(project, "new " + std::to_string(index)));
+    EXPECT_THROW(motrack::writeTrackerProject(destination, project, imported.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), imported.source.xml);
+    project.vectors.resize(502);
+    motrack::writeTrackerProject(destination, project, imported.source);
+    auto reopened = motrack::parseTrackerProject(readBytes(destination));
+    edits.clear();
+    ASSERT_TRUE(edits.createVector(reopened.project, "another vector"));
+    ASSERT_TRUE(edits.renameVector(reopened.project, 0, "renamed"));
+    EXPECT_NO_THROW(motrack::writeTrackerProject(destination, reopened.project, reopened.source));
 }
 
 TEST(TrackerWriter, CreatedVectorsRetainSnappingPrecisionAndAllocationGuardsAtomically)
