@@ -690,6 +690,10 @@ null-ended arrays at frame 500000 now refuses without replacing the destination.
 reproduced creation of 1000 empty masses exceeding the next edit's schema-entry budget; the final
 document is now audited after appended metadata and sample patches. A smaller creation batch can
 still be reimported, renamed and extended. These checks allocate only sparse native XML in tests.
+An empty-mass export followed by standard reimport, marking and native save/reopen reproduced a
+mark-only affine-cancellation bypass with the same independently measured coordinates above. Existing
+mass edits now use the coordinate checks even without membership/calibration changes; present-but-
+unparseable calibration also rejects mark-only exports. Regressions verify the destination stays intact.
 Linux actual-application acceptance is required before merging this slice.
 
 The historical [Tracker #10 save/load report](https://github.com/OpenSourcePhysics/tracker/issues/10)
