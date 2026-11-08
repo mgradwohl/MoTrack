@@ -268,7 +268,10 @@ marks. These are documented interchange defaults until native per-track appearan
 no unknown original track style is cloned. Sparse new marks retain original frame numbers, bounded at
 500000 and one million aggregate dense frame slots across all emitted masses. Every edited export
 counts retained arrays and null placeholders as well as new marks, so standard reimport and later
-marking cannot reset the budget. A present but unusable source calibration refuses creation; absent
+marking cannot reset the budget. Recognized inherited mass arrays on retained objects such as
+`CenterOfMass` also count, even though they are not natively editable. Creation and rename validate
+the final schema after all metadata/sample patches, preventing an export that would exceed the next
+identity edit's entry/depth limits. A present but unusable source calibration refuses creation; absent
 coordinates retain the existing media-free behavior. The source schema audit permits
 the same frame range specifically for point-mass `framedata`, so later creation after standard reimport
 does not impose a smaller index limit. Generic array indices, aggregate entry counts and nesting limits
