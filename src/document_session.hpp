@@ -26,7 +26,8 @@ enum class SaveOutcome : std::uint8_t
     Stale,
     Replaced,
     Partial,
-    Recovered
+    Recovered,
+    Superseded // A newer native write already owns the destination and bindings.
 };
 
 /// One live document, its undo history and per-output save checkpoints. GUI-thread owned; workers receive copies.
@@ -58,8 +59,8 @@ class DocumentSession
     [[nodiscard]] bool requiresPairedSave() const;
     [[nodiscard]] bool isModified() const;
     [[nodiscard]] SaveCheckpoint saveCheckpoint() const;
-    /// Failed/replaced writes leave this session untouched. A successful stale write keeps its destination but stays dirty.
-    [[nodiscard]] SaveOutcome completeSave(const SaveCheckpoint& checkpoint, const QString& destination, bool success);
+    /// Failed/replaced/superseded writes leave this session untouched. A current stale write stays dirty.
+    [[nodiscard]] SaveOutcome completeSave(const SaveCheckpoint& checkpoint, const QString& destination, const NativeSaveResult& result);
     /// Apply a new paired-write result, marking only outputs confirmed current for this revision.
     [[nodiscard]] SaveOutcome completePairedSave(const SaveCheckpoint& checkpoint, const PairedSaveResult& result);
     /// Capture a fresh checkpoint before starting recovery; it identifies the pending transaction.
@@ -91,12 +92,14 @@ class DocumentSession
     QString m_StandardSavePath;
     QStringList m_RecoveryPaths;
     QHash<QString, QList<RecoveryObservation>> m_RecoveryTransactions;
-    QHash<QString, std::uint64_t> m_CompletedRecoveryTransactions;
+    QHash<QString, QHash<QString, std::uint64_t>> m_CompletedRecoveryTransactions;
     QHash<QString, std::uint64_t> m_ClearedRecoveryObservations;
     QHash<QString, std::shared_ptr<const QString>> m_RecoveryLocationIdentities;
     std::uint64_t m_NativeInvalidation = 0;
     std::uint64_t m_TrackerInvalidation = 0;
     std::uint64_t m_MediaObservation = 0;
+    std::uint64_t m_NativeDestinationObservation = 0;
+    std::uint64_t m_StandardDestinationObservation = 0;
     bool m_PairedSaving = false;
 };
 

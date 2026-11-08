@@ -115,8 +115,32 @@ QString physicalLocalFilePath(QString path)
 bool sameLocalFile(const QString& first, const QString& second)
 {
     std::error_code error;
-    const bool equivalent =
+    bool equivalent =
         std::filesystem::equivalent(std::filesystem::path(first.toStdU16String()), std::filesystem::path(second.toStdU16String()), error);
+#ifdef Q_OS_WIN
+    if (error)
+    {
+        // Qt can open paths beyond MAX_PATH even when the standard-library identity query
+        // needs an extended Windows path. Resolve existing paths before adding that prefix,
+        // which disables ordinary Win32 dot/parent normalization.
+        const auto extendedPath = [](const QString& path)
+        {
+            auto canonical = QDir::toNativeSeparators(QFileInfo(path).canonicalFilePath());
+            if (canonical.isEmpty())
+                return std::filesystem::path{};
+            if (!canonical.startsWith(R"(\\?\)"))
+                canonical = canonical.startsWith(R"(\\)") ? R"(\\?\UNC\)" + canonical.mid(2) : R"(\\?\)" + canonical;
+            return std::filesystem::path(canonical.toStdU16String());
+        };
+        const auto left = extendedPath(first);
+        const auto right = extendedPath(second);
+        if (!left.empty() && !right.empty())
+        {
+            error.clear();
+            equivalent = std::filesystem::equivalent(left, right, error);
+        }
+    }
+#endif
     if (!error)
         return equivalent;
     return QFileInfo(first).absoluteFilePath() == QFileInfo(second).absoluteFilePath();
