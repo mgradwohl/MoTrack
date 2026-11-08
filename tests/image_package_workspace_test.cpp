@@ -110,9 +110,11 @@ TEST(ImagePackageWorkspace, ExportKeepsDirtyStateUndoAndOrdinarySaveDestinations
         const auto document = motrack::importTrackerDocument(projectPath);
         EXPECT_DOUBLE_EQ(document.project.pointMasses.at(0).mass, 5);
         const auto sequence = motrack::ImageSequence::open(projectPath, document.project.clip);
-        ASSERT_TRUE(sequence);
+        if (!sequence)
+            FAIL() << "Exported image sequence could not be reopened.";
         const auto frame = sequence->readStep(0);
-        ASSERT_TRUE(frame);
+        if (!frame)
+            FAIL() << "Exported image sequence has no first frame.";
         EXPECT_EQ(frame->image, QImage(fixture("images/frame0.png")));
         window.findChild<QAction*>("undoEdit")->trigger();
         EXPECT_FALSE(window.isWindowModified());
