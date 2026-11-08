@@ -9,6 +9,7 @@ Failed writes and replaced-document completions do not adopt those runtime bindi
 missing image with an unrecognized suffix retains its known reader; later saves retry image detection
 even when an earlier open could not create a reader. A successful save redraws the current image and
 restores clip controls without moving the playhead; single-image recovery needs no navigation event.
+This redraw preserves AutoTracker timers and pending matches and does not start a duplicate match.
 
 MoTrack saves bounded JSON metadata with `format: "MoTrack"`. The current writer emits version 5;
 the reader accepts versions 1 through 5 and rejects unknown versions. Archive-backed documents use

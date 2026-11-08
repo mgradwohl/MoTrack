@@ -1039,7 +1039,14 @@ void MainWindow::refreshImageMediaLocations()
                 m_StepSlider->setValue(step);
             }
             m_ClipSettings->setEnabled(count > 0);
-            displayStep(m_StepSlider->value());
+            m_Play->setEnabled(m_StepSlider->maximum() > 0);
+            m_StepSlider->setEnabled(m_StepSlider->maximum() > 0);
+            m_Previous->setEnabled(m_StepSlider->value() > 0);
+            m_Next->setEnabled(m_StepSlider->value() < m_StepSlider->maximum());
+            // This is a redraw of the same step, not navigation. Keep pending matches/timers
+            // and do not enqueue a second AutoTracker match for a frame already being processed.
+            if (const auto frame = m_Sequence->readStep(m_StepSlider->value()))
+                displayFrame(*frame, tr("This image frame could not be opened."), false);
         }
     }
 }
@@ -2055,7 +2062,7 @@ void MainWindow::displayStep(int step)
     }
 }
 
-void MainWindow::displayFrame(const ImageFrame& frame, const QString& failureMessage)
+void MainWindow::displayFrame(const ImageFrame& frame, const QString& failureMessage, bool advanceTracking)
 {
     if (!m_DisplayedFrame || m_DisplayedFrame->number != frame.number)
     {
@@ -2098,7 +2105,8 @@ void MainWindow::displayFrame(const ImageFrame& frame, const QString& failureMes
     schedulePlayback();
     updateAutoTrackerAction();
     updatePointMassActions();
-    autoTrackFrame(frame);
+    if (advanceTracking)
+        autoTrackFrame(frame);
 }
 
 void MainWindow::setPlaying(bool playing)
