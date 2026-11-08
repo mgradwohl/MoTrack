@@ -908,7 +908,7 @@ archive opening and linked standard resave, not Tracker's archive-authoring dial
 pixels/timestamps/geometry are required at all three stages. Application acceptance is pending CI.
 
 Native tests already cover preservation of other `.trk` members. This first application fixture has
-one experiment tab; actual multi-tab archive acceptance still belongs to phase 3. New archive
+one experiment tab; the following two-experiment case adds a separate phase-3 application gate. New archive
 packaging, changed media, movie engines, broader ZIP variants and paired-save recovery remain.
 
 The first archive application run (42471529133) loaded all independent media/geometry correctly,
@@ -922,3 +922,40 @@ for both image fixtures. Headless tests prove moving a handle does not change se
 while custom grid settings remain observable. Corruption tests reject changed calibration/grid state
 even when it agrees at all three stages. No media pixel, timing, measurement, world-coordinate or
 untouched XML assertion is relaxed. Current-revision application acceptance is still required.
+
+
+### Multiple experiments in one image archive (application acceptance pending)
+
+`LinkedImagesFixture` accepts an optional `secondary` mode. It writes the same independently known
+four frames and calibration with a distinct track, `other image mass`, of 3.5 kg. Both modes were
+regenerated and compared byte-for-byte with the pinned XML and PNG files. The secondary native
+snapshot uses the same independently calculated positions/times and explicitly changes only the
+name and mass; it is not copied from a Tracker session result.
+
+`ArchiveImagesFixture` accepts an optional third argument naming that secondary XML. It adds
+`second.trk` beside `experiment.trk`, preserving the original four shared images and supporting
+members. The original two-argument mode still produces the exact single-tab fixture. The new
+`linked-images/multitab-images.trz` is 8968 bytes, SHA-256
+`a90aca9879a79265077e041f44f9b457159faa5d79eebc6362f2efe5130eb247`, identical when generated
+under UTC, America/Los_Angeles and Pacific/Kiritimati.
+
+The manifest declares each member and its independent source/expectation. The reference accepts
+2–8 explicitly named root-level `.trk` members; duplicate, escaping, unknown, nested-archive or
+known-defect expectations are rejected. Before any application run, every archived project must
+match its separately pinned source. The Java application opens the actual `.trz` once and must
+load exactly the named tabs from that archive. It selects each loaded tab, waits for its normal
+readiness, saves it through TrackerIO, and reports its content before and after save. Each saved
+`.trk` then reopens in a separate JVM with a separate private home. All experiments must preserve
+independent pixels, timing, geometry, calibration, axes settings and track identities at every stage.
+Missing/duplicate reports and consistently wrong measurements in the untouched second experiment
+fail the Python oracle. Failed loader runs clean up their private homes and outputs.
+
+The native variant edits only `experiment.trk` (mass 5 kg and frame-1 mark at image (8,12),
+world (3,2)), including undo/redo and native save/reopen after removing the original archive copy.
+The independent ZIP/XML oracle requires the complete `second.trk`, supporting files and compressed
+media records to remain unchanged. Actual Tracker must then load both experiments, resave each,
+reopen each in a fresh process, and pass native reimport comparisons. Local native, headless API
+and negative-oracle checks pass; actual multi-tab application acceptance remains a Linux CI gate.
+This does not implement MoTrack workspace tabs, new archive packaging, movie media or Tracker's
+archive-authoring dialog. It does not reproduce or resolve the historical MOV/Open Recent report
+linked from MoTrack #65.

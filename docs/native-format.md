@@ -466,3 +466,13 @@ failure/cancellation. The corpus independently checks edited XML, every untouche
 record and central metadata. Actual Tracker `.trz` loading, resave and fresh-process reopen with
 pixel/time/geometry expectations are pending CI; multi-tab application acceptance, new-archive
 packaging, broader ZIP/media support and paired-save recovery remain unfinished.
+
+
+The additional two-experiment corpus case verifies that selected-member editing does not damage a
+second experiment sharing the same images. Its independent archive/XML oracle preserves that
+experiment byte-for-byte. The reference opens the actual archive once, matches loaded tabs to the
+explicit member inventory, saves every tab through Tracker, and reopens each saved standard file
+in its own process. Each tab has separate scientific/media expectations, including a different mass
+and track name. Manifest validation and negative oracles reject omitted/duplicate tabs and matching
+but incorrect results across save/reopen. This application gate is pending Linux CI; it does not
+provide native multi-tab workspace editing or expand the supported archive/media schema.

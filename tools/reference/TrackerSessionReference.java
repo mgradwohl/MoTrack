@@ -100,15 +100,15 @@ public final class TrackerSessionReference {
                         return;
                     }
                     whenEvaluated(onlyPanel(originalFrame), attachmentRequirements, modelRequirements, () -> {
-                    TrackerPanel panel = onlyPanel(originalFrame);
-                    Map<String, Object> before = snapshot(panel);
-                    if (save && (TrackerIO.save(saved.toFile(), panel) == null || !Files.isRegularFile(saved) || saved.toFile().length() == 0))
-                        throw new IllegalStateException("Tracker did not save the loaded session");
-                    REPORT.set(TrackerReference.map("reference_version", OSPRuntime.VERSION,
-                        "verification_level", "tracker_session_" + args[2],
-                        "view_preparation", "expand_visit_custom_tables_restore_selection", "loaded", before,
-                        "after_save", save ? snapshot(panel) : null));
-                    DONE.countDown();
+                        TrackerPanel panel = onlyPanel(originalFrame);
+                        Map<String, Object> before = snapshot(panel);
+                        if (save && (TrackerIO.save(saved.toFile(), panel) == null || !Files.isRegularFile(saved) || saved.toFile().length() == 0))
+                            throw new IllegalStateException("Tracker did not save the loaded session");
+                        REPORT.set(TrackerReference.map("reference_version", OSPRuntime.VERSION,
+                            "verification_level", "tracker_session_" + args[2],
+                            "view_preparation", "expand_visit_custom_tables_restore_selection", "loaded", before,
+                            "after_save", save ? snapshot(panel) : null));
+                        DONE.countDown();
                     });
                 }));
                 // Pinned AsyncLoader can reach doneLoading from both checkDone and doneAsync.

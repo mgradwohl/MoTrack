@@ -1722,7 +1722,8 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
         return report
 
     saved = execute(source, output, "save-tabs", [metadata / member for member in members])
-    if not isinstance(saved.get("tabs"), list) or [tab.get("member") for tab in saved["tabs"]] != members:
+    if (not isinstance(saved.get("tabs"), list) or any(not isinstance(tab, dict) for tab in saved["tabs"])
+            or [tab.get("member") for tab in saved["tabs"]] != members):
         raise ValueError("Tracker did not report each archive experiment exactly once")
     reports = []
     for i, (member, template, desired, before) in enumerate(zip(members, templates, expected, saved["tabs"])):

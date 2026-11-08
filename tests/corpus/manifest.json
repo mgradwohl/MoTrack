@@ -23,8 +23,8 @@
       "tracker_version": "6.3.5",
       "file": "multitab-images.trz",
       "local_file": "fixtures/linked-images/multitab-images.trz",
-      "sha256": "6300452e7b1d3af4cae41c09aba849b386847fcb0a333d4278575555f1ec6494",
-      "bytes": 9120,
+      "sha256": "a90aca9879a79265077e041f44f9b457159faa5d79eebc6362f2efe5130eb247",
+      "bytes": 8968,
       "expected": "expected/linked-images.json",
       "provenance": "ArchiveImagesFixture packages two independently authored Tracker experiments, the four original PNGs and opaque supporting members. Two JDK 17 generations are byte-identical.",
       "session_tracks": [
