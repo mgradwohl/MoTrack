@@ -266,7 +266,10 @@ name could otherwise become a new dependency merely by adding a track. New names
 New objects explicitly start visible, with trails, unlocked, a red Diamond footprint, mass and manual
 marks. These are documented interchange defaults until native per-track appearance is implemented;
 no unknown original track style is cloned. Sparse new marks retain original frame numbers, bounded at
-500000 and one million aggregate dense frame slots across new masses. The native source XML stays
+500000 and one million aggregate dense frame slots across new masses. The source schema audit permits
+the same frame range specifically for point-mass `framedata`, so later creation after standard reimport
+does not impose a smaller index limit. Generic array indices, aggregate entry counts and nesting limits
+remain bounded separately. The native source XML stays
 unchanged. Deleting referenced tracks, dependent creation, media-backed creation, desktop
 standard saving and paired-output transactions remain separate work. The corpus has independent empty
 and marked creation cases, including actual Tracker appearance, keys and scientific coordinates.
@@ -277,8 +280,10 @@ only independent vectors and coordinate axes. Empty and sparse/zero-vector cases
 application oracles. All existing snapping, endpoint reconstruction, calibrated-coordinate and dense
 allocation checks still apply, including other frames' visible tips. Adding an empty vector does not
 authorize dropping referenced tracks, changing dependent links or weakening the measured-vector guards.
+The source audit also admits the writer's original-frame index range for vector `framedata`; a native
+regression exports and reimports a mark at frame 10000, then creates and exports another vector. Other
+array indices and aggregate schema/allocation limits remain unchanged.
 Membership comparisons use sorted IDs; surviving source-order IDs are remapped explicitly before final reparse.
-
 
 Unreferenced original point masses and independent vectors may also be removed from an audited source.
 The source envelope and its original bindings remain intact in `.motrack`; each export removes only

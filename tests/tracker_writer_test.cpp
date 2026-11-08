@@ -496,6 +496,35 @@ TEST(TrackerWriter, BoundsNewMassDenseArraysAndSupportsCreationWithExistingRenam
     EXPECT_EQ(readBytes(destination), namedSource());
 }
 
+TEST(TrackerWriter, CreatesAnotherMassAfterStandardReimportWithHighOriginalFrames)
+{
+    for (const int frame : {10000, 500000})
+    {
+        SCOPED_TRACE(frame);
+        auto imported = motrack::parseTrackerProject(namedSource());
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.createPointMass(imported.project, "high frame"));
+        ASSERT_TRUE(edits.markPointMass(imported.project, 2, {.frame = frame, .x = 2, .y = 3}));
+        imported = motrack::parseTrackerProject(motrack::renderTrackerProject(imported.project, imported.source));
+        motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+        QTemporaryDir temporary;
+        const auto native = temporary.filePath("high-frame.motrack");
+        motrack::writeWorkspaceDocument(native, document);
+        document = motrack::readWorkspaceDocument(native);
+        if (!document.trackerSource)
+        {
+            FAIL() << "Native reopen lost the reimported source.";
+        }
+        edits.clear();
+        ASSERT_TRUE(edits.createPointMass(document.project, "next mass"));
+        const auto result = motrack::parseTrackerProject(motrack::renderTrackerProject(document.project, *document.trackerSource));
+        ASSERT_EQ(result.project.pointMasses.size(), 4);
+        EXPECT_EQ(result.project.pointMasses[2].marks, imported.project.pointMasses[2].marks);
+        EXPECT_EQ(result.project.pointMasses[3].name, "next mass");
+        EXPECT_EQ(motrack::renderTrackerProject(result.project, result.source), result.source.xml);
+    }
+}
+
 TEST(TrackerWriter, CreatedMassRejectsCoordinateCancellationWithoutChangingCalibrationOrDestination)
 {
     const auto xml =
@@ -1594,6 +1623,32 @@ TEST(TrackerWriter, CreatesEmptyAndMarkedVectorsAfterNativeReopenWithoutDuplicat
         EXPECT_EQ(motrack::renderTrackerProject(output.project, output.source), bytes);
         EXPECT_EQ(bytes.find("keyFrames"), std::string::npos);
     }
+}
+
+TEST(TrackerWriter, CreatesAnotherVectorAfterStandardReimportWithHighOriginalFrames)
+{
+    auto imported =
+        motrack::parseTrackerProject(readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk"));
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.createVector(imported.project, "high frame"));
+    ASSERT_TRUE(edits.markVector(imported.project, 2, {.frame = 10000, .tailX = 100, .tailY = 120, .componentX = 4, .componentY = -8}));
+    imported = motrack::parseTrackerProject(motrack::renderTrackerProject(imported.project, imported.source));
+    motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+    QTemporaryDir temporary;
+    const auto native = temporary.filePath("high-frame.motrack");
+    motrack::writeWorkspaceDocument(native, document);
+    document = motrack::readWorkspaceDocument(native);
+    if (!document.trackerSource)
+    {
+        FAIL() << "Native reopen lost the reimported vector source.";
+    }
+    edits.clear();
+    ASSERT_TRUE(edits.createVector(document.project, "next vector"));
+    const auto result = motrack::parseTrackerProject(motrack::renderTrackerProject(document.project, *document.trackerSource));
+    ASSERT_EQ(result.project.vectors.size(), 4);
+    EXPECT_EQ(result.project.vectors[2].samples, imported.project.vectors[2].samples);
+    EXPECT_EQ(result.project.vectors[3].name, "next vector");
+    EXPECT_EQ(motrack::renderTrackerProject(result.project, result.source), result.source.xml);
 }
 
 TEST(TrackerWriter, CreatedVectorsRetainSnappingPrecisionAndAllocationGuardsAtomically)
