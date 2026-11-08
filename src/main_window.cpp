@@ -76,19 +76,26 @@ bool isLinkedImageDocument(const WorkspaceDocument& document)
 
 // Dialogs may lose their parent inside the nested event loop. Qt owns these heap children;
 // guarded cleanup also finishes before the caller starts another dialog or a worker.
+// Synchronous destroyed signals guard the GUI-thread borrows; the local context disconnects
+// before either flag leaves scope. This avoids nested weak-control-block cleanup on the dead-parent path.
 std::optional<QString>
 chooseSaveFile(QWidget* parent, const QString& title, const QString& initial, const QString& filter, const QString& suffix)
 {
-    const QPointer<QWidget> owner(parent);
-    QPointer<QFileDialog> dialog(new QFileDialog(parent, title, initial, filter));
+    bool ownerAlive = true;
+    bool dialogAlive = true;
+    QObject lifetime;
+    QObject::connect(parent, &QObject::destroyed, &lifetime, [&ownerAlive] { ownerAlive = false; });
+    auto* dialog = new QFileDialog(parent, title, initial, filter);
+    QObject::connect(dialog, &QObject::destroyed, &lifetime, [&dialogAlive] { dialogAlive = false; });
     dialog->setAcceptMode(QFileDialog::AcceptSave);
     dialog->setDefaultSuffix(suffix);
     const auto result = dialog->exec();
     std::optional<QString> path;
-    if (dialog && result == QDialog::Accepted)
+    if (ownerAlive && dialogAlive && result == QDialog::Accepted)
         path = dialog->selectedFiles().value(0);
-    delete dialog.data();
-    return owner ? path : std::nullopt;
+    if (dialogAlive)
+        delete dialog;
+    return ownerAlive ? path : std::nullopt;
 }
 
 QMessageBox::StandardButton askSaveQuestion(QWidget* parent,
@@ -97,13 +104,18 @@ QMessageBox::StandardButton askSaveQuestion(QWidget* parent,
                                             QMessageBox::StandardButtons buttons,
                                             QMessageBox::StandardButton defaultButton)
 {
-    const QPointer<QWidget> owner(parent);
-    QPointer<QMessageBox> dialog(new QMessageBox(QMessageBox::Question, title, text, buttons, parent));
+    bool ownerAlive = true;
+    bool dialogAlive = true;
+    QObject lifetime;
+    QObject::connect(parent, &QObject::destroyed, &lifetime, [&ownerAlive] { ownerAlive = false; });
+    auto* dialog = new QMessageBox(QMessageBox::Question, title, text, buttons, parent);
+    QObject::connect(dialog, &QObject::destroyed, &lifetime, [&dialogAlive] { dialogAlive = false; });
     dialog->setDefaultButton(defaultButton);
     static_cast<void>(dialog->exec());
-    const auto result = dialog ? dialog->standardButton(dialog->clickedButton()) : QMessageBox::Cancel;
-    delete dialog.data();
-    return owner ? result : QMessageBox::Cancel;
+    const auto result = ownerAlive && dialogAlive ? dialog->standardButton(dialog->clickedButton()) : QMessageBox::Cancel;
+    if (dialogAlive)
+        delete dialog;
+    return ownerAlive ? result : QMessageBox::Cancel;
 }
 } // namespace
 

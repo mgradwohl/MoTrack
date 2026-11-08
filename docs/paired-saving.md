@@ -289,3 +289,9 @@ writer or an unresolved journal blocks replacement of that companion, including 
 saving a native copy at another destination remains available. The worker checks the filesystem even
 when this session has not yet observed the journal. Normal paired saving requires explicit recovery
 before that companion can change, preserving its recorded fingerprints and staged recovery data.
+
+The filename and confirmation helpers guard their parent-owned dialog borrows with synchronous
+GUI-thread destruction notifications. A local QObject disconnects those callbacks before their flags
+leave scope. This retains the existing parent-destruction behavior while avoiding a Linux Clang 18
+weak-pointer cleanup diagnostic in the portable-export chooser; the existing destruction regressions
+cover both helpers through native, paired and image-package menu actions.
