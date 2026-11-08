@@ -8,7 +8,7 @@
 
 namespace motrack
 {
-QString localProjectDirectory(const QString& projectPath)
+QString localProjectPath(const QString& projectPath)
 {
     QFileInfo project(projectPath);
     // Match QSaveFile's destination semantics, including a link to a not-yet-created file.
@@ -18,8 +18,17 @@ QString localProjectDirectory(const QString& projectPath)
             return {};
         project.setFile(project.symLinkTarget());
     }
-    const auto existing = project.canonicalFilePath();
-    return existing.isEmpty() ? QFileInfo(project.path()).canonicalFilePath() : QFileInfo(existing).path();
+    auto existing = project.canonicalFilePath();
+    if (!existing.isEmpty())
+        return existing;
+    const auto parent = QFileInfo(project.path()).canonicalFilePath();
+    return parent.isEmpty() ? QString{} : QDir(parent).filePath(project.fileName());
+}
+
+QString localProjectDirectory(const QString& projectPath)
+{
+    const auto physical = localProjectPath(projectPath);
+    return physical.isEmpty() ? QString{} : QFileInfo(physical).path();
 }
 
 QString resolveLocalMediaPath(const QString& projectPath, const std::string& reference)

@@ -6,6 +6,9 @@
 
 namespace motrack
 {
+/// Physical save destination, including a file alias whose target does not exist yet.
+/// Returns empty for cyclic aliases or missing parent directories.
+[[nodiscard]] QString localProjectPath(const QString& projectPath);
 /// Physical parent of an existing project, or its existing parent when the project has not been saved yet.
 /// Resolves directory/file aliases before relative media paths are interpreted. Missing parents return empty.
 [[nodiscard]] QString localProjectDirectory(const QString& projectPath);
