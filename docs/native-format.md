@@ -595,6 +595,9 @@ fields must remain unchanged. Filters, vectors, other track types except axes, d
 transforms and archived movies remain refused. This opt-in schema does not enable movie renames or
 membership edits through the media-free writer.
 
+Default point-mass number formats use the same movie-aware schema audit and remain in the exported
+XML after native reopen. Custom formats remain refused under the existing #64 fidelity guard.
+
 A completed native timestamp index must start at zero and agree with the preserved positive Tracker
 frame interval within one microsecond for every decoded frame, up to the existing two-million-frame
 index limit. Clip endpoints and marks must fit that index. The native runtime frame bound must match
@@ -612,5 +615,8 @@ Local tests edit, undo/redo, native save/reopen, remove the original project/dir
 export, reimport and edit again. The desktop test uses the real background indexer and paired save,
 then reopens the native companion and saves another mass edit. The corpus probe also uses the real
 native decoder; independent XML and movie-byte oracles allow only the requested mass, mark and path.
-Actual Tracker edited-file load/save/fresh reopen and native reimport remain required in Linux CI.
-This is an implementation awaiting that acceptance, not full movie interchange or resolution of #65.
+The edited linked-movie case passed actual Tracker load/save/fresh reopen and native reimport at
+`b9ca22d593f961a5a1e0b996d1a573f00f34a04d`, Linux job 128866258456 in
+[run 42524910795](https://github.com/mgradwohl/MoTrack/actions/runs/42524910795), with all six CI checks
+green and 95.83% combined C++ coverage. Subsequent format/review fixes require their own current-head
+CI; this scoped acceptance does not establish full movie interchange or resolve #65.

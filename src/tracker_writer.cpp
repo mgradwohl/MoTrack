@@ -568,7 +568,7 @@ void requireBoundedMassFrames(const QDomDocument& xml)
     }
 }
 
-void requireStableTableColumns(const QDomDocument& xml, const LegacyProject& project)
+void requireStableTableColumns(const QDomDocument& xml, const LegacyProject& project, bool movie)
 {
     std::unordered_set<std::string> massNames;
     for (const auto& mass : project.pointMasses)
@@ -582,7 +582,10 @@ void requireStableTableColumns(const QDomDocument& xml, const LegacyProject& pro
         {
             // This newly supported metadata requires the audited format grammar even for a
             // mass-only edit, which otherwise permits opaque source content to pass through.
-            validateTrackerEditSchema(xml);
+            if (movie)
+                validateTrackerMovieEditSchema(xml);
+            else
+                validateTrackerEditSchema(xml);
             break;
         }
     }
@@ -1278,7 +1281,7 @@ std::string renderTrackerProjectImpl(const LegacyProject& project,
     {
         return source.xml;
     }
-    requireStableTableColumns(xml, expected);
+    requireStableTableColumns(xml, expected, media == LinkedMedia::Movie);
     // Pinned Tracker 6.3.5 never initializes saved VectorSum members and loses their names on resave.
     // Do not let clearing all independent samples bypass the nonempty-vector safeguards below.
     require(std::ranges::find(expected.unsupportedTrackTypes, "org.opensourcephysics.cabrillo.tracker.VectorSum") ==

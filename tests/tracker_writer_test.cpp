@@ -126,6 +126,62 @@ TEST(TrackerWriter, SavesLinkedMovieEditsAfterNativeReopenSourceRemovalAndReloca
     EXPECT_NO_THROW(motrack::writeTrackerDocument(output, reopened, output));
 }
 
+TEST(TrackerWriter, SavesMovieDefaultNumberFormatsAndRejectsCustomFormatsAfterNativeReopen)
+{
+    for (const bool custom : {false, true})
+    {
+        SCOPED_TRACE(custom);
+        QTemporaryDir temporary;
+        const auto source = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-movie/linked-movie.trk";
+        auto document = indexedMovieDocument(source);
+        const std::string token = "<object class=\"org.opensourcephysics.cabrillo.tracker.PointMass\">";
+        auto& xml = retainedSource(document).xml;
+        const auto at = xml.find(token);
+        ASSERT_NE(at, std::string::npos);
+        const auto formats =
+            QString("<property name='number_formats' type='array' class='[Ljava.lang.String;'>"
+                    "<property name='[0]' type='string'>frame</property><property name='[1]' type='string'>0</property>"
+                    "<property name='[2]' type='string'>t</property><property name='[3]' type='string'>%1</property></property>")
+                .arg(custom ? "0.0000" : "0.000");
+        xml.insert(at + token.size(), formats.toStdString());
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.setPointMassValue(document.project, 0, 5.0));
+        const auto native = temporary.filePath("saved.motrack");
+        motrack::rebaseWorkspaceMedia(document, source, native);
+        motrack::writeWorkspaceDocument(native, document);
+        document = motrack::readWorkspaceDocument(native);
+        const auto output = temporary.filePath("saved.trk");
+        {
+            QFile file(output);
+            ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+            ASSERT_EQ(file.write("existing"), 8);
+        }
+        if (custom)
+        {
+            EXPECT_THROW(motrack::writeTrackerDocument(output, document, native), motrack::ProjectError);
+            EXPECT_EQ(readBytes(output), "existing");
+        }
+        else
+        {
+            ASSERT_NO_THROW(motrack::writeTrackerDocument(output, document, native));
+            const auto saved = readBytes(output);
+            EXPECT_DOUBLE_EQ(motrack::parseLegacyProject(saved).pointMasses.front().mass, 5.0);
+            QDomDocument parsed;
+            ASSERT_TRUE(parsed.setContent(QByteArray::fromStdString(saved)));
+            const auto properties = parsed.elementsByTagName("property");
+            QDomElement retained;
+            for (int index = 0; index < properties.size(); ++index)
+                if (properties.at(index).toElement().attribute("name") == "number_formats")
+                    retained = properties.at(index).toElement();
+            ASSERT_FALSE(retained.isNull());
+            EXPECT_EQ(retained.firstChildElement().text(), "frame");
+            EXPECT_EQ(retained.firstChildElement().nextSiblingElement().text(), "0");
+            EXPECT_EQ(retained.lastChildElement().previousSiblingElement().text(), "t");
+            EXPECT_EQ(retained.lastChildElement().text(), "0.000");
+        }
+    }
+}
+
 TEST(TrackerWriter, RejectsUnsupportedMovieStateBeforeReplacingExistingOutput)
 {
     QTemporaryDir temporary;

@@ -1062,8 +1062,11 @@ is world (3,2); original marks, calibration, units, timing, selected track and a
 A full-XML oracle permits only the requested path, mass and mark/key changes, and SHA-256 verifies the
 unchanged movie. Negative tests alter mass, position, timing, calibration, path and movie bytes.
 
-The local native export/oracle/reimport and desktop paired-movie save tests pass. Linux CI must load
-the edited export in actual Tracker, compare all independent geometry/media/time expectations, save,
-reopen in a fresh private JVM and reimport the resave in MoTrack. That edited application acceptance
-is pending; the earlier unedited baseline is not a substitute. This case leaves MoTrack #65 open:
-it does not establish historical MOV/Open Recent reproduction or complete movie/view compatibility.
+The local native export/oracle/reimport and desktop paired-movie save tests pass. Linux CI loads
+the edited export in actual Tracker, compares all independent geometry/media/time expectations, saves,
+reopens in a fresh private JVM and reimports the resave in MoTrack. This edited application case passed
+at `b9ca22d593f961a5a1e0b996d1a573f00f34a04d`, Linux job 128866258456 in
+[run 42524910795](https://github.com/mgradwohl/MoTrack/actions/runs/42524910795), with all six required
+checks green and 95.83% combined C++ coverage. Later revisions still require current-head CI/review.
+This case leaves MoTrack #65 open: it does not establish historical MOV/Open Recent reproduction or
+complete movie/view compatibility.

@@ -72,7 +72,8 @@ conflict. Recovery never marks newer edits saved without writing them to both fi
 
 This workflow currently covers audited media-free and local-image experiments, plus selected-member
 updates to existing image archives. The first linked-movie writer supports mass and mark edits in
-audited constant-rate imports after timestamp indexing; its edited-file Tracker acceptance is pending.
+audited constant-rate imports after timestamp indexing; its edited-file Tracker save/reopen acceptance
+has passed for the pinned four-frame AVI case. Later revisions still require their own CI and review.
 Movie timing/calibration/track-identity edits, movie packaging, filters and broader settings remain unfinished. An unsupported export is refused; save a MoTrack copy to retain work.
 The [format guide](docs/native-format.md) records the exact supported edits and compatibility evidence.
 
