@@ -648,3 +648,27 @@ invalid timing, temporary Java frame-count overflow even on timing-only edits, a
 overflow or collapse in milliseconds/seconds. Playback rate, current
 frame, looping state and unrelated content are preserved. Video timing/stretching, VFR, a timing UI
 and the locale-specific time-zero action in #67 remain unfinished.
+
+## Creating point masses
+
+The `create-mass` and `create-empty-mass` modes append `nouvelle β & <C>` to the pinned protractor
+experiment with mass 3. The marked case uses original frames 1/4/8, image positions (330,220),
+(340,210), (360,230), and independently calculated world positions (10,20), (20,30), (40,10).
+Original tracks, views, names, units and calibration stay unchanged. The new mass starts visible,
+with trails, unlocked, a red Diamond footprint. These explicit interchange defaults avoid Tracker's
+missing `visible` field loading as false; pinned `TTrack.Loader` and `PointMass.Loader` bytecode were
+inspected. Empty tracks have no frame/key arrays; marked tracks have manual keys 1/4/8.
+
+The native probe exercises creation/undo, allocation gaps, mass/mark changes, remove/undo, reorder,
+native save/reopen and source-copy removal. The complete XML comparison allows only the appended
+object. Application snapshots now include track appearance, and independent expectations require
+the new mass, keys, coordinates and appearance through Tracker save and fresh-process reopen.
+Both exported and Java-resaved files are reimported natively. No baseline or fixture bytes changed.
+Negative tests reject consistent wrong mass/name/keys/appearance, altered old content, duplicate new
+objects, unsafe names, dangling original references, unsupported schemas/deletions and excessive
+dense frame allocation. Linux actual-application acceptance is required before merging this slice.
+
+The historical [Tracker #10 save/load report](https://github.com/OpenSourcePhysics/tracker/issues/10)
+and its discussion were refreshed. [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65) remains
+open: these media-free creation cases do not reproduce or resolve the reported MOV/open-entry-point
+failure, media relocation, or all saved table behavior.

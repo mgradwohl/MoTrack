@@ -802,6 +802,7 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
     require(project.clip.mediaReferences.empty()); // Relocation/packaging is not implemented by this initial writer.
     validateTrackerSource(source, project);
     auto baseline = parseTrackerProject(source.xml);
+    auto nextParsedId = baseline.project.nextTrackId;
     if (!source.bindings || !baseline.source.bindings)
     {
         throw ProjectError("Tracker export requires original object associations.");
@@ -819,12 +820,13 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
     remapIds(baseline.project, mapping, project.nextTrackId);
     auto expected = project;
     sortTracks(expected);
-    require(expected.pointMasses.size() == baseline.project.pointMasses.size());
     require(expected.vectors.size() == baseline.project.vectors.size());
+    for (const auto& original : baseline.project.pointMasses)
+        require(std::ranges::find(expected.pointMasses, original.id, &PointMass::id) != expected.pointMasses.end());
 
     QDomDocument xml;
     require(static_cast<bool>(xml.setContent(QByteArray::fromStdString(source.xml), QDomDocument::ParseOption::PreserveSpacingOnlyNodes)));
-    const auto tracks = uniqueProperty(xml.documentElement(), "tracks");
+    auto tracks = uniqueProperty(xml.documentElement(), "tracks");
     std::unordered_map<TrackId, QDomElement> objects;
     std::size_t position = 0;
     for (auto item = tracks.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"), ++position)
@@ -834,7 +836,76 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
             objects.emplace(found->second, item.firstChildElement("object"));
         }
     }
-    bool changed = patchTrackerNames(xml, expected, baseline.project, source);
+    bool changed = false;
+    if (expected.pointMasses.size() != baseline.project.pointMasses.size())
+    {
+        validateTrackerTrackCreation(xml, expected, source);
+        require(tracks.attribute("type") == "collection" && tracks.attribute("class") == "java.util.ArrayList");
+        // OSP reads consecutive property lines. Normalize only collection whitespace, never old objects.
+        for (auto node = tracks.firstChild(); !node.isNull();)
+        {
+            const auto next = node.nextSibling();
+            if (node.isText())
+            {
+                require(node.nodeValue().trimmed().isEmpty());
+                tracks.removeChild(node);
+            }
+            else
+                require(node.isElement() && node.nodeName() == "property");
+            node = next;
+        }
+        std::size_t createdFrameSlots = 0;
+        for (const auto& current : expected.pointMasses)
+        {
+            if (objects.contains(current.id))
+                continue;
+            // New native tracks have no source metadata to copy. Use the audited independent-mass defaults.
+            require(std::ranges::all_of(current.marks, [](const auto& mark) { return mark.frame >= 0 && mark.frame <= 500000; }));
+            if (!current.marks.empty())
+            {
+                const auto last = std::ranges::max(current.marks, {}, &Mark::frame).frame;
+                createdFrameSlots += static_cast<std::size_t>(last) + 1;
+                require(createdFrameSlots <= 1000000);
+            }
+            auto item = xml.createElement("property");
+            item.setAttribute("name", "item");
+            item.setAttribute("type", "object");
+            auto object = xml.createElement("object");
+            object.setAttribute("class", "org.opensourcephysics.cabrillo.tracker.PointMass");
+            patchScalar(xml, object, "name", "string", QString::fromStdString(current.name));
+            patchDouble(xml, object, "mass", 1.0);
+            patchScalar(xml, object, "visible", "boolean", "true");
+            patchScalar(xml, object, "trail", "boolean", "true");
+            patchScalar(xml, object, "locked", "boolean", "false");
+            patchScalar(xml, object, "footprint", "string", "Footprint.Diamond");
+            auto colorProperty = xml.createElement("property");
+            colorProperty.setAttribute("name", "color");
+            colorProperty.setAttribute("type", "object");
+            auto color = xml.createElement("object");
+            color.setAttribute("class", "java.awt.Color");
+            for (const auto& [channel, value] :
+                 std::array<std::pair<const char*, int>, 4>{{{"red", 255}, {"green", 0}, {"blue", 0}, {"alpha", 255}}})
+                patchScalar(xml, color, channel, "int", QString::number(value));
+            colorProperty.appendChild(xml.createTextNode("\n"));
+            colorProperty.appendChild(color);
+            colorProperty.appendChild(xml.createTextNode("\n"));
+            object.appendChild(colorProperty);
+            object.appendChild(xml.createTextNode("\n"));
+            item.appendChild(xml.createTextNode("\n"));
+            item.appendChild(object);
+            item.appendChild(xml.createTextNode("\n"));
+            tracks.appendChild(item);
+            objects.emplace(current.id, object);
+            mapping.emplace(nextParsedId++, current.id);
+            baseline.project.pointMasses.push_back({.name = current.name, .marks = {}, .id = current.id});
+        }
+        for (auto item = tracks.firstChildElement(); !item.isNull(); item = item.nextSiblingElement())
+            tracks.insertBefore(xml.createTextNode("\n"), item);
+        tracks.appendChild(xml.createTextNode("\n"));
+        sortTracks(baseline.project);
+        changed = true;
+    }
+    changed = patchTrackerNames(xml, expected, baseline.project, source) || changed;
     if (expected.calibration != baseline.project.calibration)
     {
         if (!expected.calibration || !baseline.project.calibration)

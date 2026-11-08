@@ -293,6 +293,9 @@ def validate_session(case, report, manifest, expected=None, key_frames=None, cal
         compare(case["session_time_samples"], before.get("time_samples"), tolerance, case["id"] + ".time_samples")
     if "session_frame_duration_ms" in case:
         compare(case["session_frame_duration_ms"], before.get("frame_duration_ms"), tolerance, case["id"] + ".frame_duration_ms")
+    if "session_created_mass_appearance" in case:
+        compare(case["session_created_mass_appearance"], before["tracks"][-1].get("appearance"),
+                tolerance, case["id"] + ".created_mass_appearance")
     for key in ["clip", "coordinate_samples"]:
         compare(expected[key], before[key], tolerance, case["id"] + "." + key)
     masses = []
@@ -512,6 +515,57 @@ def verify_time_unit_export_xml(original, exported):
     actual.unlink()
     if not matches:
         raise ValueError("Standard export changed content beyond the requested time unit")
+
+
+CREATED_MASS_NAME = "nouvelle β & <C>"
+CREATED_MASS_APPEARANCE = {"visible": True, "trail": True, "locked": False, "footprint": "Footprint.Diamond", "argb": -65536}
+
+
+def create_mass_roundtrip_expected(case, empty=False):
+    if case["id"] != "protractor":
+        raise ValueError("The created-mass oracle requires the pinned protractor case")
+    expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
+    # Pinned origin (320, 240), unit scale, y up. Expectations are independent of exported XML.
+    expected["point_masses"].append({"name": CREATED_MASS_NAME, "mass": 3.0, "samples": [] if empty else [
+        {"frame": 1, "image": [330.0, 220.0], "world": [10.0, 20.0]},
+        {"frame": 4, "image": [340.0, 210.0], "world": [20.0, 30.0]},
+        {"frame": 8, "image": [360.0, 230.0], "world": [40.0, 10.0]}]})
+    case = copy.deepcopy(case)
+    case["session_tracks"].append({"class": "org.opensourcephysics.cabrillo.tracker.PointMass", "name": CREATED_MASS_NAME})
+    case["session_created_mass_appearance"] = copy.deepcopy(CREATED_MASS_APPEARANCE)
+    return expected, case
+
+
+def verify_create_mass_export_xml(original, exported, empty=False):
+    expected = minidom.parse(str(original))
+    tracks = [node for node in expected.documentElement.childNodes if node.nodeType == node.ELEMENT_NODE
+              and node.tagName == "property" and node.getAttribute("name") == "tracks"]
+    if len(tracks) != 1:
+        raise ValueError("Expected one original track collection")
+    framedata = ""
+    if not empty:
+        framedata = ('<property name="framedata" type="array" class="[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;">'
+                     + "".join(f'<property name="[{frame}]" type="object"><object class="org.opensourcephysics.cabrillo.tracker.PointMass$FrameData">'
+                               f'<property name="x" type="double">{x}</property><property name="y" type="double">{y}</property>'
+                               '</object></property>' for frame, x, y in [(1, 330, 220), (4, 340, 210), (8, 360, 230)])
+                     + '</property><property name="keyFrames" type="array" class="[I">'
+                       '<property name="array" type="string">{1,4,8}</property></property>')
+    added = minidom.parseString(
+        '<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">'
+        '<property name="name" type="string"><![CDATA[nouvelle β & <C>]]></property><property name="mass" type="double">3</property>'
+        '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
+        '<property name="locked" type="boolean">false</property><property name="footprint" type="string"><![CDATA[Footprint.Diamond]]></property>'
+        '<property name="color" type="object"><object class="java.awt.Color">'
+        '<property name="red" type="int">255</property><property name="green" type="int">0</property>'
+        '<property name="blue" type="int">0</property><property name="alpha" type="int">255</property></object></property>'
+        + framedata + '</object></property>')
+    tracks[0].appendChild(expected.importNode(added.documentElement, True))
+    actual = minidom.parse(str(exported))
+    matches = canonical_tracker_xml(expected) == canonical_tracker_xml(actual)
+    for document in [expected, actual, added]:
+        document.unlink()
+    if not matches:
+        raise ValueError("Standard export changed content beyond the requested new point mass")
 
 
 def mark_roundtrip_expected(case, mode="marks"):
@@ -1142,6 +1196,7 @@ def check_sessions(manifest, cache, java, probe=None):
              ("mixed-calibration", "native_mixed_calibration_roundtrip"),
              ("mass-unit", "native_mass_unit_roundtrip"), ("time-unit", "native_time_unit_roundtrip"),
              ("clip-timing", "native_clip_timing_roundtrip"), ("clip-timing-range", "native_clip_timing_roundtrip"),
+             ("create-mass", "native_create_mass_roundtrip"), ("create-empty-mass", "native_create_mass_roundtrip"),
              ("name", "native_name_roundtrip"), ("unselected-name", "native_name_roundtrip"),
              ("vector-name", "native_vector_name_roundtrip"),
              ("plot-owner-name", "native_plot_name_roundtrip"), ("plot-guest-name", "native_plot_name_roundtrip"),
@@ -1221,6 +1276,10 @@ def check_sessions(manifest, cache, java, probe=None):
                 if mode == "mass":
                     verify_mass_export_xml(project, exported)
                     expected = mass_roundtrip_expected(case)
+                elif mode in {"create-mass", "create-empty-mass"}:
+                    empty = mode == "create-empty-mass"
+                    verify_create_mass_export_xml(project, exported, empty)
+                    expected, case = create_mass_roundtrip_expected(case, empty)
                 elif mode in {"name", "unselected-name", "vector-name", "plot-owner-name", "plot-guest-name", "center-member-name",
                               "attachment-first-name", "attachment-last-name", "model-booster-name"}:
                     verify_rename_export_xml(project, exported, mode)
@@ -1298,6 +1357,8 @@ def check_sessions(manifest, cache, java, probe=None):
                       "before": stages["save"]["loaded"], "after_save": stages["save"]["after_save"],
                       "after": stages["reopen"]["loaded"]}
             keys = {"marks": [[0, 3], [7]], "empty-marks": [[], [0]], "first-mark": [[4], [0]]}.get(mode)
+            if mode in {"create-mass", "create-empty-mass"}:
+                keys = [[0], [0], [] if mode == "create-empty-mass" else [1, 4, 8]]
             calibration = keyed_calibration_expected(mode == "keyed-calibration") if case["id"] == "keyed-calibration" else None
             if "mixed_calibration_flags" in case:
                 calibration = mixed_calibration_expected(case, mode == "mixed-calibration")

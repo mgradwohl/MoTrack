@@ -153,9 +153,9 @@ fails to initialize these member names and loses them on its own resave; see the
 still retain the exact original source. An unchanged standard-file copy remains byte-for-byte and does
 not repair this upstream behavior.
 
-The initial internal standard writer can patch point-mass mass values, mark positions/additions/deletions,
-independent-vector tails/components/additions/deletions, clip start/stride/count, length/mass-unit labels,
-and supported fixed/fully varying coordinate-system keys in media-free projects after a native reopen.
+The internal standard writer can patch point-mass mass values, mark positions/additions/deletions,
+independent-vector tails/components/additions/deletions, clip range/constant timing, length/mass/time-unit labels,
+audited track names, and supported fixed/partly fixed/fully varying coordinate-system keys in media-free projects after a native reopen.
 Clip edits retain all measurements, including frames outside the clip.
 Vector exports reject nonfinite endpoints and components that Tracker's endpoint subtraction would
 change beyond the reference tolerance (absolute `1e-10` image pixels or relative `1e-12`).
@@ -169,8 +169,8 @@ because trails can expose them. This conservative bound avoids silently introduc
 geometry. Full dependent-vector/display semantics must replace these restrictions before full parity.
 It requires known source associations, preserves unknown XML objects/properties and
 normalizes changed output to a matching UTF-8 declaration. Unchanged output is byte-exact. It rejects
-every other changed domain field before opening its atomic replacement file, including name,
-clip timing, time units, unsupported partly fixed/moving calibration and track-membership edits. Range exports require a known `VideoClip` without
+every other changed domain field before opening its atomic replacement file, including unsupported
+moving calibration and track deletions. Range exports require a known `VideoClip` without
 video, frame-shift or saved-video-frame-count properties. They reject missing/invalid counts, endpoints
 beyond Tracker 6.3.5's media-free frame 500000 limit, and overflow in its temporary frame-count arithmetic.
 Media references are rejected until relocation
@@ -219,7 +219,7 @@ bounded at 500000 for OSP's dense arrays. Varying systems also bound the sum of 
 frame range at 1000000, including the clip/marks, because OSP recomputes dense transforms for each key.
 This rejects excessive work before opening a file, without running a stress test. Updates preserve unknown key fields and untouched keys.
 The existing distance/axes commands own these changes with undo/redo and native save/reopen. Removing
-keys, partly fixed systems, varying vector coordinates and moving reference frames remain unsupported;
+keys, changing fixed flags, varying vector coordinates and moving reference frames remain unsupported;
 failed validation leaves an existing destination unchanged.
 
 Length- and mass-unit labels can be exported independently or with other supported edits. The current
@@ -233,8 +233,8 @@ including C1 controls and supplementary digits. Supplementary letters remain val
 String labels use OSP-compatible CDATA because its string reader does not decode XML entities. Edits
 to a source unit containing comments or processing instructions are rejected: OSP requires the CDATA
 terminator immediately before the closing property tag and can hang on an intervening comment.
-The CDATA terminator in a label is also rejected before replacing a destination. Time-unit editing,
-the full units UI and unit defaults remain separate work. The corpus explicitly checks imported labels,
+The CDATA terminator in a label is also rejected before replacing a destination. Time labels follow the
+same rules; the full units UI and unit defaults remain separate work. The corpus explicitly checks imported labels,
 Java's independently recorded default for an omitted label, and labels after Java resave/native reimport.
 
 Constant media-free clip timing can now be edited through history using the existing frame-duration
@@ -243,3 +243,18 @@ the prior optional duration exactly. Standard export requires the audited Steppe
 and finite increasing times at original frames; decoded media timing, model/data time sources and
 desktop timing controls remain separate work. The corpus guide documents the independent negative-origin
 and nonzero-first-frame/stride acceptance cases.
+
+New independent point masses can be appended to an audited media-free source after native save/reopen.
+Original bindings stay unchanged in the native envelope. Each export maps newly allocated IDs to fresh
+source objects, so repeated exports do not duplicate tracks and reordered native lists cannot change
+original relationships. Original bound tracks must remain present. The source must use the audited
+mass/vector/axes/unattached-protractor/view schema with unique names and resolved links; an unresolved
+name could otherwise become a new dependency merely by adding a track. New names obey the rename codec.
+
+New objects explicitly start visible, with trails, unlocked, a red Diamond footprint, mass and manual
+marks. These are documented interchange defaults until native per-track appearance is implemented;
+no unknown original track style is cloned. Sparse new marks retain original frame numbers, bounded at
+500000 and one million aggregate dense frame slots across new masses. The native source XML stays
+unchanged. New vectors, deleting original tracks, dependent creation, media-backed creation, desktop
+standard saving and paired-output transactions remain separate work. The corpus has independent empty
+and marked creation cases, including actual Tracker appearance, keys and scientific coordinates.

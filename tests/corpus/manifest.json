@@ -72,6 +72,7 @@
       "native_mass_unit_roundtrip": true,
       "native_time_unit_roundtrip": true,
       "native_clip_timing_roundtrip": true,
+      "native_create_mass_roundtrip": true,
       "native_mark_roundtrip": true,
       "session_names": {
         "selected_track": "mass B",

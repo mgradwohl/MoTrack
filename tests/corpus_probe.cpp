@@ -14,6 +14,8 @@
 #include <QStringList>
 #include <QTemporaryDir>
 
+#include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <exception>
@@ -159,7 +161,7 @@ try
          args[1] == "--export-unselected-name" || args[1] == "--export-vector-name" || args[1] == "--export-plot-owner-name" ||
          args[1] == "--export-plot-guest-name" || args[1] == "--export-center-member-name" || args[1] == "--export-attachment-first-name" ||
          args[1] == "--export-attachment-last-name" || args[1] == "--export-model-booster-name" || args[1] == "--export-clip-timing" ||
-         args[1] == "--export-clip-timing-range"))
+         args[1] == "--export-clip-timing-range" || args[1] == "--export-create-mass" || args[1] == "--export-create-empty-mass"))
     {
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trk");
@@ -170,7 +172,24 @@ try
         }
         auto document = motrack::importTrackerDocument(source);
         motrack::TrackEdits edits;
-        if (args[1] == "--export-model-booster-name")
+        if (args[1] == "--export-create-mass" || args[1] == "--export-create-empty-mass")
+        {
+            const auto name = QString::fromUtf8("nouvelle β & <C>").toStdString();
+            if (document.project.pointMasses.size() != 2 || !edits.createPointMass(document.project, "discarded") ||
+                !edits.undo(document.project) || !edits.createPointMass(document.project, name) ||
+                !edits.setPointMassValue(document.project, 2, 3))
+                throw motrack::ProjectError("Could not create the round-trip point mass.");
+            if (args[1] == "--export-create-mass")
+                for (const auto& mark : std::array<motrack::Mark, 3>{
+                         {{.frame = 1, .x = 330, .y = 220}, {.frame = 4, .x = 340, .y = 210}, {.frame = 8, .x = 360, .y = 230}}})
+                    if (!edits.markPointMass(document.project, 2, mark))
+                        throw motrack::ProjectError("Could not mark the new round-trip point mass.");
+            if (!edits.undo(document.project) || !edits.redo(document.project) || !edits.removePointMass(document.project, 2) ||
+                !edits.undo(document.project))
+                throw motrack::ProjectError("Could not restore the new round-trip point mass.");
+            std::ranges::reverse(document.project.pointMasses);
+        }
+        else if (args[1] == "--export-model-booster-name")
         {
             const auto name = QString::fromUtf8("élève β & <B>").toStdString();
             if (document.project.pointMasses.size() != 1 || !edits.renamePointMass(document.project, 0, "temporary rename") ||

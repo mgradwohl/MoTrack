@@ -201,6 +201,145 @@ std::string namedSource(const std::string& extra = "")
            extra + "</object>\n";
 }
 
+TEST(TrackerWriter, CreatesMarkedAndEmptyMassesAfterNativeReopenWithStableHistoryAndRepeatedExport)
+{
+    const auto imported = motrack::parseTrackerProject(namedSource());
+    motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.createPointMass(document.project, "discarded"));
+    ASSERT_TRUE(edits.undo(document.project));
+    const auto name = QString::fromUtf8("nouvelle β & <C>").toStdString();
+    ASSERT_TRUE(edits.createPointMass(document.project, name));
+    const auto id = document.project.pointMasses.back().id;
+    ASSERT_TRUE(edits.setPointMassValue(document.project, 2, 3));
+    ASSERT_TRUE(edits.markPointMass(document.project, 2, {.frame = 1, .x = 330, .y = 220}));
+    ASSERT_TRUE(edits.markPointMass(document.project, 2, {.frame = 4, .x = 340, .y = 210}));
+    ASSERT_TRUE(edits.markPointMass(document.project, 2, {.frame = 8, .x = 360, .y = 230}));
+    ASSERT_TRUE(edits.undo(document.project));
+    ASSERT_TRUE(edits.redo(document.project));
+    ASSERT_TRUE(edits.removePointMass(document.project, 2));
+    ASSERT_TRUE(edits.undo(document.project));
+    ASSERT_TRUE(edits.createPointMass(document.project, "empty"));
+    std::ranges::reverse(document.project.pointMasses);
+    QTemporaryDir temporary;
+    const auto native = temporary.filePath("created.motrack");
+    motrack::writeWorkspaceDocument(native, document);
+    document = motrack::readWorkspaceDocument(native);
+    if (!document.trackerSource)
+    {
+        FAIL() << "Native reopen lost the original source.";
+    }
+    const auto first = motrack::renderTrackerProject(document.project, *document.trackerSource);
+    EXPECT_EQ(first, motrack::renderTrackerProject(document.project, *document.trackerSource));
+    EXPECT_EQ(document.trackerSource->xml, imported.source.xml);
+    const auto added = std::ranges::find(document.project.pointMasses, id, &motrack::PointMass::id);
+    ASSERT_NE(added, document.project.pointMasses.end());
+    const auto output = motrack::parseTrackerProject(first);
+    ASSERT_EQ(output.project.pointMasses.size(), 4);
+    EXPECT_EQ(output.project.pointMasses[2].name, name);
+    EXPECT_EQ(output.project.pointMasses[2].mass, 3);
+    EXPECT_EQ(output.project.pointMasses[2].marks, added->marks);
+    EXPECT_EQ(output.project.pointMasses[3].name, "empty");
+    EXPECT_TRUE(output.project.pointMasses[3].marks.empty());
+    EXPECT_EQ(motrack::renderTrackerProject(output.project, output.source), first);
+    const auto references = motrack::indexTrackerReferences(output.source, output.project);
+    const auto originalReferences = motrack::indexTrackerReferences(imported.source, imported.project);
+    ASSERT_EQ(references.references.size(), originalReferences.references.size());
+    for (std::size_t i = 0; i < references.references.size(); ++i)
+    {
+        EXPECT_EQ(references.references[i].originalName, originalReferences.references[i].originalName);
+        EXPECT_EQ(references.references[i].candidateSourceIndices, originalReferences.references[i].candidateSourceIndices);
+        EXPECT_EQ(references.references[i].resolution, originalReferences.references[i].resolution);
+    }
+    ASSERT_TRUE(edits.undo(document.project)); // Identity-bound history survives storage and reordering.
+    EXPECT_EQ(motrack::parseLegacyProject(motrack::renderTrackerProject(document.project, *document.trackerSource)).pointMasses.size(), 3);
+}
+
+TEST(TrackerWriter, RejectsUnsafeCreatedTrackNamesReferencesAndSourceSchemasAtomically)
+{
+    const auto original = namedSource();
+    std::vector<std::string> sources{original};
+    for (const auto& [before, after] : std::vector<std::pair<std::string, std::string>>{
+             {"<property name='selectedtrack' type='string'>mass B", "<property name='selectedtrack' type='string'>new mass"},
+             {"<property name='name' type='string'>mass B", "<property name='name' type='string'>mass A"},
+             {"<property name='name' type='string'>protractor</property>", ""},
+             {"tracker.Protractor", "tracker.Unknown"},
+             {"name='tracks' type='collection' class='java.util.ArrayList'",
+              "name='tracks' type='collection' class='java.util.LinkedList'"},
+             {"</object>\n", "<property name='unknown_link' type='string'>new mass</property></object>\n"},
+             {"<property name='item' type='object'>", "<!-- collection comment --><property name='item' type='object'>"}})
+    {
+        auto xml = original;
+        const auto position = xml.find(before);
+        ASSERT_NE(position, std::string::npos);
+        xml.replace(position, before.size(), after);
+        sources.push_back(std::move(xml));
+    }
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    for (std::size_t i = 0; i < sources.size(); ++i)
+    {
+        SCOPED_TRACE(i);
+        auto imported = motrack::parseTrackerProject(sources[i]);
+        motrack::writeTrackerProject(destination, imported.project, imported.source);
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.createPointMass(imported.project, i == 0 ? "protractor" : "new mass"));
+        EXPECT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(destination), sources[i]);
+    }
+    for (const auto& name : {"", " mass ", "null", "mass A", "new,mass", "new;mass", "new]]>mass", "new\nmass"})
+    {
+        auto imported = motrack::parseTrackerProject(original);
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.createPointMass(imported.project, "temporary"));
+        imported.project.pointMasses.back().name = name;
+        EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(imported.project, imported.source)), motrack::ProjectError) << name;
+    }
+}
+
+TEST(TrackerWriter, CreationDoesNotAuthorizeDeletionNewVectorsOrInvalidMarks)
+{
+    const auto imported = motrack::parseTrackerProject(namedSource());
+    for (const auto& mutate :
+         std::vector<std::function<void(motrack::LegacyProject&)>>{
+             [](auto& project) { project.pointMasses.erase(project.pointMasses.begin()); },
+             [](auto& project) { project.pointMasses.back().marks = {{.frame = 500001, .x = 1, .y = 2}}; },
+             [](auto& project) { project.pointMasses.back().marks = {{.frame = 1, .x = std::numeric_limits<double>::infinity(), .y = 2}}; },
+             [](auto& project) { project.pointMasses.back().mass = 0; },
+             [](auto& project) { project.clip.mediaReferences.push_back("movie.mp4"); },
+             [](auto& project)
+             {
+                 project.vectors.push_back({.name = "new vector", .samples = {}, .id = project.nextTrackId++});
+             }})
+    {
+        auto project = imported.project;
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.createPointMass(project, "new mass"));
+        mutate(project);
+        EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(project, imported.source)), motrack::ProjectError);
+    }
+}
+
+TEST(TrackerWriter, BoundsNewMassDenseArraysAndSupportsCreationWithExistingRename)
+{
+    auto imported = motrack::parseTrackerProject(namedSource());
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.createPointMass(imported.project, "new mass"));
+    ASSERT_TRUE(edits.renamePointMass(imported.project, 1, "renamed old mass"));
+    const auto renamed = motrack::parseTrackerProject(motrack::renderTrackerProject(imported.project, imported.source));
+    EXPECT_EQ(renamed.project.pointMasses[1].name, "renamed old mass");
+    EXPECT_EQ(renamed.project.pointMasses[2].name, "new mass");
+    ASSERT_TRUE(edits.markPointMass(imported.project, 2, {.frame = 500000, .x = 1, .y = 2}));
+    ASSERT_TRUE(edits.createPointMass(imported.project, "second mass"));
+    ASSERT_TRUE(edits.markPointMass(imported.project, 3, {.frame = 500000, .x = 3, .y = 4}));
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    const auto original = motrack::parseTrackerProject(namedSource());
+    motrack::writeTrackerProject(destination, original.project, original.source);
+    EXPECT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), namedSource());
+}
+
 TEST(TrackerWriter, RenamesSelectedMassByIdentityAndPreservesNonReferenceWordsAfterNativeReopen)
 {
     const auto imported = motrack::parseTrackerProject(namedSource());

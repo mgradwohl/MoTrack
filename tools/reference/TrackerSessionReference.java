@@ -387,7 +387,9 @@ public final class TrackerSessionReference {
             }
             tracks.add(TrackerReference.map("class", track.getClass().getName(), "name", track.getName(),
                 "mass", track instanceof PointMass mass ? mass.getMass() : null, "samples", samples, "key_frames", keys,
-                "vector_samples", vectorSamples));
+                "vector_samples", vectorSamples,
+                "appearance", TrackerReference.map("visible", track.isVisible(), "trail", track.isTrailVisible(),
+                    "locked", track.isLocked(), "footprint", track.getFootprintName(), "argb", track.getColor().getRGB())));
             if (track instanceof DynamicParticle model) {
                 XMLControlElement live = new XMLControlElement(model);
                 String[] members = model instanceof DynamicSystem ? (String[]) live.getObject("particles") : null;
