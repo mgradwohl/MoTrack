@@ -1644,20 +1644,26 @@ bool MainWindow::saveWorkspace(const QString& path)
     connect(this, &QObject::destroyed, &loop, [&alive] { alive = false; });
     m_Saving = true;
     statusBar()->showMessage(tr("Saving project…"));
-    QFutureWatcher<bool> watcher;
-    connect(&watcher, &QFutureWatcher<bool>::finished, &loop, &QEventLoop::quit);
+    struct SaveResult
+    {
+        bool saved = false;
+        QHash<QString, QString> mediaLocations;
+    };
+    QFutureWatcher<SaveResult> watcher;
+    connect(&watcher, &QFutureWatcher<SaveResult>::finished, &loop, &QEventLoop::quit);
     watcher.setFuture(QtConcurrent::run(m_SavePool,
-                                        [path, sourcePath = m_MediaProjectPath, document = std::move(document)]() mutable
+                                        [path, sourcePath = m_MediaProjectPath, document = std::move(document)]() mutable -> SaveResult
                                         {
                                             try
                                             {
+                                                refreshWorkspaceMediaLocations(document, sourcePath);
                                                 rebaseWorkspaceMedia(document, sourcePath, path);
                                                 writeWorkspaceDocument(path, document);
-                                                return true;
+                                                return {.saved = true, .mediaLocations = std::move(document.mediaLocations)};
                                             }
                                             catch (const std::exception&)
                                             {
-                                                return false;
+                                                return {};
                                             }
                                         }));
     loop.exec(QEventLoop::ExcludeUserInputEvents);
@@ -1672,7 +1678,8 @@ bool MainWindow::saveWorkspace(const QString& path)
         // Another save may start first, so check the guard again when the queued callback runs.
         QTimer::singleShot(0, this, [this, completion = std::move(completion)]() mutable { completeAfterSave(std::move(completion)); });
     }
-    const auto outcome = m_Session.completeSave(checkpoint, path, watcher.result());
+    const auto result = watcher.result();
+    const auto outcome = m_Session.completeSave(checkpoint, path, result.saved);
     if (outcome == SaveOutcome::Replaced)
     {
         return false;
@@ -1682,6 +1689,9 @@ bool MainWindow::saveWorkspace(const QString& path)
         statusBar()->showMessage(tr("Could not save this project."));
         return false;
     }
+    // The snapshot may have resolved media restored through a temporary alias since opening.
+    // Keep those physical locations for subsequent saves and clip edits after that alias is removed.
+    m_Session.document.mediaLocations = result.mediaLocations;
     setWindowTitle(tr("%1[*] — MoTrack").arg(QFileInfo(path).fileName()));
     if (outcome == SaveOutcome::Stale)
     {
