@@ -839,6 +839,10 @@ table retains its saved selection or applies the deletion fallback. The independ
 expectation includes all three view instances, including when every remaining selection is null.
 The fixture explicitly selects the table in chooser 0 so the normal visible-table refresh path
 is exercised; merely loading a hidden custom table does not satisfy the visited-view baseline.
+If selection alone leaves null columns, the harness tries one normal player frame change and
+restores the original frame before checking again. It never patches a table model, retries the
+application or accepts missing columns. This extends the explicit visited/refreshed-view workflow;
+it remains distinct from immediate resave and does not close the native table-refresh issue.
 
 Baseline and edited Tracker application load/save/fresh-process reopen, native reimport, all-platform
 CI and the unchanged coverage gate are required before accepting this slice. These media-free cases

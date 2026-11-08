@@ -324,11 +324,24 @@ public final class TrackerSessionReference {
         // normal selection/refresh path, observe populated columns, then restore the saved selection.
         // This is a visited-view baseline, not proof of fidelity for an immediate unvisited resave.
         int[] index = {0};
+        int originalStep = panel.getPlayer().getStepNumber();
+        int alternateStep = originalStep == 0 ? 1 : 0;
+        int[] frameRefresh = {0};
         visits.get(0).view().setSelectedTrack(visits.get(0).track());
         Timer timer = new Timer(25, event -> guard(() -> {
             TableVisit visit = visits.get(index[0]);
             if (visit.view().getSelectedTrack() != visit.track())
                 throw new IllegalStateException("Tracker did not select the table owner");
+            if (frameRefresh[0] == 1) {
+                if (panel.getPlayer().getStepNumber() != alternateStep) return;
+                panel.getPlayer().setStepNumber(originalStep);
+                frameRefresh[0] = 2;
+                return;
+            }
+            if (frameRefresh[0] == 2) {
+                if (panel.getPlayer().getStepNumber() != originalStep) return;
+                frameRefresh[0] = 3;
+            }
             visit.view().paintImmediately(visit.view().getVisibleRect());
             boolean found = false;
             for (List<String> row : stringRows(new XMLControlElement(visit.view()).getObject("track_columns"), 0)) {
@@ -338,10 +351,19 @@ public final class TrackerSessionReference {
                     + " columns=" + bounded(row.toString(), 200)
                     + " viewShowing=" + visit.view().isShowing()
                     + " trackViewShowing=" + visit.view().getTrackView(visit.track()).isShowing());
-                if (row.stream().anyMatch(value -> value == null)) return;
+                if (row.stream().anyMatch(value -> value == null)) {
+                    // One ordinary frame change may refresh a visible table whose column model
+                    // remains uninitialized after selection. Do not patch the view or accept nulls.
+                    if (frameRefresh[0] == 0 && panel.getPlayer().getVideoClip().getStepCount() > 1) {
+                        panel.getPlayer().setStepNumber(alternateStep);
+                        frameRefresh[0] = 1;
+                    }
+                    return;
+                }
             }
             if (!found) throw new IllegalStateException("Customized table disappeared during selection");
             visit.view().setSelectedTrack(visit.restore());
+            frameRefresh[0] = 0;
             if (++index[0] == visits.size()) {
                 ((Timer) event.getSource()).stop();
                 action.run();
