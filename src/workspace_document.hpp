@@ -2,10 +2,10 @@
 
 #include "legacy_project.hpp"
 
+#include <QHash>
 #include <QString>
 
 #include <atomic>
-#include <map>
 #include <memory>
 
 namespace motrack
@@ -25,7 +25,7 @@ struct WorkspaceDocument
     std::shared_ptr<const TrackerArchive> archivePayload = {};
     std::optional<std::string> archiveMember = std::nullopt;
     // Runtime source locations captured when opening a desktop document. Never serialized.
-    std::map<std::string, QString> mediaLocations = {};
+    QHash<QString, QString> mediaLocations = {};
 };
 
 /// Retains physical media locations before the original project directory can disappear.

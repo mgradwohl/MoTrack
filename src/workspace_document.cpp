@@ -338,13 +338,13 @@ void retainWorkspaceMediaLocations(WorkspaceDocument& document, const QString& s
     if (document.archivePayload || document.archiveMember || !document.archiveReference.empty())
         return;
     for (const auto& reference : document.project.clip.mediaReferences)
-        document.mediaLocations.emplace(reference, resolveLocalMediaPath(sourcePath, reference));
+        document.mediaLocations.insert(QString::fromStdString(reference), resolveLocalMediaPath(sourcePath, reference));
 }
 
 QString workspaceMediaPath(const WorkspaceDocument& document, const QString& sourcePath, const std::string& reference)
 {
-    const auto retained = document.mediaLocations.find(reference);
-    return retained == document.mediaLocations.end() ? resolveLocalMediaPath(sourcePath, reference) : retained->second;
+    const auto retained = document.mediaLocations.constFind(QString::fromStdString(reference));
+    return retained == document.mediaLocations.cend() ? resolveLocalMediaPath(sourcePath, reference) : retained.value();
 }
 
 WorkspaceDocument importTrackerDocument(const QString& path)
