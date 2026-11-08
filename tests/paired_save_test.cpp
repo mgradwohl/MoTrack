@@ -458,7 +458,7 @@ TEST(PairedSave, ACorruptCompletedStageCannotPermitAnotherDestinationReplacement
 
 TEST(PairedSave, FinalConflictsAndUnreadableOutputsClearOnlyTheirCurrentFlags)
 {
-    for (const int kind : {0, 1, 2})
+    for (const int kind : {0, 1, 2, 3})
     {
         SCOPED_TRACE(kind);
         QTemporaryDir temporary;
@@ -479,14 +479,52 @@ TEST(PairedSave, FinalConflictsAndUnreadableOutputsClearOnlyTheirCurrentFlags)
                                                               }
                                                               else
                                                                   put(changed, "external edit");
+                                                              if (kind == 3)
+                                                                  put(target, "another external edit");
                                                           });
         ASSERT_EQ(result.status, motrack::PairedSaveStatus::RecoveryRequired);
-        EXPECT_EQ(result.standardCurrent, kind != 0);
+        EXPECT_EQ(result.standardCurrent, kind == 1 || kind == 2);
         EXPECT_EQ(result.nativeCurrent, kind == 0);
         if (kind == 2)
             ASSERT_TRUE(QDir().rmdir(changed));
         put(changed, bytes(stage(result.recoveryPath, kind == 0 ? 0 : 1)));
+        if (kind == 3)
+            put(target, bytes(stage(result.recoveryPath, 0)));
         EXPECT_EQ(motrack::recoverPairedDocuments(result.recoveryPath).status, motrack::PairedSaveStatus::Saved);
+    }
+}
+
+TEST(PairedSave, RecoveryReportsTheCompleteCompanionEvenWhenTheStandardFileConflicts)
+{
+    for (const bool unreadable : {false, true})
+    {
+        SCOPED_TRACE(unreadable);
+        QTemporaryDir temporary;
+        std::atomic_bool cancelled{false};
+        const auto partial =
+            motrack::writePairedDocuments(temporary.filePath("saved.trk"),
+                                          editedDocument(),
+                                          fixture(),
+                                          &cancelled,
+                                          [&cancelled](auto state) { cancelled = state == motrack::PairedSaveProgress::NativeSaved; });
+        ASSERT_EQ(partial.status, motrack::PairedSaveStatus::RecoveryRequired);
+        const auto companion = bytes(partial.nativePath);
+        if (unreadable)
+        {
+            ASSERT_TRUE(QFile::remove(partial.standardPath));
+            ASSERT_TRUE(QDir().mkdir(partial.standardPath));
+        }
+        else
+            put(partial.standardPath, "external edit");
+        const auto refused = motrack::recoverPairedDocuments(partial.recoveryPath);
+        EXPECT_EQ(refused.status, motrack::PairedSaveStatus::RecoveryRequired);
+        EXPECT_FALSE(refused.standardCurrent);
+        EXPECT_TRUE(refused.nativeCurrent);
+        EXPECT_EQ(bytes(partial.nativePath), companion);
+        if (unreadable)
+            ASSERT_TRUE(QDir().rmdir(partial.standardPath));
+        put(partial.standardPath, bytes(stage(partial.recoveryPath, 0)));
+        EXPECT_EQ(motrack::recoverPairedDocuments(partial.recoveryPath).status, motrack::PairedSaveStatus::Saved);
     }
 }
 
