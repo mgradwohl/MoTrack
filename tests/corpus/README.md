@@ -59,6 +59,7 @@ are likewise pinned and reproducible; expected values come only from the Java re
 | Keyed calibration (synthetic) | 6.3.5 | Origin, rotation and nonuniform scale vary at frames 0/4/9; marks before and at each transition; import and Java session resave | Coordinate axes and display settings |
 | Center of mass (synthetic) | 6.3.5 | Two unequal point masses at sparse frames; independently expected constituent names, total mass and weighted image/world positions in the Java session | Native center-of-mass editing/evaluation and moving reference frames |
 | Vector sum (synthetic) | 6.3.5 | Two named vectors and independent sums including zero/missing frames expose a pinned 6.3.5 member-initialization defect; explicitly classified failure, not accepted compatibility | Native dependent-vector evaluation/editing and safe standard-file handling |
+| Plot guests (synthetic) | 6.3.5 | Three point masses with sparse marks/nonuniform calibration; two plots with ordered C/B and B comparisons; native reference index and actual Java session resave | Native comparison-plot UI and safe standard rename export |
 | Dynamic sine | 5.1.2 | Clip and calibration; dynamic particle is reported as unsupported | Model parameters, functions and plot settings |
 
 The probe reads the `.trk` member selected by the manifest from BallToss's `.trz`. It does not exercise
@@ -334,3 +335,26 @@ They validate read-only preservation metadata, not dependent-track evaluation or
 In particular, the vector-sum index can correctly describe its source while the real Tracker application
 still fails to restore the relationship. Native tests cover cross-type names, duplicates, unclassified
 same-named classes, malformed/oversized lists, shared resource bounds and native edit/undo/save/reopen.
+
+## Plot comparison reference
+
+[PlotGuestsFixture.java](../../tools/reference/PlotGuestsFixture.java) authors the geometry with real
+Tracker point-mass/coordinate serializers and the view control structure with OSP's public XML API.
+It does not construct live GUI views or claim GUI authoring. The application-session test subsequently
+uses the normal loader, saver and fresh-process reopen without repairing loaded views. Two fresh,
+bounded headless generator processes produced identical LF-normalized bytes; the manifest pins them.
+Use the same Java invocation/settings as the other generators with a fresh output path.
+
+The selected plot owner is mass A. Plot 0 displays x against t with guests mass C then mass B; plot 1
+displays y against t with mass B only. Manifest expectations independently transcribe these names,
+order, variables and linked-axis flag. The existing live-view serializer check must retain them before
+saving, after saving and after reopening; consistently lost/reordered guests cannot pass. The separate
+Java XML/coordinate baseline checks all three masses at their original sparse frames. With origin
+(20,40) and scales (2,4), A's world points are (1,2)/(5,6), B's (10,-5)/(12,-7), and C's
+(-5,5)/(-3,3). This does not certify rendered curve pixels or all derived plot variables.
+
+The native index expectation is independently transcribed: axes at source node 0, A/B/C at nodes 1/2/3
+with IDs 1/2/3, selected owner A, then ordered guest targets 3/2 and 2. Unit cases additionally cover
+legacy plot fields, repeated/duplicate/missing names, unsupported source nodes, malformed arrays,
+shared resource limits and native rename/delete/undo/save/reopen. Legacy application round trips,
+guest editing, table dataset indices, attachments and standard rename export remain separate work.

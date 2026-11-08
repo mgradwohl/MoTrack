@@ -12,8 +12,10 @@ this baseline passes. A second Java-authored reference covers center-of-mass con
 resolved member objects, total mass and independent weighted positions at sparse frames. The saved-view
 reference now records the protractor table's column/format owner and ordered columns, and the dynamic-sine
 plot's owner, axis variables and linked-axis flag. These independent original-file expectations are
-compared with serializers of live loaded views at all three stages. Nonempty dataset indices, plot
-guests, attachments, dynamic systems and edited dependency cases remain. The vector-sum reference
+compared with serializers of live loaded views at all three stages. A synthetic three-point-mass
+case adds ordered, nonempty comparison guests on two plots, checked through the live view serializers
+and independent point-mass image/world baselines. Nonempty dataset indices, attachments, dynamic
+systems and edited dependency cases remain. The vector-sum reference
 retains named members, independently expected image/world components and missing-member frames, but
 exposes a pinned 6.3.5 defect: the loader leaves pending names uninitialized, so the live sum has no members
 or samples and resave loses the names. The suite classifies this exact failure separately; it is not round-trip
@@ -49,7 +51,7 @@ complete inventory of every name/reference field.
 | TableTView | `track_columns`, `dataset_indices` | Each row's first element identifies its owning track; subsequent elements are column names or dataset settings. |
 | TableTView | `column_formats` | Each group is selected by its first row's first element; format rows also carry names, column keys and patterns. Preserve column keys/patterns. |
 | [PlotTView](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/PlotTView.java) and [PlotTrackView](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/PlotTrackView.java) | `selected_track`; nested `track_views` and `track` | Selected plot and per-track plot settings identify their owner by name. |
-| [TrackPlottingPanel](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/TrackPlottingPanel.java) | `guests` | Array of comparison-track names on each plot. An empty array is observed in the current plot case; nonempty guest relationships still need application cases. |
+| [TrackPlottingPanel](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/TrackPlottingPanel.java) | `guests` | Ordered comparison-track names on each plot. The `plot-guests` case loads two plots with guest lists C/B and B; normal live serialization, save and fresh-process reopen must retain both lists and the underlying point-mass data. |
 | [TTrack](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/TTrack.java) | `attachments` | Names in attachment slots, including empty slots, resolve to track objects after load. |
 | [CenterOfMass](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/CenterOfMass.java) | `masses` | Collection of constituent point-mass names. The audited loader scans matching `PointMass` drawables and can add multiple same-named masses; duplicate-name behavior needs application cases. |
 | [VectorSum](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/VectorSum.java) | `vectors` | Collection of constituent vector names resolved with `getTrackByName(Vector.class, name)`. The reference case has two unique member names, but the pinned loader does not reset `initialized`; live resolution never runs and resave loses the names. This case is a known compatibility failure. Duplicates and nested sums need separate cases. |
@@ -66,6 +68,15 @@ unknown bindings retain source-node resolution without inventing native IDs.
 It reads root `selectedtrack`, `referenceframe`, exactly four plot/table pairs in
 `selected_track_views`, nested table/plot `selected_track`, table column/format owners and
 `PlotTrackView.track` owners, plus `CenterOfMass.masses` and `VectorSum.vectors` collections.
+Plot guest arrays under `plot0`–`plot2` retain every ordered name slot. Modern `track_views`
+containers take precedence over legacy direct `PlotTView.plotN` properties. Legacy slot indexing
+describes serialized references, including slots after gaps that the Java loader might ignore;
+it is not proof of active plotted data. The actual-application corpus currently covers the modern form.
+Guest lookup uses the panel's names without constituent type filtering, matching the audited loader's
+unrestricted lookup. Duplicate names remain ambiguous, unsupported targets retain source ordinals,
+and a literal `null` string is a name. Resolution does not certify that a target can supply compatible
+plot data. Malformed guest arrays emit no partial list; sparse/null/non-string entries are diagnosed
+conservatively. Plot nodes and guest cells share the existing nested-entry and candidate budgets.
 Constituents resolve only unique exact `PointMass`/`Vector` candidates; the other base type is excluded.
 Other same-named classes (including nested dependent tracks) yield `Unclassified`, retaining their possible
 source targets. Duplicate eligible names stay `Ambiguous`; this index does not simulate either loader's
@@ -92,8 +103,8 @@ The internal writer rejects edits to any project containing a vector sum, even a
 member samples are removed. Native saving still retains the exact original source; an unchanged
 standard-file copy is also preserved byte-for-byte and is not advertised as repaired Tracker behavior.
 
-This is not a complete dependency graph or an export eligibility check. Dataset indices, plot guests,
-attachments and model boosters are not indexed yet; no malformed paths does not mean a rename is safe.
+This is not a complete dependency graph or an export eligibility check. Dataset indices, attachments
+and model boosters are not indexed yet; no malformed paths does not mean a rename is safe.
 The `referenceframe` scalar is indexed, but moving-coordinate behavior still lacks application cases.
 
 ## Proposed rename architecture

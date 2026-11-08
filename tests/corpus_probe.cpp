@@ -43,7 +43,8 @@ QJsonObject referenceSnapshot(const motrack::ImportedTrackerProject& imported)
                             "table_format_owner",
                             "plot_owner",
                             "center_of_mass_member",
-                            "vector_sum_member"};
+                            "vector_sum_member",
+                            "plot_guest"};
     const QStringList states{"resolved", "missing", "ambiguous", "no_target", "unclassified"};
     for (const auto& reference : index.references)
     {

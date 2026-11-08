@@ -1,0 +1,129 @@
+{
+  "reference_version": "6.3.5",
+  "verification_level": "xml_and_coordinate_api",
+  "project": {
+    "source_version": "6.3.5",
+    "length_unit": "m",
+    "mass_unit": "kg",
+    "clip": {
+      "first_frame": 0,
+      "step_size": 1,
+      "step_count": 4,
+      "start_ms": 0.0
+    },
+    "point_masses": [
+      {
+        "name": "mass A",
+        "samples": [
+          {
+            "frame": 0,
+            "image": [
+              22.0,
+              32.0
+            ],
+            "world": [
+              1.0,
+              2.0
+            ]
+          },
+          {
+            "frame": 2,
+            "image": [
+              30.0,
+              16.0
+            ],
+            "world": [
+              5.0,
+              6.0
+            ]
+          }
+        ],
+        "mass": 2.0
+      },
+      {
+        "name": "mass B",
+        "samples": [
+          {
+            "frame": 0,
+            "image": [
+              40.0,
+              60.0
+            ],
+            "world": [
+              10.0,
+              -5.0
+            ]
+          },
+          {
+            "frame": 2,
+            "image": [
+              44.0,
+              68.0
+            ],
+            "world": [
+              12.0,
+              -7.0
+            ]
+          }
+        ],
+        "mass": 3.0
+      },
+      {
+        "name": "mass C",
+        "samples": [
+          {
+            "frame": 1,
+            "image": [
+              10.0,
+              20.0
+            ],
+            "world": [
+              -5.0,
+              5.0
+            ]
+          },
+          {
+            "frame": 3,
+            "image": [
+              14.0,
+              28.0
+            ],
+            "world": [
+              -3.0,
+              3.0
+            ]
+          }
+        ],
+        "mass": 4.0
+      }
+    ],
+    "vectors": [],
+    "unsupported_tracks": [
+      "org.opensourcephysics.cabrillo.tracker.CoordAxes"
+    ],
+    "coordinate_samples": [
+      {
+        "frame": 0,
+        "image": [
+          13.5,
+          17.25
+        ],
+        "world": [
+          -3.25,
+          5.6875
+        ]
+      },
+      {
+        "frame": 3,
+        "image": [
+          13.5,
+          17.25
+        ],
+        "world": [
+          -3.25,
+          5.6875
+        ]
+      }
+    ]
+  }
+}

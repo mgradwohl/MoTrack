@@ -358,13 +358,70 @@ struct ReferenceReader
         }
     }
 
+    void plotGuests(const QDomElement& owner, const std::string& path)
+    {
+        for (unsigned plotIndex = 0; plotIndex < 3; ++plotIndex)
+        {
+            const auto field = "plot" + QString::number(plotIndex);
+            const auto value = property(owner, field);
+            if (value.element.isNull())
+            {
+                continue;
+            }
+            countEntry();
+            const auto plotPath = path + "/" + field.toStdString();
+            const auto object = viewObject(value.element);
+            if (value.duplicate || object.attribute("class") != "org.opensourcephysics.cabrillo.tracker.TrackPlottingPanel")
+            {
+                result.malformedPaths.push_back(plotPath);
+                continue;
+            }
+            const auto guests = property(object, "guests");
+            if (guests.element.isNull())
+            {
+                continue;
+            }
+            const auto guestPath = plotPath + "/guests";
+            const auto cells = array(guests, "[Ljava.lang.String;", guestPath);
+            if (!cells)
+            {
+                continue;
+            }
+            if (!cells->empty() && (cells->begin()->first != 0 || cells->rbegin()->first != cells->size() - 1))
+            {
+                result.malformedPaths.push_back(guestPath);
+                continue;
+            }
+            Owners references;
+            for (const auto& [cellIndex, cell] : *cells)
+            {
+                const auto cellPath = guestPath + "/" + std::to_string(cellIndex);
+                const auto name = stringValue({.element = cell}, MAX_NAME_UNITS);
+                if (!name)
+                {
+                    result.malformedPaths.push_back(cellPath);
+                    references.clear();
+                    break; // Do not emit part of a malformed guest array.
+                }
+                references.emplace_back(cellPath, *name);
+            }
+            for (const auto& [guestSlot, name] : references)
+            {
+                addReference(result, names, TrackerReferenceKind::PlotGuest, guestSlot, name, false);
+            }
+        }
+    }
+
     void plot(const QDomElement& object, const std::string& path)
     {
         panelReference(result, names, object, "selected_track", TrackerReferenceKind::PlotSelection, path);
         const auto views = property(object, "track_views");
         if (views.element.isNull())
         {
-            return; // Legacy plotN properties use the selected track, not separate track owners.
+            // Legacy plotN properties use the selected track, not separate track owners.
+            // Index serialized slots even if a loader would ignore a slot after a gap.
+            plotGuests(object, path);
+            return;
         }
         const auto ownerPath = path + "/track_views";
         if (views.duplicate || views.element.attribute("type") != "collection" ||
@@ -385,6 +442,7 @@ struct ReferenceReader
                 continue;
             }
             panelReference(result, names, child, "track", TrackerReferenceKind::PlotOwner, childPath, true);
+            plotGuests(child, childPath);
         }
     }
 

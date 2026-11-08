@@ -350,6 +350,132 @@ TEST(TrackerReferences, ResolvesPlotOwnersIncludingMissingAndAmbiguousNames)
     EXPECT_TRUE(index(project(point("A"), savedViews(viewXml("FutureView", property("track", "A"), "[2]")))).references.empty());
 }
 
+TEST(TrackerReferences, IndexesOrderedPlotGuestsAndKeepsDataStringsSeparate)
+{
+    const auto plots = viewXml("TrackPlottingPanel",
+                               stringRow("guests", property("[0]", "C") + property("[1]", "B") + property("[2]", "B")) +
+                                   property("x_var", "A") + property("description", "C"),
+                               "plot0") +
+                       viewXml("TrackPlottingPanel", stringRow("guests", property("[0]", "null")), "plot2");
+    const auto owners = membersXml("track_views", viewXml("PlotTrackView", property("track", "A") + plots, "item"));
+    const auto result = index(
+        project(point("A") + point("B") + track("Future", "C") + point("null"), savedViews(viewXml("PlotTView", owners, "[0]"), "[0]")));
+    EXPECT_TRUE(result.malformedPaths.empty());
+    ASSERT_EQ(result.references.size(), 5u);
+    EXPECT_EQ(result.references[0].kind, Kind::PlotOwner);
+    for (std::size_t i = 1; i < result.references.size(); ++i)
+    {
+        EXPECT_EQ(result.references[i].kind, Kind::PlotGuest);
+        EXPECT_EQ(result.references[i].resolution, Resolution::Resolved);
+    }
+    EXPECT_EQ(result.references[1].candidateSourceIndices, (std::vector<std::size_t>{2}));
+    EXPECT_EQ(result.references[2].candidateSourceIndices, (std::vector<std::size_t>{1}));
+    EXPECT_EQ(result.references[3].candidateSourceIndices, (std::vector<std::size_t>{1}));
+    EXPECT_EQ(result.references[4].candidateSourceIndices, (std::vector<std::size_t>{3}));
+    EXPECT_EQ(result.references[1].path, "/views/0/0/track_views/0/plot0/guests/0");
+    EXPECT_EQ(result.references[3].path, "/views/0/0/track_views/0/plot0/guests/2");
+    EXPECT_EQ(result.references[4].path, "/views/0/0/track_views/0/plot2/guests/0");
+}
+
+TEST(TrackerReferences, IndexesLegacyPlotGuestSlotsWithoutClaimingActiveLoaderState)
+{
+    const auto fields = property("selected_track", "A") +
+                        viewXml("TrackPlottingPanel", stringRow("guests", property("[0]", "same") + property("[1]", "missing")), "plot0") +
+                        viewXml("TrackPlottingPanel", "", "plot1") + viewXml("TrackPlottingPanel", stringRow("guests", ""), "plot2");
+    const auto result =
+        index(project(point("A") + point("same") + track("Future", "same"), savedViews(viewXml("PlotTView", fields, "[0]"))));
+    EXPECT_TRUE(result.malformedPaths.empty());
+    ASSERT_EQ(result.references.size(), 3u);
+    EXPECT_EQ(result.references[1].path, "/views/1/0/plot0/guests/0");
+    EXPECT_EQ(result.references[1].resolution, Resolution::Ambiguous);
+    EXPECT_EQ(result.references[1].candidateSourceIndices, (std::vector<std::size_t>{1, 2}));
+    EXPECT_EQ(result.references[2].resolution, Resolution::Missing);
+    // A track_views collection selects the modern representation. Inactive legacy fields are ignored.
+    const auto modern = index(project(point("A"), savedViews(viewXml("PlotTView", fields + membersXml("track_views", ""), "[0]"))));
+    ASSERT_EQ(modern.references.size(), 1u);
+}
+
+TEST(TrackerReferences, RejectsMalformedPlotObjectsAndGuestArraysWithoutPartialReferences)
+{
+    const auto valid = stringRow("guests", property("[0]", "A"));
+    const std::string oversized(4097, 'x');
+    for (const auto& invalid :
+         {property("plot0", "A"),
+          viewXml("FuturePlot", valid, "plot0"),
+          viewXml("TrackPlottingPanel", valid, "plot0") + viewXml("TrackPlottingPanel", valid, "plot0"),
+          viewXml("TrackPlottingPanel", valid + valid, "plot0"),
+          viewXml("TrackPlottingPanel", property("guests", "A"), "plot0"),
+          viewXml("TrackPlottingPanel", arrayXml("guests", "[Ljava.lang.Object;", property("[0]", "A")), "plot0"),
+          viewXml("TrackPlottingPanel", stringRow("guests", property("[1]", "A")), "plot0"),
+          viewXml("TrackPlottingPanel", stringRow("guests", property("[0]", "A") + property("[2]", "A")), "plot0"),
+          viewXml("TrackPlottingPanel", stringRow("guests", property("[0]", "A") + property("[0]", "A")), "plot0"),
+          viewXml("TrackPlottingPanel", stringRow("guests", property("[0]", "A") + property("[1]", oversized)), "plot0"),
+          viewXml("TrackPlottingPanel",
+                  stringRow("guests", property("[0]", "A") + "<property name='[1]' type='object'>null</property>"),
+                  "plot0")})
+    {
+        SCOPED_TRACE(invalid);
+        const auto result = index(project(point("A"), savedViews(viewXml("PlotTView", invalid, "[0]"))));
+        EXPECT_FALSE(result.malformedPaths.empty());
+        EXPECT_TRUE(result.references.empty());
+    }
+}
+
+TEST(TrackerReferences, PlotGuestsShareNestedEntryAndCandidateBudgets)
+{
+    std::string many;
+    for (int i = 0; i < 9998; ++i)
+    {
+        many += property("[" + std::to_string(i) + "]", "A");
+    }
+    const auto huge = viewXml("TrackPlottingPanel", stringRow("guests", many), "plot0");
+    EXPECT_THROW((void)index(project(point("A"), savedViews(viewXml("PlotTView", huge, "[0]")))), motrack::ProjectError);
+    std::string tracks;
+    for (int i = 0; i < 400; ++i)
+    {
+        tracks += point("same");
+    }
+    std::string guests;
+    for (int i = 0; i < 251; ++i)
+    {
+        guests += property("[" + std::to_string(i) + "]", "same");
+    }
+    const auto dense = viewXml("TrackPlottingPanel", stringRow("guests", guests), "plot0");
+    EXPECT_THROW((void)index(project(tracks, savedViews(viewXml("PlotTView", dense, "[0]")))), motrack::ProjectError);
+}
+
+TEST(TrackerReferences, PlotGuestIdentitySurvivesNativeRenameDeleteUndoAndReopen)
+{
+    const auto fields = viewXml("TrackPlottingPanel", stringRow("guests", property("[0]", "original")), "plot0");
+    auto imported =
+        motrack::parseTrackerProject(project(point("original") + point("other"), savedViews(viewXml("PlotTView", fields, "[0]"))));
+    const auto id = imported.project.pointMasses[0].id;
+    motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.renamePointMass(document.project, 0, "new name"));
+    std::ranges::reverse(document.project.pointMasses);
+    ASSERT_TRUE(edits.removePointMass(document.project, 1));
+    const auto deleted = motrack::indexTrackerReferences(imported.source, document.project);
+    ASSERT_EQ(deleted.references.size(), 1u);
+    EXPECT_EQ(deleted.tracks[0].nativeId, id);
+    EXPECT_EQ(deleted.references[0].candidateSourceIndices, (std::vector<std::size_t>{0}));
+    ASSERT_TRUE(edits.undo(document.project));
+    QTemporaryDir temporary;
+    const auto file = temporary.filePath("plot-guests.motrack");
+    motrack::writeWorkspaceDocument(file, document);
+    const auto reopened = motrack::readWorkspaceDocument(file);
+    if (!reopened.trackerSource)
+    {
+        FAIL() << "Expected original source";
+    }
+    const auto restored = motrack::indexTrackerReferences(*reopened.trackerSource, reopened.project);
+    ASSERT_EQ(restored.references.size(), 1u);
+    EXPECT_EQ(restored.tracks[0].nativeId, id);
+    EXPECT_EQ(restored.references[0].originalName, "original");
+    EXPECT_EQ(restored.references[0].candidateSourceIndices, (std::vector<std::size_t>{0}));
+    EXPECT_EQ(reopened.trackerSource->xml, imported.source.xml);
+}
+
 TEST(TrackerReferences, RejectsMalformedViewContainersIndicesAndObjects)
 {
     const auto valid = savedViews(viewXml("TableTView", property("selected_track", "A")));
