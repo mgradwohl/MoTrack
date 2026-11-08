@@ -17,10 +17,12 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <filesystem>
 #include <functional>
 #include <limits>
 #include <map>
 #include <string_view>
+#include <system_error>
 
 namespace
 {
@@ -159,6 +161,26 @@ TEST(TrackerWriter, RetainedMediaLocationsSurviveRemovalOfTheOriginalProjectDire
         EXPECT_EQ(reference, ("../../media/" + name).toStdString());
         EXPECT_EQ(readBytes(motrack::resolveLocalMediaPath(output, reference)), readBytes(fixture + "images/" + name));
     }
+}
+
+TEST(TrackerWriter, RejectsHardLinkedMediaDestinationsWithoutChangingEitherName)
+{
+    QTemporaryDir temporary;
+    const auto fixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images/";
+    const auto media = temporary.filePath("image.png");
+    ASSERT_TRUE(QFile::copy(fixture + "images/frame0.png", media));
+    const auto target = temporary.filePath("saved.trk");
+    std::error_code error;
+    std::filesystem::create_hard_link(std::filesystem::path(media.toStdU16String()), std::filesystem::path(target.toStdU16String()), error);
+    ASSERT_FALSE(error) << error.message();
+    ASSERT_TRUE(motrack::sameLocalFile(media, target));
+    const auto original = readBytes(media);
+    auto document = motrack::importTrackerDocument(fixture + "linked-images.trk");
+    document.project.clip.mediaReferences.front() = media.toStdString();
+    EXPECT_THROW(motrack::writeTrackerDocument(target, document, fixture + "linked-images.trk"), motrack::ProjectError);
+    EXPECT_EQ(readBytes(media), original);
+    EXPECT_EQ(readBytes(target), original);
+    EXPECT_TRUE(motrack::sameLocalFile(media, target));
 }
 
 TEST(TrackerWriter, RejectsUnsafeLinkedImageExportsBeforeReplacingTheDestination)
