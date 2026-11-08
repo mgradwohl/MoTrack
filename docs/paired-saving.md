@@ -273,3 +273,8 @@ locations from a later write, even if callbacks arrive in reverse order. Confirm
 reconciles pending records by observation order without requiring a transaction UUID; successful
 recovery writes still require the expected UUID. Regressions remove the original alias and older media
 before saving again, and reconcile externally completed journals through the default recovery API.
+
+Storage progress callbacks expose archive chunks and the final pre-commit boundary on the writing
+thread. Deterministic cancellation regressions stop during source-archive streaming and immediately
+before plain/ZIP commit, preserving every original destination byte. Successful paired saves also
+refresh the active image reader, preserving navigation after a temporary media alias is removed.

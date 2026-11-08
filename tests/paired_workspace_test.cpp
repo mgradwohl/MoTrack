@@ -17,6 +17,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSemaphore>
+#include <QSlider>
 #include <QStatusBar>
 #include <QTemporaryDir>
 #include <QTest>
@@ -980,6 +981,13 @@ TEST(PairedWorkspace, RetainsRestoredMediaBindingsAfterPairedSaveAndSourceRemova
     ASSERT_TRUE(QFile::remove(input));
     ASSERT_TRUE(QFile::remove(alias));
     ASSERT_TRUE(QDir(temporary.path()).rmdir("import"));
+    auto* slider = window.findChild<QSlider*>("stepSlider");
+    auto* canvas = window.findChild<QWidget*>("videoCanvas");
+    ASSERT_TRUE(slider && canvas);
+    slider->setValue(2);
+    EXPECT_EQ(canvas->accessibleName(), "Frame 2");
+    slider->setValue(0);
+    EXPECT_EQ(canvas->accessibleName(), "Frame 0");
     ASSERT_TRUE(editMass(window, 7));
     ASSERT_TRUE(window.saveWorkspace(temporary.filePath("exports/native-copy.motrack")));
     const auto output = temporary.filePath("exports/second.trk");

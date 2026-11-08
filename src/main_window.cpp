@@ -1905,6 +1905,7 @@ bool MainWindow::saveTrackerProject(const QString& path, bool recoverPending)
     const auto outcome = m_Session.completePairedSave(checkpoint, saved);
     if (outcome == SaveOutcome::Replaced)
         return false;
+    refreshImageMediaLocations();
     setWindowModified(m_Session.isModified());
     if (outcome == SaveOutcome::Partial)
     {
