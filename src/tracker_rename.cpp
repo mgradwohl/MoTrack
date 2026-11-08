@@ -75,8 +75,8 @@ Fields fields(const QString& name)
                 {"track_control_x", "int"},
                 {"track_control_y", "int"}};
     }
-    if (name == QString(TRACKER) + "PointMass" || name == QString(TRACKER) + "Vector" || name == QString(TRACKER) + "CoordAxes" ||
-        name == QString(TRACKER) + "Protractor")
+    if (name == QString(TRACKER) + "PointMass" || name == QString(TRACKER) + "CenterOfMass" || name == QString(TRACKER) + "Vector" ||
+        name == QString(TRACKER) + "CoordAxes" || name == QString(TRACKER) + "Protractor")
     {
         Fields result{{"name", "string"},
                       {"description", "string"},
@@ -85,10 +85,12 @@ Fields fields(const QString& name)
                       {"visible", "boolean"},
                       {"trail", "boolean"},
                       {"locked", "boolean"}};
-        if (name.endsWith(".PointMass"))
+        if (name.endsWith(".PointMass") || name.endsWith(".CenterOfMass"))
         {
             result.insert(
                 {{"mass", "double"}, {"framedata", "array:[L" + QString(TRACKER) + "PointMass$FrameData;"}, {"keyFrames", "array:[I"}});
+            if (name.endsWith(".CenterOfMass"))
+                result.emplace("masses", "collection:java.util.ArrayList");
         }
         else if (name.endsWith(".Vector"))
         {
@@ -192,6 +194,7 @@ struct RenameSchema
             require(seen.insert(name).second && allowed.contains(name));
             propertyValue(child, allowed.at(name), depth + 1);
         }
+        require(actual != QString(TRACKER) + "CenterOfMass" || seen.contains("masses"));
     }
 
     void propertyValue(const QDomElement& value, const QString& signature, unsigned depth)
@@ -219,8 +222,15 @@ struct RenameSchema
         else if (type == "collection")
         {
             require(value.attribute("class") == expected);
+            std::set<QString> members;
             for (auto item = value.firstChildElement(); !item.isNull(); item = item.nextSiblingElement())
             {
+                if (value.attribute("name") == "masses")
+                {
+                    propertyValue(item, "string", depth + 1);
+                    require(members.insert(item.text()).second); // Java coalesces duplicate members; do not accept that loss.
+                    continue;
+                }
                 const auto className = item.firstChildElement().attribute("class");
                 if (value.attribute("name") == "track_views")
                 {
@@ -230,10 +240,12 @@ struct RenameSchema
                 {
                     require(value.attribute("name") == "tracks" &&
                             (className == QString(TRACKER) + "PointMass" || className == QString(TRACKER) + "CoordAxes" ||
-                             className == QString(TRACKER) + "Protractor" || className == QString(TRACKER) + "Vector"));
+                             className == QString(TRACKER) + "Protractor" || className == QString(TRACKER) + "Vector" ||
+                             className == QString(TRACKER) + "CenterOfMass"));
                 }
                 propertyValue(item, "object:" + className, depth + 1);
             }
+            require(value.attribute("name") != "masses" || !members.empty());
         }
         else if (type == "array")
         {
@@ -374,7 +386,7 @@ bool patchTrackerNames(QDomDocument& xml, const LegacyProject& project, LegacyPr
         require(reference.kind == TrackerReferenceKind::SelectedTrack || reference.kind == TrackerReferenceKind::PlotSelection ||
                 reference.kind == TrackerReferenceKind::TableSelection || reference.kind == TrackerReferenceKind::TableColumnOwner ||
                 reference.kind == TrackerReferenceKind::TableFormatOwner || reference.kind == TrackerReferenceKind::PlotOwner ||
-                reference.kind == TrackerReferenceKind::PlotGuest);
+                reference.kind == TrackerReferenceKind::PlotGuest || reference.kind == TrackerReferenceKind::CenterOfMassMember);
         if (reference.resolution == TrackerReferenceResolution::NoTarget)
             continue;
         require(reference.candidateSourceIndices.size() == 1);

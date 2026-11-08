@@ -493,3 +493,15 @@ export. These checks preserve saved relationships and scientific data, not rende
 native comparison-plot editing.
 The line/point flags are independently transcribed as true/true from both the pinned plot-guests and
 dynamic-sine source panels, and checked through the live serializers before/after Java save/reopen.
+
+
+The `center-member-name` mode renames mass A in the pinned center-of-mass fixture, retaining the
+original checksum and using a temporary old-name note. Native history, save/reopen after input-copy
+removal, export and reimport follow the other name cases. The independent complete-source comparison
+permits only the PointMass name and its CenterOfMass member string to change. The selected center,
+other member, 5 kg total and world positions (4,-6) at frame 0 and (6,-8) at frame 2 must survive
+actual Tracker load/save/fresh-process reopen. Negative oracles reject stale/dropped members, wrong
+weighted positions, missing centers and wrong selections even when all three snapshots agree.
+Native regressions cover either constituent, reorder/delete/undo, unknown/missing/duplicate/nested
+relationships and atomic refusal for empty/missing member collections. Native dependent evaluation
+and broader dependency-name export remain unfinished.
