@@ -255,6 +255,14 @@ New objects explicitly start visible, with trails, unlocked, a red Diamond footp
 marks. These are documented interchange defaults until native per-track appearance is implemented;
 no unknown original track style is cloned. Sparse new marks retain original frame numbers, bounded at
 500000 and one million aggregate dense frame slots across new masses. The native source XML stays
-unchanged. New vectors, deleting original tracks, dependent creation, media-backed creation, desktop
+unchanged. Deleting original tracks, dependent creation, media-backed creation, desktop
 standard saving and paired-output transactions remain separate work. The corpus has independent empty
 and marked creation cases, including actual Tracker appearance, keys and scientific coordinates.
+
+New independent vectors use the same audited identity/schema/name handling, with explicit visible,
+unlocked magenta BoldArrow defaults and no point-mass key list. Creation requires a source containing
+only independent vectors and coordinate axes. Empty and sparse/zero-vector cases have independent
+application oracles. All existing snapping, endpoint reconstruction, calibrated-coordinate and dense
+allocation checks still apply, including other frames' visible tips. Adding an empty vector does not
+authorize dropping original tracks, changing dependent links or weakening the measured-vector guards.
+Both point-mass and vector membership checks use linear sorted-ID inclusion before appending objects.

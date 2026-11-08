@@ -682,3 +682,22 @@ The historical [Tracker #10 save/load report](https://github.com/OpenSourcePhysi
 and its discussion were refreshed. [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65) remains
 open: these media-free creation cases do not reproduce or resolve the reported MOV/open-entry-point
 failure, media relocation, or all saved table behavior.
+
+## Creating independent vectors
+
+The `create-vector` and `create-empty-vector` modes append `vecteur β & <C>` to the pinned independent
+vector fixture. The marked case uses original frames 1/6/8, tails (100,120)/(200,180)/(160,100), and
+image components (4,-8)/(0,0)/(-6,12). The original nonuniform calibration, two vectors and null frame
+extent remain unchanged. The new vector is visible, has trails, is unlocked and uses magenta BoldArrow.
+There is no mass or point-mass key list. Pinned Vector.Loader bytecode confirms that a missing frame
+array represents an empty vector; the existing endpoint/snapping checks remain mandatory.
+
+The probe covers allocation gaps, creation/undo/redo, sample edits, remove/undo, reordered lists,
+native save/reopen after source-copy removal and repeated export. Whole-source comparison permits
+only the appended object. Independent application expectations check exact names, tails, components,
+appearance and original data through save/fresh-process reopen; native reimport checks both files.
+Negative tests reject consistent wrong geometry/appearance and changes to original content. Native
+tests cover collisions, dangling links, vector sums, source deletion, mixed provider types, origin/tip
+snapping across frames, endpoint precision loss and bounded dense allocation. These cases extend
+R03/R07 without accepting dependent vectors or the known VectorSum resave defect (#63). Current-head
+Linux application acceptance and all-platform CI remain required before merging.
