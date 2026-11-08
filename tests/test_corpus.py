@@ -1449,8 +1449,9 @@ class CorpusTests(unittest.TestCase):
         with patch.object(corpus.sys, "platform", "linux"), patch.dict(corpus.os.environ, DISPLAY=":99"), \
                 patch.object(corpus, "private_display", return_value=nullcontext(":77")), \
                 patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "run", side_effect=fail_session):
-            with self.assertRaisesRegex(ValueError, "session failure"):
+            with self.assertRaisesRegex(ValueError, "session failure") as raised:
                 corpus.check_sessions(manifest, self.root, "java")
+            self.assertIn('Tracker resave diagnostic (bounded): {"inspection_error":', str(raised.exception))
         self.assertEqual(len(calls), 3)
         self.assertEqual(calls[1][-1], "TrackerSessionDiagnosticsTest")
         self.assertEqual(calls[2][-1], "save")
@@ -1522,6 +1523,8 @@ class CorpusTests(unittest.TestCase):
                     calls.append(stage)
                     self.assertEqual(display, ":77")
                     if stage == failing_stage:
+                        if stage == "save":
+                            (Path(output) / "tracker-resaved.trk").write_bytes(b"")
                         raise failure
                     output = Path(output)
                     (output / "tracker-resaved.trk").write_text("<object>\n<property>", encoding="utf-8")
@@ -1539,6 +1542,11 @@ class CorpusTests(unittest.TestCase):
                     self.assertIn('Tracker input diagnostic (bounded):', str(raised.exception))
                     self.assertIn('"xml": "well-formed"' if failing_stage == "save" else '"xml": "malformed"',
                                   str(raised.exception))
+                    if failing_stage == "save":
+                        self.assertIn('Tracker resave diagnostic (bounded): {"bytes": 0,', str(raised.exception))
+                        self.assertIn('"parse_error": "no element found:', str(raised.exception))
+                    else:
+                        self.assertNotIn('Tracker resave diagnostic', str(raised.exception))
                     self.assertEqual(calls, ["save"] if failing_stage == "save" else ["save", "reopen"])
                     self.assertEqual(list(self.root.glob("session-*")), [])
 

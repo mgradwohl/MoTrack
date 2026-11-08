@@ -34,6 +34,9 @@ without replacing the original failure. This distinguishes a truncated/malformed
 well-formed file that Tracker's loader rejects; XML validity alone is not compatibility acceptance.
 Each escaped string is bounded before JSON serialization, keeping the complete report below 3000
 characters without dropping parser metadata when corrupt bytes or Unicode expand into escapes.
+Save-stage failures include separate bounded input and resave-output reports, including a missing
+or empty output, before temporary-directory cleanup. Reopen failures inspect that same resave as
+their input. The original process failure remains the cause in both cases.
 This improves evidence for [MoTrack #105](https://github.com/mgradwohl/MoTrack/issues/105); the intermittent
 callback timeout's cause remains under investigation and is not established as fixed or as an upstream defect.
 
