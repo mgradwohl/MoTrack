@@ -33,7 +33,6 @@
 #include <QLocale>
 #include <QMenuBar>
 #include <QMessageBox>
-#include <QPointer>
 #include <QPushButton>
 #include <QSaveFile>
 #include <QSignalBlocker>
@@ -785,9 +784,11 @@ bool MainWindow::applyProject(const QString& path, PreparedProject prepared, con
         {
             return false;
         }
-        const QPointer<MainWindow> owner(this);
+        bool ownerAlive = true;
+        QObject lifetime;
+        connect(this, &QObject::destroyed, &lifetime, [&ownerAlive] { ownerAlive = false; });
         const auto discard = confirmDiscard();
-        if (!owner)
+        if (!ownerAlive)
             return false;
         if (!discard)
         {
@@ -961,9 +962,11 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
                             statusBar()->showMessage(tr("Could not open this video."));
                             return;
                         }
-                        const QPointer<MainWindow> owner(this);
+                        bool ownerAlive = true;
+                        QObject lifetime;
+                        connect(this, &QObject::destroyed, &lifetime, [&ownerAlive] { ownerAlive = false; });
                         const auto discard = confirmDiscard();
-                        if (!owner)
+                        if (!ownerAlive)
                             return;
                         if (!discard || *cancelled)
                         {
