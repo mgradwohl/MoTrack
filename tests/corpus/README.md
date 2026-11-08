@@ -290,8 +290,46 @@ native reparse, actual Tracker load/save/reopen and native reimport check the ed
 The loaded Tracker panel's fixed flags and every calibration key's frame, origin, angle and scale are
 also checked against independent constants before and after resave; unchanged mark positions alone
 cannot prove that all calibration parameters survived.
-Partly fixed systems, key deletion, varying vector coordinates, attachments and reference frames are
+Fixed-state changes, key deletion, varying vector coordinates, attachments and reference frames are
 separate follow-ups; this case must not be reported as full calibration parity.
+
+## Partly fixed calibration export
+
+[MixedCalibrationFixture.java](../../tools/reference/MixedCalibrationFixture.java) uses pinned public
+Java setters and serializers to author all six combinations with at least one fixed and one varying
+component. Two fresh bounded headless runs reproduced identical fixture bytes. The Java XML/coordinate
+baselines were also checked with independent quadrant arithmetic at every sample; no MoTrack output
+was used to create them. The original keys are at frames 0/4/9, with image marks (10,20) at 0/3/4/8/9.
+Bits 1/2/4 in each case ID mean fixed origin/angle/scale respectively.
+
+The three native commands match the fully varying case: calibrate frame 4 with an eight-pixel x
+segment representing one unit, place its axes at (120,140) with zero angle, then place frame 3's axes
+at (80,90) with -90 degrees. Fixed-scale cases use scales (8,32) everywhere; varying-scale cases use
+(8,16) at frame 4. Fixed origin/angle changes apply globally. If both are fixed (case 3), the final
+axes placement changes the existing global settings without adding key 3; the other cases add it.
+
+| Case | Fixed components | Edited world position at frame 4 | Edited world position at frame 9 |
+| --- | --- | --- | --- |
+| 1 | Origin | (-8.75, 4.375) | (-8.75, -35) |
+| 2 | Angle | (-7.5, -13.75) | (-13.75, -50) |
+| 3 | Origin and angle | (-4.375, -8.75) | (-8.75, -35) |
+| 4 | Scale | (-13.75, 3.75) | (-3.4375, -12.5) |
+| 5 | Origin and scale | (-8.75, 2.1875) | (-2.1875, -8.75) |
+| 6 | Angle and scale | (-3.75, -13.75) | (-3.4375, -12.5) |
+
+Tracker's loader takes fixed origin/angle from the last key and fixed scale from the first. The writer
+checks Java-compatible inverse coefficients using each effective key; unused raw fields cannot replace
+that check. Whole-source comparisons permit only independently specified key values/addition and keep
+fixed flags, source metadata and all image marks unchanged. Live Java calibration checks expect the
+normal serializer's effective values on each key, while native reopening retains its exact raw records.
+Native history, numeric boundary tests, all six flags, consistently wrong session snapshots and atomic
+rejection of flag changes are covered. Dense-frame work remains bounded; fixed-origin/angle setters
+count the full affected range per key instead of only the range after that key.
+
+Acceptance requires normal Tracker load/save/fresh-process reopen and native reimport for every case.
+These media-free cases do not cover fixed-state toggles, key deletion, reference frames, varying
+vector coordinates, native persistent calibration tools or full standard Save UI. Tracker #12/#13 were
+refreshed; MoTrack #78 remains open for the separate two-click placement/endpoint workflow.
 
 ## Named center-of-mass reference
 

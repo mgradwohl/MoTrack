@@ -154,10 +154,10 @@ try
          args[1] == "--export-first-mark" || args[1] == "--export-vectors" || args[1] == "--export-empty-vectors" ||
          args[1] == "--export-first-vector" || args[1] == "--export-clip" || args[1] == "--export-snap-origin" ||
          args[1] == "--export-snap-vector" || args[1] == "--export-length-unit" || args[1] == "--export-calibration" ||
-         args[1] == "--export-clip-boundary" || args[1] == "--export-keyed-calibration" || args[1] == "--export-mass-unit" ||
-         args[1] == "--export-time-unit" || args[1] == "--export-name" || args[1] == "--export-unselected-name" ||
-         args[1] == "--export-vector-name" || args[1] == "--export-plot-owner-name" || args[1] == "--export-plot-guest-name" ||
-         args[1] == "--export-center-member-name" || args[1] == "--export-attachment-first-name" ||
+         args[1] == "--export-clip-boundary" || args[1] == "--export-keyed-calibration" || args[1] == "--export-mixed-calibration" ||
+         args[1] == "--export-mass-unit" || args[1] == "--export-time-unit" || args[1] == "--export-name" ||
+         args[1] == "--export-unselected-name" || args[1] == "--export-vector-name" || args[1] == "--export-plot-owner-name" ||
+         args[1] == "--export-plot-guest-name" || args[1] == "--export-center-member-name" || args[1] == "--export-attachment-first-name" ||
          args[1] == "--export-attachment-last-name" || args[1] == "--export-model-booster-name"))
     {
         QTemporaryDir temporary;
@@ -264,7 +264,7 @@ try
                 throw motrack::ProjectError("Could not edit round-trip length unit.");
             }
         }
-        else if (args[1] == "--export-keyed-calibration")
+        else if (args[1] == "--export-keyed-calibration" || args[1] == "--export-mixed-calibration")
         {
             if (!edits.calibrateDistance(document.project,
                                          {.frame = 4,

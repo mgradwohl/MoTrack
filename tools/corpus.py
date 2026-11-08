@@ -661,6 +661,84 @@ def verify_keyed_calibration_export_xml(original, exported):
         raise ValueError("Standard export changed content beyond the requested calibration keys")
 
 
+def mixed_calibration_expected(case, edited=False, *, normalized=True):
+    flags = case.get("mixed_calibration_flags")
+    if type(flags) is not int or flags not in range(1, 7) or case["id"] != f"mixed-calibration-{flags}":
+        raise ValueError("Expected an independently authored partly fixed calibration case")
+    # Explicit outcomes of the three declared native commands. Rows are frame, origin x/y,
+    # angle degrees and scale x/y. Fixed origin/angle records can differ before Java normalizes them.
+    edited_rows = {
+        1: [[0, 110, 130, 0, 2, 4], [3, 80, 90, -90, 2, 4], [4, 120, 140, 0, 8, 16], [9, 80, 90, -90, 2, 8]],
+        2: [[0, 320, 240, -90, 2, 4], [3, 80, 90, -90, 2, 4], [4, 120, 140, 0, 8, 16], [9, 110, 130, -90, 2, 8]],
+        3: [[0, 110, 130, -90, 2, 4], [4, 110, 130, -90, 8, 16], [9, 80, 90, -90, 2, 8]],
+        4: [[0, 320, 240, 0, 8, 32], [3, 80, 90, -90, 8, 32], [4, 120, 140, 0, 8, 32], [9, 110, 130, -90, 8, 32]],
+        5: [[0, 110, 130, 0, 8, 32], [3, 80, 90, -90, 8, 32], [4, 120, 140, 0, 8, 32], [9, 80, 90, -90, 8, 32]],
+        6: [[0, 320, 240, -90, 8, 32], [3, 80, 90, -90, 8, 32], [4, 120, 140, 0, 8, 32], [9, 110, 130, -90, 8, 32]]}
+    rows = edited_rows[flags] if edited else [[0, 320, 240, 0, 2, 4], [4, 100, 120, 90, 4, 8], [9, 110, 130, -90, 2, 8]]
+    keys = [{"frame": row[0], "origin": [float(v) for v in row[1:3]], "angle": float(row[3]),
+             "scale": [float(v) for v in row[4:6]]} for row in rows]
+    if normalized or not edited:
+        origin, angle = keys[-1]["origin"], keys[-1]["angle"]
+        # Public authoring setters apply the last requested scale everywhere; loading fixed scale
+        # subsequently uses the first serialized key. Authored keys already agree on that value.
+        scale = keys[0]["scale"] if edited else [2.0, 8.0]
+        for key in keys:
+            if flags & 1:
+                key["origin"] = list(origin)
+            if flags & 2:
+                key["angle"] = angle
+            if flags & 4:
+                key["scale"] = list(scale)
+    return {"fixed_origin": bool(flags & 1), "fixed_angle": bool(flags & 2), "fixed_scale": bool(flags & 4), "keys": keys}
+
+
+def mixed_calibration_roundtrip_expected(case):
+    calibration = mixed_calibration_expected(case, True)
+    expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
+    for sample in expected["point_masses"][0]["samples"] + expected["coordinate_samples"]:
+        key = next(key for key in reversed(calibration["keys"]) if key["frame"] <= sample["frame"])
+        u, v = [(point - origin) / scale for point, origin, scale in zip(sample["image"], key["origin"], key["scale"])]
+        # Exact quadrant arithmetic, independent of the native trigonometric transform.
+        sample["world"] = {0.0: [u, -v], 90.0: [-v, -u], -90.0: [v, u]}[key["angle"]]
+    return expected
+
+
+def verify_mixed_calibration_export_xml(case, original, exported):
+    expected = minidom.parse(str(original))
+    frames = {int(node.parentNode.getAttribute("name")[1:-1]): node for node in expected.getElementsByTagName("object")
+              if node.getAttribute("class") == "org.opensourcephysics.media.core.ImageCoordSystem$FrameData"}
+    if sorted(frames) != [0, 4, 9]:
+        raise ValueError("Expected pinned partly fixed keys 0/4/9")
+    for key in mixed_calibration_expected(case, True, normalized=False)["keys"]:
+        number = key["frame"]
+        added_key = number not in frames
+        if added_key:
+            added = frames[0].parentNode.cloneNode(True)
+            added.setAttribute("name", f"[{number}]")
+            frames[4].parentNode.parentNode.insertBefore(added, frames[4].parentNode)
+            frames[number] = added.getElementsByTagName("object")[0]
+        values = key["origin"] + [key["angle"]] + key["scale"]
+        scalar_nodes = []
+        for name, value in zip(["xorigin", "yorigin", "angle", "xscale", "yscale"], values):
+            properties = [node for node in frames[number].childNodes if node.nodeType == node.ELEMENT_NODE
+                          and node.tagName == "property" and node.getAttribute("name") == name]
+            if len(properties) != 1 or properties[0].getAttribute("type") != "double":
+                raise ValueError("Unexpected partly fixed scalar: " + name)
+            nodes = [node for node in properties[0].childNodes if node.nodeType in {node.TEXT_NODE, node.CDATA_SECTION_NODE}]
+            if len(nodes) != 1:
+                raise ValueError("Unexpected partly fixed scalar contents: " + name)
+            scalar_nodes.append(nodes[0])
+        if added_key or [float(node.data) for node in scalar_nodes] != values:
+            for node, value in zip(scalar_nodes, values):
+                node.data = format(value, ".17g")
+    actual = minidom.parse(str(exported))
+    matches = canonical_tracker_xml(expected) == canonical_tracker_xml(actual)
+    expected.unlink()
+    actual.unlink()
+    if not matches:
+        raise ValueError("Standard export changed content beyond partly fixed calibration edits")
+
+
 def clip_roundtrip_expected(case, boundary=False):
     if case["id"] != "independent-vectors":
         raise ValueError("The clip oracle requires the fixed-coordinate vector fixture")
@@ -1009,6 +1087,7 @@ def check_sessions(manifest, cache, java, probe=None):
              ("snap-origin", "native_vector_roundtrip"), ("snap-vector", "native_vector_roundtrip"),
              ("calibration", "native_calibration_roundtrip"), ("length-unit", "native_length_unit_roundtrip"),
              ("keyed-calibration", "native_keyed_calibration_roundtrip"),
+             ("mixed-calibration", "native_mixed_calibration_roundtrip"),
              ("mass-unit", "native_mass_unit_roundtrip"), ("time-unit", "native_time_unit_roundtrip"),
              ("name", "native_name_roundtrip"), ("unselected-name", "native_name_roundtrip"),
              ("vector-name", "native_vector_name_roundtrip"),
@@ -1100,6 +1179,9 @@ def check_sessions(manifest, cache, java, probe=None):
                 elif mode == "mass-unit":
                     expected = mass_unit_roundtrip_expected(case)
                     verify_mass_unit_export_xml(project, exported)
+                elif mode == "mixed-calibration":
+                    expected = mixed_calibration_roundtrip_expected(case)
+                    verify_mixed_calibration_export_xml(case, project, exported)
                 elif mode == "keyed-calibration":
                     expected = keyed_calibration_roundtrip_expected(case)
                     verify_keyed_calibration_export_xml(project, exported)
@@ -1156,6 +1238,8 @@ def check_sessions(manifest, cache, java, probe=None):
                       "after": stages["reopen"]["loaded"]}
             keys = {"marks": [[0, 3], [7]], "empty-marks": [[], [0]], "first-mark": [[4], [0]]}.get(mode)
             calibration = keyed_calibration_expected(mode == "keyed-calibration") if case["id"] == "keyed-calibration" else None
+            if "mixed_calibration_flags" in case:
+                calibration = mixed_calibration_expected(case, mode == "mixed-calibration")
             known_report = None
             try:
                 if case.get("session_known_issue"):

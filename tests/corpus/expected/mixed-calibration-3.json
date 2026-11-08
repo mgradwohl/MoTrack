@@ -1,0 +1,107 @@
+{
+  "reference_version": "6.3.5",
+  "verification_level": "xml_and_coordinate_api",
+  "project": {
+    "source_version": "6.3.5",
+    "length_unit": "m",
+    "mass_unit": "kg",
+    "time_unit": "s",
+    "clip": {
+      "first_frame": 0,
+      "step_size": 1,
+      "step_count": 10,
+      "start_ms": 0.0
+    },
+    "point_masses": [
+      {
+        "name": "calibration probe",
+        "samples": [
+          {
+            "frame": 0,
+            "image": [
+              10.0,
+              20.0
+            ],
+            "world": [
+              -27.5,
+              -50.0
+            ]
+          },
+          {
+            "frame": 3,
+            "image": [
+              10.0,
+              20.0
+            ],
+            "world": [
+              -27.5,
+              -50.0
+            ]
+          },
+          {
+            "frame": 4,
+            "image": [
+              10.0,
+              20.0
+            ],
+            "world": [
+              -13.75,
+              -25.0
+            ]
+          },
+          {
+            "frame": 8,
+            "image": [
+              10.0,
+              20.0
+            ],
+            "world": [
+              -13.75,
+              -25.0
+            ]
+          },
+          {
+            "frame": 9,
+            "image": [
+              10.0,
+              20.0
+            ],
+            "world": [
+              -13.750000000000004,
+              -50.0
+            ]
+          }
+        ],
+        "mass": 2.5
+      }
+    ],
+    "vectors": [],
+    "unsupported_tracks": [
+      "org.opensourcephysics.cabrillo.tracker.CoordAxes"
+    ],
+    "coordinate_samples": [
+      {
+        "frame": 0,
+        "image": [
+          13.5,
+          17.25
+        ],
+        "world": [
+          -28.1875,
+          -48.25
+        ]
+      },
+      {
+        "frame": 9,
+        "image": [
+          13.5,
+          17.25
+        ],
+        "world": [
+          -14.093750000000004,
+          -48.25
+        ]
+      }
+    ]
+  }
+}

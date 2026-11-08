@@ -832,6 +832,89 @@ class CorpusTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 corpus.validate_known_session_issue(invalid_case, defect, manifest, saved)
 
+    def test_partly_fixed_calibration_requires_independent_flags_keys_and_world_values(self):
+        manifest = corpus.load_manifest()
+        world = [
+            [[-35, 17.5], [-17.5, -35], [-8.75, 4.375], [-8.75, 4.375], [-8.75, -35]],
+            [[-55, -155], [-17.5, -35], [-7.5, -13.75], [-7.5, -13.75], [-13.75, -50]],
+            [[-17.5, -35], [-17.5, -35], [-4.375, -8.75], [-4.375, -8.75], [-8.75, -35]],
+            [[-38.75, 6.875], [-2.1875, -8.75], [-13.75, 3.75], [-13.75, 3.75], [-3.4375, -12.5]],
+            [[-8.75, 2.1875], [-2.1875, -8.75], [-8.75, 2.1875], [-8.75, 2.1875], [-2.1875, -8.75]],
+            [[-6.875, -38.75], [-2.1875, -8.75], [-3.75, -13.75], [-3.75, -13.75], [-3.4375, -12.5]]]
+        for flags in range(1, 7):
+            case = next(case for case in manifest["cases"] if case["id"] == f"mixed-calibration-{flags}")
+            corpus.verify_file(corpus.local_fixture_path(case), case)
+            for edited in [False, True]:
+                expected = (corpus.mixed_calibration_roundtrip_expected(case) if edited else
+                            json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"])
+                calibration = corpus.mixed_calibration_expected(case, edited)
+                mass = expected["point_masses"][0]
+                if edited:
+                    self.assertEqual([sample["world"] for sample in mass["samples"]], world[flags - 1])
+                    self.assertEqual([key["frame"] for key in calibration["keys"]], [0, 4, 9] if flags == 3 else [0, 3, 4, 9])
+                tracks = [{**case["session_tracks"][0], "samples": []},
+                          {**case["session_tracks"][1], "mass": mass["mass"],
+                           "samples": [{"frame": s["frame"], "points": [s["image"]], "world": s["world"]} for s in mass["samples"]]}]
+                before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                          "calibration": calibration, **corpus.session_units(case, expected)}
+                valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                         "view_preparation": "visit_custom_tables_restore_selection", "before": before,
+                         "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
+                corpus.validate_session(case, valid, manifest, expected, calibration=calibration)
+                changes = [(["calibration", "fixed_origin"], not calibration["fixed_origin"]),
+                           (["calibration", "fixed_angle"], not calibration["fixed_angle"]),
+                           (["calibration", "fixed_scale"], not calibration["fixed_scale"]),
+                           (["calibration", "keys", 0, "origin"], [999.0, 999.0]),
+                           (["calibration", "keys", 0, "angle"], 45.0),
+                           (["calibration", "keys", 0, "scale"], [999.0, 999.0]),
+                           (["calibration", "keys"], []),
+                           (["tracks", 1, "samples", 2, "world"], [999.0, 999.0])]
+                for path, value in changes:
+                    invalid = copy.deepcopy(valid)
+                    for stage in ["before", "after_save", "after"]:
+                        target = invalid[stage]
+                        for part in path[:-1]:
+                            target = target[part]
+                        target[path[-1]] = value
+                    with self.subTest(flags=flags, edited=edited, path=path), self.assertRaises(ValueError):
+                        corpus.validate_session(case, invalid, manifest, expected, calibration=calibration)
+        for invalid in [{"id": "other", "mixed_calibration_flags": 1},
+                        *[{"id": f"mixed-calibration-{flags}", "mixed_calibration_flags": flags} for flags in [0, 7, None, True]]]:
+            with self.assertRaises(ValueError):
+                corpus.mixed_calibration_expected(invalid)
+
+    def test_partly_fixed_xml_comparison_rejects_unrequested_changes(self):
+        manifest = corpus.load_manifest()
+        for flags in range(1, 7):
+            case = next(case for case in manifest["cases"] if case["id"] == f"mixed-calibration-{flags}")
+            source = corpus.local_fixture_path(case)
+            tree = ET.parse(source)
+            coords = tree.find("property[@name='coords']/object")
+            data = coords.find("property[@name='framedata']")
+            entries = {int(entry.attrib["name"][1:-1]): entry for entry in data}
+            for key in corpus.mixed_calibration_expected(case, True, normalized=False)["keys"]:
+                number = key["frame"]
+                added_key = number not in entries
+                if added_key:
+                    entry = copy.deepcopy(entries[0]); entry.set("name", f"[{number}]")
+                    data.insert(1, entry); entries[number] = entry
+                obj = entries[number].find("object")
+                values = key["origin"] + [key["angle"]] + key["scale"]
+                nodes = [obj.find(f"property[@name='{name}']") for name in ["xorigin", "yorigin", "angle", "xscale", "yscale"]]
+                if added_key or [float(node.text) for node in nodes] != values:
+                    for node, value in zip(nodes, values):
+                        node.text = format(value, ".17g")
+            exported = self.root / "mixed.trk"
+            tree.write(exported, encoding="utf-8", xml_declaration=True)
+            corpus.verify_mixed_calibration_export_xml(case, source, exported)
+            for xpath in ["property[@name='length_unit']", "property[@name='coords']/object/property[@name='fixedorigin']",
+                          "property[@name='coords']/object/property[@name='framedata']/property/object/property[@name='angle']"]:
+                invalid = copy.deepcopy(tree)
+                invalid.find(xpath).text = "wrong"
+                invalid.write(exported, encoding="utf-8", xml_declaration=True)
+                with self.subTest(flags=flags, field=xpath), self.assertRaises(ValueError):
+                    corpus.verify_mixed_calibration_export_xml(case, source, exported)
+
     def test_session_checks_reject_non_linux_hosts(self):
         with patch.object(corpus.sys, "platform", "win32"), self.assertRaisesRegex(ValueError, "Linux"):
             corpus.check_sessions({}, self.root, "java")
