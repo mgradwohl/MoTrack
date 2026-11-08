@@ -50,6 +50,10 @@ to it elsewhere. Do not describe planned functionality or unavailable tooling as
 - Follow the [full-port implementation order](docs/migration-plan.md#implementation-order-and-exit-gates).
   Update its requirement/status matrix and evidence with each completed slice. A working prototype,
   preserved unknown object, or green coverage result does not by itself establish full Tracker parity.
+- The maintainer extended completion on 2026-11-08: after the full port, resolve the remaining MoTrack
+  issues in prioritized, coherent PR groups; then review the entire codebase, file actionable findings
+  and resolve those issues with the same process. Follow migration-plan phases 13–14. Do not postpone
+  current data-loss/scientific failures until that audit, or close unresolved work merely to empty the queue.
 - Before a port slice, consult the Tracker issue triage and refresh relevant upstream discussions.
   Link accepted fixes/workflows to a MoTrack issue with the original report, reproduction status and
   acceptance criteria. Keep upstream and native resolution separate; close native issues with regression

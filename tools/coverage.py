@@ -13,7 +13,9 @@ def collect(build, output, llvm):
     build = build.resolve()
     for profile in build.glob("motrack-*.profraw"):
         profile.unlink()
-    env = {**os.environ, "LLVM_PROFILE_FILE": (build / "motrack-%p.profraw").as_posix()}
+    # Process IDs can be reused during one suite. The binary signature also enables
+    # LLVM's locked merge mode, preserving repeated runs of the same executable.
+    env = {**os.environ, "LLVM_PROFILE_FILE": (build / "motrack-%m-%p.profraw").as_posix()}
     subprocess.run(["ctest", "--test-dir", build, "--output-on-failure"], env=env, check=True)
     profiles = sorted(build.glob("motrack-*.profraw"))
     if not profiles:
