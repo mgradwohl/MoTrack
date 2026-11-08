@@ -438,3 +438,5 @@ missing image with an unrecognized suffix retains its known reader; later saves 
 even when an earlier open could not create a reader. A successful save redraws the current image and
 restores clip controls without moving the playhead; single-image recovery needs no navigation event.
 This redraw preserves AutoTracker timers and pending matches and does not start a duplicate match.
+An empty location captured from an unresolved media alias is retried against the source path after
+repair; nonempty physical bindings retain their original base when the source directory is removed.

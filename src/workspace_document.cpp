@@ -343,7 +343,8 @@ void retainWorkspaceMediaLocations(WorkspaceDocument& document, const QString& s
 QString workspaceMediaPath(const WorkspaceDocument& document, const QString& sourcePath, const std::string& reference)
 {
     const auto retained = document.mediaLocations.constFind(QString::fromStdString(reference));
-    if (retained == document.mediaLocations.cend())
+    // An unresolved location captured no physical base. Retry after the original alias is repaired.
+    if (retained == document.mediaLocations.cend() || retained.value().isEmpty())
         return resolveLocalMediaPath(sourcePath, reference);
     // Keep the captured base, but refresh restored/dangling file or directory aliases before saving.
     // The retained path is absolute, so removing the original project directory cannot change its base.
