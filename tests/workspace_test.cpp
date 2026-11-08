@@ -1252,12 +1252,9 @@ TEST(Workspace, ReopensASingleImageWithoutARecognizedFilenameExtension)
         ASSERT_TRUE(window.saveWorkspace(destination));
         ASSERT_TRUE(QFile::remove(image));
         ASSERT_TRUE(window.saveWorkspace(destination));
-        // Request the sole frame through the normal slider signal while missing and restored.
-        ASSERT_TRUE(QMetaObject::invokeMethod(slider, "valueChanged", Q_ARG(int, 0)));
         EXPECT_EQ(canvas->accessibleName(), "This image frame could not be opened.");
         ASSERT_TRUE(QFile::copy(fixturePath("frames/frame00.ppm"), image));
         ASSERT_TRUE(window.saveWorkspace(destination));
-        ASSERT_TRUE(QMetaObject::invokeMethod(slider, "valueChanged", Q_ARG(int, 0)));
         EXPECT_EQ(canvas->accessibleName(), "Frame 0");
         const auto saved = motrack::readWorkspaceDocument(destination);
         EXPECT_FALSE(saved.movie);
@@ -1268,8 +1265,18 @@ TEST(Workspace, ReopensASingleImageWithoutARecognizedFilenameExtension)
         if (!frame)
             FAIL() << "Saved image frame is missing.";
         EXPECT_EQ(frame->image, QImage(fixturePath("frames/frame00.ppm")));
+        // Start with no reader at all; Save alone must recover the image and controls.
+        ASSERT_TRUE(QFile::remove(image));
         ASSERT_TRUE(window.loadProject(destination));
+        auto* clipSettings = window.findChild<QAction*>("clipSettings");
+        ASSERT_NE(clipSettings, nullptr);
+        EXPECT_FALSE(clipSettings->isEnabled());
+        EXPECT_NE(canvas->accessibleName(), "Frame 0");
+        ASSERT_TRUE(QFile::copy(fixturePath("frames/frame00.ppm"), image));
         ASSERT_TRUE(window.saveWorkspace(destination));
+        EXPECT_EQ(canvas->accessibleName(), "Frame 0");
+        EXPECT_TRUE(clipSettings->isEnabled());
+        EXPECT_EQ(slider->value(), 0);
         EXPECT_FALSE(motrack::readWorkspaceDocument(destination).movie);
     }
 }

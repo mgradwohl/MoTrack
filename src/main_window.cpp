@@ -963,6 +963,18 @@ void MainWindow::refreshImageMediaLocations()
         auto sequence = ImageSequence::open(m_MediaProjectPath, m_Session.document.project.clip, m_Session.document.mediaLocations);
         if (sequence)
             m_Sequence = std::move(sequence);
+        if (m_Sequence)
+        {
+            const auto step = m_StepSlider->value();
+            const auto count = m_Sequence->stepCount();
+            {
+                const QSignalBlocker blocker(m_StepSlider);
+                m_StepSlider->setRange(0, std::max(0, count - 1));
+                m_StepSlider->setValue(step);
+            }
+            m_ClipSettings->setEnabled(count > 0);
+            displayStep(m_StepSlider->value());
+        }
     }
 }
 
