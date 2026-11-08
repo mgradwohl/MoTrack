@@ -22,8 +22,9 @@ The standard file remains usable by Tracker without reading the companion.
 4. Persist a bounded recovery record before replacing either destination. It records only sibling
    filenames, the two original fingerprints (or absence), staged filenames and new fingerprints.
    A record never supplies unrestricted external destination paths.
-5. Replace the standard file atomically, then the native companion atomically. Recheck expected
-   destination contents before each replacement. Report each completed write separately.
+5. Replace the standard file atomically, then the native companion atomically. Recheck both expected
+   destination contents and every present stage before each replacement, including the already
+   committed standard file. Report each completed write separately.
 6. Remove the recovery record and owned staging files only after both outputs match the intended
    bytes. A cleanup failure must not misreport successfully written content as missing.
 
@@ -31,6 +32,8 @@ Two filesystem replacements are not one atomic operation. Preparation failures l
 outputs intact. Once the standard replacement succeeds, a later failure or cancellation leaves that
 valid standard file in place, retains the previous native file, and preserves the prepared companion
 plus recovery record. Do not silently mark the pair saved or roll back a newer externally edited file.
+Final validation clears an output's current flag if it changed or cannot be read; cancellation or
+cleanup failure preserves independently confirmed successful output status.
 
 ## Recovery and ownership
 
@@ -43,7 +46,8 @@ explicit original state, not a wildcard authorizing overwrite.
 
 The initial API is an internal adapter operating on an immutable snapshot in a worker. It reports
 saved, canceled, failed-before-commit and recovery-required outcomes, with individual output status.
-Cancellation is checked before preparation and at bounded copy/commit boundaries. Progress callbacks
+Cancellation is checked before preparation and at bounded copy/commit boundaries.
+Cancellation reported by nested archive/native adapters is classified consistently before commitment. Progress callbacks
 must never touch widgets directly. Session identity/revision checks remain necessary when applying
 completion: an old or replaced document cannot become clean because its worker finished.
 
@@ -97,3 +101,13 @@ Local Windows validation on 2026-11-08: all six CTest suites passed, including p
 combined production coverage was 95.32% (7632/8007 lines). Formatting and clang-tidy passed, as did
 76 corpus-harness tests, native corpus checks and both recovered-export XML/media/ZIP oracles.
 These local results do not substitute for the pending Linux/macOS and actual Tracker application gates.
+
+
+Long operations disable Qt's age-based lock expiry with `setStaleLockTime(0)` while retaining
+its dead-process detection. This follows [Qt's long-lived lock guidance](https://doc.qt.io/qt-6/qlockfile.html#details).
+A regression copies a live owner's lock identity to an aged claim without an OS advisory lock,
+so timeout-based theft cannot be masked by native locking support. Both new writes and recovery
+must refuse that claim; the separate terminated-child regression still proves dead-owner recovery.
+
+After review fixes, all six Windows suites and formatting/clang-tidy pass; coverage is 95.33%
+(7656/8031). Both recovered-export oracles still pass. Current-head CI/application acceptance remains pending.
