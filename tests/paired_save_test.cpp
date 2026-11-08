@@ -873,6 +873,47 @@ TEST(PairedSave, RefusesInvalidInputsUnsupportedDocumentsAndConcurrentWritersBef
 }
 
 #ifndef Q_OS_WIN
+TEST(PairedSave, ReturnsRefreshedBindingsForImagesRestoredThroughAnAlias)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(QDir(temporary.path()).mkpath("import"));
+    ASSERT_TRUE(QDir(temporary.path()).mkpath("media"));
+    ASSERT_TRUE(QDir(temporary.path()).mkpath("exports"));
+    const auto input = temporary.filePath("import/input.trk");
+    put(input, bytes(fixture()));
+    auto document = motrack::importTrackerDocument(input);
+    motrack::retainWorkspaceMediaLocations(document, input);
+    const auto media = temporary.filePath("media");
+    const auto alias = temporary.filePath("import/images");
+    ASSERT_TRUE(QFile::link(media, alias));
+    for (int frame = 0; frame < 4; ++frame)
+    {
+        const auto name = "frame" + QString::number(frame) + ".png";
+        ASSERT_TRUE(QFile::copy(fixture("images/" + name), media + '/' + name));
+    }
+    const auto result = motrack::writePairedDocuments(temporary.filePath("exports/first.trk"), document, input);
+    ASSERT_EQ(result.status, motrack::PairedSaveStatus::Saved) << result.diagnostic.toStdString();
+    for (int frame = 0; frame < 4; ++frame)
+    {
+        const auto name = "frame" + QString::number(frame) + ".png";
+        EXPECT_EQ(result.mediaLocations.value("images/" + name), media + '/' + name);
+    }
+    document.mediaLocations = result.mediaLocations;
+    ASSERT_TRUE(QFile::remove(input));
+    ASSERT_TRUE(QFile::remove(alias));
+    ASSERT_TRUE(QDir(temporary.path()).rmdir("import"));
+    const auto resaved = motrack::writePairedDocuments(temporary.filePath("exports/second.trk"), document, input);
+    ASSERT_EQ(resaved.status, motrack::PairedSaveStatus::Saved) << resaved.diagnostic.toStdString();
+    const auto standard = motrack::importTrackerDocument(resaved.standardPath);
+    const auto native = motrack::readWorkspaceDocument(resaved.nativePath);
+    EXPECT_EQ(standard.project.clip.mediaReferences, native.project.clip.mediaReferences);
+    for (int frame = 0; frame < 4; ++frame)
+    {
+        const auto name = "frame" + QString::number(frame) + ".png";
+        EXPECT_EQ(standard.project.clip.mediaReferences.at(frame), ("../media/" + name).toStdString());
+    }
+}
+
 TEST(PairedSave, RejectsFileAliasesAndRecoversThroughADirectoryAlias)
 {
     QTemporaryDir temporary;

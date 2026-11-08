@@ -9,6 +9,7 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QDialog>
+#include <QDir>
 #include <QFile>
 #include <QFileDialog>
 #include <QInputDialog>
@@ -955,5 +956,45 @@ TEST(PairedWorkspace, WindowDestructionDuringSaveDialogsLeavesNoDanglingWidgets)
             EXPECT_FALSE(QFileInfo::exists(standard));
     }
 }
+
+#ifndef Q_OS_WIN
+TEST(PairedWorkspace, RetainsRestoredMediaBindingsAfterPairedSaveAndSourceRemoval)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(QDir(temporary.path()).mkpath("import"));
+    ASSERT_TRUE(QDir(temporary.path()).mkpath("media"));
+    ASSERT_TRUE(QDir(temporary.path()).mkpath("exports"));
+    const auto input = temporary.filePath("import/input.trk");
+    put(input, bytes(fixture()));
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(input));
+    const auto media = temporary.filePath("media");
+    const auto alias = temporary.filePath("import/images");
+    ASSERT_TRUE(QFile::link(media, alias));
+    for (int frame = 0; frame < 4; ++frame)
+    {
+        const auto name = "frame" + QString::number(frame) + ".png";
+        ASSERT_TRUE(QFile::copy(fixture("images/" + name), media + '/' + name));
+    }
+    ASSERT_TRUE(window.saveTrackerProject(temporary.filePath("exports/first.trk")));
+    ASSERT_TRUE(QFile::remove(input));
+    ASSERT_TRUE(QFile::remove(alias));
+    ASSERT_TRUE(QDir(temporary.path()).rmdir("import"));
+    ASSERT_TRUE(editMass(window, 7));
+    ASSERT_TRUE(window.saveWorkspace(temporary.filePath("exports/native-copy.motrack")));
+    const auto output = temporary.filePath("exports/second.trk");
+    ASSERT_TRUE(window.saveTrackerProject(output));
+    EXPECT_FALSE(window.isWindowModified());
+    const auto standard = motrack::importTrackerDocument(output);
+    const auto native = motrack::readWorkspaceDocument(temporary.filePath("exports/second.motrack"));
+    EXPECT_DOUBLE_EQ(standard.project.pointMasses.at(0).mass, 7);
+    EXPECT_EQ(standard.project.clip.mediaReferences, native.project.clip.mediaReferences);
+    for (int frame = 0; frame < 4; ++frame)
+    {
+        const auto name = "frame" + QString::number(frame) + ".png";
+        EXPECT_EQ(standard.project.clip.mediaReferences.at(frame), ("../media/" + name).toStdString());
+    }
+}
+#endif
 
 } // namespace
