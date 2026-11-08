@@ -91,12 +91,14 @@ class DocumentSession
     QString m_StandardSavePath;
     QStringList m_RecoveryPaths;
     QHash<QString, QList<RecoveryObservation>> m_RecoveryTransactions;
-    QHash<QString, std::uint64_t> m_CompletedRecoveryTransactions;
+    QHash<QString, QHash<QString, std::uint64_t>> m_CompletedRecoveryTransactions;
     QHash<QString, std::uint64_t> m_ClearedRecoveryObservations;
     QHash<QString, std::shared_ptr<const QString>> m_RecoveryLocationIdentities;
     std::uint64_t m_NativeInvalidation = 0;
     std::uint64_t m_TrackerInvalidation = 0;
     std::uint64_t m_MediaObservation = 0;
+    std::uint64_t m_NativeDestinationObservation = 0;
+    std::uint64_t m_StandardDestinationObservation = 0;
     bool m_PairedSaving = false;
 };
 
