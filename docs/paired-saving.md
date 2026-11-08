@@ -211,3 +211,15 @@ Successful paired writes retain their lock-observed journal pathname even after 
 Session completion reconciles older observations at that path, so an unreported external recovery
 followed by a fresh successful write cannot leave a deleted journal pending. Newer observations at
 the same path and unresolved records at other destinations remain pending in either callback order.
+
+Journal observations also retain a process-local filesystem-slot identity. While the destination lock
+exists, the worker compares it with live prior lock spellings using actual filesystem identity; it
+never assumes a platform-wide case policy or folds Unicode names. A weak registry retains no abandoned
+session/result ownership. Sessions keep the identities while their observation watermarks are live,
+so delayed callbacks and externally recovered/deleted outputs cannot reintroduce a case-variant record.
+These identities and observations are never serialized and are not needed across process restarts.
+Recovery accepts the recorded sibling spelling only when its journal and lock resolve to the same
+files as the requested spelling, after the existing regular-file/alias checks. A journal copied or
+hard-linked under a different stem cannot authorize writes to an unlocked sibling pair.
+Case-variant and Unicode regressions run both callback orders and with both outputs removed, and retain
+distinct destinations on volumes where the names differ.
