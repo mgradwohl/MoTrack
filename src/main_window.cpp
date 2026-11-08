@@ -1767,7 +1767,7 @@ bool MainWindow::saveTrackerProject(const QString& path, bool recoverPending)
         std::optional<PairedSaveResult> recovery;
         std::optional<PairedSaveResult> saved;
     };
-    const auto checkpoint = m_Session.saveCheckpoint();
+    auto checkpoint = m_Session.saveCheckpoint();
     m_SaveCancelled = std::make_shared<std::atomic_bool>(false);
     const auto cancelled = m_SaveCancelled;
     bool alive = true;
@@ -1826,6 +1826,7 @@ bool MainWindow::saveTrackerProject(const QString& path, bool recoverPending)
     const auto result = watcher.result();
     if (result.recovery)
     {
+        const auto beforeRecovery = m_Session.saveCheckpoint();
         const auto outcome = m_Session.completePairedRecovery(checkpoint, pending, *result.recovery);
         if (outcome == SaveOutcome::Replaced)
             return false;
@@ -1835,6 +1836,11 @@ bool MainWindow::saveTrackerProject(const QString& path, bool recoverPending)
             statusBar()->showMessage(tr("Could not finish the interrupted save: %1").arg(result.recovery->diagnostic));
             return false;
         }
+        // This one serialized worker saved its snapshot after recovery. Carry only this recovery's
+        // invalidation forward; preserve its original edit revision and any earlier invalidations.
+        const auto afterRecovery = m_Session.saveCheckpoint();
+        checkpoint.nativeInvalidation += afterRecovery.nativeInvalidation - beforeRecovery.nativeInvalidation;
+        checkpoint.trackerInvalidation += afterRecovery.trackerInvalidation - beforeRecovery.trackerInvalidation;
     }
     if (!result.saved)
         return false;
@@ -1853,7 +1859,9 @@ bool MainWindow::saveTrackerProject(const QString& path, bool recoverPending)
     if (outcome == SaveOutcome::Failed)
     {
         statusBar()->showMessage(saved.status == PairedSaveStatus::Cancelled
-                                     ? tr("Save canceled. Existing files were kept.")
+                                     ? (result.recovery && result.recovery->status == PairedSaveStatus::Saved
+                                            ? tr("Interrupted save recovered. Saving the current edits was canceled.")
+                                            : tr("Save canceled. Existing files were kept."))
                                      : tr("Could not save the Tracker project: %1").arg(saved.diagnostic));
         return false;
     }

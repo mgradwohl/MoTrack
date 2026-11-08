@@ -2,6 +2,7 @@
 
 #include <QFileInfo>
 
+#include <algorithm>
 #include <utility>
 
 namespace motrack
@@ -23,6 +24,9 @@ void DocumentSession::replace(WorkspaceDocument incoming, const QString& source,
     m_RecoveryPaths.clear();
     m_RecoveryTransactions.clear();
     m_CompletedRecoveryTransactions.clear();
+    m_ClearedRecoveryObservations.clear();
+    m_NativeInvalidation = 0;
+    m_TrackerInvalidation = 0;
     m_PairedSaving = false;
     history.clear();
 }
@@ -63,33 +67,60 @@ DocumentSession::SaveCheckpoint DocumentSession::saveCheckpoint() const
     QHash<QString, QString> firstTransactions;
     for (auto entry = m_RecoveryTransactions.cbegin(); entry != m_RecoveryTransactions.cend(); ++entry)
         if (!entry.value().isEmpty())
-            firstTransactions.insert(entry.key(), entry.value().front());
-    return {.identity = m_Identity, .revision = history.revision(), .recoveryTransactions = std::move(firstTransactions)};
+            firstTransactions.insert(entry.key(), entry.value().front().transaction);
+    return {.identity = m_Identity,
+            .revision = history.revision(),
+            .recoveryTransactions = std::move(firstTransactions),
+            .nativeInvalidation = m_NativeInvalidation,
+            .trackerInvalidation = m_TrackerInvalidation};
 }
 
-void DocumentSession::rememberRecovery(const QString& path, const QString& transaction)
+void DocumentSession::invalidateSaved(SaveTarget target)
 {
-    if (!transaction.isEmpty() && m_CompletedRecoveryTransactions.contains(transaction))
-        return;
+    ++(target == SaveTarget::Native ? m_NativeInvalidation : m_TrackerInvalidation);
+    history.invalidateSaved(target);
+}
+
+void DocumentSession::rememberRecovery(const QString& path, const QString& transaction, std::uint64_t observation)
+{
     auto& transactions = m_RecoveryTransactions[path];
-    if (transaction.isEmpty() && !transactions.isEmpty())
-        return; // An unreadable retry cannot replace a known pending identity.
+    if (transaction.isEmpty() &&
+        std::ranges::any_of(transactions,
+                            [&](const auto& pending)
+                            { return !pending.transaction.isEmpty() && (observation == 0 || pending.observation >= observation); }))
+        return; // Later known identities supersede earlier unreadable observations.
     if (!transaction.isEmpty())
-        transactions.removeAll(QString{});
-    if (!transactions.contains(transaction))
-        transactions.append(transaction);
+        transactions.removeIf([observation](const auto& pending)
+                              { return pending.transaction.isEmpty() && pending.observation <= observation; });
+    const auto existing = std::ranges::find(transactions, transaction, &RecoveryObservation::transaction);
+    if (existing == transactions.end())
+        transactions.append({transaction, observation});
+    else
+        existing->observation = std::max(existing->observation, observation);
     if (!m_RecoveryPaths.contains(path))
         m_RecoveryPaths.append(path);
 }
 
-void DocumentSession::forgetRecovery(const QString& path, const QString& transaction)
+void DocumentSession::forgetRecovery(const QString& path, const QString& transaction, std::uint64_t observation, bool cleared)
 {
+    if (cleared)
+        m_ClearedRecoveryObservations[path] = std::max(m_ClearedRecoveryObservations.value(path), observation);
     if (!transaction.isEmpty())
-        m_CompletedRecoveryTransactions.insert(transaction);
+        m_CompletedRecoveryTransactions[transaction] = std::max(m_CompletedRecoveryTransactions.value(transaction), observation);
     auto entry = m_RecoveryTransactions.find(path);
     if (entry == m_RecoveryTransactions.end())
         return;
-    entry.value().removeAll(transaction);
+    entry.value().removeIf(
+        [&](const auto& pending)
+        {
+            const bool obsolete = cleared && observation != 0
+                                      ? pending.observation <= observation
+                                      : pending.transaction == transaction && (observation == 0 || pending.observation <= observation);
+            if (obsolete && !pending.transaction.isEmpty())
+                m_CompletedRecoveryTransactions[pending.transaction] =
+                    std::max(m_CompletedRecoveryTransactions.value(pending.transaction), observation);
+            return obsolete;
+        });
     if (entry.value().isEmpty())
     {
         m_RecoveryTransactions.erase(entry);
@@ -108,9 +139,9 @@ SaveOutcome DocumentSession::completeSave(const SaveCheckpoint& checkpoint, cons
         return SaveOutcome::Failed;
     }
     m_NativeSavePath = QFileInfo(destination).absoluteFilePath();
-    if (checkpoint.revision != history.revision())
+    if (checkpoint.revision != history.revision() || checkpoint.nativeInvalidation != m_NativeInvalidation)
     {
-        history.invalidateSaved();
+        invalidateSaved();
         return SaveOutcome::Stale;
     }
     history.markSaved();
@@ -121,42 +152,47 @@ SaveOutcome DocumentSession::completePairedSave(const SaveCheckpoint& checkpoint
 {
     if (checkpoint.identity != m_Identity)
         return SaveOutcome::Replaced;
-    if (!result.transactionId.isEmpty() && m_CompletedRecoveryTransactions.contains(result.transactionId))
+    if ((!result.transactionId.isEmpty() && m_CompletedRecoveryTransactions.contains(result.transactionId) &&
+         result.observation <= m_CompletedRecoveryTransactions.value(result.transactionId)) ||
+        (!result.recoveryPath.isEmpty() && result.observation != 0 &&
+         result.observation <= m_ClearedRecoveryObservations.value(result.recoveryPath)))
         return SaveOutcome::Stale;
     if (!result.standardCurrent && !result.nativeCurrent && result.status != PairedSaveStatus::RecoveryRequired)
         return SaveOutcome::Failed;
     // A blocked retry only reports an existing journal; it must not restore an older destination.
     const bool adoptStandard = !m_PairedSaving || m_StandardSavePath.isEmpty() || result.standardCurrent;
     m_PairedSaving = true;
-    const bool stale = checkpoint.revision != history.revision();
+    const bool changedRevision = checkpoint.revision != history.revision();
+    const bool nativeStale = changedRevision || checkpoint.nativeInvalidation != m_NativeInvalidation;
+    const bool trackerStale = changedRevision || checkpoint.trackerInvalidation != m_TrackerInvalidation;
     const auto standard = QFileInfo(result.standardPath).absoluteFilePath();
     if (adoptStandard && !result.standardPath.isEmpty() && standard != m_StandardSavePath)
     {
         m_StandardSavePath = standard;
-        history.invalidateSaved(SaveTarget::Tracker);
+        invalidateSaved(SaveTarget::Tracker);
     }
     if (result.standardCurrent)
     {
-        if (stale)
-            history.invalidateSaved(SaveTarget::Tracker);
+        if (trackerStale)
+            invalidateSaved(SaveTarget::Tracker);
         else
             history.markSaved(SaveTarget::Tracker);
     }
     if (result.nativeCurrent)
     {
         m_NativeSavePath = QFileInfo(result.nativePath).absoluteFilePath();
-        if (stale)
-            history.invalidateSaved();
+        if (nativeStale)
+            invalidateSaved();
         else
             history.markSaved();
     }
     if (!result.recoveryPath.isEmpty())
-        rememberRecovery(result.recoveryPath, result.transactionId);
+        rememberRecovery(result.recoveryPath, result.transactionId, result.observation);
     if (result.status == PairedSaveStatus::RecoveryRequired || !m_RecoveryPaths.isEmpty())
         return SaveOutcome::Partial;
     if (result.status != PairedSaveStatus::Saved || !result.standardCurrent || !result.nativeCurrent)
         return SaveOutcome::Failed;
-    return stale ? SaveOutcome::Stale : SaveOutcome::Saved;
+    return nativeStale || trackerStale ? SaveOutcome::Stale : SaveOutcome::Saved;
 }
 
 SaveOutcome DocumentSession::completePairedRecovery(const SaveCheckpoint& checkpoint,
@@ -165,27 +201,31 @@ SaveOutcome DocumentSession::completePairedRecovery(const SaveCheckpoint& checkp
 {
     if (checkpoint.identity != m_Identity || !m_RecoveryPaths.contains(requestedRecoveryPath))
         return SaveOutcome::Replaced;
-    if (!checkpoint.recoveryTransactions.contains(requestedRecoveryPath) ||
-        !m_RecoveryTransactions.value(requestedRecoveryPath).contains(checkpoint.recoveryTransactions.value(requestedRecoveryPath)))
+    if (!checkpoint.recoveryTransactions.contains(requestedRecoveryPath))
         return SaveOutcome::Stale;
     const auto transaction = checkpoint.recoveryTransactions.value(requestedRecoveryPath);
-    // The public accessor may have supplied a reference to the list element that is about to be removed.
+    const auto& transactions = m_RecoveryTransactions[requestedRecoveryPath];
+    const auto pending = std::ranges::find(transactions, transaction, &RecoveryObservation::transaction);
+    if (pending == transactions.end())
+        return SaveOutcome::Stale;
+    const bool newerObservation = result.observation != 0 && pending->observation > result.observation;
+    // The accessor may have supplied a list-element reference that completion is about to remove.
     const auto completedPath = requestedRecoveryPath; // NOLINT(performance-unnecessary-copy-initialization)
     if (result.status == PairedSaveStatus::RecoveryRequired && !result.transactionId.isEmpty() && result.transactionId != transaction)
     {
-        // Another process replaced the journal. No output changed; the next confirmation must identify this transaction.
-        forgetRecovery(completedPath, transaction);
-        rememberRecovery(completedPath, result.transactionId);
-        history.invalidateSaved();
-        history.invalidateSaved(SaveTarget::Tracker);
+        // A different journal was observed under the lock. Preserve any still newer observations.
+        forgetRecovery(completedPath, transaction, result.observation, false);
+        rememberRecovery(completedPath, result.transactionId, result.observation);
+        invalidateSaved();
+        invalidateSaved(SaveTarget::Tracker);
         return SaveOutcome::Partial;
     }
-    const bool absent = result.status == PairedSaveStatus::RecoveryNotNeeded && !transaction.isEmpty();
+    const bool absent = result.status == PairedSaveStatus::RecoveryNotNeeded;
     if (!absent && (result.status != PairedSaveStatus::Saved || !result.standardCurrent || !result.nativeCurrent))
         return SaveOutcome::Partial;
     if (!transaction.isEmpty() && result.transactionId != transaction)
         return SaveOutcome::Stale;
-    if (!absent)
+    if (!absent && !newerObservation)
     {
         const auto recoveredStandard = QFileInfo(result.standardPath).absoluteFilePath();
         if (m_StandardSavePath.isEmpty())
@@ -193,14 +233,15 @@ SaveOutcome DocumentSession::completePairedRecovery(const SaveCheckpoint& checkp
         if (m_NativeSavePath.isEmpty() && m_StandardSavePath == recoveredStandard)
             m_NativeSavePath = QFileInfo(result.nativePath).absoluteFilePath();
     }
-    forgetRecovery(completedPath, transaction);
+    forgetRecovery(completedPath, transaction, result.observation, true);
     if (!result.transactionId.isEmpty())
-        m_CompletedRecoveryTransactions.insert(result.transactionId);
-    // A journal can predate the live session or be recovered after further edits. A fresh paired
-    // save establishes its relationship to the current document; recovery alone never does.
-    history.invalidateSaved();
-    history.invalidateSaved(SaveTarget::Tracker);
-    return SaveOutcome::Recovered;
+        m_CompletedRecoveryTransactions[result.transactionId] =
+            std::max(m_CompletedRecoveryTransactions.value(result.transactionId), result.observation);
+    // Recovery never establishes that its snapshot equals the live document. Previously dispatched
+    // writes cannot clear this invalidation merely because their edit revision happens to match.
+    invalidateSaved();
+    invalidateSaved(SaveTarget::Tracker);
+    return newerObservation ? SaveOutcome::Stale : SaveOutcome::Recovered;
 }
 
 } // namespace motrack

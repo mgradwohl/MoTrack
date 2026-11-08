@@ -20,6 +20,7 @@
     <message><source>Save Tracker project and MoTrack companion</source><translation type="unfinished"></translation></message>
     <message><source>Save a Tracker file and a MoTrack companion.</source><translation type="unfinished"></translation></message>
     <message><source>Save canceled. Existing files were kept.</source><translation type="unfinished"></translation></message>
+    <message><source>Interrupted save recovered. Saving the current edits was canceled.</source><translation type="unfinished"></translation></message>
     <message><source>Saving project files</source><translation type="unfinished"></translation></message>
     <message><source>Saving the Tracker file and MoTrack companion…</source><translation type="unfinished"></translation></message>
     <message><source>This also replaces the existing MoTrack file:

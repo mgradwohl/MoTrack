@@ -200,9 +200,11 @@ refused before recovery modifies either output. This is part of the initial, unm
 The session retains every known pending transaction identity, including multiple successive identities
 at one journal pathname when worker completions arrive out of order. A recovery checkpoint selects
 the first pending identity at each path; applying its result removes only that identity, leaving newer
-ones pending. Completed/obsolete UUIDs remain remembered until document replacement, so even an
-original write result captured before registration cannot resurrect a recovered transaction. Unknown
-retry errors never replace known identities. A successful save elsewhere cannot hide these entries.
+ones pending. Each core result carries a process-local observation sequence assigned under its journal
+lock. A confirmed absent or recovered journal supersedes only older observations at that path, including
+unreadable records whose UUID was unavailable. Delayed callbacks cannot resurrect those records, while
+a genuinely newer unreadable or restored journal remains pending. These sequences are never persisted
+or compared across processes. A successful save elsewhere cannot hide pending entries.
 
 Recovery checkpoints capture the selected pending path-to-transaction identities. Applying a delayed result
 requires the recorded transaction still to match both the checkpoint and result. A newer transaction
@@ -229,3 +231,10 @@ Native and paired media-overwrite checks compare actual filesystem identity. Dis
 spellings remain usable where the filesystem distinguishes them; true aliases stay protected. The
 Tracker filename chooser is destroyed before companion/recovery/progress dialogs begin, including
 when the window is destroyed during an action-triggered save.
+
+Each output also has a session invalidation generation. A write captured before stale disk content or
+recovery invalidates that output cannot later mark it clean just because its edit revision matches.
+A fresh write must follow that invalidation. The desktop recovery-and-save sequence must apply recovery
+before capturing the fresh write checkpoint, or explicitly carry forward only that operation’s recovery
+invalidation while retaining the original snapshot revision. Real-file regressions cover writes committed
+in one order and reported in another, unknown journals completed externally, and newer/restored records.
