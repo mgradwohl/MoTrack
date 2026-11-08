@@ -18,6 +18,7 @@
 #include <QScopeGuard>
 #include <QSet>
 #include <QTemporaryFile>
+#include <QUuid>
 
 #include <array>
 #include <cmath>
@@ -80,6 +81,7 @@ struct Record
 {
     QString directory;
     QString name;
+    QString transactionId;
     std::array<Output, 2> outputs;
 };
 
@@ -150,6 +152,9 @@ Fingerprint parseFingerprint(const QJsonValue& value, qint64 limit)
 
 void validateRecord(const Record& record)
 {
+    const QUuid transaction(record.transactionId);
+    require(!transaction.isNull() && transaction.toString(QUuid::WithoutBraces) == record.transactionId,
+            "Invalid paired-save transaction identity.");
     const auto& standard = record.outputs[0];
     const auto& native = record.outputs[1];
     require(standard.name.endsWith(".trk", Qt::CaseInsensitive) || standard.name.endsWith(".trz", Qt::CaseInsensitive),
@@ -182,7 +187,10 @@ void writeRecord(const Record& record)
                                    {"stage", output.stage},
                                    {"before", output.before ? QJsonValue(jsonFingerprint(*output.before)) : QJsonValue::Null},
                                    {"after", jsonFingerprint(output.after)}});
-    const auto bytes = QJsonDocument(QJsonObject{{"format", "MoTrackPairedSave"}, {"version", 1}, {"outputs", outputs}}).toJson();
+    const auto bytes =
+        QJsonDocument(
+            QJsonObject{{"format", "MoTrackPairedSave"}, {"version", 1}, {"transaction", record.transactionId}, {"outputs", outputs}})
+            .toJson();
     require(bytes.size() <= MAX_RECORD_BYTES, "Paired-save recovery record exceeds its limit.");
     QSaveFile file(QDir(record.directory).filePath(record.name));
     require(file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size() && file.commit(),
@@ -206,7 +214,7 @@ Record readRecord(const QString& path, const QString& directory)
             "Unsupported paired-save recovery record.");
     const auto outputs = object.value("outputs").toArray();
     require(outputs.size() == 2, "Paired-save recovery requires exactly two outputs.");
-    Record result{.directory = directory, .name = info.fileName(), .outputs = {}};
+    Record result{.directory = directory, .name = info.fileName(), .transactionId = object.value("transaction").toString(), .outputs = {}};
     for (int i = 0; i < 2; ++i)
     {
         require(outputs[i].isObject(), "Invalid paired-save output record.");
@@ -452,7 +460,10 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
         require(!parent.isEmpty(), "The paired-save destination directory must exist.");
         const QDir directory(parent);
         const auto stem = target.completeBaseName();
-        Record record{.directory = parent, .name = '.' + stem + RECORD_SUFFIX, .outputs = {}};
+        Record record{.directory = parent,
+                      .name = '.' + stem + RECORD_SUFFIX,
+                      .transactionId = QUuid::createUuid().toString(QUuid::WithoutBraces),
+                      .outputs = {}};
         record.outputs[0].name = target.fileName();
         record.outputs[1].name = stem + ".motrack";
         result.standardPath = directory.filePath(record.outputs[0].name);
@@ -467,6 +478,7 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
         if (QFileInfo::exists(recoveryPath) || QFileInfo(recoveryPath).isSymLink())
         {
             result.recoveryPath = recoveryPath;
+            result.transactionId = readRecord(recoveryPath, parent).transactionId;
             throw ProjectError("Resolve the previous paired save before replacing either output.");
         }
         protectSourceFiles(record, document, mediaProjectPath);
@@ -522,6 +534,7 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
         writeRecord(record);
         retainStages = true;
         result.recoveryPath = recoveryPath;
+        result.transactionId = record.transactionId;
         notify(observer, PairedSaveProgress::RecoveryRecorded);
         commitPair(record, result, cancelled, observer);
     }
@@ -552,6 +565,7 @@ PairedSaveResult recoverPairedDocuments(const QString& recoveryPath, const std::
         lock.setStaleLockTime(0);
         require(lock.tryLock(0), "Another save for this project is already in progress.");
         const auto record = readRecord(result.recoveryPath, parent);
+        result.transactionId = record.transactionId;
         result.standardPath = QDir(parent).filePath(record.outputs[0].name);
         result.nativePath = QDir(parent).filePath(record.outputs[1].name);
         commitPair(record, result, cancelled, observer);

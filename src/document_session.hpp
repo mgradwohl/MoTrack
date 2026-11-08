@@ -4,6 +4,7 @@
 #include "track_edits.hpp"
 #include "workspace_document.hpp"
 
+#include <QHash>
 #include <QStringList>
 
 #include <cstdint>
@@ -11,6 +12,12 @@
 
 namespace motrack
 {
+
+enum class DocumentSourceKind : std::uint8_t
+{
+    Project,
+    Media
+};
 
 enum class SaveOutcome : std::uint8_t
 {
@@ -33,13 +40,14 @@ class DocumentSession
     {
         std::shared_ptr<const Identity> identity;
         std::uint64_t revision;
+        QHash<QString, QString> recoveryTransactions;
     };
 
     WorkspaceDocument document;
     TrackEdits history;
 
     /// Install a successfully prepared document, clearing only this session's old history/save target.
-    void replace(WorkspaceDocument incoming, const QString& source);
+    void replace(WorkspaceDocument incoming, const QString& source, DocumentSourceKind kind = DocumentSourceKind::Project);
     [[nodiscard]] const QString& sourcePath() const;
     [[nodiscard]] const QString& nativeSavePath() const;
     [[nodiscard]] const QString& standardSavePath() const;
@@ -52,6 +60,7 @@ class DocumentSession
     [[nodiscard]] SaveOutcome completeSave(const SaveCheckpoint& checkpoint, const QString& destination, bool success);
     /// Apply a new paired-write result, marking only outputs confirmed current for this revision.
     [[nodiscard]] SaveOutcome completePairedSave(const SaveCheckpoint& checkpoint, const PairedSaveResult& result);
+    /// Capture a fresh checkpoint before starting recovery; it identifies the pending transaction.
     /// Recovery may belong to an older snapshot, even after restart. Never marks the live document clean.
     /// Successful recovery clears the pending record but requires a fresh save of the current snapshot.
     [[nodiscard]] SaveOutcome
@@ -71,6 +80,7 @@ class DocumentSession
     QString m_NativeSavePath;
     QString m_StandardSavePath;
     QStringList m_RecoveryPaths;
+    QHash<QString, QString> m_RecoveryTransactions;
     bool m_PairedSaving = false;
 };
 

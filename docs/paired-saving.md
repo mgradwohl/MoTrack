@@ -188,3 +188,13 @@ Local Windows desktop validation: all ten paired-workspace tests and all six CTe
 Combined production line coverage is 95.52% (7957/8330), above the unchanged 90% gate.
 Formatting and clang-tidy pass for the controller and desktop tests. Linux/macOS/current-head CI
 and code review remain required before this desktop slice can be merged.
+
+Every journal contains a persistent transaction UUID, returned by both paired writes and recovery.
+A new transaction at the same pathname receives a new identity. Session completion checks use this
+identity so a delayed result cannot clear a newer pending transaction. Missing/invalid identities are
+refused before recovery modifies either output. This is part of the initial, unmerged journal format.
+
+Recovery checkpoints capture the pending path-to-transaction identities. Applying a delayed result
+requires the recorded transaction still to match both the checkpoint and result. A newer transaction
+at the same path therefore remains pending. Recovery also preserves an existing native Save As
+target, including one selected while recovery was running; only an unset native target is adopted.

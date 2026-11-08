@@ -7,17 +7,21 @@
 namespace motrack
 {
 
-void DocumentSession::replace(WorkspaceDocument incoming, const QString& source)
+void DocumentSession::replace(WorkspaceDocument incoming, const QString& source, DocumentSourceKind kind)
 {
     auto identity = std::make_shared<const Identity>();
     const auto path = QFileInfo(source).absoluteFilePath();
-    const auto native = source.endsWith(".motrack", Qt::CaseInsensitive) ? path : QString{};
+    const auto native = kind == DocumentSourceKind::Project && source.endsWith(".motrack", Qt::CaseInsensitive) ? path : QString{};
     document = std::move(incoming);
     m_Identity = std::move(identity);
     m_SourcePath = path;
     m_NativeSavePath = native;
-    m_StandardSavePath = source.endsWith(".trk", Qt::CaseInsensitive) || source.endsWith(".trz", Qt::CaseInsensitive) ? path : QString{};
+    m_StandardSavePath = kind == DocumentSourceKind::Project &&
+                                 (source.endsWith(".trk", Qt::CaseInsensitive) || source.endsWith(".trz", Qt::CaseInsensitive))
+                             ? path
+                             : QString{};
     m_RecoveryPaths.clear();
+    m_RecoveryTransactions.clear();
     m_PairedSaving = false;
     history.clear();
 }
@@ -55,7 +59,7 @@ bool DocumentSession::isModified() const
 
 DocumentSession::SaveCheckpoint DocumentSession::saveCheckpoint() const
 {
-    return {.identity = m_Identity, .revision = history.revision()};
+    return {.identity = m_Identity, .revision = history.revision(), .recoveryTransactions = m_RecoveryTransactions};
 }
 
 SaveOutcome DocumentSession::completeSave(const SaveCheckpoint& checkpoint, const QString& destination, bool success)
@@ -107,8 +111,13 @@ SaveOutcome DocumentSession::completePairedSave(const SaveCheckpoint& checkpoint
         else
             history.markSaved();
     }
-    if (!result.recoveryPath.isEmpty() && !m_RecoveryPaths.contains(result.recoveryPath))
-        m_RecoveryPaths.append(result.recoveryPath);
+    if (!result.recoveryPath.isEmpty())
+    {
+        if (!m_RecoveryPaths.contains(result.recoveryPath))
+            m_RecoveryPaths.append(result.recoveryPath);
+        if (!result.transactionId.isEmpty() || !m_RecoveryTransactions.contains(result.recoveryPath))
+            m_RecoveryTransactions.insert(result.recoveryPath, result.transactionId);
+    }
     if (result.status == PairedSaveStatus::RecoveryRequired || !m_RecoveryPaths.isEmpty())
         return SaveOutcome::Partial;
     if (result.status != PairedSaveStatus::Saved || !result.standardCurrent || !result.nativeCurrent)
@@ -122,15 +131,21 @@ SaveOutcome DocumentSession::completePairedRecovery(const SaveCheckpoint& checkp
 {
     if (checkpoint.identity != m_Identity || !m_RecoveryPaths.contains(requestedRecoveryPath))
         return SaveOutcome::Replaced;
+    if (!checkpoint.recoveryTransactions.contains(requestedRecoveryPath) ||
+        checkpoint.recoveryTransactions.value(requestedRecoveryPath) != m_RecoveryTransactions.value(requestedRecoveryPath))
+        return SaveOutcome::Stale;
     if (result.status != PairedSaveStatus::Saved || !result.standardCurrent || !result.nativeCurrent)
         return SaveOutcome::Partial;
+    const auto transaction = checkpoint.recoveryTransactions.value(requestedRecoveryPath);
+    if (!transaction.isEmpty() && result.transactionId != transaction)
+        return SaveOutcome::Stale;
     const auto recoveredStandard = QFileInfo(result.standardPath).absoluteFilePath();
-    if (m_StandardSavePath.isEmpty() || m_StandardSavePath == recoveredStandard)
-    {
+    if (m_StandardSavePath.isEmpty())
         m_StandardSavePath = recoveredStandard;
+    if (m_NativeSavePath.isEmpty() && m_StandardSavePath == recoveredStandard)
         m_NativeSavePath = QFileInfo(result.nativePath).absoluteFilePath();
-    }
     m_RecoveryPaths.removeAll(requestedRecoveryPath);
+    m_RecoveryTransactions.remove(requestedRecoveryPath);
     // A journal can predate the live session or be recovered after further edits. A fresh paired
     // save establishes its relationship to the current document; recovery alone never does.
     history.invalidateSaved();
