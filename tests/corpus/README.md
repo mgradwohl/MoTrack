@@ -876,3 +876,30 @@ through the new document adapter. Independent checks permit only the requested m
 keys and media paths in the XML, and require all relocated assets to match their pinned bytes.
 The actual Tracker session must then retain every RGB pixel and timestamp, edited measurements and
 manual keys through save/fresh reopen and native reimport. Acceptance remains pending CI.
+
+## Selected archive-member export
+
+[ArchiveImagesFixture.java](../../tools/reference/ArchiveImagesFixture.java) packages the existing
+Tracker/OSP-authored image experiment with standard JDK 17 ZIP APIs. It fixes timestamps, uses
+UTF-8 names and deflation/data descriptors, and includes entry/archive comments, a Unicode-named
+supporting document and opaque bytes. Two generations of `linked-images/archived-images.trz` are
+byte-identical: 8073 bytes, SHA-256 `8658ded3eefc643b584cc51aa604a72e781e4e43158556a20088966d13da431a`.
+Regenerate with the linked-image fixture directory followed by a fresh output path as arguments.
+
+The `archived-images` case shares the independent four-image pixel, timing and calibrated-position
+expectations. The native probe edits mass and a mark, exercises undo/redo, saves/reopens `.motrack`,
+removes the original archive copy and exports `.trz`. Python's independent ZIP reader compares all
+untouched compressed records, payloads, central metadata, names and comments, then checks the edited
+XML against independently patched expected values. Corruption tests reject changed supporting bytes,
+compression, comments, extra members and scientific values.
+
+The Java application receives the actual `.trz` path through its normal loader. A separately read
+selected XML supplies only prerequisite metadata for dependency readiness; it does not substitute
+for opening the archive or repair loaded values. Tracker then saves `.trk`, and a fresh process
+reopens that save while the exported archive remains available for its linked media. This checks
+archive opening and linked standard resave, not Tracker's archive-authoring dialog. Independent
+pixels/timestamps/geometry are required at all three stages. Application acceptance is pending CI.
+
+Native tests already cover preservation of other `.trk` members. This first application fixture has
+one experiment tab; actual multi-tab archive acceptance still belongs to phase 3. New archive
+packaging, changed media, movie engines, broader ZIP variants and paired-save recovery remain.

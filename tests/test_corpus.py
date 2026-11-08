@@ -28,6 +28,50 @@ class Download(io.BytesIO):
 
 
 class CorpusTests(unittest.TestCase):
+    def test_archive_oracle_checks_opaque_payloads_metadata_and_edited_xml(self):
+        case = next(case for case in corpus.load_manifest()["cases"] if case["id"] == "archived-images")
+        fixture = corpus.local_fixture_path(case)
+        original, exported, selected = (self.root / name for name in ["original.trz", "edited.trz", "selected.trk"])
+
+        def build(path, edited, mutation=None):
+            with zipfile.ZipFile(fixture) as source, zipfile.ZipFile(path, "w") as output:
+                output.comment = b"changed" if mutation == "comment" else source.comment
+                for entry in source.infolist():
+                    info, data = copy.copy(entry), source.read(entry)
+                    info.compress_type = zipfile.ZIP_STORED
+                    if info.filename == "experiment.trk" and edited:
+                        root = ET.fromstring(data)
+                        mass = root.find(".//object[@class='org.opensourcephysics.cabrillo.tracker.PointMass']")
+                        mass.find("property[@name='mass']").text = "6" if mutation == "xml" else "5"
+                        frames = mass.find("property[@name='framedata']")
+                        step = ET.Element("property", name="[1]", type="object")
+                        obj = ET.SubElement(step, "object", {"class": "org.opensourcephysics.cabrillo.tracker.PointMass$FrameData"})
+                        for name, value in [("x", "8"), ("y", "12")]:
+                            ET.SubElement(obj, "property", name=name, type="double").text = value
+                        frames.insert(1, step)
+                        keys = mass.find("property[@name='keyFrames']")
+                        ET.SubElement(keys, "property", name="array", type="string").text = "{0,1,2}"
+                        data = ET.tostring(root, encoding="utf-8")
+                    if info.filename == "support/opaque.bin":
+                        if mutation == "payload":
+                            data += b"lost"
+                        elif mutation == "entry-comment":
+                            info.comment = b"lost"
+                        elif mutation == "compression":
+                            info.compress_type = zipfile.ZIP_DEFLATED
+                    output.writestr(info, data)
+                if mutation == "extra-member":
+                    output.writestr("unexpected.txt", "extra")
+
+        build(original, False)
+        build(exported, True)
+        corpus.verify_archive_image_export(original, exported, selected)
+        self.assertTrue(selected.is_file())
+        for mutation in ["comment", "entry-comment", "payload", "compression", "extra-member", "xml"]:
+            build(exported, True, mutation)
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                corpus.verify_archive_image_export(original, exported, selected)
+
     def test_linked_image_export_oracle_checks_edited_geometry_all_xml_and_relocated_assets(self):
         manifest = corpus.load_manifest()
         case = next(c for c in manifest["cases"] if c["id"] == "linked-images")
@@ -1986,8 +2030,9 @@ class CorpusTests(unittest.TestCase):
         server.terminate.assert_called_once()
         server.kill.assert_called_once()
 
-    def test_failed_session_cleans_its_private_home_and_outputs(self):
+    def test_failed_archive_session_cleans_its_private_home_and_outputs(self):
         manifest = corpus.load_manifest()
+        manifest["cases"] = [next(case for case in manifest["cases"] if case["id"] == "archived-images")]
         calls = []
         (self.root / "fixtures").mkdir()
         (self.root / "fixtures/protractor.trk").write_text("<object/>", encoding="utf-8")
@@ -2010,7 +2055,11 @@ class CorpusTests(unittest.TestCase):
             self.assertIn('Tracker resave diagnostic (bounded): {"inspection_error":', str(raised.exception))
         self.assertEqual(len(calls), 3)
         self.assertEqual(calls[1][-1], "TrackerSessionDiagnosticsTest")
-        self.assertEqual(calls[2][-1], "save")
+        arguments = calls[2][calls[2].index("TrackerSessionReference") + 1:]
+        self.assertEqual(arguments[2], "save")
+        self.assertEqual(Path(arguments[0]), corpus.local_fixture_path(manifest["cases"][0]))
+        self.assertEqual(Path(arguments[3]).suffix, ".trk")
+        self.assertNotEqual(arguments[0], arguments[3])
         self.assertEqual(list(self.root.glob("session-*")), [])
 
     def test_session_file_diagnostic_distinguishes_xml_errors_without_modifying_input(self):

@@ -59,8 +59,8 @@ public final class TrackerSessionReference {
     public static void main(String[] args) {
         int status = 1;
         try {
-            if (args.length != 3 || !(args[2].equals("save") || args[2].equals("reopen")))
-                throw new IllegalArgumentException("Usage: TrackerSessionReference input.trk output-directory save|reopen");
+            if ((args.length != 3 && args.length != 4) || !(args[2].equals("save") || args[2].equals("reopen")))
+                throw new IllegalArgumentException("Usage: TrackerSessionReference input.trk|trz output-directory save|reopen [selected-xml]");
             if (!OSPRuntime.VERSION.equals("6.3.5")) throw new IllegalStateException("Expected Tracker 6.3.5");
             Locale.setDefault(Locale.US);
             Path input = Path.of(args[0]).toAbsolutePath();
@@ -69,8 +69,11 @@ public final class TrackerSessionReference {
             Files.createDirectories(directory);
             Path saved = directory.resolve("tracker-resaved.trk");
             if (save && Files.exists(saved)) throw new IllegalArgumentException("Output must be a fresh test directory");
-            List<AttachmentRequirement> attachmentRequirements = attachmentRequirements(input);
-            List<ModelRequirement> modelRequirements = modelRequirements(input);
+            // Archive metadata is inspected separately, but the application must open the
+            // actual archive through TrackerIO. Never substitute extracted XML for that load.
+            Path metadata = args.length == 4 ? Path.of(args[3]).toAbsolutePath() : input;
+            List<AttachmentRequirement> attachmentRequirements = attachmentRequirements(metadata);
+            List<ModelRequirement> modelRequirements = modelRequirements(metadata);
             SwingUtilities.invokeAndWait(guard(() -> {
                 TFrame originalFrame = new TFrame();
                 Runnable loaded = once(guard(() -> whenEvaluated(originalFrame, attachmentRequirements, modelRequirements, () -> {

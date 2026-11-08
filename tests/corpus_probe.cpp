@@ -1,6 +1,7 @@
 #include "legacy_project.hpp"
 #include "measurements.hpp"
 #include "track_edits.hpp"
+#include "tracker_archive.hpp"
 #include "tracker_references.hpp"
 #include "tracker_writer.hpp"
 #include "workspace_document.hpp"
@@ -23,6 +24,7 @@
 #include <exception>
 #include <filesystem>
 #include <limits>
+#include <memory>
 
 namespace
 {
@@ -153,6 +155,34 @@ try
 {
     const QCoreApplication application(argc, argv);
     const auto args = application.arguments();
+    if (args.size() == 4 && args[1] == "--export-archive-images")
+    {
+        QTemporaryDir temporary;
+        const auto source = temporary.filePath("input.trz");
+        const auto native = temporary.filePath("saved.motrack");
+        if (!temporary.isValid() || !QFile::copy(args[2], source))
+            throw motrack::ProjectError("Could not prepare archive round trip.");
+        auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(source));
+        if (payload->projects() != QStringList{"experiment.trk"})
+            throw motrack::ProjectError("Expected the pinned archive experiment.");
+        auto document = motrack::importTrackerDocument(payload->projectPath("experiment.trk"));
+        payload->resolveMedia(document.project, "experiment.trk");
+        document.archivePayload = payload;
+        document.archiveMember = "experiment.trk";
+        motrack::TrackEdits edits;
+        if (!edits.setPointMassValue(document.project, 0, 5.0) ||
+            !edits.markPointMass(document.project, 0, {.frame = 1, .x = 8.0, .y = 12.0}) || !edits.undo(document.project) ||
+            !edits.redo(document.project))
+            throw motrack::ProjectError("Could not edit archived image reference.");
+        motrack::writeWorkspaceDocument(native, document);
+        document = {};
+        payload.reset();
+        if (!QFile::remove(source))
+            throw motrack::ProjectError("Could not remove original archive reference.");
+        document = motrack::readWorkspaceDocument(native);
+        motrack::writeTrackerArchiveDocument(args[3], document);
+        return 0;
+    }
     if (args.size() == 4 && args[1] == "--export-linked-images")
     {
         QTemporaryDir temporary;

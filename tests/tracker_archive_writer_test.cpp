@@ -1,0 +1,253 @@
+#include "tracker_archive_writer.hpp"
+
+#include "archive_fixture.hpp"
+#include "track_edits.hpp"
+#include "tracker_archive.hpp"
+#include "tracker_writer.hpp"
+#include "workspace_document.hpp"
+
+#include <QDir>
+#include <QFile>
+#include <QTemporaryDir>
+#include <QtEndian>
+#include <gtest/gtest.h>
+
+#include <functional>
+
+namespace
+{
+QByteArray originalXml()
+{
+    return "<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>"
+           "<property name='description' type='string'>Original experiment</property></object>";
+}
+constexpr const char* EDITED_XML = "<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>"
+                                   "<property name='description' type='string'>Edited experiment with a longer note</property></object>";
+
+QByteArray readBytes(const QString& path)
+{
+    QFile input(path);
+    if (!input.open(QIODevice::ReadOnly))
+        throw std::runtime_error("Could not read archive test input.");
+    return input.readAll();
+}
+
+bool writeBytes(const QString& path, const QByteArray& bytes)
+{
+    QFile output(path);
+    return output.open(QIODevice::WriteOnly) && output.write(bytes) == bytes.size();
+}
+
+TEST(TrackerArchiveWriter, ReplacesOnlyTheChosenMemberAndKeepsTheOwnedSource)
+{
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("original.trz");
+    const auto destination = temporary.filePath(QString::fromUtf8("edited élève.trz"));
+    const QByteArray opaque(150000, '\xA5');
+    for (const auto* selected : {"first.trk", "nested/second.trk", "last.trk"})
+    {
+        SCOPED_TRACE(selected);
+        ASSERT_TRUE(motrack::test::writeArchive(original,
+                                                {{.name = "first.trk", .bytes = originalXml()},
+                                                 {.name = "nested/second.trk", .bytes = originalXml()},
+                                                 {.name = "media/opaque.bin", .bytes = opaque},
+                                                 {.name = "last.trk", .bytes = originalXml()}}));
+        auto bytes = readBytes(original);
+        // Archive comments are opaque metadata. libarchive's ordinary writer does not expose
+        // them, so independently append one to its otherwise unchanged classic ZIP output.
+        const auto comment = QByteArray::fromHex("54656163686572206e6f74657300ff");
+        ASSERT_EQ(bytes.right(22).left(4), QByteArray::fromHex("504b0506"));
+        qToLittleEndian<quint16>(static_cast<quint16>(comment.size()), bytes.data() + bytes.size() - 2);
+        bytes += comment;
+        ASSERT_TRUE(writeBytes(original, bytes));
+        const auto source = motrack::TrackerArchive::open(original);
+        ASSERT_TRUE(QFile::remove(original));
+        motrack::writeTrackerArchive(destination, source, selected, EDITED_XML);
+        const auto firstOutput = readBytes(destination);
+        EXPECT_TRUE(firstOutput.endsWith(comment));
+        EXPECT_EQ(readBytes(source.sourcePath()), bytes);
+        EXPECT_EQ(readBytes(source.projectPath(selected)), originalXml());
+        const auto reopened = motrack::TrackerArchive::open(destination);
+        EXPECT_EQ(reopened.projects(), source.projects());
+        for (const auto& member : source.projects())
+            EXPECT_EQ(readBytes(reopened.projectPath(member)), member == selected ? QByteArray::fromStdString(EDITED_XML) : originalXml());
+        EXPECT_EQ(readBytes(QDir(reopened.root()).filePath("media/opaque.bin")), opaque);
+        motrack::writeTrackerArchive(destination, source, selected, EDITED_XML);
+        EXPECT_EQ(readBytes(destination), firstOutput);
+        motrack::writeTrackerArchive(destination, reopened, selected, originalXml().toStdString());
+        const auto restored = motrack::TrackerArchive::open(destination);
+        EXPECT_EQ(readBytes(restored.projectPath(selected)), originalXml());
+    }
+}
+
+TEST(TrackerArchiveWriter, PreservesExistingDestinationOnInvalidInputAndCancellation)
+{
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("original.trz");
+    const auto destination = temporary.filePath("existing.trz");
+    ASSERT_TRUE(motrack::test::writeArchive(original, {{.name = "selected.trk", .bytes = originalXml()}}));
+    const auto source = motrack::TrackerArchive::open(original);
+    ASSERT_TRUE(writeBytes(destination, "existing output"));
+    for (const auto* member : {"", "missing.trk", "../selected.trk"})
+        EXPECT_THROW(motrack::writeTrackerArchive(destination, source, member, EDITED_XML), motrack::ProjectError);
+    for (const auto* xml : {"", "not XML", "<object class='unknown'/>"})
+        EXPECT_THROW(motrack::writeTrackerArchive(destination, source, "selected.trk", xml), motrack::ProjectError);
+    const std::atomic_bool cancelled{true};
+    EXPECT_THROW(motrack::writeTrackerArchive(destination, source, "selected.trk", EDITED_XML, &cancelled), motrack::ProjectError);
+    EXPECT_THROW(motrack::writeTrackerArchive(temporary.filePath("wrong.zip"), source, "selected.trk", EDITED_XML), motrack::ProjectError);
+    EXPECT_THROW(motrack::writeTrackerArchive(temporary.filePath("missing/parent.trz"), source, "selected.trk", EDITED_XML),
+                 motrack::ProjectError);
+    EXPECT_THROW(motrack::writeTrackerArchive(source.sourcePath(), source, "selected.trk", EDITED_XML), motrack::ProjectError);
+    EXPECT_THROW(motrack::writeTrackerArchive(QDir(source.root()).filePath("invalid.trz"), source, "selected.trk", EDITED_XML),
+                 motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), "existing output");
+    EXPECT_EQ(readBytes(source.projectPath("selected.trk")), originalXml());
+}
+
+TEST(TrackerArchiveWriter, RefusesCorruptOrUnsupportedZipMetadataBeforeReplacement)
+{
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("original.trz");
+    const auto destination = temporary.filePath("existing.trz");
+    ASSERT_TRUE(motrack::test::writeArchive(original, {{.name = "selected.trk", .bytes = originalXml()}}));
+    const auto source = motrack::TrackerArchive::open(original);
+    const auto valid = readBytes(source.sourcePath());
+    const auto central = qFromLittleEndian<quint32>(valid.constData() + valid.size() - 6);
+    ASSERT_TRUE(writeBytes(destination, "existing output"));
+    const std::vector<std::function<void(QByteArray&)>> mutations{
+        [](auto& bytes) { bytes.truncate(10); },
+        [](auto& bytes) { bytes[0] = '!'; },
+        [](auto& bytes) { qToLittleEndian<quint16>(1, bytes.data() + bytes.size() - 18); },
+        [](auto& bytes) { qToLittleEndian<quint16>(65535, bytes.data() + bytes.size() - 12); },
+        [central](auto& bytes) { qToLittleEndian<quint16>(45, bytes.data() + central + 6); },
+        [central](auto& bytes) { qToLittleEndian<quint16>(1, bytes.data() + central + 8); },
+        [central](auto& bytes) { qToLittleEndian<quint16>(99, bytes.data() + central + 10); },
+        [central](auto& bytes) { qToLittleEndian<quint32>(0xffffffff, bytes.data() + central + 20); },
+        [central](auto& bytes) { qToLittleEndian<quint32>(1, bytes.data() + central + 42); },
+        [central](auto& bytes) { bytes[central + 46] = '!'; },
+        [central](auto& bytes)
+        {
+            const auto extra = central + 46 + qFromLittleEndian<quint16>(bytes.constData() + central + 28);
+            qToLittleEndian<quint16>(0x1234, bytes.data() + extra);
+        }};
+    for (std::size_t i = 0; i < mutations.size(); ++i)
+    {
+        SCOPED_TRACE(i);
+        auto corrupted = valid;
+        mutations[i](corrupted);
+        ASSERT_TRUE(writeBytes(source.sourcePath(), corrupted));
+        EXPECT_THROW(motrack::writeTrackerArchive(destination, source, "selected.trk", EDITED_XML), motrack::ProjectError);
+        EXPECT_EQ(readBytes(destination), "existing output");
+    }
+}
+
+TEST(TrackerArchiveWriter, ExportsAnEditedImageDocumentAfterNativeReopenAndOriginalRemoval)
+{
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("original.trz");
+    const auto native = temporary.filePath("saved.motrack");
+    const auto destination = temporary.filePath("edited.trz");
+    const QDir fixtures(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images");
+    const auto sourceXml = readBytes(fixtures.filePath("linked-images.trk"));
+    ASSERT_TRUE(
+        motrack::test::writeArchive(original,
+                                    {{.name = "nested/selected.trk", .bytes = sourceXml},
+                                     {.name = "other.trk", .bytes = originalXml()},
+                                     {.name = "nested/images/frame0.png", .bytes = readBytes(fixtures.filePath("images/frame0.png"))},
+                                     {.name = "nested/images/frame1.png", .bytes = readBytes(fixtures.filePath("images/frame1.png"))},
+                                     {.name = "nested/images/frame2.png", .bytes = readBytes(fixtures.filePath("images/frame2.png"))},
+                                     {.name = "nested/images/frame3.png", .bytes = readBytes(fixtures.filePath("images/frame3.png"))},
+                                     {.name = "notes.txt", .bytes = "Untouched supporting document"}}));
+    const auto originalBytes = readBytes(original);
+    auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(original));
+    auto document = motrack::importTrackerDocument(payload->projectPath("nested/selected.trk"));
+    payload->resolveMedia(document.project, "nested/selected.trk");
+    document.archivePayload = payload;
+    document.archiveMember = "nested/selected.trk";
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.setPointMassValue(document.project, 0, 5));
+    ASSERT_TRUE(edits.markPointMass(document.project, 0, {.frame = 1, .x = 8, .y = 12}));
+    ASSERT_TRUE(edits.undo(document.project));
+    ASSERT_TRUE(edits.redo(document.project));
+    motrack::writeWorkspaceDocument(native, document);
+    document = {};
+    payload.reset();
+    ASSERT_TRUE(QFile::remove(original));
+    document = motrack::readWorkspaceDocument(native);
+    ASSERT_TRUE(document.archivePayload);
+    ASSERT_TRUE(document.trackerSource);
+    motrack::writeTrackerArchiveDocument(destination, document);
+    const auto firstOutput = readBytes(destination);
+    const auto reopened = motrack::TrackerArchive::open(destination);
+    const auto edited = motrack::importTrackerDocument(reopened.projectPath("nested/selected.trk"));
+    ASSERT_EQ(edited.project.pointMasses.size(), 1);
+    EXPECT_DOUBLE_EQ(edited.project.pointMasses.front().mass, 5);
+    EXPECT_EQ(edited.project.pointMasses.front().marks, document.project.pointMasses.front().marks);
+    EXPECT_EQ(edited.project.clip.mediaReferences,
+              (std::vector<std::string>{"images/frame0.png", "images/frame1.png", "images/frame2.png", "images/frame3.png"}));
+    EXPECT_EQ(readBytes(reopened.projectPath("other.trk")), originalXml());
+    EXPECT_EQ(readBytes(QDir(reopened.root()).filePath("notes.txt")), "Untouched supporting document");
+    for (int i = 0; i < 4; ++i)
+        EXPECT_EQ(readBytes(QDir(reopened.root()).filePath(QString("nested/images/frame%1.png").arg(i))),
+                  readBytes(fixtures.filePath(QString("images/frame%1.png").arg(i))));
+    EXPECT_EQ(readBytes(document.archivePayload->sourcePath()), originalBytes);
+    EXPECT_EQ(document.trackerSource->xml, sourceXml.toStdString());
+    motrack::writeTrackerArchiveDocument(destination, document);
+    EXPECT_EQ(readBytes(destination), firstOutput);
+
+    const std::vector<std::function<void(motrack::WorkspaceDocument&)>> mutations{
+        [](auto& value) { value.archivePayload.reset(); },
+        [](auto& value) { value.archiveMember.reset(); },
+        [](auto& value) { value.trackerSource.reset(); },
+        [](auto& value) { value.archiveMember = "other.trk"; },
+        [](auto& value) { value.archiveReference = "unavailable.trz"; },
+        [](auto& value) { value.project.clip.mediaReferences.front() = "outside.png"; },
+        [](auto& value) { value.project.clip.mediaReferences.clear(); },
+        [](auto& value)
+        {
+            value.movie = true;
+        }};
+    for (std::size_t i = 0; i < mutations.size(); ++i)
+    {
+        SCOPED_TRACE(i);
+        auto invalid = document;
+        mutations[i](invalid);
+        EXPECT_THROW(motrack::writeTrackerArchiveDocument(destination, invalid), motrack::ProjectError);
+        EXPECT_EQ(readBytes(destination), firstOutput);
+    }
+    const std::atomic_bool cancelled{true};
+    EXPECT_THROW(motrack::writeTrackerArchiveDocument(destination, document, &cancelled), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), firstOutput);
+}
+
+TEST(TrackerArchiveWriter, PreservesJavaDeflatedMembersUnicodeNamesAndComments)
+{
+    const auto fixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images/archived-images.trz";
+    auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(fixture));
+    auto document = motrack::importTrackerDocument(payload->projectPath("experiment.trk"));
+    payload->resolveMedia(document.project, "experiment.trk");
+    document.archivePayload = payload;
+    document.archiveMember = "experiment.trk";
+    const auto input = readBytes(payload->sourcePath());
+    document.project.pointMasses.front().mass = 5;
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("java-deflated.trz");
+    motrack::writeTrackerArchiveDocument(destination, document);
+    const auto output = readBytes(destination);
+    EXPECT_TRUE(output.endsWith("MoTrack archive-preservation reference; comments must survive."));
+    const auto reopened = motrack::TrackerArchive::open(destination);
+    for (const auto& name : {QString("images/frame0.png"),
+                             QString("images/frame1.png"),
+                             QString("images/frame2.png"),
+                             QString("images/frame3.png"),
+                             QString::fromUtf8("support/notes é.txt"),
+                             QString("support/opaque.bin")})
+    {
+        EXPECT_EQ(readBytes(QDir(reopened.root()).filePath(name)), readBytes(QDir(payload->root()).filePath(name)));
+        EXPECT_TRUE(output.contains("Original metadata: " + name.toUtf8()));
+    }
+    EXPECT_TRUE(output.contains("Original metadata: experiment.trk"));
+    EXPECT_EQ(readBytes(payload->sourcePath()), input);
+    EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(reopened.projectPath("experiment.trk")).project.pointMasses.front().mass, 5);
+}
+} // namespace

@@ -397,3 +397,37 @@ through save and fresh reopen. This application acceptance remains required befo
 Movie engines, filters and archive members need their own audited path/timing contracts. Archive
 packaging will preserve untouched members and feed the paired-save transaction/recovery layer;
 standard Save UI follows that layer. This internal adapter is not full R03 completion.
+
+### Selected-member Tracker archive output (application acceptance pending)
+
+The internal archive document adapter exports supported edits to one original `.trk` member after
+native close/reopen, including after the original `.trz` is removed. It verifies that the source
+XML still matches that member and that current media references resolve to the original embedded
+files. An immutable copy prepares member-relative ImageVideo paths; external/replaced media,
+movies, filters and unsupported timing/range edits remain refused. The source envelope and owned
+original archive bytes are unchanged. No desktop Save action or paired-output transaction uses this
+adapter yet.
+
+The writer supports bounded, single-disk classic ZIP archives with stored or deflated members. It
+uses the [ZIP format specification](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT)
+(local headers, descriptors, central records and end record) to replace only the selected payload
+with stored UTF-8 XML and a recomputed CRC32. Untouched compressed local records remain byte-identical;
+central records retain their metadata with adjusted offsets. Entry/archive comments, member order,
+Unicode names and supporting files survive. The edited member retains timestamps, attributes and
+supported timestamp/Unix-identity/Unicode-name extra fields. Unknown extra fields on that edited
+member are refused; untouched members' extra fields remain opaque.
+
+The limits are 544 MiB compressed, 512 MiB extracted, 4096 members, 8 MiB central metadata and
+32 MiB selected XML. Copying uses 64 KiB blocks and cancellation checks. ZIP64, encryption, split
+archives, signatures, ambiguous/noncontiguous layouts and unaudited encodings are refused. A private
+staged archive is reopened with the existing validated reader and its selected XML/inventory checked
+before an atomic destination replacement. Cancellation, source mismatch, missing media, corrupt ZIP
+metadata or a failed destination leaves the existing destination intact. Output cannot replace the
+owned source snapshot or extracted files.
+
+Native tests cover first/middle/last member replacement, other tabs, opaque binary/support files,
+Unicode names, Java deflation/descriptors/comments, native reopen, history, repeated export and
+failure/cancellation. The corpus independently checks edited XML, every untouched payload/compressed
+record and central metadata. Actual Tracker `.trz` loading, resave and fresh-process reopen with
+pixel/time/geometry expectations are pending CI; multi-tab application acceptance, new-archive
+packaging, broader ZIP/media support and paired-save recovery remain unfinished.
