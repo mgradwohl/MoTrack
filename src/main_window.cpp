@@ -831,11 +831,14 @@ bool MainWindow::openImageSequence(const QStringList& paths, double frameRate)
     {
         project.clip.frameDurationMs = duration;
     }
-    for (const auto& path : paths)
-    {
-        project.clip.mediaReferences.push_back(QFileInfo(path).absoluteFilePath().toStdString());
-    }
     const auto path = QFileInfo(paths.front()).absoluteFilePath();
+    const QDir mediaDirectory(localProjectDirectory(path));
+    for (const auto& imagePath : paths)
+    {
+        const auto physical = QFileInfo(imagePath).canonicalFilePath();
+        project.clip.mediaReferences.push_back(
+            mediaDirectory.relativeFilePath(physical.isEmpty() ? QFileInfo(imagePath).absoluteFilePath() : physical).toStdString());
+    }
     auto sequence = ImageSequence::open(path, project.clip);
     const auto first = sequence ? sequence->readStep(0) : std::nullopt;
     if (!first || first->image.isNull())
@@ -910,7 +913,8 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
                         m_Session.replace({}, path);
                         m_Session.document.project.clip.stepCount = index.frameCount;
                         m_Session.document.project.clip.sourceFrameCount = index.frameCount;
-                        m_Session.document.project.clip.mediaReferences.push_back(QFileInfo(path).absoluteFilePath().toStdString());
+                        m_Session.document.project.clip.mediaReferences.push_back(
+                            QDir(localProjectDirectory(path)).relativeFilePath(QFileInfo(path).canonicalFilePath()).toStdString());
                         m_Sequence.reset();
                         m_MoviePath = path;
                         m_Session.document.movie = true;

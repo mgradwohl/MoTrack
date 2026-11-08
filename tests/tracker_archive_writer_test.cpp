@@ -82,6 +82,51 @@ TEST(TrackerArchiveWriter, ReplacesOnlyTheChosenMemberAndKeepsTheOwnedSource)
     }
 }
 
+TEST(TrackerArchiveWriter, RefusesAValidReplacementOfTheOwnedSourceInBothFormats)
+{
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("original.trz");
+    const auto destination = temporary.filePath("saved.trz");
+    const auto native = temporary.filePath("saved.motrack");
+    const QDir fixtures(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images");
+    const auto sourceXml = readBytes(fixtures.filePath("linked-images.trk"));
+    std::vector<motrack::test::ArchiveEntry> members{
+        {.name = "selected.trk", .bytes = sourceXml},
+        {.name = "images/frame0.png", .bytes = readBytes(fixtures.filePath("images/frame0.png"))},
+        {.name = "images/frame1.png", .bytes = readBytes(fixtures.filePath("images/frame1.png"))},
+        {.name = "images/frame2.png", .bytes = readBytes(fixtures.filePath("images/frame2.png"))},
+        {.name = "images/frame3.png", .bytes = readBytes(fixtures.filePath("images/frame3.png"))}};
+    ASSERT_TRUE(motrack::test::writeArchive(original, members));
+    auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(original));
+    auto document = motrack::importTrackerDocument(payload->projectPath("selected.trk"));
+    payload->resolveMedia(document.project, "selected.trk");
+    document.archivePayload = payload;
+    document.archiveMember = "selected.trk";
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.setPointMassValue(document.project, 0, 5));
+    motrack::writeTrackerArchiveDocument(destination, document);
+    motrack::writeWorkspaceDocument(native, document);
+    const auto standardBytes = readBytes(destination);
+    const auto nativeBytes = readBytes(native);
+    const auto originalBytes = readBytes(payload->sourcePath());
+    const auto originalDigest = payload->sourceDigest();
+    members[1].bytes = members[2].bytes;
+    ASSERT_TRUE(motrack::test::writeArchive(payload->sourcePath(), members));
+    const auto replacement = motrack::TrackerArchive::open(payload->sourcePath());
+    ASSERT_EQ(replacement.projects(), payload->projects());
+    ASSERT_EQ(readBytes(replacement.projectPath("selected.trk")), sourceXml);
+    ASSERT_NE(replacement.sourceDigest(), originalDigest);
+    ASSERT_TRUE(payload->memberMatchesSource("images/frame0.png"));
+    EXPECT_THROW(motrack::writeTrackerArchiveDocument(destination, document), motrack::ProjectError);
+    EXPECT_THROW(motrack::writeWorkspaceDocument(native, document), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), standardBytes);
+    EXPECT_EQ(readBytes(native), nativeBytes);
+    EXPECT_EQ(payload->sourceDigest(), originalDigest);
+    ASSERT_TRUE(writeBytes(payload->sourcePath(), originalBytes));
+    EXPECT_NO_THROW(motrack::writeTrackerArchiveDocument(destination, document));
+    EXPECT_NO_THROW(motrack::writeWorkspaceDocument(native, document));
+}
+
 TEST(TrackerArchiveWriter, PreservesExistingDestinationOnInvalidInputAndCancellation)
 {
     QTemporaryDir temporary;

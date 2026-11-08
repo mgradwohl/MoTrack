@@ -468,6 +468,15 @@ metadata or a failed destination leaves the existing destination intact. Output 
 owned source snapshot or extracted files, including their physical spelling through a symbolic-link
 temporary-directory ancestor. Archive output-file aliases (including dangling links) are refused.
 
+The compressed source also has an immutable SHA-256 digest captured during the original bounded
+snapshot. Standard export copies it into a private working file while hashing the exact copied bytes,
+requires the import digest, and performs all ZIP edits from that verified copy. Native bundle saving
+hashes the actual bytes fed to its ZIP writer and checks the same digest before committing. Replacing
+the writable owned source with a different valid archive, even with identical project XML and member
+names, therefore cannot silently change embedded pixels or supporting content in either saved format.
+A regression proves both existing destinations survive such a replacement and saving resumes only
+after restoring the original bytes.
+
 Native tests cover first/middle/last member replacement, other tabs, opaque binary/support files,
 Unicode names, Java deflation/descriptors/comments, native reopen, history, repeated export and
 failure/cancellation. The corpus independently checks edited XML, every untouched payload/compressed

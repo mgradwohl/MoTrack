@@ -2,6 +2,7 @@
 
 #include "tracker_archive.hpp"
 
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -199,7 +200,8 @@ quint32 checksum(const std::string& bytes)
     return crc ^ 0xffffffff;
 }
 
-void copyRange(QFile& input, QIODevice& output, qint64 first, qint64 last, const std::atomic_bool* cancelled)
+void copyRange(
+    QFile& input, QIODevice& output, qint64 first, qint64 last, const std::atomic_bool* cancelled, QCryptographicHash* digest = nullptr)
 {
     require(first >= 0 && last >= first && last <= input.size() && input.seek(first), "Could not seek Tracker archive input.");
     std::array<char, BLOCK_BYTES> buffer{};
@@ -209,6 +211,8 @@ void copyRange(QFile& input, QIODevice& output, qint64 first, qint64 last, const
         const auto size = std::min(BLOCK_BYTES, last - first);
         require(input.read(buffer.data(), size) == size, "Could not read Tracker archive input.");
         require(output.write(buffer.data(), size) == size, "Could not write Tracker archive output.");
+        if (digest)
+            digest->addData(QByteArrayView(buffer.data(), size));
         first += size;
     }
 }
@@ -237,9 +241,23 @@ void writeTrackerArchive(
         require(!root.isEmpty() && destination != root && !destination.startsWith(root + '/'),
                 "Tracker archive output cannot replace owned source or extracted files.");
     }
-    QFile input(source.sourcePath());
-    require(input.open(QIODevice::ReadOnly), "Could not open the owned Tracker archive source.");
-    require(input.size() > 0 && input.size() <= MAX_TRACKER_ARCHIVE_BYTES);
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "Could not create a temporary Tracker archive directory.");
+    // Export reads only this verified private copy. Hashing the owned path and later reopening
+    // it would leave a window for changed bytes to enter the exported scientific document.
+    QFile original(source.sourcePath());
+    require(original.open(QIODevice::ReadOnly), "Could not open the owned Tracker archive source.");
+    const auto originalSize = original.size();
+    require(originalSize > 0 && originalSize <= MAX_TRACKER_ARCHIVE_BYTES);
+    QFile input(temporary.filePath("source.trz"));
+    require(input.open(QIODevice::WriteOnly | QIODevice::NewOnly), "Could not snapshot the Tracker archive source.");
+    QCryptographicHash digest(QCryptographicHash::Sha256);
+    copyRange(original, input, 0, originalSize, cancelled, &digest);
+    require(original.size() == originalSize && digest.result() == source.sourceDigest(), "The owned Tracker archive source changed.");
+    require(input.flush(), "Could not finish the Tracker archive source snapshot.");
+    input.close();
+    original.close();
+    require(input.open(QIODevice::ReadOnly), "Could not reopen the verified Tracker archive source.");
     auto directory = readDirectory(input, member, cancelled);
     const auto selected = std::ranges::find_if(directory.entries, [](const Entry& entry) { return entry.selected; });
     require(selected != directory.entries.end());
@@ -253,8 +271,6 @@ void writeTrackerArchive(
     setNumber<quint32>(local, 22, size);
     const qint64 delta = local.size() + static_cast<qint64>(xml.size()) - (selected->end - selected->offset);
     require(input.size() + delta > 0 && input.size() + delta <= MAX_TRACKER_ARCHIVE_BYTES);
-    QTemporaryDir temporary;
-    require(temporary.isValid(), "Could not create a temporary Tracker archive directory.");
     const auto stagedPath = temporary.filePath("validated.trz");
     QFile staged(stagedPath);
     require(staged.open(QIODevice::WriteOnly | QIODevice::NewOnly), "Could not create a staged Tracker archive.");
