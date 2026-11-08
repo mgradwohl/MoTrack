@@ -84,6 +84,13 @@ using PairedSaveObserver = std::function<void(PairedSaveProgress)>;
 /// The caller still validates/rebases media before invoking this worker-only adapter.
 void writeNativeDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled = nullptr);
 
+/// Export a standalone image archive copy under the same per-stem destination lock as paired saving.
+/// Refuses pending journals and file aliases; no session checkpoints or companion files are changed.
+void writeTrackerImagePackageCopy(const QString& path,
+                                  const WorkspaceDocument& document,
+                                  const QString& mediaProjectPath,
+                                  const std::atomic_bool* cancelled = nullptr);
+
 /// Explicitly resume a locally initiated pair. Refuses altered destinations, stages, aliases and escaping paths.
 /// Recovery is never implicitly triggered by opening imported project/archive content.
 /// When expectedTransaction is supplied, check it while holding the journal lock, before any output changes.

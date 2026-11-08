@@ -449,6 +449,25 @@ void failed(PairedSaveResult& result, const std::exception& error, bool cancelle
                     : cancelled                    ? PairedSaveStatus::Cancelled
                                                    : PairedSaveStatus::Failed;
 }
+void withSaveDestinationLock(const QString& path, const std::atomic_bool* cancelled, const std::function<void(const QString&)>& write)
+{
+    checkCancelled(cancelled);
+    const auto physical = physicalLocalFilePath(path);
+    require(!physical.isEmpty(), "Could not resolve the project destination.");
+    const QFileInfo target(physical);
+    const auto parent = QFileInfo(target.absolutePath()).canonicalFilePath();
+    require(!parent.isEmpty(), "The destination directory must exist.");
+    const auto recovery = QDir(parent).filePath('.' + target.completeBaseName() + RECORD_SUFFIX);
+    QLockFile lock(lockPath(recovery));
+    lock.setStaleLockTime(0);
+    if (!lock.tryLock(0))
+        throw SaveDestinationError(SaveDestinationConflict::Busy);
+    if (QFileInfo::exists(recovery) || QFileInfo(recovery).isSymLink())
+        throw SaveDestinationError(SaveDestinationConflict::PendingRecovery);
+    checkCancelled(cancelled);
+    write(physical);
+}
+
 } // namespace
 
 PairedSaveResult writePairedDocuments(const QString& standardPath,
@@ -568,22 +587,18 @@ SaveDestinationError::SaveDestinationError(SaveDestinationConflict conflict)
 
 void writeNativeDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled)
 {
-    checkCancelled(cancelled);
     require(path.endsWith(".motrack", Qt::CaseInsensitive), "Choose a native project filename.");
-    const auto physical = physicalLocalFilePath(path);
-    require(!physical.isEmpty(), "Could not resolve the native project destination.");
-    const QFileInfo target(physical);
-    const auto parent = QFileInfo(target.absolutePath()).canonicalFilePath();
-    require(!parent.isEmpty(), "The native destination directory must exist.");
-    const auto recovery = QDir(parent).filePath('.' + target.completeBaseName() + RECORD_SUFFIX);
-    QLockFile lock(lockPath(recovery));
-    lock.setStaleLockTime(0);
-    if (!lock.tryLock(0))
-        throw SaveDestinationError(SaveDestinationConflict::Busy);
-    if (QFileInfo::exists(recovery) || QFileInfo(recovery).isSymLink())
-        throw SaveDestinationError(SaveDestinationConflict::PendingRecovery);
-    checkCancelled(cancelled);
-    writeWorkspaceDocument(physical, document, cancelled);
+    withSaveDestinationLock(path, cancelled, [&](const auto& physical) { writeWorkspaceDocument(physical, document, cancelled); });
+}
+
+void writeTrackerImagePackageCopy(const QString& path,
+                                  const WorkspaceDocument& document,
+                                  const QString& mediaProjectPath,
+                                  const std::atomic_bool* cancelled)
+{
+    require(path.endsWith(".trz", Qt::CaseInsensitive) && !QFileInfo(path).isSymbolicLink(), "Choose a regular Tracker archive filename.");
+    withSaveDestinationLock(
+        path, cancelled, [&](const auto& physical) { writeTrackerImagePackage(physical, document, mediaProjectPath, cancelled); });
 }
 
 PairedSaveResult recoverPairedDocuments(const QString& recoveryPath,

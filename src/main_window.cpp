@@ -2006,6 +2006,7 @@ bool MainWindow::exportTrackerArchive(const QString& path)
     {
         bool saved = false;
         QString diagnostic;
+        std::optional<SaveDestinationConflict> conflict = std::nullopt;
     };
     const auto checkpoint = m_Session.saveCheckpoint();
     m_SaveCancelled = std::make_shared<std::atomic_bool>(false);
@@ -2041,8 +2042,12 @@ bool MainWindow::exportTrackerArchive(const QString& path)
                                         {
                                             try
                                             {
-                                                writeTrackerImagePackage(path, document, source, cancelled.get());
+                                                writeTrackerImagePackageCopy(path, document, source, cancelled.get());
                                                 return ExportResult{.saved = true, .diagnostic = {}};
+                                            }
+                                            catch (const SaveDestinationError& error)
+                                            {
+                                                return ExportResult{.conflict = error.conflict()};
                                             }
                                             catch (const std::exception& error)
                                             {
@@ -2060,8 +2065,13 @@ bool MainWindow::exportTrackerArchive(const QString& path)
     const auto result = watcher.result();
     if (!result.saved)
     {
-        statusBar()->showMessage(*cancelled ? tr("Export canceled. Existing files were kept.")
-                                            : tr("Could not export the Tracker archive: %1").arg(result.diagnostic));
+        statusBar()->showMessage(
+            *cancelled ? tr("Export canceled. Existing files were kept.")
+            : result.conflict == SaveDestinationConflict::PendingRecovery
+                ? tr("An interrupted paired save needs recovery. Use Save Tracker project for this destination, or save a copy elsewhere.")
+            : result.conflict == SaveDestinationConflict::Busy
+                ? tr("Another save is using this destination. Wait for it to finish and retry, or save a copy elsewhere.")
+                : tr("Could not export the Tracker archive: %1").arg(result.diagnostic));
         return false;
     }
     // Export is a separate copy: it never advances save checkpoints, changes the title or adopts a path.
