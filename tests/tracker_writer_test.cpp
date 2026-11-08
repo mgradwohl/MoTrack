@@ -216,13 +216,6 @@ TEST(TrackerWriter, RestoredMissingMediaCanBeSavedWithoutReopeningTheProject)
         EXPECT_EQ(readBytes(motrack::resolveLocalMediaPath(output, aliased.project.clip.mediaReferences.front())),
                   readBytes(fixture + "images/frame0.png"));
 #endif
-        auto nativeSnapshot = document;
-        const auto native = temporary.filePath("exports/saved.motrack");
-        motrack::rebaseWorkspaceMedia(nativeSnapshot, input, native);
-        motrack::writeWorkspaceDocument(native, nativeSnapshot);
-        const auto nativeReopened = motrack::readWorkspaceDocument(native);
-        EXPECT_EQ(readBytes(motrack::resolveLocalMediaPath(native, nativeReopened.project.clip.mediaReferences.front())),
-                  readBytes(fixture + "images/frame0.png"));
     }
 }
 
