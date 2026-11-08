@@ -2,7 +2,8 @@
 
 Status: internal phase-3 paired writer, explicit recovery adapter and per-output session checkpoints
 are implemented. Earlier three-platform and actual Tracker acceptance is recorded below; later review
-fixes require current-revision CI. Desktop standard Save actions and recovery choices are the next slice.
+fixes require current-revision CI. Desktop standard Save and explicit recovery controls are implemented
+in the current slice; cross-platform acceptance of the desktop controller remains pending.
 The [full-port plan](migration-plan.md#implementation-order-and-exit-gates) and
 [format guide](native-format.md) remain the canonical status and supported-schema references.
 
@@ -56,7 +57,7 @@ against arbitrary power loss, hostile local filesystem races or hardware failure
 uses sibling files; different-directory companions and general multi-file/media transactions need
 separate contracts. Recovery records from imported archives are data, never automatically executed.
 
-## Required evidence before desktop integration
+## Adapter and compatibility evidence
 
 - Standalone and existing-archive pairs reopen independently; edits, unknown source XML, all archive
   members and media associations remain correct after native close/reopen and source-input removal.
@@ -119,7 +120,7 @@ source-digest and standalone-media corrections require the next combined current
 
 
 
-## Per-output session checkpoints (internal model; desktop integration pending)
+## Per-output session checkpoints
 
 The edit history keeps separate native and Tracker save points. Undo/redo can return either output
 to its saved state independently; a new branch of edits invalidates save points in discarded history.
@@ -137,9 +138,8 @@ Replacement of the document invalidates all earlier completion tokens.
 `completePairedRecovery` deliberately does not mark the live document saved: the record can refer
 to an older snapshot or predate this session. Successful recovery clears the pending record and
 requires a fresh paired save to establish both output checkpoints for the current live snapshot.
-This preserves new edits made after interruption. The desktop controller must use these session
-queries and completion methods when standard Save/recovery actions are connected; those actions
-are still pending.
+This preserves new edits made after interruption. The desktop controller uses these session queries and completion methods for standard Save and
+explicit recovery, including the ordinary Save and close/discard flow.
 
 The multiple-destination recovery correction passes all six Windows suites with 95.46% combined
 production line coverage (7780/8150). Checkpoint formatting/static checks pass. Its regression performs
@@ -156,3 +156,35 @@ The combined review-corrected stack passed all six Windows suites with 95.54% li
 (7803/8167); this includes immutable archive export, unsupported ZIP layouts imported before
 validation, multiple recovery destinations, case-folded media collisions and prepared-stage changes.
 Current-revision cross-platform CI remains required before merging.
+
+## Desktop save and recovery controls
+
+File → Save Tracker project chooses the standard destination and confirms replacement of an unrelated
+existing companion. The current adapter always writes a same-stem `.motrack` alongside it. Ordinary
+Save uses the pair after that choice; Save MoTrack copy as keeps a separate native-only path available.
+The paired preference is currently session-local: reopening starts with the default native save behavior
+until a standard destination is chosen again. Persisting this choice is separate from interchange data.
+
+A one-worker save pool receives an owned snapshot and cancellation token. A modal progress window
+keeps the event loop responsive and supports cancellation, while ordinary document input is blocked.
+Programmatic edits still advance the revision; prepared project/movie opens wait until save bookkeeping
+finishes. Canceled open requests are rejected, and replaced documents never accept old completions.
+Window destruction cancels the worker without permitting it to access widgets.
+
+A pending record is recovered only after explicit confirmation. Recovery is followed by a fresh write
+of the current snapshot. Conflicts keep the record and live edits available; a native-only save cannot
+clear outstanding standard edits. Status distinguishes failure before commit, cancellation, partial output,
+recovery cleanup, stale snapshots and successful paired saving. New UI strings are marked unfinished
+in the three non-English catalogs and fall back to English until translated.
+
+Desktop regressions exercise edited linked/archive pairs and ordinary Save, recovery of older data with
+newer edits, conflicting recovery, cancellation and overlapping save/close requests, stale and replaced
+completions, queued/canceled project and movie opens, unsupported exports, companion replacement
+confirmation, and window destruction during a queued save. Current Windows validation and required
+cross-platform CI are reported with the desktop PR. The established actual-Tracker paired corpus gates
+continue validating the same adapter; these UI tests do not independently establish broader export parity.
+
+Local Windows desktop validation: all ten paired-workspace tests and all six CTest suites pass.
+Combined production line coverage is 95.52% (7957/8330), above the unchanged 90% gate.
+Formatting and clang-tidy pass for the controller and desktop tests. Linux/macOS/current-head CI
+and code review remain required before this desktop slice can be merged.

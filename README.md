@@ -45,13 +45,37 @@ Directly opened movies use quarter-turn rotation and reflection metadata. Tracke
 
 Use File → Open images to start from an image sequence. Enter its frame rate when known, or enter zero to analyze by frame number.
 
-Choose a point mass from the toolbar or create one in the Tracks menu. Shift-click an image to mark the selected point mass and advance one clip step. Shift+Enter repeats the previous mark. The Tracks menu also lets you rename a point mass, delete it, or remove its mark on the current frame. Use File → Export measurements to save the current marks as CSV, or File → Export plot data to save the selected series with its frame numbers, times when available, and units. Use File → Save project to keep the current tracks, calibration, and media references in a MoTrack project. Keep the referenced media in place when reopening the saved project.
+Choose a point mass from the toolbar or create one in the Tracks menu. Shift-click an image to mark the selected point mass and advance one clip step. Shift+Enter repeats the previous mark. The Tracks menu also lets you rename a point mass, delete it, or remove its mark on the current frame. Use File → Export measurements to save the current marks as CSV, or File → Export plot data to save the selected series with its frame numbers, times when available, and units. Use File → Save MoTrack copy as to keep the current tracks, calibration, and media references in a `.motrack` project. Keep externally linked media in place when reopening it.
 
 Open a Tracker `.trz` experiment archive from the same project chooser. If it contains several Tracker tabs, choose the one to open. Saving a `.motrack` copy embeds the complete original archive, including its media, other tabs and unknown files, so that copy can reopen after the original archive is removed. Only the selected tab is editable today.
 
 Choose Tracks → New vector to create an independent vector track, or select an imported vector in the toolbar. Shift-click the tail, then Shift-click the tip to create or replace its arrow on the current frame and advance one clip step. Escape cancels a pending tail; switching frames, tracks, or tools also cancels it. Shift+Enter copies the preceding arrow to the current frame. Rename track, Delete track, Delete mark on this frame, and Undo/Redo work with vectors as well as point masses. Vector tails and components are saved in image pixels and survive reopening a `.motrack` project. Motion plots and measurement CSV export still cover point masses; dependent vector sums are not yet supported.
 
-New Tracker imports also keep their original XML inside the saved `.motrack` file, including settings MoTrack cannot yet edit. This protects the source data for future compatible export; saving edited `.trk`/`.trz` files is still unfinished. Standalone movies and images still use external files. Older native projects still open; archive-backed ones need their original `.trz` until resaved with this version. Data discarded by earlier versions cannot be recovered. See [native document compatibility](docs/native-format.md).
+New Tracker imports also keep their original XML inside the saved `.motrack` file, including settings MoTrack cannot yet edit. Supported imported projects can also be saved back to standard Tracker files as described below; full interchange coverage remains unfinished. Standalone movies and images still use external files. Older native projects still open; archive-backed ones need their original `.trz` until resaved with this version. Data discarded by earlier versions cannot be recovered. See [native document compatibility](docs/native-format.md).
+
+### Save a Tracker project and its MoTrack companion
+
+For a supported imported experiment, choose **File → Save Tracker project…**. Save a local-image or
+media-free project as `.trk`, or an imported image archive as `.trz`. MoTrack also writes a sibling
+`.motrack` file with the same name. Tracker opens the standard file directly. Existing archives retain
+other experiments and supporting files; the desktop edits only the selected experiment.
+
+After choosing a Tracker destination, ordinary **Save** updates both files for the rest of that session.
+**Save MoTrack copy as…** remains available; once paired saving is in use, a native-only copy does not
+clear outstanding Tracker changes. After reopening a project, choose **Save Tracker project…** again
+to select paired saving. MoTrack asks before replacing an unrelated existing companion.
+
+Saving shows a cancelable progress window. The files are replaced separately, with the Tracker file
+first. If interruption leaves one file unfinished, the next save offers to finish the recorded save and
+then write your current edits. Changes made by another program are preserved and reported as a
+conflict. Recovery never marks newer edits saved without writing them to both files.
+
+This workflow currently covers audited media-free and local-image experiments, plus selected-member
+updates to existing image archives. Movie export, new archive packaging, filters and broader Tracker
+settings are still being ported. An unsupported export is refused; save a MoTrack copy to retain work.
+The [format guide](docs/native-format.md) records the exact supported edits and compatibility evidence.
+
+### Analyze motion
 
 Choose position, velocity, speed, acceleration, momentum, or kinetic energy above the plot. Set the selected point mass’s value in the Tracks menu. Select a plotted point to jump to its video frame. Enable Linear fit to see the slope, intercept, and R² for the plotted samples. Position uses the frame number when the project has no known timebase. Derived quantities use frame timestamps or saved image-sequence timing, and are left blank at the clip edges and across gaps in the marks. Imported movies are indexed in the background and keep Tracker’s saved clip start time.
 

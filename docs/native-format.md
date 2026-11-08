@@ -508,9 +508,12 @@ separate atomic replacements, bounded journaling, explicit conflict-safe recover
 results. The adapter stages and validates both files, commits standard first, and retains recovery
 data after interruption. It reuses the supported standard writers and does not broaden their schemas.
 Native desktop Save now shares its physical media-path rebasing helper with this adapter. Desktop
-standard actions, per-output history checkpoints and recovery prompts remain to be implemented.
+standard actions, per-output history checkpoints and explicit recovery prompts now use the adapter.
+The [desktop contract](paired-saving.md#desktop-save-and-recovery-controls) documents cancellation,
+conflicts, session-local paired-save selection and current acceptance limits.
 
 Both recovered linked-image and archived-image modes passed actual Tracker load/save/fresh reopen
 and native reimport at `32c21d6`, Linux job 128747171486 in
 [run 42485770063](https://github.com/mgradwohl/MoTrack/actions/runs/42485770063). Later review fixes
-still require current-revision CI; desktop paired Save remains a separate implementation slice.
+still require current-revision CI. The desktop controls have separate controller/lifecycle tests and
+require their own current-revision Windows/macOS/Linux checks before acceptance.

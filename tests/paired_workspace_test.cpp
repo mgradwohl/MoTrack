@@ -13,7 +13,9 @@
 #include <QInputDialog>
 #include <QLocale>
 #include <QMessageBox>
+#include <QPointer>
 #include <QPushButton>
+#include <QScopeGuard>
 #include <QSemaphore>
 #include <QStatusBar>
 #include <QTemporaryDir>
@@ -156,6 +158,136 @@ TEST(PairedWorkspace, RecoversAnOlderPairThenSavesCurrentEdits)
     EXPECT_FALSE(QFile::exists(partial.recoveryPath));
     EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(target).project.pointMasses.at(0).mass, 7);
     EXPECT_DOUBLE_EQ(motrack::readWorkspaceDocument(partial.nativePath).project.pointMasses.at(0).mass, 7);
+}
+
+TEST(PairedWorkspace, RecoveryConflictsKeepCurrentEditsAndBothDestinations)
+{
+    QTemporaryDir temporary;
+    const auto target = temporary.filePath("saved.trk");
+    std::atomic_bool cancelled{false};
+    const auto partial =
+        motrack::writePairedDocuments(target,
+                                      motrack::importTrackerDocument(fixture()),
+                                      fixture(),
+                                      &cancelled,
+                                      [&cancelled](auto state) { cancelled = state == motrack::PairedSaveProgress::StandardSaved; });
+    ASSERT_EQ(partial.status, motrack::PairedSaveStatus::RecoveryRequired);
+    const auto preparedStandard = bytes(target);
+    put(target, "external change");
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(fixture()));
+    ASSERT_TRUE(editMass(window, 7));
+    EXPECT_FALSE(window.saveTrackerProject(target));
+    EXPECT_FALSE(window.saveTrackerProject(target, true));
+    EXPECT_TRUE(window.isWindowModified());
+    EXPECT_TRUE(window.statusBar()->currentMessage().contains("Could not finish the interrupted save"));
+    EXPECT_EQ(bytes(target), "external change");
+    EXPECT_FALSE(QFile::exists(partial.nativePath));
+    EXPECT_TRUE(QFile::exists(partial.recoveryPath));
+    put(target, preparedStandard);
+    ASSERT_TRUE(window.saveTrackerProject(target, true));
+    EXPECT_FALSE(window.isWindowModified());
+    EXPECT_FALSE(QFile::exists(partial.recoveryPath));
+    EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(target).project.pointMasses.at(0).mass, 7);
+    EXPECT_DOUBLE_EQ(motrack::readWorkspaceDocument(partial.nativePath).project.pointMasses.at(0).mass, 7);
+}
+
+TEST(PairedWorkspace, AppliesPreparedOpensAfterSavingAndRejectsCanceledResults)
+{
+    for (const bool movie : {false, true})
+    {
+        for (const bool cancel : {false, true})
+        {
+            for (const bool failSave : {false, true})
+            {
+                SCOPED_TRACE(::testing::Message() << "movie=" << movie << " cancel=" << cancel << " failSave=" << failSave);
+                QTemporaryDir temporary;
+                QSemaphore entered;
+                QSemaphore release;
+                motrack::MainWindow window;
+                ASSERT_TRUE(window.loadProject(fixture()));
+                auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+                ASSERT_NE(pool, nullptr);
+                pool->start(
+                    [&]
+                    {
+                        entered.release();
+                        static_cast<void>(release.tryAcquire(1, 5000));
+                    });
+                ASSERT_TRUE(entered.tryAcquire(1, 5000));
+                const auto input = movie ? "vfr.mp4" : "image-sequence.trk";
+                bool processed = false;
+                QTimer::singleShot(0,
+                                   &window,
+                                   [&]
+                                   {
+                                       const auto path = QString::fromUtf8(MOTRACK_FIXTURES) + '/' + input;
+                                       if (movie)
+                                           window.openMovie(path);
+                                       else
+                                           window.openProject(path);
+                                       EXPECT_TRUE(QThreadPool::globalInstance()->waitForDone(5000));
+                                       QCoreApplication::sendPostedEvents();
+                                       EXPECT_TRUE(window.windowTitle().contains("linked-images.trk"));
+                                       if (cancel)
+                                       {
+                                           window.openProject(temporary.filePath("missing.trk"));
+                                           EXPECT_TRUE(QThreadPool::globalInstance()->waitForDone(5000));
+                                           QCoreApplication::sendPostedEvents();
+                                       }
+                                       processed = true;
+                                       release.release();
+                                   });
+                const auto target = temporary.filePath(failSave ? "missing/saved.trk" : "saved.trk");
+                EXPECT_EQ(window.saveTrackerProject(target), !failSave);
+                EXPECT_TRUE(processed);
+                if (cancel)
+                {
+                    ASSERT_TRUE(QTest::qWaitFor([&] { return window.statusBar()->currentMessage() == "Could not open this project."; }));
+                    EXPECT_TRUE(window.windowTitle().contains(failSave ? "linked-images.trk" : "saved.trk"));
+                }
+                else
+                {
+                    ASSERT_TRUE(QTest::qWaitFor([&] { return window.windowTitle().contains(input); }));
+                }
+                if (!failSave)
+                {
+                    EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(target).project.pointMasses.at(0).mass, 2);
+                    EXPECT_DOUBLE_EQ(motrack::readWorkspaceDocument(temporary.filePath("saved.motrack")).project.pointMasses.at(0).mass, 2);
+                }
+            }
+        }
+    }
+}
+
+TEST(PairedWorkspace, DoesNotApplySaveCompletionToAReplacementDocument)
+{
+    QTemporaryDir temporary;
+    QSemaphore entered;
+    QSemaphore release;
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(fixture()));
+    auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+    ASSERT_NE(pool, nullptr);
+    pool->start(
+        [&]
+        {
+            entered.release();
+            static_cast<void>(release.tryAcquire(1, 5000));
+        });
+    ASSERT_TRUE(entered.tryAcquire(1, 5000));
+    QTimer::singleShot(0,
+                       &window,
+                       [&]
+                       {
+                           EXPECT_TRUE(window.loadProject(fixture()));
+                           release.release();
+                       });
+    const auto target = temporary.filePath("old.trk");
+    EXPECT_FALSE(window.saveTrackerProject(target));
+    EXPECT_TRUE(window.windowTitle().contains("linked-images.trk"));
+    EXPECT_FALSE(window.isWindowModified());
+    EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(target).project.pointMasses.at(0).mass, 2);
 }
 
 TEST(PairedWorkspace, CancellationPreservesBothExistingFilesAndNewerEdits)
@@ -329,7 +461,8 @@ TEST(PairedWorkspace, DestroyingTheWindowDuringSaveCancelsAndReleasesTheWorker)
     QTemporaryDir temporary;
     QSemaphore entered;
     QSemaphore release;
-    auto* window = new motrack::MainWindow;
+    QPointer<motrack::MainWindow> window = new motrack::MainWindow;
+    const auto cleanup = qScopeGuard([&window] { delete window.data(); });
     ASSERT_TRUE(window->loadProject(fixture()));
     auto* pool = window->findChild<QThreadPool*>("workspaceSavePool");
     ASSERT_NE(pool, nullptr);
@@ -344,7 +477,7 @@ TEST(PairedWorkspace, DestroyingTheWindowDuringSaveCancelsAndReleasesTheWorker)
                        [window, &release]
                        {
                            release.release();
-                           delete window;
+                           delete window.data();
                        });
     EXPECT_FALSE(window->saveTrackerProject(temporary.filePath("saved.trk")));
 }
