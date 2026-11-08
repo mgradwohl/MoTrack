@@ -956,10 +956,13 @@ void MainWindow::activateProject(const QString& path)
 
 void MainWindow::refreshImageMediaLocations()
 {
-    if (m_Sequence)
+    if (!m_Session.document.movie)
     {
-        // Rebuild only the reader's paths; keep the current frame, clip controls and edit history.
-        m_Sequence = ImageSequence::open(m_MediaProjectPath, m_Session.document.project.clip, m_Session.document.mediaLocations);
+        // Keep a known image reader if a temporarily missing, unusually named image cannot
+        // be identified. A later successful save also retries when no reader was available.
+        auto sequence = ImageSequence::open(m_MediaProjectPath, m_Session.document.project.clip, m_Session.document.mediaLocations);
+        if (sequence)
+            m_Sequence = std::move(sequence);
     }
 }
 
