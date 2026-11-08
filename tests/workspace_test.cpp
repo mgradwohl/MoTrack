@@ -1047,6 +1047,48 @@ TEST(Workspace, SavingRetainsMediaLocationsAfterTheOriginalProjectDirectoryIsRem
     }
 }
 
+TEST(Workspace, SavesRestoredMissingMediaWithoutReopeningItsOriginalProject)
+{
+    for (const bool removeOriginalDirectory : {false, true})
+    {
+        SCOPED_TRACE(removeOriginalDirectory);
+        QTemporaryDir temporary;
+        ASSERT_TRUE(QDir(temporary.path()).mkpath("import"));
+        ASSERT_TRUE(QDir(temporary.path()).mkpath("media"));
+        ASSERT_TRUE(QDir(temporary.path()).mkpath("exports/deep"));
+        auto document = motrack::importTrackerDocument(fixturePath("image-sequence.trk"));
+        document.project.clip.mediaReferences = {"../media/frame00.ppm"};
+        document.project.clip.firstFrame = 0;
+        document.project.clip.stepSize = 1;
+        document.project.clip.stepCount = 1;
+        document.project.clip.sourceFrameCount = 1;
+        const auto input = temporary.filePath("import/input.motrack");
+        motrack::writeWorkspaceDocument(input, document);
+        motrack::MainWindow window;
+        ASSERT_TRUE(window.loadProject(input));
+        if (removeOriginalDirectory)
+        {
+            ASSERT_TRUE(QFile::remove(input));
+            ASSERT_TRUE(QDir(temporary.path()).rmdir("import"));
+        }
+        ASSERT_TRUE(QFile::copy(fixturePath("frames/frame00.ppm"), temporary.filePath("media/frame00.ppm")));
+        const auto target = temporary.filePath("exports/deep/saved.motrack");
+        ASSERT_TRUE(window.saveWorkspace(target));
+        EXPECT_FALSE(window.isWindowModified());
+        const auto saved = motrack::readWorkspaceDocument(target);
+        EXPECT_EQ(saved.project.clip.mediaReferences, std::vector<std::string>{"../../media/frame00.ppm"});
+        const auto sequence = motrack::ImageSequence::open(target, saved.project.clip);
+        ASSERT_TRUE(sequence);
+        const auto frame = sequence->readStep(0);
+        ASSERT_TRUE(frame);
+        EXPECT_EQ(frame->image, QImage(fixturePath("frames/frame00.ppm")));
+        ASSERT_TRUE(window.loadProject(target));
+        auto* canvas = window.findChild<QWidget*>("videoCanvas");
+        ASSERT_NE(canvas, nullptr);
+        EXPECT_EQ(canvas->accessibleName(), "Frame 0");
+    }
+}
+
 TEST(Workspace, UnresolvedMediaRebasingKeepsTheExistingDestinationAndDirtyState)
 {
     QTemporaryDir temporary;
@@ -1324,6 +1366,43 @@ TEST(Workspace, SavesAndReopensMediaThroughDirectoryAndProjectAliases)
         EXPECT_EQ(canvas->accessibleName(), "Frame 0");
         ASSERT_TRUE(window.saveWorkspace(destination));
         EXPECT_TRUE(QFileInfo(alias).isSymLink());
+    }
+}
+
+TEST(Workspace, ResolvesDanglingSaveAliasesBeforeProtectingMissingMedia)
+{
+    for (const bool targetIsMedia : {true, false})
+    {
+        SCOPED_TRACE(targetIsMedia);
+        QTemporaryDir temporary;
+        ASSERT_TRUE(QDir(temporary.path()).mkpath("physical"));
+        const auto target = temporary.filePath("physical/actual.motrack");
+        const auto alias = temporary.filePath("alias.motrack");
+        ASSERT_TRUE(QFile::link(target, alias));
+        auto document = motrack::importTrackerDocument(fixturePath("image-sequence.trk"));
+        // The real target must be protected; a missing image sharing only the alias basename must not block saving.
+        document.project.clip.mediaReferences = {targetIsMedia ? "physical/actual.motrack" : "physical/alias.motrack"};
+        document.project.clip.firstFrame = 0;
+        document.project.clip.stepSize = 1;
+        document.project.clip.stepCount = 1;
+        document.project.clip.sourceFrameCount = 1;
+        const auto input = temporary.filePath("input.motrack");
+        motrack::writeWorkspaceDocument(input, document);
+        motrack::MainWindow window;
+        ASSERT_TRUE(window.loadProject(input));
+        auto* create = window.findChild<QAction*>("newPointMass");
+        ASSERT_NE(create, nullptr);
+        create->trigger();
+        EXPECT_EQ(window.saveWorkspace(alias), !targetIsMedia);
+        EXPECT_EQ(window.isWindowModified(), targetIsMedia);
+        EXPECT_TRUE(QFileInfo(alias).isSymLink());
+        EXPECT_EQ(QFileInfo::exists(target), !targetIsMedia);
+        if (!targetIsMedia)
+        {
+            const auto saved = motrack::readWorkspaceDocument(target);
+            EXPECT_EQ(saved.project.clip.mediaReferences, std::vector<std::string>{"alias.motrack"});
+            EXPECT_FALSE(QFileInfo::exists(temporary.filePath("physical/alias.motrack")));
+        }
     }
 }
 

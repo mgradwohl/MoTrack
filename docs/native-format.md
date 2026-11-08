@@ -402,7 +402,9 @@ same local-reference checks as inputs, so a parent folder containing `!/` cannot
 archive-style reference. Reopening each generated reference must resolve to the same original image.
 Native desktop Save uses the same physical-directory rebasing and verifies each generated reference
 before writing. Its atomic native writer follows project-file aliases, including a link whose target
-has not been created yet; the saved references are relative to that target's physical directory.
+has not been created yet; the saved references are relative to that target's physical directory. The media
+overwrite guard uses the resolved target's filename as well as its directory, so a dangling alias cannot
+replace a retained missing image or falsely reject a distinct image with the alias's basename.
 Cyclic aliases and links that would be interpreted as archive references fail without changing an
 existing destination or the session's saved state. POSIX desktop regressions reopen through both the
 alias and physical path and compare decoded image pixels; CI runs these on Linux and macOS. Standalone
@@ -541,7 +543,10 @@ preserved, not transcoded; the initial application acceptance fixture consists o
 Native tests cover native close/reopen, removal of the original files, relocation, embedded native
 archive reopen and subsequent standard editing. Independent corpus checks cover exact inventory,
 unchanged image hashes and full XML preservation. Actual Tracker load/resave/fresh-reopen acceptance
-is required by the `packaged-images` mode and remains pending until CI reports it. Packaging UI,
+passed the `packaged-images` mode at `f8ea95f` in Linux job 128802309844 of
+[run 42503907010](https://github.com/mgradwohl/MoTrack/actions/runs/42503907010), with all six platform/coverage
+checks green. Later revisions still require their own CI and review. Missing or unreadable input diagnostics
+include the resolved source path while preserving an existing output. Packaging UI,
 paired native snapshot adoption, movies and arbitrary supporting-resource collection remain unfinished.
 
 Local Windows validation for this slice passes all six CTest suites, formatting, clang-tidy,

@@ -798,4 +798,104 @@ TEST(PairedWorkspace, DestroyingTheWindowDuringSaveCancelsAndReleasesTheWorker)
     }
 }
 
+TEST(PairedWorkspace, WindowDestructionDuringSaveDialogsLeavesNoDanglingWidgets)
+{
+    // Native/Tracker chooser, companion/recovery confirmation, and discard prompts from close/open.
+    for (int phase = 0; phase < 8; ++phase)
+    {
+        SCOPED_TRACE(phase);
+        QTemporaryDir temporary;
+        const auto standard = temporary.filePath("saved.trk");
+        const auto native = temporary.filePath("saved.motrack");
+        const auto replacement = temporary.filePath("replacement.trk");
+        ASSERT_TRUE(QFile::copy(fixture(), replacement));
+        QString journal;
+        QByteArray standardBefore;
+        if (phase == 2)
+            put(native, "unrelated companion");
+        if (phase == 3)
+        {
+            std::atomic_bool cancelled{false};
+            const auto interrupted = motrack::writePairedDocuments(standard,
+                                                                   motrack::importTrackerDocument(fixture()),
+                                                                   fixture(),
+                                                                   &cancelled,
+                                                                   [&cancelled](auto state)
+                                                                   { cancelled = state == motrack::PairedSaveProgress::StandardSaved; });
+            ASSERT_EQ(interrupted.status, motrack::PairedSaveStatus::RecoveryRequired);
+            journal = interrupted.recoveryPath;
+            standardBefore = bytes(standard);
+        }
+        auto window = std::make_unique<motrack::MainWindow>();
+        ASSERT_TRUE(window->loadProject(fixture()));
+        if (phase == 3)
+            EXPECT_FALSE(window->saveTrackerProject(standard));
+        if (phase >= 4)
+            ASSERT_TRUE(editMass(*window, 5));
+        QTimer poll;
+        QTimer watchdog;
+        bool destroyed = false;
+        bool choseFile = false;
+        QObject::connect(&poll,
+                         &QTimer::timeout,
+                         [&]
+                         {
+                             if (auto* chooser = qobject_cast<QFileDialog*>(QApplication::activeModalWidget()))
+                             {
+                                 if (phase == 2 && !choseFile)
+                                 {
+                                     choseFile = true;
+                                     if (auto* focused = chooser->focusWidget())
+                                         focused->clearFocus();
+                                     chooser->selectFile(standard);
+                                     ASSERT_TRUE(QTest::qWaitFor([&] { return chooser->selectedFiles() == QStringList{standard}; }, 1500));
+                                     QMetaObject::invokeMethod(chooser, "accept");
+                                     return;
+                                 }
+                                 if (phase > 1)
+                                     return;
+                             }
+                             else if (!qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
+                                 return;
+                             poll.stop();
+                             destroyed = true;
+                             window.reset();
+                         });
+        watchdog.setSingleShot(true);
+        QObject::connect(&watchdog,
+                         &QTimer::timeout,
+                         []
+                         {
+                             if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
+                                 dialog->reject();
+                         });
+        poll.start(10);
+        watchdog.start(4000);
+        if (phase < 4)
+        {
+            const auto* name = phase == 0 ? "saveWorkspace" : phase == 3 ? "saveProject" : "saveTrackerProject";
+            window->findChild<QAction*>(name)->trigger();
+        }
+        else if (phase == 4)
+            static_cast<void>(window->close());
+        else if (phase == 5)
+            window->openProject(replacement);
+        else if (phase == 6)
+            window->openMovie(QString::fromUtf8(MOTRACK_FIXTURES) + "/vfr.mp4");
+        else
+            EXPECT_FALSE(window->openImageSequence({fixture("images/frame0.png")}, 25));
+        ASSERT_TRUE(QTest::qWaitFor([&] { return !window; }, 4500));
+        EXPECT_TRUE(destroyed);
+        if (phase == 2)
+            EXPECT_EQ(bytes(native), "unrelated companion");
+        if (phase == 3)
+        {
+            EXPECT_EQ(bytes(standard), standardBefore);
+            EXPECT_TRUE(QFileInfo::exists(journal));
+        }
+        else
+            EXPECT_FALSE(QFileInfo::exists(standard));
+    }
+}
+
 } // namespace

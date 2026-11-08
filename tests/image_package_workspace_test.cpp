@@ -7,14 +7,12 @@
 
 #include <QAction>
 #include <QApplication>
-#include <QComboBox>
 #include <QDialog>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QInputDialog>
 #include <QLocale>
-#include <QMessageBox>
 #include <QPushButton>
 #include <QSemaphore>
 #include <QStatusBar>
@@ -333,6 +331,36 @@ TEST(ImagePackageWorkspace, MenuExportsAndRejectsAnObsoleteFilenameDialog)
         EXPECT_EQ(QFileInfo::exists(target), !replaceDocument);
         EXPECT_FALSE(window.isWindowModified());
     }
+}
+
+TEST(ImagePackageWorkspace, WindowDestructionDuringTheFilenameChooserCancelsExport)
+{
+    auto window = std::make_unique<motrack::MainWindow>();
+    ASSERT_TRUE(window->loadProject(fixture()));
+    QTimer poll;
+    QTimer watchdog;
+    QObject::connect(&poll,
+                     &QTimer::timeout,
+                     [&]
+                     {
+                         if (qobject_cast<QFileDialog*>(QApplication::activeModalWidget()))
+                         {
+                             poll.stop();
+                             window.reset();
+                         }
+                     });
+    watchdog.setSingleShot(true);
+    QObject::connect(&watchdog,
+                     &QTimer::timeout,
+                     []
+                     {
+                         if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
+                             dialog->reject();
+                     });
+    poll.start(10);
+    watchdog.start(3000);
+    window->findChild<QAction*>("exportTrackerArchive")->trigger();
+    EXPECT_EQ(window, nullptr);
 }
 
 TEST(ImagePackageWorkspace, WindowDestructionDuringDirectOrMenuExportReleasesTheWorker)
