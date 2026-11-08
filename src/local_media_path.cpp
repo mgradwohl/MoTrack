@@ -11,16 +11,48 @@ namespace motrack
 {
 namespace
 {
-QString followFileAliases(QString path)
+QString followFileAliases(const QString& path)
 {
-    // Follow even dangling file aliases; canonical/weakly_canonical alone leave those unresolved.
-    for (int depth = 0; QFileInfo(path).isSymLink(); ++depth)
+    // Resolve each ancestor before canonicalization: a dangling directory alias still has a
+    // meaningful target, and some canonical-path implementations return the input for loops.
+    std::filesystem::path remaining(path.toStdU16String());
+    for (int depth = 0; depth < 128; ++depth)
     {
-        if (depth == 128)
-            return {};
-        path = QFileInfo(path).symLinkTarget();
+        auto prefix = remaining.root_path();
+        const auto relative = remaining.relative_path();
+        bool followed = false;
+        for (auto part = relative.begin(); part != relative.end(); ++part)
+        {
+            prefix /= *part;
+            std::error_code error;
+            const auto status = std::filesystem::symlink_status(prefix, error);
+            if (error && error != std::errc::no_such_file_or_directory)
+                return {};
+            if (!std::filesystem::is_symlink(status))
+                continue;
+#ifdef Q_OS_WIN
+            // Qt resolves Windows reparse-point targets without the MSVC bitmask analyzer false positive.
+            const auto targetName = QFileInfo(QString::fromStdU16String(prefix.u16string())).symLinkTarget();
+            if (targetName.isEmpty())
+                return {};
+            std::filesystem::path target(targetName.toStdU16String());
+#else
+            auto target = std::filesystem::read_symlink(prefix, error);
+            if (error)
+                return {};
+#endif
+            if (target.is_relative())
+                target = prefix.parent_path() / target;
+            while (++part != relative.end())
+                target /= *part;
+            remaining = std::move(target);
+            followed = true;
+            break;
+        }
+        if (!followed)
+            return QString::fromStdU16String(remaining.u16string());
     }
-    return path;
+    return {};
 }
 } // namespace
 
@@ -60,7 +92,7 @@ QString resolveLocalMediaPath(const QString& projectPath, const std::string& ref
 
 QString physicalLocalFilePath(QString path)
 {
-    path = followFileAliases(std::move(path));
+    path = followFileAliases(path);
     if (path.isEmpty())
         return {};
     auto existing = QFileInfo(path).canonicalFilePath();
