@@ -88,6 +88,17 @@ SaveOutcome DocumentSession::completePairedSave(const SaveCheckpoint& checkpoint
         return SaveOutcome::Replaced;
     if (!result.standardCurrent && !result.nativeCurrent && result.status != PairedSaveStatus::RecoveryRequired)
         return SaveOutcome::Failed;
+    if (!result.recoveryPath.isEmpty())
+    {
+        const auto current = m_RecoveryTransactions.constFind(result.recoveryPath);
+        const auto requested = checkpoint.recoveryTransactions.constFind(result.recoveryPath);
+        if (current != m_RecoveryTransactions.cend() && current.value() != result.transactionId &&
+            (requested == checkpoint.recoveryTransactions.cend() || requested.value() != current.value()))
+            return SaveOutcome::Stale;
+        if (current == m_RecoveryTransactions.cend() && requested != checkpoint.recoveryTransactions.cend() &&
+            requested.value() == result.transactionId)
+            return SaveOutcome::Stale; // A delayed blocked retry cannot resurrect an already cleared transaction.
+    }
     m_PairedSaving = true;
     const bool stale = checkpoint.revision != history.revision();
     const auto standard = QFileInfo(result.standardPath).absoluteFilePath();
@@ -134,18 +145,30 @@ SaveOutcome DocumentSession::completePairedRecovery(const SaveCheckpoint& checkp
     if (!checkpoint.recoveryTransactions.contains(requestedRecoveryPath) ||
         checkpoint.recoveryTransactions.value(requestedRecoveryPath) != m_RecoveryTransactions.value(requestedRecoveryPath))
         return SaveOutcome::Stale;
-    if (result.status != PairedSaveStatus::Saved || !result.standardCurrent || !result.nativeCurrent)
-        return SaveOutcome::Partial;
     const auto transaction = checkpoint.recoveryTransactions.value(requestedRecoveryPath);
+    if (result.status == PairedSaveStatus::RecoveryRequired && !result.transactionId.isEmpty() && result.transactionId != transaction)
+    {
+        // Another process replaced the journal. No output changed; the next confirmation must identify this transaction.
+        m_RecoveryTransactions.insert(requestedRecoveryPath, result.transactionId);
+        return SaveOutcome::Partial;
+    }
+    const bool absent = result.status == PairedSaveStatus::RecoveryNotNeeded && !transaction.isEmpty();
+    if (!absent && (result.status != PairedSaveStatus::Saved || !result.standardCurrent || !result.nativeCurrent))
+        return SaveOutcome::Partial;
     if (!transaction.isEmpty() && result.transactionId != transaction)
         return SaveOutcome::Stale;
-    const auto recoveredStandard = QFileInfo(result.standardPath).absoluteFilePath();
-    if (m_StandardSavePath.isEmpty())
-        m_StandardSavePath = recoveredStandard;
-    if (m_NativeSavePath.isEmpty() && m_StandardSavePath == recoveredStandard)
-        m_NativeSavePath = QFileInfo(result.nativePath).absoluteFilePath();
-    m_RecoveryPaths.removeAll(requestedRecoveryPath);
-    m_RecoveryTransactions.remove(requestedRecoveryPath);
+    if (!absent)
+    {
+        const auto recoveredStandard = QFileInfo(result.standardPath).absoluteFilePath();
+        if (m_StandardSavePath.isEmpty())
+            m_StandardSavePath = recoveredStandard;
+        if (m_NativeSavePath.isEmpty() && m_StandardSavePath == recoveredStandard)
+            m_NativeSavePath = QFileInfo(result.nativePath).absoluteFilePath();
+    }
+    // The public accessor may have supplied a reference to the list element that is about to be removed.
+    const auto completedPath = requestedRecoveryPath; // NOLINT(performance-unnecessary-copy-initialization)
+    m_RecoveryPaths.removeAll(completedPath);
+    m_RecoveryTransactions.remove(completedPath);
     // A journal can predate the live session or be recovered after further edits. A fresh paired
     // save establishes its relationship to the current document; recovery alone never does.
     history.invalidateSaved();
