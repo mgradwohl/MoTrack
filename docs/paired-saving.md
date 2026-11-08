@@ -244,3 +244,8 @@ in one order and reported in another, unknown journals completed externally, and
 Failed recovery attempts also retain their lock-observed journal state, including an unreadable UUID
 or a restored record with the same UUID. A delayed earlier success cannot clear that newer failure;
 the pending journal continues to keep the session modified even after a successful save elsewhere.
+
+Filename, companion, recovery and save/discard prompts are parent-owned heap dialogs guarded across
+their nested event loops. Closing the owning window during any prompt cannot delete a stack widget
+or resume a save through a destroyed controller. Prepared project/movie opens also check lifetime
+before updating status after a discarded prompt. These cases have direct menu/open/close regressions.
