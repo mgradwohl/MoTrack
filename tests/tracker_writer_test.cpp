@@ -187,7 +187,7 @@ TEST(TrackerWriter, RejectsUnsafeLinkedImageExportsBeforeReplacingTheDestination
     {
         SCOPED_TRACE(index);
         auto document = original;
-        mutations[index](document);
+        ASSERT_NO_FATAL_FAILURE(mutations[index](document));
         EXPECT_THROW(motrack::writeTrackerDocument(destination, document, input), motrack::ProjectError);
         EXPECT_EQ(readBytes(destination), "existing");
     }
