@@ -192,6 +192,10 @@ struct RenameSchema
             require(seen.insert(name).second && allowed.contains(name));
             propertyValue(child, allowed.at(name), depth + 1);
         }
+        // Tracker synchronizes linked x axes while loading each panel. Until that behavior has
+        // its own application acceptance case, admit only explicitly unlinked custom plots.
+        if (actual == QString(TRACKER) + "PlotTrackView")
+            require(property(value, "linked").text() == "false");
     }
 
     void propertyValue(const QDomElement& value, const QString& signature, unsigned depth)
