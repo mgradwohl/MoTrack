@@ -125,10 +125,12 @@ SaveOutcome DocumentSession::completePairedSave(const SaveCheckpoint& checkpoint
         return SaveOutcome::Stale;
     if (!result.standardCurrent && !result.nativeCurrent && result.status != PairedSaveStatus::RecoveryRequired)
         return SaveOutcome::Failed;
+    // A blocked retry only reports an existing journal; it must not restore an older destination.
+    const bool adoptStandard = !m_PairedSaving || m_StandardSavePath.isEmpty() || result.standardCurrent;
     m_PairedSaving = true;
     const bool stale = checkpoint.revision != history.revision();
     const auto standard = QFileInfo(result.standardPath).absoluteFilePath();
-    if (!result.standardPath.isEmpty() && standard != m_StandardSavePath)
+    if (adoptStandard && !result.standardPath.isEmpty() && standard != m_StandardSavePath)
     {
         m_StandardSavePath = standard;
         history.invalidateSaved(SaveTarget::Tracker);
