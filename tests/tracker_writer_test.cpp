@@ -339,6 +339,45 @@ TEST(TrackerWriter, BoundsNewMassDenseArraysAndSupportsCreationWithExistingRenam
     EXPECT_EQ(readBytes(destination), namedSource());
 }
 
+TEST(TrackerWriter, CreatedMassRejectsCoordinateCancellationWithoutChangingCalibrationOrDestination)
+{
+    const auto xml =
+        namedSource("<property name='coords' type='object'><object class='org.opensourcephysics.media.core.ImageCoordSystem'>"
+                    "<property name='fixedorigin' type='boolean'>true</property><property name='fixedangle' type='boolean'>true</property>"
+                    "<property name='fixedscale' type='boolean'>true</property>"
+                    "<property name='framedata' type='array' class='[Lorg.opensourcephysics.media.core.ImageCoordSystem$FrameData;'>"
+                    "<property name='[0]' type='object'><object class='org.opensourcephysics.media.core.ImageCoordSystem$FrameData'>"
+                    "<property name='xorigin' type='double'>16</property><property name='yorigin' type='double'>16</property>"
+                    "<property name='angle' type='double'>0</property><property name='xscale' type='double'>1e-100</property>"
+                    "<property name='yscale' type='double'>2e-100</property></object></property></property></object></property>");
+    const auto imported = motrack::parseTrackerProject(xml);
+    auto project = imported.project;
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.createPointMass(project, "new mass"));
+    const motrack::Mark mark{.frame = 1, .x = std::nextafter(16.0, 17.0), .y = 16};
+    ASSERT_TRUE(edits.markPointMass(project, 2, mark));
+    if (!project.calibration)
+    {
+        FAIL() << "Expected the original calibration.";
+    }
+    const auto world = motrack::worldPosition(*project.calibration, mark);
+    if (!world)
+    {
+        FAIL() << "Expected finite native world coordinates.";
+    }
+    EXPECT_NEAR(world->x, 3.552713678800501e85, 1e71);
+    // Java's diagonal AffineTransform multiplies first and then adds translation.
+    const auto product = mark.x * (1 / 1e-100);
+    const auto trackerX = product - 16 / 1e-100;
+    EXPECT_GT(std::abs(trackerX - world->x), 0.1 * world->x);
+    EXPECT_EQ(project.calibration, imported.project.calibration);
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    motrack::writeTrackerProject(destination, imported.project, imported.source);
+    EXPECT_THROW(motrack::writeTrackerProject(destination, project, imported.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), xml);
+}
+
 TEST(TrackerWriter, RenamesSelectedMassByIdentityAndPreservesNonReferenceWordsAfterNativeReopen)
 {
     const auto imported = motrack::parseTrackerProject(namedSource());
