@@ -445,8 +445,10 @@ TEST(TrackerWriter, RenameWalksPlotCollectionsByOrdinalAndLeavesVariableTextAlon
         "<property name='selected_track' type='string'>A</property>"
         "<property name='track_views' type='collection' class='java.util.ArrayList'>"
         "<property name='item' type='object'><object class='org.opensourcephysics.cabrillo.tracker.PlotTrackView'>"
+        "<property name='linked' type='boolean'>false</property>"
         "<property name='track' type='string'>A</property></object></property>"
         "<property name='item' type='object'><object class='org.opensourcephysics.cabrillo.tracker.PlotTrackView'>"
+        "<property name='linked' type='boolean'>false</property>"
         "<property name='track' type='string'>B</property>"
         "<property name='plot0' type='object'><object class='org.opensourcephysics.cabrillo.tracker.TrackPlottingPanel'>"
         "<property name='x_var' type='string'>A</property><property name='y_var' type='string'>B</property>"
@@ -869,6 +871,34 @@ TEST(TrackerWriter, ValidatesExpandedModelParameterValuesWithoutRewritingThem)
         {
             EXPECT_THROW((void)motrack::renderTrackerProject(imported.project, imported.source), motrack::ProjectError);
         }
+    }
+}
+
+TEST(TrackerWriter, RejectsUnauditedLinkedPlotSettingsBeforeReplacingDestination)
+{
+    const auto original = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/plot-guests.trk");
+    const auto unchanged = motrack::parseTrackerProject(original);
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    for (const std::string linked : {"true", "", "missing", "invalid"})
+    {
+        SCOPED_TRACE(linked);
+        auto xml = original;
+        const std::string field = R"(<property name="linked" type="boolean">false</property>)";
+        ASSERT_NE(xml.find(field), std::string::npos);
+        xml.replace(xml.find(field),
+                    field.size(),
+                    linked == "missing" ? "" : R"(<property name="linked" type="boolean">)" + linked + "</property>");
+        // Linked loading synchronizes x axes: the later panel's x can replace the earlier t.
+        const std::string variable = R"(<property name="x_var" type="string">t</property>)";
+        ASSERT_NE(xml.rfind(variable), xml.find(variable));
+        xml.replace(xml.rfind(variable), variable.size(), R"(<property name="x_var" type="string">x</property>)");
+        auto imported = motrack::parseTrackerProject(xml);
+        EXPECT_EQ(motrack::renderTrackerProject(imported.project, imported.source), xml);
+        imported.project.pointMasses[1].name = "renamed";
+        motrack::writeTrackerProject(destination, unchanged.project, unchanged.source);
+        EXPECT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
+        EXPECT_TRUE(readBytes(destination) == original);
     }
 }
 

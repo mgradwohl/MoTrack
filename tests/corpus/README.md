@@ -497,10 +497,12 @@ Consistently wrong selections, reordered/dropped guests or wrong ownership fail 
 agree with one another. Native tests additionally cover later collection ordinals, duplicate/missing
 names, malformed arrays and variable labels identical to renamed tracks.
 
-Only modern track-view collections with the audited unscaled plot fields are eligible; legacy direct
+Only modern track-view collections with explicit `linked=false` and the audited unscaled plot fields are eligible; legacy direct
 plot slots, fixed ranges/scaling, dataset settings and dependent tracks remain unsupported for rename
 export. These checks preserve saved relationships and scientific data, not rendered plot pixels or
 native comparison-plot editing.
+Linked axes require a separate application case because loading conflicting x variables synchronizes
+them. Native regressions refuse linked/missing/malformed settings before replacing a destination.
 The line/point flags are independently transcribed as true/true from both the pinned plot-guests and
 dynamic-sine source panels, and checked through the live serializers before/after Java save/reopen.
 
