@@ -15,9 +15,8 @@ namespace motrack
 {
 bool validConstantClipTiming(const Clip& clip)
 {
-    if (!clip.mediaReferences.empty() || !clip.frameDurationMs || !std::isfinite(*clip.frameDurationMs) ||
-        *clip.frameDurationMs <= 0.0 || !std::isfinite(clip.startTimeMs) || clip.firstFrame < 0 || clip.stepSize <= 0 ||
-        !clip.stepCount || *clip.stepCount <= 0)
+    if (!clip.mediaReferences.empty() || !clip.frameDurationMs || !std::isfinite(*clip.frameDurationMs) || *clip.frameDurationMs <= 0.0 ||
+        !std::isfinite(clip.startTimeMs) || clip.firstFrame < 0 || clip.stepSize <= 0 || !clip.stepCount || *clip.stepCount <= 0)
     {
         return false;
     }

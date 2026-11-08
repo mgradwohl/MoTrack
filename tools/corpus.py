@@ -291,6 +291,8 @@ def validate_session(case, report, manifest, expected=None, key_frames=None, cal
             tolerance, case["id"] + ".units")
     if "session_time_samples" in case:
         compare(case["session_time_samples"], before.get("time_samples"), tolerance, case["id"] + ".time_samples")
+    if "session_frame_duration_ms" in case:
+        compare(case["session_frame_duration_ms"], before.get("frame_duration_ms"), tolerance, case["id"] + ".frame_duration_ms")
     for key in ["clip", "coordinate_samples"]:
         compare(expected[key], before[key], tolerance, case["id"] + "." + key)
     masses = []
@@ -739,6 +741,56 @@ def verify_mixed_calibration_export_xml(case, original, exported):
         raise ValueError("Standard export changed content beyond partly fixed calibration edits")
 
 
+def clip_timing_expected(ranged=False):
+    return {"frame_duration_ms": 250.0,
+            "time_samples": [{"frame": 2 if ranged else 0, "time_ms": -500.0},
+                             {"frame": 8 if ranged else 9, "time_ms": 1000.0 if ranged else 1750.0}]}
+
+
+def clip_timing_roundtrip_expected(case, ranged=False):
+    if case["id"] != "protractor":
+        raise ValueError("The timing oracle requires the pinned protractor case")
+    expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
+    expected["clip"]["start_ms"] = -500.0
+    if ranged:
+        expected["clip"].update(first_frame=2, step_size=2, step_count=4)
+        for sample, frame in zip(expected["coordinate_samples"], [2, 8]):
+            sample["frame"] = frame  # This fixture's coordinate system is fixed.
+    return expected
+
+
+def verify_clip_timing_export_xml(original, exported, ranged=False):
+    expected = minidom.parse(str(original))
+    changes = [("VideoClip", "starttime", "double", "-500"), ("StepperClipControl", "delta_t", "double", "250")]
+    if ranged:
+        changes += [("VideoClip", "startframe", "int", "2"), ("VideoClip", "stepsize", "int", "2"),
+                    ("VideoClip", "stepcount", "int", "4")]
+    for kind, name, scalar_type, value in changes:
+        objects = [node for node in expected.getElementsByTagName("object")
+                   if node.getAttribute("class") == "org.opensourcephysics.media.core." + kind]
+        if len(objects) != 1:
+            raise ValueError("Expected one timing object: " + kind)
+        properties = [node for node in objects[0].childNodes if node.nodeType == node.ELEMENT_NODE
+                      and node.tagName == "property" and node.getAttribute("name") == name]
+        if len(properties) != 1 or properties[0].getAttribute("type") != scalar_type:
+            raise ValueError("Unexpected timing scalar: " + name)
+        cells = [node for node in properties[0].childNodes if node.nodeType in {node.TEXT_NODE, node.CDATA_SECTION_NODE}]
+        if len(cells) != 1:
+            raise ValueError("Unexpected timing text: " + name)
+        cells[0].data = value
+    actual = minidom.parse(str(exported))
+    matches = canonical_tracker_xml(expected) == canonical_tracker_xml(actual)
+    expected.unlink()
+    actual.unlink()
+    if not matches:
+        raise ValueError("Standard export changed content beyond the requested clip timing")
+
+
+def check_native_clip_timing(probe, project, output, tolerance, ranged):
+    run([str(Path(probe).resolve()), "--timing", str(project), str(output)])
+    compare(clip_timing_expected(ranged), json.loads(output.read_text(encoding="utf-8")), tolerance, "native_clip_timing")
+
+
 def clip_roundtrip_expected(case, boundary=False):
     if case["id"] != "independent-vectors":
         raise ValueError("The clip oracle requires the fixed-coordinate vector fixture")
@@ -1089,6 +1141,7 @@ def check_sessions(manifest, cache, java, probe=None):
              ("keyed-calibration", "native_keyed_calibration_roundtrip"),
              ("mixed-calibration", "native_mixed_calibration_roundtrip"),
              ("mass-unit", "native_mass_unit_roundtrip"), ("time-unit", "native_time_unit_roundtrip"),
+             ("clip-timing", "native_clip_timing_roundtrip"), ("clip-timing-range", "native_clip_timing_roundtrip"),
              ("name", "native_name_roundtrip"), ("unselected-name", "native_name_roundtrip"),
              ("vector-name", "native_vector_name_roundtrip"),
              ("plot-owner-name", "native_plot_name_roundtrip"), ("plot-guest-name", "native_plot_name_roundtrip"),
@@ -1172,6 +1225,14 @@ def check_sessions(manifest, cache, java, probe=None):
                               "attachment-first-name", "attachment-last-name", "model-booster-name"}:
                     verify_rename_export_xml(project, exported, mode)
                     expected, case = rename_roundtrip_expected(case, mode)
+                elif mode in {"clip-timing", "clip-timing-range"}:
+                    ranged = mode == "clip-timing-range"
+                    expected = clip_timing_roundtrip_expected(case, ranged)
+                    verify_clip_timing_export_xml(project, exported, ranged)
+                    timing = clip_timing_expected(ranged)
+                    case = {**case, "session_time_samples": timing["time_samples"],
+                            "session_frame_duration_ms": timing["frame_duration_ms"]}
+                    check_native_clip_timing(probe, exported, output / "native-timing.json", manifest["tolerance"], ranged)
                 elif mode == "time-unit":
                     expected = time_unit_roundtrip_expected(case)
                     verify_time_unit_export_xml(project, exported)
@@ -1252,6 +1313,9 @@ def check_sessions(manifest, cache, java, probe=None):
                 expected["source_version"] = manifest["reference"]["version"]
                 expected.update(session_units(case, expected))
                 compare(expected, json.loads(reimport.read_text(encoding="utf-8")), manifest["tolerance"], case["id"] + ".reimport")
+                if mode in {"clip-timing", "clip-timing-range"}:
+                    check_native_clip_timing(probe, output / "tracker-resaved.trk", output / "resaved-timing.json",
+                                            manifest["tolerance"], mode == "clip-timing-range")
                 saved_report = {"verification_level": "motrack_" + mode + "_roundtrip", "tracker_session": report, "expected_reimport": expected}
                 suffix = "-" + mode + "-roundtrip.json"
                 if mode.startswith("snap-"):

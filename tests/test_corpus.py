@@ -1101,6 +1101,70 @@ class CorpusTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(ValueError):
                 corpus.validate_session(case, invalid, manifest, expected)
 
+    def test_clip_timing_xml_oracle_preserves_unrelated_playback_and_content(self):
+        original, exported = self.root / "timing-source.trk", self.root / "timing-export.trk"
+        xml = ('<object><object class="org.opensourcephysics.media.core.VideoClip">'
+               '<property name="startframe" type="int">0</property><property name="stepsize" type="int">1</property>'
+               '<property name="stepcount" type="int">10</property><property name="starttime" type="double">0.0</property></object>'
+               '<object class="org.opensourcephysics.media.core.StepperClipControl">'
+               '<property name="rate" type="double">1.25</property><property name="frame" type="int">0</property>'
+               '<property name="delta_t" type="double">100.0</property></object><!-- keep --></object>')
+        original.write_text(xml, encoding="utf-8")
+        for ranged in [False, True]:
+            edited = xml.replace('>0.0<', '>-500<').replace('>100.0<', '>250<')
+            if ranged:
+                edited = edited.replace('name="startframe" type="int">0<', 'name="startframe" type="int">2<')
+                edited = edited.replace('name="stepsize" type="int">1<', 'name="stepsize" type="int">2<')
+                edited = edited.replace('name="stepcount" type="int">10<', 'name="stepcount" type="int">4<')
+            exported.write_text(edited, encoding="utf-8")
+            corpus.verify_clip_timing_export_xml(original, exported, ranged)
+            for invalid in [xml, edited.replace('>250<', '>500<'), edited.replace('>-500<', '>0<'),
+                            edited.replace('>1.25<', '>1<'), edited.replace('<!-- keep -->', ''),
+                            edited.replace('name="frame" type="int">0<', 'name="frame" type="int">2<')]:
+                with self.subTest(ranged=ranged, invalid=invalid):
+                    exported.write_text(invalid, encoding="utf-8")
+                    with self.assertRaises(ValueError):
+                        corpus.verify_clip_timing_export_xml(original, exported, ranged)
+
+    def test_clip_timing_requires_independent_live_and_native_intervals_and_times(self):
+        manifest = corpus.load_manifest()
+        original = next(case for case in manifest["cases"] if case["id"] == "protractor")
+        for ranged in [False, True]:
+            expected = corpus.clip_timing_roundtrip_expected(original, ranged)
+            timing = corpus.clip_timing_expected(ranged)
+            case = {**original, "session_frame_duration_ms": 250.0, "session_time_samples": timing["time_samples"]}
+            tracks = []
+            for identity in case["session_tracks"]:
+                mass = next((m for m in expected["point_masses"] if m["name"] == identity["name"]), None)
+                tracks.append({**identity, "mass": mass["mass"] if mass else None,
+                               "samples": [{"frame": x["frame"], "points": [x["image"]], "world": x["world"]}
+                                           for x in mass["samples"]] if mass else []})
+            before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                      "name_references": copy.deepcopy(case["session_names"]), "saved_views": copy.deepcopy(case["session_views"]),
+                      **copy.deepcopy(timing), **corpus.session_units(case, expected)}
+            valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                     "view_preparation": "visit_custom_tables_restore_selection", "before": before,
+                     "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
+            corpus.validate_session(case, valid, manifest, expected)
+            mutations = [("frame_duration_ms", 100.0), ("frame_duration_ms", None), ("time_samples", []),
+                         ("time_samples", [{"frame": 2 if ranged else 0, "time_ms": 0.0},
+                                           {"frame": 8 if ranged else 9, "time_ms": 1500.0 if ranged else 2250.0}])]
+            for field, value in mutations:
+                invalid = copy.deepcopy(valid)
+                for stage in ["before", "after_save", "after"]:
+                    invalid[stage][field] = value
+                with self.subTest(ranged=ranged, field=field), self.assertRaises(ValueError):
+                    corpus.validate_session(case, invalid, manifest, expected)
+            output = self.root / "native-timing.json"
+            output.write_text(json.dumps(timing), encoding="utf-8")
+            with patch.object(corpus, "run") as run:
+                corpus.check_native_clip_timing("probe", self.root / "input.trk", output, manifest["tolerance"], ranged)
+                self.assertEqual(run.call_args.args[0][1], "--timing")
+                for field, value in mutations:
+                    output.write_text(json.dumps({**timing, field: value}), encoding="utf-8")
+                    with self.assertRaises(ValueError):
+                        corpus.check_native_clip_timing("probe", self.root / "input.trk", output, manifest["tolerance"], ranged)
+
     def test_mass_unit_export_preserves_mass_values_and_unknown_content(self):
         original = self.root / "original.trk"
         exported = self.root / "mass-unit.trk"

@@ -156,8 +156,29 @@ void patchClipTiming(QDomDocument& xml, const LegacyProject& project)
     const QStringList clipFields{"startframe", "stepsize", "stepcount", "starttime", "readout", "playallsteps"};
     for (auto field = clipObject.firstChildElement(); !field.isNull(); field = field.nextSiblingElement())
     {
-        require(field.tagName() == "property" && clipFields.contains(field.attribute("name")));
-        require(!uniqueProperty(clipObject, field.attribute("name")).isNull());
+        const auto name = field.attribute("name");
+        require(field.tagName() == "property" && clipFields.contains(name) && field.firstChildElement().isNull());
+        require(!uniqueProperty(clipObject, name).isNull());
+        if (name == "starttime")
+        {
+            bool valid = false;
+            const auto value = field.text().toDouble(&valid);
+            require(field.attribute("type") == "double" && valid && std::isfinite(value));
+        }
+        else if (name == "readout")
+        {
+            require(field.attribute("type") == "string");
+        }
+        else if (name == "playallsteps")
+        {
+            require(field.attribute("type") == "boolean" && (field.text() == "true" || field.text() == "false"));
+        }
+        else
+        {
+            bool valid = false;
+            const auto value = field.text().toInt(&valid);
+            require(field.attribute("type") == "int" && valid && value >= (name == "startframe" ? 0 : 1));
+        }
     }
     const auto controlProperty = uniqueProperty(xml.documentElement(), "clipcontrol");
     const auto control = controlProperty.firstChildElement("object");
@@ -855,7 +876,8 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
         baseline.project.clip.stepCount = expected.clip.stepCount;
         changed = true;
     }
-    if (expected.clip.frameDurationMs != baseline.project.clip.frameDurationMs || expected.clip.startTimeMs != baseline.project.clip.startTimeMs)
+    if (expected.clip.frameDurationMs != baseline.project.clip.frameDurationMs ||
+        expected.clip.startTimeMs != baseline.project.clip.startTimeMs)
     {
         patchClipTiming(xml, expected);
         baseline.project.clip.frameDurationMs = expected.clip.frameDurationMs;

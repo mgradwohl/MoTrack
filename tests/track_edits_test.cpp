@@ -5,6 +5,8 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+#include <functional>
 #include <limits>
 
 namespace
@@ -418,6 +420,103 @@ TEST(TrackEdits, ChangesTheClipWithoutRenumberingMarks)
     EXPECT_FALSE(project.clip.stepCount.has_value());
     EXPECT_TRUE(edits.redo(project));
     EXPECT_EQ(project.clip.firstFrame, 1);
+}
+
+TEST(TrackEdits, ChangesTimingWithHistoryAndRescalesDerivedMotionAtOriginalFrames)
+{
+    motrack::LegacyProject project;
+    project.clip.firstFrame = 2;
+    project.clip.stepSize = 2;
+    project.clip.stepCount = 3;
+    project.pointMasses.push_back({.name = "Cart",
+                                   .marks = {{.frame = 2, .x = 0, .y = 0}, {.frame = 4, .x = 2, .y = 0}, {.frame = 6, .x = 8, .y = 0}},
+                                   .mass = 3,
+                                   .id = motrack::allocateTrackId(project)});
+    const auto original = project;
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.setClipTiming(project, 500, -500));
+    edits.markSaved();
+    const auto savedRevision = edits.revision();
+    EXPECT_FALSE(edits.setClipTiming(project, 500, -500));
+    EXPECT_EQ(edits.revision(), savedRevision);
+    EXPECT_DOUBLE_EQ(motrack::measurementPlot(project, 0, motrack::PlotQuantity::VelocityX).samples.at(0).vertical, 4);
+    ASSERT_TRUE(edits.setClipTiming(project, 250, -500));
+    const std::array quantities{motrack::PlotQuantity::VelocityX,
+                                motrack::PlotQuantity::AccelerationX,
+                                motrack::PlotQuantity::MomentumX,
+                                motrack::PlotQuantity::KineticEnergy};
+    const std::array values{8.0, 16.0, 24.0, 96.0};
+    for (std::size_t index = 0; index < quantities.size(); ++index)
+    {
+        const auto plot = motrack::measurementPlot(project, 0, quantities[index]);
+        ASSERT_EQ(plot.samples.size(), 1u);
+        EXPECT_DOUBLE_EQ(plot.samples[0].horizontal, 0);
+        EXPECT_DOUBLE_EQ(plot.samples[0].vertical, values[index]);
+    }
+    EXPECT_EQ(project.pointMasses, original.pointMasses);
+    EXPECT_EQ(motrack::clipRange(project.clip), motrack::clipRange(original.clip));
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_FALSE(edits.isModified());
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_EQ(project, original); // Undo restores an omitted duration, not an invented default.
+    ASSERT_TRUE(edits.redo(project));
+    ASSERT_TRUE(edits.redo(project));
+    project.clip.mediaReferences = {"movie.mp4"};
+    EXPECT_FALSE(edits.undo(project));
+    EXPECT_TRUE(edits.canUndo());
+    project.clip.mediaReferences.clear();
+    ASSERT_TRUE(edits.undo(project));
+    if (!project.clip.frameDurationMs)
+    {
+        FAIL() << "Undo lost the earlier duration";
+    }
+    EXPECT_DOUBLE_EQ(project.clip.frameDurationMs.value(), 500);
+}
+
+TEST(TrackEdits, RefusesInvalidOrUnrepresentableTimingWithoutHistoryChanges)
+{
+    motrack::LegacyProject project;
+    project.clip.stepCount = 10;
+    motrack::TrackEdits edits;
+    const auto original = project;
+    for (const auto duration : {0.0,
+                                -1.0,
+                                std::numeric_limits<double>::infinity(),
+                                std::numeric_limits<double>::quiet_NaN(),
+                                std::numeric_limits<double>::denorm_min()})
+    {
+        EXPECT_FALSE(edits.setClipTiming(project, duration, 0));
+    }
+    for (const auto origin : {std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN(), 1e20})
+    {
+        EXPECT_FALSE(edits.setClipTiming(project, 1, origin));
+    }
+    EXPECT_FALSE(edits.setClipTiming(project, 1e308, 1e308));
+    EXPECT_EQ(project, original);
+    EXPECT_FALSE(edits.canUndo());
+    const std::vector<std::function<void(motrack::Clip&)>> changes{[](auto& clip) { clip.stepCount.reset(); },
+                                                                   [](auto& clip) { clip.stepCount = 0; },
+                                                                   [](auto& clip) { clip.firstFrame = -1; },
+                                                                   [](auto& clip) { clip.stepSize = 0; },
+                                                                   [](auto& clip) { clip.stepCount = 500002; },
+                                                                   [](auto& clip) { clip.sourceFrameCount = 3; },
+                                                                   [](auto& clip)
+                                                                   {
+                                                                       clip.mediaReferences = {"frames/one.png"};
+                                                                   }};
+    for (const auto& change : changes)
+    {
+        project = original;
+        change(project.clip);
+        const auto before = project;
+        EXPECT_FALSE(edits.setClipTiming(project, 250, -500));
+        EXPECT_EQ(project, before);
+        EXPECT_FALSE(edits.canUndo());
+    }
+    project = original;
+    project.clip.firstFrame = 500000;
+    project.clip.stepCount = 1;
+    EXPECT_TRUE(edits.setClipTiming(project, 250, -500));
 }
 
 TEST(TrackEdits, PlacesAxesWithoutChangingAnisotropicScale)

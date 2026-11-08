@@ -236,3 +236,10 @@ terminator immediately before the closing property tag and can hang on an interv
 The CDATA terminator in a label is also rejected before replacing a destination. Time-unit editing,
 the full units UI and unit defaults remain separate work. The corpus explicitly checks imported labels,
 Java's independently recorded default for an omitted label, and labels after Java resave/native reimport.
+
+Constant media-free clip timing can now be edited through history using the existing frame-duration
+and start-time fields, both in milliseconds. No native format version change is required. Undo restores
+the prior optional duration exactly. Standard export requires the audited StepperClipControl subset
+and finite increasing times at original frames; decoded media timing, model/data time sources and
+desktop timing controls remain separate work. The corpus guide documents the independent negative-origin
+and nonzero-first-frame/stride acceptance cases.

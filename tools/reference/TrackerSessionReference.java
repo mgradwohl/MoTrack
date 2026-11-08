@@ -471,6 +471,7 @@ public final class TrackerSessionReference {
             "step_size", clip.getStepSize(), "step_count", clip.getStepCount(), "start_ms", clip.getStartTime()),
             "length_unit", panel.getLengthUnit(), "mass_unit", panel.getMassUnit(),
             "time_unit", panel.getTimeUnit(), "time_samples", times,
+            "frame_duration_ms", panel.getPlayer().getClipControl().getMeanFrameDuration(),
             "name_references", nameReferences(panel),
             "saved_views", savedViews(panel),
             "centers_of_mass", centers,
