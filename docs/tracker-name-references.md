@@ -16,7 +16,9 @@ compared with serializers of live loaded views at all three stages. A synthetic 
 case adds ordered, nonempty comparison guests on two plots, checked through the live view serializers
 and independent point-mass image/world baselines. A separate Java/OSP-authored source-structure case adds two nonempty table dataset owner rows;
 it has no media and is not an application-session acceptance case. Media-backed dataset behavior,
-attachments, dynamic systems and edited dependency cases remain. The vector-sum reference
+protractor/circle attachment behavior, dynamic systems and edited dependency cases remain. A separate
+tape-attachment fixture requires two attached endpoints and each partly attached tape to follow point
+masses and retain independently calculated lengths through normal Java load/save/reopen. The vector-sum reference
 retains named members, independently expected image/world components and missing-member frames, but
 exposes a pinned 6.3.5 defect: the loader leaves pending names uninitialized, so the live sum has no members
 or samples and resave loses the names. The suite classifies this exact failure separately; it is not round-trip
@@ -54,6 +56,7 @@ complete inventory of every name/reference field.
 | [PlotTView](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/PlotTView.java) and [PlotTrackView](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/PlotTrackView.java) | `selected_track`; nested `track_views` and `track` | Selected plot and per-track plot settings identify their owner by name. |
 | [TrackPlottingPanel](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/TrackPlottingPanel.java) | `guests` | Ordered comparison-track names on each plot. The `plot-guests` case loads two plots with guest lists C/B and B; normal live serialization, save and fresh-process reopen must retain both lists and the underlying point-mass data. |
 | [TTrack](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/TTrack.java) | `attachments` | Names in attachment slots, including empty slots, resolve to track objects after load. |
+| [CircleFitter](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/CircleFitter.java) | `step_attachment` | A separate track name for fitting to that track's steps; distinct from the point-attachment slots and their frame-range settings. Source indexing only; application behavior remains unverified. |
 | [CenterOfMass](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/CenterOfMass.java) | `masses` | Collection of constituent point-mass names. The audited loader scans matching `PointMass` drawables and can add multiple same-named masses; duplicate-name behavior needs application cases. |
 | [VectorSum](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/VectorSum.java) | `vectors` | Collection of constituent vector names resolved with `getTrackByName(Vector.class, name)`. The reference case has two unique member names, but the pinned loader does not reset `initialized`; live resolution never runs and resave loses the names. This case is a known compatibility failure. Duplicates and nested sums need separate cases. |
 | [DynamicSystem](https://github.com/OpenSourcePhysics/tracker/blob/020692a3d23781763dd8a7a19d73bf004c3faefe/src/org/opensourcephysics/cabrillo/tracker/DynamicSystem.java) | `particles` | Array of component particle names. |
@@ -90,11 +93,30 @@ inside its non-null `track_columns` branch. Source references do not establish a
 The `table-datasets` fixture uses real LineProfile serializers and the pinned OSP String[][] codec,
 with an independently transcribed native-index oracle. It has no media; actual application resave,
 line-profile measurements and dataset editing/export still require a media-backed reference case.
+Attachment arrays on exact `TapeMeasure`, `Protractor` and `CircleFitter` source classes retain every
+ordered slot. Canonical OSP null objects (`type="object"` with literal `null` text) become `NoTarget`
+with an empty `originalName`; a string containing `null` remains an ordinary name. OSP omits interior
+null entries, so gaps up to the last encoded index also become `NoTarget` and consume the shared entry
+budget. Trailing null extent omitted by a normal Java save is not invented by the source index.
+Canonical null encodings and well-formed bounded strings are required before emitting any slot.
+Empty arrays and absent fields are allowed. The index describes serialized slots, including unusual
+slot counts; it does not claim that every slot maps to an active tool point. Generic panel name lookup
+retains ambiguous/missing targets and unsupported source nodes. Unknown owner classes are not assumed
+to implement TTrack attachment semantics. CircleFitter's separate `step_attachment` scalar is indexed
+independently; its frame settings are data. All slots share the entry/candidate budgets.
+The actual-application attachment case covers three read-only tapes and marked point masses on three
+frames, including leading implicit and trailing explicit null slots. The application harness pads only
+its expected tape slot shape to two endpoints when Java omits trailing null extent; it does not alter
+the loaded objects or the independent measurement expectations. Normal deferred attachment refresh is observed through live
+membership, attached points and matching endpoints; the harness never repairs the loaded objects.
+Protractor/circle application cases, absent target steps, cycles, unknown classes and edited attachment
+round trips remain. These are preserved source relationships, not native attachment evaluation.
 Constituents resolve only unique exact `PointMass`/`Vector` candidates; the other base type is excluded.
 Other same-named classes (including nested dependent tracks) yield `Unclassified`, retaining their possible
 source targets. Duplicate eligible names stay `Ambiguous`; this index does not simulate either loader's
 duplicate-name behavior. Repeated serialized member slots remain distinct references.
-Resolution also distinguishes missing targets and packed `null` markers. Only the packed codec treats `null` as an empty slot. Malformed known
+Resolution also distinguishes missing targets, packed `null` tokens and typed null attachment slots.
+An ordinary string property containing `null` remains a name. Malformed known
 fields have diagnostic paths; ordinary description text is ignored. Limits are 10000 source entries,
 10000 total nested array/collection entries, 4096 UTF-16 units per string and 65536 units for the packed
 value, within the existing XML byte cap. View indices are bounded to four choosers/four slots; string
@@ -116,8 +138,8 @@ The internal writer rejects edits to any project containing a vector sum, even a
 member samples are removed. Native saving still retains the exact original source; an unchanged
 standard-file copy is also preserved byte-for-byte and is not advertised as repaired Tracker behavior.
 
-This is not a complete dependency graph or an export eligibility check. Attachments
-and model boosters are not indexed yet; no malformed paths does not mean a rename is safe.
+This is not a complete dependency graph or an export eligibility check. Dynamic-system
+particles and model boosters are not indexed yet; no malformed paths does not mean a rename is safe.
 The `referenceframe` scalar is indexed, but moving-coordinate behavior still lacks application cases.
 
 ## Proposed rename architecture

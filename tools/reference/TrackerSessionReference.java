@@ -17,6 +17,8 @@ import org.opensourcephysics.cabrillo.tracker.CenterOfMass;
 import org.opensourcephysics.cabrillo.tracker.ParticleModel;
 import org.opensourcephysics.cabrillo.tracker.PointMass;
 import org.opensourcephysics.cabrillo.tracker.Step;
+import org.opensourcephysics.cabrillo.tracker.TapeMeasure;
+import org.opensourcephysics.cabrillo.tracker.TapeStep;
 import org.opensourcephysics.cabrillo.tracker.TFrame;
 import org.opensourcephysics.cabrillo.tracker.TTrack;
 import org.opensourcephysics.cabrillo.tracker.TView;
@@ -56,9 +58,10 @@ public final class TrackerSessionReference {
             Files.createDirectories(directory);
             Path saved = directory.resolve("tracker-resaved.trk");
             if (save && Files.exists(saved)) throw new IllegalArgumentException("Output must be a fresh test directory");
+            List<AttachmentRequirement> attachmentRequirements = attachmentRequirements(input);
             SwingUtilities.invokeAndWait(guard(() -> {
                 TFrame originalFrame = new TFrame();
-                TrackerIO.openURL(input.toString(), originalFrame, guard(() -> whenEvaluated(originalFrame, () -> {
+                TrackerIO.openURL(input.toString(), originalFrame, guard(() -> whenEvaluated(originalFrame, attachmentRequirements, () -> {
                     TrackerPanel panel = onlyPanel(originalFrame);
                     Map<String, Object> before = snapshot(panel);
                     if (save && (TrackerIO.save(saved.toFile(), panel) == null || !Files.isRegularFile(saved)))
@@ -97,7 +100,67 @@ public final class TrackerSessionReference {
         return panel;
     }
 
-    private static void whenEvaluated(TFrame frame, Runnable action) {
+    private record AttachmentRequirement(String owner, String[] targets) {}
+
+    private static List<AttachmentRequirement> attachmentRequirements(Path input) {
+        XMLControlElement source = new XMLControlElement(input.toString());
+        List<AttachmentRequirement> result = new ArrayList<>();
+        for (XMLControl track : TrackerReference.objects(TrackerReference.property(source, "tracks"))) {
+            if (TrackerReference.property(track, "attachments") == null) continue;
+            if (!track.getObjectClassName().equals(TapeMeasure.class.getName()))
+                throw new IllegalStateException("Attachment application reference currently supports tape measures only");
+            String[] targets = (String[]) track.getObject("attachments");
+            if (targets == null || targets.length > 2 || result.size() >= 10000)
+                throw new IllegalStateException("Unexpected tape attachment requirements in " + input.getFileName()
+                    + " for " + track.getString("name") + ": " + Arrays.toString(targets));
+            // Normal Tracker saves omit trailing null array entries. TapeMeasure's public
+            // getAttachments() restores its two endpoint slots on load; normalize only our
+            // expected shape, never the loaded objects or the independent manifest values.
+            result.add(new AttachmentRequirement(track.getString("name"), Arrays.copyOf(targets, 2)));
+        }
+        source.dispose();
+        return result;
+    }
+
+    private static TTrack uniqueTrack(TrackerPanel panel, String name) {
+        List<TTrack> matches = panel.getTracks().stream().filter(track -> track.getName().equals(name)).toList();
+        if (matches.size() != 1) throw new IllegalStateException("Missing or ambiguous attachment track: " + name);
+        return matches.get(0);
+    }
+
+    private static boolean attachmentsReady(TrackerPanel panel, List<AttachmentRequirement> requirements) {
+        VideoClip clip = panel.getPlayer().getVideoClip();
+        for (AttachmentRequirement requirement : requirements) {
+            TTrack owner = uniqueTrack(panel, requirement.owner());
+            TTrack[] targets = owner.getAttachments();
+            if (targets == null || targets.length != requirement.targets().length) return false;
+            for (int slot = 0; slot < targets.length; slot++) {
+                String name = requirement.targets()[slot];
+                if (name == null) {
+                    if (targets[slot] != null) throw new IllegalStateException("Empty attachment acquired a target");
+                    for (int stepIndex = 0; stepIndex < clip.getStepCount(); stepIndex++) {
+                        Step step = owner.getStep(clip.stepToFrame(stepIndex));
+                        if (step == null) throw new IllegalStateException("Expected unattached tape endpoint");
+                        if (step.getPoints()[slot].isAttached()) return false;
+                    }
+                    continue;
+                }
+                TTrack target = uniqueTrack(panel, name);
+                if (targets[slot] != target) return false;
+                for (int stepIndex = 0; stepIndex < clip.getStepCount(); stepIndex++) {
+                    int frame = clip.stepToFrame(stepIndex);
+                    Step targetStep = target.getStep(frame), ownerStep = owner.getStep(frame);
+                    if (targetStep == null || ownerStep == null)
+                        throw new IllegalStateException("Attachment fixture needs marked target and owner steps");
+                    TPoint point = ownerStep.getPoints()[slot], expected = targetStep.getPoints()[0];
+                    if (!point.isAttached() || point.x != expected.x || point.y != expected.y) return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private static void whenEvaluated(TFrame frame, List<AttachmentRequirement> attachments, Runnable action) {
         TrackerPanel panel = onlyPanel(frame);
         WAITING.set("showing the loaded experiment");
         VideoClip clip = panel.getPlayer().getVideoClip();
@@ -110,6 +173,9 @@ public final class TrackerSessionReference {
         panel.getPlayer().setStepNumber(clip.getStepCount() - 1);
         Timer timer = new Timer(25, event -> guard(() -> {
             panel.paintImmediately(panel.getVisibleRect());
+            // Tracker schedules attachment refresh after load. Observe normal resolution and point
+            // attachment instead of sleeping or calling its protected refresh/repair methods.
+            if (!attachmentsReady(panel, attachments)) { WAITING.set("attachment target/point refresh"); return; }
             // Named constituents are resolved by CenterOfMass's normal initialize/draw path.
             for (TTrack track : panel.getTracks()) if (track instanceof CenterOfMass center
                     && center.getMasses().length == 0) { WAITING.set("center members: " + center.getName()); return; }
@@ -180,17 +246,21 @@ public final class TrackerSessionReference {
         List<Object> tracks = new ArrayList<>();
         List<Object> centers = new ArrayList<>();
         List<Object> sums = new ArrayList<>();
+        List<Object> attachments = new ArrayList<>();
         for (TTrack track : panel.getTracks()) {
             List<Object> samples = new ArrayList<>();
             List<Object> vectorSamples = new ArrayList<>();
             Step[] steps = track.getSteps();
             if (steps.length > 10000) throw new IllegalArgumentException("Reference step limit exceeded");
             for (Step step : steps) if (step != null) {
+                if (track instanceof TapeMeasure && !clip.includesFrame(step.getFrameNumber())) continue;
                 List<Object> points = new ArrayList<>();
-                // Vector drag handles and display points are transient UI state, not saved geometry.
+                // Vector/tape drag handles and display points are transient UI state, not saved geometry.
                 // Compare both scientific endpoints here and tail/components independently below.
                 TPoint[] savedPoints = track instanceof Vector
-                    ? new TPoint[] {((VectorStep) step).getTip(), ((VectorStep) step).getTail()} : step.getPoints();
+                    ? new TPoint[] {((VectorStep) step).getTip(), ((VectorStep) step).getTail()}
+                    : track instanceof TapeMeasure
+                    ? new TPoint[] {((TapeStep) step).getEnd1(), ((TapeStep) step).getEnd2()} : step.getPoints();
                 for (TPoint point : savedPoints) points.add(point == null ? null : List.of(point.x, point.y));
                 int frame = step.getFrameNumber();
                 List<Double> world = null;
@@ -218,6 +288,21 @@ public final class TrackerSessionReference {
             tracks.add(TrackerReference.map("class", track.getClass().getName(), "name", track.getName(),
                 "mass", track instanceof PointMass mass ? mass.getMass() : null, "samples", samples, "key_frames", keys,
                 "vector_samples", vectorSamples));
+            if (track instanceof TapeMeasure tape && tape.isAttached()) {
+                List<String> targets = new ArrayList<>();
+                for (TTrack target : tape.getAttachments()) targets.add(target == null ? null : target.getName());
+                List<Object> measurements = new ArrayList<>();
+                for (int stepIndex = 0; stepIndex < clip.getStepCount(); stepIndex++) {
+                    int frame = clip.stepToFrame(stepIndex);
+                    TapeStep step = (TapeStep) tape.getStep(frame);
+                    if (step == null) throw new IllegalStateException("Expected attached tape step");
+                    measurements.add(TrackerReference.map("frame", frame,
+                        "endpoints", List.of(List.of(step.getEnd1().x, step.getEnd1().y), List.of(step.getEnd2().x, step.getEnd2().y)),
+                        "attached", List.of(step.getEnd1().isAttached(), step.getEnd2().isAttached()),
+                        "world_length", step.getTapeLength(true)));
+                }
+                attachments.add(TrackerReference.map("name", tape.getName(), "targets", targets, "samples", measurements));
+            }
             if (track instanceof VectorSum sum) {
                 List<String> members = new ArrayList<>();
                 for (Vector member : sum.getVectors()) members.add(member.getName());
@@ -269,6 +354,7 @@ public final class TrackerSessionReference {
             "saved_views", savedViews(panel),
             "centers_of_mass", centers,
             "vector_sums", sums,
+            "attachments", attachments,
             "calibration", TrackerReference.map("fixed_origin", coords.isFixedOrigin(), "fixed_angle", coords.isFixedAngle(),
                 "fixed_scale", coords.isFixedScale(), "keys", calibrationKeys),
             "tracks", tracks, "coordinate_samples", coordinates);

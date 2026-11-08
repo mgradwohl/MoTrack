@@ -378,3 +378,36 @@ claim that loaded table columns, profile measurements or a Java application resa
 media-backed application case remains necessary before dataset editing/export acceptance. Native tests
 cover malformed/noncanonical settings, missing/duplicate names, shared budgets and preservation across
 native rename, reorder, deletion, undo/redo and save/reopen. They do not enable standard rename export.
+
+## Tape attachment reference
+
+[AttachmentsFixture.java](../../tools/reference/AttachmentsFixture.java) authors two point masses and
+three read-only tapes using the pinned Tracker APIs/serializers. Two fresh bounded headless runs produce
+identical bytes. The initial attached tape endpoints are deliberately stale. The application probe
+uses normal loading and waits for Tracker's deferred attachment refresh to establish the requested
+live targets, attached points and endpoint coordinates; it does not call protected refresh methods,
+change private state, or sleep for a guessed duration.
+
+At frames 0/1/2, mass A is at image (20,40)/(22,40)/(24,40); B is at (26,48)/(31,52)/(36,56).
+Origin (20,40), scale (2,2), and image y increasing downward give world points A=(0,0)/(1,0)/(2,0)
+and B=(3,-4)/(5.5,-6)/(8,-8). The fully attached tape must measure 5/7.5/10 m. The partly attached
+tape follows A at its first end while its unattached end stays at (40,40), giving 10/9/8 m. A third
+tape fixes its first end at (40,40) and follows B at the second, giving sqrt(65)/7.5/sqrt(68) m. The manifest
+records these independent endpoints, lengths and target names; a consistent wrong load or lossy resave
+cannot pass. Tape snapshots include scientific endpoints in the clip, excluding transient drag handles.
+The normal public length getter evaluates measurements after attachments are ready. Empty live endpoints must remain unattached rather than become the literal track name `null`.
+The first Linux application attempt exposed normal OSP omission of trailing null extent on save:
+`[mass A, null]` is serialized as `[mass A]`. The public tape attachment getter restores two slots.
+A headless codec probe also confirms omitted interior null cells (`[1]=mass B` decodes as
+`[null, mass B]`). The harness normalizes only its expected tape-slot shape; measurements and live
+objects are unchanged. The native index fills bounded implicit null gaps, charging them to the shared
+entry budget, but does not invent trailing extent beyond the encoded array.
+
+The native oracle independently transcribes axes at source node 0, masses at nodes 1/2 (native IDs 1/2),
+and tapes at nodes 3/4/5 (unsupported, no invented IDs). It retains both full attachment targets plus
+each partial tape's target and empty slot. Unit cases add protractor/circle source fields, `step_attachment`,
+literal-null names, missing/ambiguous/unknown targets, malformed arrays, shared bounds and native
+edit/undo/redo/save/reopen. This is Java's own resave baseline, not MoTrack export acceptance. Native
+persistent tools, protractor/circle application behavior, missing target frames, cycles and edited
+attachment round trips still need their own coverage. Calibration creation issues in MoTrack #78 remain
+separate; these read-only tapes do not exercise interactive calibration or tool placement.

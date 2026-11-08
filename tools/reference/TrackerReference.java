@@ -103,7 +103,7 @@ public final class TrackerReference {
     }
 
     // Stop at each object: nested color, frame and function objects are not sibling tracks.
-    private static List<XMLControl> objects(XMLProperty property) {
+    static List<XMLControl> objects(XMLProperty property) {
         List<XMLControl> result = new ArrayList<>();
         if (property != null) for (Object value : property.getPropertyContent()) {
             if (value instanceof XMLControl control) result.add(control);

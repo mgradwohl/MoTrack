@@ -333,6 +333,246 @@
       "expected": "expected/table-datasets.json",
       "native_reference_index": "expected/table-datasets-references.json",
       "provenance": "Authored by tools/reference/TableDatasetsFixture.java using pinned Tracker track serializers and the OSP String[][] codec. Source-structure and native-index case only: no media, application session or export acceptance. Multi-frame line-profile measurements need a media-backed application case."
+    },
+    {
+      "id": "attachments",
+      "file": "attachments.trk",
+      "local_file": "fixtures/attachments.trk",
+      "sha256": "8d0c1d73dee56351ddaf5e56dd7463039be2981afadc1494f9e4e22d2a11fcd3",
+      "bytes": 13674,
+      "tracker_version": "6.3.5",
+      "features": [
+        "point-masses",
+        "tape-attachments",
+        "empty-attachment-slot",
+        "recomputed-tape-lengths"
+      ],
+      "requirements": [
+        "R02",
+        "R03",
+        "R09",
+        "R10"
+      ],
+      "expected": "expected/attachments.json",
+      "native_reference_index": "expected/attachments-references.json",
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "mass A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "mass B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.TapeMeasure",
+          "name": "both ends"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.TapeMeasure",
+          "name": "one end"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.TapeMeasure",
+          "name": "last end"
+        }
+      ],
+      "session_attachments": [
+        {
+          "name": "both ends",
+          "targets": [
+            "mass A",
+            "mass B"
+          ],
+          "samples": [
+            {
+              "frame": 0,
+              "endpoints": [
+                [
+                  20,
+                  40
+                ],
+                [
+                  26,
+                  48
+                ]
+              ],
+              "world_length": 5.0,
+              "attached": [
+                true,
+                true
+              ]
+            },
+            {
+              "frame": 1,
+              "endpoints": [
+                [
+                  22,
+                  40
+                ],
+                [
+                  31,
+                  52
+                ]
+              ],
+              "world_length": 7.5,
+              "attached": [
+                true,
+                true
+              ]
+            },
+            {
+              "frame": 2,
+              "endpoints": [
+                [
+                  24,
+                  40
+                ],
+                [
+                  36,
+                  56
+                ]
+              ],
+              "world_length": 10.0,
+              "attached": [
+                true,
+                true
+              ]
+            }
+          ]
+        },
+        {
+          "name": "one end",
+          "targets": [
+            "mass A",
+            null
+          ],
+          "samples": [
+            {
+              "frame": 0,
+              "endpoints": [
+                [
+                  20,
+                  40
+                ],
+                [
+                  40,
+                  40
+                ]
+              ],
+              "world_length": 10,
+              "attached": [
+                true,
+                false
+              ]
+            },
+            {
+              "frame": 1,
+              "endpoints": [
+                [
+                  22,
+                  40
+                ],
+                [
+                  40,
+                  40
+                ]
+              ],
+              "world_length": 9,
+              "attached": [
+                true,
+                false
+              ]
+            },
+            {
+              "frame": 2,
+              "endpoints": [
+                [
+                  24,
+                  40
+                ],
+                [
+                  40,
+                  40
+                ]
+              ],
+              "world_length": 8,
+              "attached": [
+                true,
+                false
+              ]
+            }
+          ]
+        },
+        {
+          "name": "last end",
+          "targets": [
+            null,
+            "mass B"
+          ],
+          "samples": [
+            {
+              "frame": 0,
+              "endpoints": [
+                [
+                  40,
+                  40
+                ],
+                [
+                  26,
+                  48
+                ]
+              ],
+              "world_length": 8.06225774829855,
+              "attached": [
+                false,
+                true
+              ]
+            },
+            {
+              "frame": 1,
+              "endpoints": [
+                [
+                  40,
+                  40
+                ],
+                [
+                  31,
+                  52
+                ]
+              ],
+              "world_length": 7.5,
+              "attached": [
+                false,
+                true
+              ]
+            },
+            {
+              "frame": 2,
+              "endpoints": [
+                [
+                  40,
+                  40
+                ],
+                [
+                  36,
+                  56
+                ]
+              ],
+              "world_length": 8.246211251235321,
+              "attached": [
+                false,
+                true
+              ]
+            }
+          ]
+        }
+      ],
+      "provenance": "Authored by tools/reference/AttachmentsFixture.java through pinned Tracker 6.3.5 APIs/serializers. Three tapes start with deliberately stale attached endpoints. Independent per-frame endpoint/length expectations require normal attachment resolution and evaluation. Leading implicit and trailing explicit null slots remain unattached; normal application saves may omit trailing null extent. No native output supplies expected values."
     }
   ]
 }

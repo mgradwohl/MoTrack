@@ -477,6 +477,75 @@ struct ReferenceReader
         }
     }
 
+    void attachments(const QDomElement& object, std::size_t sourceIndex)
+    {
+        const auto className = object.attribute("class");
+        const bool circle = className == "org.opensourcephysics.cabrillo.tracker.CircleFitter";
+        if (!circle && className != "org.opensourcephysics.cabrillo.tracker.TapeMeasure" &&
+            className != "org.opensourcephysics.cabrillo.tracker.Protractor")
+        {
+            return;
+        }
+        const auto trackPath = "/tracks/" + std::to_string(sourceIndex);
+        if (circle)
+        {
+            panelReference(result, names, object, "step_attachment", TrackerReferenceKind::CircleStepAttachment, trackPath);
+        }
+        const auto value = property(object, "attachments");
+        if (value.element.isNull())
+        {
+            return;
+        }
+        const auto path = trackPath + "/attachments";
+        const auto attachmentSlots = array(value, "[Ljava.lang.String;", path);
+        if (!attachmentSlots)
+        {
+            return;
+        }
+        // OSP omits null entries before the last encoded cell. The decoded extent is bounded
+        // by array(), and implicit null cells must consume the shared entry budget too.
+        const auto extent = attachmentSlots->empty() ? 0U : attachmentSlots->rbegin()->first + 1;
+        for (auto count = attachmentSlots->size(); count < extent; ++count)
+        {
+            countEntry();
+        }
+        std::vector<std::optional<QString>> targets(extent);
+        for (const auto& [slot, item] : *attachmentSlots)
+        {
+            const auto child = item.firstChild();
+            if (item.attribute("type") == "object" && !item.hasAttribute("class") && (child.isText() || child.isCDATASection()) &&
+                child.nodeValue() == "null" && child.nextSibling().isNull())
+            {
+                continue;
+            }
+            else if (const auto name = stringValue({.element = item}, MAX_NAME_UNITS))
+            {
+                targets[slot] = *name;
+            }
+            else
+            {
+                result.malformedPaths.push_back(path + "/" + std::to_string(slot));
+                return;
+            }
+        }
+        for (std::size_t slot = 0; slot < targets.size(); ++slot)
+        {
+            const auto slotPath = path + "/" + std::to_string(slot);
+            if (const auto& target = targets[slot])
+            {
+                addReference(result, names, TrackerReferenceKind::Attachment, slotPath, *target, false);
+            }
+            else
+            {
+                result.references.push_back({.kind = TrackerReferenceKind::Attachment,
+                                             .path = slotPath,
+                                             .originalName = {},
+                                             .resolution = TrackerReferenceResolution::NoTarget,
+                                             .candidateSourceIndices = {}});
+            }
+        }
+    }
+
     void constituents(const QDomElement& object, std::size_t sourceIndex)
     {
         const auto className = object.attribute("class");
@@ -637,6 +706,7 @@ TrackerReferenceIndex indexTrackerReferences(const TrackerSource& source, const 
     for (const auto& [sourceIndex, object] : sourceObjects)
     {
         reader.constituents(object, sourceIndex);
+        reader.attachments(object, sourceIndex);
     }
     return result;
 }
