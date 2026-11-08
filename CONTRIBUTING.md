@@ -59,7 +59,18 @@ installed prefixes and downloads stay outside this cache; vcpkg's existing binar
 validate compiled dependencies against its build configuration. Cache misses still use the pinned
 upstream downloads and can fail during an upstream outage.
 
+Coverage profiles include both the instrumented binary signature and process ID. LLVM's merge mode
+preserves counters if a process ID is reused, including separate invocations of the same test executable.
+Collection clears only its previous `motrack-*.profraw` profiles before running the suite; the combined
+90% production-line gate remains unchanged. See [LLVM's profile filename rules](https://clang.llvm.org/docs/SourceBasedCodeCoverage.html#running-the-instrumented-program).
+
 CI builds and tests on all three OSes. New behavior needs tests through its normal entry points. Use exact comparisons where appropriate and explicit tolerances for scientific results. The combined production line coverage must stay at or above **90%**. Keep suppressions narrow, explain each in the code, and include known compatibility limits in the pull request.
+
+The workspace executable runs in three complementary CTest groups: `workspace` excludes
+`DocumentSession.*` and `WorkspaceDocument.*`, while `document_session` and `workspace_document`
+run those save/recovery and persistence cases separately. Each retains a 60-second timeout, and
+ordinary CTest/coverage collection runs all three groups. This keeps the growing real-file matrices
+separate from the UI test budget without omitting cases.
 
 CI uses [workflow concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
 to cancel superseded or duplicate runs for the same pull request. Separate PRs retain independent

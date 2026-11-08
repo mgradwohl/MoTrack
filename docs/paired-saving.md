@@ -315,3 +315,30 @@ files as the requested spelling, after the existing regular-file/alias checks. A
 hard-linked under a different stem cannot authorize writes to an unlocked sibling pair.
 Case-variant and Unicode regressions run both callback orders and with both outputs removed, and retain
 distinct destinations on volumes where the names differ.
+
+Completed transaction watermarks are scoped to the journal's filesystem identity as well as its UUID.
+Copying an interrupted save and its journal to another directory therefore creates an independently
+pending location, even when the copied UUID is unchanged. Recovering the original cannot suppress a
+delayed observation of the copy. Each output destination also retains its observation order, so an
+older successful callback cannot replace a newer selected destination or its saved checkpoint. Older
+pending journals are still registered and reconciled independently of destination selection.
+
+Native-only writes and paired writes share this process-local completion order. The native writer
+returns a `NativeSaveResult` containing its completion stamp and original-reference media bindings;
+the worker must retain that result through callback delivery, rather than constructing a new stamp
+on the GUI thread. A superseded native callback leaves the selected destination, saved checkpoint and
+bindings untouched. A newer standard-only partial save can supply the latest media bindings while
+an older native write still supplies the native destination. Pending journals remain independent of
+these choices. Regression cases reverse both API and callback orders, remove the older media and save
+again, and cover the interrupted standard-only case.
+
+A lock-confirmed absent journal reconciles all older observations at that location, including when
+the recovery checkpoint captured an unreadable UUID that a later known observation superseded. Newer
+observations remain pending. Successful recovery writes still require the checkpoint's transaction to
+match; confirmed absence does not authorize a write or mark the live document clean.
+
+The location-scoped completion, mixed native/paired destination order and superseded-unidentified-checkpoint
+regressions pass on Windows with all eight CTest groups (including all 28 session and 23 paired-save cases).
+Combined local production line coverage is 95.49% (8108/8491); formatting and all six changed C++
+translation-unit static analyses pass. Persistence and session cases now have separate CTest groups
+from the UI, retaining every case and each 60-second limit. Current-revision CI/review remain required.

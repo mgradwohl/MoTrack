@@ -1221,8 +1221,10 @@ TEST(Workspace, StandaloneMediaWithANativeSuffixNeverBecomesItsOwnSaveTarget)
 
 TEST(Workspace, NativeMediaProtectionRespectsFilesystemCaseAndUnicodeIdentity)
 {
-    const std::array<std::pair<QString, QString>, 2> names{
-        {{"media.motrack", "MEDIA.motrack"}, {QString::fromUtf8("café.motrack"), QString::fromUtf8("cafe\u0301.motrack")}}};
+    const auto longName = QString(212, 'a') + ".motrack";
+    const std::array<std::pair<QString, QString>, 3> names{{{"media.motrack", "MEDIA.motrack"},
+                                                            {QString::fromUtf8("café.motrack"), QString::fromUtf8("cafe\u0301.motrack")},
+                                                            {longName, longName.toUpper()}}};
     for (const auto& [sourceName, destinationName] : names)
     {
         SCOPED_TRACE(destinationName.toStdString());
@@ -1250,6 +1252,41 @@ TEST(Workspace, NativeMediaProtectionRespectsFilesystemCaseAndUnicodeIdentity)
         }
         ASSERT_TRUE(input.open(QIODevice::ReadOnly));
         EXPECT_EQ(input.readAll(), original);
+    }
+}
+
+TEST(Workspace, NativeSaveProtectsMissingMediaNamesUsingFilesystemIdentity)
+{
+    const auto longName = QString(212, 'a') + ".motrack";
+    const auto longUnicodeName = QString::fromUtf8("é").repeated(106) + ".motrack";
+    const std::array<std::pair<QString, QString>, 6> names{{{"media.motrack", "MEDIA.motrack"},
+                                                            {QString::fromUtf8("café.motrack"), QString::fromUtf8("cafe\u0301.motrack")},
+                                                            {QString::fromUtf8("straße.motrack"), "STRASSE.motrack"},
+                                                            {"missing.ppm", longName},
+                                                            {longName, longName.toUpper()},
+                                                            {"missing.ppm", longUnicodeName}}};
+    for (const auto& [sourceName, destinationName] : names)
+    {
+        SCOPED_TRACE(destinationName.toStdString());
+        QTemporaryDir temporary;
+        const auto media = temporary.filePath(sourceName);
+        const auto destination = temporary.filePath(destinationName);
+        ASSERT_TRUE(QFile::copy(fixturePath("frames/frame00.ppm"), media));
+        const bool aliases = QFileInfo::exists(destination);
+        motrack::MainWindow window;
+        ASSERT_TRUE(window.openImageSequence({media}, 4.0));
+        ASSERT_TRUE(QFile::remove(media));
+        EXPECT_EQ(window.saveWorkspace(destination), !aliases);
+        EXPECT_FALSE(QFileInfo::exists(media));
+        EXPECT_EQ(QDir(temporary.path()).entryList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot),
+                  aliases ? QStringList{} : QStringList{destinationName});
+        ASSERT_TRUE(QFile::copy(fixturePath("frames/frame00.ppm"), media));
+        const auto safe = temporary.filePath("separate.motrack");
+        ASSERT_TRUE(window.saveWorkspace(safe));
+        ASSERT_TRUE(window.loadProject(safe));
+        auto* canvas = window.findChild<QWidget*>("videoCanvas");
+        ASSERT_NE(canvas, nullptr);
+        EXPECT_EQ(canvas->accessibleName(), "Frame 0");
     }
 }
 
@@ -1629,7 +1666,7 @@ TEST(Workspace, RetainsDanglingDirectoryAliasTargetsAfterTheOriginalDirectoryIsR
     EXPECT_EQ(frame->image, QImage(fixturePath("frames/frame00.ppm")));
 }
 
-TEST(Workspace, RejectsCyclicMediaDirectoriesWithoutReplacingOutput)
+TEST(Workspace, RejectsCyclicMediaDirectoriesAndSavesAfterRepairWithoutReopening)
 {
     QTemporaryDir temporary;
     const auto first = temporary.filePath("first");
@@ -1659,6 +1696,27 @@ TEST(Workspace, RejectsCyclicMediaDirectoriesWithoutReplacingOutput)
     EXPECT_TRUE(window.isWindowModified());
     ASSERT_TRUE(output.open(QIODevice::ReadOnly));
     EXPECT_EQ(output.readAll(), "original destination");
+    output.close();
+    ASSERT_TRUE(QFile::remove(first));
+    ASSERT_TRUE(QFile::remove(second));
+    ASSERT_TRUE(QDir().mkpath(first));
+    const QImage expected(fixturePath("frames/frame00.ppm"));
+    ASSERT_TRUE(expected.save(first + "/frame.png"));
+    ASSERT_TRUE(window.saveWorkspace(destination));
+    EXPECT_FALSE(window.isWindowModified());
+    auto* canvas = window.findChild<QWidget*>("videoCanvas");
+    auto* settings = window.findChild<QAction*>("clipSettings");
+    ASSERT_TRUE(canvas && settings);
+    EXPECT_EQ(canvas->accessibleName(), "Frame 0");
+    EXPECT_TRUE(settings->isEnabled());
+    const auto saved = motrack::readWorkspaceDocument(destination);
+    const auto sequence = motrack::ImageSequence::open(destination, saved.project.clip);
+    if (!sequence)
+        FAIL() << "Repaired media directory could not be reopened.";
+    const auto frame = sequence->readStep(0);
+    if (!frame)
+        FAIL() << "Repaired media directory has no first frame.";
+    EXPECT_EQ(frame->image, expected);
 }
 
 TEST(ImageSequence, RejectsCyclicProjectAliases)
