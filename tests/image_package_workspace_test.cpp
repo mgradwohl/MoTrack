@@ -8,6 +8,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QDialog>
+#include <QDir>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -153,6 +154,7 @@ TEST(ImagePackageWorkspace, UnsupportedInputsAndMissingImagesKeepExistingOutputs
     EXPECT_EQ(bytes(target), "existing archive");
     EXPECT_FALSE(window.isWindowModified());
     EXPECT_TRUE(window.statusBar()->currentMessage().startsWith("Could not export the Tracker archive:"));
+    EXPECT_TRUE(QDir::fromNativeSeparators(window.statusBar()->currentMessage()).contains(temporary.filePath("images/frame0.png")));
 }
 
 TEST(ImagePackageWorkspace, CancellationAndOverlappingSavesKeepTheOriginalFiles)
