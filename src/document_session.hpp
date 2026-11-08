@@ -95,6 +95,7 @@ class DocumentSession
     QHash<QString, std::uint64_t> m_ClearedRecoveryObservations;
     std::uint64_t m_NativeInvalidation = 0;
     std::uint64_t m_TrackerInvalidation = 0;
+    std::uint64_t m_MediaObservation = 0;
     bool m_PairedSaving = false;
 };
 

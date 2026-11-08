@@ -76,6 +76,7 @@ class MainWindow final : public QMainWindow
     void autoTrackFrame(const ImageFrame& frame);
     void applyAutoTrackMatch(int frame, const std::optional<QPoint>& point);
     void activateProject(const QString& path);
+    void refreshImageMediaLocations();
     void syncClipControls();
     void editClipSettings();
     void undoOrRedo(bool redo);
