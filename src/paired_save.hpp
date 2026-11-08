@@ -2,11 +2,13 @@
 
 #include "workspace_document.hpp"
 
+#include <QHash>
 #include <QString>
 
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <optional>
 
 namespace motrack
 {
@@ -41,6 +43,9 @@ struct PairedSaveResult
     bool nativeCurrent = false;
     // Process-local observation order, assigned before releasing the journal lock; never persisted.
     std::uint64_t observation = 0;
+    // Resolved original-reference bindings from this write's snapshot, for successful live-session adoption.
+    // Runtime-only: never serialized in the recovery record or used to reconstruct a recovered snapshot.
+    QHash<QString, QString> mediaLocations = {};
 };
 
 /// Worker-only progress observer; it must not access widgets or mutate the supplied document.
@@ -57,10 +62,11 @@ using PairedSaveObserver = std::function<void(PairedSaveProgress)>;
 /// Recovery is never implicitly triggered by opening imported project/archive content.
 /// When expectedTransaction is supplied, check it while holding the journal lock, before any output changes.
 /// A different transaction is returned as RecoveryRequired for explicit reconfirmation; an absent one is RecoveryNotNeeded.
-/// Absence can also reconcile an unreadable journal whose transaction ID was never available.
+/// An explicitly supplied empty ID means unidentified: observe a valid ID without committing, requiring reconfirmation.
+/// Omitting expectedTransaction is an unrestricted explicit adapter recovery. Absence can reconcile either form.
 [[nodiscard]] PairedSaveResult recoverPairedDocuments(const QString& recoveryPath,
                                                       const std::atomic_bool* cancelled = nullptr,
                                                       const PairedSaveObserver& observer = {},
-                                                      const QString& expectedTransaction = {});
+                                                      const std::optional<QString>& expectedTransaction = std::nullopt);
 
 } // namespace motrack

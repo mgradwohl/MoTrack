@@ -22,7 +22,9 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
+#include <QFutureWatcher>
 #include <QHBoxLayout>
+#include <QHash>
 #include <QImageReader>
 #include <QInputDialog>
 #include <QKeySequence>
@@ -1682,30 +1684,42 @@ bool MainWindow::saveWorkspace(const QString& path)
     QEventLoop loop;
     connect(this, &QObject::destroyed, &loop, [&alive] { alive = false; });
     m_Saving = true;
+    m_SaveCancelled = std::make_shared<std::atomic_bool>(false);
+    const auto cancelled = m_SaveCancelled;
     statusBar()->showMessage(tr("Saving project…"));
-    QFutureWatcher<bool> watcher;
-    connect(&watcher, &QFutureWatcher<bool>::finished, &loop, &QEventLoop::quit);
-    watcher.setFuture(QtConcurrent::run(m_SavePool,
-                                        [path, sourcePath = m_MediaProjectPath, document = std::move(document)]() mutable
-                                        {
-                                            try
-                                            {
-                                                rebaseWorkspaceMedia(document, sourcePath, path);
-                                                writeWorkspaceDocument(path, document);
-                                                return true;
-                                            }
-                                            catch (const std::exception&)
-                                            {
-                                                return false;
-                                            }
-                                        }));
+    struct SaveResult
+    {
+        bool saved = false;
+        QHash<QString, QString> mediaLocations;
+    };
+    QFutureWatcher<SaveResult> watcher;
+    connect(&watcher, &QFutureWatcher<SaveResult>::finished, &loop, &QEventLoop::quit);
+    watcher.setFuture(
+        QtConcurrent::run(m_SavePool,
+                          [path, cancelled, sourcePath = m_MediaProjectPath, document = std::move(document)]() mutable -> SaveResult
+                          {
+                              try
+                              {
+                                  if (*cancelled)
+                                      return {};
+                                  refreshWorkspaceMediaLocations(document, sourcePath);
+                                  rebaseWorkspaceMedia(document, sourcePath, path);
+                                  writeWorkspaceDocument(path, document, cancelled.get());
+                                  return {.saved = true, .mediaLocations = std::move(document.mediaLocations)};
+                              }
+                              catch (const std::exception&)
+                              {
+                                  return {};
+                              }
+                          }));
     loop.exec(QEventLoop::ExcludeUserInputEvents);
     if (!alive)
     {
         return false;
     }
     finishSaving();
-    const auto outcome = m_Session.completeSave(checkpoint, path, watcher.result());
+    const auto result = watcher.result();
+    const auto outcome = m_Session.completeSave(checkpoint, path, result.saved);
     if (outcome == SaveOutcome::Replaced)
     {
         return false;
@@ -1715,6 +1729,9 @@ bool MainWindow::saveWorkspace(const QString& path)
         statusBar()->showMessage(tr("Could not save this project."));
         return false;
     }
+    // The snapshot may have resolved media restored through a temporary alias since opening.
+    // Keep those physical locations for subsequent saves and clip edits after that alias is removed.
+    m_Session.document.mediaLocations = result.mediaLocations;
     setWindowTitle(tr("%1[*] — MoTrack").arg(QFileInfo(path).fileName()));
     if (outcome == SaveOutcome::Stale)
     {

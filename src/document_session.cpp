@@ -159,6 +159,8 @@ SaveOutcome DocumentSession::completePairedSave(const SaveCheckpoint& checkpoint
         return SaveOutcome::Stale;
     if (!result.standardCurrent && !result.nativeCurrent && result.status != PairedSaveStatus::RecoveryRequired)
         return SaveOutcome::Failed;
+    if (result.standardCurrent || result.nativeCurrent)
+        document.mediaLocations = result.mediaLocations;
     // A blocked retry only reports an existing journal; it must not restore an older destination.
     const bool adoptStandard = !m_PairedSaving || m_StandardSavePath.isEmpty() || result.standardCurrent;
     m_PairedSaving = true;
@@ -199,24 +201,19 @@ SaveOutcome DocumentSession::completePairedRecovery(const SaveCheckpoint& checkp
                                                     const QString& requestedRecoveryPath,
                                                     const PairedSaveResult& result)
 {
-    if (checkpoint.identity != m_Identity || !m_RecoveryPaths.contains(requestedRecoveryPath))
+    if (checkpoint.identity != m_Identity)
         return SaveOutcome::Replaced;
     if (!checkpoint.recoveryTransactions.contains(requestedRecoveryPath))
-        return SaveOutcome::Stale;
+        return m_RecoveryPaths.contains(requestedRecoveryPath) ? SaveOutcome::Stale : SaveOutcome::Replaced;
     const auto transaction = checkpoint.recoveryTransactions.value(requestedRecoveryPath);
-    const auto& transactions = m_RecoveryTransactions[requestedRecoveryPath];
-    const auto pending = std::ranges::find(transactions, transaction, &RecoveryObservation::transaction);
-    if (pending == transactions.end())
-        return SaveOutcome::Stale;
-    const bool newerObservation = result.observation != 0 && pending->observation > result.observation;
     // The accessor may have supplied a list-element reference that completion is about to remove.
     const auto completedPath = requestedRecoveryPath; // NOLINT(performance-unnecessary-copy-initialization)
     if (result.status == PairedSaveStatus::RecoveryRequired && result.observation != 0)
     {
         if (result.observation <= m_ClearedRecoveryObservations.value(completedPath))
             return SaveOutcome::Stale;
-        // A failed recovery can observe a restored or unreadable journal after an older success.
-        // Retain that observation even when its UUID is unchanged or could not be read.
+        // An older success may already have removed the pending entry. A newer failed observation
+        // must restore it even when the journal's UUID is unchanged or could not be read.
         if (!result.transactionId.isEmpty() && result.transactionId != transaction)
             forgetRecovery(completedPath, transaction, result.observation, false);
         rememberRecovery(completedPath, result.transactionId, result.observation);
@@ -224,6 +221,13 @@ SaveOutcome DocumentSession::completePairedRecovery(const SaveCheckpoint& checkp
         invalidateSaved(SaveTarget::Tracker);
         return SaveOutcome::Partial;
     }
+    if (!m_RecoveryPaths.contains(completedPath))
+        return SaveOutcome::Replaced;
+    const auto& transactions = m_RecoveryTransactions[completedPath];
+    const auto pending = std::ranges::find(transactions, transaction, &RecoveryObservation::transaction);
+    if (pending == transactions.end())
+        return SaveOutcome::Stale;
+    const bool newerObservation = result.observation != 0 && pending->observation > result.observation;
     const bool absent = result.status == PairedSaveStatus::RecoveryNotNeeded;
     if (!absent && (result.status != PairedSaveStatus::Saved || !result.standardCurrent || !result.nativeCurrent))
         return SaveOutcome::Partial;

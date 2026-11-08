@@ -518,6 +518,33 @@ TEST(WorkspaceDocument, RetainsEveryArchiveByteAndSelectedTabAfterOriginalRemova
     EXPECT_THROW(static_cast<void>(motrack::readWorkspaceDocument(copy, &cancelled)), motrack::ProjectError);
 }
 
+TEST(WorkspaceDocument, CancelledWritesPreserveExistingPlainAndArchiveProjects)
+{
+    for (const bool archived : {false, true})
+    {
+        SCOPED_TRACE(archived);
+        QTemporaryDir temporary;
+        const auto input = temporary.filePath("source.trz");
+        ASSERT_TRUE(motrack::test::writeArchive(input, {{.name = "selected.trk", .bytes = boundXml()}}));
+        const auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(input));
+        auto document = motrack::importTrackerDocument(payload->projectPath("selected.trk"));
+        if (archived)
+        {
+            document.archivePayload = payload;
+            document.archiveMember = "selected.trk";
+        }
+        const auto target = temporary.filePath("saved.motrack");
+        motrack::writeWorkspaceDocument(target, document);
+        const auto original = readBytes(target);
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.renamePointMass(document.project, 0, "changed"));
+        const std::atomic_bool cancelled{true};
+        EXPECT_THROW(motrack::writeWorkspaceDocument(target, document, &cancelled), motrack::ProjectError);
+        EXPECT_EQ(readBytes(target), original);
+        EXPECT_NE(motrack::readWorkspaceDocument(target).project.pointMasses.front().name, "changed");
+    }
+}
+
 TEST(WorkspaceDocument, RejectsMismatchedArchiveMetadataAndPreservesPreviousSave)
 {
     QTemporaryDir temporary;

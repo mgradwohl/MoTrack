@@ -351,6 +351,16 @@ QString workspaceMediaPath(const WorkspaceDocument& document, const QString& sou
     return physicalLocalFilePath(retained.value());
 }
 
+void refreshWorkspaceMediaLocations(WorkspaceDocument& document, const QString& sourcePath)
+{
+    if (document.archivePayload || document.archiveMember || !document.archiveReference.empty())
+        return;
+    QHash<QString, QString> resolved;
+    for (const auto& reference : document.project.clip.mediaReferences)
+        resolved.insert(QString::fromStdString(reference), workspaceMediaPath(document, sourcePath, reference));
+    document.mediaLocations = std::move(resolved);
+}
+
 WorkspaceDocument importTrackerDocument(const QString& path)
 {
     auto imported = readTrackerProject(std::filesystem::path(path.toStdU16String()));
@@ -508,8 +518,10 @@ void rebaseWorkspaceMedia(WorkspaceDocument& document, const QString& sourcePath
     }
 }
 
-void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& document)
+void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled)
 {
+    if (cancelled && *cancelled)
+        throw ProjectError("Project save canceled.");
     const auto& project = document.project;
     validateTrackIdentities(project);
     validateArchive(document);
@@ -549,7 +561,7 @@ void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& docume
         {"movieFrameTimes", frameTimes},
         {"clip", clipObject}};
     const auto bytes = QJsonDocument(output).toJson(QJsonDocument::Compact);
-    writeWorkspaceStorage(path, bytes, document.archivePayload);
+    writeWorkspaceStorage(path, bytes, document.archivePayload, cancelled);
 }
 
 } // namespace motrack

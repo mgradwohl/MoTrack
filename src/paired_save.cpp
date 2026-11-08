@@ -489,7 +489,10 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
             result.transactionId = readRecord(recoveryPath, parent).transactionId;
             throw ProjectError("Resolve the previous paired save before replacing either output.");
         }
-        protectSourceFiles(record, document, mediaProjectPath);
+        auto snapshot = document;
+        refreshWorkspaceMediaLocations(snapshot, mediaProjectPath);
+        result.mediaLocations = snapshot.mediaLocations;
+        protectSourceFiles(record, snapshot, mediaProjectPath);
         for (auto& output : record.outputs)
             output.before = fingerprint(directory.filePath(output.name), parent, cancelled);
         QString standard;
@@ -511,18 +514,17 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
         record.outputs[0].stage = QFileInfo(standard).fileName();
         record.outputs[1].stage = QFileInfo(native).fileName();
         if (target.suffix().compare("trz", Qt::CaseInsensitive) == 0)
-            writeTrackerArchiveDocument(standard, document, cancelled);
+            writeTrackerArchiveDocument(standard, snapshot, cancelled);
         else
-            writeTrackerDocument(standard, document, mediaProjectPath);
+            writeTrackerDocument(standard, snapshot, mediaProjectPath);
         const auto standardFingerprint = fingerprint(standard, parent, cancelled);
         if (!standardFingerprint)
             throw ProjectError("Prepared standard file disappeared.");
         record.outputs[0].after = *standardFingerprint;
         notify(observer, PairedSaveProgress::StandardPrepared);
         checkCancelled(cancelled);
-        auto snapshot = document;
         rebaseWorkspaceMedia(snapshot, mediaProjectPath, result.nativePath);
-        writeWorkspaceDocument(native, snapshot);
+        writeWorkspaceDocument(native, snapshot, cancelled);
         validateNativeSnapshot(snapshot, readWorkspaceDocument(native, cancelled));
         const auto nativeFingerprint = fingerprint(native, parent, cancelled);
         if (!nativeFingerprint)
@@ -560,7 +562,7 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
 PairedSaveResult recoverPairedDocuments(const QString& recoveryPath,
                                         const std::atomic_bool* cancelled,
                                         const PairedSaveObserver& observer,
-                                        const QString& expectedTransaction)
+                                        const std::optional<QString>& expectedTransaction)
 {
     PairedSaveResult result;
     result.recoveryPath = QFileInfo(recoveryPath).absoluteFilePath();
@@ -576,12 +578,13 @@ PairedSaveResult recoverPairedDocuments(const QString& recoveryPath,
         lock.setStaleLockTime(0);
         require(lock.tryLock(0), "Another save for this project is already in progress.");
         const auto observation = qScopeGuard([&result] { stampObservation(result); });
-        require(expectedTransaction.isEmpty() || (!QUuid(expectedTransaction).isNull() &&
-                                                  QUuid(expectedTransaction).toString(QUuid::WithoutBraces) == expectedTransaction),
+        require(!expectedTransaction || expectedTransaction->isEmpty() ||
+                    (!QUuid(*expectedTransaction).isNull() &&
+                     QUuid(*expectedTransaction).toString(QUuid::WithoutBraces) == *expectedTransaction),
                 "Invalid expected recovery transaction.");
         if (!QFileInfo::exists(result.recoveryPath) && !QFileInfo(result.recoveryPath).isSymLink())
         {
-            result.transactionId = expectedTransaction;
+            result.transactionId = expectedTransaction.value_or(QString{});
             result.status = PairedSaveStatus::RecoveryNotNeeded;
             stampObservation(result); // Set before return-value construction, independently of NRVO.
             return result;
@@ -590,7 +593,7 @@ PairedSaveResult recoverPairedDocuments(const QString& recoveryPath,
         result.transactionId = record.transactionId;
         result.standardPath = QDir(parent).filePath(record.outputs[0].name);
         result.nativePath = QDir(parent).filePath(record.outputs[1].name);
-        require(expectedTransaction.isEmpty() || expectedTransaction == record.transactionId,
+        require(!expectedTransaction || *expectedTransaction == record.transactionId,
                 "The pending save changed in another instance. Confirm recovery of the new transaction before continuing.");
         commitPair(record, result, cancelled, observer);
     }

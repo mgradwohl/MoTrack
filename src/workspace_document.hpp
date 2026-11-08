@@ -31,6 +31,9 @@ struct WorkspaceDocument
 /// Retains physical media locations before the original project directory can disappear.
 /// Call when adopting an external document; clear/rebuild when rebinding its media.
 void retainWorkspaceMediaLocations(WorkspaceDocument& document, const QString& sourcePath);
+/// Refresh restored aliases against captured physical bases in a private worker snapshot.
+/// Successful save completion may adopt these runtime bindings without changing serialized references.
+void refreshWorkspaceMediaLocations(WorkspaceDocument& document, const QString& sourcePath);
 /// Resolves a retained reference, falling back to the supplied base for uncaptured references.
 [[nodiscard]] QString workspaceMediaPath(const WorkspaceDocument& document, const QString& sourcePath, const std::string& reference);
 
@@ -42,6 +45,7 @@ void retainWorkspaceMediaLocations(WorkspaceDocument& document, const QString& s
 /// Uses physical project directories and verifies every generated local reference; throws before writing on failure.
 void rebaseWorkspaceMedia(WorkspaceDocument& document, const QString& sourcePath, const QString& destinationPath);
 /// Writes atomically. The caller supplies media paths relative to the destination.
-void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& document);
+/// Cancellation is checked before serialization, while streaming archive data and before replacement.
+void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled = nullptr);
 
 } // namespace motrack

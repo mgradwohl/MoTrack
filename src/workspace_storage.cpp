@@ -107,7 +107,12 @@ la_ssize_t writeBlock(archive*, void* context, const void* data, std::size_t siz
     return static_cast<la_ssize_t>(output.write(static_cast<const char*>(data), static_cast<qint64>(size)));
 }
 
-void writeMember(archive* writer, const char* name, QIODevice& input, qint64 size, const QByteArray& expectedDigest = {})
+void writeMember(archive* writer,
+                 const char* name,
+                 QIODevice& input,
+                 qint64 size,
+                 const std::atomic_bool* cancelled,
+                 const QByteArray& expectedDigest = {})
 {
     const std::unique_ptr<archive_entry, decltype(&archive_entry_free)> entry(archive_entry_new(), &archive_entry_free);
     require(static_cast<bool>(entry));
@@ -121,6 +126,7 @@ void writeMember(archive* writer, const char* name, QIODevice& input, qint64 siz
     qint64 copied = 0;
     for (;;)
     {
+        require(!cancelled || !*cancelled);
         const auto count = input.read(buffer.data(), static_cast<qint64>(buffer.size()));
         require(count >= 0 && count <= size - copied);
         if (count == 0)
@@ -153,13 +159,17 @@ WorkspaceStorage readWorkspaceStorage(const QString& path, const std::atomic_boo
     return {.json = std::move(json), .archive = {}};
 }
 
-void writeWorkspaceStorage(const QString& path, const QByteArray& json, const std::shared_ptr<const TrackerArchive>& source)
+void writeWorkspaceStorage(const QString& path,
+                           const QByteArray& json,
+                           const std::shared_ptr<const TrackerArchive>& source,
+                           const std::atomic_bool* cancelled)
 {
-    require(json.size() <= MAX_WORKSPACE_JSON_BYTES);
+    require((!cancelled || !*cancelled) && json.size() <= MAX_WORKSPACE_JSON_BYTES);
     QSaveFile output(path);
     if (!source)
     {
-        require(output.open(QIODevice::WriteOnly) && output.write(json) == json.size() && output.commit());
+        require(output.open(QIODevice::WriteOnly) && output.write(json) == json.size());
+        require((!cancelled || !*cancelled) && output.commit());
         return;
     }
     require(!QFileInfo(source->sourcePath()).isSymLink());
@@ -173,11 +183,11 @@ void writeWorkspaceStorage(const QString& path, const QByteArray& json, const st
     require(writer && archive_write_set_format_zip(writer.get()) == ARCHIVE_OK &&
             archive_write_set_options(writer.get(), "zip:compression=store") == ARCHIVE_OK &&
             archive_write_open(writer.get(), &output, nullptr, &writeBlock, nullptr) == ARCHIVE_OK);
-    writeMember(writer.get(), "project.json", metadata, json.size());
-    writeMember(writer.get(), "tracker/source.trz", payload, payloadSize, source->sourceDigest());
+    writeMember(writer.get(), "project.json", metadata, json.size(), cancelled);
+    writeMember(writer.get(), "tracker/source.trz", payload, payloadSize, cancelled, source->sourceDigest());
     require(archive_write_close(writer.get()) == ARCHIVE_OK);
     writer.reset();
-    require(output.commit());
+    require((!cancelled || !*cancelled) && output.commit());
 }
 
 } // namespace motrack
