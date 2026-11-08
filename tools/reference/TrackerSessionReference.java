@@ -111,7 +111,8 @@ public final class TrackerSessionReference {
                 throw new IllegalStateException("Attachment application reference currently supports tape measures only");
             String[] targets = (String[]) track.getObject("attachments");
             if (targets == null || targets.length != 2 || result.size() >= 10000)
-                throw new IllegalStateException("Unexpected tape attachment requirements");
+                throw new IllegalStateException("Unexpected tape attachment requirements in " + input.getFileName()
+                    + " for " + track.getString("name") + ": " + Arrays.toString(targets));
             result.add(new AttachmentRequirement(track.getString("name"), targets));
         }
         source.dispose();
