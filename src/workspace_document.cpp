@@ -346,10 +346,9 @@ QString workspaceMediaPath(const WorkspaceDocument& document, const QString& sou
     const auto retained = document.mediaLocations.constFind(QString::fromStdString(reference));
     if (retained == document.mediaLocations.cend())
         return resolveLocalMediaPath(sourcePath, reference);
-    // A previously missing file may now exist (possibly through an alias). Keep its captured base,
-    // but resolve its current physical spelling for the writer's round-trip identity checks.
-    const auto existing = QFileInfo(retained.value()).canonicalFilePath();
-    return existing.isEmpty() ? retained.value() : existing;
+    // Keep the captured base, but refresh restored/dangling file or directory aliases before saving.
+    // The retained path is absolute, so removing the original project directory cannot change its base.
+    return physicalLocalFilePath(retained.value());
 }
 
 WorkspaceDocument importTrackerDocument(const QString& path)

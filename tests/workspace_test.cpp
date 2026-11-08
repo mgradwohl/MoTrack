@@ -1078,9 +1078,11 @@ TEST(Workspace, SavesRestoredMissingMediaWithoutReopeningItsOriginalProject)
         const auto saved = motrack::readWorkspaceDocument(target);
         EXPECT_EQ(saved.project.clip.mediaReferences, std::vector<std::string>{"../../media/frame00.ppm"});
         const auto sequence = motrack::ImageSequence::open(target, saved.project.clip);
-        ASSERT_TRUE(sequence);
+        if (!sequence)
+            FAIL() << "Saved restored media could not be reopened.";
         const auto frame = sequence->readStep(0);
-        ASSERT_TRUE(frame);
+        if (!frame)
+            FAIL() << "Saved restored media has no first frame.";
         EXPECT_EQ(frame->image, QImage(fixturePath("frames/frame00.ppm")));
         ASSERT_TRUE(window.loadProject(target));
         auto* canvas = window.findChild<QWidget*>("videoCanvas");
@@ -1406,6 +1408,46 @@ TEST(Workspace, ResolvesDanglingSaveAliasesBeforeProtectingMissingMedia)
     }
 }
 
+TEST(Workspace, ProtectsMissingMediaReachedThroughDanglingAliases)
+{
+    for (const bool lateAlias : {false, true})
+    {
+        for (const bool saveThroughAlias : {false, true})
+        {
+            SCOPED_TRACE(lateAlias);
+            SCOPED_TRACE(saveThroughAlias);
+            QTemporaryDir temporary;
+            ASSERT_TRUE(QDir(temporary.path()).mkpath("physical"));
+            const auto target = temporary.filePath("physical/missing.motrack");
+            const auto mediaAlias = temporary.filePath("missing.png");
+            const auto outputAlias = temporary.filePath("output.motrack");
+            ASSERT_TRUE(QFile::link(target, outputAlias));
+            if (!lateAlias)
+                ASSERT_TRUE(QFile::link(target, mediaAlias));
+            auto document = motrack::importTrackerDocument(fixturePath("image-sequence.trk"));
+            document.project.clip.mediaReferences = {"missing.png"};
+            document.project.clip.firstFrame = 0;
+            document.project.clip.stepSize = 1;
+            document.project.clip.stepCount = 1;
+            document.project.clip.sourceFrameCount = 1;
+            const auto input = temporary.filePath("input.motrack");
+            motrack::writeWorkspaceDocument(input, document);
+            motrack::MainWindow window;
+            ASSERT_TRUE(window.loadProject(input));
+            if (lateAlias)
+                ASSERT_TRUE(QFile::link(target, mediaAlias));
+            auto* create = window.findChild<QAction*>("newPointMass");
+            ASSERT_NE(create, nullptr);
+            create->trigger();
+            EXPECT_FALSE(window.saveWorkspace(saveThroughAlias ? outputAlias : target));
+            EXPECT_TRUE(window.isWindowModified());
+            EXPECT_FALSE(QFileInfo::exists(target));
+            EXPECT_TRUE(QFileInfo(outputAlias).isSymLink());
+            EXPECT_TRUE(QFileInfo(mediaAlias).isSymLink());
+        }
+    }
+}
+
 TEST(ImageSequence, RejectsCyclicProjectAliases)
 {
     QTemporaryDir temporary;
@@ -1415,6 +1457,7 @@ TEST(ImageSequence, RejectsCyclicProjectAliases)
     ASSERT_TRUE(QFile::link(first, second));
     EXPECT_TRUE(motrack::localProjectDirectory(first).isEmpty());
     EXPECT_TRUE(motrack::resolveLocalMediaPath(first, "frame.png").isEmpty());
+    EXPECT_TRUE(motrack::resolveLocalMediaPath(temporary.filePath("project.motrack"), first.toStdString()).isEmpty());
 }
 #endif
 
