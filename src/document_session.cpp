@@ -202,7 +202,7 @@ SaveOutcome DocumentSession::completePairedRecovery(const SaveCheckpoint& checkp
     if (checkpoint.identity != m_Identity)
         return SaveOutcome::Replaced;
     if (!checkpoint.recoveryTransactions.contains(requestedRecoveryPath))
-        return SaveOutcome::Stale;
+        return m_RecoveryPaths.contains(requestedRecoveryPath) ? SaveOutcome::Stale : SaveOutcome::Replaced;
     const auto transaction = checkpoint.recoveryTransactions.value(requestedRecoveryPath);
     // The accessor may have supplied a list-element reference that completion is about to remove.
     const auto completedPath = requestedRecoveryPath; // NOLINT(performance-unnecessary-copy-initialization)
