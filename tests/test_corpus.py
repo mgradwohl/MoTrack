@@ -28,6 +28,23 @@ class Download(io.BytesIO):
 
 
 class CorpusTests(unittest.TestCase):
+    def test_known_null_table_subset_remains_pinned_and_excluded_from_acceptance(self):
+        manifest = corpus.load_manifest()
+        case = next(c for c in manifest["cases"] if c["id"] == "table-owners-subset")
+        corpus.verify_file(corpus.local_fixture_path(case), case)
+        self.assertEqual(case["session_exclusion"]["issue"], "https://github.com/mgradwohl/MoTrack/issues/64")
+        root = ET.parse(corpus.local_fixture_path(case)).getroot()
+        columns = root.find(".//property[@name='track_columns']/property[@name='[2]']")
+        self.assertEqual([cell.text for cell in columns], ["mass C", "t", "x"])
+        for field, value in [("session_tracks", []), ("native_delete_table_roundtrip", True)]:
+            invalid = copy.deepcopy(manifest)
+            rejected = next(c for c in invalid["cases"] if c["id"] == "table-owners-subset")
+            rejected[field] = value
+            path = self.root / "excluded-manifest.json"
+            path.write_text(json.dumps(invalid), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "cannot supply"):
+                corpus.load_manifest(path)
+
     def test_deletion_oracle_keeps_untouched_measurements_names_and_views(self):
         manifest = corpus.load_manifest()
         for mode, case_id in [("delete-mass", "protractor"), ("delete-vector", "independent-vectors"),
