@@ -266,7 +266,10 @@ name could otherwise become a new dependency merely by adding a track. New names
 New objects explicitly start visible, with trails, unlocked, a red Diamond footprint, mass and manual
 marks. These are documented interchange defaults until native per-track appearance is implemented;
 no unknown original track style is cloned. Sparse new marks retain original frame numbers, bounded at
-500000 and one million aggregate dense frame slots across new masses. The native source XML stays
+500000 and one million aggregate dense frame slots across new masses. The source schema audit permits
+the same frame range specifically for point-mass `framedata`, so later creation after standard reimport
+does not impose a smaller index limit. Generic array indices, aggregate entry counts and nesting limits
+remain bounded separately. The native source XML stays
 unchanged. New vectors, deleting original tracks, dependent creation, media-backed creation, desktop
 standard saving and paired-output transactions remain separate work. The corpus has independent empty
 and marked creation cases, including actual Tracker appearance, keys and scientific coordinates.
