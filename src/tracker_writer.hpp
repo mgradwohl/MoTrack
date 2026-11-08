@@ -7,7 +7,7 @@
 namespace motrack
 {
 
-/// Patch audited media-free track, clip/calibration and unit edits, including creation and deletion with selection cleanup.
+/// Patch audited media-free track, clip/calibration and unit edits, including creation and selection/plot-aware deletion.
 /// Unsupported edits are refused before output. Native-only relationships are not silently discarded.
 /// Requires known source bindings. Unknown XML objects/properties are retained; the baseline stays unchanged.
 [[nodiscard]] std::string renderTrackerProject(const LegacyProject& project, const TrackerSource& source);

@@ -10,10 +10,10 @@ namespace motrack
 void validateTrackerEditSchema(const QDomDocument& xml);
 /// Internal conservative mass/vector rename patcher. Updates baseline names only after validating every source relationship.
 [[nodiscard]] bool patchTrackerNames(QDomDocument& xml, const LegacyProject& project, LegacyProject& baseline, const TrackerSource& source);
-/// Audit independent-track membership edits; deleted tracks may have selection references only.
+/// Audit independent-track membership edits; deleted tracks may have selection or plot references.
 /// Validates original schemas and resolved links without mutating source content.
 void validateTrackerTrackMembership(const QDomDocument& xml, const LegacyProject& project, const TrackerSource& source);
-/// Clear deleted panel selections and apply Tracker's first-viewable-track fallback to saved plot/table selections.
+/// Clear deleted selections, choose surviving view targets, and remove deleted custom plot owners/guests.
 /// Call after live-name patches and before removing original track nodes; membership must already be audited.
-void patchTrackerDeletedSelections(QDomDocument& xml, const LegacyProject& project, const TrackerSource& source);
+void patchTrackerDeletedReferences(QDomDocument& xml, const LegacyProject& project, const TrackerSource& source);
 } // namespace motrack

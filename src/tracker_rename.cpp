@@ -9,6 +9,7 @@
 #include <cmath>
 #include <map>
 #include <set>
+#include <vector>
 
 namespace motrack
 {
@@ -569,18 +570,19 @@ void validateTrackerTrackMembership(const QDomDocument& xml, const LegacyProject
             require(reference.candidateSourceIndices.size() == 1);
             const auto target = originalTracks.find(reference.candidateSourceIndices.front());
             require(target != originalTracks.end());
-            // Selection-only references have an explicit cleanup policy. Data owners and guests
-            // still need separate deletion semantics and must not rebind to a new same-name track.
+            // Selections and plot links have explicit cleanup policies. Table data and scientific
+            // dependencies must not silently disappear or rebind to a new same-name track.
             const auto targetId = target->second->nativeId;
             require(!targetId || liveIds.contains(*targetId) || reference.kind == TrackerReferenceKind::SelectedTrack ||
-                    reference.kind == TrackerReferenceKind::PlotSelection || reference.kind == TrackerReferenceKind::TableSelection);
+                    reference.kind == TrackerReferenceKind::PlotSelection || reference.kind == TrackerReferenceKind::TableSelection ||
+                    reference.kind == TrackerReferenceKind::PlotOwner || reference.kind == TrackerReferenceKind::PlotGuest);
             if (reference.kind != TrackerReferenceKind::SelectedTrack)
                 require(target->second->className != std::string(TRACKER) + "CoordAxes");
         }
     }
 }
 
-void patchTrackerDeletedSelections(QDomDocument& xml, const LegacyProject& project, const TrackerSource& source)
+void patchTrackerDeletedReferences(QDomDocument& xml, const LegacyProject& project, const TrackerSource& source)
 {
     const auto index = indexTrackerReferences(source, project);
     std::set<TrackId> liveIds;
@@ -610,6 +612,8 @@ void patchTrackerDeletedSelections(QDomDocument& xml, const LegacyProject& proje
         }
     }
     QStringList packed;
+    std::vector<QDomElement> removals;
+    std::map<std::string, QDomElement> changedParents;
     for (const auto& reference : index.references)
     {
         if (reference.resolution != TrackerReferenceResolution::Resolved)
@@ -620,6 +624,21 @@ void patchTrackerDeletedSelections(QDomDocument& xml, const LegacyProject& proje
         const auto targetId = target->second->nativeId;
         if (!targetId || liveIds.contains(*targetId))
             continue;
+        if (reference.kind == TrackerReferenceKind::PlotOwner || reference.kind == TrackerReferenceKind::PlotGuest)
+        {
+            auto value = referenceProperty(xml.documentElement(), reference.path);
+            require(value.text().toStdString() == reference.originalName);
+            // Resolve every source ordinal before removing any collection entries. An owner's
+            // complete custom view goes away; guests remove only their own ordered string cells.
+            const bool owner = reference.kind == TrackerReferenceKind::PlotOwner;
+            auto removed = owner ? value.parentNode().parentNode().toElement() : value;
+            auto parentPath = reference.path.substr(0, reference.path.rfind('/'));
+            if (owner)
+                parentPath.resize(parentPath.rfind('/'));
+            changedParents.emplace(parentPath, removed.parentNode().toElement());
+            removals.push_back(removed);
+            continue;
+        }
         require(reference.kind == TrackerReferenceKind::SelectedTrack || reference.kind == TrackerReferenceKind::PlotSelection ||
                 reference.kind == TrackerReferenceKind::TableSelection);
         if (reference.path.starts_with("/selected_track_views/"))
@@ -647,6 +666,36 @@ void patchTrackerDeletedSelections(QDomDocument& xml, const LegacyProject& proje
         for (int i = 0; i < 8; i += 2)
             pairs.append(packed[i] + "," + packed[i + 1]);
         patchString(xml, property(xml.documentElement(), "selected_track_views"), pairs.join(';'));
+    }
+    for (const auto& value : removals)
+    {
+        auto parent = value.parentNode().toElement();
+        require(parent.attribute("type") == "array" || parent.attribute("type") == "collection");
+        parent.removeChild(value);
+    }
+    for (auto& [path, parent] : changedParents)
+    {
+        if (parent.attribute("type") == "array" && parent.firstChildElement().isNull())
+        {
+            parent.parentNode().removeChild(parent); // Tracker omits an empty guest list.
+            continue;
+        }
+        unsigned index = 0;
+        for (auto node = parent.firstChild(); !node.isNull();)
+        {
+            const auto next = node.nextSibling();
+            if (node.isElement())
+            {
+                if (parent.attribute("type") == "array")
+                    node.toElement().setAttribute("name", "[" + QString::number(index++) + "]");
+            }
+            else
+            {
+                require(node.isText() && node.nodeValue().trimmed().isEmpty());
+                parent.removeChild(node); // OSP expects consecutive array/collection property lines.
+            }
+            node = next;
+        }
     }
 }
 

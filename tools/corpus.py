@@ -579,15 +579,32 @@ CREATED_VECTOR_NAME = "vecteur β & <C>"
 CREATED_VECTOR_APPEARANCE = {"visible": True, "trail": True, "locked": False, "footprint": "Footprint.BoldArrow", "argb": -65281}
 
 
+PLOT_DELETION_NAMES = {"delete-plot-owner": "mass A", "delete-plot-guest": "mass B", "delete-first-plot-guest": "mass C"}
+
+
 def deletion_roundtrip_expected(case, mode):
     mass_modes = {"delete-mass", "delete-selected-mass", "delete-all-masses"}
     if (mode in mass_modes and case["id"] != "protractor"
             or mode in {"delete-vector", "delete-all-vectors"} and case["id"] != "independent-vectors"
-            or mode not in mass_modes | {"delete-vector", "delete-all-vectors"}):
+            or mode in PLOT_DELETION_NAMES and case["id"] != "plot-guests"
+            or mode not in mass_modes | {"delete-vector", "delete-all-vectors"} | PLOT_DELETION_NAMES.keys()):
         raise ValueError("The deletion oracle requires its pinned mass/vector case")
     expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
     case = copy.deepcopy(case)
-    if mode == "delete-mass":
+    if mode in PLOT_DELETION_NAMES:
+        removed = {PLOT_DELETION_NAMES[mode]}
+        expected["point_masses"] = [track for track in expected["point_masses"] if track["name"] not in removed]
+        owner = mode == "delete-plot-owner"
+        selected = "mass B" if owner else "mass A"
+        case["session_names"] = {"selected_track": None if owner else "mass A",
+                                 "view_tracks": [[selected, None], [None, None], [None, None], [None, None]],
+                                 "packed_view_tracks": f"{selected},null;null,null;null,null;null,null"}
+        if owner:
+            case["session_views"]["plots"] = []
+        else:
+            for plot in case["session_views"]["plots"][0]["track_views"][0]["plots"]:
+                plot["guests"] = [guest for guest in plot["guests"] if guest not in removed]
+    elif mode == "delete-mass":
         expected["point_masses"] = expected["point_masses"][1:]
         removed = {"mass A"}
     elif mode in {"delete-selected-mass", "delete-all-masses"}:
@@ -609,11 +626,14 @@ def deletion_roundtrip_expected(case, mode):
 
 def verify_deletion_export_xml(original, exported, mode):
     names = {"delete-mass": {"mass A"}, "delete-selected-mass": {"mass B"}, "delete-all-masses": {"mass A", "mass B"},
-             "delete-vector": {"vector A"}, "delete-all-vectors": {"vector A", "vector B"}}
+             "delete-vector": {"vector A"}, "delete-all-vectors": {"vector A", "vector B"},
+             **{key: {value} for key, value in PLOT_DELETION_NAMES.items()}}
     if mode not in names:
         raise ValueError("Unknown deletion mode")
     expected = minidom.parse(str(original))
     root = expected.documentElement
+    if mode in PLOT_DELETION_NAMES:
+        patch_expected_plot_deletion(expected, mode)
     if mode in {"delete-selected-mass", "delete-all-masses"}:
         fallback = "protractor A" if mode == "delete-all-masses" else "mass A"
 
@@ -672,6 +692,56 @@ def verify_deletion_export_xml(original, exported, mode):
     actual.unlink()
     if not matches:
         raise ValueError("Standard export changed content beyond the requested track deletion")
+
+
+def patch_expected_plot_deletion(document, mode):
+    """Independent, fixture-specific XML edits; never derive expected links from MoTrack output."""
+    def prop(parent, name):
+        values = [node for node in parent.childNodes if node.nodeType == node.ELEMENT_NODE
+                  and node.tagName == "property" and node.getAttribute("name") == name]
+        if len(values) != 1:
+            raise ValueError("Expected one original plot property")
+        return values[0]
+
+    def text(node):
+        if node.getAttribute("type") != "string" or any(c.nodeType not in {c.TEXT_NODE, c.CDATA_SECTION_NODE} for c in node.childNodes):
+            raise ValueError("Expected an original plot string")
+        return "".join(c.data for c in node.childNodes)
+
+    views = [node for node in document.getElementsByTagName("object")
+             if node.getAttribute("class") == "org.opensourcephysics.cabrillo.tracker.PlotTView"]
+    owners = [node for node in document.getElementsByTagName("object")
+              if node.getAttribute("class") == "org.opensourcephysics.cabrillo.tracker.PlotTrackView"]
+    if len(views) != 1 or len(owners) != 1 or text(prop(owners[0], "track")) != "mass A":
+        raise ValueError("Expected the pinned original plot owner")
+    view, owner = views[0], owners[0]
+    if text(prop(view, "selected_track")) != "mass A" or text(prop(document.documentElement, "selectedtrack")) != "mass A":
+        raise ValueError("Expected the pinned original plot selections")
+    for index, expected_guests in [(0, ["mass C", "mass B"]), (1, ["mass B"])]:
+        plot = next(node for node in prop(owner, f"plot{index}").childNodes if node.nodeType == node.ELEMENT_NODE)
+        guests = prop(plot, "guests")
+        cells = [node for node in guests.childNodes if node.nodeType == node.ELEMENT_NODE]
+        if [text(cell) for cell in cells] != expected_guests or [cell.getAttribute("name") for cell in cells] != [f"[{i}]" for i in range(len(cells))]:
+            raise ValueError("Expected the pinned original guest order")
+        if mode != "delete-plot-owner":
+            for cell in cells:
+                if text(cell) == PLOT_DELETION_NAMES[mode]:
+                    guests.removeChild(cell)
+            survivors = [node for node in guests.childNodes if node.nodeType == node.ELEMENT_NODE]
+            if not survivors:
+                plot.removeChild(guests)
+            else:
+                for i, cell in enumerate(survivors):
+                    cell.setAttribute("name", f"[{i}]")
+    if mode == "delete-plot-owner":
+        item = owner.parentNode
+        item.parentNode.removeChild(item)
+        root = document.documentElement
+        root.removeChild(prop(root, "selectedtrack"))
+        selected = prop(view, "selected_track")
+        for child in list(selected.childNodes):
+            selected.removeChild(child)
+        selected.appendChild(document.createTextNode("mass B"))
 
 
 def create_vector_roundtrip_expected(case, empty=False):
@@ -1365,6 +1435,8 @@ def check_sessions(manifest, cache, java, probe=None):
              ("delete-all-vectors", "native_delete_vector_roundtrip"),
              ("delete-selected-mass", "native_delete_selected_mass_roundtrip"),
              ("delete-all-masses", "native_delete_selected_mass_roundtrip"),
+             ("delete-plot-owner", "native_delete_plot_roundtrip"), ("delete-plot-guest", "native_delete_plot_roundtrip"),
+             ("delete-first-plot-guest", "native_delete_plot_roundtrip"),
              ("name", "native_name_roundtrip"), ("unselected-name", "native_name_roundtrip"),
              ("vector-name", "native_vector_name_roundtrip"),
              ("plot-owner-name", "native_plot_name_roundtrip"), ("plot-guest-name", "native_plot_name_roundtrip"),
@@ -1452,7 +1524,7 @@ def check_sessions(manifest, cache, java, probe=None):
                     empty = mode == "create-empty-vector"
                     verify_create_vector_export_xml(project, exported, empty)
                     expected, case = create_vector_roundtrip_expected(case, empty)
-                elif mode in {"delete-mass", "delete-vector", "delete-all-vectors", "delete-selected-mass", "delete-all-masses"}:
+                elif mode in {"delete-mass", "delete-vector", "delete-all-vectors", "delete-selected-mass", "delete-all-masses"} | PLOT_DELETION_NAMES.keys():
                     verify_deletion_export_xml(project, exported, mode)
                     expected, case = deletion_roundtrip_expected(case, mode)
                 elif mode in {"name", "unselected-name", "vector-name", "plot-owner-name", "plot-guest-name", "center-member-name",
@@ -1538,6 +1610,8 @@ def check_sessions(manifest, cache, java, probe=None):
                 keys = [[0]]
             elif mode == "delete-all-masses":
                 keys = []
+            elif mode in PLOT_DELETION_NAMES:
+                keys = [[0, 2], [1, 3]] if mode != "delete-first-plot-guest" else [[0, 2], [0, 2]]
             calibration = keyed_calibration_expected(mode == "keyed-calibration") if case["id"] == "keyed-calibration" else None
             if "mixed_calibration_flags" in case:
                 calibration = mixed_calibration_expected(case, mode == "mixed-calibration")

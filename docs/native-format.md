@@ -296,7 +296,7 @@ Membership comparisons use sorted IDs; surviving source-order IDs are remapped e
 
 Unreferenced original point masses and independent vectors may also be removed from an audited source.
 The source envelope and its original bindings remain intact in `.motrack`; each export removes only
-bound objects absent from the live document. A data-owner/guest or dependent reference to any removed
+bound objects absent from the live document. A table-data-owner or dependent reference to any removed
 identity refuses export, even if a new track reuses the old name. Stored data ownership and dependent
 links are never silently redirected. Unknown schemas, missing/ambiguous references and dependent-track sources
 remain excluded from membership edits.
@@ -306,8 +306,8 @@ in surviving XML order before appending new objects. Equal-count delete/create o
 identities, not sizes. Existing-name updates happen before node deletion to preserve original source
 paths. An unreferenced name can be reused by a surviving renamed track after that audit. Original
 objects and their content remain unchanged except for explicitly supported edits; only collection
-whitespace is normalized for OSP. View-owner/guest removal and dependent-link cleanup require a
-separate policy and application acceptance before being enabled.
+whitespace is normalized for OSP. Plot-owner/guest cleanup is specified below; table ownership and
+dependent-link cleanup still require separate policies and application acceptance.
 
 Tracks referenced only by panel, plot and table selections can be deleted with explicit cleanup.
 The panel selection is cleared. Each affected plot/table selects the first remaining viewable track
@@ -319,3 +319,13 @@ Live-name patches run before selection cleanup and source-node removal, preservi
 paths. The unchanged native source envelope allows undo to restore the original relationships.
 Independent application cases require removal of selected mass B (fallback mass A) and both masses
 (fallback protractor A), retaining the custom protractor table columns/formats and calibrated content.
+
+Deleted custom plot owners remove their entire `PlotTrackView`; deleted comparison guests remove
+only their ordered string cells, compacting surviving indices and omitting an empty guest property.
+Remaining axes, lines/points settings, plot order and guest order are retained. Source reference nodes
+are collected before any removal, so deletion cannot shift a later collection ordinal onto a different
+view. Live-name changes precede this cleanup; reusing a deleted name never transfers its plot data.
+Only modified arrays/collections have whitespace normalized for OSP. Seven native deletion subsets
+cover renamed survivors, native close/reopen, repeated export and replacement-name isolation.
+Three independent corpus cases remove the owner, a guest present on both plots, or the first guest
+in an ordered pair. Actual Tracker application acceptance remains required before merging this slice.

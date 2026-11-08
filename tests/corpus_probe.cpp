@@ -164,7 +164,8 @@ try
          args[1] == "--export-clip-timing-range" || args[1] == "--export-create-mass" || args[1] == "--export-create-empty-mass" ||
          args[1] == "--export-create-vector" || args[1] == "--export-create-empty-vector" || args[1] == "--export-delete-mass" ||
          args[1] == "--export-delete-vector" || args[1] == "--export-delete-all-vectors" || args[1] == "--export-delete-selected-mass" ||
-         args[1] == "--export-delete-all-masses"))
+         args[1] == "--export-delete-all-masses" || args[1] == "--export-delete-plot-owner" || args[1] == "--export-delete-plot-guest" ||
+         args[1] == "--export-delete-first-plot-guest"))
     {
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trk");
@@ -175,8 +176,16 @@ try
         }
         auto document = motrack::importTrackerDocument(source);
         motrack::TrackEdits edits;
-        if (args[1] == "--export-delete-mass" || args[1] == "--export-delete-vector" || args[1] == "--export-delete-all-vectors" ||
-            args[1] == "--export-delete-selected-mass" || args[1] == "--export-delete-all-masses")
+        if (args[1] == "--export-delete-plot-owner" || args[1] == "--export-delete-plot-guest" ||
+            args[1] == "--export-delete-first-plot-guest")
+        {
+            const std::size_t index = args[1] == "--export-delete-plot-owner" ? 0 : args[1] == "--export-delete-plot-guest" ? 1 : 2;
+            if (document.project.pointMasses.size() != 3 || !edits.removePointMass(document.project, index) ||
+                !edits.undo(document.project) || !edits.redo(document.project))
+                throw motrack::ProjectError("Could not replay the round-trip plot deletion.");
+        }
+        else if (args[1] == "--export-delete-mass" || args[1] == "--export-delete-vector" || args[1] == "--export-delete-all-vectors" ||
+                 args[1] == "--export-delete-selected-mass" || args[1] == "--export-delete-all-masses")
         {
             const bool mass =
                 args[1] == "--export-delete-mass" || args[1] == "--export-delete-selected-mass" || args[1] == "--export-delete-all-masses";

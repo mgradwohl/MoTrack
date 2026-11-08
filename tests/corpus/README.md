@@ -747,7 +747,7 @@ The native probe removes a track through normal history, undoes/redoes the delet
 `.motrack` after removing its temporary input copy, then exports. Native tests exercise first/middle/last
 and all deletions across interleaved mass/vector source objects, reordered native lists, allocation
 gaps, same-count delete/create, safe name reuse and repeated exports. Original bindings remain in the
-native envelope; reimported compact IDs are mapped in surviving source order. Data-owner/guest/dependent
+native envelope; reimported compact IDs are mapped in surviving source order. Table-data-owner/dependent
 removals, replacement-by-the-same-name rebinding, malformed/unknown schemas and ambiguous names refuse
 before replacing an existing destination. The historical MOV/open-entry-point report remains tracked
 by [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65); these media-free cases do not close it.
@@ -769,7 +769,28 @@ Pinned 6.3.5 bytecode for `TrackerPanel.removeTrack` clears the selected track, 
 omits a null panel selection and restores null when absent. Native regressions cover renamed survivors,
 retained tools, no viewable survivors, newly appended replacements, undo/redo, original-envelope native
 reopen and repeated export. Copied optional identities keep the checks portable across Clang versions.
-Only selections are cleaned up: deleting a custom data owner, plot guest or scientific dependency
+The plot cleanup below extends this policy; deleting a custom table data owner or scientific dependency
 still refuses export. This does not accept a dangling name or transfer old data to a same-name replacement.
 Actual Tracker load/save/fresh-process reopen and native reimport must pass in Linux CI before merging;
 the Windows tests use native code and never launch the Java desktop application.
+
+## Removing plot owners and comparison guests
+
+The original Java-authored `plot-guests` fixture supplies three separate edits: `delete-plot-owner`
+removes mass A and its complete custom plot view, clears the panel selection and selects surviving
+mass B in the plot chooser. `delete-plot-guest` removes mass B from both plots, preserving only mass C
+on the first plot and no guests on the second. `delete-first-plot-guest` removes mass C and compacts
+the first plot's guest array to mass B; the second plot retains mass B unchanged.
+
+The native probe uses normal deletion/undo/redo, closes/reopens its native companion after deleting
+the temporary source copy, then exports. Independent expectations retain baseline mass values,
+sparse manual keys, calibrated coordinates, clip/units, surviving plot axes and line/point settings.
+The XML oracle permits only the requested object, selection, owner and guest changes. Negative checks
+reject stale links, wrong fallback, missing plots, altered axes/calibration or unrelated XML even
+when all application stages agree. Native tests cover all seven deletion subsets, renamed survivors,
+repeated exports and reusing deleted names after standard reimport without inheriting old links.
+
+These cases require actual Tracker load/save/fresh-process reopen and native reimport in Linux CI;
+local Windows validation does not run the Java desktop application. Custom table owners and scientific
+dependencies remain excluded. Media/archive saving, paired transactions and full standard Save are
+still unfinished, so [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65) remains open.

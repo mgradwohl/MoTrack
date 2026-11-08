@@ -1028,6 +1028,128 @@ TEST(TrackerWriter, RenamesPlotOwnerAndGuestThroughNativeHistoryWithoutChangingT
     }
 }
 
+TEST(TrackerWriter, DeletedPlotOwnersAndGuestsStayDeletedThroughNativeReopenAndLaterEdits)
+{
+    const auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/plot-guests.trk");
+    const auto imported = motrack::parseTrackerProject(xml);
+    for (unsigned removed = 1; removed < 8; ++removed)
+    {
+        SCOPED_TRACE(removed);
+        motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+        motrack::TrackEdits edits;
+        for (std::size_t i = 3; i-- > 0;)
+            if ((removed & (1u << i)) != 0)
+            {
+                ASSERT_TRUE(edits.removePointMass(document.project, i));
+                ASSERT_TRUE(edits.undo(document.project));
+                ASSERT_TRUE(edits.redo(document.project));
+            }
+        if (!document.project.pointMasses.empty())
+            ASSERT_TRUE(edits.renamePointMass(document.project, 0, "renamed survivor"));
+        auto expected = document.project.pointMasses;
+        std::ranges::reverse(document.project.pointMasses);
+        QTemporaryDir temporary;
+        const auto native = temporary.filePath("deleted-plot.motrack");
+        motrack::writeWorkspaceDocument(native, document);
+        document = motrack::readWorkspaceDocument(native);
+        if (!document.trackerSource)
+        {
+            FAIL() << "Native reopen lost the original plot source.";
+        }
+        const auto bytes = motrack::renderTrackerProject(document.project, *document.trackerSource);
+        auto output = motrack::parseTrackerProject(bytes);
+        ASSERT_EQ(output.project.pointMasses.size(), expected.size());
+        for (std::size_t i = 0; i < expected.size(); ++i)
+        {
+            expected[i].id = output.project.pointMasses[i].id;
+            EXPECT_EQ(output.project.pointMasses[i], expected[i]);
+        }
+        const auto references = motrack::indexTrackerReferences(output.source, output.project);
+        EXPECT_TRUE(references.malformedPaths.empty());
+        std::vector<std::string> guests;
+        unsigned owners = 0;
+        for (const auto& reference : references.references)
+        {
+            EXPECT_EQ(reference.resolution, motrack::TrackerReferenceResolution::Resolved);
+            if (reference.kind == motrack::TrackerReferenceKind::PlotOwner)
+            {
+                ++owners;
+                EXPECT_EQ(reference.originalName, "renamed survivor");
+            }
+            if (reference.kind == motrack::TrackerReferenceKind::PlotGuest)
+                guests.push_back(reference.originalName);
+        }
+        std::vector<std::string> expectedGuests;
+        if ((removed & 1u) == 0)
+        {
+            if ((removed & 4u) == 0)
+                expectedGuests.emplace_back("mass C");
+            if ((removed & 2u) == 0)
+            {
+                expectedGuests.emplace_back("mass B");
+                expectedGuests.emplace_back("mass B");
+            }
+        }
+        EXPECT_EQ(owners, (removed & 1u) == 0 ? 1u : 0u);
+        EXPECT_EQ(guests, expectedGuests);
+        EXPECT_EQ(document.trackerSource->xml, xml);
+        EXPECT_EQ(motrack::renderTrackerProject(document.project, *document.trackerSource), bytes);
+        // Reusing a deleted label after standard reimport must not inherit its old plot links.
+        ASSERT_TRUE(edits.createPointMass(output.project, (removed & 1u) != 0 ? "mass A" : (removed & 2u) != 0 ? "mass B" : "mass C"));
+        const auto again = motrack::parseTrackerProject(motrack::renderTrackerProject(output.project, output.source));
+        const auto againReferences = motrack::indexTrackerReferences(again.source, again.project);
+        ASSERT_EQ(againReferences.references.size(), references.references.size());
+        for (std::size_t i = 0; i < references.references.size(); ++i)
+        {
+            EXPECT_EQ(againReferences.references[i].kind, references.references[i].kind);
+            EXPECT_EQ(againReferences.references[i].path, references.references[i].path);
+            EXPECT_EQ(againReferences.references[i].originalName, references.references[i].originalName);
+            EXPECT_EQ(againReferences.references[i].candidateSourceIndices, references.references[i].candidateSourceIndices);
+        }
+    }
+}
+
+TEST(TrackerWriter, PlotDeletionResolvesAllOriginalCollectionOrdinalsBeforeRemovingOwners)
+{
+    auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/plot-guests.trk");
+    const auto collection = xml.find("name=\"track_views\"");
+    ASSERT_NE(collection, std::string::npos);
+    const auto first = xml.find(R"(                    <property name="item" type="object">)", collection);
+    ASSERT_NE(first, std::string::npos);
+    const auto end = xml.find("\n                </property>", first);
+    ASSERT_NE(end, std::string::npos);
+    std::string additional;
+    for (const std::string name : {"mass B", "mass C"})
+    {
+        auto added = xml.substr(first, end - first);
+        const std::string owner = R"(name="track" type="string">mass A)";
+        const std::string guest = R"(name="[0]" type="string">mass C)";
+        ASSERT_NE(added.find(owner), std::string::npos);
+        ASSERT_NE(added.find(guest), std::string::npos);
+        added.replace(added.find(owner), owner.size(), R"(name="track" type="string">)" + name);
+        added.replace(added.find(guest), guest.size(), R"(name="[0]" type="string">mass A)");
+        additional += "\n" + added;
+    }
+    xml.insert(end, additional);
+    const auto imported = motrack::parseTrackerProject(xml);
+    auto project = imported.project;
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.renamePointMass(project, 2, "surviving C"));
+    ASSERT_TRUE(edits.removePointMass(project, 1));
+    ASSERT_TRUE(edits.removePointMass(project, 0));
+    const auto output = motrack::parseTrackerProject(motrack::renderTrackerProject(project, imported.source));
+    const auto references = motrack::indexTrackerReferences(output.source, output.project);
+    ASSERT_EQ(references.references.size(), 2);
+    EXPECT_EQ(references.references[0].kind, motrack::TrackerReferenceKind::PlotSelection);
+    EXPECT_EQ(references.references[1].kind, motrack::TrackerReferenceKind::PlotOwner);
+    EXPECT_EQ(references.references[1].path, "/views/0/0/track_views/0/track");
+    for (const auto& reference : references.references)
+    {
+        EXPECT_EQ(reference.originalName, "surviving C");
+        EXPECT_EQ(reference.resolution, motrack::TrackerReferenceResolution::Resolved);
+    }
+}
+
 TEST(TrackerWriter, RenameWalksPlotCollectionsByOrdinalAndLeavesVariableTextAlone)
 {
     const std::string xml =

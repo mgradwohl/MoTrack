@@ -27,6 +27,7 @@
     {
       "id": "plot-guests",
       "native_plot_name_roundtrip": true,
+      "native_delete_plot_roundtrip": true,
       "file": "plot-guests.trk",
       "local_file": "fixtures/plot-guests.trk",
       "sha256": "886eb2b29a14ed511029e03237a15fb65ce691d70aeed40ce0820e0b75a8b709",
