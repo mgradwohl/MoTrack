@@ -267,3 +267,14 @@ the direct and menu save entry points, with worker release ordered after cancell
 Completed paired writes carry the snapshot's refreshed media bindings back to their live session.
 Only a result that actually updated an output may adopt them; blocked retries and replaced-document
 completions leave the current bindings unchanged. Recovery alone has no live-snapshot bindings to adopt.
+
+Media bindings use the same process-local observation order: an older completed write cannot replace
+locations from a later write, even if callbacks arrive in reverse order. Confirmed journal absence
+reconciles pending records by observation order without requiring a transaction UUID; successful
+recovery writes still require the expected UUID. Regressions remove the original alias and older media
+before saving again, and reconcile externally completed journals through the default recovery API.
+
+Storage progress callbacks expose archive chunks and the final pre-commit boundary on the writing
+thread. Deterministic cancellation regressions stop during source-archive streaming and immediately
+before plain/ZIP commit, preserving every original destination byte. Successful paired saves also
+refresh the active image reader, preserving navigation after a temporary media alias is removed.
