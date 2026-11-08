@@ -32,7 +32,8 @@ class CorpusTests(unittest.TestCase):
         manifest = corpus.load_manifest()
         for mode, case_id in [("delete-mass", "protractor"), ("delete-vector", "independent-vectors"),
                               ("delete-all-vectors", "independent-vectors"), ("delete-selected-mass", "protractor"),
-                              ("delete-all-masses", "protractor")]:
+                              ("delete-all-masses", "protractor"), ("delete-plot-owner", "plot-guests"),
+                              ("delete-plot-guest", "plot-guests"), ("delete-first-plot-guest", "plot-guests")]:
             original = next(c for c in manifest["cases"] if c["id"] == case_id)
             unchanged = copy.deepcopy(original)
             expected, case = corpus.deletion_roundtrip_expected(original, mode)
@@ -41,7 +42,8 @@ class CorpusTests(unittest.TestCase):
                 mass = next((v for v in expected["point_masses"] if v["name"] == identity["name"]), None)
                 vector = next((v for v in expected["vectors"] if v["name"] == identity["name"]), None)
                 calibrated = next((v for v in case.get("session_vector_data", []) if v["name"] == identity["name"]), None)
-                tracks.append({**identity, "mass": mass["mass"] if mass else None, "key_frames": [0] if mass else None,
+                keys = [s["frame"] for s in mass["samples"]] if mass and mode in corpus.PLOT_DELETION_NAMES else [0] if mass else None
+                tracks.append({**identity, "mass": mass["mass"] if mass else None, "key_frames": keys,
                                "samples": [{"frame": s["frame"], "points": [s["image"]], "world": s["world"]}
                                            for s in mass["samples"]] if mass else [],
                                "vector_samples": vector["samples"] if vector else [],
@@ -53,6 +55,8 @@ class CorpusTests(unittest.TestCase):
                       "view_preparation": "visit_custom_tables_restore_selection", "before": before,
                       "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
             keys = [] if mode == "delete-all-masses" else [[0]] if "mass" in mode else None
+            if mode in corpus.PLOT_DELETION_NAMES:
+                keys = [[0, 2], [0, 2]] if mode == "delete-first-plot-guest" else [[0, 2], [1, 3]]
             corpus.validate_session(case, report, manifest, expected, keys)
             for mutation in ["resurrect", "lose-survivor", "alter-calibration"]:
                 invalid = copy.deepcopy(report)
@@ -85,6 +89,28 @@ class CorpusTests(unittest.TestCase):
                             invalid[stage]["name_references"]["view_tracks"][0][0] = "axes"
                         else:
                             invalid[stage]["saved_views"]["tables"][0]["track_columns"] = []
+                    with self.subTest(mode=mode, mutation=mutation), self.assertRaises(ValueError):
+                        corpus.validate_session(case, invalid, manifest, expected, keys)
+            elif mode in corpus.PLOT_DELETION_NAMES:
+                self.assertEqual(case["session_names"]["view_tracks"][1][1], "mass B" if mode == "delete-plot-owner" else "mass A")
+                if mode == "delete-plot-owner":
+                    self.assertEqual(case["session_views"]["plots"], [])
+                    self.assertIsNone(case["session_names"]["selected_track"])
+                    self.assertEqual(case["session_names"]["view_tracks"][0][0], "mass B")
+                else:
+                    plots = case["session_views"]["plots"][0]["track_views"][0]["plots"]
+                    self.assertEqual([plot["guests"] for plot in plots], [["mass C"], []] if mode == "delete-plot-guest" else [["mass B"], ["mass B"]])
+                for mutation in ["links", "selection", "axis"]:
+                    invalid = copy.deepcopy(report)
+                    for stage in ["before", "after_save", "after"]:
+                        if mutation == "links":
+                            invalid[stage]["saved_views"] = copy.deepcopy(original["session_views"])
+                        elif mutation == "selection":
+                            invalid[stage]["name_references"]["view_tracks"][0][0] = "axes"
+                        elif mode != "delete-plot-owner":
+                            invalid[stage]["saved_views"]["plots"][0]["track_views"][0]["plots"][0]["x_var"] = "y"
+                        else:
+                            invalid[stage]["tracks"][1]["samples"][0]["world"][0] += 1
                     with self.subTest(mode=mode, mutation=mutation), self.assertRaises(ValueError):
                         corpus.validate_session(case, invalid, manifest, expected, keys)
             else:
@@ -151,6 +177,48 @@ class CorpusTests(unittest.TestCase):
                 original.write_text(broken, encoding="utf-8")
                 with self.assertRaises(ValueError):
                     corpus.verify_deletion_export_xml(original, exported, mode)
+
+    def test_plot_deletion_xml_oracle_rejects_stale_links_and_unrelated_changes(self):
+        source = corpus.CORPUS / "fixtures/plot-guests.trk"
+        exported = self.root / "plot-deletion.trk"
+        for mode, name in corpus.PLOT_DELETION_NAMES.items():
+            tree = ET.parse(source)
+            root = tree.getroot()
+            tracks = root.find("property[@name='tracks']")
+            for item in list(tracks):
+                if item.find("object/property[@name='name']").text == name:
+                    tracks.remove(item)
+            view = root.find(".//object[@class='org.opensourcephysics.cabrillo.tracker.PlotTView']")
+            owners = view.find("property[@name='track_views']")
+            if mode == "delete-plot-owner":
+                root.remove(root.find("property[@name='selectedtrack']"))
+                view.find("property[@name='selected_track']").text = "mass B"
+                owners.remove(list(owners)[0])
+            else:
+                for panel in owners.findall(".//object[@class='org.opensourcephysics.cabrillo.tracker.TrackPlottingPanel']"):
+                    guests = panel.find("property[@name='guests']")
+                    for guest in list(guests):
+                        if guest.text == name:
+                            guests.remove(guest)
+                    if len(guests) == 0:
+                        panel.remove(guests)
+                    else:
+                        for i, guest in enumerate(guests):
+                            guest.set("name", f"[{i}]")
+            tree.write(exported, encoding="utf-8")
+            corpus.verify_deletion_export_xml(source, exported, mode)
+            good = exported.read_text(encoding="utf-8")
+            invalids = [source.read_text(encoding="utf-8"), good.replace('>kg<', '>lost<')]
+            if mode == "delete-plot-owner":
+                invalids.append(good.replace('name="selected_track" type="string">mass B', 'name="selected_track" type="string">axes'))
+            else:
+                invalids.append(good.replace('name="x_var" type="string">t', 'name="x_var" type="string">x'))
+                invalids.append(good.replace('name="[0]" type="string">mass', 'name="[1]" type="string">mass'))
+            for invalid in invalids:
+                self.assertNotEqual(invalid, good)
+                exported.write_text(invalid, encoding="utf-8")
+                with self.subTest(mode=mode), self.assertRaises(ValueError):
+                    corpus.verify_deletion_export_xml(source, exported, mode)
 
     def test_created_vector_oracle_requires_original_and_new_geometry_and_appearance(self):
         manifest = corpus.load_manifest()
