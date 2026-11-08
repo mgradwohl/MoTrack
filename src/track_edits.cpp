@@ -421,7 +421,7 @@ bool TrackEdits::setClipTiming(LegacyProject& project, double frameDurationMs, d
     candidate.startTimeMs = startTimeMs;
     const auto before = clipTiming(project.clip);
     const auto after = clipTiming(candidate);
-    if (!validConstantClipTiming(candidate) || after == before)
+    if (!supportsConstantClipTimingEdits(project) || !validConstantClipTiming(candidate) || after == before)
     {
         return false;
     }
@@ -575,7 +575,7 @@ bool TrackEdits::apply(LegacyProject& project, const Edit& edit, bool forward)
     }
     if (const auto* change = std::get_if<ChangeClipTiming>(&edit))
     {
-        if (!project.clip.mediaReferences.empty())
+        if (!supportsConstantClipTimingEdits(project))
         {
             return false;
         }

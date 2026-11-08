@@ -145,10 +145,7 @@ void patchClipTiming(QDomDocument& xml, const LegacyProject& project)
     const auto& clip = project.clip;
     require(validConstantClipTiming(clip));
     // Data tracks can supply their own time source; models require independent trajectory checks.
-    for (const auto& type : project.unsupportedTrackTypes)
-    {
-        require(type == "org.opensourcephysics.cabrillo.tracker.CoordAxes" || type == "org.opensourcephysics.cabrillo.tracker.Protractor");
-    }
+    require(supportsConstantClipTimingEdits(project));
     const auto clipProperty = uniqueProperty(xml.documentElement(), "videoclip");
     const auto clipObject = clipProperty.firstChildElement("object");
     require(clipProperty.attribute("type") == "object" && clipObject.attribute("class") == "org.opensourcephysics.media.core.VideoClip" &&
