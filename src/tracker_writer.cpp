@@ -1352,6 +1352,9 @@ void writeTrackerArchiveDocument(const QString& path, const WorkspaceDocument& d
     // Imported archive references are validated archive-root-relative members, independent of
     // the original archive's location or the companion document's later location.
     const auto xml = prepareTrackerDocument(originalPath, snapshot, QDir(archive.root()).filePath("media-base.motrack"));
+    auto exported = parseLegacyProject(xml);
+    archive.resolveMedia(exported, member);
+    require(exported.clip.mediaReferences == baseline.clip.mediaReferences);
     writeTrackerArchive(path, archive, member, xml, cancelled);
 }
 

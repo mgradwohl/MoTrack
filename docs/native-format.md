@@ -429,6 +429,8 @@ files. Each referenced extracted file must also match the SHA-256 digest capture
 its original archive member; missing or same-path replaced files are rejected before destination
 replacement. Selected XML and images must also resolve within the physical extraction root captured
 at import; identical-byte external file/parent-directory aliases cannot redirect exported links.
+Prepared XML is resolved back through the original archive inventory and must name the same media
+members, so even an in-root rename/alias cannot produce links to files absent from the output ZIP.
 Digest checks use bounded blocks, honor cancellation and avoid rereading duplicate
 references. Native save/reopen recreates these digests from the owned archive bytes. An immutable
 copy prepares member-relative ImageVideo paths; external/replaced media,
@@ -460,15 +462,18 @@ archives, signatures, ambiguous/noncontiguous layouts and unaudited encodings ar
 staged archive is reopened with the existing validated reader and its selected XML/inventory checked
 before an atomic destination replacement. Cancellation, source mismatch, missing media, corrupt ZIP
 metadata or a failed destination leaves the existing destination intact. Output cannot replace the
-owned source snapshot or extracted files.
+owned source snapshot or extracted files, including their physical spelling through a symbolic-link
+temporary-directory ancestor. Archive output-file aliases (including dangling links) are refused.
 
 Native tests cover first/middle/last member replacement, other tabs, opaque binary/support files,
 Unicode names, Java deflation/descriptors/comments, native reopen, history, repeated export and
 failure/cancellation. The corpus independently checks edited XML, every untouched payload/compressed
-record and central metadata. Actual Tracker `.trz` loading, resave and fresh-process reopen with
-pixel/time/geometry expectations are pending CI; multi-tab application acceptance, new-archive
-packaging, broader ZIP/media support and paired-save recovery remain unfinished.
-
+record and central metadata. The baseline and edited archive passed actual Tracker `.trz` loading,
+resave, fresh-process reopen and native reimport at `fec0e7a`, Linux job 128733094094 in
+[run 42481133737](https://github.com/mgradwohl/MoTrack/actions/runs/42481133737), including every
+independent pixel/time/geometry expectation. Subsequent destination/member-alias guards still need
+current-head CI. Multi-tab application acceptance, new-archive packaging, broader ZIP/media support
+and paired-save recovery remain unfinished.
 
 The additional two-experiment corpus case verifies that selected-member editing does not damage a
 second experiment sharing the same images. Its independent archive/XML oracle preserves that

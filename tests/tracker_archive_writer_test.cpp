@@ -8,6 +8,8 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
+#include <QScopeGuard>
 #include <QTemporaryDir>
 #include <QtEndian>
 #include <gtest/gtest.h>
@@ -237,12 +239,47 @@ TEST(TrackerArchiveWriter, ExportsAnEditedImageDocumentAfterNativeReopenAndOrigi
 }
 
 #ifndef Q_OS_WIN
-TEST(TrackerArchiveWriter, RejectsIdenticalExternalFileAndDirectoryAliases)
+TEST(TrackerArchiveWriter, ProtectsCanonicalOwnedPathsAndRejectsDanglingDestinationAliases)
+{
+    QTemporaryDir temporary;
+    const auto physical = temporary.filePath("physical-temp");
+    const auto alias = temporary.filePath("alias-temp");
+    ASSERT_TRUE(QDir().mkpath(physical));
+    ASSERT_TRUE(QFile::link(physical, alias));
+    const auto original = temporary.filePath("input.trz");
+    ASSERT_TRUE(motrack::test::writeArchive(original, {{.name = "selected.trk", .bytes = originalXml()}}));
+    const bool hadTemp = qEnvironmentVariableIsSet("TMPDIR");
+    const auto previousTemp = qgetenv("TMPDIR");
+    const auto restoreTemp = qScopeGuard(
+        [hadTemp, previousTemp]
+        {
+            if (hadTemp)
+                qputenv("TMPDIR", previousTemp);
+            else
+                qunsetenv("TMPDIR");
+        });
+    ASSERT_TRUE(qputenv("TMPDIR", alias.toUtf8()));
+    const auto source = motrack::TrackerArchive::open(original);
+    const auto bytes = readBytes(source.sourcePath());
+    const auto canonical = QFileInfo(source.sourcePath()).canonicalFilePath();
+    ASSERT_NE(source.sourcePath(), canonical);
+    EXPECT_THROW(motrack::writeTrackerArchive(canonical, source, "selected.trk", EDITED_XML), motrack::ProjectError);
+    EXPECT_EQ(readBytes(source.sourcePath()), bytes);
+    const auto extracted = QDir(source.root()).filePath("new-output.trz");
+    const auto dangling = temporary.filePath("dangling-output.trz");
+    ASSERT_TRUE(QFile::link(extracted, dangling));
+    EXPECT_THROW(motrack::writeTrackerArchive(dangling, source, "selected.trk", EDITED_XML), motrack::ProjectError);
+    EXPECT_FALSE(QFileInfo::exists(extracted));
+    EXPECT_TRUE(QFileInfo(dangling).isSymLink());
+    EXPECT_EQ(readBytes(source.sourcePath()), bytes);
+}
+
+TEST(TrackerArchiveWriter, RejectsAliasesThatRedirectOriginalArchiveMembers)
 {
     const auto fixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images/archived-images.trz";
-    for (const int kind : {0, 1, 2})
+    for (const int kind : {0, 1, 2, 3})
     {
-        SCOPED_TRACE(kind); // Image file, image parent directory, selected project file.
+        SCOPED_TRACE(kind); // External image file/directory/project, then an in-root renamed image directory.
         QTemporaryDir temporary;
         auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(fixture));
         auto document = motrack::importTrackerDocument(payload->projectPath("experiment.trk"));
@@ -270,6 +307,12 @@ TEST(TrackerArchiveWriter, RejectsIdenticalExternalFileAndDirectoryAliases)
             ASSERT_TRUE(root.rename("images", "original-images"));
             ASSERT_TRUE(QFile::link(outside, root.filePath("images")));
         }
+        else if (kind == 3)
+        {
+            QDir root(payload->root());
+            ASSERT_TRUE(root.rename("images", "original-images"));
+            ASSERT_TRUE(QFile::link(root.filePath("original-images"), root.filePath("images")));
+        }
         else
         {
             const auto outside = temporary.filePath(kind == 2 ? "external.trk" : "external.png");
@@ -277,7 +320,7 @@ TEST(TrackerArchiveWriter, RejectsIdenticalExternalFileAndDirectoryAliases)
             ASSERT_TRUE(QFile::remove(extracted));
             ASSERT_TRUE(QFile::link(outside, extracted));
         }
-        EXPECT_FALSE(payload->memberMatchesSource(member));
+        EXPECT_EQ(payload->memberMatchesSource(member), kind == 3);
         EXPECT_THROW(motrack::writeTrackerArchiveDocument(destination, document), motrack::ProjectError);
         EXPECT_EQ(readBytes(destination), valid);
         EXPECT_EQ(readBytes(payload->sourcePath()), original);
