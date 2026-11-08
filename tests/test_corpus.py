@@ -1234,7 +1234,7 @@ class CorpusTests(unittest.TestCase):
                         raise failure
                     output = Path(output)
                     (output / "tracker-resaved.trk").write_text("<object>\n<property>", encoding="utf-8")
-                    report = {"reference_version": "6.3.5", "verification_level": "tracker_session_save",
+                    report = {"reference_version": "6.3.5", "verification_level": "tracker_session_save", "loader_callbacks": 2,
                               "view_preparation": "visit_custom_tables_restore_selection", "loaded": {}, "after_save": {}}
                     (output / "session-save.json").write_text(json.dumps(report), encoding="utf-8")
                 with self.subTest(stage=failing_stage, error=type(failure).__name__), \
@@ -1272,7 +1272,7 @@ class CorpusTests(unittest.TestCase):
             else:
                 self.assertEqual(Path(source).name, "tracker-resaved.trk")
                 self.assertTrue(Path(source).is_file())
-            report = {"reference_version": "6.3.5", "verification_level": "tracker_session_" + stage,
+            report = {"reference_version": "6.3.5", "verification_level": "tracker_session_" + stage, "loader_callbacks": 2,
                       "view_preparation": "visit_custom_tables_restore_selection",
                       "loaded": {"stage": stage}, "after_save": {"stage": "after_save"}}
             (output / ("session-" + stage + ".json")).write_text(json.dumps(report), encoding="utf-8")

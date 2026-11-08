@@ -37,6 +37,15 @@ characters without dropping parser metadata when corrupt bytes or Unicode expand
 This improves evidence for [MoTrack #105](https://github.com/mgradwohl/MoTrack/issues/105); the intermittent
 callback timeout's cause remains under investigation and is not established as fixed or as an upstream defect.
 
+The pinned loader can call its completion hook from both `checkDone` and `doneAsync`. The reference
+harness now admits that hook once per requested load, so a second callback cannot start another
+evaluation timer and overwrite the resave while the process exits. Callback counts are retained in
+successful reports and repeated callbacks are identified in CI output. The normal application
+loader/saver and all scientific comparisons remain in place; the helper also rejects an empty save.
+Headless regressions cover duplicate, reentrant and failed callbacks without retrying failed work.
+Issue #105 records the observed zero-byte resave and bounded application evidence; actual application
+callback counts and current-head save/reopen CI are required before calling this lifecycle fix verified.
+
 A third command, `roundtrip`, adds **limited** MoTrack standard-export cases. The mass case, labeled
 `motrack_mass_roundtrip`, changes the first point mass's mass in the real protractor experiment,
 saves/reopens native data after removing its input copy, exports `.trk`, opens/resaves/reopens through

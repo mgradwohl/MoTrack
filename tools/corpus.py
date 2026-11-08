@@ -1078,8 +1078,14 @@ def check_sessions(manifest, cache, java, probe=None):
                         or stages[stage]["verification_level"] != "tracker_session_" + stage
                         or stages[stage].get("view_preparation") != "visit_custom_tables_restore_selection"):
                     raise ValueError("Unexpected Tracker session stage")
+                callbacks = stages[stage].get("loader_callbacks")
+                if type(callbacks) is not int or callbacks < 1:
+                    raise ValueError("Missing Tracker loader callback evidence")
+                if callbacks > 1:
+                    print(f"{case['id']}/{mode}/{stage}: observed {callbacks} loader callbacks; reference action ran once")
             report = {"reference_version": stages["save"]["reference_version"], "verification_level": "tracker_session_resave",
                       "view_preparation": stages["save"]["view_preparation"],
+                      "loader_callbacks": {stage: stages[stage]["loader_callbacks"] for stage in stages},
                       "before": stages["save"]["loaded"], "after_save": stages["save"]["after_save"],
                       "after": stages["reopen"]["loaded"]}
             keys = {"marks": [[0, 3], [7]], "empty-marks": [[], [0]], "first-mark": [[4], [0]]}.get(mode)
