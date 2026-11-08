@@ -860,6 +860,7 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
     }
     bool changed = false;
     bool auditFinalSchema = false;
+    bool massCoordinatesChecked = false;
     if (expected.pointMasses.size() != baseline.project.pointMasses.size())
     {
         validateTrackerTrackCreation(xml, expected, source);
@@ -867,6 +868,7 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
         require(expected.calibration || uniqueProperty(xml.documentElement(), "coords").isNull());
         if (expected.calibration)
             requireTrackerCoordinates(expected, *expected.calibration);
+        massCoordinatesChecked = true;
         require(tracks.attribute("type") == "collection" && tracks.attribute("class") == "java.util.ArrayList");
         // OSP reads consecutive property lines. Normalize only collection whitespace, never old objects.
         for (auto node = tracks.firstChild(); !node.isNull();)
@@ -944,6 +946,7 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
         else
         {
             patchCalibration(xml, *baseline.project.calibration, *expected.calibration, expected);
+            massCoordinatesChecked = true;
             baseline.project.calibration = expected.calibration;
             changed = true;
         }
@@ -997,6 +1000,13 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
         }
         if (current.marks != original.marks)
         {
+            if (!massCoordinatesChecked)
+            {
+                require(expected.calibration || uniqueProperty(xml.documentElement(), "coords").isNull());
+                if (expected.calibration)
+                    requireTrackerCoordinates(expected, *expected.calibration);
+                massCoordinatesChecked = true;
+            }
             patchMarks(xml, objects.at(current.id), original.marks, current.marks);
             original.marks = current.marks;
             changed = true;

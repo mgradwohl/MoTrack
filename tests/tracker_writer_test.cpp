@@ -489,6 +489,11 @@ TEST(TrackerWriter, CreatedMassRejectsPresentButUnusableCalibrationAtomically)
         ASSERT_TRUE(edits.markPointMass(imported.project, 2, {.frame = 1, .x = 2, .y = 3}));
         EXPECT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
         EXPECT_EQ(readBytes(destination), source);
+        imported = motrack::parseTrackerProject(source);
+        edits.clear();
+        ASSERT_TRUE(edits.markPointMass(imported.project, 0, {.frame = 1, .x = 2, .y = 3}));
+        EXPECT_THROW(motrack::writeTrackerProject(destination, imported.project, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(destination), source);
     }
 }
 
@@ -529,6 +534,25 @@ TEST(TrackerWriter, CreatedMassRejectsCoordinateCancellationWithoutChangingCalib
     motrack::writeTrackerProject(destination, imported.project, imported.source);
     EXPECT_THROW(motrack::writeTrackerProject(destination, project, imported.source), motrack::ProjectError);
     EXPECT_EQ(readBytes(destination), xml);
+
+    // Creating an empty mass first must not let a later mark-only edit bypass the same check.
+    auto empty = imported;
+    edits.clear();
+    ASSERT_TRUE(edits.createPointMass(empty.project, "new mass"));
+    empty = motrack::parseTrackerProject(motrack::renderTrackerProject(empty.project, empty.source));
+    motrack::writeTrackerProject(destination, empty.project, empty.source);
+    motrack::WorkspaceDocument document{.project = empty.project, .movieFrameTimes = {}, .trackerSource = empty.source};
+    edits.clear();
+    ASSERT_TRUE(edits.markPointMass(document.project, 2, mark));
+    const auto native = temporary.filePath("mark-only.motrack");
+    motrack::writeWorkspaceDocument(native, document);
+    document = motrack::readWorkspaceDocument(native);
+    if (!document.trackerSource)
+    {
+        FAIL() << "Native reopen lost the standard-reimported source.";
+    }
+    EXPECT_THROW(motrack::writeTrackerProject(destination, document.project, *document.trackerSource), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), empty.source.xml);
 }
 
 TEST(TrackerWriter, RenamesSelectedMassByIdentityAndPreservesNonReferenceWordsAfterNativeReopen)
