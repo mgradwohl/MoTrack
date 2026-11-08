@@ -747,7 +747,7 @@ The native probe removes a track through normal history, undoes/redoes the delet
 `.motrack` after removing its temporary input copy, then exports. Native tests exercise first/middle/last
 and all deletions across interleaved mass/vector source objects, reordered native lists, allocation
 gaps, same-count delete/create, safe name reuse and repeated exports. Original bindings remain in the
-native envelope; reimported compact IDs are mapped in surviving source order. Table-data-owner/dependent
+native envelope; reimported compact IDs are mapped in surviving source order. Dataset-owner/dependent
 removals, replacement-by-the-same-name rebinding, malformed/unknown schemas and ambiguous names refuse
 before replacing an existing destination. The historical MOV/open-entry-point report remains tracked
 by [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65); these media-free cases do not close it.
@@ -769,7 +769,7 @@ Pinned 6.3.5 bytecode for `TrackerPanel.removeTrack` clears the selected track, 
 omits a null panel selection and restores null when absent. Native regressions cover renamed survivors,
 retained tools, no viewable survivors, newly appended replacements, undo/redo, original-envelope native
 reopen and repeated export. Copied optional identities keep the checks portable across Clang versions.
-The plot cleanup below extends this policy; deleting a custom table data owner or scientific dependency
+The plot/table cleanup below extends this policy; deleting a dataset owner or scientific dependency
 still refuses export. This does not accept a dangling name or transfer old data to a same-name replacement.
 Actual Tracker load/save/fresh-process reopen and native reimport must pass in Linux CI before merging;
 the Windows tests use native code and never launch the Java desktop application.
@@ -795,6 +795,37 @@ retained the independently expected owner/guest lists after it. Actual applicati
 separate required check.
 
 These cases require actual Tracker load/save/fresh-process reopen and native reimport in Linux CI;
-local Windows validation does not run the Java desktop application. Custom table owners and scientific
-dependencies remain excluded. Media/archive saving, paired transactions and full standard Save are
+local Windows validation does not run the Java desktop application. Dataset owners and scientific
+dependencies remain excluded; table-column/format cleanup is covered below. Media/archive saving, paired transactions and full standard Save are
 still unfinished, so [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65) remains open.
+
+
+## Removing custom table owners
+
+[TableOwnersFixture.java](../../tools/reference/TableOwnersFixture.java) authors the same independent
+three-mass geometry as the plot fixture with Tracker's real track/coordinate serializers and OSP's
+public XML API. It defines one table chooser containing three custom owners: mass A has columns
+`t,x,y`, mass B `t,y,x`, and mass C `t,x`, with distinct decimal formats. Its LF-normalized bytes are
+checksum-pinned in the manifest; two independent bounded headless generations produced identical
+bytes. Java coordinate-API and native snapshots agree with the independently specified geometry.
+The source-reference oracle independently specifies original identities, column rows and grouped
+format rows before comparing native output. No Java desktop application runs on Windows.
+
+Application expectations include Tracker's pinned default `frame`/`step` pattern `0` and time pattern
+`0.000`, with explicit per-table overrides. The defaults were separately verified through the pinned
+Java API, not learned from an edited export. The normal reference harness visits each custom table
+and restores selection before saving; this remains distinct from immediate unvisited resave and does
+not close [MoTrack #64](https://github.com/mgradwohl/MoTrack/issues/64).
+
+Four edits remove the first, selected, last or all table owners. Surviving column order and formats
+must remain exact, while deleted rows and whole format groups disappear without being transferred
+to a replacement name. Deleting selected mass B clears the panel and selects mass A in the table;
+deleting all masses clears both. The XML oracle independently permits only those removals, selection
+changes and contiguous surviving array indices. Negative tests reject stale owners, lost/reordered
+columns, changed number formats, bad selections and unrelated XML edits. Native regressions cover
+all seven subsets, renamed survivors, undo/redo, native close/reopen, repeated export and same-name
+replacement isolation. Dataset-index ownership and scientific dependencies remain unsupported.
+
+Baseline and edited Tracker application load/save/fresh-process reopen, native reimport, all-platform
+CI and the unchanged coverage gate are required before accepting this slice. These media-free cases
+still do not complete media/archive saving or paired-output recovery in R03.
