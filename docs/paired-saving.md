@@ -131,3 +131,7 @@ requires a fresh paired save to establish both output checkpoints for the curren
 This preserves new edits made after interruption. The desktop controller must use these session
 queries and completion methods when standard Save/recovery actions are connected; those actions
 are still pending.
+
+The combined checkpoint/recovery revision passes all six Windows suites with 95.43% combined
+production line coverage (7726/8096). Checkpoint formatting/static checks pass. Cross-platform CI
+and desktop integration are pending.
