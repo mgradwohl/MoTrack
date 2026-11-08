@@ -50,6 +50,7 @@ class MainWindow final : public QMainWindow
     bool openImageSequence(const QStringList& paths, double frameRate);
     bool saveMeasurements(const QString& path);
     bool saveWorkspace(const QString& path);
+    bool saveTrackerProject(const QString& path, bool recoverPending = false);
 
   protected:
     void closeEvent(QCloseEvent* event) override;
@@ -80,6 +81,9 @@ class MainWindow final : public QMainWindow
     void cancelMovieOpen();
     void releaseArchive();
     bool chooseWorkspacePath();
+    bool chooseTrackerPath();
+    bool saveTrackerWithRecoveryPrompt(const QString& path);
+    void finishSaving();
     bool saveCurrentWorkspace();
     bool saveCsv(const QString& path, const std::string& csv);
     void refreshEditViews(int track);
@@ -116,6 +120,7 @@ class MainWindow final : public QMainWindow
     QAction* m_ExportPlot;
     QAction* m_SaveAs;
     QAction* m_Save;
+    QAction* m_SaveTracker;
     QAction* m_NewPointMass;
     QAction* m_NewVector;
     QAction* m_RenamePointMass;
@@ -157,6 +162,7 @@ class MainWindow final : public QMainWindow
     QString m_MediaProjectPath;
     QThreadPool* m_SavePool;
     bool m_Saving = false;
+    std::shared_ptr<std::atomic_bool> m_SaveCancelled;
     std::vector<std::function<void()>> m_AfterSave;
     std::vector<std::chrono::nanoseconds> m_MoviePresentationTimes;
     std::shared_ptr<std::atomic_bool> m_MovieOpenCancelled;
