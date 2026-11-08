@@ -338,7 +338,11 @@ public final class TrackerSessionReference {
                 WAITING.set("custom table owner=" + bounded(visit.track().getName(), 80)
                     + " columns=" + bounded(row.toString(), 200)
                     + " viewShowing=" + visit.view().isShowing()
-                    + " trackViewShowing=" + (trackView == null ? "missing" : trackView.isShowing()));
+                    + " trackViewShowing=" + (trackView == null ? "missing" : trackView.isShowing())
+                    + " paintable=" + panel.getTFrame().isPaintable()
+                    + " paintHold=" + panel.getTFrame().hasPaintHold()
+                    + " ignoreRepaint=" + panel.getTFrame().getIgnoreRepaint()
+                    + " autoRefresh=" + panel.isAutoRefresh());
                 if (row.stream().anyMatch(value -> value == null)) return;
             }
             if (!found) throw new IllegalStateException("Customized table disappeared during selection");
