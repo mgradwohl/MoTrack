@@ -119,7 +119,7 @@ The time-unit case similarly preserves timing and numerical data through reversi
 reopen, standard export and actual Tracker resave. Imported time labels also reach plot/derived-quantity
 labels and CSV headers. Independent live frame times stay 0/900 ms at frames 0/9 in the pinned case;
 full time-control UI, conversion workflows and locale-dependent time-zero behavior remain separate.
-Clip timing, partly fixed/moving calibration, key deletion, varying vector coordinates,
+Clip timing, fixed-flag changes, moving reference frames, key deletion, varying vector coordinates,
 media/archive and paired-save acceptance remain unfinished.
 Its CI evidence belongs to the writer PR, after the merged snapshot above.
 
@@ -279,7 +279,8 @@ pinned 6.3.5 loader never resolves the saved member names, and Java resave loses
 The keyed case checks world positions before and at changes in origin, angle and nonuniform scale.
 Point-mass world coordinates from the loaded Java panel are compared with independent expected values,
 so a consistently wrong resave cannot pass. The standard keyed writer uses this baseline;
-partly fixed coordinates, edited attachments and moving reference frames still need separate cases.
+all six partly fixed coordinate combinations now have edited application cases. Moving reference frames
+and attachment geometry edits still need separate cases.
 The protractor session also checks selected-track and plot/table selection targets against independent
 manifest expectations, using live objects and the normal packed-string serializer. This begins the
 [name-reference acceptance work](tracker-name-references.md); edited attachments and broader standard renames remain unfinished; selected/unselected point-mass renames now have conservative protractor round-trip cases. Column/format and plot owners now have
@@ -296,8 +297,8 @@ the application check requires normal resolution and evaluation before Java save
 implement native particle-model editing or establish interacting/polar solver parity.
 Media/archive session loading, broader requirement coverage, runtime/dependency provenance and exact
 source mapping remain unfinished. The initial phase-3 writer/reference path covers mass values, marks, independent-vector
-samples, clip ranges, existing fixed/fully varying calibration and length/mass/time-unit labels, including native reopen and Java resave; expand it
-to broader names/dependencies/partly fixed calibration/timing and archive/paired
+samples, clip ranges, existing fixed/partly fixed/fully varying calibration and length/mass/time-unit labels, including native reopen and Java resave; expand it
+to broader names/dependencies/timing and archive/paired
 saving before exposing full standard Save. Phase 2 has an XML source envelope, persistent point-mass/vector
 IDs, original object associations, commands addressed by ID, native version migration and complete
 original archive preservation. `DocumentSession` now owns each document's data/history/native save state;
@@ -355,7 +356,7 @@ reopen the edited experiment in Tracker. A `.motrack` companion may be saved alo
 
 **Current status:** The desktop imports a supported subset of Tracker data and saves edits in its native
 format. New imports also retain the original XML bytes in the native source envelope. That baseline
-is patched by an initial internal standard writer for mass values, marks, independent-vector samples, clip ranges, existing fixed/fully varying calibration and length/mass/time-unit labels; other edited fields are rejected.
+is patched by an initial internal standard writer for mass values, marks, independent-vector samples, clip ranges, existing fixed/partly fixed/fully varying calibration and length/mass/time-unit labels; other edited fields are rejected.
 The actual-Tracker corpus case exercises this limited export path after native reopen. Version 5 also embeds the entire original
 archive, preserving other tabs and media without yet making those tabs editable.
 Version-1 native documents cannot recover previously discarded content. Full writers, desktop export,
