@@ -116,3 +116,8 @@ After the destination-status review fixes in `7d04cd4`, all six Windows suites a
 pass; coverage is 95.34% (7679/8054). Both output statuses are refreshed before reporting conflicts or
 read failures, so an early conflict cannot hide or falsely retain a companion commit. The inherited
 source-digest and standalone-media corrections require the next combined current-revision CI run.
+
+Prepared-file fingerprints are fixed immediately after each validated write, before notifying progress
+observers. A changed stage is rejected before journaling or destination replacement. Linked media is
+compared against both output paths with normalized, case-folded spelling, conservatively protecting
+case-insensitive filesystems even when a media file uses a project-like filename extension.

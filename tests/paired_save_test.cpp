@@ -379,6 +379,76 @@ TEST(PairedSave, RecoversAfterTheWriterProcessExitsWithoutCleanup)
     EXPECT_EQ(files(temporary), (QStringList{"saved.motrack", "saved.trk"}));
 }
 
+TEST(PairedSave, RejectsLinkedMediaCollidingWithEitherOutputIgnoringCase)
+{
+    for (const auto* mediaName : {"saved.MOTRACK", "saved.TRK"})
+    {
+        SCOPED_TRACE(mediaName);
+        QTemporaryDir temporary;
+        ASSERT_TRUE(QDir().mkpath(temporary.filePath("images")));
+        for (int i = 0; i < 4; ++i)
+            ASSERT_TRUE(
+                QFile::copy(fixture(QString("images/frame%1.png").arg(i)), temporary.filePath(QString("images/frame%1.png").arg(i))));
+        const auto media = temporary.filePath(mediaName);
+        const auto original = bytes(fixture("images/frame0.png"));
+        put(media, original);
+        const auto source = temporary.filePath("input.trk");
+        auto xml = bytes(fixture());
+        xml.replace("images/frame0.png", mediaName);
+        put(source, xml);
+        const auto document = motrack::importTrackerDocument(source);
+        bool prepared = false;
+        const auto result = motrack::writePairedDocuments(
+            temporary.filePath("saved.trk"), document, source, nullptr, [&prepared](auto) { prepared = true; });
+        EXPECT_EQ(result.status, motrack::PairedSaveStatus::Failed);
+        EXPECT_TRUE(result.diagnostic.contains("overwrite linked media"));
+        EXPECT_FALSE(prepared);
+        EXPECT_FALSE(result.standardCurrent || result.nativeCurrent);
+        EXPECT_TRUE(result.recoveryPath.isEmpty());
+        EXPECT_EQ(bytes(media), original);
+        EXPECT_TRUE(QDir(temporary.path()).entryList({".motrack-stage-*"}, QDir::Files | QDir::Hidden).isEmpty());
+    }
+}
+
+TEST(PairedSave, RejectsPreparedStagesChangedAfterTheirValidation)
+{
+    using Progress = motrack::PairedSaveProgress;
+    for (const int kind : {0, 1, 2})
+    {
+        SCOPED_TRACE(kind);
+        QTemporaryDir temporary;
+        const auto target = temporary.filePath("saved.trk");
+        const auto native = temporary.filePath("saved.motrack");
+        put(target, "previous standard");
+        put(native, "previous native");
+        bool changed = false;
+        const auto result = motrack::writePairedDocuments(
+            target,
+            editedDocument(),
+            fixture(),
+            nullptr,
+            [&](auto state)
+            {
+                if (state != (kind == 0 ? Progress::StandardPrepared : Progress::NativePrepared))
+                    return;
+                const auto names =
+                    QDir(temporary.path())
+                        .entryList({kind == 2 ? ".motrack-stage-*.motrack" : ".motrack-stage-*.trk"}, QDir::Files | QDir::Hidden);
+                if (names.size() != 1)
+                    throw std::runtime_error("Expected one prepared stage.");
+                put(temporary.filePath(names.front()), "changed after validation");
+                changed = true;
+            });
+        EXPECT_TRUE(changed);
+        EXPECT_EQ(result.status, motrack::PairedSaveStatus::Failed);
+        EXPECT_FALSE(result.standardCurrent || result.nativeCurrent);
+        EXPECT_TRUE(result.recoveryPath.isEmpty());
+        EXPECT_EQ(bytes(target), "previous standard");
+        EXPECT_EQ(bytes(native), "previous native");
+        EXPECT_EQ(files(temporary), (QStringList{"saved.motrack", "saved.trk"}));
+    }
+}
+
 TEST(PairedSave, DetectsDestinationChangesDuringPreparationAndCleansStages)
 {
     QTemporaryDir temporary;
