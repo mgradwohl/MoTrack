@@ -77,6 +77,11 @@ ClipRange clipRange(const Clip& clip)
     return {.firstFrame = clip.firstFrame, .stepSize = clip.stepSize, .stepCount = clip.stepCount};
 }
 
+ClipTiming clipTiming(const Clip& clip)
+{
+    return {.frameDurationMs = clip.frameDurationMs, .startTimeMs = clip.startTimeMs};
+}
+
 void TrackEdits::clear()
 {
     m_Commands.clear();
@@ -409,6 +414,20 @@ bool TrackEdits::canRedo() const
     return m_Head < m_Commands.size();
 }
 
+bool TrackEdits::setClipTiming(LegacyProject& project, double frameDurationMs, double startTimeMs)
+{
+    auto candidate = project.clip;
+    candidate.frameDurationMs = frameDurationMs;
+    candidate.startTimeMs = startTimeMs;
+    const auto before = clipTiming(project.clip);
+    const auto after = clipTiming(candidate);
+    if (!validConstantClipTiming(candidate) || after == before)
+    {
+        return false;
+    }
+    return append(project, ChangeClipTiming{.after = after, .before = before});
+}
+
 bool TrackEdits::undo(LegacyProject& project)
 {
     if (!canUndo())
@@ -552,6 +571,17 @@ bool TrackEdits::apply(LegacyProject& project, const Edit& edit, bool forward)
         project.clip.firstFrame = range.firstFrame;
         project.clip.stepSize = range.stepSize;
         project.clip.stepCount = range.stepCount;
+        return true;
+    }
+    if (const auto* change = std::get_if<ChangeClipTiming>(&edit))
+    {
+        if (!project.clip.mediaReferences.empty())
+        {
+            return false;
+        }
+        const auto& timing = forward ? change->after : change->before;
+        project.clip.frameDurationMs = timing.frameDurationMs;
+        project.clip.startTimeMs = timing.startTimeMs;
         return true;
     }
 

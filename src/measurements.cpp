@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <iomanip>
 #include <iterator>
 #include <limits>
@@ -12,6 +13,33 @@
 
 namespace motrack
 {
+bool validConstantClipTiming(const Clip& clip)
+{
+    if (!clip.mediaReferences.empty() || !clip.frameDurationMs || !std::isfinite(*clip.frameDurationMs) ||
+        *clip.frameDurationMs <= 0.0 || !std::isfinite(clip.startTimeMs) || clip.firstFrame < 0 || clip.stepSize <= 0 ||
+        !clip.stepCount || *clip.stepCount <= 0)
+    {
+        return false;
+    }
+    const auto span = static_cast<std::int64_t>(*clip.stepCount - 1) * clip.stepSize;
+    const auto end = static_cast<std::int64_t>(clip.firstFrame) + span;
+    if (end > 500000 || (clip.sourceFrameCount && end >= *clip.sourceFrameCount))
+    {
+        return false;
+    }
+    double previous = clip.startTimeMs;
+    for (std::int64_t offset = 1; offset <= std::max<std::int64_t>(1, span); ++offset)
+    {
+        const auto time = clip.startTimeMs + static_cast<double>(offset) * *clip.frameDurationMs;
+        if (!std::isfinite(time) || time <= previous || time / 1000.0 <= previous / 1000.0)
+        {
+            return false;
+        }
+        previous = time;
+    }
+    return true;
+}
+
 namespace
 {
 

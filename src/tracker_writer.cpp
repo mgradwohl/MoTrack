@@ -140,6 +140,62 @@ void patchClipRange(QDomDocument& xml, const Clip& clip)
     patchScalar(xml, object, "stepcount", "int", QString::number(count));
 }
 
+void patchClipTiming(QDomDocument& xml, const LegacyProject& project)
+{
+    const auto& clip = project.clip;
+    require(validConstantClipTiming(clip));
+    // Data tracks can supply their own time source; models require independent trajectory checks.
+    for (const auto& type : project.unsupportedTrackTypes)
+    {
+        require(type == "org.opensourcephysics.cabrillo.tracker.CoordAxes" || type == "org.opensourcephysics.cabrillo.tracker.Protractor");
+    }
+    const auto clipProperty = uniqueProperty(xml.documentElement(), "videoclip");
+    const auto clipObject = clipProperty.firstChildElement("object");
+    require(clipProperty.attribute("type") == "object" && clipObject.attribute("class") == "org.opensourcephysics.media.core.VideoClip" &&
+            clipObject.nextSiblingElement().isNull());
+    const QStringList clipFields{"startframe", "stepsize", "stepcount", "starttime", "readout", "playallsteps"};
+    for (auto field = clipObject.firstChildElement(); !field.isNull(); field = field.nextSiblingElement())
+    {
+        require(field.tagName() == "property" && clipFields.contains(field.attribute("name")));
+        require(!uniqueProperty(clipObject, field.attribute("name")).isNull());
+    }
+    const auto controlProperty = uniqueProperty(xml.documentElement(), "clipcontrol");
+    const auto control = controlProperty.firstChildElement("object");
+    require(controlProperty.attribute("type") == "object" &&
+            control.attribute("class") == "org.opensourcephysics.media.core.StepperClipControl" && control.nextSiblingElement().isNull());
+    const QStringList controlFields{"rate", "delta_t", "frame", "looping"};
+    for (auto field = control.firstChildElement(); !field.isNull(); field = field.nextSiblingElement())
+    {
+        const auto name = field.attribute("name");
+        require(field.tagName() == "property" && controlFields.contains(name) && field.firstChildElement().isNull());
+        require(!uniqueProperty(control, name).isNull());
+        if (name == "looping")
+        {
+            require(field.attribute("type") == "boolean" && (field.text() == "true" || field.text() == "false"));
+        }
+        else if (name == "frame")
+        {
+            bool valid = false;
+            const auto frame = field.text().toInt(&valid);
+            require(field.attribute("type") == "int" && valid && frame >= 0 && frame <= 500000);
+        }
+        else
+        {
+            bool valid = false;
+            const auto number = field.text().toDouble(&valid);
+            require(field.attribute("type") == "double" && valid && std::isfinite(number) && number > 0.0);
+        }
+    }
+    require(!uniqueProperty(control, "rate").isNull() && !uniqueProperty(control, "delta_t").isNull());
+    patchDouble(xml, clipObject, "starttime", clip.startTimeMs);
+    if (!clip.frameDurationMs)
+    {
+        require(false);
+        return;
+    }
+    patchDouble(xml, control, "delta_t", *clip.frameDurationMs);
+}
+
 QDomElement arrayProperty(QDomDocument& xml, QDomElement object, const QString& name, const QString& type)
 {
     auto array = uniqueProperty(object, name);
@@ -797,6 +853,13 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
         baseline.project.clip.firstFrame = expected.clip.firstFrame;
         baseline.project.clip.stepSize = expected.clip.stepSize;
         baseline.project.clip.stepCount = expected.clip.stepCount;
+        changed = true;
+    }
+    if (expected.clip.frameDurationMs != baseline.project.clip.frameDurationMs || expected.clip.startTimeMs != baseline.project.clip.startTimeMs)
+    {
+        patchClipTiming(xml, expected);
+        baseline.project.clip.frameDurationMs = expected.clip.frameDurationMs;
+        baseline.project.clip.startTimeMs = expected.clip.startTimeMs;
         changed = true;
     }
     for (std::size_t index = 0; index < expected.pointMasses.size(); ++index)

@@ -63,6 +63,10 @@ struct LinearFit
 [[nodiscard]] std::optional<double> pointDistance(WorldPoint first, WorldPoint second);
 [[nodiscard]] std::optional<double> interiorAngleDegrees(WorldPoint vertex, WorldPoint first, WorldPoint second);
 
+/// Checks a media-free constant timebase over original frames (0..500000), in milliseconds.
+/// Every frame must have a finite, strictly increasing time both in milliseconds and seconds.
+[[nodiscard]] bool validConstantClipTiming(const Clip& clip);
+
 /// Exports the saved point-mass marks that fall inside the clip. Unknown world coordinates stay blank.
 [[nodiscard]] std::string measurementsCsv(const LegacyProject& project);
 
