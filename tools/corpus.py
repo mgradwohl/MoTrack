@@ -36,6 +36,9 @@ def load_manifest(path=CORPUS / "manifest.json"):
         seen.add(case["id"])
         if not isinstance(case.get("tracker_version"), str) or not case["tracker_version"]:
             raise ValueError("Corpus case requires its original Tracker version")
+        if "session_exclusion" in case and ("session_tracks" in case or any(
+                key.startswith("native_") and key.endswith("_roundtrip") and value for key, value in case.items())):
+            raise ValueError("Known excluded sessions cannot supply round-trip acceptance")
         expected_path(case)
         if "native_reference_index" in case:
             expected_path({"expected": case["native_reference_index"]})
@@ -824,7 +827,7 @@ def patch_expected_table_deletion(document, mode):
     removed = TABLE_DELETION_NAMES[mode]
     columns = prop(table, "track_columns")
     rows = cells(columns)
-    if [[text(value) for value in cells(row)] for row in rows] != [["mass A", "t", "x", "y"], ["mass B", "t", "y", "x"], ["mass C", "t", "x"]]:
+    if [[text(value) for value in cells(row)] for row in rows] != [["mass A", "t", "x", "y"], ["mass B", "t", "y", "x"], ["mass C", "t", "x", "y"]]:
         raise ValueError("Expected the pinned original table columns")
     formats = prop(table, "column_formats")
     groups = cells(formats)

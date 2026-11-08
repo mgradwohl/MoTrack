@@ -38,8 +38,9 @@ public final class TableOwnersFixture {
 
     public static void main(String[] args) {
         try {
-            if (args.length != 1 || !OSPRuntime.VERSION.equals("6.3.5"))
-                throw new IllegalArgumentException("Expected Tracker 6.3.5 and one fresh output path");
+            boolean subset = args.length == 2 && args[1].equals("subset");
+            if ((args.length != 1 && !subset) || !OSPRuntime.VERSION.equals("6.3.5"))
+                throw new IllegalArgumentException("Expected Tracker 6.3.5, one fresh output path and optional subset mode");
             Path path = Path.of(args[0]).toAbsolutePath();
             if (Files.exists(path)) throw new IllegalArgumentException("Fixture output already exists");
             Locale.setDefault(Locale.US);
@@ -77,7 +78,8 @@ public final class TableOwnersFixture {
             XMLControlElement table = object(chooser, "[1]", TableTView.class);
             table.setValue("selected_track", "mass B");
             table.setValue("track_columns", new String[][] {
-                {"mass A", "t", "x", "y"}, {"mass B", "t", "y", "x"}, {"mass C", "t", "x"}});
+                {"mass A", "t", "x", "y"}, {"mass B", "t", "y", "x"},
+                subset ? new String[] {"mass C", "t", "x"} : new String[] {"mass C", "t", "x", "y"}});
             table.setValue("column_formats", new String[][][] {
                 {{"mass A", "x", "0.000"}, {"mass A", "y", "0.00"}},
                 {{"mass B", "y", "0.0000"}, {"mass B", "t", "0.00"}},

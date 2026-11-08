@@ -564,6 +564,31 @@ void requireBoundedMassFrames(const QDomDocument& xml)
     }
 }
 
+void requireStableTableColumns(const QDomDocument& xml, const LegacyProject& project)
+{
+    std::unordered_set<std::string> massNames;
+    for (const auto& mass : project.pointMasses)
+        massNames.insert(mass.name);
+    const auto objects = xml.elementsByTagName("object");
+    for (int index = 0; index < objects.size(); ++index)
+    {
+        const auto object = objects.at(index).toElement();
+        if (object.attribute("class") != "org.opensourcephysics.cabrillo.tracker.TableTView")
+            continue;
+        const auto columns = uniqueProperty(object, "track_columns");
+        for (auto row = columns.firstChildElement("property"); !row.isNull(); row = row.nextSiblingElement("property"))
+        {
+            const auto owner = uniqueProperty(row, "[0]").text().toStdString();
+            // Pinned 6.3.5 serializes this visible point-mass subset as null columns even after
+            // selection and a normal frame refresh. Preserve it natively; do not export a changed
+            // document retaining it until a safe reference workflow is established (issue #64).
+            if (uniqueProperty(row, "[1]").text() == "t" && uniqueProperty(row, "[2]").text() == "x" &&
+                uniqueProperty(row, "[3]").isNull() && massNames.contains(owner))
+                throw ProjectError("Tracker cannot safely resave this point-mass table column subset.");
+        }
+    }
+}
+
 void requireTrackerCoordinates(const LegacyProject& project, const Calibration& calibration)
 {
     require(!calibration.keyframes.empty() && calibration.keyframes.front().frame == 0);
@@ -1134,6 +1159,7 @@ std::string renderTrackerProjectImpl(const LegacyProject& project, const Tracker
     {
         return source.xml;
     }
+    requireStableTableColumns(xml, expected);
     // Pinned Tracker 6.3.5 never initializes saved VectorSum members and loses their names on resave.
     // Do not let clearing all independent samples bypass the nonempty-vector safeguards below.
     require(std::ranges::find(expected.unsupportedTrackTypes, "org.opensourcephysics.cabrillo.tracker.VectorSum") ==

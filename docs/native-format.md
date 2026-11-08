@@ -348,6 +348,14 @@ These require actual application acceptance before merging. Custom tables are st
 selection restored by the reference harness; this does not resolve Tracker's unvisited-view data-loss
 limitation tracked by [MoTrack #64](https://github.com/mgradwohl/MoTrack/issues/64).
 
+A retained point-mass table row containing only `t,x` is now conservatively refused in changed
+standard exports. The pinned three-owner subset fixture remains null even when visible and selected,
+including after an ordinary frame-change experiment. It stays in the corpus as explicitly excluded
+application acceptance, with independent source/geometry expectations retained. Native saving and
+unchanged byte-preserving rendering remain available. Removing the affected owner also removes the
+unsafe row and produces the same output as the independently tested full-column case. Other column
+subsets still require their own evidence; this does not complete table-view parity or close #64.
+
 ### Linked-media standard output
 
 The internal [writeTrackerDocument adapter](../src/tracker_writer.hpp) receives an immutable document

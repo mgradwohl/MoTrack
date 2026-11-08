@@ -605,6 +605,36 @@ TEST(TrackerWriter, DeletionAndCreationWithEqualCountsUseIdentityAndPermitSafeNa
     }
 }
 
+TEST(TrackerWriter, RejectsRetainedKnownBrokenTableSubsetButAllowsRemovingItsOwner)
+{
+    const auto fixtureDirectory = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/";
+    auto subset = motrack::parseTrackerProject(readBytes(fixtureDirectory + "table-owners-subset.trk"));
+    EXPECT_EQ(motrack::renderTrackerProject(subset.project, subset.source), subset.source.xml);
+    const auto original = subset.source.xml;
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.setPointMassValue(subset.project, 0, 5.0));
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("existing.trk");
+    {
+        QFile output(destination);
+        ASSERT_TRUE(output.open(QIODevice::WriteOnly));
+        ASSERT_EQ(output.write("existing"), 8);
+    }
+    EXPECT_THROW(motrack::writeTrackerProject(destination, subset.project, subset.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), "existing");
+    ASSERT_TRUE(edits.removePointMass(subset.project, 2));
+    const auto cleaned = motrack::renderTrackerProject(subset.project, subset.source);
+    auto complete = motrack::parseTrackerProject(readBytes(fixtureDirectory + "table-owners.trk"));
+    complete.project.pointMasses.front().mass = 5.0;
+    complete.project.pointMasses.pop_back();
+    EXPECT_EQ(cleaned, motrack::renderTrackerProject(complete.project, complete.source));
+    ASSERT_TRUE(edits.undo(subset.project));
+    EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(subset.project, subset.source)), motrack::ProjectError);
+    ASSERT_TRUE(edits.redo(subset.project));
+    EXPECT_EQ(motrack::renderTrackerProject(subset.project, subset.source), cleaned);
+    EXPECT_EQ(subset.source.xml, original);
+}
+
 TEST(TrackerWriter, RemovesOnlyDeletedTableOwnersAfterHistoryNativeReopenAndNameReuse)
 {
     const auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/table-owners.trk");
