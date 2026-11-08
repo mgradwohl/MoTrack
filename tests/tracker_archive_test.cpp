@@ -2,16 +2,23 @@
 
 #include <QFile>
 #include <QFileInfo>
+#include <QScopeGuard>
 #include <QTemporaryDir>
 #include <gtest/gtest.h>
 
 #include <array>
+#include <clocale>
 #include <initializer_list>
 #include <memory>
+#include <string>
 #include <tuple>
 
 #include <archive.h>
 #include <archive_entry.h>
+
+#ifdef __APPLE__
+#include <xlocale.h>
+#endif
 
 namespace
 {
@@ -67,6 +74,30 @@ TEST(TrackerArchive, ResolvesMediaOnlyFromExtractedMembers)
     EXPECT_FALSE(QFileInfo::exists(extracted));
 }
 
+TEST(TrackerArchive, DetectsReplacedAndMissingExtractedMembers)
+{
+    QTemporaryDir temporary;
+    const auto path = temporary.filePath("source.trz");
+    writeArchive(path, {"experiment.trk", "media.bin"});
+    const auto archive = motrack::TrackerArchive::open(path);
+    EXPECT_TRUE(archive.memberMatchesSource("media.bin"));
+    EXPECT_FALSE(archive.memberMatchesSource("missing.bin"));
+    EXPECT_FALSE(archive.memberMatchesSource("../media.bin"));
+    QFile media(archive.root() + "/media.bin");
+    ASSERT_TRUE(media.open(QIODevice::WriteOnly));
+    ASSERT_EQ(media.write("b"), 1); // Equal size, different contents: checking paths or sizes is insufficient.
+    media.close();
+    EXPECT_FALSE(archive.memberMatchesSource("media.bin"));
+    ASSERT_TRUE(media.remove());
+    EXPECT_FALSE(archive.memberMatchesSource("media.bin"));
+    ASSERT_TRUE(media.open(QIODevice::WriteOnly));
+    ASSERT_EQ(media.write("a"), 1);
+    media.close();
+    EXPECT_TRUE(archive.memberMatchesSource("media.bin"));
+    const std::atomic_bool cancelled{true};
+    EXPECT_THROW(std::ignore = archive.memberMatchesSource("media.bin", &cancelled), motrack::ProjectError);
+}
+
 TEST(TrackerArchive, RejectsDangerousAndAmbiguousNames)
 {
     QTemporaryDir temporary;
@@ -98,6 +129,29 @@ TEST(TrackerArchive, CancelsExtraction)
     const std::atomic_bool cancelled{true};
     EXPECT_THROW(std::ignore = motrack::TrackerArchive::open(fixturePath("archive.trz"), &cancelled), motrack::ProjectError);
 }
+
+#ifndef _WIN32
+TEST(TrackerArchive, ReadsUnicodeMembersInTheCLocaleAndRestoresCallerState)
+{
+    const auto callerLocale = newlocale(LC_ALL_MASK, "C", nullptr);
+    ASSERT_NE(callerLocale, nullptr);
+    const auto freeCallerLocale = qScopeGuard([callerLocale] { freelocale(callerLocale); });
+    const auto previousLocale = uselocale(callerLocale);
+    ASSERT_NE(previousLocale, nullptr);
+    const auto restoreCallerLocale = qScopeGuard([previousLocale] { uselocale(previousLocale); });
+    const std::string globalLocale = std::setlocale(LC_CTYPE, nullptr);
+    const auto archive = motrack::TrackerArchive::open(fixturePath("../corpus/fixtures/linked-images/archived-images.trz"));
+    EXPECT_EQ(archive.projects(), QStringList{"experiment.trk"});
+    QFile notes(archive.root() + QString::fromUtf8("/support/notes é.txt"));
+    ASSERT_TRUE(notes.open(QIODevice::ReadOnly));
+    EXPECT_FALSE(notes.readAll().isEmpty());
+    EXPECT_EQ(uselocale(nullptr), callerLocale);
+    EXPECT_EQ(globalLocale, std::setlocale(LC_CTYPE, nullptr));
+    EXPECT_THROW(std::ignore = motrack::TrackerArchive::open(fixturePath("point-mass.trk")), motrack::ProjectError);
+    EXPECT_EQ(uselocale(nullptr), callerLocale);
+    EXPECT_EQ(globalLocale, std::setlocale(LC_CTYPE, nullptr));
+}
+#endif
 
 TEST(TrackerArchive, OwnsTheOriginalSnapshotUntilTheLastOwnerIsDestroyed)
 {

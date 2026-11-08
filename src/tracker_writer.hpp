@@ -4,6 +4,8 @@
 
 #include <QString>
 
+#include <atomic>
+
 namespace motrack
 {
 struct WorkspaceDocument;
@@ -20,5 +22,8 @@ void writeTrackerProject(const QString& path, const LegacyProject& project, cons
 /// All linked files must be readable. Symbolic-link output files and unsafe generated references are refused.
 /// No media is copied and no session save checkpoint is changed.
 void writeTrackerDocument(const QString& path, const WorkspaceDocument& document, const QString& mediaProjectPath);
+/// Export the selected original archive member, retaining all other members and embedded media.
+/// Requires the owned source payload; replacing embedded media or the selected source is refused.
+void writeTrackerArchiveDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled = nullptr);
 
 } // namespace motrack

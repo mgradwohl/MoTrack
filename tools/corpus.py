@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import select
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -42,6 +43,8 @@ def load_manifest(path=CORPUS / "manifest.json"):
         expected_path(case)
         if "native_reference_index" in case:
             expected_path({"expected": case["native_reference_index"]})
+        if case.get("session_archive") and (not case.get("project_member") or "session_tracks" not in case):
+            raise ValueError("Archive sessions require an explicit project member and independent track expectations")
     assets = []
     for case in manifest["cases"]:
         values = case.get("assets", [])
@@ -328,6 +331,10 @@ def validate_session(case, report, manifest, expected=None, key_frames=None, cal
                 {"frame": sample["frame"], "image": sample["points"][0], "world": sample["world"]}
                 for sample in track["samples"]]})
     compare(expected["point_masses"], masses, tolerance, case["id"] + ".point_masses")
+    if "session_axes" in case:
+        compare(case["session_axes"], before.get("axes"), tolerance, case["id"] + ".axes")
+    if calibration is None:
+        calibration = case.get("session_calibration")
     if calibration is not None:
         compare(calibration, before["calibration"], tolerance, case["id"] + ".calibration")
     vectors = [{"name": track["name"], "samples": track["vector_samples"]} for track in before["tracks"]
@@ -407,7 +414,7 @@ def private_display():
 
 
 def linked_images_roundtrip_expected(case):
-    if case["id"] != "linked-images":
+    if case["id"] not in {"linked-images", "archived-images"}:
         raise ValueError("Linked-image edits require the pinned image experiment")
     expected = json.loads(expected_path(case).read_text(encoding="utf-8"))["project"]
     expected["point_masses"][0]["mass"] = 5.0
@@ -415,7 +422,7 @@ def linked_images_roundtrip_expected(case):
     return expected
 
 
-def patch_expected_linked_images(document):
+def patch_expected_linked_images(document, relocate=True):
     def elements(node, tag):
         return [child for child in node.childNodes if child.nodeType == child.ELEMENT_NODE and child.tagName == tag]
     def prop(node, name):
@@ -428,9 +435,10 @@ def patch_expected_linked_images(document):
     clip = elements(prop(root, "videoclip"), "object")[0]
     video = elements(prop(clip, "video"), "object")[0]
     paths = prop(video, "paths")
-    for index in range(4):
-        scalar(prop(paths, f"[{index}]"), f"media é & frames/frame{index}.png")
-    scalar(prop(video, "path"), "media é & frames/frame0.png")
+    if relocate:
+        for index in range(4):
+            scalar(prop(paths, f"[{index}]"), f"media é & frames/frame{index}.png")
+        scalar(prop(video, "path"), "media é & frames/frame0.png")
     mass = next(obj for item in elements(prop(root, "tracks"), "property") for obj in elements(item, "object")
                 if obj.getAttribute("class") == "org.opensourcephysics.cabrillo.tracker.PointMass")
     scalar(prop(mass, "mass"), "5")
@@ -465,6 +473,56 @@ def verify_linked_image_export_xml(original, exported, case):
             raise ValueError("Linked-image export changed content beyond the requested paths, mass and mark")
     for asset in case["assets"]:
         verify_file(exported.parent / "media é & frames" / asset["file"], asset)
+
+
+def verify_archive_image_export(original, exported, selected_xml):
+    """Independent ZIP reader: only the selected XML and its encoding metadata may change."""
+    if max(original.stat().st_size, exported.stat().st_size) > 1024 * 1024:
+        raise ValueError("Archive reference exceeds the small-fixture limit")
+    original_bytes, output_bytes = original.read_bytes(), exported.read_bytes()
+    with zipfile.ZipFile(original) as before, zipfile.ZipFile(exported) as after:
+        left, right = before.infolist(), after.infolist()
+        if ([entry.filename for entry in left] != [entry.filename for entry in right]
+                or len(left) != 7 or before.comment != after.comment or after.testzip() is not None):
+            raise ValueError("Archive inventory, comment or member integrity changed")
+        ordered_left = sorted(left, key=lambda entry: entry.header_offset)
+        ordered_right = sorted(right, key=lambda entry: entry.header_offset)
+        for a, b in zip(left, right):
+            for field in ["filename", "date_time", "comment", "extra", "create_system", "create_version", "extract_version",
+                          "internal_attr", "external_attr", "volume"]:
+                if getattr(a, field) != getattr(b, field):
+                    raise ValueError(f"Archive member metadata changed: {a.filename}/{field}")
+            if a.filename == "experiment.trk":
+                if b.compress_type != zipfile.ZIP_STORED or b.flag_bits != a.flag_bits & 0x0800:
+                    raise ValueError("Unexpected edited-member encoding")
+                with minidom.parseString(before.read(a)) as expected, minidom.parseString(after.read(b)) as actual:
+                    patch_expected_linked_images(expected, relocate=False)
+                    if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
+                        raise ValueError("Archive export changed XML beyond the edited mass and mark")
+                selected_xml.write_bytes(after.read(b))
+            else:
+                if before.read(a) != after.read(b):
+                    raise ValueError("Untouched archive payload changed")
+                next_a = next((entry.header_offset for entry in ordered_left if entry.header_offset > a.header_offset), before.start_dir)
+                next_b = next((entry.header_offset for entry in ordered_right if entry.header_offset > b.header_offset), after.start_dir)
+                if original_bytes[a.header_offset:next_a] != output_bytes[b.header_offset:next_b]:
+                    raise ValueError("Untouched compressed archive record changed")
+        # Central records retain all bytes except the relocated local-header offsets and the
+        # selected member's method/flags/CRC/sizes. This also audits metadata not exposed by ZipInfo.
+        old_pos, new_pos = before.start_dir, after.start_dir
+        for a in left:
+            old_len = 46 + sum(struct.unpack_from("<HHH", original_bytes, old_pos + 28))
+            new_len = 46 + sum(struct.unpack_from("<HHH", output_bytes, new_pos + 28))
+            old_record = bytearray(original_bytes[old_pos:old_pos + old_len])
+            new_record = bytearray(output_bytes[new_pos:new_pos + new_len])
+            old_record[42:46] = new_record[42:46]
+            if a.filename == "experiment.trk":
+                old_record[8:12] = new_record[8:12]
+                old_record[16:28] = new_record[16:28]
+            if old_record != new_record:
+                raise ValueError("Untouched central-directory metadata changed")
+            old_pos += old_len
+            new_pos += new_len
 
 
 def mass_roundtrip_expected(case):
@@ -1600,7 +1658,8 @@ def verify_vector_export_xml(original, exported, expected_project):
 def check_sessions(manifest, cache, java, probe=None):
     if sys.platform != "linux":
         raise ValueError("Session checks currently require Linux with Xvfb")
-    modes = [("linked-images", "native_linked_image_roundtrip"), ("mass", "native_mass_roundtrip"), ("marks", "native_mark_roundtrip"),
+    modes = [("archive-images", "native_archive_image_roundtrip"), ("linked-images", "native_linked_image_roundtrip"),
+             ("mass", "native_mass_roundtrip"), ("marks", "native_mark_roundtrip"),
              ("empty-marks", "native_mark_roundtrip"), ("first-mark", "native_mark_roundtrip"),
              ("vectors", "native_vector_roundtrip"), ("empty-vectors", "native_vector_roundtrip"),
              ("first-vector", "native_vector_roundtrip"), ("clip", "native_clip_roundtrip"), ("clip-boundary", "native_clip_roundtrip"),
@@ -1657,6 +1716,7 @@ def check_sessions(manifest, cache, java, probe=None):
             java_home = output / "java-home"
             java_home.mkdir(parents=True)
             project = project_path(case, cache)
+            archive_input = (local_fixture_path(case) if "local_file" in case else cache / "fixtures" / case["file"]) if case.get("session_archive") else None
             if mode in {"name", "unselected-name", "vector-name", "plot-owner-name", "plot-guest-name", "center-member-name",
                         "attachment-first-name", "attachment-last-name", "model-booster-name"}:
                 # Preserve the pinned original. Add a non-reference note to the temporary source,
@@ -1682,7 +1742,17 @@ def check_sessions(manifest, cache, java, probe=None):
                 case = {**case, "session_tracks": [track for track in case["session_tracks"]
                                                    if track["class"] == "org.opensourcephysics.cabrillo.tracker.CoordAxes"]}
             expected = None
-            if probe and mode.startswith("snap-"):
+            if mode == "archive-images":
+                exported = output / "motrack-export.trz"
+                run([str(Path(probe).resolve()), "--export-archive-images", str(archive_input), str(exported)])
+                project = output / "exported-member.trk"
+                verify_archive_image_export(archive_input, exported, project)
+                expected = linked_images_roundtrip_expected(case)
+                native_report = output / "native-export.json"
+                run([str(Path(probe).resolve()), str(project), str(native_report)])
+                compare(expected, json.loads(native_report.read_text(encoding="utf-8")), manifest["tolerance"], case["id"] + ".export")
+                archive_input = exported
+            elif probe and mode.startswith("snap-"):
                 # Rejected exports preserve their existing destination. Java independently authors
                 # the unstable geometry so the actual application proves why rejection is required.
                 destination = output / "rejected-destination.trk"
@@ -1763,11 +1833,12 @@ def check_sessions(manifest, cache, java, probe=None):
             for stage in ["save", "reopen"]:
                 home = java_home if stage == "save" else output / "java-reopen-home"
                 home.mkdir(exist_ok=True)
-                source = project if stage == "save" else output / "tracker-resaved.trk"
+                source = (archive_input or project) if stage == "save" else output / "tracker-resaved.trk"
+                metadata_args = [str(project)] if stage == "save" and archive_input else []
                 try:
                     run([str(java_path), f"-Duser.home={home}", "-Duser.language=en", "-Duser.country=US",
                          "-Xmx256m", "-cp", os.pathsep.join([str(classes), str(jar)]), "TrackerSessionReference",
-                         str(source), str(output), stage], display=display)
+                         str(source), str(output), stage, *metadata_args], display=display)
                 except (ValueError, OSError, subprocess.TimeoutExpired) as error:
                     diagnostic = format_session_file_diagnostic(source)
                     resave = ("\nTracker resave diagnostic (bounded): " + format_session_file_diagnostic(output / "tracker-resaved.trk")
@@ -1790,7 +1861,7 @@ def check_sessions(manifest, cache, java, probe=None):
                       "before": stages["save"]["loaded"], "after_save": stages["save"]["after_save"],
                       "after": stages["reopen"]["loaded"]}
             keys = {"marks": [[0, 3], [7]], "empty-marks": [[], [0]], "first-mark": [[4], [0]]}.get(mode)
-            if mode == "linked-images":
+            if mode in {"linked-images", "archive-images"}:
                 keys = [[0, 1, 2]]
             if mode in {"create-mass", "create-empty-mass"}:
                 keys = [[0], [0], [] if mode == "create-empty-mass" else [1, 4, 8]]
@@ -1828,7 +1899,8 @@ def check_sessions(manifest, cache, java, probe=None):
                     saved_report["verification_level"] = "motrack_rejected_" + mode
                     print(f"{case['id']}/{mode}: passed (MoTrack rejected unsafe export; actual Tracker snapping confirmed; resave/reimport)")
                 else:
-                    print(f"{case['id']}/{mode}: passed (MoTrack edit/native reopen/TRK export; Tracker load/save/reopen; native reimport)")
+                    standard = "TRZ" if mode == "archive-images" else "TRK"
+                    print(f"{case['id']}/{mode}: passed (MoTrack edit/native reopen/{standard} export; Tracker load/save/reopen; native reimport)")
             elif known_report is not None:
                 saved_report, suffix = known_report, "-known-issue.json"
                 print(f"{case['id']}: KNOWN TRACKER DEFECT reproduced (members and samples lost; round trip NOT accepted)")

@@ -2,6 +2,8 @@
 
 #include "local_media_path.hpp"
 #include "measurements.hpp"
+#include "tracker_archive.hpp"
+#include "tracker_archive_writer.hpp"
 #include "tracker_rename.hpp"
 #include "workspace_document.hpp"
 
@@ -1272,7 +1274,9 @@ void writeTrackerProject(const QString& path, const LegacyProject& project, cons
     writeXml(path, renderTrackerProject(project, source));
 }
 
-void writeTrackerDocument(const QString& path, const WorkspaceDocument& document, const QString& mediaProjectPath)
+namespace
+{
+std::string prepareTrackerDocument(const QString& path, const WorkspaceDocument& document, const QString& mediaProjectPath)
 {
     if (!document.trackerSource)
         throw ProjectError("Tracker export requires its original source.");
@@ -1310,7 +1314,46 @@ void writeTrackerDocument(const QString& path, const WorkspaceDocument& document
             project.clip.sourceFrameCount.reset();
         }
     }
-    writeXml(path, renderTrackerProjectImpl(project, source, linkedImages));
+    return renderTrackerProjectImpl(project, source, linkedImages);
+}
+} // namespace
+
+void writeTrackerDocument(const QString& path, const WorkspaceDocument& document, const QString& mediaProjectPath)
+{
+    writeXml(path, prepareTrackerDocument(path, document, mediaProjectPath));
+}
+
+void writeTrackerArchiveDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled)
+{
+    require(!cancelled || !cancelled->load());
+    if (!document.archivePayload || !document.archiveMember || !document.trackerSource)
+        throw ProjectError("Tracker archive export requires its original archive and selected project.");
+    require(document.archiveReference.empty());
+    const auto& archive = *document.archivePayload;
+    const auto member = QString::fromStdString(*document.archiveMember);
+    require(member.toStdString() == *document.archiveMember);
+    require(archive.memberMatchesSource(member, cancelled));
+    const auto originalPath = archive.projectPath(member);
+    QFile original(originalPath);
+    require(original.open(QIODevice::ReadOnly) && original.size() <= static_cast<qint64>(MAX_TRACKER_XML_BYTES) &&
+            original.readAll().toStdString() == document.trackerSource->xml);
+    auto baseline = parseLegacyProject(document.trackerSource->xml);
+    archive.resolveMedia(baseline, member);
+    require(baseline.clip.mediaReferences == document.project.clip.mediaReferences);
+    std::unordered_set<std::string> checkedMedia;
+    for (const auto& reference : document.project.clip.mediaReferences)
+        if (checkedMedia.insert(reference).second && !archive.memberMatchesSource(QString::fromStdString(reference), cancelled))
+            throw ProjectError("Tracker archive media changed after import; unchanged-media export cannot preserve these edits.");
+    auto snapshot = document;
+    snapshot.archivePayload.reset();
+    snapshot.archiveMember.reset();
+    // Imported archive references are validated archive-root-relative members, independent of
+    // the original archive's location or the companion document's later location.
+    const auto xml = prepareTrackerDocument(originalPath, snapshot, QDir(archive.root()).filePath("media-base.motrack"));
+    auto exported = parseLegacyProject(xml);
+    archive.resolveMedia(exported, member);
+    require(exported.clip.mediaReferences == baseline.clip.mediaReferences);
+    writeTrackerArchive(path, archive, member, xml, cancelled);
 }
 
 } // namespace motrack

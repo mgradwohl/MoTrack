@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import org.opensourcephysics.cabrillo.tracker.CenterOfMass;
+import org.opensourcephysics.cabrillo.tracker.CoordAxes;
 import org.opensourcephysics.cabrillo.tracker.DynamicParticle;
 import org.opensourcephysics.cabrillo.tracker.DynamicSystem;
 import org.opensourcephysics.cabrillo.tracker.ParticleModel;
@@ -59,8 +60,8 @@ public final class TrackerSessionReference {
     public static void main(String[] args) {
         int status = 1;
         try {
-            if (args.length != 3 || !(args[2].equals("save") || args[2].equals("reopen")))
-                throw new IllegalArgumentException("Usage: TrackerSessionReference input.trk output-directory save|reopen");
+            if ((args.length != 3 && args.length != 4) || !(args[2].equals("save") || args[2].equals("reopen")))
+                throw new IllegalArgumentException("Usage: TrackerSessionReference input.trk|trz output-directory save|reopen [selected-xml]");
             if (!OSPRuntime.VERSION.equals("6.3.5")) throw new IllegalStateException("Expected Tracker 6.3.5");
             // Unhandled asynchronous loader/EDT failures must fail this isolated reference
             // immediately with their cause, rather than disappearing behind a later timeout.
@@ -75,8 +76,11 @@ public final class TrackerSessionReference {
             Files.createDirectories(directory);
             Path saved = directory.resolve("tracker-resaved.trk");
             if (save && Files.exists(saved)) throw new IllegalArgumentException("Output must be a fresh test directory");
-            List<AttachmentRequirement> attachmentRequirements = attachmentRequirements(input);
-            List<ModelRequirement> modelRequirements = modelRequirements(input);
+            // Archive metadata is inspected separately, but the application must open the
+            // actual archive through TrackerIO. Never substitute extracted XML for that load.
+            Path metadata = args.length == 4 ? Path.of(args[3]).toAbsolutePath() : input;
+            List<AttachmentRequirement> attachmentRequirements = attachmentRequirements(metadata);
+            List<ModelRequirement> modelRequirements = modelRequirements(metadata);
             SwingUtilities.invokeAndWait(guard(() -> {
                 TFrame originalFrame = new TFrame();
                 Runnable loaded = once(guard(() -> whenEvaluated(originalFrame, attachmentRequirements, modelRequirements, () -> {
@@ -279,10 +283,17 @@ public final class TrackerSessionReference {
             throw new IllegalArgumentException("Reference clip step limit exceeded");
         // ParticleModel evaluates from its normal draw path. Show/seek the real view in our private Xvfb,
         // then observe generated steps; a completed XML loader alone does not mean models were evaluated.
+        frame.setSize(1024, 700);
         frame.setVisible(true);
         frame.validate();
         panel.getPlayer().setStepNumber(clip.getStepCount() - 1);
         Timer timer = new Timer(25, event -> guard(() -> {
+            if (!frame.isPaintable() || frame.hasPaintHold() || !panel.isPaintable() || !panel.isShowing() || panel.getVisibleRect().isEmpty()) {
+                WAITING.set("visible experiment paintable=" + frame.isPaintable() + " hold=" + frame.hasPaintHold()
+                    + " panelPaintable=" + panel.isPaintable() + " ignoreRepaint=" + panel.getIgnoreRepaint()
+                    + " showing=" + panel.isShowing() + " bounds=" + panel.getVisibleRect());
+                return;
+            }
             panel.paintImmediately(panel.getVisibleRect());
             // Tracker schedules attachment refresh after load. Observe normal resolution and point
             // attachment instead of sleeping or calling its protected refresh/repair methods.
@@ -411,6 +422,19 @@ public final class TrackerSessionReference {
         return result;
     }
 
+    // CoordAxes.Loader saves appearance/grid settings only. Its Step points are transient
+    // screen handles updated by drawing; ImageCoordSystem below owns the scientific geometry.
+    static Step[] persistentSteps(TTrack track) {
+        return track instanceof CoordAxes ? new Step[0] : track.getSteps();
+    }
+
+    static Map<String, Object> axesGrid(CoordAxes axes) {
+        XMLControl control = new XMLControlElement(axes);
+        return TrackerReference.map("visible", control.getBoolean("grid_visible"),
+            "alpha", control.getPropertyNamesRaw().contains("grid_alpha") ? control.getInt("grid_alpha") : null,
+            "argb", control.getPropertyNamesRaw().contains("grid_RGB") ? control.getInt("grid_RGB") : null);
+    }
+
     private static Map<String, Object> snapshot(TrackerPanel panel) {
         VideoClip clip = panel.getPlayer().getVideoClip();
         ImageCoordSystem coords = panel.getCoords();
@@ -419,10 +443,12 @@ public final class TrackerSessionReference {
         List<Object> sums = new ArrayList<>();
         List<Object> attachments = new ArrayList<>();
         List<Object> models = new ArrayList<>();
+        List<Object> axes = new ArrayList<>();
         for (TTrack track : panel.getTracks()) {
             List<Object> samples = new ArrayList<>();
             List<Object> vectorSamples = new ArrayList<>();
-            Step[] steps = track.getSteps();
+            Step[] steps = persistentSteps(track);
+            if (track instanceof CoordAxes axis) axes.add(TrackerReference.map("name", axis.getName(), "grid", axesGrid(axis)));
             if (steps.length > 10000) throw new IllegalArgumentException("Reference step limit exceeded");
             for (Step step : steps) if (step != null) {
                 if (track instanceof TapeMeasure && !clip.includesFrame(step.getFrameNumber())) continue;
@@ -553,7 +579,7 @@ public final class TrackerSessionReference {
             "centers_of_mass", centers,
             "vector_sums", sums,
             "attachments", attachments,
-            "models", models,
+            "models", models, "axes", axes,
             "calibration", TrackerReference.map("fixed_origin", coords.isFixedOrigin(), "fixed_angle", coords.isFixedAngle(),
                 "fixed_scale", coords.isFixedScale(), "keys", calibrationKeys),
             "tracks", tracks, "coordinate_samples", coordinates);

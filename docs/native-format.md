@@ -351,9 +351,10 @@ owners' settings. Dataset-index owners and scientific dependencies remain exclud
 Four independent application cases remove the first, selected or last owner, or all owners from
 `table-default-format-owners.trk`. This separate fixture uses three explicit-frame column sets and
 only Tracker's default frame/step/time formats. Seven native subsets additionally exercise renamed
-survivors, name reuse and native save/reopen. The first three cases passed actual Tracker resave,
-fresh reopen and native reimport in Linux job 128705864359 (run 42469588233). The all-owner case
-exposed the empty-table loader failure above; its corrected export still requires CI acceptance. The reference
+survivors, name reuse and native save/reopen. All four cases passed actual Tracker resave,
+fresh reopen and native reimport at `7586d95`, Linux job 128722151613 in
+[run 42477554192](https://github.com/mgradwohl/MoTrack/actions/runs/42477554192), merged as PR #118.
+The all-owner case includes the corrected empty-table loader failure above. The reference
 harness expands panes through public divider actions, visits custom tables and restores their
 selection; this does not establish immediate unvisited-resave fidelity.
 
@@ -428,6 +429,69 @@ Movie engines, filters and archive members need their own audited path/timing co
 packaging will preserve untouched members and feed the paired-save transaction/recovery layer;
 standard Save UI follows that layer. This internal adapter is not full R03 completion.
 
+### Selected-member Tracker archive output (application acceptance pending)
+
+The internal archive document adapter exports supported edits to one original `.trk` member after
+native close/reopen, including after the original `.trz` is removed. It verifies that the source
+XML still matches that member and that current media references resolve to the original embedded
+files. Each referenced extracted file must also match the SHA-256 digest captured while reading
+its original archive member; missing or same-path replaced files are rejected before destination
+replacement. Selected XML and images must also resolve within the physical extraction root captured
+at import; identical-byte external file/parent-directory aliases cannot redirect exported links.
+Prepared XML is resolved back through the original archive inventory and must name the same media
+members, so even an in-root rename/alias cannot produce links to files absent from the output ZIP.
+Digest checks use bounded blocks, honor cancellation and avoid rereading duplicate
+references. Native save/reopen recreates these digests from the owned archive bytes. An immutable
+copy prepares member-relative ImageVideo paths; external/replaced media,
+movies, filters and unsupported timing/range edits remain refused. The source envelope and owned
+original archive bytes are unchanged. No desktop Save action or paired-output transaction uses this
+adapter yet.
+
+The writer supports bounded, single-disk classic ZIP archives with stored or deflated members. It
+uses the [ZIP format specification](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT)
+(local headers, descriptors, central records and end record) to replace only the selected payload
+with stored UTF-8 XML and a recomputed CRC32. Untouched compressed local records remain byte-identical;
+central records retain their metadata with adjusted offsets. Entry/archive comments, member order,
+Unicode names and supporting files survive. The edited member retains timestamps, attributes and
+supported timestamp/Unix-identity/Unicode-name extra fields. Unknown extra fields on that edited
+member are refused; untouched members' extra fields remain opaque.
+
+The macOS reference archive exposed libarchive's UTF-8-to-C-locale filename conversion failure
+(run 42473238462, job 128714134485). On POSIX systems the reader now scopes a UTF-8 character
+locale to the archive call, using `newlocale`/`uselocale` and restoring the caller's thread locale
+on success or failure. It never changes the global locale or accepts lossy conversion warnings.
+Windows retains the existing wide-path API. Native regression coverage opens the Unicode-member
+fixture under an explicit C thread locale and verifies successful extraction and locale restoration.
+See the [Apple thread-locale contract](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/uselocale.3.html).
+The POSIX regression requires macOS/Linux CI; local Windows checks cannot establish that result.
+
+The limits are 544 MiB compressed, 512 MiB extracted, 4096 members, 8 MiB central metadata and
+32 MiB selected XML. Copying uses 64 KiB blocks and cancellation checks. ZIP64, encryption, split
+archives, signatures, ambiguous/noncontiguous layouts and unaudited encodings are refused. A private
+staged archive is reopened with the existing validated reader and its selected XML/inventory checked
+before an atomic destination replacement. Cancellation, source mismatch, missing media, corrupt ZIP
+metadata or a failed destination leaves the existing destination intact. Output cannot replace the
+owned source snapshot or extracted files, including their physical spelling through a symbolic-link
+temporary-directory ancestor. Archive output-file aliases (including dangling links) are refused.
+
+The compressed source also has an immutable SHA-256 digest captured during the original bounded
+snapshot. Standard export copies it into a private working file while hashing the exact copied bytes,
+requires the import digest, and performs all ZIP edits from that verified copy. Native bundle saving
+hashes the actual bytes fed to its ZIP writer and checks the same digest before committing. Replacing
+the writable owned source with a different valid archive, even with identical project XML and member
+names, therefore cannot silently change embedded pixels or supporting content in either saved format.
+A regression proves both existing destinations survive such a replacement and saving resumes only
+after restoring the original bytes.
+
+Native tests cover first/middle/last member replacement, other tabs, opaque binary/support files,
+Unicode names, Java deflation/descriptors/comments, native reopen, history, repeated export and
+failure/cancellation. The corpus independently checks edited XML, every untouched payload/compressed
+record and central metadata. The baseline and edited archive passed actual Tracker `.trz` loading,
+resave, fresh-process reopen and native reimport at `fec0e7a`, Linux job 128733094094 in
+[run 42481133737](https://github.com/mgradwohl/MoTrack/actions/runs/42481133737), including every
+independent pixel/time/geometry expectation. Subsequent destination/member-alias guards still need
+current-head CI. Multi-tab application acceptance, new-archive packaging, broader ZIP/media support
+and paired-save recovery remain unfinished.
 Desktop sessions retain resolved local media locations separately from serialized references when opening a project. Native Save As and linked-image standard export can therefore rebase those locations even after the original project and its empty directory are removed. These runtime bindings are rebuilt on open and are not serialized; changing a media source must rebuild them. Native saving rejects an unresolved local rebase before replacing the destination.
 
 Successful native saves also adopt the worker snapshot's refreshed physical locations. Restoring media

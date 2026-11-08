@@ -1,16 +1,24 @@
 #include "tracker_archive.hpp"
 
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QScopeGuard>
+#include <QSet>
 
 #include <algorithm>
 #include <array>
+#include <clocale>
 #include <memory>
 
 #include <archive.h>
 #include <archive_entry.h>
+
+#ifdef __APPLE__
+#include <xlocale.h>
+#endif
 
 namespace motrack
 {
@@ -47,7 +55,7 @@ bool safeMember(const QString& path)
                                 });
 }
 
-void snapshotArchive(const QString& path, const QString& destination, const std::atomic_bool* cancelled)
+QByteArray snapshotArchive(const QString& path, const QString& destination, const std::atomic_bool* cancelled)
 {
     require(!cancelled || !*cancelled);
     QFile input(path);
@@ -57,6 +65,7 @@ void snapshotArchive(const QString& path, const QString& destination, const std:
     QFile output(destination);
     require(output.open(QIODevice::WriteOnly | QIODevice::NewOnly));
     std::array<char, READ_BLOCK_BYTES> buffer{};
+    QCryptographicHash digest(QCryptographicHash::Sha256);
     qint64 copied = 0;
     for (;;)
     {
@@ -68,9 +77,11 @@ void snapshotArchive(const QString& path, const QString& destination, const std:
             break;
         }
         require(output.write(buffer.data(), count) == count);
+        digest.addData(QByteArrayView(buffer.data(), count));
         copied += count;
     }
     require(copied == expected && output.flush());
+    return digest.result();
 }
 
 } // namespace
@@ -79,7 +90,24 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
 {
     TrackerArchive result;
     require(result.m_Directory.isValid() && result.m_SourceDirectory.isValid());
-    snapshotArchive(path, result.sourcePath(), cancelled);
+    result.m_CanonicalRoot = QFileInfo(result.m_Directory.path()).canonicalFilePath();
+    require(!result.m_CanonicalRoot.isEmpty());
+    result.m_SourceDigest = snapshotArchive(path, result.sourcePath(), cancelled);
+#ifndef _WIN32
+    // libarchive converts ZIP names through the calling thread's character locale,
+    // even when archive_entry_pathname_utf8 is requested. A C locale rejects Unicode.
+    // Keep this conversion local to the archive call; never change the global locale.
+    auto textLocale = newlocale(LC_CTYPE_MASK, "C.UTF-8", nullptr);
+    if (!textLocale)
+        textLocale = newlocale(LC_CTYPE_MASK, "en_US.UTF-8", nullptr);
+    if (!textLocale)
+        throw ProjectError("Could not create a UTF-8 locale for Tracker archive names.");
+    const auto freeTextLocale = qScopeGuard([textLocale] { freelocale(textLocale); });
+    const auto previousLocale = uselocale(textLocale);
+    if (!previousLocale)
+        throw ProjectError("Could not select a UTF-8 locale for Tracker archive names.");
+    const auto restoreTextLocale = qScopeGuard([previousLocale] { uselocale(previousLocale); });
+#endif
     const std::unique_ptr<archive, decltype(&archive_read_free)> reader(archive_read_new(), &archive_read_free);
     require(reader && archive_read_support_format_zip_seekable(reader.get()) == ARCHIVE_OK);
 #ifdef _WIN32
@@ -97,8 +125,13 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
     for (auto status = archive_read_next_header(reader.get(), &entry); status != ARCHIVE_EOF;
          status = archive_read_next_header(reader.get(), &entry))
     {
-        require((!cancelled || !*cancelled) && status == ARCHIVE_OK && ++members <= MAX_MEMBERS && entry &&
-                archive_entry_is_encrypted(entry) == 0 && !archive_entry_hardlink(entry));
+        if (status != ARCHIVE_OK)
+        {
+            const auto* error = archive_error_string(reader.get());
+            throw ProjectError(std::string("Could not read Tracker archive member: ") + (error ? error : "unknown archive error"));
+        }
+        require((!cancelled || !*cancelled) && ++members <= MAX_MEMBERS && entry && archive_entry_is_encrypted(entry) == 0 &&
+                !archive_entry_hardlink(entry));
         const auto type = archive_entry_filetype(entry);
         require(type == AE_IFREG || type == AE_IFDIR);
         const auto* utf8 = archive_entry_pathname_utf8(entry);
@@ -119,6 +152,7 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
         require(destination.mkpath(QFileInfo(member).path()));
         QFile file(destination.absoluteFilePath(member));
         require(file.open(QIODevice::WriteOnly | QIODevice::NewOnly));
+        QCryptographicHash digest(QCryptographicHash::Sha256);
         for (;;)
         {
             require(!cancelled || !*cancelled);
@@ -128,10 +162,11 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
                 break;
             }
             require(read > 0 && read <= remaining && file.write(buffer.data(), read) == read);
+            digest.addData(QByteArrayView(buffer.data(), read));
             remaining -= read;
         }
         require(file.flush());
-        result.m_Files.insert(member);
+        result.m_MemberDigests.insert(member, digest.result());
         if (member.endsWith(".trk", Qt::CaseInsensitive))
         {
             result.m_Projects.append(member);
@@ -163,6 +198,38 @@ QString TrackerArchive::sourcePath() const
     return m_SourceDirectory.filePath("source.trz");
 }
 
+const QByteArray& TrackerArchive::sourceDigest() const
+{
+    return m_SourceDigest;
+}
+
+bool TrackerArchive::memberMatchesSource(const QString& member, const std::atomic_bool* cancelled) const
+{
+    require(!cancelled || !*cancelled);
+    const auto expected = m_MemberDigests.constFind(member);
+    if (expected == m_MemberDigests.cend())
+        return false;
+    QFile input(m_Directory.filePath(member));
+    const QFileInfo info(input);
+    if (!info.isFile() || !info.canonicalFilePath().startsWith(m_CanonicalRoot + '/') || !input.open(QIODevice::ReadOnly) ||
+        input.size() > MAX_EXTRACTED_BYTES)
+        return false;
+    QCryptographicHash digest(QCryptographicHash::Sha256);
+    std::array<char, READ_BLOCK_BYTES> buffer{};
+    qint64 remaining = MAX_EXTRACTED_BYTES;
+    for (;;)
+    {
+        require(!cancelled || !*cancelled);
+        const auto count = input.read(buffer.data(), static_cast<qint64>(buffer.size()));
+        if (count < 0 || count > remaining)
+            return false;
+        if (count == 0)
+            return digest.result() == *expected;
+        digest.addData(QByteArrayView(buffer.data(), count));
+        remaining -= count;
+    }
+}
+
 void TrackerArchive::resolveMedia(LegacyProject& project, const QString& projectMember) const
 {
     const auto parent = projectMember.isEmpty() ? QString(".") : QFileInfo(projectMember).path();
@@ -184,7 +251,7 @@ void TrackerArchive::resolveMedia(LegacyProject& project, const QString& project
             value = parent + '/' + value;
         }
         const auto member = QDir::cleanPath(value);
-        reference = m_Files.contains(member) ? member.toStdString() : std::string{};
+        reference = m_MemberDigests.contains(member) ? member.toStdString() : std::string{};
     }
 }
 

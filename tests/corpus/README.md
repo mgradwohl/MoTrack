@@ -814,12 +814,14 @@ calibration using the pinned Tracker/OSP serializers. The source reference index
 column/format owner independently. Native deletion removes whole original owner rows/groups,
 compacts indices and preserves survivors through rename, name reuse, undo and native close/reopen.
 
-The current application candidate is **`table-default-format-owners.trk`**, generated in
+The accepted application fixture is **`table-default-format-owners.trk`**, generated in
 `default-formats` mode. A uses `t,x,y,frame`, B uses `t,x,frame`, and C uses `t,y,frame`. Each uses
 only the pinned default numeric formats (frame/step `0`, time `0.000`). Four export cases remove the
 first, selected, last or all owners. The expected XML is independently patched, preserving surviving
 rows, format groups and packed selections; Java load/save/fresh-process reopen must also retain the
-independent geometry, columns and selections. These cases are pending CI acceptance.
+independent geometry, columns and selections. All four cases passed at `7586d95` in
+[run 42477554192](https://github.com/mgradwohl/MoTrack/actions/runs/42477554192), Linux job
+128722151613, including the corrected empty-table export after deleting all owners.
 
 The following earlier failures are retained separately, never counted as passing round trips:
 
@@ -879,3 +881,44 @@ manual keys through save/fresh reopen and native reimport. This edited case pass
 `c050b19fdbf6e9e103e5cef62d78f52cdf6cb3e8`, Linux job 128706751494 in run 42471577055.
 That run failed later on the separate all-table-owner deletion case. Subsequent physical-path
 resolution fixes still require current-revision application and cross-platform checks before merge.
+
+## Selected archive-member export
+
+[ArchiveImagesFixture.java](../../tools/reference/ArchiveImagesFixture.java) packages the existing
+Tracker/OSP-authored image experiment with standard JDK 17 ZIP APIs. It fixes timestamps, uses
+UTF-8 names and deflation/data descriptors, and includes entry/archive comments, a Unicode-named
+supporting document and opaque bytes. Generations of `linked-images/archived-images.trz` under UTC, America/Los_Angeles and
+Pacific/Kiritimati are byte-identical: 7947 bytes, SHA-256 `98f34f949e9f7efd0d033aac9b0ed10d00f78ceabeb1d7c93d5f6901b7676b42`.
+The fixed local ZIP timestamp is 1980-01-02, away from the DOS epoch boundary. The prior
+1980-01-01 fixture reproduced different bytes across time zones.
+Regenerate with the linked-image fixture directory followed by a fresh output path as arguments.
+
+The `archived-images` case shares the independent four-image pixel, timing and calibrated-position
+expectations. The native probe edits mass and a mark, exercises undo/redo, saves/reopens `.motrack`,
+removes the original archive copy and exports `.trz`. Python's independent ZIP reader compares all
+untouched compressed records, payloads, central metadata, names and comments, then checks the edited
+XML against independently patched expected values. Corruption tests reject changed supporting bytes,
+compression, comments, extra members and scientific values.
+
+The Java application receives the actual `.trz` path through its normal loader. A separately read
+selected XML supplies only prerequisite metadata for dependency readiness; it does not substitute
+for opening the archive or repair loaded values. Tracker then saves `.trk`, and a fresh process
+reopens that save while the exported archive remains available for its linked media. This checks
+archive opening and linked standard resave, not Tracker's archive-authoring dialog. Independent
+pixels/timestamps/geometry are required at all three stages. Application acceptance is pending CI.
+
+Native tests already cover preservation of other `.trk` members. This first application fixture has
+one experiment tab; actual multi-tab archive acceptance still belongs to phase 3. New archive
+packaging, changed media, movie engines, broader ZIP variants and paired-save recovery remain.
+
+The first archive application run (42471529133) loaded all independent media/geometry correctly,
+but compared axes drawing handles at `[0,0]` with `[2,20]` after fresh reopen. Public paint/render
+attempts did not synchronize those transient handles. The pinned `CoordAxes.Loader.saveObject`
+bytecode saves only TTrack appearance and grid settings; scientific origin, scale and angle belong
+to ImageCoordSystem. The session report now excludes axes Step handles and explicitly compares
+serialized grid settings alongside existing appearance. Independent manifest expectations additionally
+require every calibration key/fixed flag, origin `[2,20]`, scale `[2,4]`, zero angle and default grid
+for both image fixtures. Headless tests prove moving a handle does not change serialized axes state,
+while custom grid settings remain observable. Corruption tests reject changed calibration/grid state
+even when it agrees at all three stages. No media pixel, timing, measurement, world-coordinate or
+untouched XML assertion is relaxed. Current-revision application acceptance is still required.

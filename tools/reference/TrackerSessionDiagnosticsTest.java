@@ -1,5 +1,7 @@
 import java.util.ArrayList;
 import java.util.List;
+import org.opensourcephysics.cabrillo.tracker.CoordAxes;
+import org.opensourcephysics.controls.XMLControlElement;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /** Headless checks for bounded stack selection; never constructs or operates Tracker windows. */
@@ -44,6 +46,22 @@ public final class TrackerSessionDiagnosticsTest {
         catch (RuntimeException error) { if (error != failure) throw new AssertionError("Failure changed"); }
         completed.run();
         if (actions.get() != 3) throw new AssertionError("Failed reference action was retried");
+        CoordAxes axes = new CoordAxes();
+        String original = new XMLControlElement(axes).toXML();
+        axes.getStep(0).getPoints()[0].setLocation(99, 88);
+        if (!original.equals(new XMLControlElement(axes).toXML())
+                || TrackerSessionReference.persistentSteps(axes).length != 0)
+            throw new AssertionError("Transient axes handles entered persistent geometry");
+        if (!TrackerSessionReference.axesGrid(axes).equals(TrackerReference.map("visible", false, "alpha", null, "argb", null)))
+            throw new AssertionError("Default axes grid changed");
+        XMLControlElement custom = new XMLControlElement(axes);
+        custom.setValue("grid_visible", true);
+        custom.setValue("grid_alpha", 73);
+        custom.setValue("grid_RGB", 0xff123456);
+        custom.loadObject(axes);
+        if (!TrackerSessionReference.axesGrid(axes).equals(TrackerReference.map("visible", true, "alpha", 73, "argb", 0x49123456)))
+            throw new AssertionError("Persistent axes grid settings were lost: " + TrackerSessionReference.axesGrid(axes));
+        System.out.println("Tracker axes serializer/geometry boundary passed (headless)");
         System.out.println("Tracker diagnostic frame selection passed (headless, bounded)");
         System.out.println("Tracker reference completion passed (duplicate/reentrant/failed callbacks, headless)");
     }
