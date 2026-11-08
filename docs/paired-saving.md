@@ -303,3 +303,7 @@ options. Both messages use the translation catalogs; failed saves keep existing 
 Desktop portable-image archive export shares that destination lock and refuses unresolved recovery
 journals before packaging. The lock spans preparation and atomic replacement, including cancellation.
 Exports elsewhere remain available and do not change companion files or document save checkpoints.
+
+Prepared project/movie opens use the same synchronous destruction guard while asking whether to save
+the previous document. A dead window cannot receive the prepared result; the local connection context
+disconnects before the guard flag leaves scope. No Qt weak-pointer control block spans these nested calls.
