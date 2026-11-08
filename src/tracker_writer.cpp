@@ -535,21 +535,24 @@ std::array<double, 6> trackerInverse(const CalibrationKey& key)
     return inverse;
 }
 
-void requireBoundedMassFrames(const LegacyProject& project, const std::unordered_map<TrackId, QDomElement>& objects)
+void requireBoundedMassFrames(const QDomDocument& xml)
 {
     std::size_t frameSlots = 0;
-    for (const auto& mass : project.pointMasses)
+    const auto properties = xml.elementsByTagName("property");
+    for (int index = 0; index < properties.size(); ++index)
     {
+        const auto data = properties.at(index).toElement();
+        if (data.attribute("type") != "array" || data.attribute("class") != "[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;")
+            continue;
         int lastFrame = -1;
-        const auto data = uniqueProperty(objects.at(mass.id), "framedata");
         for (auto item = data.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"))
         {
             const auto frame = frameIndex(item.attribute("name"));
             require(frame <= 500000);
             lastFrame = std::max(lastFrame, frame);
         }
-        // Inspect the emitted arrays, including unchanged objects and null placeholders. Reimport
-        // must not reset this budget, and marking a previously empty mass must not bypass it.
+        // Include inherited arrays on retained objects such as CenterOfMass, even when those
+        // objects are not natively editable. Reimport and null placeholders cannot reset the budget.
         frameSlots += static_cast<std::size_t>(lastFrame + 1);
         require(frameSlots <= 1000000);
     }
@@ -893,9 +896,11 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
         }
     }
     bool changed = false;
+    bool auditFinalSchema = false;
     if (expected.pointMasses.size() != baseline.project.pointMasses.size() || expected.vectors.size() != baseline.project.vectors.size())
     {
         validateTrackerTrackCreation(xml, expected, source);
+        auditFinalSchema = true;
         require(expected.calibration || uniqueProperty(xml.documentElement(), "coords").isNull());
         if (expected.calibration)
             requireTrackerCoordinates(expected, *expected.calibration);
@@ -949,7 +954,9 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
         sortTracks(baseline.project);
         changed = true;
     }
-    changed = patchTrackerNames(xml, expected, baseline.project, source) || changed;
+    const bool renamed = patchTrackerNames(xml, expected, baseline.project, source);
+    changed = renamed || changed;
+    auditFinalSchema = auditFinalSchema || renamed;
     if (expected.calibration != baseline.project.calibration)
     {
         if (!expected.calibration || !baseline.project.calibration)
@@ -1054,7 +1061,9 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
     require(std::ranges::find(expected.unsupportedTrackTypes, "org.opensourcephysics.cabrillo.tracker.VectorSum") ==
             expected.unsupportedTrackTypes.end());
     requireStableVectors(expected, objects);
-    requireBoundedMassFrames(expected, objects);
+    requireBoundedMassFrames(xml);
+    if (auditFinalSchema)
+        validateTrackerEditSchema(xml); // Include appended metadata and patched samples in the reimport/edit budget.
     // QDom emits UTF-8 bytes; do not retain an input declaration for a different encoding.
     for (auto node = xml.firstChild(); !node.isNull(); node = node.nextSibling())
     {

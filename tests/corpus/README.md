@@ -685,6 +685,11 @@ budget, plus creation under present-but-unusable calibration (missing angle/nonf
 exports now count all emitted point-mass arrays; two arrays of 500000 slots reach the one-million-slot
 boundary, while one additional marked frame refuses without replacing the file. Reimport does not
 reset this limit. Absent coordinates remain supported, but unparseable source coordinates reject creation.
+The budget includes retained inherited mass arrays: renaming a constituent of two centers with
+null-ended arrays at frame 500000 now refuses without replacing the destination. A separate regression
+reproduced creation of 1000 empty masses exceeding the next edit's schema-entry budget; the final
+document is now audited after appended metadata and sample patches. A smaller creation batch can
+still be reimported, renamed and extended. These checks allocate only sparse native XML in tests.
 Linux actual-application acceptance is required before merging this slice.
 
 The historical [Tracker #10 save/load report](https://github.com/OpenSourcePhysics/tracker/issues/10)

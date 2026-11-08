@@ -515,9 +515,14 @@ void requireName(const std::string& name)
 }
 } // namespace
 
-void validateTrackerTrackCreation(const QDomDocument& xml, const LegacyProject& project, const TrackerSource& source)
+void validateTrackerEditSchema(const QDomDocument& xml)
 {
     RenameSchema{}.object(xml.documentElement(), QString(TRACKER) + "TrackerPanel");
+}
+
+void validateTrackerTrackCreation(const QDomDocument& xml, const LegacyProject& project, const TrackerSource& source)
+{
+    validateTrackerEditSchema(xml);
     const auto index = indexTrackerReferences(source, project);
     require(index.malformedPaths.empty());
     std::set<std::string> originalNames;
@@ -581,7 +586,7 @@ bool patchTrackerNames(QDomDocument& xml, const LegacyProject& project, LegacyPr
     collect(project.vectors, baseline.vectors);
     if (renamed.empty())
         return false;
-    RenameSchema{}.object(xml.documentElement(), QString(TRACKER) + "TrackerPanel");
+    validateTrackerEditSchema(xml);
     const auto index = indexTrackerReferences(source, project);
     require(index.malformedPaths.empty());
     std::map<std::size_t, QString> replacements;
