@@ -77,19 +77,18 @@ void rebaseWorkspaceMedia(WorkspaceDocument& document, const QString& sourcePath
         const auto target = existingTarget.isEmpty() ? destination.filePath(QFileInfo(destinationPath).fileName()) : existingTarget;
         for (auto& reference : document.project.clip.mediaReferences)
         {
-            const auto source = resolveLocalMediaPath(sourcePath, reference);
-            if (!source.isEmpty())
+            const auto source = workspaceMediaPath(document, sourcePath, reference);
+            if (source.isEmpty())
+                throw ProjectError("Could not resolve a native project media reference.");
+            if (sameLocalFile(source, target))
+                throw ProjectError("Native saving cannot overwrite linked media.");
+            const auto rebased = destination.relativeFilePath(source).toStdString();
+            const auto resolved = resolveLocalMediaPath(destinationPath, rebased);
+            if (resolved.isEmpty() || QDir::cleanPath(resolved) != QDir::cleanPath(source))
             {
-                if (sameLocalFile(source, target))
-                    throw ProjectError("Native saving cannot overwrite linked media.");
-                const auto rebased = destination.relativeFilePath(source).toStdString();
-                const auto resolved = resolveLocalMediaPath(destinationPath, rebased);
-                if (resolved.isEmpty() || QDir::cleanPath(resolved) != QDir::cleanPath(source))
-                {
-                    throw ProjectError("Could not preserve a native project media reference.");
-                }
-                reference = rebased;
+                throw ProjectError("Could not preserve a native project media reference.");
             }
+            reference = rebased;
         }
     }
 }
@@ -646,6 +645,8 @@ MainWindow::PreparedProject MainWindow::prepareProject(const QString& path, cons
     {
         prepared.document = importTrackerDocument(path);
     }
+    if (!prepared.archive)
+        retainWorkspaceMediaLocations(prepared.document, prepared.mediaProjectPath);
     return prepared;
 }
 
@@ -868,6 +869,7 @@ bool MainWindow::openImageSequence(const QStringList& paths, double frameRate)
     releaseArchive();
     m_MediaProjectPath = path;
     m_Session.replace({.project = std::move(project), .movieFrameTimes = {}}, path, DocumentSourceKind::Media);
+    retainWorkspaceMediaLocations(m_Session.document, path);
     m_Sequence = std::move(sequence);
     m_MoviePath.clear();
     m_MoviePresentationTimes.clear();
@@ -928,6 +930,7 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
                         m_Session.document.project.clip.sourceFrameCount = index.frameCount;
                         m_Session.document.project.clip.mediaReferences.push_back(
                             QDir(localProjectDirectory(path)).relativeFilePath(QFileInfo(path).canonicalFilePath()).toStdString());
+                        retainWorkspaceMediaLocations(m_Session.document, path);
                         m_Sequence.reset();
                         m_MoviePath = path;
                         m_Session.document.movie = true;
