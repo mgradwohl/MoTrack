@@ -205,6 +205,10 @@ independent expectations. Variable labels remain data even when equal to a track
 Track-view owners must be unique within each view collection, and guests must be unique within each
 panel. Java otherwise overwrites repeated owners or coalesces repeated guests on resave. The same guest
 in separate panels remains supported. Invalid definitions reject export before replacing a file.
+The current acceptance case uses explicitly unlinked axes (`linked=false`). Rename export refuses
+linked, omitted or malformed settings: Tracker synchronizes linked x axes during panel loading, which
+can replace an earlier panel's variable with a later panel's variable. Native regressions use conflicting
+`t`/`x` axes and verify that refusal preserves an existing destination. Linked-plot acceptance remains.
 Legacy direct plots, fixed plot ranges/scaling, datasets and dependent-track edits remain outside this writer subset.
 
 Extend the partial source-reference index alongside the existing original-object bindings. Its source nodes
