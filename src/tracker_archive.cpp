@@ -8,16 +8,14 @@
 
 #include <algorithm>
 #include <array>
+#include <clocale>
 #include <memory>
 
 #include <archive.h>
 #include <archive_entry.h>
 
-#ifndef _WIN32
-#include <locale.h>
 #ifdef __APPLE__
 #include <xlocale.h>
-#endif
 #endif
 
 namespace motrack
