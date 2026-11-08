@@ -7,7 +7,14 @@ namespace motrack
 {
 QString localProjectDirectory(const QString& projectPath)
 {
-    const QFileInfo project(projectPath);
+    QFileInfo project(projectPath);
+    // Match QSaveFile's destination semantics, including a link to a not-yet-created file.
+    for (int depth = 0; project.isSymLink(); ++depth)
+    {
+        if (depth == 128)
+            return {};
+        project.setFile(project.symLinkTarget());
+    }
     const auto existing = project.canonicalFilePath();
     return existing.isEmpty() ? QFileInfo(project.path()).canonicalFilePath() : QFileInfo(existing).path();
 }

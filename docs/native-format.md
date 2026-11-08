@@ -397,6 +397,13 @@ aliases are resolved before computing relative links, including POSIX symlink co
 The destination's parent must exist; a symbolic-link output file is refused. Generated links pass the
 same local-reference checks as inputs, so a parent folder containing `!/` cannot create an unreadable
 archive-style reference. Reopening each generated reference must resolve to the same original image.
+Native desktop Save uses the same physical-directory rebasing and verifies each generated reference
+before writing. Its atomic native writer follows project-file aliases, including a link whose target
+has not been created yet; the saved references are relative to that target's physical directory.
+Cyclic aliases and links that would be interpreted as archive references fail without changing an
+existing destination or the session's saved state. POSIX desktop regressions reopen through both the
+alias and physical path and compare decoded image pixels; CI runs these on Linux and macOS.
+
 It rejects an output that aliases linked media and leaves an existing destination intact on preflight
 or rendering failure. This links existing files; it neither copies media nor marks a session saved.
 The filesystem preflight establishes availability, not general codec validation or protection from

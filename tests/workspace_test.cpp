@@ -11,9 +11,11 @@
 #include <QColor>
 #include <QComboBox>
 #include <QDialog>
+#include <QDir>
 #include <QDoubleSpinBox>
 #include <QFile>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QInputDialog>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -946,6 +948,107 @@ TEST(Workspace, SavesEditsAndReopensMediaFromADifferentDirectory)
     invalid.close();
     EXPECT_FALSE(window.loadProject(invalid.fileName()));
     EXPECT_EQ(marks->rowCount(), 2);
+}
+
+#ifndef Q_OS_WIN
+TEST(Workspace, SavesAndReopensMediaThroughDirectoryAndProjectAliases)
+{
+    for (const int kind : {0, 1, 2})
+    {
+        SCOPED_TRACE(kind); // Directory alias, existing project alias, not-yet-created project alias.
+        QTemporaryDir temporary;
+        const auto physical = temporary.filePath("elsewhere/exports");
+        ASSERT_TRUE(QDir().mkpath(physical));
+        const auto target = physical + "/saved.motrack";
+        const auto alias = temporary.filePath(kind == 0 ? "directory-alias" : "file-alias.motrack");
+        if (kind == 1)
+        {
+            QFile previous(target);
+            ASSERT_TRUE(previous.open(QIODevice::WriteOnly));
+            ASSERT_EQ(previous.write("previous destination"), 20);
+        }
+        ASSERT_TRUE(QFile::link(kind == 0 ? physical : target, alias));
+        const auto destination = kind == 0 ? alias + "/saved.motrack" : alias;
+        const auto input = temporary.filePath("input-alias.trk");
+        ASSERT_TRUE(QFile::link(fixturePath("image-sequence.trk"), input));
+        motrack::MainWindow window;
+        ASSERT_TRUE(window.loadProject(input));
+        auto* create = window.findChild<QAction*>("newPointMass");
+        ASSERT_NE(create, nullptr);
+        create->trigger();
+        ASSERT_TRUE(window.isWindowModified());
+        ASSERT_TRUE(window.saveWorkspace(destination));
+        EXPECT_FALSE(window.isWindowModified());
+        EXPECT_TRUE(QFileInfo(alias).isSymLink());
+        const auto saved = motrack::readWorkspaceDocument(target);
+        ASSERT_EQ(saved.project.pointMasses.size(), 2u);
+        for (const auto& path : {destination, target})
+        {
+            SCOPED_TRACE(path.toStdString());
+            const auto sequence = motrack::ImageSequence::open(path, saved.project.clip);
+            if (!sequence)
+                FAIL() << "Saved media could not be reopened through the project or its alias.";
+            for (int step = 0; step < 2; ++step)
+            {
+                const auto frame = sequence->readStep(step);
+                if (!frame)
+                    FAIL() << "Missing saved image step " << step;
+                EXPECT_EQ(frame->number, step * 2);
+                EXPECT_EQ(frame->image, QImage(fixturePath(step == 0 ? "frames/frame00.ppm" : "frames/frame02.ppm")));
+            }
+        }
+        ASSERT_TRUE(window.loadProject(destination));
+        auto* canvas = window.findChild<QWidget*>("videoCanvas");
+        ASSERT_NE(canvas, nullptr);
+        EXPECT_EQ(canvas->accessibleName(), "Frame 0");
+        ASSERT_TRUE(window.saveWorkspace(destination));
+        EXPECT_TRUE(QFileInfo(alias).isSymLink());
+    }
+}
+
+TEST(ImageSequence, RejectsCyclicProjectAliases)
+{
+    QTemporaryDir temporary;
+    const auto first = temporary.filePath("first.motrack");
+    const auto second = temporary.filePath("second.motrack");
+    ASSERT_TRUE(QFile::link(second, first));
+    ASSERT_TRUE(QFile::link(first, second));
+    EXPECT_TRUE(motrack::localProjectDirectory(first).isEmpty());
+    EXPECT_TRUE(motrack::resolveLocalMediaPath(first, "frame.png").isEmpty());
+}
+#endif
+
+TEST(Workspace, RejectsARebasedMediaPathThatWouldBeReadAsAnArchiveReference)
+{
+    QTemporaryDir temporary;
+    const auto source = temporary.filePath("source!");
+    ASSERT_TRUE(QDir().mkpath(source + "/frames"));
+    for (const auto* name : {"frame00.ppm", "frame02.ppm"})
+        ASSERT_TRUE(QFile::copy(fixturePath(QString("frames/") + name), source + "/frames/" + name));
+    const auto input = source + "/input.trk";
+    ASSERT_TRUE(QFile::copy(fixturePath("image-sequence.trk"), input));
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(input));
+    auto* create = window.findChild<QAction*>("newPointMass");
+    auto* undo = window.findChild<QAction*>("undoEdit");
+    auto* tracks = window.findChild<QComboBox*>("trackPicker");
+    ASSERT_TRUE(create && undo && tracks);
+    create->trigger();
+    ASSERT_TRUE(window.isWindowModified());
+    const auto destination = temporary.filePath("saved.motrack");
+    QFile previous(destination);
+    ASSERT_TRUE(previous.open(QIODevice::WriteOnly));
+    const QByteArray original("previous destination");
+    ASSERT_EQ(previous.write(original), original.size());
+    previous.close();
+    EXPECT_FALSE(window.saveWorkspace(destination));
+    EXPECT_TRUE(window.isWindowModified());
+    ASSERT_TRUE(previous.open(QIODevice::ReadOnly));
+    EXPECT_EQ(previous.readAll(), original);
+    ASSERT_EQ(tracks->count(), 2);
+    undo->trigger();
+    EXPECT_EQ(tracks->count(), 1);
+    EXPECT_TRUE(window.isWindowModified()); // Track identity allocation remains unsaved after undo.
 }
 
 TEST(Workspace, RetainsTrackIdentityThroughDesktopUndoAndReopen)
