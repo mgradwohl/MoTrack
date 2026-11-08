@@ -1460,11 +1460,11 @@ TEST(Workspace, KeepsRestoredAliasBindingsAfterSavingAndRemovingTheOriginalDirec
         const auto media = temporary.filePath("media/frame00.ppm");
         const auto alias = temporary.filePath(directoryAlias ? "import/frames" : "import/frame00.ppm");
         auto document = motrack::importTrackerDocument(fixturePath("image-sequence.trk"));
-        document.project.clip.mediaReferences = {directoryAlias ? "frames/frame00.ppm" : "frame00.ppm"};
+        document.project.clip.mediaReferences.assign(2, directoryAlias ? "frames/frame00.ppm" : "frame00.ppm");
         document.project.clip.firstFrame = 0;
         document.project.clip.stepSize = 1;
-        document.project.clip.stepCount = 1;
-        document.project.clip.sourceFrameCount = 1;
+        document.project.clip.stepCount = 2;
+        document.project.clip.sourceFrameCount = 2;
         const auto input = temporary.filePath("import/input.motrack");
         motrack::writeWorkspaceDocument(input, document);
         motrack::MainWindow window;
@@ -1475,6 +1475,13 @@ TEST(Workspace, KeepsRestoredAliasBindingsAfterSavingAndRemovingTheOriginalDirec
         ASSERT_TRUE(QFile::remove(input));
         ASSERT_TRUE(QFile::remove(alias));
         ASSERT_TRUE(QDir(temporary.path()).rmdir("import"));
+        auto* slider = window.findChild<QSlider*>("stepSlider");
+        auto* canvas = window.findChild<QWidget*>("videoCanvas");
+        ASSERT_TRUE(slider && canvas);
+        slider->setValue(1);
+        EXPECT_EQ(canvas->accessibleName(), "Frame 1");
+        slider->setValue(0);
+        EXPECT_EQ(canvas->accessibleName(), "Frame 0");
         auto* create = window.findChild<QAction*>("newPointMass");
         auto* undo = window.findChild<QAction*>("undoEdit");
         auto* redo = window.findChild<QAction*>("redoEdit");
@@ -1485,7 +1492,7 @@ TEST(Workspace, KeepsRestoredAliasBindingsAfterSavingAndRemovingTheOriginalDirec
         const auto output = temporary.filePath("exports/second.motrack");
         ASSERT_TRUE(window.saveWorkspace(output));
         const auto saved = motrack::readWorkspaceDocument(output);
-        EXPECT_EQ(saved.project.clip.mediaReferences, std::vector<std::string>{"../media/frame00.ppm"});
+        EXPECT_EQ(saved.project.clip.mediaReferences, (std::vector<std::string>{"../media/frame00.ppm", "../media/frame00.ppm"}));
         const auto sequence = motrack::ImageSequence::open(output, saved.project.clip);
         if (!sequence)
             FAIL() << "Media restored through a removed alias could not be reopened.";
