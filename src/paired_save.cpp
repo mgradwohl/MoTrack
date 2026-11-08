@@ -411,9 +411,7 @@ void protectSourceFiles(const Record& record, const WorkspaceDocument& document,
         {
             const auto media = resolveLocalMediaPath(mediaProjectPath, reference);
             for (const auto& output : record.outputs)
-                require(media.isEmpty() ||
-                            QDir::cleanPath(media).normalized(QString::NormalizationForm_C).toCaseFolded() !=
-                                QDir::cleanPath(directory.filePath(output.name)).normalized(QString::NormalizationForm_C).toCaseFolded(),
+                require(media.isEmpty() || !sameLocalFile(media, directory.filePath(output.name)),
                         "Paired saving cannot overwrite linked media.");
         }
     }
@@ -549,7 +547,10 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
     return result;
 }
 
-PairedSaveResult recoverPairedDocuments(const QString& recoveryPath, const std::atomic_bool* cancelled, const PairedSaveObserver& observer)
+PairedSaveResult recoverPairedDocuments(const QString& recoveryPath,
+                                        const std::atomic_bool* cancelled,
+                                        const PairedSaveObserver& observer,
+                                        const QString& expectedTransaction)
 {
     PairedSaveResult result;
     result.recoveryPath = QFileInfo(recoveryPath).absoluteFilePath();
@@ -564,10 +565,21 @@ PairedSaveResult recoverPairedDocuments(const QString& recoveryPath, const std::
         QLockFile lock(lockPath(result.recoveryPath));
         lock.setStaleLockTime(0);
         require(lock.tryLock(0), "Another save for this project is already in progress.");
+        require(expectedTransaction.isEmpty() || (!QUuid(expectedTransaction).isNull() &&
+                                                  QUuid(expectedTransaction).toString(QUuid::WithoutBraces) == expectedTransaction),
+                "Invalid expected recovery transaction.");
+        if (!expectedTransaction.isEmpty() && !QFileInfo::exists(result.recoveryPath) && !QFileInfo(result.recoveryPath).isSymLink())
+        {
+            result.transactionId = expectedTransaction;
+            result.status = PairedSaveStatus::RecoveryNotNeeded;
+            return result;
+        }
         const auto record = readRecord(result.recoveryPath, parent);
         result.transactionId = record.transactionId;
         result.standardPath = QDir(parent).filePath(record.outputs[0].name);
         result.nativePath = QDir(parent).filePath(record.outputs[1].name);
+        require(expectedTransaction.isEmpty() || expectedTransaction == record.transactionId,
+                "The pending save changed in another instance. Confirm recovery of the new transaction before continuing.");
         commitPair(record, result, cancelled, observer);
     }
     catch (const Cancelled& error)
