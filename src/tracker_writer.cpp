@@ -1341,6 +1341,10 @@ void writeTrackerArchiveDocument(const QString& path, const WorkspaceDocument& d
     auto baseline = parseLegacyProject(document.trackerSource->xml);
     archive.resolveMedia(baseline, member);
     require(baseline.clip.mediaReferences == document.project.clip.mediaReferences);
+    std::unordered_set<std::string> checkedMedia;
+    for (const auto& reference : document.project.clip.mediaReferences)
+        if (checkedMedia.insert(reference).second && !archive.memberMatchesSource(QString::fromStdString(reference), cancelled))
+            throw ProjectError("Tracker archive media changed after import; unchanged-media export cannot preserve these edits.");
     auto snapshot = document;
     snapshot.archivePayload.reset();
     snapshot.archiveMember.reset();
