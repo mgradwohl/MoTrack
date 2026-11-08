@@ -281,11 +281,15 @@ public final class TrackerSessionReference {
         frame.validate();
         panel.getPlayer().setStepNumber(clip.getStepCount() - 1);
         Timer timer = new Timer(25, event -> guard(() -> {
-            if (!frame.isPaintable() || frame.hasPaintHold() || !panel.isShowing() || panel.getVisibleRect().isEmpty()) {
+            if (!frame.isPaintable() || frame.hasPaintHold() || !panel.isPaintable() || !panel.isShowing() || panel.getVisibleRect().isEmpty()) {
                 WAITING.set("visible experiment paintable=" + frame.isPaintable() + " hold=" + frame.hasPaintHold()
+                    + " panelPaintable=" + panel.isPaintable() + " ignoreRepaint=" + panel.getIgnoreRepaint()
                     + " showing=" + panel.isShowing() + " bounds=" + panel.getVisibleRect());
                 return;
             }
+            // DrawingPanel can blit an already cached image in paintImmediately. Its public
+            // render path redraws the ordinary drawable list, as an application image export does.
+            panel.render();
             panel.paintImmediately(panel.getVisibleRect());
             // TRZ loading can complete before the first normal axes draw. Observe the live
             // origin following the current coordinate frame; never inject expected positions.
