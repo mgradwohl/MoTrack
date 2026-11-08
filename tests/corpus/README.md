@@ -743,8 +743,29 @@ The native probe removes a track through normal history, undoes/redoes the delet
 `.motrack` after removing its temporary input copy, then exports. Native tests exercise first/middle/last
 and all deletions across interleaved mass/vector source objects, reordered native lists, allocation
 gaps, same-count delete/create, safe name reuse and repeated exports. Original bindings remain in the
-native envelope; reimported compact IDs are mapped in surviving source order. Referenced/dependent
+native envelope; reimported compact IDs are mapped in surviving source order. Data-owner/guest/dependent
 removals, replacement-by-the-same-name rebinding, malformed/unknown schemas and ambiguous names refuse
 before replacing an existing destination. The historical MOV/open-entry-point report remains tracked
 by [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65); these media-free cases do not close it.
 Actual Tracker save/fresh-process reopen and all-platform CI must pass before merging this slice.
+
+## Removing tracks used by selections
+
+The `delete-selected-mass` case removes mass B from the pinned protractor experiment, clears the main
+panel selection and switches its selected plot/table to mass A. The `delete-all-masses` case retains
+the protractor and axes; the selected plot/table falls back to protractor A. Original custom protractor
+columns/formats, clip/calibration and all unrelated XML must survive. The XML oracle independently
+permits only the exact removals and three selection changes, and application expectations explicitly
+check the cleared panel, fallback names, packed selections, custom views and surviving measurements.
+Negative tests reject consistently wrong selections or lost custom columns at all three app stages,
+and reject unrelated XML changes or unexpected original selection shapes.
+
+Pinned 6.3.5 bytecode for `TrackerPanel.removeTrack` clears the selected track, while
+`TrackChooserTView.refresh` chooses the first remaining viewable source track. `TrackerPanel.Loader`
+omits a null panel selection and restores null when absent. Native regressions cover renamed survivors,
+retained tools, no viewable survivors, newly appended replacements, undo/redo, original-envelope native
+reopen and repeated export. Copied optional identities keep the checks portable across Clang versions.
+Only selections are cleaned up: deleting a custom data owner, plot guest or scientific dependency
+still refuses export. This does not accept a dangling name or transfer old data to a same-name replacement.
+Actual Tracker load/save/fresh-process reopen and native reimport must pass in Linux CI before merging;
+the Windows tests use native code and never launch the Java desktop application.

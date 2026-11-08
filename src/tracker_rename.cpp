@@ -572,9 +572,8 @@ void validateTrackerTrackMembership(const QDomDocument& xml, const LegacyProject
             // Selection-only references have an explicit cleanup policy. Data owners and guests
             // still need separate deletion semantics and must not rebind to a new same-name track.
             const auto targetId = target->second->nativeId;
-            require(!targetId || liveIds.contains(*targetId) ||
-                    reference.kind == TrackerReferenceKind::SelectedTrack || reference.kind == TrackerReferenceKind::PlotSelection ||
-                    reference.kind == TrackerReferenceKind::TableSelection);
+            require(!targetId || liveIds.contains(*targetId) || reference.kind == TrackerReferenceKind::SelectedTrack ||
+                    reference.kind == TrackerReferenceKind::PlotSelection || reference.kind == TrackerReferenceKind::TableSelection);
             if (reference.kind != TrackerReferenceKind::SelectedTrack)
                 require(target->second->className != std::string(TRACKER) + "CoordAxes");
         }
