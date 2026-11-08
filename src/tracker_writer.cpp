@@ -579,12 +579,18 @@ void requireStableTableColumns(const QDomDocument& xml, const LegacyProject& pro
         for (auto row = columns.firstChildElement("property"); !row.isNull(); row = row.nextSiblingElement("property"))
         {
             const auto owner = uniqueProperty(row, "[0]").text().toStdString();
-            // Pinned 6.3.5 serializes this visible point-mass subset as null columns even after
-            // selection and a normal frame refresh. Preserve it natively; do not export a changed
-            // document retaining it until a safe reference workflow is established (issue #64).
-            if (uniqueProperty(row, "[1]").text() == "t" && uniqueProperty(row, "[2]").text() == "x" &&
-                uniqueProperty(row, "[3]").isNull() && massNames.contains(owner))
-                throw ProjectError("Tracker cannot safely resave this point-mass table column subset.");
+            if (!massNames.contains(owner) || uniqueProperty(row, "[1]").text() != "t")
+                continue;
+            const auto second = uniqueProperty(row, "[2]").text();
+            const auto third = uniqueProperty(row, "[3]");
+            const bool subset = second == "x" && third.isNull();
+            const bool defaults =
+                uniqueProperty(row, "[4]").isNull() && ((second == "x" && third.text() == "y") || (second == "y" && third.text() == "x"));
+            // Pinned 6.3.5 can serialize t,x as null columns, or omit a default-column view's
+            // custom formats/order. Preserve these source rows natively until a safe reference
+            // workflow has evidence; do not let a changed standard save imply fidelity.
+            if (subset || defaults)
+                throw ProjectError("Tracker cannot safely resave the table columns for '" + owner + "' (MoTrack issue #64).");
         }
     }
 }

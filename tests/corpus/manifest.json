@@ -132,18 +132,34 @@
     {"id": "mixed-calibration-5","native_mixed_calibration_roundtrip": true,"mixed_calibration_flags": 5,"local_file": "fixtures/mixed-calibration-5.trk","file": "mixed-calibration-5.trk","bytes": 6636,"sha256": "a0ce7d5a19a3d74081867068c48fbbf4f7738668a38f08d714d69f6b95190f1c","tracker_version": "6.3.5","features": ["partly-fixed-calibration","nonuniform-scale","key-boundaries","java-authored-synthetic"],"requirements": ["R02","R03","R09"],"expected": "expected/mixed-calibration-5.json","session_tracks": [{"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes","name": "axes"},{"class": "org.opensourcephysics.cabrillo.tracker.PointMass","name": "calibration probe"}],"provenance": "Public setters and serializers in pinned Tracker 6.3.5; two independent Java authoring runs reproduced identical bytes; baseline coordinates also checked by independent quadrant arithmetic."},
     {"id": "mixed-calibration-6","native_mixed_calibration_roundtrip": true,"mixed_calibration_flags": 6,"local_file": "fixtures/mixed-calibration-6.trk","file": "mixed-calibration-6.trk","bytes": 6639,"sha256": "6a5146b0d61a90c7fd356d96adef201d82cc4b94c62e2d85f64fdb0518b97190","tracker_version": "6.3.5","features": ["partly-fixed-calibration","nonuniform-scale","key-boundaries","java-authored-synthetic"],"requirements": ["R02","R03","R09"],"expected": "expected/mixed-calibration-6.json","session_tracks": [{"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes","name": "axes"},{"class": "org.opensourcephysics.cabrillo.tracker.PointMass","name": "calibration probe"}],"provenance": "Public setters and serializers in pinned Tracker 6.3.5; two independent Java authoring runs reproduced identical bytes; baseline coordinates also checked by independent quadrant arithmetic."},
     {
+      "tracker_version": "6.3.5",
+      "expected": "expected/table-owners.json",
+      "native_reference_index": "expected/table-owners-references.json",
+      "id": "table-owners-defaults",
+      "file": "table-owners-defaults.trk",
+      "local_file": "fixtures/table-owners-defaults.trk",
+      "sha256": "6417e60e91c84d928e74e51286553760f2e5850b48faa84a4852d748984e06c0",
+      "bytes": 12611,
+      "session_exclusion": {
+        "issue": "https://github.com/mgradwohl/MoTrack/issues/64",
+        "reason": "Default-column views omit custom formats and selection in pinned Tracker; not application acceptance evidence."
+      },
+      "provenance": "Pinned default-column variant: baseline Tracker 6.3.5 application load/save/reopen omitted custom table formats and selected owner in CI run 42464749233. Reproduce with TableOwnersFixture defaults mode."
+    },
+    {
       "id": "table-owners",
       "native_delete_table_roundtrip": true,
       "file": "table-owners.trk",
       "local_file": "fixtures/table-owners.trk",
-      "sha256": "6417e60e91c84d928e74e51286553760f2e5850b48faa84a4852d748984e06c0",
-      "bytes": 12611,
+      "sha256": "6051ad165c8615d065dc8cdec21ba3997aa32f7343f73aaed195ff94303b526f",
+      "bytes": 12839,
       "tracker_version": "6.3.5",
       "features": [
         "three-point-masses",
         "sparse-marks",
         "nonuniform-calibration",
         "custom-table-columns",
+        "explicit-frame-column",
         "custom-table-formats"
       ],
       "requirements": [
@@ -203,19 +219,22 @@
                 "mass A",
                 "t",
                 "x",
-                "y"
+                "y",
+                "frame"
               ],
               [
                 "mass B",
                 "t",
                 "y",
-                "x"
+                "x",
+                "frame"
               ],
               [
                 "mass C",
                 "t",
                 "x",
-                "y"
+                "y",
+                "frame"
               ]
             ],
             "column_formats": [

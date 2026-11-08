@@ -812,7 +812,7 @@ still unfinished, so [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/6
 [TableOwnersFixture.java](../../tools/reference/TableOwnersFixture.java) authors the same independent
 three-mass geometry as the plot fixture with Tracker's real track/coordinate serializers and OSP's
 public XML API. It defines one table chooser containing three custom owners: mass A has columns
-`t,x,y`, mass B `t,y,x`, and mass C `t,x,y`, with distinct decimal formats. Its LF-normalized bytes are
+`t,x,y,frame`, mass B `t,y,x,frame`, and mass C `t,x,y,frame`, with distinct decimal formats. Its LF-normalized bytes are
 checksum-pinned in the manifest; two independent bounded headless generations produced identical
 bytes. Java coordinate-API and native snapshots agree with the independently specified geometry.
 The source-reference oracle independently specifies original identities, column rows and grouped
@@ -847,11 +847,18 @@ frame change/restoration did not recover it. Both observations are linked in
 removed. This variant remains a native/reference-geometry and source-index case, explicitly excluded
 from application round-trip acceptance; the manifest rejects enabling acceptance flags on it.
 
-Changed standard exports retaining the known point-mass `t,x` subset are refused before replacing
-the destination. Native saving retains it, and an unchanged standard rendering preserves its bytes.
-Removing that owner is allowed: its output is byte-identical to removing the same owner from the
-full-column fixture. This guards a known reference loss rather than accepting nulls or claiming all
-column subsets are compatible. The full-column fixture still tests distinct order, formats and owners.
+The default-column variant is also retained as `table-owners-defaults.trk` (generator `defaults`
+mode). In [CI run 42464749233](https://github.com/mgradwohl/MoTrack/actions/runs/42464749233),
+Tracker's baseline load/save/fresh-process reopen omitted the custom tables and their selection.
+Its column saver checks custom state and ignores formatting alone. The acceptance candidate now
+includes an explicit `frame` column for every owner; all previous format and selection assertions
+remain required. Both failing variants stay pinned and excluded from application acceptance.
+
+Changed standard exports retaining point-mass `t,x`, `t,x,y` or `t,y,x` rows are refused before
+replacing the destination. Native saving and unchanged standard rendering retain the source.
+Removing all affected owners permits export; removing only one does not waive checks on others.
+The error identifies the owner and #64. This guards observed reference loss without treating null
+columns, omitted formats or broader untested column combinations as compatibility evidence.
 
 Baseline and edited Tracker application load/save/fresh-process reopen, native reimport, all-platform
 CI and the unchanged coverage gate are required before accepting this slice. These media-free cases
