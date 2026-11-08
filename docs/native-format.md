@@ -348,15 +348,26 @@ These require actual application acceptance before merging. Custom tables are st
 selection restored by the reference harness; this does not resolve Tracker's unvisited-view data-loss
 limitation tracked by [MoTrack #64](https://github.com/mgradwohl/MoTrack/issues/64).
 
-Retained point-mass rows containing only `t,x` or the default `t,x,y` columns (including
-reordered `t,y,x`) are conservatively refused in changed standard exports. Pinned Tracker 6.3.5
-produces nulls for the subset case and omits custom view formats/selection for the default-column
-case. Both failing fixtures remain checksum-pinned source/geometry cases explicitly excluded from
-application acceptance. The candidate uses an explicit `frame` column for every owner,
-with independently specified order and formats; its actual application acceptance is still required.
-Native saving and unchanged byte-preserving rendering remain available for failing sources. Removing
-all affected owners removes their unsafe rows; removing only one cannot make other affected rows safe.
-Other column combinations need their own evidence; this does not close #64 or complete table parity.
+Retained point-mass rows containing only `t,x`, `t,x,y` or reordered `t,y,x` are conservatively
+refused in changed standard exports pending a proven application workflow. Early null-column
+observations occurred with a pane that Swing reported showing but Tracker considered collapsed;
+the harness now expands that pane through public divider actions. The old cases remain pinned,
+not accepted evidence. With the pane expanded, the legacy-only format fixture populated columns
+but still lost custom formats, order and table selection. It is pinned separately as well.
+
+Current per-track `number_formats` records take precedence over legacy table-only formats during
+Tracker initialization. The candidate fixture includes these overrides, explicit divider positions
+and packed view selections. The writer audits dense unique variable/pattern pairs for point masses:
+`x`, `y`, `t`, `frame`, `step`, with pattern `0` or up to twelve fixed decimal zeroes. These records
+are preserved, not edited. Custom legacy table patterns must match the corresponding per-track
+record; unbacked patterns are refused before replacement. Pinned default frame/step/time patterns
+remain allowed. Malformed/sparse/duplicate/unknown format records and mismatched patterns have
+atomic-failure tests, including mass-only edits.
+
+Native saves and unchanged byte-preserving rendering retain all three failing variants. Removing
+all affected owners removes their unsafe rows; removing only one cannot waive checks on survivors.
+The modern candidate still requires actual Tracker load/save/fresh-reopen acceptance. Full numeric
+format editing, broader pattern grammars and other column combinations remain unfinished; #64 stays open.
 
 ### Planned linked-media standard output
 

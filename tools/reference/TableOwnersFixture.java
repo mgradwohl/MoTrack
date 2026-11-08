@@ -41,8 +41,10 @@ public final class TableOwnersFixture {
         try {
             boolean subset = args.length == 2 && args[1].equals("subset");
             boolean defaults = args.length == 2 && args[1].equals("defaults");
-            if ((args.length != 1 && !subset && !defaults) || !OSPRuntime.VERSION.equals("6.3.5"))
-                throw new IllegalArgumentException("Expected Tracker 6.3.5, one fresh output path and optional subset/defaults mode");
+            boolean legacyFormats = args.length == 2 && args[1].equals("legacy-formats");
+            boolean modern = !subset && !defaults && !legacyFormats;
+            if ((args.length != 1 && !subset && !defaults && !legacyFormats) || !OSPRuntime.VERSION.equals("6.3.5"))
+                throw new IllegalArgumentException("Expected Tracker 6.3.5, one fresh output path and optional subset/defaults/legacy-formats mode");
             Path path = Path.of(args[0]).toAbsolutePath();
             if (Files.exists(path)) throw new IllegalArgumentException("Fixture output already exists");
             Locale.setDefault(Locale.US);
@@ -73,6 +75,15 @@ public final class TableOwnersFixture {
             root.setValue("length_unit", "m");
             root.setValue("mass_unit", "kg");
             root.setValue("tracks", new ArrayList<TTrack>(List.of(new CoordAxes(), first, second, third)));
+            if (modern) {
+                // TTrack.Loader restores these per-track overrides after panel defaults; legacy
+                // table-only patterns are otherwise replaced during normal initialization.
+                var tracks = property(root, "tracks").getChildControls();
+                tracks[1].setValue("number_formats", new String[] {"x", "0.000", "y", "0.00"});
+                tracks[2].setValue("number_formats", new String[] {"y", "0.0000", "t", "0.00"});
+                tracks[3].setValue("number_formats", new String[] {"x", "0.00000"});
+                root.setValue("dividers", new double[] {0.65, 0.5, 0.75, 0.5});
+            }
             root.setValue("selectedtrack", "mass B");
             root.setValue("selected_view_types", new int[] {TView.VIEW_TABLE, TView.VIEW_TABLE, TView.VIEW_WORLD, TView.VIEW_PAGE});
             root.setValue("views", new TView[][] {new TView[0]});
@@ -88,6 +99,7 @@ public final class TableOwnersFixture {
                 {{"mass A", "x", "0.000"}, {"mass A", "y", "0.00"}},
                 {{"mass B", "y", "0.0000"}, {"mass B", "t", "0.00"}},
                 {{"mass C", "x", "0.00000"}}});
+            if (modern) root.setValue("selected_track_views", "mass A,mass B;null,mass A;null,null;null,null");
             if (root.write(path.toString()) == null) throw new IllegalStateException("Could not write fixture");
             Files.writeString(path, Files.readString(path, StandardCharsets.UTF_8).replace("\r\n", "\n"), StandardCharsets.UTF_8);
             System.exit(0);

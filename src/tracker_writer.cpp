@@ -568,6 +568,34 @@ void requireStableTableColumns(const QDomDocument& xml, const LegacyProject& pro
     for (int index = 0; index < objects.size(); ++index)
     {
         const auto object = objects.at(index).toElement();
+        if (object.attribute("class") == "org.opensourcephysics.cabrillo.tracker.PointMass" &&
+            !uniqueProperty(object, "number_formats").isNull())
+        {
+            // This newly supported metadata requires the audited format grammar even for a
+            // mass-only edit, which otherwise permits opaque source content to pass through.
+            validateTrackerEditSchema(xml);
+            break;
+        }
+    }
+    std::unordered_map<std::string, std::map<std::string, std::string>> formatsByMass;
+    for (int index = 0; index < objects.size(); ++index)
+    {
+        const auto object = objects.at(index).toElement();
+        if (object.attribute("class") != "org.opensourcephysics.cabrillo.tracker.PointMass")
+            continue;
+        auto& formats = formatsByMass[uniqueProperty(object, "name").text().toStdString()];
+        for (auto cell = uniqueProperty(object, "number_formats").firstChildElement(); !cell.isNull();)
+        {
+            const auto variable = cell.text().toStdString();
+            cell = cell.nextSiblingElement();
+            require(!cell.isNull());
+            formats.emplace(variable, cell.text().toStdString());
+            cell = cell.nextSiblingElement();
+        }
+    }
+    for (int index = 0; index < objects.size(); ++index)
+    {
+        const auto object = objects.at(index).toElement();
         if (object.attribute("class") != "org.opensourcephysics.cabrillo.tracker.TableTView")
             continue;
         const auto columns = uniqueProperty(object, "track_columns");
@@ -586,6 +614,23 @@ void requireStableTableColumns(const QDomDocument& xml, const LegacyProject& pro
             // workflow has evidence; do not let a changed standard save imply fidelity.
             if (subset || defaults)
                 throw ProjectError("Tracker cannot safely resave the table columns for '" + owner + "' (MoTrack issue #64).");
+        }
+        for (auto group = uniqueProperty(object, "column_formats").firstChildElement(); !group.isNull(); group = group.nextSiblingElement())
+        {
+            for (auto row = group.firstChildElement(); !row.isNull(); row = row.nextSiblingElement())
+            {
+                const auto owner = uniqueProperty(row, "[0]").text().toStdString();
+                if (!massNames.contains(owner))
+                    continue;
+                const auto variable = uniqueProperty(row, "[1]").text().toStdString();
+                const auto pattern = uniqueProperty(row, "[2]").text().toStdString();
+                const bool defaultPattern = ((variable == "frame" || variable == "step") && pattern == "0") ||
+                                            (variable == "t" && pattern == "0.000") || pattern.empty();
+                const auto mass = formatsByMass.find(owner);
+                if (!defaultPattern &&
+                    (mass == formatsByMass.end() || !mass->second.contains(variable) || mass->second.at(variable) != pattern))
+                    throw ProjectError("Tracker cannot retain legacy-only table formats for '" + owner + "' (MoTrack issue #64).");
+            }
         }
     }
 }
