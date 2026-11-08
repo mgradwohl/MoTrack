@@ -169,7 +169,9 @@ attributes/classes, model/function data, attachment fields, reference frames, le
 rows reject rename export, even when the partial reference index has no malformed paths. The original
 source and native document remain available. Extend this allowlist only alongside application acceptance.
 
-All source/final names must be unique, including unsupported protractors and axes. Every indexed
+All source/final names must be unique, including unsupported protractors and axes. Original labels
+must also satisfy the codec restrictions below: a track named `null` is ambiguous with no selection,
+even when a different track is renamed. Unedited source copies remain byte-exact. Every indexed
 relationship must resolve uniquely or explicitly mean no target. New labels must be valid round-tripping
 UTF-8, nonempty/trimmed, at most 4096 UTF-16 units, without controls/format characters, the packed
 delimiters comma/semicolon, the reserved `null` token or the CDATA terminator. The schema walk limits

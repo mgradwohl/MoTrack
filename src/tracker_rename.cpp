@@ -352,6 +352,8 @@ bool patchTrackerNames(QDomDocument& xml, const LegacyProject& project, LegacyPr
         {
             throw ProjectError("Tracker rename requires every original track name.");
         }
+        // Original labels use the same packed codec: "null" cannot distinguish a track from no selection.
+        requireName(*track.originalName);
         require(oldNames.insert(*track.originalName).second);
         const auto found = track.nativeId ? renamed.find(*track.nativeId) : renamed.end();
         const auto& name = found == renamed.end() ? *track.originalName : found->second;
