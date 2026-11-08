@@ -854,6 +854,15 @@ def patch_expected_table_deletion(document, mode):
             for child in list(selected.childNodes):
                 selected.removeChild(child)
             selected.appendChild(document.createTextNode("mass A"))
+    packed = prop(root, "selected_track_views")
+    if text(packed) != "mass A,mass B;null,mass A;null,null;null,null":
+        raise ValueError("Expected the pinned original packed table selections")
+    first = next((name for name in ["mass A", "mass B", "mass C"] if name not in removed), "null")
+    a = "mass A" if "mass A" not in removed else first
+    b = "mass B" if "mass B" not in removed else first
+    for child in list(packed.childNodes):
+        packed.removeChild(child)
+    packed.appendChild(document.createTextNode(f"{a},{b};null,{a};null,null;null,null"))
 
 
 def patch_expected_plot_deletion(document, mode):
