@@ -344,7 +344,12 @@ void retainWorkspaceMediaLocations(WorkspaceDocument& document, const QString& s
 QString workspaceMediaPath(const WorkspaceDocument& document, const QString& sourcePath, const std::string& reference)
 {
     const auto retained = document.mediaLocations.constFind(QString::fromStdString(reference));
-    return retained == document.mediaLocations.cend() ? resolveLocalMediaPath(sourcePath, reference) : retained.value();
+    if (retained == document.mediaLocations.cend())
+        return resolveLocalMediaPath(sourcePath, reference);
+    // A previously missing file may now exist (possibly through an alias). Keep its captured base,
+    // but resolve its current physical spelling for the writer's round-trip identity checks.
+    const auto existing = QFileInfo(retained.value()).canonicalFilePath();
+    return existing.isEmpty() ? retained.value() : existing;
 }
 
 WorkspaceDocument importTrackerDocument(const QString& path)
