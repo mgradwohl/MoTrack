@@ -1,7 +1,11 @@
 # Standard and native paired saving
 
-Status: internal phase-3 paired writer and explicit recovery adapter implemented; cross-platform CI
-and actual Tracker acceptance are pending. The desktop still saves only native documents. Per-output
+Status: the internal phase-3 paired writer and explicit recovery adapter have passed three-platform
+CI and actual Tracker acceptance for linked-image and archived-image recovery. At `6ae83b6`, all six
+checks passed in [run 42534998602](https://github.com/mgradwohl/MoTrack/actions/runs/42534998602),
+with 95.48% combined production coverage (7946/8322); Linux job 128897229295 includes both recovered
+exports loaded, saved, freshly reopened in Tracker and reimported in MoTrack.
+The desktop still saves only native documents in this slice. Per-output
 session checkpoints, standard Save actions and translated recovery choices remain separate work.
 The [full-port plan](migration-plan.md#implementation-order-and-exit-gates) and
 [format guide](native-format.md) remain the canonical status and supported-schema references.
@@ -115,7 +119,7 @@ must refuse that claim; the separate terminated-child regression still proves de
 After the destination-status review fixes in `7d04cd4`, all six Windows suites and formatting/clang-tidy
 pass; coverage is 95.34% (7679/8054). Both output statuses are refreshed before reporting conflicts or
 read failures, so an early conflict cannot hide or falsely retain a companion commit. The inherited
-source-digest and standalone-media corrections require the next combined current-revision CI run.
+source-digest and standalone-media corrections subsequently passed the `6ae83b6` run recorded above.
 
 Prepared-file fingerprints are fixed immediately after each validated write, before notifying progress
 observers. A changed stage is rejected before journaling or destination replacement. Linked media is

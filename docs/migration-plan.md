@@ -119,8 +119,9 @@ The time-unit case similarly preserves timing and numerical data through reversi
 reopen, standard export and actual Tracker resave. Imported time labels also reach plot/derived-quantity
 labels and CSV headers. Independent live frame times stay 0/900 ms at frames 0/9 in the pinned case;
 The separate numeric timing slice changes frame duration and time origin with undo/redo, native persistence and independent negative-origin/stride export oracles. Full time-control UI, media time-base conversion and locale-dependent time-zero behavior remain separate.
-Fixed-flag changes, moving reference frames, key deletion, varying vector coordinates,
-media/archive and paired-save acceptance remain unfinished.
+Fixed-flag changes, moving reference frames, key deletion, varying vector coordinates and broader
+media acceptance remain unfinished. Audited linked/archive-image exports and paired recovery have
+actual Tracker acceptance; desktop paired saving remains a separate slice.
 Its CI evidence belongs to the writer PR, after the merged snapshot above.
 
 Major current limits: native-only writes; older native imports cannot reconstruct lost source associations; one active tab; reduced track and
@@ -316,7 +317,7 @@ or standard-file compatibility gates.
 | OS and CPU support | CI currently uses Windows 2025, macOS 15 and Ubuntu 24.04 runners. These are test environments, not declared minimum end-user OS versions. Specify release minimums and Intel/Arm coverage explicitly. | 1, finalized before 12 |
 | Codec coverage and export | FFmpeg import works for tested fixtures; pin a format/codec/container test matrix and identify any licensing or platform limitations. Do not label untested formats supported because FFmpeg recognizes their names. | 1, 6 and 10 |
 | Native preservation representation | Version 5 retains bounded original XML, document-scoped IDs, a non-reusing counter and original-object bindings, plus a streamed ZIP with native metadata and the exact original `.trz` payload. Versions 1–4 migrate without inventing lost source, bindings or selected archive tabs. See [native format](native-format.md). | 2 |
-| Pair-save recovery | [Internal contract and adapter](paired-saving.md) implement sibling staging, bounded journals, explicit recovery and per-output results. CI/application acceptance and user-visible partial-success integration remain; two independent replacements are not one atomic write. | 3 |
+| Pair-save recovery | [Internal contract and adapter](paired-saving.md) implement sibling staging, bounded journals, explicit recovery and per-output results. Three-platform CI and both linked/archive-image recovery application cases passed at `6ae83b6` in [run 42534998602](https://github.com/mgradwohl/MoTrack/actions/runs/42534998602). Desktop controls and per-output session integration remain separate work; two independent replacements are not one atomic write. | 3 |
 | Numerical equivalence | Freeze quantity-specific tolerances, derivative/solver choices, units and gap semantics from actual reference results, including boundary and near-zero values. | 1, extended per feature |
 | External-model exchange and supporting documents | Verify the reference's data protocols and choose native adapters/viewers without silently excluding those workflows or executing arbitrary document content. | 9–11 |
 
@@ -385,8 +386,9 @@ format. New imports also retain the original XML bytes in the native source enve
 is patched by an initial internal standard writer for mass values, marks, independent-vector samples, clip ranges/constant timing, existing fixed/partly fixed/fully varying calibration, length/mass/time-unit labels, audited names, new independent point masses/vectors, unreferenced removals and selection-only deletion; unsupported edited fields are rejected.
 The actual-Tracker corpus case exercises this limited export path after native reopen. Version 5 also embeds the entire original
 archive, preserving other tabs and media without yet making those tabs editable.
-Version-1 native documents cannot recover previously discarded content. Full writers, desktop export,
-archive/paired-save recovery and broader Java reopening remain unfinished. Treat full round-trip support as a compatibility milestone, not a
+Version-1 native documents cannot recover previously discarded content. Audited linked/archive-image
+exports and paired recovery pass actual Tracker save/reopen checks. Full writers, desktop export,
+broader recovery/schema coverage and broader Java reopening remain unfinished. Treat full round-trip support as a compatibility milestone, not a
 completed capability.
 
 Tracker's XML object format and ZIP experiment packaging are workable. The main implementation risk
