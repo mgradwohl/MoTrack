@@ -5,6 +5,7 @@
     "source_version": "6.3.5",
     "length_unit": "",
     "mass_unit": "kg",
+    "time_unit": "s",
     "clip": {
       "first_frame": 0,
       "step_size": 1,

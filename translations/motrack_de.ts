@@ -39,8 +39,8 @@
     <message><source>Mass (%1)</source><translation>Masse (%1)</translation></message>
     <message><source>Set point-mass value</source><translation>Wert der Punktmasse festlegen</translation></message>
     <message><source>Enter a finite, positive mass.</source><translation>Geben Sie eine endliche, positive Masse ein.</translation></message>
-    <message><source>%1·%2/s</source><translation>%1·%2/s</translation></message>
-    <message><source>%1·%2²/s²</source><translation>%1·%2²/s²</translation></message>
+    <message><source>%1·%2/%3</source><translation>%1·%2/%3</translation></message>
+    <message><source>%1·%2²/%3²</source><translation>%1·%2²/%3²</translation></message>
     <message><source>Linear fit</source><translation>Lineare Anpassung</translation></message>
     <message><source>&amp;Open project…</source><translation>Projekt ö&amp;ffnen…</translation></message>
     <message><source>Save project &amp;as…</source><translation>Projekt speichern &amp;unter…</translation></message>
@@ -133,10 +133,10 @@
     <message><source>speed</source><translation>Geschwindigkeitsbetrag</translation></message>
     <message><source>x acceleration</source><translation>x-Beschleunigung</translation></message>
     <message><source>y acceleration</source><translation>y-Beschleunigung</translation></message>
-    <message><source>Time (s)</source><translation>Zeit (s)</translation></message>
+    <message><source>Time (%1)</source><translation>Zeit (%1)</translation></message>
     <message><source>px</source><translation>px</translation></message>
-    <message><source>%1/s</source><translation>%1/s</translation></message>
-    <message><source>%1/s²</source><translation>%1/s²</translation></message>
+    <message><source>%1/%2</source><translation>%1/%2</translation></message>
+    <message><source>%1/%2²</source><translation>%1/%2²</translation></message>
     <message><source>%1 (%2)</source><translation>%1 (%2)</translation></message>
     <message><source>Calibration Stick</source><translation>Kalibrierungsmaßstab</translation></message>
     <message><source>Click the first calibration endpoint.</source><translation>Klicken Sie auf den ersten Endpunkt des Kalibrierungsmaßstabs.</translation></message>

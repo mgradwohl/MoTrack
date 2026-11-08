@@ -45,6 +45,7 @@ struct PlotSeries
     std::vector<PlotSample> samples;
     bool timed = false;
     bool calibrated = false;
+    std::string timeUnit = "s";
 };
 
 struct LinearFit

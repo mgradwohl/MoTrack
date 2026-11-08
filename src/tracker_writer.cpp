@@ -770,6 +770,12 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
         baseline.project.massUnit = expected.massUnit;
         changed = true;
     }
+    if (expected.timeUnit != baseline.project.timeUnit)
+    {
+        patchUnit(xml, "time_unit", expected.timeUnit);
+        baseline.project.timeUnit = expected.timeUnit;
+        changed = true;
+    }
     if (expected.clip.firstFrame != baseline.project.clip.firstFrame || expected.clip.stepSize != baseline.project.clip.stepSize ||
         expected.clip.stepCount != baseline.project.clip.stepCount)
     {

@@ -66,6 +66,35 @@ QByteArray readBytes(const QString& path)
     return file.readAll();
 }
 
+TEST(WorkspaceDocument, RecoversTimeUnitFromOlderNativeSourceAndPersistsLaterEdits)
+{
+    QTemporaryDir temporary;
+    const auto path = temporary.filePath("time-unit.motrack");
+    for (const bool source : {false, true})
+    {
+        motrack::WorkspaceDocument document;
+        if (source)
+        {
+            const auto imported = motrack::parseTrackerProject("<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>"
+                                                               "<property name='time_unit' type='string'>tick</property></object>");
+            document.project = imported.project;
+            document.trackerSource = imported.source;
+        }
+        motrack::writeWorkspaceDocument(path, document);
+        auto old = QJsonDocument::fromJson(readBytes(path)).object();
+        old.remove("timeUnit");
+        ASSERT_TRUE(writeBytes(path, QJsonDocument(old).toJson()));
+        auto reopened = motrack::readWorkspaceDocument(path);
+        EXPECT_EQ(reopened.project.timeUnit, source ? "tick" : "s");
+        reopened.project.timeUnit = "beat";
+        motrack::writeWorkspaceDocument(path, reopened);
+        EXPECT_EQ(motrack::readWorkspaceDocument(path).project.timeUnit, "beat");
+        old.insert("timeUnit", 42);
+        ASSERT_TRUE(writeBytes(path, QJsonDocument(old).toJson()));
+        EXPECT_THROW((void)motrack::readWorkspaceDocument(path), motrack::ProjectError);
+    }
+}
+
 TEST(WorkspaceDocument, RetainsEncodedUnknownXmlAfterImportRemovalAndRepeatedSave)
 {
     QTemporaryDir temporary;

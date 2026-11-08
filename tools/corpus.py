@@ -214,7 +214,7 @@ def session_units(case, expected):
     # Java materializes the pinned application's default when the original XML omits a label.
     # The corpus records that default independently; do not infer expectations from resaved output.
     return {"length_unit": expected["length_unit"] or case["session_default_length_unit"],
-            "mass_unit": expected["mass_unit"]}
+            "mass_unit": expected["mass_unit"], "time_unit": expected["time_unit"]}
 
 
 def validate_session(case, report, manifest, expected=None, key_frames=None, calibration=None):
@@ -246,8 +246,10 @@ def validate_session(case, report, manifest, expected=None, key_frames=None, cal
         compare(case["session_models"], before.get("models"), tolerance, case["id"] + ".models")
     if expected is None:
         expected = json.loads(expected_path(case).read_text(encoding="utf-8"))["project"]
-    compare(session_units(case, expected), {key: before[key] for key in ["length_unit", "mass_unit"]},
+    compare(session_units(case, expected), {key: before[key] for key in ["length_unit", "mass_unit", "time_unit"]},
             tolerance, case["id"] + ".units")
+    if "session_time_samples" in case:
+        compare(case["session_time_samples"], before.get("time_samples"), tolerance, case["id"] + ".time_samples")
     for key in ["clip", "coordinate_samples"]:
         compare(expected[key], before[key], tolerance, case["id"] + "." + key)
     masses = []
@@ -437,6 +439,36 @@ def verify_mass_unit_export_xml(original, exported):
     actual.unlink()
     if not matches:
         raise ValueError("Standard export changed content beyond the requested mass unit")
+
+
+TIME_UNIT_LABEL = "τ & <tick>"
+
+
+def time_unit_roundtrip_expected(case):
+    if case["id"] != "protractor":
+        raise ValueError("The time-unit oracle requires the pinned protractor case")
+    expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
+    expected["time_unit"] = TIME_UNIT_LABEL
+    return expected
+
+
+def verify_time_unit_export_xml(original, exported):
+    expected = minidom.parse(str(original))
+    units = [node for node in expected.documentElement.childNodes if node.nodeType == node.ELEMENT_NODE
+             and node.tagName == "property" and node.getAttribute("name") == "time_unit"]
+    if units:
+        raise ValueError("Expected the pinned source without an explicit time unit")
+    unit = expected.createElement("property")
+    unit.setAttribute("name", "time_unit")
+    unit.setAttribute("type", "string")
+    unit.appendChild(expected.createCDATASection(TIME_UNIT_LABEL))
+    expected.documentElement.appendChild(unit)
+    actual = minidom.parse(str(exported))
+    matches = canonical_tracker_xml(expected) == canonical_tracker_xml(actual)
+    expected.unlink()
+    actual.unlink()
+    if not matches:
+        raise ValueError("Standard export changed content beyond the requested time unit")
 
 
 def mark_roundtrip_expected(case, mode="marks"):
@@ -936,7 +968,7 @@ def check_sessions(manifest, cache, java, probe=None):
              ("snap-origin", "native_vector_roundtrip"), ("snap-vector", "native_vector_roundtrip"),
              ("calibration", "native_calibration_roundtrip"), ("length-unit", "native_length_unit_roundtrip"),
              ("keyed-calibration", "native_keyed_calibration_roundtrip"),
-             ("mass-unit", "native_mass_unit_roundtrip"),
+             ("mass-unit", "native_mass_unit_roundtrip"), ("time-unit", "native_time_unit_roundtrip"),
              ("name", "native_name_roundtrip"), ("unselected-name", "native_name_roundtrip"),
              ("vector-name", "native_vector_name_roundtrip"),
              ("plot-owner-name", "native_plot_name_roundtrip"), ("plot-guest-name", "native_plot_name_roundtrip"),
@@ -1015,6 +1047,10 @@ def check_sessions(manifest, cache, java, probe=None):
                               "attachment-first-name", "attachment-last-name", "model-booster-name"}:
                     verify_rename_export_xml(project, exported, mode)
                     expected, case = rename_roundtrip_expected(case, mode)
+                elif mode == "time-unit":
+                    expected = time_unit_roundtrip_expected(case)
+                    verify_time_unit_export_xml(project, exported)
+                    case = {**case, "session_time_samples": [{"frame": 0, "time_ms": 0.0}, {"frame": 9, "time_ms": 900.0}]}
                 elif mode == "mass-unit":
                     expected = mass_unit_roundtrip_expected(case)
                     verify_mass_unit_export_xml(project, exported)

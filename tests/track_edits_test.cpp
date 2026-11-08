@@ -543,6 +543,45 @@ TEST(TrackEdits, MassUnitHistoryInterleavesWithMassValuesWithoutRescaling)
     EXPECT_FALSE(edits.canRedo());
 }
 
+TEST(TrackEdits, TimeLabelHistoryPreservesTimingMarksAndMassEdits)
+{
+    motrack::LegacyProject project;
+    project.clip.frameDurationMs = 125;
+    project.clip.startTimeMs = -750;
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.createPointMass(project, "A"));
+    ASSERT_TRUE(edits.markPointMass(project, 0, {.frame = 2, .x = 4, .y = 5}));
+    edits.clear();
+    const auto original = project;
+    const auto revision = edits.revision();
+    EXPECT_FALSE(edits.setTimeUnit(project, ""));
+    EXPECT_TRUE(edits.setTimeUnit(project, "s"));
+    EXPECT_EQ(edits.revision(), revision);
+    EXPECT_FALSE(edits.isModified());
+    ASSERT_TRUE(edits.setTimeUnit(project, "tick"));
+    EXPECT_EQ(project.clip, original.clip);
+    EXPECT_EQ(project.pointMasses, original.pointMasses);
+    edits.markSaved();
+    ASSERT_TRUE(edits.setPointMassValue(project, 0, 2.5));
+    ASSERT_TRUE(edits.setTimeUnit(project, "beat"));
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_EQ(project.timeUnit, "tick");
+    EXPECT_DOUBLE_EQ(project.pointMasses[0].mass, 2.5);
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_FALSE(edits.isModified());
+    ASSERT_TRUE(edits.undo(project));
+    EXPECT_EQ(project, original);
+    ASSERT_TRUE(edits.redo(project));
+    EXPECT_FALSE(edits.isModified());
+    ASSERT_TRUE(edits.redo(project));
+    ASSERT_TRUE(edits.redo(project));
+    EXPECT_EQ(project.timeUnit, "beat");
+    EXPECT_EQ(project.clip, original.clip);
+    ASSERT_TRUE(edits.undo(project));
+    ASSERT_TRUE(edits.setTimeUnit(project, "cycle"));
+    EXPECT_FALSE(edits.canRedo());
+}
+
 TEST(TrackEdits, CreatesDistanceCalibrationAndRestoresThePriorUnit)
 {
     motrack::LegacyProject project;

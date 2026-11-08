@@ -5,6 +5,18 @@ the reader accepts versions 1 through 5 and rejects unknown versions. Archive-ba
 the native ZIP container described below; other documents remain plain JSON. Existing measurement, calibration,
 clip, media-reference and movie-time fields retain their version-1 meanings.
 
+## Unit labels
+
+The optional `timeUnit` string records the experiment's analysis-time label, independently of clip
+start/duration and decoded movie timestamps. A label edit does not convert numerical times, rates,
+momentum or energy. Plot labels and the timed CSV header use that label (the default remains `time_s`).
+
+When older native metadata omits `timeUnit`, the reader recovers it from the preserved Tracker XML,
+if present, or uses `s`. Later explicit native edits take precedence over the original source value.
+The standard writer patches `time_unit` without changing the clip or measurement data. The bounded
+label codec refuses unsupported labels before replacing a destination. This adds an optional metadata
+field to version 5; it does not add a persistent undo log or a desktop units editor.
+
 ## Track identities
 
 Versions 3 through 5 store an `id` on every editable point mass and independent vector and a document-wide

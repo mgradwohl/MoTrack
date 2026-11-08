@@ -169,6 +169,19 @@ bool TrackEdits::setMassUnit(LegacyProject& project, std::string unit)
     return append(project, ChangeMassUnit{.after = std::move(unit), .before = project.massUnit});
 }
 
+bool TrackEdits::setTimeUnit(LegacyProject& project, std::string unit)
+{
+    if (unit.empty())
+    {
+        return false;
+    }
+    if (unit == project.timeUnit)
+    {
+        return true;
+    }
+    return append(project, ChangeTimeUnit{.after = std::move(unit), .before = project.timeUnit});
+}
+
 bool TrackEdits::markPointMass(LegacyProject& project, std::size_t track, Mark mark)
 {
     if (track >= project.pointMasses.size() || mark.frame < 0 || !std::isfinite(mark.x) || !std::isfinite(mark.y))
@@ -518,6 +531,11 @@ bool TrackEdits::apply(LegacyProject& project, const Edit& edit, bool forward)
     if (const auto* change = std::get_if<ChangeMassUnit>(&edit))
     {
         project.massUnit = forward ? change->after : change->before;
+        return true;
+    }
+    if (const auto* change = std::get_if<ChangeTimeUnit>(&edit))
+    {
+        project.timeUnit = forward ? change->after : change->before;
         return true;
     }
     if (const auto* change = std::get_if<ChangeCalibration>(&edit))
