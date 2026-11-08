@@ -137,7 +137,7 @@ and platform evidence before it can be marked complete.
 
 | ID | Required desktop behavior | Status at the snapshot and remaining work | Phase |
 | --- | --- | --- | --- |
-| R01 | Reproducible native builds, CI, review, numerical tests, at least 90% combined C++ line coverage | Implemented foundation; continue applying gates to every new component. Bounded reference-failure diagnostics support investigation of intermittent application-loader timeouts in #105; no retry or acceptance bypass is added. | 0, every phase |
+| R01 | Reproducible native builds, CI, review, numerical tests, at least 90% combined C++ line coverage | Implemented foundation; continue applying gates to every new component. The reference helper executes repeated loader completion callbacks once, fixing the empty-resave race in #105; bounded failure diagnostics remain and no retry or acceptance bypass is added. | 0, every phase |
 | R02 | Open `.trk`/`.trz`; preserve all supported and unknown content, references, metadata, and archive tabs | Partial: supported point masses/vectors/calibration import; one archive tab selected. Native documents retain that tab's original XML, editable-track IDs and source-object associations for new imports. Version 5 embeds the exact original archive, including all tabs/media/unknown files. A partial read-only reference index maps original track names, panel/nested-view selections, table/plot owners (including dataset rows), ordered plot guests, mechanical-tool attachment slots/step targets center-of-mass/vector-sum members, model boosters and dynamic-system members to source nodes and known IDs; unknown subclass relationships remain explicit. Dataset rows have source-structure evidence only; media-backed application acceptance remains. Older native sources retain an explicit unknown-association state. | 1–3 |
 | R03 | Save edited standard files plus optional `.motrack`; reopen in both applications without data loss | Partial: native persistence and source/archive preservation. Initial internal `.trk` writer and actual-Tracker round-trip case cover mass values, marks, independent-vector samples, clip ranges, bounded media-free constant timing, existing fixed/partly fixed/fully varying calibration, length/mass/time-unit labels and conservative selected/unselected point-mass and selected independent-vector, plot-owner/guest, center-constituent, read-only tape attachment-target and measured model-booster renames. New independent point masses have empty/marked export cases after native reopen, with explicit interchange appearance defaults and audited original links; original-track deletion and new-vector/dependent creation remain. Rename export requires an audited media-free mass/vector/axes/unattached-protractor/table/modern-unlinked-plot/center-member/read-only-tape/Cartesian-system schema and resolved original identities; broader relationships and other edits are rejected. Full standard writers, export UI, archive packaging and paired-save recovery remain. | 2–3, every feature |
 | R04 | Multiple experiment tabs, independent undo/dirty state, tab/project Save As, cross-tab import and reusable views | Partial foundation: document sessions own independent data/history/save checkpoints, and native storage preserves unopened archive tabs. The desktop still has one active experiment; multi-tab controllers/UI, cross-tab import and reusable views remain. | 2–4 |
@@ -279,7 +279,7 @@ pinned 6.3.5 loader never resolves the saved member names, and Java resave loses
 The keyed case checks world positions before and at changes in origin, angle and nonuniform scale.
 Point-mass world coordinates from the loaded Java panel are compared with independent expected values,
 so a consistently wrong resave cannot pass. The standard keyed writer uses this baseline;
-partly fixed coordinates, edited attachments and moving reference frames still need separate cases.
+all six partly fixed coordinate combinations now have edited application cases. Moving reference frames and attachment geometry edits still need separate cases.
 The protractor session also checks selected-track and plot/table selection targets against independent
 manifest expectations, using live objects and the normal packed-string serializer. This begins the
 [name-reference acceptance work](tracker-name-references.md); edited attachments and broader standard renames remain unfinished; selected/unselected point-mass renames now have conservative protractor round-trip cases. Column/format and plot owners now have
@@ -289,16 +289,16 @@ application acceptance remains required before their export. The index resolves 
 and panel selection fields, retaining missing/ambiguous targets and unknown native bindings explicitly;
 it is not yet a complete graph or permission to export renames. A separate center-of-mass fixture checks named membership,
 total mass and independently calculated image/world positions at sparse frames; native dependent-track
-behavior and edited dependency round trips remain unfinished.
+behavior and constituent editing remain unfinished; constituent-name export has an independent application case.
 A model-dependency fixture adds a named booster, two Cartesian particles and a system, with independent
 static positions and a mass-weighted center. The bounded source index retains booster/member targets;
 the application check requires normal resolution and evaluation before Java save/reopen. This does not
 implement native particle-model editing or establish interacting/polar solver parity.
 Media/archive session loading, broader requirement coverage, runtime/dependency provenance and exact
 source mapping remain unfinished. The initial phase-3 writer/reference path covers mass values, marks, independent-vector
-samples, clip ranges, existing fixed/fully varying calibration and length/mass/time-unit labels, including native reopen and Java resave; expand it
-to broader names/dependencies/partly fixed calibration/timing and archive/paired
-saving before exposing full standard Save. Phase 2 has an XML source envelope, persistent point-mass/vector
+samples, clip ranges/constant timing, existing fixed/partly fixed/fully varying calibration, length/mass/time-unit labels,
+audited names and new independent point masses, including native reopen and Java resave acceptance gates. Expand it
+to new vectors, original-track deletion, broader dependencies and media/archive/paired saving before exposing full standard Save. Phase 2 has an XML source envelope, persistent point-mass/vector
 IDs, original object associations, commands addressed by ID, native version migration and complete
 original archive preservation. `DocumentSession` now owns each document's data/history/native save state;
 multi-document controllers and view/media switching remain in phase 4. Extend the reference
