@@ -263,3 +263,7 @@ Native-only saves share the owned cancellation token used by paired saves. Windo
 a queued save before it starts; native storage checks cancellation while copying embedded archives and
 immediately before atomic replacement. Destruction tests preserve an existing destination through both
 the direct and menu save entry points, with worker release ordered after cancellation.
+
+Completed paired writes carry the snapshot's refreshed media bindings back to their live session.
+Only a result that actually updated an output may adopt them; blocked retries and replaced-document
+completions leave the current bindings unchanged. Recovery alone has no live-snapshot bindings to adopt.

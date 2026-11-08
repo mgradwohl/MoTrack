@@ -159,6 +159,8 @@ SaveOutcome DocumentSession::completePairedSave(const SaveCheckpoint& checkpoint
         return SaveOutcome::Stale;
     if (!result.standardCurrent && !result.nativeCurrent && result.status != PairedSaveStatus::RecoveryRequired)
         return SaveOutcome::Failed;
+    if (result.standardCurrent || result.nativeCurrent)
+        document.mediaLocations = result.mediaLocations;
     // A blocked retry only reports an existing journal; it must not restore an older destination.
     const bool adoptStandard = !m_PairedSaving || m_StandardSavePath.isEmpty() || result.standardCurrent;
     m_PairedSaving = true;

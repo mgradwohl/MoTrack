@@ -489,7 +489,10 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
             result.transactionId = readRecord(recoveryPath, parent).transactionId;
             throw ProjectError("Resolve the previous paired save before replacing either output.");
         }
-        protectSourceFiles(record, document, mediaProjectPath);
+        auto snapshot = document;
+        refreshWorkspaceMediaLocations(snapshot, mediaProjectPath);
+        result.mediaLocations = snapshot.mediaLocations;
+        protectSourceFiles(record, snapshot, mediaProjectPath);
         for (auto& output : record.outputs)
             output.before = fingerprint(directory.filePath(output.name), parent, cancelled);
         QString standard;
@@ -511,16 +514,15 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
         record.outputs[0].stage = QFileInfo(standard).fileName();
         record.outputs[1].stage = QFileInfo(native).fileName();
         if (target.suffix().compare("trz", Qt::CaseInsensitive) == 0)
-            writeTrackerArchiveDocument(standard, document, cancelled);
+            writeTrackerArchiveDocument(standard, snapshot, cancelled);
         else
-            writeTrackerDocument(standard, document, mediaProjectPath);
+            writeTrackerDocument(standard, snapshot, mediaProjectPath);
         const auto standardFingerprint = fingerprint(standard, parent, cancelled);
         if (!standardFingerprint)
             throw ProjectError("Prepared standard file disappeared.");
         record.outputs[0].after = *standardFingerprint;
         notify(observer, PairedSaveProgress::StandardPrepared);
         checkCancelled(cancelled);
-        auto snapshot = document;
         rebaseWorkspaceMedia(snapshot, mediaProjectPath, result.nativePath);
         writeWorkspaceDocument(native, snapshot, cancelled);
         validateNativeSnapshot(snapshot, readWorkspaceDocument(native, cancelled));
