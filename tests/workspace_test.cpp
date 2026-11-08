@@ -1049,6 +1049,9 @@ TEST(Workspace, SavesAndReopensStandaloneMediaOpenedThroughFileAliases)
         const auto destination = temporary.filePath("saved.motrack");
         ASSERT_TRUE(window.saveWorkspace(destination));
         ASSERT_TRUE(QFile::remove(alias));
+        // Save the still-open document again before reopening: its media base must survive
+        // deletion of the original alias, rather than being recomputed from its former location.
+        ASSERT_TRUE(window.saveWorkspace(destination));
         ASSERT_TRUE(window.loadProject(destination));
         ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
         if (movie)
@@ -1100,6 +1103,8 @@ TEST(Workspace, SavesAndReopensMediaThroughDirectoryAndProjectAliases)
         ASSERT_NE(create, nullptr);
         create->trigger();
         ASSERT_TRUE(window.isWindowModified());
+        ASSERT_TRUE(window.saveWorkspace(destination));
+        ASSERT_TRUE(QFile::remove(input));
         ASSERT_TRUE(window.saveWorkspace(destination));
         EXPECT_FALSE(window.isWindowModified());
         EXPECT_TRUE(QFileInfo(alias).isSymLink());

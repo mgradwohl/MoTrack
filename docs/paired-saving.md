@@ -143,3 +143,8 @@ are still pending.
 The combined checkpoint/recovery revision passes all six Windows suites with 95.43% combined
 production line coverage (7726/8096). Checkpoint formatting/static checks pass. Cross-platform CI
 and desktop integration are pending.
+
+Prepared-file fingerprints are fixed immediately after each validated write, before notifying progress
+observers. A changed stage is rejected before journaling or destination replacement. Linked media is
+compared against both output paths with normalized, case-folded spelling, conservatively protecting
+case-insensitive filesystems even when a media file uses a project-like filename extension.

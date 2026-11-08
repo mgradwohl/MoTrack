@@ -403,7 +403,10 @@ void protectSourceFiles(const Record& record, const WorkspaceDocument& document,
         {
             const auto media = resolveLocalMediaPath(mediaProjectPath, reference);
             for (const auto& output : record.outputs)
-                require(media.isEmpty() || media != directory.filePath(output.name), "Paired saving cannot overwrite linked media.");
+                require(media.isEmpty() ||
+                            QDir::cleanPath(media).normalized(QString::NormalizationForm_C).toCaseFolded() !=
+                                QDir::cleanPath(directory.filePath(output.name)).normalized(QString::NormalizationForm_C).toCaseFolded(),
+                        "Paired saving cannot overwrite linked media.");
         }
     }
 }
@@ -491,19 +494,27 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
             writeTrackerArchiveDocument(standard, document, cancelled);
         else
             writeTrackerDocument(standard, document, mediaProjectPath);
+        const auto standardFingerprint = fingerprint(standard, parent, cancelled);
+        if (!standardFingerprint)
+            throw ProjectError("Prepared standard file disappeared.");
+        record.outputs[0].after = *standardFingerprint;
         notify(observer, PairedSaveProgress::StandardPrepared);
         checkCancelled(cancelled);
         auto snapshot = document;
         rebaseWorkspaceMedia(snapshot, mediaProjectPath, result.nativePath);
         writeWorkspaceDocument(native, snapshot);
         validateNativeSnapshot(snapshot, readWorkspaceDocument(native, cancelled));
+        const auto nativeFingerprint = fingerprint(native, parent, cancelled);
+        if (!nativeFingerprint)
+            throw ProjectError("Prepared native file disappeared.");
+        record.outputs[1].after = *nativeFingerprint;
         notify(observer, PairedSaveProgress::NativePrepared);
         for (auto& output : record.outputs)
         {
             const auto prepared = fingerprint(directory.filePath(output.stage), parent, cancelled);
             if (!prepared)
                 throw ProjectError("Prepared paired-save file disappeared.");
-            output.after = prepared.value();
+            require(*prepared == output.after, "A prepared paired-save file changed.");
             require(fingerprint(directory.filePath(output.name), parent, cancelled) == output.before,
                     "A destination changed during paired-save preparation.");
         }
