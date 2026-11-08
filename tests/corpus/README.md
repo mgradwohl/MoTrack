@@ -864,8 +864,8 @@ Baseline and edited Tracker application load/save/fresh-process reopen, native r
 CI and the unchanged coverage gate are required before accepting this slice. These media-free cases
 still do not complete media/archive saving or paired-output recovery in R03.
 
-The table reference harness now opens its frame before loading and explicitly expands collapsed
-view panes through public divider actions. The `expand_visit_custom_tables_restore_selection`
+The table reference harness now explicitly expands collapsed view panes through public divider
+actions after loading. The `expand_visit_custom_tables_restore_selection`
 preparation marker distinguishes this from earlier runs: Swing `isShowing()` was true while
 Tracker's `isViewPaneVisible()` was false, suppressing data-column refresh. All column/format
 assertions remain unchanged. Earlier failing column variants need revalidation under this normal
