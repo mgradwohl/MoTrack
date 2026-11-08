@@ -112,6 +112,7 @@ void writeMember(archive* writer,
                  QIODevice& input,
                  qint64 size,
                  const std::atomic_bool* cancelled,
+                 const std::function<void(WorkspaceWriteProgress)>& progress,
                  const QByteArray& expectedDigest = {})
 {
     const std::unique_ptr<archive_entry, decltype(&archive_entry_free)> entry(archive_entry_new(), &archive_entry_free);
@@ -136,6 +137,8 @@ void writeMember(archive* writer,
         require(archive_write_data(writer, buffer.data(), static_cast<std::size_t>(count)) == count);
         digest.addData(QByteArrayView(buffer.data(), count));
         copied += count;
+        if (progress)
+            progress(WorkspaceWriteProgress::ArchiveChunkWritten);
     }
     require(expectedDigest.isEmpty() || digest.result() == expectedDigest);
     require(copied == size && archive_write_finish_entry(writer) == ARCHIVE_OK);
@@ -162,13 +165,16 @@ WorkspaceStorage readWorkspaceStorage(const QString& path, const std::atomic_boo
 void writeWorkspaceStorage(const QString& path,
                            const QByteArray& json,
                            const std::shared_ptr<const TrackerArchive>& source,
-                           const std::atomic_bool* cancelled)
+                           const std::atomic_bool* cancelled,
+                           const std::function<void(WorkspaceWriteProgress)>& progress)
 {
     require((!cancelled || !*cancelled) && json.size() <= MAX_WORKSPACE_JSON_BYTES);
     QSaveFile output(path);
     if (!source)
     {
         require(output.open(QIODevice::WriteOnly) && output.write(json) == json.size());
+        if (progress)
+            progress(WorkspaceWriteProgress::ReadyToCommit);
         require((!cancelled || !*cancelled) && output.commit());
         return;
     }
@@ -183,10 +189,12 @@ void writeWorkspaceStorage(const QString& path,
     require(writer && archive_write_set_format_zip(writer.get()) == ARCHIVE_OK &&
             archive_write_set_options(writer.get(), "zip:compression=store") == ARCHIVE_OK &&
             archive_write_open(writer.get(), &output, nullptr, &writeBlock, nullptr) == ARCHIVE_OK);
-    writeMember(writer.get(), "project.json", metadata, json.size(), cancelled);
-    writeMember(writer.get(), "tracker/source.trz", payload, payloadSize, cancelled, source->sourceDigest());
+    writeMember(writer.get(), "project.json", metadata, json.size(), cancelled, progress);
+    writeMember(writer.get(), "tracker/source.trz", payload, payloadSize, cancelled, progress, source->sourceDigest());
     require(archive_write_close(writer.get()) == ARCHIVE_OK);
     writer.reset();
+    if (progress)
+        progress(WorkspaceWriteProgress::ReadyToCommit);
     require((!cancelled || !*cancelled) && output.commit());
 }
 

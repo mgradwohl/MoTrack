@@ -1005,6 +1005,15 @@ void MainWindow::activateProject(const QString& path)
     setWindowTitle(tr("%1[*] — MoTrack").arg(QFileInfo(path).fileName()));
 }
 
+void MainWindow::refreshImageMediaLocations()
+{
+    if (m_Sequence)
+    {
+        // Rebuild only the reader's paths; keep the current frame, clip controls and edit history.
+        m_Sequence = ImageSequence::open(m_MediaProjectPath, m_Session.document.project.clip, m_Session.document.mediaLocations);
+    }
+}
+
 void MainWindow::syncClipControls()
 {
     setPlaying(false);
@@ -1720,6 +1729,7 @@ bool MainWindow::saveWorkspace(const QString& path)
     // The snapshot may have resolved media restored through a temporary alias since opening.
     // Keep those physical locations for subsequent saves and clip edits after that alias is removed.
     m_Session.document.mediaLocations = result.mediaLocations;
+    refreshImageMediaLocations();
     setWindowTitle(tr("%1[*] — MoTrack").arg(QFileInfo(path).fileName()));
     if (outcome == SaveOutcome::Stale)
     {
@@ -1895,6 +1905,7 @@ bool MainWindow::saveTrackerProject(const QString& path, bool recoverPending)
     const auto outcome = m_Session.completePairedSave(checkpoint, saved);
     if (outcome == SaveOutcome::Replaced)
         return false;
+    refreshImageMediaLocations();
     setWindowModified(m_Session.isModified());
     if (outcome == SaveOutcome::Partial)
     {
