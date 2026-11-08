@@ -490,8 +490,7 @@ void rebaseWorkspaceMedia(WorkspaceDocument& document, const QString& sourcePath
             throw ProjectError("Could not resolve the native project destination.");
         }
         const QDir destination(directory);
-        const auto existingTarget = QFileInfo(destinationPath).canonicalFilePath();
-        const auto target = existingTarget.isEmpty() ? destination.filePath(QFileInfo(destinationPath).fileName()) : existingTarget;
+        const auto target = localProjectPath(destinationPath);
         for (auto& reference : document.project.clip.mediaReferences)
         {
             const auto source = workspaceMediaPath(document, sourcePath, reference);
