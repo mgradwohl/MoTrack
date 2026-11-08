@@ -133,17 +133,25 @@ void DocumentSession::forgetRecovery(const QString& path, const QString& transac
     }
 }
 
-SaveOutcome DocumentSession::completeSave(const SaveCheckpoint& checkpoint, const QString& destination, bool success)
+SaveOutcome DocumentSession::completeSave(const SaveCheckpoint& checkpoint, const QString& destination, const NativeSaveResult& result)
 {
     if (checkpoint.identity != m_Identity)
     {
         return SaveOutcome::Replaced;
     }
-    if (!success)
+    if (!result.saved || result.observation == 0)
     {
         return SaveOutcome::Failed;
     }
+    if (result.observation < m_NativeDestinationObservation)
+        return SaveOutcome::Superseded;
     m_NativeSavePath = QFileInfo(destination).absoluteFilePath();
+    m_NativeDestinationObservation = result.observation;
+    if (result.observation >= m_MediaObservation)
+    {
+        document.mediaLocations = result.mediaLocations;
+        m_MediaObservation = result.observation;
+    }
     if (checkpoint.revision != history.revision() || checkpoint.nativeInvalidation != m_NativeInvalidation)
     {
         invalidateSaved();

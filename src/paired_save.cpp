@@ -1,6 +1,7 @@
 #include "paired_save.hpp"
 
 #include "local_media_path.hpp"
+#include "save_observation.hpp"
 #include "tracker_archive.hpp"
 #include "tracker_writer.hpp"
 #include "workspace_storage.hpp"
@@ -37,10 +38,7 @@ namespace
 void stampObservation(PairedSaveResult& result)
 {
     if (result.observation == 0)
-    {
-        static std::atomic<std::uint64_t> next{1};
-        result.observation = next.fetch_add(1, std::memory_order_relaxed);
-    }
+        result.observation = nextSaveObservation();
 }
 
 constexpr qint64 BLOCK_BYTES = qint64{64} * 1024;
