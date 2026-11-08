@@ -483,6 +483,7 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
         lock.setStaleLockTime(0);
         require(lock.tryLock(0), "Another save for this project is already in progress.");
         const auto observation = qScopeGuard([&result] { stampObservation(result); });
+        result.observedRecoveryPath = recoveryPath;
         if (QFileInfo::exists(recoveryPath) || QFileInfo(recoveryPath).isSymLink())
         {
             result.recoveryPath = recoveryPath;
@@ -559,6 +560,25 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
     return result;
 }
 
+void writeNativeDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled)
+{
+    checkCancelled(cancelled);
+    require(path.endsWith(".motrack", Qt::CaseInsensitive), "Choose a native project filename.");
+    const auto physical = physicalLocalFilePath(path);
+    require(!physical.isEmpty(), "Could not resolve the native project destination.");
+    const QFileInfo target(physical);
+    const auto parent = QFileInfo(target.absolutePath()).canonicalFilePath();
+    require(!parent.isEmpty(), "The native destination directory must exist.");
+    const auto recovery = QDir(parent).filePath('.' + target.completeBaseName() + RECORD_SUFFIX);
+    QLockFile lock(lockPath(recovery));
+    lock.setStaleLockTime(0);
+    require(lock.tryLock(0), "Another save for this project is already in progress.");
+    require(!QFileInfo::exists(recovery) && !QFileInfo(recovery).isSymLink(),
+            "Finish the interrupted paired save before replacing this native companion, or save a copy elsewhere.");
+    checkCancelled(cancelled);
+    writeWorkspaceDocument(physical, document, cancelled);
+}
+
 PairedSaveResult recoverPairedDocuments(const QString& recoveryPath,
                                         const std::atomic_bool* cancelled,
                                         const PairedSaveObserver& observer,
@@ -578,6 +598,7 @@ PairedSaveResult recoverPairedDocuments(const QString& recoveryPath,
         lock.setStaleLockTime(0);
         require(lock.tryLock(0), "Another save for this project is already in progress.");
         const auto observation = qScopeGuard([&result] { stampObservation(result); });
+        result.observedRecoveryPath = result.recoveryPath;
         require(!expectedTransaction || expectedTransaction->isEmpty() ||
                     (!QUuid(*expectedTransaction).isNull() &&
                      QUuid(*expectedTransaction).toString(QUuid::WithoutBraces) == *expectedTransaction),
