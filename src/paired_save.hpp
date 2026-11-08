@@ -16,7 +16,8 @@ enum class PairedSaveStatus : std::uint8_t
     Saved,
     Cancelled,
     Failed,
-    RecoveryRequired
+    RecoveryRequired,
+    RecoveryNotNeeded // A previously identified journal is absent under the lock; no output was changed.
 };
 
 enum class PairedSaveProgress : std::uint8_t
@@ -52,7 +53,11 @@ using PairedSaveObserver = std::function<void(PairedSaveProgress)>;
                                                     const PairedSaveObserver& observer = {});
 /// Explicitly resume a locally initiated pair. Refuses altered destinations, stages, aliases and escaping paths.
 /// Recovery is never implicitly triggered by opening imported project/archive content.
-[[nodiscard]] PairedSaveResult
-recoverPairedDocuments(const QString& recoveryPath, const std::atomic_bool* cancelled = nullptr, const PairedSaveObserver& observer = {});
+/// When expectedTransaction is supplied, check it while holding the journal lock, before any output changes.
+/// A different transaction is returned as RecoveryRequired for explicit reconfirmation; an absent one is RecoveryNotNeeded.
+[[nodiscard]] PairedSaveResult recoverPairedDocuments(const QString& recoveryPath,
+                                                      const std::atomic_bool* cancelled = nullptr,
+                                                      const PairedSaveObserver& observer = {},
+                                                      const QString& expectedTransaction = {});
 
 } // namespace motrack
