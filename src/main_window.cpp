@@ -51,6 +51,7 @@
 #include <cmath>
 #include <iterator>
 #include <limits>
+#include <optional>
 #include <utility>
 
 namespace motrack
@@ -63,6 +64,38 @@ QString physicalSourcePath(const QString& path)
     const QFileInfo info(path);
     const auto physical = info.canonicalFilePath();
     return physical.isEmpty() ? info.absoluteFilePath() : physical;
+}
+
+// Dialogs may lose their parent inside the nested event loop. Qt owns these heap children;
+// guarded cleanup also finishes before the caller starts another dialog or a worker.
+std::optional<QString>
+chooseSaveFile(QWidget* parent, const QString& title, const QString& initial, const QString& filter, const QString& suffix)
+{
+    const QPointer<QWidget> owner(parent);
+    QPointer<QFileDialog> dialog(new QFileDialog(parent, title, initial, filter));
+    dialog->setAcceptMode(QFileDialog::AcceptSave);
+    dialog->setDefaultSuffix(suffix);
+    const auto result = dialog->exec();
+    std::optional<QString> path;
+    if (dialog && result == QDialog::Accepted)
+        path = dialog->selectedFiles().value(0);
+    delete dialog.data();
+    return owner ? path : std::nullopt;
+}
+
+QMessageBox::StandardButton askSaveQuestion(QWidget* parent,
+                                            const QString& title,
+                                            const QString& text,
+                                            QMessageBox::StandardButtons buttons,
+                                            QMessageBox::StandardButton defaultButton)
+{
+    const QPointer<QWidget> owner(parent);
+    QPointer<QMessageBox> dialog(new QMessageBox(QMessageBox::Question, title, text, buttons, parent));
+    dialog->setDefaultButton(defaultButton);
+    static_cast<void>(dialog->exec());
+    const auto result = dialog ? dialog->standardButton(dialog->clickedButton()) : QMessageBox::Cancel;
+    delete dialog.data();
+    return owner ? result : QMessageBox::Cancel;
 }
 } // namespace
 
@@ -727,7 +760,11 @@ bool MainWindow::applyProject(const QString& path, PreparedProject prepared, con
         {
             return false;
         }
-        if (!confirmDiscard())
+        const QPointer<MainWindow> owner(this);
+        const auto discard = confirmDiscard();
+        if (!owner)
+            return false;
+        if (!discard)
         {
             statusBar()->clearMessage();
             return false;
@@ -899,7 +936,11 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
                             statusBar()->showMessage(tr("Could not open this video."));
                             return;
                         }
-                        if (!confirmDiscard() || *cancelled)
+                        const QPointer<MainWindow> owner(this);
+                        const auto discard = confirmDiscard();
+                        if (!owner)
+                            return;
+                        if (!discard || *cancelled)
                         {
                             statusBar()->clearMessage();
                             return;
@@ -1052,11 +1093,11 @@ bool MainWindow::confirmDiscard()
     {
         return true;
     }
-    const auto choice = QMessageBox::question(this,
-                                              tr("Save tracking edits?"),
-                                              tr("Save your project to keep your tracking edits."),
-                                              QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel,
-                                              QMessageBox::Save);
+    const auto choice = askSaveQuestion(this,
+                                        tr("Save tracking edits?"),
+                                        tr("Save your project to keep your tracking edits."),
+                                        QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel,
+                                        QMessageBox::Save);
     return choice == QMessageBox::Discard || (choice == QMessageBox::Save && saveCurrentWorkspace());
 }
 
@@ -1597,16 +1638,10 @@ bool MainWindow::chooseWorkspacePath()
     if (m_Saving)
         return false;
     const auto checkpoint = m_Session.saveCheckpoint();
-    QString path;
-    {
-        QFileDialog dialog(this, tr("Save MoTrack project"), {}, tr("MoTrack projects (*.motrack)"));
-        dialog.setAcceptMode(QFileDialog::AcceptSave);
-        dialog.setDefaultSuffix("motrack");
-        if (dialog.exec() != QDialog::Accepted || checkpoint.identity != m_Session.saveCheckpoint().identity)
-            return false;
-        path = dialog.selectedFiles().value(0);
-    }
-    return saveWorkspace(path);
+    const auto path = chooseSaveFile(this, tr("Save MoTrack project"), {}, tr("MoTrack projects (*.motrack)"), "motrack");
+    if (!path || checkpoint.identity != m_Session.saveCheckpoint().identity)
+        return false;
+    return saveWorkspace(*path);
 }
 
 bool MainWindow::saveCurrentWorkspace()
@@ -1700,30 +1735,25 @@ bool MainWindow::chooseTrackerPath()
     const auto checkpoint = m_Session.saveCheckpoint();
     const bool archive = static_cast<bool>(m_Session.document.archivePayload);
     const auto suffix = archive ? QStringLiteral("trz") : QStringLiteral("trk");
-    QString path;
-    {
-        QFileDialog dialog(this,
-                           tr("Save Tracker project and MoTrack companion"),
-                           m_Session.standardSavePath(),
-                           archive ? tr("Tracker archives (*.trz)") : tr("Tracker projects (*.trk)"));
-        dialog.setAcceptMode(QFileDialog::AcceptSave);
-        dialog.setDefaultSuffix(suffix);
-        if (dialog.exec() != QDialog::Accepted || checkpoint.identity != m_Session.saveCheckpoint().identity)
-            return false;
-        path = dialog.selectedFiles().value(0);
-    } // Destroy the parented stack dialog before another nested dialog/save can destroy the window.
-    const QFileInfo target(path);
+    const auto path = chooseSaveFile(this,
+                                     tr("Save Tracker project and MoTrack companion"),
+                                     m_Session.standardSavePath(),
+                                     archive ? tr("Tracker archives (*.trz)") : tr("Tracker projects (*.trk)"),
+                                     suffix);
+    if (!path || checkpoint.identity != m_Session.saveCheckpoint().identity)
+        return false;
+    const QFileInfo target(*path);
     const auto companion = target.absoluteDir().filePath(target.completeBaseName() + ".motrack");
     if (QFileInfo::exists(companion) && companion != m_Session.nativeSavePath() &&
-        QMessageBox::question(this,
-                              tr("Replace MoTrack companion?"),
-                              tr("This also replaces the existing MoTrack file:\n%1").arg(companion),
-                              QMessageBox::Yes | QMessageBox::Cancel,
-                              QMessageBox::Cancel) != QMessageBox::Yes)
+        askSaveQuestion(this,
+                        tr("Replace MoTrack companion?"),
+                        tr("This also replaces the existing MoTrack file:\n%1").arg(companion),
+                        QMessageBox::Yes | QMessageBox::Cancel,
+                        QMessageBox::Cancel) != QMessageBox::Yes)
         return false;
     if (checkpoint.identity != m_Session.saveCheckpoint().identity)
         return false;
-    return saveTrackerWithRecoveryPrompt(path);
+    return saveTrackerWithRecoveryPrompt(*path);
 }
 
 bool MainWindow::saveTrackerWithRecoveryPrompt(const QString& path)
@@ -1734,11 +1764,11 @@ bool MainWindow::saveTrackerWithRecoveryPrompt(const QString& path)
     const auto destination = path; // NOLINT(performance-unnecessary-copy-initialization)
     const auto checkpoint = m_Session.saveCheckpoint();
     const bool recovery = !m_Session.recoveryPath().isEmpty();
-    if (recovery && QMessageBox::question(this,
-                                          tr("Finish interrupted save?"),
-                                          tr("Recover the saved files, then save your current edits to both project files?"),
-                                          QMessageBox::Yes | QMessageBox::Cancel,
-                                          QMessageBox::Yes) != QMessageBox::Yes)
+    if (recovery && askSaveQuestion(this,
+                                    tr("Finish interrupted save?"),
+                                    tr("Recover the saved files, then save your current edits to both project files?"),
+                                    QMessageBox::Yes | QMessageBox::Cancel,
+                                    QMessageBox::Yes) != QMessageBox::Yes)
         return false;
     const auto current = m_Session.saveCheckpoint();
     if (checkpoint.identity != current.identity || checkpoint.recoveryTransactions != current.recoveryTransactions)

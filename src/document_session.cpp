@@ -211,10 +211,14 @@ SaveOutcome DocumentSession::completePairedRecovery(const SaveCheckpoint& checkp
     const bool newerObservation = result.observation != 0 && pending->observation > result.observation;
     // The accessor may have supplied a list-element reference that completion is about to remove.
     const auto completedPath = requestedRecoveryPath; // NOLINT(performance-unnecessary-copy-initialization)
-    if (result.status == PairedSaveStatus::RecoveryRequired && !result.transactionId.isEmpty() && result.transactionId != transaction)
+    if (result.status == PairedSaveStatus::RecoveryRequired && result.observation != 0)
     {
-        // A different journal was observed under the lock. Preserve any still newer observations.
-        forgetRecovery(completedPath, transaction, result.observation, false);
+        if (result.observation <= m_ClearedRecoveryObservations.value(completedPath))
+            return SaveOutcome::Stale;
+        // A failed recovery can observe a restored or unreadable journal after an older success.
+        // Retain that observation even when its UUID is unchanged or could not be read.
+        if (!result.transactionId.isEmpty() && result.transactionId != transaction)
+            forgetRecovery(completedPath, transaction, result.observation, false);
         rememberRecovery(completedPath, result.transactionId, result.observation);
         invalidateSaved();
         invalidateSaved(SaveTarget::Tracker);
