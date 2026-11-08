@@ -332,6 +332,21 @@ void validateArchive(const WorkspaceDocument& document)
 
 } // namespace
 
+void retainWorkspaceMediaLocations(WorkspaceDocument& document, const QString& sourcePath)
+{
+    document.mediaLocations.clear();
+    if (document.archivePayload || document.archiveMember || !document.archiveReference.empty())
+        return;
+    for (const auto& reference : document.project.clip.mediaReferences)
+        document.mediaLocations.emplace(reference, resolveLocalMediaPath(sourcePath, reference));
+}
+
+QString workspaceMediaPath(const WorkspaceDocument& document, const QString& sourcePath, const std::string& reference)
+{
+    const auto retained = document.mediaLocations.find(reference);
+    return retained == document.mediaLocations.end() ? resolveLocalMediaPath(sourcePath, reference) : retained->second;
+}
+
 WorkspaceDocument importTrackerDocument(const QString& path)
 {
     auto imported = readTrackerProject(std::filesystem::path(path.toStdU16String()));
@@ -474,19 +489,18 @@ void rebaseWorkspaceMedia(WorkspaceDocument& document, const QString& sourcePath
         const auto target = existingTarget.isEmpty() ? destination.filePath(QFileInfo(destinationPath).fileName()) : existingTarget;
         for (auto& reference : document.project.clip.mediaReferences)
         {
-            const auto source = resolveLocalMediaPath(sourcePath, reference);
-            if (!source.isEmpty())
+            const auto source = workspaceMediaPath(document, sourcePath, reference);
+            if (source.isEmpty())
+                throw ProjectError("Could not resolve a native project media reference.");
+            if (sameLocalFile(source, target))
+                throw ProjectError("Native saving cannot overwrite linked media.");
+            const auto rebased = destination.relativeFilePath(source).toStdString();
+            const auto resolved = resolveLocalMediaPath(destinationPath, rebased);
+            if (resolved.isEmpty() || QDir::cleanPath(resolved) != QDir::cleanPath(source))
             {
-                if (sameLocalFile(source, target))
-                    throw ProjectError("Native saving cannot overwrite linked media.");
-                const auto rebased = destination.relativeFilePath(source).toStdString();
-                const auto resolved = resolveLocalMediaPath(destinationPath, rebased);
-                if (resolved.isEmpty() || QDir::cleanPath(resolved) != QDir::cleanPath(source))
-                {
-                    throw ProjectError("Could not preserve a native project media reference.");
-                }
-                reference = rebased;
+                throw ProjectError("Could not preserve a native project media reference.");
             }
+            reference = rebased;
         }
     }
 }

@@ -624,6 +624,8 @@ MainWindow::PreparedProject MainWindow::prepareProject(const QString& path, cons
     {
         prepared.document = importTrackerDocument(path);
     }
+    if (!prepared.archive)
+        retainWorkspaceMediaLocations(prepared.document, prepared.mediaProjectPath);
     return prepared;
 }
 
@@ -846,6 +848,7 @@ bool MainWindow::openImageSequence(const QStringList& paths, double frameRate)
     releaseArchive();
     m_MediaProjectPath = path;
     m_Session.replace({.project = std::move(project), .movieFrameTimes = {}}, path, DocumentSourceKind::Media);
+    retainWorkspaceMediaLocations(m_Session.document, path);
     m_Sequence = std::move(sequence);
     m_MoviePath.clear();
     m_MoviePresentationTimes.clear();
@@ -906,6 +909,7 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
                         m_Session.document.project.clip.sourceFrameCount = index.frameCount;
                         m_Session.document.project.clip.mediaReferences.push_back(
                             QDir(localProjectDirectory(path)).relativeFilePath(QFileInfo(path).canonicalFilePath()).toStdString());
+                        retainWorkspaceMediaLocations(m_Session.document, path);
                         m_Sequence.reset();
                         m_MoviePath = path;
                         m_Session.document.movie = true;
