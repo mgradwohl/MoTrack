@@ -61,6 +61,11 @@ upstream downloads and can fail during an upstream outage.
 
 CI builds and tests on all three OSes. New behavior needs tests through its normal entry points. Use exact comparisons where appropriate and explicit tolerances for scientific results. The combined production line coverage must stay at or above **90%**. Keep suppressions narrow, explain each in the code, and include known compatibility limits in the pull request.
 
+CI uses [workflow concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
+to cancel superseded or duplicate runs for the same pull request. Separate PRs retain independent
+checks, including forks with matching branch names. Main-branch pushes use unique run IDs and are
+not canceled by this policy. Required checks still have to pass on the revision being merged.
+
 ## Pull requests and review
 
 Use a focused branch and the [PR template](.github/pull_request_template.md). Lead with the problem and resulting behavior, then describe validation and compatibility limits. Apply the [review checklist](docs/code-review.md) before opening a PR. Keep formatting-only or unrelated work separate; respond to concrete findings and distinguish blockers from suggestions.
