@@ -196,3 +196,7 @@ journal. The adapter checks that expectation under the journal lock. If the jour
 UUID, an unidentified request returns its identity without replacing either output; the caller must
 obtain fresh confirmation. An absent journal can be reconciled without writing. Only an adapter call
 that omits the expectation entirely requests unrestricted explicit recovery.
+
+Completed paired writes carry the snapshot's refreshed media bindings back to their live session.
+Only a result that actually updated an output may adopt them; blocked retries and replaced-document
+completions leave the current bindings unchanged. Recovery alone has no live-snapshot bindings to adopt.
