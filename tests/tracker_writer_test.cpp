@@ -610,7 +610,8 @@ TEST(TrackerWriter, DeletionAndCreationWithEqualCountsUseIdentityAndPermitSafeNa
 TEST(TrackerWriter, RejectsKnownLossyTableColumnsUntilAllAffectedOwnersAreRemoved)
 {
     const auto fixtureDirectory = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/";
-    for (const auto* fixture : {"table-owners-subset.trk", "table-owners-defaults.trk", "table-owners-legacy-formats.trk"})
+    for (const auto* fixture :
+         {"table-owners-subset.trk", "table-owners-defaults.trk", "table-owners-legacy-formats.trk", "table-owners.trk"})
     {
         SCOPED_TRACE(fixture);
         auto imported = motrack::parseTrackerProject(readBytes(fixtureDirectory + fixture));
@@ -632,7 +633,8 @@ TEST(TrackerWriter, RejectsKnownLossyTableColumnsUntilAllAffectedOwnersAreRemove
         }
         catch (const motrack::ProjectError& error)
         {
-            EXPECT_NE(std::string(error.what()).find("mass A"), std::string::npos);
+            const auto owner = std::string(fixture) == "table-owners-legacy-formats.trk" ? "mass B" : "mass A";
+            EXPECT_NE(std::string(error.what()).find(owner), std::string::npos);
             EXPECT_NE(std::string(error.what()).find("#64"), std::string::npos);
         }
         EXPECT_EQ(readBytes(destination), "existing");
@@ -653,7 +655,7 @@ TEST(TrackerWriter, RejectsKnownLossyTableColumnsUntilAllAffectedOwnersAreRemove
     }
 }
 
-TEST(TrackerWriter, RejectsMalformedOrUnbackedPointMassNumberFormats)
+TEST(TrackerWriter, RejectsMalformedOrCustomPointMassNumberFormats)
 {
     const auto original = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/table-owners.trk");
     const std::vector<std::function<void(QDomElement&)>> mutations{
@@ -694,7 +696,7 @@ TEST(TrackerWriter, RejectsMalformedOrUnbackedPointMassNumberFormats)
 
 TEST(TrackerWriter, RemovesOnlyDeletedTableOwnersAfterHistoryNativeReopenAndNameReuse)
 {
-    const auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/table-owners.trk");
+    const auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/table-default-format-owners.trk");
     const auto imported = motrack::parseTrackerProject(xml);
     for (unsigned removed = 1; removed < 8; ++removed)
     {
