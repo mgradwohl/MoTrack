@@ -1309,6 +1309,36 @@ class CorpusTests(unittest.TestCase):
         self.assertEqual(calls[2][-1], "save")
         self.assertEqual(list(self.root.glob("session-*")), [])
 
+    def test_session_file_diagnostic_distinguishes_xml_errors_without_modifying_input(self):
+        source = self.root / "diagnostic.trk"
+        cases = [b'<object class="TrackerPanel"/>', b'<object>\n<property>&broken;</property>\n</object>',
+                 b'<object>\n<property>', b""]
+        for data in cases:
+            with self.subTest(data=data):
+                source.write_bytes(data)
+                report = corpus.session_file_diagnostic(source)
+                self.assertEqual(report["bytes"], len(data))
+                self.assertEqual(report["sha256"], hashlib.sha256(data).hexdigest())
+                self.assertEqual(source.read_bytes(), data)
+                self.assertEqual(report["xml"], "well-formed" if data == cases[0] else "malformed")
+                if data == cases[0]:
+                    self.assertEqual(report["root_class"], "TrackerPanel")
+                elif data:
+                    self.assertIn("error_line_excerpt", report)
+        source.write_bytes(b"<object>" + b"x" * 3000 + b"&broken;</object>")
+        report = corpus.session_file_diagnostic(source)
+        self.assertIn("&broken;", report["error_line_excerpt"])
+        self.assertLessEqual(len(report["error_line_excerpt"]), 512)
+
+    def test_session_file_diagnostic_bounds_reads_and_handles_missing_input(self):
+        source = self.root / "oversized.trk"
+        source.write_bytes(b"x" * (1024 * 1024 + 1))
+        self.assertEqual(corpus.session_file_diagnostic(source),
+                         {"inspection": "skipped: input exceeds 1 MiB diagnostic limit"})
+        self.assertIn("inspection_error", corpus.session_file_diagnostic(self.root / "missing.trk"))
+        source.write_bytes(b'<?xml version="1.0" encoding="no-such-encoding"?><object/>')
+        self.assertIn("inspection_error", corpus.session_file_diagnostic(source))
+
     def test_session_failure_context_distinguishes_save_reopen_and_preserves_cleanup_without_retry(self):
         manifest = corpus.load_manifest()
         manifest["cases"] = [next(case for case in manifest["cases"] if case["id"] == "protractor")]
@@ -1327,7 +1357,7 @@ class CorpusTests(unittest.TestCase):
                     if stage == failing_stage:
                         raise failure
                     output = Path(output)
-                    (output / "tracker-resaved.trk").write_text("<object/>", encoding="utf-8")
+                    (output / "tracker-resaved.trk").write_text("<object>\n<property>", encoding="utf-8")
                     report = {"reference_version": "6.3.5", "verification_level": "tracker_session_save",
                               "view_preparation": "visit_custom_tables_restore_selection", "loaded": {}, "after_save": {}}
                     (output / "session-save.json").write_text(json.dumps(report), encoding="utf-8")
@@ -1339,6 +1369,9 @@ class CorpusTests(unittest.TestCase):
                         corpus.check_sessions(manifest, self.root, "java")
                     self.assertIs(raised.exception.__cause__, failure)
                     self.assertIn("protractor.trk" if failing_stage == "save" else "tracker-resaved.trk", str(raised.exception))
+                    self.assertIn('Tracker input diagnostic (bounded):', str(raised.exception))
+                    self.assertIn('"xml": "well-formed"' if failing_stage == "save" else '"xml": "malformed"',
+                                  str(raised.exception))
                     self.assertEqual(calls, ["save"] if failing_stage == "save" else ["save", "reopen"])
                     self.assertEqual(list(self.root.glob("session-*")), [])
 
