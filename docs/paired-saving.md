@@ -1,8 +1,13 @@
 # Standard and native paired saving
 
-Status: internal phase-3 paired writer, explicit recovery adapter and per-output session checkpoints
-are implemented. Earlier three-platform and actual Tracker acceptance is recorded below; later review
-fixes require current-revision CI. Desktop standard Save actions and recovery choices are the next slice.
+Status: the internal phase-3 paired writer, explicit recovery adapter and per-output session
+checkpoints are implemented. The paired-image adapter passed all six checks at `6ae83b6` in
+[run 42534998602](https://github.com/mgradwohl/MoTrack/actions/runs/42534998602), with 95.48%
+combined coverage and both recovered exports loaded, saved, freshly reopened in Tracker and
+reimported in MoTrack. The session slice passed all six checks at `d4449c6` in
+[run 42534997479](https://github.com/mgradwohl/MoTrack/actions/runs/42534997479), with 95.56%
+combined coverage; subsequent fixes retain their own CI/review gates. Desktop standard Save
+actions and recovery choices remain the next slice.
 The [full-port plan](migration-plan.md#implementation-order-and-exit-gates) and
 [format guide](native-format.md) remain the canonical status and supported-schema references.
 
@@ -115,7 +120,7 @@ must refuse that claim; the separate terminated-child regression still proves de
 After the destination-status review fixes in `7d04cd4`, all six Windows suites and formatting/clang-tidy
 pass; coverage is 95.34% (7679/8054). Both output statuses are refreshed before reporting conflicts or
 read failures, so an early conflict cannot hide or falsely retain a companion commit. The inherited
-source-digest and standalone-media corrections require the next combined current-revision CI run.
+source-digest and standalone-media corrections subsequently passed the `6ae83b6` run recorded above.
 
 
 

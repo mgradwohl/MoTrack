@@ -458,7 +458,7 @@ Movie engines, filters and archive members need their own audited path/timing co
 packaging will preserve untouched members and feed the paired-save transaction/recovery layer;
 standard Save UI follows that layer. This internal adapter is not full R03 completion.
 
-### Selected-member Tracker archive output (application acceptance pending)
+### Selected-member Tracker archive output
 
 The internal archive document adapter exports supported edits to one original `.trk` member after
 native close/reopen, including after the original `.trz` is removed. It verifies that the source
@@ -473,8 +473,9 @@ Digest checks use bounded blocks, honor cancellation and avoid rereading duplica
 references. Native save/reopen recreates these digests from the owned archive bytes. An immutable
 copy prepares member-relative ImageVideo paths; external/replaced media,
 movies, filters and unsupported timing/range edits remain refused. The source envelope and owned
-original archive bytes are unchanged. The internal [paired-save adapter](paired-saving.md) now uses this writer; its acceptance gates
-are pending. Desktop standard Save integration remains unfinished.
+original archive bytes are unchanged. The internal [paired-save adapter](paired-saving.md) now uses
+this writer and has passing linked/archive-image recovery acceptance. Desktop standard Save
+integration remains a separate slice.
 
 The writer supports bounded, single-disk classic ZIP archives with stored or deflated members. It
 uses the [ZIP format specification](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT)
@@ -520,8 +521,9 @@ resave, fresh-process reopen and native reimport at `fec0e7a`, Linux job 1287330
 [run 42481133737](https://github.com/mgradwohl/MoTrack/actions/runs/42481133737), including every
 independent pixel/time/geometry expectation. The destination/member-alias guards also passed at `6e35268`, Linux job 128744838260 in
 [run 42484998884](https://github.com/mgradwohl/MoTrack/actions/runs/42484998884). The later immutable-source
-digest protection still requires its own current-revision CI. New-archive packaging, broader ZIP/media
-support and paired-save recovery remain unfinished.
+digest protection and paired recovery subsequently passed all six checks and actual Tracker acceptance
+at `6ae83b6` in [run 42534998602](https://github.com/mgradwohl/MoTrack/actions/runs/42534998602).
+New-archive packaging, broader ZIP/media support and desktop paired saving remain separate work.
 
 The additional two-experiment corpus case verifies that selected-member editing does not damage a
 second experiment sharing the same images. Its independent archive/XML oracle preserves that
@@ -547,5 +549,8 @@ standard actions, per-output history checkpoints and recovery prompts remain to 
 
 Both recovered linked-image and archived-image modes passed actual Tracker load/save/fresh reopen
 and native reimport at `32c21d6`, Linux job 128747171486 in
-[run 42485770063](https://github.com/mgradwohl/MoTrack/actions/runs/42485770063). Later review fixes
-still require current-revision CI; desktop paired Save remains a separate implementation slice.
+[run 42485770063](https://github.com/mgradwohl/MoTrack/actions/runs/42485770063). The subsequent guards
+passed all six checks at `6ae83b6` in
+[run 42534998602](https://github.com/mgradwohl/MoTrack/actions/runs/42534998602), including both recovered
+application modes and 95.48% combined C++ line coverage. Desktop paired Save remains a separate
+implementation slice; future revisions retain their own CI/review gates.
