@@ -277,6 +277,7 @@ public final class TrackerSessionReference {
             throw new IllegalArgumentException("Reference clip step limit exceeded");
         // ParticleModel evaluates from its normal draw path. Show/seek the real view in our private Xvfb,
         // then observe generated steps; a completed XML loader alone does not mean models were evaluated.
+        frame.setSize(1024, 700);
         frame.setVisible(true);
         frame.validate();
         panel.getPlayer().setStepNumber(clip.getStepCount() - 1);
@@ -300,7 +301,9 @@ public final class TrackerSessionReference {
                 double y = panel.getCoords().getOriginY(panel.getFrameNumber());
                 if (points == null || points.length == 0 || points[0] == null || points[0].x != x || points[0].y != y) {
                     WAITING.set("visible axes origin draw: " + (points == null || points.length == 0 ? "missing" : points[0])
-                        + " coordinate origin=" + x + "," + y);
+                        + " coordinate origin=" + x + "," + y + " panel=" + panel.getSize()
+                        + " gutters=" + Arrays.toString(panel.getGutters()) + " buffered=" + panel.isBuffered()
+                        + " iconified=" + panel.isIconified() + " frame=" + panel.getFrameNumber());
                     return;
                 }
             }
