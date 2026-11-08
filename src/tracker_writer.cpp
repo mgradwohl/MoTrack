@@ -1294,9 +1294,7 @@ void writeTrackerDocument(const QString& path, const WorkspaceDocument& document
         {
             requireLocalReference(reference);
             const auto resolved = workspaceMediaPath(document, mediaProjectPath, reference);
-            require(!resolved.isEmpty() && resolved != targetDirectory.filePath(QFileInfo(path).fileName()) &&
-                    (QFileInfo(path).canonicalFilePath().isEmpty() ||
-                     QFileInfo(path).canonicalFilePath() != QFileInfo(resolved).canonicalFilePath()));
+            require(!resolved.isEmpty() && !sameLocalFile(resolved, targetDirectory.filePath(QFileInfo(path).fileName())));
             QFile file(resolved);
             if (!QFileInfo(resolved).isFile() || !file.open(QIODevice::ReadOnly))
                 throw ProjectError("Linked media is missing or unreadable: " + resolved.toStdString());
