@@ -208,7 +208,7 @@ unreadable records whose UUID was unavailable. Delayed callbacks cannot resurrec
 a genuinely newer unreadable or restored journal remains pending. These sequences are never persisted
 or compared across processes. A successful save elsewhere cannot hide pending entries.
 
-Recovery checkpoints capture the selected pending path-to-transaction identities. Applying a delayed result
+Recovery checkpoints capture the selected pending path-to-transaction identities. Applying a delayed success
 requires the recorded transaction still to match both the checkpoint and result. A newer transaction
 at the same path therefore remains pending. Recovery also preserves an existing native Save As
 target, including one selected while recovery was running; only an unset native target is adopted.
@@ -244,6 +244,15 @@ in one order and reported in another, unknown journals completed externally, and
 Failed recovery attempts also retain their lock-observed journal state, including an unreadable UUID
 or a restored record with the same UUID. A delayed earlier success cannot clear that newer failure;
 the pending journal continues to keep the session modified even after a successful save elsewhere.
+This holds in either callback delivery order: a newer failed observation restores the pending entry
+even if the older successful callback already removed it.
+
+A recovery request may carry a known UUID or an explicitly unidentified expectation from an unreadable
+journal. The adapter checks that expectation under the journal lock. If the journal now has a valid
+UUID, an unidentified request returns its identity without replacing either output; the caller must
+obtain fresh confirmation. An absent journal can be reconciled without writing. Only an adapter call
+that omits the expectation entirely requests unrestricted explicit recovery.
+
 
 Filename, companion, recovery and save/discard prompts are parent-owned heap dialogs guarded across
 their nested event loops. Closing the owning window during any prompt cannot delete a stack widget

@@ -415,6 +415,13 @@ TEST(PairedSave, ChecksTheExpectedTransactionBeforeRecoveryCanChangeEitherOutput
     const auto standard = bytes(target);
     const auto native = bytes(second.nativePath);
     const auto journal = bytes(second.recoveryPath);
+    const auto unidentified = motrack::recoverPairedDocuments(second.recoveryPath, nullptr, {}, QString{});
+    EXPECT_EQ(unidentified.status, motrack::PairedSaveStatus::RecoveryRequired);
+    EXPECT_EQ(unidentified.transactionId, second.transactionId);
+    EXPECT_FALSE(unidentified.standardCurrent || unidentified.nativeCurrent);
+    EXPECT_EQ(bytes(target), standard);
+    EXPECT_EQ(bytes(second.nativePath), native);
+    EXPECT_EQ(bytes(second.recoveryPath), journal);
     const auto refused = motrack::recoverPairedDocuments(first.recoveryPath, nullptr, {}, first.transactionId);
     EXPECT_EQ(refused.status, motrack::PairedSaveStatus::RecoveryRequired);
     EXPECT_EQ(refused.transactionId, second.transactionId);
@@ -534,7 +541,7 @@ TEST(PairedSave, ReconcilesAnAbsentUnidentifiedJournalWithOrderedObservations)
     EXPECT_GT(external.observation, blocked.observation);
     const auto standardBefore = bytes(target);
     const auto nativeBefore = bytes(partial.nativePath);
-    const auto absent = motrack::recoverPairedDocuments(partial.recoveryPath);
+    const auto absent = motrack::recoverPairedDocuments(partial.recoveryPath, nullptr, {}, QString{});
     EXPECT_EQ(absent.status, motrack::PairedSaveStatus::RecoveryNotNeeded);
     EXPECT_TRUE(absent.transactionId.isEmpty());
     EXPECT_FALSE(absent.standardCurrent || absent.nativeCurrent);
