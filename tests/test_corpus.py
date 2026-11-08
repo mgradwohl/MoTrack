@@ -31,7 +31,8 @@ class CorpusTests(unittest.TestCase):
     def test_deletion_oracle_keeps_untouched_measurements_names_and_views(self):
         manifest = corpus.load_manifest()
         for mode, case_id in [("delete-mass", "protractor"), ("delete-vector", "independent-vectors"),
-                              ("delete-all-vectors", "independent-vectors")]:
+                              ("delete-all-vectors", "independent-vectors"), ("delete-selected-mass", "protractor"),
+                              ("delete-all-masses", "protractor")]:
             original = next(c for c in manifest["cases"] if c["id"] == case_id)
             unchanged = copy.deepcopy(original)
             expected, case = corpus.deletion_roundtrip_expected(original, mode)
@@ -51,7 +52,7 @@ class CorpusTests(unittest.TestCase):
             report = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
                       "view_preparation": "visit_custom_tables_restore_selection", "before": before,
                       "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
-            keys = [[0]] if mode == "delete-mass" else None
+            keys = [] if mode == "delete-all-masses" else [[0]] if "mass" in mode else None
             corpus.validate_session(case, report, manifest, expected, keys)
             for mutation in ["resurrect", "lose-survivor", "alter-calibration"]:
                 invalid = copy.deepcopy(report)
@@ -69,6 +70,23 @@ class CorpusTests(unittest.TestCase):
                 self.assertEqual([m["name"] for m in expected["point_masses"]], ["mass B"])
                 self.assertEqual(case["session_names"], original["session_names"])
                 self.assertEqual(case["session_views"], original["session_views"])
+            elif mode in {"delete-selected-mass", "delete-all-masses"}:
+                fallback = "protractor A" if mode == "delete-all-masses" else "mass A"
+                self.assertEqual([m["name"] for m in expected["point_masses"]], [] if mode == "delete-all-masses" else ["mass A"])
+                self.assertIsNone(case["session_names"]["selected_track"])
+                self.assertEqual(case["session_names"]["view_tracks"], [[fallback, None], [None, fallback], [None, None], [None, None]])
+                self.assertEqual(case["session_views"]["tables"][0]["track_columns"], original["session_views"]["tables"][0]["track_columns"])
+                for mutation in ["panel", "fallback", "columns"]:
+                    invalid = copy.deepcopy(report)
+                    for stage in ["before", "after_save", "after"]:
+                        if mutation == "panel":
+                            invalid[stage]["name_references"]["selected_track"] = "mass B"
+                        elif mutation == "fallback":
+                            invalid[stage]["name_references"]["view_tracks"][0][0] = "axes"
+                        else:
+                            invalid[stage]["saved_views"]["tables"][0]["track_columns"] = []
+                    with self.subTest(mode=mode, mutation=mutation), self.assertRaises(ValueError):
+                        corpus.validate_session(case, invalid, manifest, expected, keys)
             else:
                 self.assertEqual([v["name"] for v in expected["vectors"]], [] if mode == "delete-all-vectors" else ["vector B"])
         for mode, case_id in [("invalid", "protractor"), ("delete-mass", "independent-vectors"), ("delete-vector", "protractor")]:
@@ -101,6 +119,38 @@ class CorpusTests(unittest.TestCase):
                 corpus.verify_deletion_export_xml(original, exported, mode)
         with self.assertRaises(ValueError):
             corpus.verify_deletion_export_xml(original, exported, "invalid")
+
+    def test_selection_deletion_xml_oracle_preserves_unrelated_content(self):
+        original, exported = self.root / "selected-source.trk", self.root / "selected-output.trk"
+        mass_a = ('<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">'
+                  '<property name="name" type="string">mass A</property></object></property>')
+        mass_b = mass_a.replace("mass A", "mass B")
+        tool = mass_a.replace("PointMass", "Protractor").replace("mass A", "protractor A")
+        opening = ('<object class="org.opensourcephysics.cabrillo.tracker.TrackerPanel">'
+                   '<property name="description" type="string">preserved</property>'
+                   '<property name="tracks" type="collection" class="java.util.ArrayList">')
+        panel = '<property name="selectedtrack" type="string">mass B</property>'
+        selections = ('<property name="selected_track_views" type="string">mass B,null;null,mass B;null,null;null,null</property>'
+                      '<property name="views"><object class="org.opensourcephysics.cabrillo.tracker.TableTView">'
+                      '<property name="selected_track" type="string">mass B</property>'
+                      '<property name="untouched">custom</property></object></property></object>')
+        source = opening + mass_a + tool + mass_b + '</property>' + panel + selections
+        for mode, fallback, survivors in [("delete-selected-mass", "mass A", mass_a + tool),
+                                          ("delete-all-masses", "protractor A", tool)]:
+            valid = opening + survivors + '</property>' + selections.replace("mass B", fallback)
+            original.write_text(source, encoding="utf-8")
+            exported.write_text(valid, encoding="utf-8")
+            corpus.verify_deletion_export_xml(original, exported, mode)
+            for invalid in [source, valid.replace("preserved", "lost"), valid.replace("custom", "lost"),
+                            valid.replace(f'>{fallback},null;', '>axes,null;'), valid.replace('</object>', panel + '</object>', 1)]:
+                exported.write_text(invalid, encoding="utf-8")
+                with self.subTest(mode=mode), self.assertRaises(ValueError):
+                    corpus.verify_deletion_export_xml(original, exported, mode)
+            for broken in [source.replace(panel, ''), source.replace('mass B,null;', 'missing,null;'),
+                           source.replace('type="string">mass B</property>', 'type="string"><object/></property>')]:
+                original.write_text(broken, encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    corpus.verify_deletion_export_xml(original, exported, mode)
 
     def test_created_vector_oracle_requires_original_and_new_geometry_and_appearance(self):
         manifest = corpus.load_manifest()

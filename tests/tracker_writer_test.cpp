@@ -201,6 +201,94 @@ std::string namedSource(const std::string& extra = "")
            extra + "</object>\n";
 }
 
+TEST(TrackerWriter, DeletedSelectionsUseRenamedSurvivorsOrRetainedToolsAfterNativeReopen)
+{
+    auto xml = namedSource();
+    const std::string oldOwner = "<property name='[0]' type='string'>mass B</property>";
+    const std::string toolOwner = "<property name='[0]' type='string'>protractor</property>";
+    for (auto position = xml.find(oldOwner); position != std::string::npos; position = xml.find(oldOwner, position + toolOwner.size()))
+        xml.replace(position, oldOwner.size(), toolOwner);
+    const auto imported = motrack::parseTrackerProject(xml);
+    for (const bool allMasses : {false, true})
+    {
+        motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.removePointMass(document.project, 1));
+        ASSERT_TRUE(edits.undo(document.project));
+        EXPECT_EQ(motrack::renderTrackerProject(document.project, imported.source), xml);
+        ASSERT_TRUE(edits.redo(document.project));
+        if (allMasses)
+            ASSERT_TRUE(edits.removePointMass(document.project, 0));
+        else
+            ASSERT_TRUE(edits.renamePointMass(document.project, 0, "renamed survivor"));
+        QTemporaryDir temporary;
+        const auto native = temporary.filePath("selected-deletion.motrack");
+        motrack::writeWorkspaceDocument(native, document);
+        document = motrack::readWorkspaceDocument(native);
+        if (!document.trackerSource)
+        {
+            FAIL() << "Native reopen lost the original selections.";
+        }
+        EXPECT_EQ(document.trackerSource->xml, xml);
+        const auto output = motrack::parseTrackerProject(motrack::renderTrackerProject(document.project, *document.trackerSource));
+        EXPECT_EQ(output.project.pointMasses.size(), allMasses ? 0u : 1u);
+        const auto references = motrack::indexTrackerReferences(output.source, output.project);
+        EXPECT_TRUE(references.malformedPaths.empty());
+        EXPECT_EQ(output.source.xml.find("name=\"selectedtrack\""), std::string::npos);
+        int replaced = 0;
+        for (const auto& reference : references.references)
+        {
+            if ((reference.kind == motrack::TrackerReferenceKind::PlotSelection ||
+                 reference.kind == motrack::TrackerReferenceKind::TableSelection) &&
+                reference.resolution == motrack::TrackerReferenceResolution::Resolved)
+            {
+                EXPECT_EQ(reference.originalName, allMasses ? "protractor" : "renamed survivor");
+                ++replaced;
+            }
+        }
+        EXPECT_EQ(replaced, 3);
+        EXPECT_EQ(motrack::renderTrackerProject(output.project, output.source), output.source.xml);
+    }
+}
+
+TEST(TrackerWriter, DeletingAllSelectedVectorsClearsSelectionsWithoutChoosingAxes)
+{
+    auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk");
+    xml.insert(xml.rfind("</object>"),
+               "<property name='selectedtrack' type='string'>vector A</property>\n"
+               "<property name='selected_track_views' type='string'>vector A,null;null,vector B;null,null;null,null</property>\n"
+               "<property name='views' type='array' class='[[Lorg.opensourcephysics.cabrillo.tracker.TView;'>"
+               "<property name='[1]' type='array' class='[Lorg.opensourcephysics.cabrillo.tracker.TView;'>"
+               "<property name='[1]' type='object'><object class='org.opensourcephysics.cabrillo.tracker.TableTView'>"
+               "<property name='selected_track' type='string'>vector B</property></object></property></property></property>\n");
+    const auto imported = motrack::parseTrackerProject(xml);
+    auto project = imported.project;
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.removeVector(project, 0));
+    ASSERT_TRUE(edits.removeVector(project, 0));
+    const auto output = motrack::parseTrackerProject(motrack::renderTrackerProject(project, imported.source));
+    EXPECT_TRUE(output.project.vectors.empty());
+    EXPECT_EQ(output.source.xml.find("name=\"selectedtrack\""), std::string::npos);
+    EXPECT_EQ(output.source.xml.find("name=\"selected_track\""), std::string::npos);
+    const auto references = motrack::indexTrackerReferences(output.source, output.project);
+    ASSERT_EQ(references.references.size(), 8);
+    for (const auto& reference : references.references)
+        EXPECT_EQ(reference.resolution, motrack::TrackerReferenceResolution::NoTarget);
+    ASSERT_TRUE(edits.createVector(project, "replacement"));
+    const auto withNewTrack = motrack::parseTrackerProject(motrack::renderTrackerProject(project, imported.source));
+    const auto newReferences = motrack::indexTrackerReferences(withNewTrack.source, withNewTrack.project);
+    int fallbackCount = 0;
+    for (const auto& reference : newReferences.references)
+    {
+        if (reference.resolution == motrack::TrackerReferenceResolution::Resolved)
+        {
+            EXPECT_EQ(reference.originalName, "replacement");
+            ++fallbackCount;
+        }
+    }
+    EXPECT_EQ(fallbackCount, 3);
+}
+
 TEST(TrackerWriter, DeletesAnUnreferencedMassAfterNativeReopenAndRestoresItThroughHistory)
 {
     const auto imported = motrack::parseTrackerProject(namedSource());

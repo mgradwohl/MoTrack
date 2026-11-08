@@ -971,6 +971,7 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
     // Name patching uses original source ordinals, so erase nodes only after its reference updates.
     if (membershipChanged)
     {
+        patchTrackerDeletedSelections(xml, expected, source);
         for (const auto& [id, object] : objects)
         {
             if (!liveIds.contains(id))
