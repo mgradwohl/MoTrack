@@ -1,0 +1,80 @@
+{
+  "tracks": [
+    {
+      "source_index": 0,
+      "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+      "name": "axes",
+      "native_id": null
+    },
+    {
+      "source_index": 1,
+      "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+      "name": "mass A",
+      "native_id": "1"
+    },
+    {
+      "source_index": 2,
+      "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+      "name": "mass B",
+      "native_id": "2"
+    },
+    {
+      "source_index": 3,
+      "class": "org.opensourcephysics.cabrillo.tracker.TapeMeasure",
+      "name": "both ends",
+      "native_id": null
+    },
+    {
+      "source_index": 4,
+      "class": "org.opensourcephysics.cabrillo.tracker.TapeMeasure",
+      "name": "one end",
+      "native_id": null
+    }
+  ],
+  "references": [
+    {
+      "kind": "selected_track",
+      "path": "/selectedtrack",
+      "name": "both ends",
+      "resolution": "resolved",
+      "targets": [
+        3
+      ]
+    },
+    {
+      "kind": "attachment",
+      "path": "/tracks/3/attachments/0",
+      "name": "mass A",
+      "resolution": "resolved",
+      "targets": [
+        1
+      ]
+    },
+    {
+      "kind": "attachment",
+      "path": "/tracks/3/attachments/1",
+      "name": "mass B",
+      "resolution": "resolved",
+      "targets": [
+        2
+      ]
+    },
+    {
+      "kind": "attachment",
+      "path": "/tracks/4/attachments/0",
+      "name": "mass A",
+      "resolution": "resolved",
+      "targets": [
+        1
+      ]
+    },
+    {
+      "kind": "attachment",
+      "path": "/tracks/4/attachments/1",
+      "name": "",
+      "resolution": "no_target",
+      "targets": []
+    }
+  ],
+  "malformed_paths": []
+}

@@ -27,7 +27,9 @@ enum class TrackerReferenceKind : std::uint8_t
     CenterOfMassMember,
     VectorSumMember,
     PlotGuest,
-    TableDatasetOwner
+    TableDatasetOwner,
+    Attachment,
+    CircleStepAttachment
 };
 
 enum class TrackerReferenceResolution : std::uint8_t
@@ -59,7 +61,7 @@ struct TrackerReferenceIndex
 };
 
 /// Read-only, partial index of original identities, panel selections/referenceframe, saved-view owners and constituents.
-/// The packed selection codec requires exactly four plot/table pairs; only its "null" tokens mean no target.
+/// The packed selection codec requires exactly four plot/table pairs; its "null" tokens mean no target.
 /// Validates persisted bindings but does not require a bound track to remain live. Source XML is unchanged.
 /// Bounds: 10000 tracks and 10000 total nested entries, 4096 UTF-16 units per string, 65536 packed units, plus the XML byte cap.
 /// Same-name candidate visits have an aggregate limit of 100000, checked before filtering/copying.
@@ -67,7 +69,9 @@ struct TrackerReferenceIndex
 /// Other same-named classes stay Unclassified; duplicates stay Ambiguous, not simulated Java membership.
 /// Plot guests retain ordered source slots, including duplicate names; lookup does not claim drawable/data compatibility.
 /// Table dataset rows index owners only; canonical nonnegative Java-int settings remain data, not references.
-/// Malformed known fields are explicit. Attachments and model dependencies are NOT indexed:
+/// TapeMeasure/Protractor/CircleFitter attachment slots retain explicit nulls as NoTarget with an empty originalName.
+/// CircleFitter.step_attachment is indexed separately. Resolution does not certify supported attachment geometry.
+/// Malformed known fields are explicit. Model dependencies are NOT indexed:
 /// an empty malformedPaths list is NOT proof that a rename/export is safe. Tracker's vector-sum reload defect still applies.
 [[nodiscard]] TrackerReferenceIndex indexTrackerReferences(const TrackerSource& source, const LegacyProject& project);
 

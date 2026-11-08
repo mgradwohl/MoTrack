@@ -613,6 +613,126 @@ TEST(TrackerReferences, TableDatasetIdentitySurvivesNativeRenameDeleteUndoRedoAn
     EXPECT_EQ(reopened.trackerSource->xml, imported.source.xml);
 }
 
+TEST(TrackerReferences, IndexesAttachmentSlotsIncludingEmptyAndLiteralNullNames)
+{
+    const auto attachmentSlots =
+        stringRow("attachments", property("[0]", "A") + "<property name='[1]' type='object'>null</property>" + property("[2]", "null"));
+    const auto result =
+        index(project(point("A") + point("null") + dependent("Protractor", attachmentSlots) +
+                      dependent("CircleFitter", property("step_attachment", "A") + stringRow("attachments", property("[0]", "unknown"))) +
+                      track("FutureTrack", "unknown") + dependent("FutureTrack", attachmentSlots)));
+    EXPECT_TRUE(result.malformedPaths.empty());
+    ASSERT_EQ(result.references.size(), 5u);
+    EXPECT_EQ(result.references[0].kind, Kind::Attachment);
+    EXPECT_EQ(result.references[0].path, "/tracks/2/attachments/0");
+    EXPECT_EQ(result.references[0].candidateSourceIndices, (std::vector<std::size_t>{0}));
+    EXPECT_EQ(result.references[1].resolution, Resolution::NoTarget);
+    EXPECT_EQ(result.references[1].originalName, "");
+    EXPECT_TRUE(result.references[1].candidateSourceIndices.empty());
+    EXPECT_EQ(result.references[2].resolution, Resolution::Resolved);
+    EXPECT_EQ(result.references[2].originalName, "null");
+    EXPECT_EQ(result.references[2].candidateSourceIndices, (std::vector<std::size_t>{1}));
+    EXPECT_EQ(result.references[3].kind, Kind::CircleStepAttachment);
+    EXPECT_EQ(result.references[3].path, "/tracks/3/step_attachment");
+    EXPECT_EQ(result.references[3].candidateSourceIndices, (std::vector<std::size_t>{0}));
+    EXPECT_EQ(result.references[4].candidateSourceIndices, (std::vector<std::size_t>{4}));
+    EXPECT_FALSE(result.tracks[4].nativeId);
+    EXPECT_TRUE(index(project(dependent("TapeMeasure", {}))).malformedPaths.empty());
+    EXPECT_TRUE(index(project(dependent("TapeMeasure", stringRow("attachments", {})))).malformedPaths.empty());
+}
+
+TEST(TrackerReferences, AttachmentNamesRemainAmbiguousMissingOrRepeatedWithoutChoosingTargets)
+{
+    const auto attachmentSlots = stringRow("attachments", property("[0]", "same") + property("[1]", "missing") + property("[2]", "same"));
+    const auto result = index(project(point("same") + track("FutureTrack", "same") + dependent("CircleFitter", attachmentSlots)));
+    EXPECT_TRUE(result.malformedPaths.empty());
+    ASSERT_EQ(result.references.size(), 3u);
+    EXPECT_EQ(result.references[0].resolution, Resolution::Ambiguous);
+    EXPECT_EQ(result.references[0].candidateSourceIndices, (std::vector<std::size_t>{0, 1}));
+    EXPECT_EQ(result.references[1].resolution, Resolution::Missing);
+    EXPECT_EQ(result.references[2].candidateSourceIndices, result.references[0].candidateSourceIndices);
+}
+
+TEST(TrackerReferences, RejectsMalformedAttachmentsWithoutPartialSlotLists)
+{
+    const auto valid = stringRow("attachments", property("[0]", "A"));
+    for (const auto& fields :
+         {property("attachments", "A"),
+          valid + valid,
+          arrayXml("attachments", "wrong", property("[0]", "A")),
+          stringRow("attachments", property("[1]", "A")),
+          stringRow("attachments", property("[0]", "A") + property("[0]", "A")),
+          stringRow("attachments", property("[0]", "A") + "<property name='[1]' type='object'><object class='Unknown'/></property>"),
+          stringRow("attachments", property("[0]", "A") + "<property name='[1]' type='object'>null<other/></property>"),
+          stringRow("attachments", property("[0]", "A") + "<property name='[1]' type='object' class='Other'>null</property>"),
+          stringRow("attachments", property("[0]", "A") + "<property name='[1]' type='object'/>"),
+          stringRow("attachments", property("[0]", "A") + "<property name='[1]' type='int'>0</property>"),
+          stringRow("attachments", property("[0]", "A") + property("[1]", std::string(4097, 'a')))})
+    {
+        SCOPED_TRACE(fields);
+        const auto result = index(project(point("A") + dependent("TapeMeasure", fields)));
+        EXPECT_TRUE(result.references.empty());
+        EXPECT_FALSE(result.malformedPaths.empty());
+    }
+    const auto result = index(project(dependent("CircleFitter", property("step_attachment", "A") + property("step_attachment", "B"))));
+    EXPECT_TRUE(result.references.empty());
+    EXPECT_EQ(result.malformedPaths, (std::vector<std::string>{"/tracks/0/step_attachment"}));
+}
+
+TEST(TrackerReferences, AttachmentsShareEntryAndCandidateBudgets)
+{
+    std::string attachmentSlots;
+    for (unsigned i = 0; i < 10000; ++i)
+        attachmentSlots += property("[" + std::to_string(i) + "]", "A");
+    EXPECT_THROW((void)index(project(point("A") + dependent("CircleFitter", stringRow("attachments", attachmentSlots)),
+                                     savedViews(viewXml("TableTView", {})))),
+                 motrack::ProjectError);
+    std::string tracks;
+    for (unsigned i = 0; i < 400; ++i)
+        tracks += point("same");
+    attachmentSlots.clear();
+    for (unsigned i = 0; i < 251; ++i)
+        attachmentSlots += property("[" + std::to_string(i) + "]", "same");
+    EXPECT_THROW((void)index(project(tracks + dependent("CircleFitter", stringRow("attachments", attachmentSlots)))),
+                 motrack::ProjectError);
+}
+
+TEST(TrackerReferences, AttachmentIdentitySurvivesNativeEditsUndoAndReopen)
+{
+    auto imported = motrack::parseTrackerProject(
+        project(point("original") + point("other") +
+                dependent("TapeMeasure",
+                          stringRow("attachments", "<property name='[0]' type='object'>null</property>" + property("[1]", "original")))));
+    const auto id = imported.project.pointMasses[0].id;
+    motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.renamePointMass(document.project, 0, "new name"));
+    std::ranges::reverse(document.project.pointMasses);
+    ASSERT_TRUE(edits.removePointMass(document.project, 1));
+    const auto deleted = motrack::indexTrackerReferences(imported.source, document.project);
+    ASSERT_EQ(deleted.references.size(), 2u);
+    EXPECT_EQ(deleted.tracks[0].nativeId, id);
+    EXPECT_EQ(deleted.references[1].candidateSourceIndices, (std::vector<std::size_t>{0}));
+    ASSERT_TRUE(edits.undo(document.project));
+    ASSERT_TRUE(edits.redo(document.project));
+    ASSERT_TRUE(edits.undo(document.project));
+    QTemporaryDir temporary;
+    const auto file = temporary.filePath("attachments.motrack");
+    motrack::writeWorkspaceDocument(file, document);
+    const auto reopened = motrack::readWorkspaceDocument(file);
+    if (!reopened.trackerSource)
+    {
+        FAIL() << "Expected original source";
+    }
+    const auto restored = motrack::indexTrackerReferences(*reopened.trackerSource, reopened.project);
+    ASSERT_EQ(restored.references.size(), 2u);
+    EXPECT_EQ(restored.references[0].resolution, Resolution::NoTarget);
+    EXPECT_EQ(restored.tracks[0].nativeId, id);
+    EXPECT_EQ(restored.references[1].originalName, "original");
+    EXPECT_EQ(restored.references[1].candidateSourceIndices, (std::vector<std::size_t>{0}));
+    EXPECT_EQ(reopened.trackerSource->xml, imported.source.xml);
+}
+
 TEST(TrackerReferences, RejectsMalformedViewContainersIndicesAndObjects)
 {
     const auto valid = savedViews(viewXml("TableTView", property("selected_track", "A")));
