@@ -148,12 +148,13 @@ try
 {
     const QCoreApplication application(argc, argv);
     const auto args = application.arguments();
-    if (args.size() == 4 && (args[1] == "--export-mass" || args[1] == "--export-marks" || args[1] == "--export-empty-marks" ||
-                             args[1] == "--export-first-mark" || args[1] == "--export-vectors" || args[1] == "--export-empty-vectors" ||
-                             args[1] == "--export-first-vector" || args[1] == "--export-clip" || args[1] == "--export-snap-origin" ||
-                             args[1] == "--export-snap-vector" || args[1] == "--export-length-unit" || args[1] == "--export-calibration" ||
-                             args[1] == "--export-clip-boundary" || args[1] == "--export-keyed-calibration" ||
-                             args[1] == "--export-mass-unit" || args[1] == "--export-name" || args[1] == "--export-unselected-name"))
+    if (args.size() == 4 &&
+        (args[1] == "--export-mass" || args[1] == "--export-marks" || args[1] == "--export-empty-marks" ||
+         args[1] == "--export-first-mark" || args[1] == "--export-vectors" || args[1] == "--export-empty-vectors" ||
+         args[1] == "--export-first-vector" || args[1] == "--export-clip" || args[1] == "--export-snap-origin" ||
+         args[1] == "--export-snap-vector" || args[1] == "--export-length-unit" || args[1] == "--export-calibration" ||
+         args[1] == "--export-clip-boundary" || args[1] == "--export-keyed-calibration" || args[1] == "--export-mass-unit" ||
+         args[1] == "--export-name" || args[1] == "--export-unselected-name" || args[1] == "--export-vector-name"))
     {
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trk");
@@ -164,7 +165,16 @@ try
         }
         auto document = motrack::importTrackerDocument(source);
         motrack::TrackEdits edits;
-        if (args[1] == "--export-name" || args[1] == "--export-unselected-name")
+        if (args[1] == "--export-vector-name")
+        {
+            const auto name = QString::fromUtf8("élève β & <B>").toStdString();
+            if (document.project.vectors.size() != 2 || !edits.renameVector(document.project, 1, "temporary rename") ||
+                !edits.renameVector(document.project, 1, name) || !edits.undo(document.project) || !edits.redo(document.project))
+            {
+                throw motrack::ProjectError("Could not rename the round-trip vector.");
+            }
+        }
+        else if (args[1] == "--export-name" || args[1] == "--export-unselected-name")
         {
             const std::size_t index = args[1] == "--export-name" ? 1 : 0;
             const auto name = QString::fromUtf8("élève β & <B>").toStdString();

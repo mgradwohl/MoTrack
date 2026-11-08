@@ -40,7 +40,7 @@ QDomElement property(const QDomElement& owner, const QString& name)
 }
 
 // A reference index alone cannot establish rename eligibility. This first writer admits only the
-// audited media-free mass/protractor/table schema. Unknown fields/classes, models, functions, moving
+// audited media-free mass/vector/protractor/table schema. Unknown fields/classes, models, functions, moving
 // frames and attachments remain preserved by native saving but cannot silently bypass this gate.
 using Fields = std::map<QString, QString>;
 Fields fields(const QString& name)
@@ -75,7 +75,8 @@ Fields fields(const QString& name)
                 {"track_control_x", "int"},
                 {"track_control_y", "int"}};
     }
-    if (name == QString(TRACKER) + "PointMass" || name == QString(TRACKER) + "CoordAxes" || name == QString(TRACKER) + "Protractor")
+    if (name == QString(TRACKER) + "PointMass" || name == QString(TRACKER) + "Vector" || name == QString(TRACKER) + "CoordAxes" ||
+        name == QString(TRACKER) + "Protractor")
     {
         Fields result{{"name", "string"},
                       {"description", "string"},
@@ -89,6 +90,10 @@ Fields fields(const QString& name)
             result.insert(
                 {{"mass", "double"}, {"framedata", "array:[L" + QString(TRACKER) + "PointMass$FrameData;"}, {"keyFrames", "array:[I"}});
         }
+        else if (name.endsWith(".Vector"))
+        {
+            result.insert({{"framedata", "array:[L" + QString(TRACKER) + "Vector$FrameData;"}});
+        }
         else if (name.endsWith(".Protractor"))
         {
             result.insert({{"fixed", "boolean"}, {"framedata", "array:[[D"}, {"ruler_visible", "boolean"}});
@@ -98,6 +103,10 @@ Fields fields(const QString& name)
     if (name == QString(TRACKER) + "PointMass$FrameData")
     {
         return {{"x", "double"}, {"y", "double"}};
+    }
+    if (name == QString(TRACKER) + "Vector$FrameData")
+    {
+        return {{"xtail", "double"}, {"ytail", "double"}, {"xcomponent", "double"}, {"ycomponent", "double"}};
     }
     if (name == "java.awt.Color")
     {
@@ -181,6 +190,12 @@ struct RenameSchema
         if (type == "object")
         {
             const auto nested = value.firstChildElement();
+            // The Vector serializer retains its frame-array extent with a typed null final cell.
+            // This is geometry data, not a missing named object or permission for arbitrary nulls.
+            if (nested.isNull() && expected == QString(TRACKER) + "Vector$FrameData" && value.text() == "null")
+            {
+                return;
+            }
             require(!nested.isNull() && nested.nextSiblingElement().isNull());
             object(nested, expected, depth + 1);
         }
@@ -191,7 +206,7 @@ struct RenameSchema
             {
                 const auto className = item.firstChildElement().attribute("class");
                 require(className == QString(TRACKER) + "PointMass" || className == QString(TRACKER) + "CoordAxes" ||
-                        className == QString(TRACKER) + "Protractor");
+                        className == QString(TRACKER) + "Protractor" || className == QString(TRACKER) + "Vector");
                 propertyValue(item, "object:" + className, depth + 1);
             }
         }
@@ -274,16 +289,21 @@ void requireName(const std::string& name)
 }
 } // namespace
 
-bool patchTrackerPointMassNames(QDomDocument& xml, const LegacyProject& project, LegacyProject& baseline, const TrackerSource& source)
+bool patchTrackerNames(QDomDocument& xml, const LegacyProject& project, LegacyProject& baseline, const TrackerSource& source)
 {
     std::map<TrackId, std::string> renamed;
-    require(project.pointMasses.size() == baseline.pointMasses.size());
-    for (std::size_t i = 0; i < project.pointMasses.size(); ++i)
+    const auto collect = [&](const auto& current, const auto& original)
     {
-        require(project.pointMasses[i].id == baseline.pointMasses[i].id);
-        if (project.pointMasses[i].name != baseline.pointMasses[i].name)
-            renamed.emplace(project.pointMasses[i].id, project.pointMasses[i].name);
-    }
+        require(current.size() == original.size());
+        for (std::size_t i = 0; i < current.size(); ++i)
+        {
+            require(current[i].id == original[i].id);
+            if (current[i].name != original[i].name)
+                renamed.emplace(current[i].id, current[i].name);
+        }
+    };
+    collect(project.pointMasses, baseline.pointMasses);
+    collect(project.vectors, baseline.vectors);
     if (renamed.empty())
         return false;
     RenameSchema{}.object(xml.documentElement(), QString(TRACKER) + "TrackerPanel");
@@ -355,11 +375,14 @@ bool patchTrackerPointMassNames(QDomDocument& xml, const LegacyProject& project,
         if (const auto found = replacements.find(ordinal); found != replacements.end())
             patchString(xml, property(item.firstChildElement("object"), "name"), found->second);
     }
-    for (auto& mass : baseline.pointMasses)
+    const auto update = [&](auto& tracks)
     {
-        if (const auto found = renamed.find(mass.id); found != renamed.end())
-            mass.name = found->second;
-    }
+        for (auto& track : tracks)
+            if (const auto found = renamed.find(track.id); found != renamed.end())
+                track.name = found->second;
+    };
+    update(baseline.pointMasses);
+    update(baseline.vectors);
     return true;
 }
 } // namespace motrack

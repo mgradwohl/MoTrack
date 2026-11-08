@@ -743,7 +743,7 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
             objects.emplace(found->second, item.firstChildElement("object"));
         }
     }
-    bool changed = patchTrackerPointMassNames(xml, expected, baseline.project, source);
+    bool changed = patchTrackerNames(xml, expected, baseline.project, source);
     if (expected.calibration != baseline.project.calibration)
     {
         if (!expected.calibration || !baseline.project.calibration)

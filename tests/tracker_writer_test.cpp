@@ -272,6 +272,88 @@ TEST(TrackerWriter, UndoingANameEditRestoresByteExactSource)
     EXPECT_EQ(motrack::renderTrackerProject(imported.project, imported.source), imported.source.xml);
 }
 
+std::string namedVectorSource()
+{
+    auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk");
+    const auto end = xml.rfind("</object>");
+    if (end == std::string::npos)
+        throw motrack::ProjectError("Missing vector fixture");
+    xml.insert(end,
+               "<property name='selectedtrack' type='string'>vector B</property>\n"
+               "<property name='selected_track_views' type='string'>vector B,null;null,vector B;null,null;null,null</property>\n"
+               "<property name='description' type='string'>vector A and vector B are words in this note.</property>\n");
+    return xml;
+}
+
+TEST(TrackerWriter, RenamesBoundVectorWithSelectionsAfterInterleavedEditsAndNativeReopen)
+{
+    const auto imported = motrack::parseTrackerProject(namedVectorSource());
+    motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
+    motrack::TrackEdits edits;
+    const auto name = QString::fromUtf8("élève β & <B>").toStdString();
+    ASSERT_TRUE(edits.renameVector(document.project, 1, "temporary"));
+    ASSERT_TRUE(edits.markVector(document.project, 0, {.frame = 3, .tailX = 100, .tailY = 200, .componentX = 3, .componentY = 4}));
+    ASSERT_TRUE(edits.renameVector(document.project, 1, name));
+    ASSERT_TRUE(edits.undo(document.project));
+    ASSERT_TRUE(edits.redo(document.project));
+    ASSERT_TRUE(edits.removeVector(document.project, 0));
+    ASSERT_TRUE(edits.undo(document.project));
+    const auto first = document.project.vectors[0];
+    const auto second = document.project.vectors[1];
+    std::ranges::reverse(document.project.vectors);
+    QTemporaryDir temporary;
+    const auto native = temporary.filePath("vector-names.motrack");
+    motrack::writeWorkspaceDocument(native, document);
+    document = motrack::readWorkspaceDocument(native);
+    ASSERT_TRUE(document.trackerSource);
+    const auto output = motrack::parseTrackerProject(motrack::renderTrackerProject(document.project, *document.trackerSource));
+    EXPECT_EQ(output.project.vectors, (std::vector<motrack::VectorTrack>{first, second}));
+    EXPECT_EQ(output.project.description, imported.project.description);
+    const auto references = motrack::indexTrackerReferences(output.source, output.project);
+    ASSERT_EQ(references.references.size(), 9u);
+    for (const auto& reference : references.references)
+        if (reference.resolution != motrack::TrackerReferenceResolution::NoTarget)
+        {
+            EXPECT_EQ(reference.originalName, name);
+            EXPECT_EQ(reference.candidateSourceIndices, (std::vector<std::size_t>{2}));
+        }
+    EXPECT_EQ(document.trackerSource->xml, imported.source.xml);
+}
+
+TEST(TrackerWriter, VectorRenamesKeepSnappingUnknownDataAndNameCollisionGuards)
+{
+    QTemporaryDir temporary;
+    const auto path = temporary.filePath("existing.trk");
+    const auto imported = motrack::parseTrackerProject(namedVectorSource());
+    motrack::writeTrackerProject(path, imported.project, imported.source);
+    for (const auto& name : {"vector A", "axes", "null", "bad,name"})
+    {
+        auto project = imported.project;
+        project.vectors[1].name = name;
+        EXPECT_THROW(motrack::writeTrackerProject(path, project, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(path), imported.source.xml);
+    }
+    auto snapping = imported.project;
+    snapping.vectors[1].name = "renamed";
+    snapping.vectors[1].samples.front().tailX = 321;
+    snapping.vectors[1].samples.front().tailY = 240;
+    EXPECT_THROW(motrack::writeTrackerProject(path, snapping, imported.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(path), imported.source.xml);
+    for (const auto& [from, to] :
+         std::vector<std::pair<std::string, std::string>>{{"type=\"object\">null", "type=\"object\">missing"},
+                                                          {"cabrillo.tracker.Vector$FrameData", "cabrillo.tracker.FutureFrameData"},
+                                                          {"name=\"footprint\"", "name=\"attachments\""}})
+    {
+        auto xml = namedVectorSource();
+        ASSERT_NE(xml.find(from), std::string::npos);
+        xml.replace(xml.find(from), from.size(), to);
+        auto unknown = motrack::parseTrackerProject(xml);
+        unknown.project.vectors[1].name = "renamed";
+        EXPECT_THROW(motrack::writeTrackerProject(path, unknown.project, unknown.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(path), imported.source.xml);
+    }
+}
+
 TEST(TrackerWriter, BoundsRenameSchemaAndRejectsUnclassifiedFieldsAndEncodings)
 {
     for (const auto& [from, to] : std::vector<std::pair<std::string, std::string>>{

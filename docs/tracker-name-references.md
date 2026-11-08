@@ -1,8 +1,8 @@
 # Tracker track names and source references
 
 This records the partial phase-3 source-reference implementation and rename architecture.
-The internal standard writer now supports a conservative point-mass rename subset with selected/unselected
-protractor round-trip cases. Native names have undo/redo and persistent identities. Broader rename/export
+The internal standard writer now supports conservative point-mass and independent-vector renames, with
+selected/unselected protractor cases and a selected-vector case. Native names have undo/redo and persistent identities. Broader rename/export
 eligibility and desktop standard Save remain unfinished.
 The [full-port plan](migration-plan.md) remains the requirements/status authority.
 
@@ -157,13 +157,13 @@ The `referenceframe` scalar is indexed, but moving-coordinate behavior still lac
 
 ## Implemented rename subset and remaining architecture
 
-The internal writer uses original source identities to patch point-mass names, root/packed view
+The internal writer uses original source identities to patch point-mass/vector names, root/packed view
 selections, nested table selections and table column/format owners. Native reorder, repeated renames,
 undo/redo and reopen do not change which original object is patched. Other words in descriptions,
 column labels and format patterns remain data. No global text replacement is used.
 
 Eligibility additionally requires the explicitly audited media-free schema in
-[`tracker_rename.cpp`](../src/tracker_rename.cpp): axes, point masses, unattached protractors and table
+[`tracker_rename.cpp`](../src/tracker_rename.cpp): axes, point masses, independent vectors, unattached protractors and table
 settings, together with their numeric geometry, color, clip and toolbar fields. Unrecognized properties,
 attributes/classes, model/function data, attachment fields, reference frames, plot objects and dataset
 rows reject rename export, even when the partial reference index has no malformed paths. The original
@@ -183,6 +183,15 @@ note containing the old names. Tracker must retain selected plot/table objects, 
 untouched measurements and the renamed label through load/save/fresh-process reopen and native reimport.
 The existing visited-table preparation remains explicit; [MoTrack #64](https://github.com/mgradwohl/MoTrack/issues/64)
 is not closed or established safe for immediate unvisited Tracker resaves by this change.
+
+The independent-vector case adds explicit root/packed selections for vector B in a temporary source
+copy, then performs the same Unicode rename, native reopen and application round trip. Vector frame-data
+and typed null cells that retain the array extent remain untouched. The schema accepts canonical null
+Vector frame-data entries only; arbitrary missing named objects remain unsupported. All existing vector
+export safeguards still apply, including fixed coordinates, supported arrow footprints, bounded frame
+arrays and distances from origins/other vector heads that avoid Tracker's first-draw snapping.
+This does not extend export to vector sums or mixed dependent scenes; [MoTrack #63](https://github.com/mgradwohl/MoTrack/issues/63)
+remains an explicit external compatibility blocker.
 
 Extend the partial source-reference index alongside the existing original-object bindings. Its source nodes
 include the original collection position, Java class and original name. Editable nodes resolve to
@@ -230,5 +239,6 @@ transient undo history.
 
 The first rename cases include the protractor experiment's selected `mass B` and unselected `mass A`.
 They require identical words in an unrelated description to stay unchanged; native regressions reject
-unknown/ambiguous relationships. Next extend to independent vectors, plot guests and each dependent
+unknown/ambiguous relationships. Independent vectors now have a separate selected-vector case.
+Next extend to plot guests and each dependent
 field with its own application evidence, then creation/deletion and archive/paired saving.

@@ -81,6 +81,41 @@ class CorpusTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             corpus.rename_roundtrip_expected(case, "wrong")
 
+    def test_vector_rename_oracle_preserves_geometry_null_extent_and_notes(self):
+        manifest = corpus.load_manifest()
+        case = next(case for case in manifest["cases"] if case["id"] == "independent-vectors")
+        source = corpus.local_fixture_path(case).read_text(encoding="utf-8")
+        before, after = source.rsplit("</object>", 1)
+        source = (before + '<property name="selectedtrack" type="string">vector B</property>\n'
+                  '<property name="selected_track_views" type="string">vector B,null;null,vector B;null,null;null,null</property>\n'
+                  '<property name="description" type="string">vector A and vector B stay in this note</property>\n</object>' + after)
+        original, exported = self.root / "vector-name-source.trk", self.root / "vector-name-export.trk"
+        original.write_text(source, encoding="utf-8")
+        text = source.replace('name="name" type="string">vector B</property>',
+                              'name="name" type="string"><![CDATA[' + corpus.RENAME_LABEL + ']]></property>')
+        text = text.replace('name="selectedtrack" type="string">vector B</property>',
+                            'name="selectedtrack" type="string"><![CDATA[' + corpus.RENAME_LABEL + ']]></property>')
+        packed = corpus.RENAME_LABEL + ',null;null,' + corpus.RENAME_LABEL + ';null,null;null,null'
+        text = text.replace('name="selected_track_views" type="string">vector B,null;null,vector B;null,null;null,null</property>',
+                            'name="selected_track_views" type="string"><![CDATA[' + packed + ']]></property>')
+        exported.write_text(text, encoding="utf-8")
+        corpus.verify_rename_export_xml(original, exported, "vector-name")
+        for old, new in [('type="object">null', 'type="object"></property><property name="extra" type="object">null'),
+                         ('vector A and vector B stay', 'replaced text'),
+                         ('name="xcomponent" type="double">3.0', 'name="xcomponent" type="double">4.0'),
+                         (';null,null;null,null', ';null,wrong;null,null')]:
+            self.assertIn(old, text)
+            exported.write_text(text.replace(old, new, 1), encoding="utf-8")
+            with self.subTest(change=old), self.assertRaises(ValueError):
+                corpus.verify_rename_export_xml(original, exported, "vector-name")
+        expected, updated = corpus.rename_roundtrip_expected(case, "vector-name")
+        baseline = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
+        self.assertEqual(expected["vectors"][1]["name"], "élève β & <B>")
+        self.assertEqual(expected["vectors"][1]["samples"], baseline["vectors"][1]["samples"])
+        self.assertEqual(updated["session_names"]["selected_track"], "élève β & <B>")
+        self.assertEqual(updated["session_names"]["view_tracks"][0], ["élève β & <B>", None])
+        self.assertNotIn("session_names", case)
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix="motrack-corpus-test-")
         self.addCleanup(self.directory.cleanup)
