@@ -28,6 +28,67 @@ class Download(io.BytesIO):
 
 
 class CorpusTests(unittest.TestCase):
+    def test_media_session_requires_independent_pixels_order_and_timing(self):
+        manifest = corpus.load_manifest()
+        case = next(c for c in manifest["cases"] if c["id"] == "linked-images")
+        expected = json.loads(corpus.expected_path(case).read_text())["project"]
+        mass = expected["point_masses"][0]
+        before = {"tracks": [case["session_tracks"][0], {
+            **case["session_tracks"][1], "mass": mass["mass"],
+            "samples": [{"frame": sample["frame"], "points": [sample["image"]], "world": sample["world"]}
+                        for sample in mass["samples"]]}],
+            "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+            "media": copy.deepcopy(case["session_media"]), "frame_duration_ms": 125.0,
+            "time_samples": copy.deepcopy(case["session_time_samples"]),
+            "name_references": {"selected_track": "image mass"}, **corpus.session_units(case, expected)}
+        valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                 "view_preparation": "expand_visit_custom_tables_restore_selection", "before": before,
+                 "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
+        corpus.validate_session(case, valid, manifest)
+        for stages in [["after"], ["before", "after_save", "after"]]:
+            for mutation in ["missing", "pixels", "order", "time", "dimensions", "count"]:
+                invalid = copy.deepcopy(valid)
+                for stage in stages:
+                    media = invalid[stage]["media"]
+                    if mutation == "missing":
+                        invalid[stage]["media"] = None
+                    elif mutation == "pixels":
+                        media["frames"][0]["rgb_sha256"] = "0" * 64
+                    elif mutation == "order":
+                        media["frames"][0], media["frames"][1] = media["frames"][1], media["frames"][0]
+                    elif mutation == "time":
+                        media["frames"][2]["time_ms"] = 200.0
+                    elif mutation == "dimensions":
+                        media["frames"][0]["width"] = 31
+                    else:
+                        media["frame_count"] = 3
+                with self.subTest(stages=stages, mutation=mutation), self.assertRaises(ValueError):
+                    corpus.validate_session(case, invalid, manifest)
+        unaudited = {key: value for key, value in case.items() if key != "session_media"}
+        with self.assertRaisesRegex(ValueError, "independent pixel"):
+            corpus.validate_session(unaudited, valid, manifest)
+
+    def test_media_assets_are_pinned_bounded_and_cannot_escape_fixture_root(self):
+        manifest = corpus.load_manifest()
+        case = next(c for c in manifest["cases"] if c["id"] == "linked-images")
+        self.assertEqual(len(case["assets"]), 4)
+        artifacts = list(corpus.artifacts(manifest, self.root))
+        for asset in case["assets"]:
+            path = corpus.local_fixture_path(asset)
+            self.assertIn((path, asset), artifacts)
+            corpus.verify_file(path, asset)
+            with self.assertRaisesRegex(ValueError, "Checksum"):
+                corpus.verify_file(path, {**asset, "sha256": "0" * 64})
+        for assets in ["bad", [None], [{}], [{"url": "https://example.org/frame.png"}], [{}] * 10001,
+                       [{**case["assets"][0], "local_file": "../outside.png"}],
+                       [{**case["assets"][0], "bytes": 129 * 1024 * 1024}]]:
+            invalid = copy.deepcopy(manifest)
+            invalid["cases"][0]["assets"] = assets
+            path = self.root / "media-manifest.json"
+            path.write_text(json.dumps(invalid), encoding="utf-8")
+            with self.subTest(assets=str(assets)[:80]), self.assertRaises(ValueError):
+                corpus.load_manifest(path)
+
     def test_known_null_table_subset_remains_pinned_and_excluded_from_acceptance(self):
         manifest = corpus.load_manifest()
         case = next(c for c in manifest["cases"] if c["id"] == "table-owners-subset")
@@ -855,6 +916,12 @@ class CorpusTests(unittest.TestCase):
             corpus.project_path({"id": "example", "file": "sample.trz", "project_member": "project.trk"}, self.root)
 
     def test_manifest_rejects_duplicate_ids_and_escaping_paths(self):
+        missing_version = corpus.load_manifest()
+        del missing_version["cases"][0]["tracker_version"]
+        missing_path = self.root / "missing-version.json"
+        missing_path.write_text(json.dumps(missing_version), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "original Tracker version"):
+            corpus.load_manifest(missing_path)
         manifest = corpus.load_manifest()
         manifest["cases"].append(manifest["cases"][0])
         path = self.root / "manifest.json"

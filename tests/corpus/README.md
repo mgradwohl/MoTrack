@@ -5,7 +5,7 @@ It compares MoTrack's importer and coordinate calculations with snapshots produc
 XML loader and `ImageCoordSystem` implementation bundled in the official **Tracker 6.3.5** JAR.
 
 The original report names its verification level `xml_and_coordinate_api`. A separate session probe
-uses Tracker's actual application/async-loader lifecycle to open the media-free experiments,
+uses Tracker's actual application/async-loader lifecycle to open the media-free experiments and an audited image sequence,
 save through Tracker's normal saver and reopen in a fresh Java process. Its report is labeled
 `tracker_session_resave`. It checks loaded track classes/names, mass values, step points, clip bounds,
 units and coordinate probes before/after Java's own resave, and compares available point-mass/coordinate
@@ -13,7 +13,7 @@ data with the independent XML baseline. Independent vectors are checked by their
 components and original frame numbers before and after Java resave.
 
 Neither check proves MoTrack `.trk`/`.trz` export, complete model/function parameter fidelity, rendering,
-media decoding, cross-platform Java UI behavior or the required paired-file round trip. A successful
+general media decoding, cross-platform Java UI behavior or the required paired-file round trip. A successful
 parser or Java-only resave check must never be reported as a complete MoTrack round trip.
 
 Session failures now identify the case, edit mode, save/reopen stage and input filename, while retaining
@@ -846,3 +846,26 @@ before replacing the destination; unchanged rendering/native saving still retain
 All four fixtures remain geometry/source-index cases under [#64](https://github.com/mgradwohl/MoTrack/issues/64).
 Deleting all affected owners removes the unsafe settings; deleting only one cannot exempt another.
 Dataset owners, full table editing, media/archive saving and paired-output recovery remain unfinished.
+
+## Linked image sequence baseline
+
+[LinkedImagesFixture.java](../../tools/reference/LinkedImagesFixture.java) creates four 32×24 PNGs
+with independently specified RGB ramps, one point mass, fixed nonuniform calibration, a 125 ms
+frame interval and a −250 ms time origin. Track/coordinate records use the real Tracker serializers;
+the ImageVideo control uses OSP's public XML API and the pinned loader's paths/path/delta_t schema.
+The file-based ImageVideo constructor initializes GUI infrastructure, so it is exercised only by
+the real application on isolated Linux CI. No Java desktop application runs on Windows.
+
+The manifest pins the XML and each local media asset by byte count and SHA-256. Two headless fixture
+generations are byte-identical. Independent geometry agrees with both the pinned Java coordinate API
+and MoTrack. The application harness reads every decoded RGB pixel, frame count, dimensions, order
+and timestamp before save and after a fresh-process reopen. Expected pixel digests are calculated
+directly from the fixture's arithmetic, never copied from Tracker's saved output. Missing media,
+reordered frames, altered pixels, dimensions or times fail even if all three session reports agree.
+Image reads are bounded to 100 frames of at most 256×256 pixels; filters and movie engines remain
+outside this baseline. A media session without independent expectations is rejected.
+
+This is reference infrastructure for R03/R05, with application acceptance pending CI. It does not
+enable MoTrack standard-file media export. The next slice must resolve current document references
+against their current project location, rebase them for the chosen output location, and prove that
+native close/reopen and removal of the original XML do not break the linked media.

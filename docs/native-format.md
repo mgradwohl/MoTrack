@@ -374,3 +374,19 @@ broader column combinations are verified. All failures leave an existing destina
 Native saving and unchanged byte-preserving rendering retain every failing variant. Removing all
 affected owners removes their unsafe rows; deleting one cannot waive checks on survivors. Numeric
 format editing, custom order, broader pattern grammars and full view parity remain unfinished.
+
+### Planned linked-media standard output
+
+The next phase-3 adapter will receive an immutable document snapshot, the current media project
+location and the chosen standard destination. Current native media references are relative to
+the current document, while the preserved source XML retains its original spellings. The adapter
+must resolve current paths before preparing destination-relative paths; it must not infer the
+original directory from source XML or overwrite the preserved source envelope.
+
+Start with audited local ImageVideo paths, retaining frame order, pixels, calibration and timing.
+Preflight all required files, patch only known path fields, reparse and validate the proposed output
+before an atomic write. Native close/reopen, original XML removal, Unicode/relocated paths, missing
+media and failed writes require tests through this adapter. Movie engines, filters and archive
+members need their own audited path and timing contracts. Archive packaging will preserve untouched
+members and then feed the paired-save transaction/recovery layer; standard Save UI follows that layer.
+The linked-image corpus establishes an independent reference baseline, not implementation of this adapter.
