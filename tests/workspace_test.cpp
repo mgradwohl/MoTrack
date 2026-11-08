@@ -1448,6 +1448,38 @@ TEST(Workspace, ProtectsMissingMediaReachedThroughDanglingAliases)
     }
 }
 
+TEST(Workspace, RejectsCyclicMediaDirectoriesWithoutReplacingOutput)
+{
+    QTemporaryDir temporary;
+    const auto first = temporary.filePath("first");
+    const auto second = temporary.filePath("second");
+    ASSERT_TRUE(QFile::link(second, first));
+    ASSERT_TRUE(QFile::link(first, second));
+    auto document = motrack::importTrackerDocument(fixturePath("image-sequence.trk"));
+    document.project.clip.mediaReferences = {"first/frame.png"};
+    document.project.clip.firstFrame = 0;
+    document.project.clip.stepSize = 1;
+    document.project.clip.stepCount = 1;
+    document.project.clip.sourceFrameCount = 1;
+    const auto input = temporary.filePath("input.motrack");
+    motrack::writeWorkspaceDocument(input, document);
+    EXPECT_TRUE(motrack::resolveLocalMediaPath(input, "first/frame.png").isEmpty());
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(input));
+    auto* create = window.findChild<QAction*>("newPointMass");
+    ASSERT_NE(create, nullptr);
+    create->trigger();
+    const auto destination = temporary.filePath("existing.motrack");
+    QFile output(destination);
+    ASSERT_TRUE(output.open(QIODevice::WriteOnly));
+    ASSERT_EQ(output.write("original destination"), 20);
+    output.close();
+    EXPECT_FALSE(window.saveWorkspace(destination));
+    EXPECT_TRUE(window.isWindowModified());
+    ASSERT_TRUE(output.open(QIODevice::ReadOnly));
+    EXPECT_EQ(output.readAll(), "original destination");
+}
+
 TEST(ImageSequence, RejectsCyclicProjectAliases)
 {
     QTemporaryDir temporary;
