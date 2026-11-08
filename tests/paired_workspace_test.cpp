@@ -2,6 +2,7 @@
 #include "main_window.hpp"
 #include "paired_save.hpp"
 #include "tracker_archive.hpp"
+#include "tracker_writer.hpp"
 #include "workspace_document.hpp"
 
 #include <QAction>
@@ -454,6 +455,166 @@ TEST(PairedWorkspace, FileMenuAsksBeforeReplacingAnUnrelatedCompanion)
             EXPECT_EQ(bytes(native), "unrelated companion");
         }
     }
+}
+
+TEST(PairedWorkspace, PendingOpensInvalidateTheTrackerChooserAndCompanionConfirmation)
+{
+    for (const bool duringCompanion : {false, true})
+    {
+        SCOPED_TRACE(duringCompanion);
+        QTemporaryDir temporary;
+        const auto replacement = temporary.filePath("replacement.trk");
+        auto other = motrack::importTrackerDocument(fixture());
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.setPointMassValue(other.project, 0, 7));
+        motrack::writeTrackerDocument(replacement, other, fixture());
+        const auto originalReplacement = bytes(replacement);
+        const auto target = temporary.filePath("saved.trk");
+        const auto native = temporary.filePath("saved.motrack");
+        put(native, "unrelated companion");
+        motrack::MainWindow window;
+        window.show();
+        ASSERT_TRUE(window.loadProject(fixture()));
+        auto* action = window.findChild<QAction*>("saveTrackerProject");
+        ASSERT_NE(action, nullptr);
+        QTimer poll;
+        QTimer watchdog;
+        bool choseFile = false;
+        bool replaced = false;
+        const auto replace = [&]
+        {
+            window.openProject(replacement);
+            EXPECT_TRUE(QThreadPool::globalInstance()->waitForDone(5000));
+            QCoreApplication::sendPostedEvents();
+            replaced = window.windowTitle().contains("replacement.trk");
+            EXPECT_TRUE(replaced);
+        };
+        QObject::connect(&poll,
+                         &QTimer::timeout,
+                         &window,
+                         [&]
+                         {
+                             if (!choseFile)
+                             {
+                                 if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget()))
+                                 {
+                                     choseFile = true;
+                                     if (!duringCompanion)
+                                     {
+                                         poll.stop();
+                                         replace();
+                                     }
+                                     dialog->selectFile(target);
+                                     QMetaObject::invokeMethod(dialog, "accept");
+                                 }
+                             }
+                             else if (auto* message = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
+                             {
+                                 poll.stop();
+                                 replace();
+                                 message->button(QMessageBox::Yes)->click();
+                             }
+                         });
+        QObject::connect(&watchdog,
+                         &QTimer::timeout,
+                         &window,
+                         []
+                         {
+                             if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
+                                 dialog->reject();
+                         });
+        poll.start(10);
+        watchdog.start(7000);
+        action->trigger();
+        EXPECT_TRUE(choseFile && replaced);
+        EXPECT_FALSE(QFile::exists(target));
+        EXPECT_EQ(bytes(native), "unrelated companion");
+        EXPECT_EQ(bytes(replacement), originalReplacement);
+        EXPECT_FALSE(QFile::exists(temporary.filePath("replacement.motrack")));
+    }
+}
+
+TEST(PairedWorkspace, PendingOpenInvalidatesRecoveryConfirmationAndItsSaveDestination)
+{
+    QTemporaryDir temporary;
+    const auto target = temporary.filePath("saved.trk");
+    std::atomic_bool cancelled{false};
+    const auto partial =
+        motrack::writePairedDocuments(target,
+                                      motrack::importTrackerDocument(fixture()),
+                                      fixture(),
+                                      &cancelled,
+                                      [&cancelled](auto state) { cancelled = state == motrack::PairedSaveProgress::StandardSaved; });
+    ASSERT_EQ(partial.status, motrack::PairedSaveStatus::RecoveryRequired);
+    const auto originalStandard = bytes(target);
+    const auto originalRecord = bytes(partial.recoveryPath);
+    const auto replacement = temporary.filePath("replacement.trk");
+    auto other = motrack::importTrackerDocument(fixture());
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.setPointMassValue(other.project, 0, 7));
+    motrack::writeTrackerDocument(replacement, other, fixture());
+    const auto originalReplacement = bytes(replacement);
+    motrack::MainWindow window;
+    window.show();
+    ASSERT_TRUE(window.loadProject(fixture()));
+    EXPECT_FALSE(window.saveTrackerProject(target));
+    auto* action = window.findChild<QAction*>("saveProject");
+    ASSERT_NE(action, nullptr);
+    QTimer poll;
+    QTimer discard;
+    QTimer watchdog;
+    bool confirmed = false;
+    bool replaced = false;
+    QObject::connect(&discard,
+                     &QTimer::timeout,
+                     &window,
+                     []
+                     {
+                         if (auto* message = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
+                         {
+                             if (auto* button = message->button(QMessageBox::Discard))
+                                 button->click();
+                         }
+                     });
+    QObject::connect(&poll,
+                     &QTimer::timeout,
+                     &window,
+                     [&]
+                     {
+                         QPointer<QMessageBox> message = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+                         if (!message || !message->button(QMessageBox::Yes))
+                             return;
+                         poll.stop();
+                         discard.start(10);
+                         window.openProject(replacement);
+                         EXPECT_TRUE(QThreadPool::globalInstance()->waitForDone(5000));
+                         QCoreApplication::sendPostedEvents();
+                         replaced = window.windowTitle().contains("replacement.trk");
+                         EXPECT_TRUE(replaced);
+                         discard.stop();
+                         if (message)
+                         {
+                             confirmed = true;
+                             message->button(QMessageBox::Yes)->click();
+                         }
+                     });
+    QObject::connect(&watchdog,
+                     &QTimer::timeout,
+                     &window,
+                     []
+                     {
+                         if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
+                             dialog->reject();
+                     });
+    poll.start(10);
+    watchdog.start(7000);
+    action->trigger();
+    EXPECT_TRUE(confirmed && replaced);
+    EXPECT_EQ(bytes(target), originalStandard);
+    EXPECT_EQ(bytes(partial.recoveryPath), originalRecord);
+    EXPECT_FALSE(QFile::exists(partial.nativePath));
+    EXPECT_EQ(bytes(replacement), originalReplacement);
+    EXPECT_FALSE(QFile::exists(temporary.filePath("replacement.motrack")));
 }
 
 TEST(PairedWorkspace, DestroyingTheWindowDuringSaveCancelsAndReleasesTheWorker)

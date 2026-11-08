@@ -184,8 +184,9 @@ confirmation, and window destruction during a queued save. Current Windows valid
 cross-platform CI are reported with the desktop PR. The established actual-Tracker paired corpus gates
 continue validating the same adapter; these UI tests do not independently establish broader export parity.
 
-Local Windows desktop validation: all ten paired-workspace tests and all six CTest suites pass.
-Combined production line coverage is 95.52% (7957/8330), above the unchanged 90% gate.
+Local Windows desktop validation: all twelve paired-workspace tests and all six CTest suites pass.
+Combined production line coverage is 95.58% (8000/8370), above the unchanged 90% gate.
+The 76 Python corpus tests and native corpus checks also pass.
 Formatting and clang-tidy pass for the controller and desktop tests. Linux/macOS/current-head CI
 and code review remain required before this desktop slice can be merged.
 
@@ -198,3 +199,11 @@ Recovery checkpoints capture the pending path-to-transaction identities. Applyin
 requires the recorded transaction still to match both the checkpoint and result. A newer transaction
 at the same path therefore remains pending. Recovery also preserves an existing native Save As
 target, including one selected while recovery was running; only an unset native target is adopted.
+
+Save dialogs capture their originating session before entering a nested event loop. A prepared open
+that replaces the document cancels the old chooser, companion confirmation or recovery confirmation.
+Recovery confirmation also copies the destination and checks the pending transaction identities.
+Desktop regressions accept those dialogs after asynchronous replacement and verify both projects,
+companions and recovery records remain unchanged. The progress dialog is parent-owned; its own
+connection contexts bound cancellation callbacks, and the window lifetime guard prevents access
+after destruction.

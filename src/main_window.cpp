@@ -1680,6 +1680,9 @@ void MainWindow::finishSaving()
 
 bool MainWindow::chooseTrackerPath()
 {
+    if (m_Saving)
+        return false;
+    const auto checkpoint = m_Session.saveCheckpoint();
     const bool archive = static_cast<bool>(m_Session.document.archivePayload);
     const auto suffix = archive ? QStringLiteral("trz") : QStringLiteral("trk");
     QFileDialog dialog(this,
@@ -1688,7 +1691,7 @@ bool MainWindow::chooseTrackerPath()
                        archive ? tr("Tracker archives (*.trz)") : tr("Tracker projects (*.trk)"));
     dialog.setAcceptMode(QFileDialog::AcceptSave);
     dialog.setDefaultSuffix(suffix);
-    if (dialog.exec() != QDialog::Accepted)
+    if (dialog.exec() != QDialog::Accepted || checkpoint.identity != m_Session.saveCheckpoint().identity)
         return false;
     const auto path = dialog.selectedFiles().value(0);
     const QFileInfo target(path);
@@ -1700,6 +1703,8 @@ bool MainWindow::chooseTrackerPath()
                               QMessageBox::Yes | QMessageBox::Cancel,
                               QMessageBox::Cancel) != QMessageBox::Yes)
         return false;
+    if (checkpoint.identity != m_Session.saveCheckpoint().identity)
+        return false;
     return saveTrackerWithRecoveryPrompt(path);
 }
 
@@ -1707,6 +1712,9 @@ bool MainWindow::saveTrackerWithRecoveryPrompt(const QString& path)
 {
     if (m_Saving)
         return false;
+    // Ordinary Save passes a session member; the dialog's event loop can replace that session.
+    const auto destination = path; // NOLINT(performance-unnecessary-copy-initialization)
+    const auto checkpoint = m_Session.saveCheckpoint();
     const bool recovery = !m_Session.recoveryPath().isEmpty();
     if (recovery && QMessageBox::question(this,
                                           tr("Finish interrupted save?"),
@@ -1714,7 +1722,10 @@ bool MainWindow::saveTrackerWithRecoveryPrompt(const QString& path)
                                           QMessageBox::Yes | QMessageBox::Cancel,
                                           QMessageBox::Yes) != QMessageBox::Yes)
         return false;
-    return saveTrackerProject(path, recovery);
+    const auto current = m_Session.saveCheckpoint();
+    if (checkpoint.identity != current.identity || checkpoint.recoveryTransactions != current.recoveryTransactions)
+        return false;
+    return saveTrackerProject(destination, recovery);
 }
 
 bool MainWindow::saveTrackerProject(const QString& path, bool recoverPending)
@@ -1745,7 +1756,7 @@ bool MainWindow::saveTrackerProject(const QString& path, bool recoverPending)
     QEventLoop loop;
     connect(this, &QObject::destroyed, &loop, [&alive] { alive = false; });
     m_Saving = true;
-    QPointer<QDialog> progress = new QDialog(this);
+    auto* progress = new QDialog(this);
     progress->setObjectName("pairedSaveProgress");
     progress->setWindowTitle(tr("Saving project files"));
     progress->setWindowModality(Qt::WindowModal);
@@ -1758,13 +1769,11 @@ bool MainWindow::saveTrackerProject(const QString& path, bool recoverPending)
     const auto cancelSave = [progress, cancelled, label, cancel]
     {
         *cancelled = true;
-        if (progress)
-        {
-            label->setText(tr("Canceling save…"));
-            cancel->setEnabled(false);
-            progress->show();
-        }
+        label->setText(tr("Canceling save…"));
+        cancel->setEnabled(false);
+        progress->show();
     };
+    // The dialog owns both connections; its parent owns the dialog. No callback outlives its widgets.
     connect(cancel, &QPushButton::clicked, progress, cancelSave);
     connect(progress, &QDialog::rejected, progress, cancelSave);
     progress->show();
@@ -1788,7 +1797,7 @@ bool MainWindow::saveTrackerProject(const QString& path, bool recoverPending)
     loop.exec();
     if (!alive)
         return false;
-    delete progress.data();
+    delete progress;
     finishSaving();
     const auto result = watcher.result();
     if (result.recovery)
