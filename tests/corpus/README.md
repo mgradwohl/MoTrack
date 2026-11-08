@@ -940,7 +940,7 @@ members. The original two-argument mode still produces the exact single-tab fixt
 under UTC, America/Los_Angeles and Pacific/Kiritimati.
 
 The manifest declares each member and its independent source/expectation. The reference accepts
-2–8 explicitly named root-level `.trk` members; duplicate, escaping, unknown, nested-archive or
+2â€“8 explicitly named root-level `.trk` members; duplicate, escaping, unknown, nested-archive or
 known-defect expectations are rejected. Before any application run, every archived project must
 match its separately pinned source. The Java application opens the actual `.trz` once and must
 load exactly the named tabs from that archive. It selects each loaded tab, waits for its normal
