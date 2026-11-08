@@ -864,6 +864,13 @@ Baseline and edited Tracker application load/save/fresh-process reopen, native r
 CI and the unchanged coverage gate are required before accepting this slice. These media-free cases
 still do not complete media/archive saving or paired-output recovery in R03.
 
+The table reference harness now opens its frame before loading and explicitly expands collapsed
+view panes through public divider actions. The `expand_visit_custom_tables_restore_selection`
+preparation marker distinguishes this from earlier runs: Swing `isShowing()` was true while
+Tracker's `isViewPaneVisible()` was false, suppressing data-column refresh. All column/format
+assertions remain unchanged. Earlier failing column variants need revalidation under this normal
+expanded-pane workflow before their conservative export guards can be lifted.
+
 ## Linked image sequence baseline
 
 [LinkedImagesFixture.java](../../tools/reference/LinkedImagesFixture.java) creates four 32×24 PNGs
