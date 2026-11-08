@@ -279,6 +279,9 @@ remain bounded separately. The native source XML stays
 unchanged. Deleting original tracks, dependent creation, media-backed creation, desktop
 standard saving and paired-output transactions remain separate work. The corpus has independent empty
 and marked creation cases, including actual Tracker appearance, keys and scientific coordinates.
+Mark-only edits apply the same coordinate checks after standard reimport and native save/reopen.
+Creating an empty mass first cannot bypass affine-precision or present-but-unusable-calibration checks
+when marking that existing mass later. Mark-only exports check the full retained/edited mass sample set.
 
 New independent vectors use the same audited identity/schema/name handling, with explicit visible,
 unlocked magenta BoldArrow defaults and no point-mass key list. Creation requires a source containing
