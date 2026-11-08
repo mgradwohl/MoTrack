@@ -24,6 +24,7 @@
 #include <QLocale>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QScopeGuard>
 #include <QSemaphore>
 #include <QSlider>
 #include <QSpinBox>
@@ -788,6 +789,71 @@ TEST(Workspace, KeepsMarkCoordinatesAccurateWhileZoomingAndPanning)
     EXPECT_LT(mark(), beforePan);
     reset->trigger();
     EXPECT_NEAR(mark(), fitted, 1e-9);
+}
+
+TEST(Workspace, NativeSaveKeepsAnActiveAutoTrackerMatchAndContinuesToTheEnd)
+{
+    QTemporaryDir temporary;
+    motrack::WorkspaceDocument document;
+    document.project.pointMasses.push_back(
+        {.name = "Ball", .marks = {{.frame = 0, .x = 22, .y = 22}}, .id = motrack::allocateTrackId(document.project)});
+    for (int frame = 0; frame < 3; ++frame)
+    {
+        const auto name = QString("frame%1.png").arg(frame);
+        document.project.clip.mediaReferences.push_back(name.toStdString());
+        QImage image(64, 48, QImage::Format_Grayscale8);
+        image.fill(30);
+        for (int y = -5; y <= 5; ++y)
+            for (int x = -5; x <= 5; ++x)
+                image.scanLine(22 + y)[22 + frame * 6 + x] =
+                    static_cast<uchar>(((x + 5) * 71 + (y + 5) * 103 + (x * y + 25) * 19) % 190 + 30);
+        ASSERT_TRUE(image.save(temporary.filePath(name)));
+    }
+    const auto path = temporary.filePath("autotrack.motrack");
+    motrack::writeWorkspaceDocument(path, document);
+    auto* pool = QThreadPool::globalInstance();
+    const auto previousLimit = pool->maxThreadCount();
+    pool->setMaxThreadCount(1);
+    QSemaphore entered;
+    QSemaphore release;
+    bool released = false;
+    const auto cleanup = qScopeGuard(
+        [&]
+        {
+            if (!released)
+                release.release();
+            static_cast<void>(pool->waitForDone(5'000));
+            pool->setMaxThreadCount(previousLimit);
+        });
+    pool->start(
+        [&]
+        {
+            entered.release();
+            release.acquire();
+        });
+    ASSERT_TRUE(entered.tryAcquire(1, 5'000));
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(path));
+    auto* action = window.findChild<QAction*>("autoTracker");
+    auto* slider = window.findChild<QSlider*>("stepSlider");
+    auto* marks = window.findChild<QTableWidget*>("marksTable");
+    ASSERT_TRUE(action && slider && marks);
+    action->trigger();
+    slider->setValue(1); // The frame's match is queued behind the owned blocker.
+    ASSERT_TRUE(action->isChecked());
+    ASSERT_TRUE(window.saveWorkspace(path)); // Native saving has its own bounded worker pool.
+    EXPECT_TRUE(action->isChecked());
+    EXPECT_EQ(slider->value(), 1);
+    EXPECT_EQ(marks->rowCount(), 1);
+    release.release();
+    released = true;
+    ASSERT_TRUE(QTest::qWaitFor([action, marks] { return !action->isChecked() && marks->rowCount() == 3; }));
+    EXPECT_EQ(slider->value(), 2);
+    EXPECT_EQ(marks->item(1, 2)->text(), "28");
+    EXPECT_EQ(marks->item(2, 2)->text(), "34");
+    EXPECT_TRUE(window.isWindowModified());
+    ASSERT_TRUE(window.saveWorkspace(path));
+    EXPECT_EQ(motrack::readWorkspaceDocument(path).project.pointMasses.front().marks.size(), 3u);
 }
 
 TEST(Workspace, AutoTracksATexturedMarkAndStopsWhenItDisappears)

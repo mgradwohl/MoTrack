@@ -65,7 +65,7 @@ class MainWindow final : public QMainWindow
     void completeAfterSave(std::function<void()> completion);
     void displayStep(int step);
     void displayMarks();
-    void displayFrame(const ImageFrame& frame, const QString& failureMessage);
+    void displayFrame(const ImageFrame& frame, const QString& failureMessage, bool advanceTracking = true);
     void requestMovieFrame(int frame);
     void scheduleMovieIndex(const QString& path, bool standalone);
     void setPlaying(bool playing);
