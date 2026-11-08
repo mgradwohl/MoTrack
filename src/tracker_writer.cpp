@@ -821,8 +821,8 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
     auto expected = project;
     sortTracks(expected);
     require(expected.vectors.size() == baseline.project.vectors.size());
-    for (const auto& original : baseline.project.pointMasses)
-        require(std::ranges::find(expected.pointMasses, original.id, &PointMass::id) != expected.pointMasses.end());
+    // Both lists are sorted: linear inclusion keeps original identities without a scan per track.
+    require(std::ranges::includes(expected.pointMasses, baseline.project.pointMasses, {}, &PointMass::id, &PointMass::id));
 
     QDomDocument xml;
     require(static_cast<bool>(xml.setContent(QByteArray::fromStdString(source.xml), QDomDocument::ParseOption::PreserveSpacingOnlyNodes)));
@@ -840,6 +840,8 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
     if (expected.pointMasses.size() != baseline.project.pointMasses.size())
     {
         validateTrackerTrackCreation(xml, expected, source);
+        if (expected.calibration)
+            requireTrackerCoordinates(expected, *expected.calibration);
         require(tracks.attribute("type") == "collection" && tracks.attribute("class") == "java.util.ArrayList");
         // OSP reads consecutive property lines. Normalize only collection whitespace, never old objects.
         for (auto node = tracks.firstChild(); !node.isNull();)

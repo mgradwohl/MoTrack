@@ -670,7 +670,13 @@ the new mass, keys, coordinates and appearance through Tracker save and fresh-pr
 Both exported and Java-resaved files are reimported natively. No baseline or fixture bytes changed.
 Negative tests reject consistent wrong mass/name/keys/appearance, altered old content, duplicate new
 objects, unsafe names, dangling original references, unsupported schemas/deletions and excessive
-dense frame allocation. Linux actual-application acceptance is required before merging this slice.
+dense frame allocation. Creation also validates existing calibration against every retained/new mark,
+even when the calibration itself was not edited: an origin (16,16), scales (1e-100,2e-100), and a mark
+at (nextafter(16,17),16) expose incompatible affine cancellation and must reject atomically.
+The pinned headless ImageCoordSystem API independently gives X=3.1082702275611665e85, while
+the native result is 3.552713678800501e85; the regression failed before the guard and passes after it.
+Sorted identity inclusion bounds the original-track membership check to linear work.
+Linux actual-application acceptance is required before merging this slice.
 
 The historical [Tracker #10 save/load report](https://github.com/OpenSourcePhysics/tracker/issues/10)
 and its discussion were refreshed. [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65) remains
