@@ -21,6 +21,9 @@ struct WorkspaceStorage
 /// Read legacy/plain JSON or a bounded native ZIP with exactly project.json and tracker/source.trz.
 [[nodiscard]] WorkspaceStorage readWorkspaceStorage(const QString& path, const std::atomic_bool* cancelled);
 /// Atomically replace with JSON, or a streamed ZIP retaining the exact owned Tracker archive snapshot.
-void writeWorkspaceStorage(const QString& path, const QByteArray& json, const std::shared_ptr<const TrackerArchive>& archive);
+void writeWorkspaceStorage(const QString& path,
+                           const QByteArray& json,
+                           const std::shared_ptr<const TrackerArchive>& archive,
+                           const std::atomic_bool* cancelled = nullptr);
 
 } // namespace motrack

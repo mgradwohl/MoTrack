@@ -205,6 +205,60 @@ TEST(PairedWorkspace, ExternalRecoveryChangesRequireReconfirmationBeforeWritingT
     }
 }
 
+TEST(PairedWorkspace, UnidentifiedJournalsRequireConfirmationAfterRepairOrReplacement)
+{
+    for (int change = 0; change < 3; ++change)
+    {
+        SCOPED_TRACE(change); // Repaired, replaced, or completed externally.
+        QTemporaryDir temporary;
+        const auto target = temporary.filePath("saved.trk");
+        std::atomic_bool cancelled{false};
+        const auto interrupt = [&cancelled](auto state)
+        {
+            cancelled = state == motrack::PairedSaveProgress::StandardSaved;
+        };
+        auto external = motrack::importTrackerDocument(fixture());
+        const auto first = motrack::writePairedDocuments(target, external, fixture(), &cancelled, interrupt);
+        ASSERT_EQ(first.status, motrack::PairedSaveStatus::RecoveryRequired);
+        const auto journal = bytes(first.recoveryPath);
+        put(first.recoveryPath, "unreadable journal");
+        motrack::MainWindow window;
+        ASSERT_TRUE(window.loadProject(fixture()));
+        ASSERT_TRUE(editMass(window, 5));
+        EXPECT_FALSE(window.saveTrackerProject(target));
+        put(first.recoveryPath, journal);
+        if (change != 0)
+            ASSERT_EQ(motrack::recoverPairedDocuments(first.recoveryPath).status, motrack::PairedSaveStatus::Saved);
+        if (change == 1)
+        {
+            motrack::TrackEdits edits;
+            ASSERT_TRUE(edits.setPointMassValue(external.project, 0, 7));
+            cancelled = false;
+            ASSERT_EQ(motrack::writePairedDocuments(target, external, fixture(), &cancelled, interrupt).status,
+                      motrack::PairedSaveStatus::RecoveryRequired);
+        }
+        if (change != 2)
+        {
+            const auto standard = bytes(target);
+            const auto pending = bytes(first.recoveryPath);
+            const bool hasNative = QFile::exists(first.nativePath);
+            const auto native = hasNative ? bytes(first.nativePath) : QByteArray{};
+            EXPECT_FALSE(window.saveTrackerProject(target, true));
+            EXPECT_TRUE(window.isWindowModified());
+            EXPECT_EQ(bytes(target), standard);
+            EXPECT_EQ(bytes(first.recoveryPath), pending);
+            EXPECT_EQ(QFile::exists(first.nativePath), hasNative);
+            if (hasNative)
+                EXPECT_EQ(bytes(first.nativePath), native);
+        }
+        ASSERT_TRUE(window.saveTrackerProject(target, true));
+        EXPECT_FALSE(window.isWindowModified());
+        EXPECT_FALSE(QFile::exists(first.recoveryPath));
+        EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(target).project.pointMasses.at(0).mass, 5);
+        EXPECT_DOUBLE_EQ(motrack::readWorkspaceDocument(first.nativePath).project.pointMasses.at(0).mass, 5);
+    }
+}
+
 TEST(PairedWorkspace, RecoveryConflictsKeepCurrentEditsAndBothDestinations)
 {
     QTemporaryDir temporary;
@@ -731,10 +785,13 @@ TEST(PairedWorkspace, DestroyingTheWindowDuringSaveCancelsAndReleasesTheWorker)
         SCOPED_TRACE(throughMenu);
         QTemporaryDir temporary;
         const auto target = temporary.filePath(native ? "saved.motrack" : "saved.trk");
+        put(target, "previous destination");
         QSemaphore entered;
         QSemaphore release;
         auto window = std::make_unique<motrack::MainWindow>();
         ASSERT_TRUE(window->loadProject(fixture()));
+        // MainWindow sets cancellation before QObject emits destroyed, then its child pool joins.
+        QObject::connect(window.get(), &QObject::destroyed, [&release] { release.release(); });
         auto* pool = window->findChild<QThreadPool*>("workspaceSavePool");
         ASSERT_NE(pool, nullptr);
         pool->start(
@@ -757,6 +814,7 @@ TEST(PairedWorkspace, DestroyingTheWindowDuringSaveCancelsAndReleasesTheWorker)
                     if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget()))
                     {
                         choseFile = true;
+                        dialog->setOption(QFileDialog::DontConfirmOverwrite, true);
                         // Qt leaves a focused filename editor unchanged in selectFile().
                         if (auto* focused = dialog->focusWidget())
                             focused->clearFocus();
@@ -771,7 +829,6 @@ TEST(PairedWorkspace, DestroyingTheWindowDuringSaveCancelsAndReleasesTheWorker)
                                       : window->findChild<QDialog*>("pairedSaveProgress") != nullptr))
                 {
                     poll.stop();
-                    release.release();
                     window.reset();
                 }
             });
@@ -795,6 +852,7 @@ TEST(PairedWorkspace, DestroyingTheWindowDuringSaveCancelsAndReleasesTheWorker)
         else
             EXPECT_FALSE(native ? window->saveWorkspace(target) : window->saveTrackerProject(target));
         EXPECT_EQ(window, nullptr);
+        EXPECT_EQ(bytes(target), "previous destination");
     }
 }
 
