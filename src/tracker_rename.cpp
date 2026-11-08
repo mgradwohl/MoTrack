@@ -87,7 +87,7 @@ std::size_t modelValuesSize(const QDomElement& array)
     return count;
 }
 
-// A reference index alone cannot establish rename eligibility. Admit only the audited media-free
+// A reference index alone cannot establish rename eligibility. Admit only the audited
 // schemas below. Other fields/classes remain preserved by native saving but cannot bypass this gate.
 using Fields = std::map<QString, QString>;
 Fields fields(const QString& name)
@@ -214,7 +214,13 @@ Fields fields(const QString& name)
                 {"stepcount", "int"},
                 {"starttime", "double"},
                 {"readout", "string"},
+                {"video", "object:" + QString(MEDIA) + "ImageVideo"},
+                {"video_framecount", "int"},
                 {"playallsteps", "boolean"}};
+    }
+    if (name == QString(MEDIA) + "ImageVideo")
+    {
+        return {{"paths", "array:[Ljava.lang.String;"}, {"path", "string"}, {"delta_t", "double"}};
     }
     if (name == QString(MEDIA) + "StepperClipControl")
     {
@@ -288,6 +294,11 @@ struct RenameSchema
             propertyValue(child, allowed.at(name), depth + 1);
         }
         require(actual != QString(TRACKER) + "CenterOfMass" || seen.contains("masses"));
+        if (actual == QString(MEDIA) + "VideoClip" && seen.contains("video_framecount"))
+            require(seen.contains("video"));
+        if (actual == QString(MEDIA) + "ImageVideo")
+            require(seen.contains("paths") && seen.contains("path") && seen.contains("delta_t") &&
+                    denseArraySize(property(value, "paths")) > 0);
         if (actual == "org.opensourcephysics.tools.Parameter")
             require(seen.contains("name") && seen.contains("function"));
         if (actual == "org.opensourcephysics.tools.UserFunction")

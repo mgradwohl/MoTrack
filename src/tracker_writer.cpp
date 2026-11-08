@@ -2,9 +2,13 @@
 
 #include "measurements.hpp"
 #include "tracker_rename.hpp"
+#include "workspace_document.hpp"
 
 #include <QByteArray>
+#include <QDir>
 #include <QDomDocument>
+#include <QFile>
+#include <QFileInfo>
 #include <QSaveFile>
 #include <QStringList>
 
@@ -855,11 +859,51 @@ void remapIds(LegacyProject& project, const std::unordered_map<TrackId, TrackId>
     sortTracks(project);
 }
 
-} // namespace
-
-std::string renderTrackerProject(const LegacyProject& project, const TrackerSource& source)
+bool patchLinkedImagePaths(QDomDocument& xml, const LegacyProject& project, LegacyProject& baseline)
 {
-    require(project.clip.mediaReferences.empty()); // Relocation/packaging is not implemented by this initial writer.
+    validateTrackerEditSchema(xml);
+    require(project.vectors.empty() && baseline.vectors.empty() &&
+            std::ranges::all_of(project.unsupportedTrackTypes,
+                                [](const auto& type) { return type == "org.opensourcephysics.cabrillo.tracker.CoordAxes"; }));
+    const auto count = project.clip.mediaReferences.size();
+    require(count > 0 && count <= 10000 && count == baseline.clip.mediaReferences.size());
+    auto expectedClip = project.clip;
+    expectedClip.mediaReferences = baseline.clip.mediaReferences;
+    require(expectedClip == baseline.clip); // Timing and range changes need separate media acceptance.
+    const auto& clip = project.clip;
+    require(clip.firstFrame >= 0 && clip.stepSize > 0 && clip.stepCount.value_or(0) > 0 &&
+            static_cast<std::int64_t>(clip.firstFrame) + static_cast<std::int64_t>(*clip.stepCount - 1) * clip.stepSize <
+                static_cast<std::int64_t>(count));
+    for (const auto& mass : project.pointMasses)
+        for (const auto& mark : mass.marks)
+            require(mark.frame >= 0 && static_cast<std::size_t>(mark.frame) < count);
+    const auto clipObject = uniqueProperty(xml.documentElement(), "videoclip").firstChildElement("object");
+    const auto video = uniqueProperty(clipObject, "video").firstChildElement("object");
+    require(video.attribute("class") == "org.opensourcephysics.media.core.ImageVideo");
+    const auto frameCount = uniqueProperty(clipObject, "video_framecount");
+    if (!frameCount.isNull())
+    {
+        bool valid = false;
+        const auto saved = frameCount.text().toUInt(&valid);
+        require(valid && saved == count);
+    }
+    bool valid = false;
+    const double duration = uniqueProperty(video, "delta_t").text().toDouble(&valid);
+    require(valid && std::isfinite(duration) && duration > 0.0 && clip.frameDurationMs == duration);
+    require(uniqueProperty(video, "path").text().toStdString() == baseline.clip.mediaReferences.front());
+    if (project.clip.mediaReferences == baseline.clip.mediaReferences)
+        return false;
+    const auto paths = uniqueProperty(video, "paths");
+    for (std::size_t index = 0; index < count; ++index)
+        patchScalar(xml, paths, "[" + QString::number(index) + "]", "string", QString::fromStdString(clip.mediaReferences[index]));
+    patchScalar(xml, video, "path", "string", QString::fromStdString(clip.mediaReferences.front()));
+    baseline.clip.mediaReferences = project.clip.mediaReferences;
+    return true;
+}
+
+std::string renderTrackerProjectImpl(const LegacyProject& project, const TrackerSource& source, bool linkedImages)
+{
+    require(linkedImages || project.clip.mediaReferences.empty());
     validateTrackerSource(source, project);
     auto baseline = parseTrackerProject(source.xml);
     if (!source.bindings || !baseline.source.bindings)
@@ -905,8 +949,8 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
                 mapping.emplace(nextParsedId++, found->second);
         }
     }
-    bool changed = false;
-    bool auditFinalSchema = false;
+    bool changed = linkedImages && patchLinkedImagePaths(xml, expected, baseline.project);
+    bool auditFinalSchema = linkedImages;
     bool massCoordinatesChecked = false;
     if (membershipChanged)
     {
@@ -1113,16 +1157,61 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
     return output;
 }
 
-void writeTrackerProject(const QString& path, const LegacyProject& project, const TrackerSource& source)
+void writeXml(const QString& path, const std::string& xml)
 {
     require(path.endsWith(".trk", Qt::CaseInsensitive));
-    const auto xml = renderTrackerProject(project, source);
     QSaveFile output(path);
     const auto size = static_cast<qint64>(xml.size());
     if (!output.open(QIODevice::WriteOnly) || output.write(xml.data(), size) != size || !output.commit())
     {
         throw ProjectError("Could not write Tracker project: " + output.errorString().toStdString());
     }
+}
+
+} // namespace
+
+std::string renderTrackerProject(const LegacyProject& project, const TrackerSource& source)
+{
+    return renderTrackerProjectImpl(project, source, false);
+}
+
+void writeTrackerProject(const QString& path, const LegacyProject& project, const TrackerSource& source)
+{
+    writeXml(path, renderTrackerProject(project, source));
+}
+
+void writeTrackerDocument(const QString& path, const WorkspaceDocument& document, const QString& mediaProjectPath)
+{
+    require(document.trackerSource.has_value() && !document.movie && document.movieFrameTimes.empty() && !document.useDisplayOrientation &&
+            !document.archivePayload && !document.archiveMember && document.archiveReference.empty());
+    auto project = document.project;
+    const bool linkedImages = !project.clip.mediaReferences.empty();
+    if (linkedImages)
+    {
+        require(!mediaProjectPath.isEmpty() && QFileInfo(mediaProjectPath).isAbsolute());
+        const QDir sourceDirectory(QFileInfo(mediaProjectPath).absolutePath());
+        const QDir targetDirectory(QFileInfo(path).absolutePath());
+        for (auto& reference : project.clip.mediaReferences)
+        {
+            const auto local = QString::fromStdString(reference);
+            require(!local.isEmpty() && local.size() <= 4096 && !local.contains("!/") && !local.contains("://") && !local.startsWith(':'));
+            for (const auto point : local.toUcs4())
+                require(QChar::category(point) != QChar::Other_Control && QChar::category(point) != QChar::Other_Format);
+            const auto resolved = sourceDirectory.absoluteFilePath(local);
+            QFile file(resolved);
+            if (!QFileInfo(resolved).isFile() || !file.open(QIODevice::ReadOnly))
+                throw ProjectError("Linked media is missing or unreadable: " + resolved.toStdString());
+            reference = QDir::fromNativeSeparators(targetDirectory.relativeFilePath(resolved)).toStdString();
+        }
+        // A native decoded-frame count is redundant with the complete image list, not a standard edit.
+        if (project.clip.sourceFrameCount)
+        {
+            require(*project.clip.sourceFrameCount > 0 &&
+                    static_cast<std::size_t>(*project.clip.sourceFrameCount) == project.clip.mediaReferences.size());
+            project.clip.sourceFrameCount.reset();
+        }
+    }
+    writeXml(path, renderTrackerProjectImpl(project, *document.trackerSource, linkedImages));
 }
 
 } // namespace motrack

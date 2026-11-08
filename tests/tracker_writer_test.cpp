@@ -5,7 +5,9 @@
 #include "tracker_references.hpp"
 #include "workspace_document.hpp"
 
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QTemporaryDir>
 #include <QXmlStreamReader>
 #include <gtest/gtest.h>
@@ -44,6 +46,128 @@ std::string readBytes(const QString& path)
 {
     QFile input(path);
     return input.open(QIODevice::ReadOnly) ? input.readAll().toStdString() : std::string{};
+}
+
+TEST(TrackerWriter, SavesLinkedImagesAfterNativeReopenSourceRemovalAndRelocation)
+{
+    QTemporaryDir temporary;
+    const auto fixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images/";
+    const auto sourceDirectory = temporary.filePath(QString::fromUtf8("élève & source"));
+    const auto nativeDirectory = temporary.filePath("native");
+    const auto outputDirectory = temporary.filePath(QString::fromUtf8("édition"));
+    ASSERT_TRUE(QDir().mkpath(sourceDirectory + "/images"));
+    ASSERT_TRUE(QDir().mkpath(nativeDirectory));
+    ASSERT_TRUE(QDir().mkpath(outputDirectory));
+    for (int frame = 0; frame < 4; ++frame)
+    {
+        const auto name = "images/frame" + QString::number(frame) + ".png";
+        ASSERT_TRUE(QFile::copy(fixture + name, sourceDirectory + "/" + name));
+    }
+    const auto input = sourceDirectory + "/input.trk";
+    ASSERT_TRUE(QFile::copy(fixture + "linked-images.trk", input));
+    auto document = motrack::importTrackerDocument(input);
+    const auto originalSource = document.trackerSource->xml;
+    const auto unchanged = sourceDirectory + "/unchanged.trk";
+    motrack::writeTrackerDocument(unchanged, document, input);
+    EXPECT_EQ(readBytes(unchanged), originalSource);
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.setPointMassValue(document.project, 0, 5.0));
+    ASSERT_TRUE(edits.markPointMass(document.project, 0, {.frame = 1, .x = 8.0, .y = 12.0}));
+    const auto edited = document.project;
+    ASSERT_TRUE(edits.undo(document.project));
+    ASSERT_TRUE(edits.redo(document.project));
+    EXPECT_EQ(document.project, edited);
+    const auto native = nativeDirectory + "/saved.motrack";
+    for (auto& reference : document.project.clip.mediaReferences)
+        reference = QDir(nativeDirectory).relativeFilePath(sourceDirectory + "/" + QString::fromStdString(reference)).toStdString();
+    document.project.clip.sourceFrameCount = 4;
+    motrack::writeWorkspaceDocument(native, document);
+    document = {};
+    ASSERT_TRUE(QFile::remove(input));
+    document = motrack::readWorkspaceDocument(native);
+    const auto nativeProject = document.project;
+    const auto output = outputDirectory + "/saved.trk";
+    motrack::writeTrackerDocument(output, document, native);
+    EXPECT_EQ(document.project, nativeProject);
+    EXPECT_EQ(document.trackerSource->xml, originalSource);
+    const auto bytes = readBytes(output);
+    const auto exported = motrack::parseTrackerProject(bytes);
+    auto expected = nativeProject;
+    expected.clip.sourceFrameCount.reset();
+    for (std::size_t frame = 0; frame < expected.clip.mediaReferences.size(); ++frame)
+    {
+        const auto name = "images/frame" + QString::number(frame) + ".png";
+        expected.clip.mediaReferences[frame] = QDir(outputDirectory).relativeFilePath(sourceDirectory + "/" + name).toStdString();
+        const auto resolved = QDir(outputDirectory).absoluteFilePath(QString::fromStdString(exported.project.clip.mediaReferences[frame]));
+        EXPECT_EQ(readBytes(resolved), readBytes(fixture + name));
+    }
+    EXPECT_EQ(exported.project, expected);
+    EXPECT_NE(bytes.find("<![CDATA["), std::string::npos); // Unicode and '&' paths must use OSP-safe text.
+    motrack::writeTrackerDocument(output, document, native);
+    EXPECT_EQ(readBytes(output), bytes);
+    auto reimported = motrack::importTrackerDocument(output);
+    ASSERT_TRUE(edits.setPointMassValue(reimported.project, 0, 3.0));
+    motrack::writeTrackerDocument(output, reimported, output);
+    EXPECT_DOUBLE_EQ(motrack::parseLegacyProject(readBytes(output)).pointMasses.front().mass, 3.0);
+    EXPECT_THROW(motrack::writeTrackerProject(output, document.project, *document.trackerSource), motrack::ProjectError);
+}
+
+TEST(TrackerWriter, RejectsUnsafeLinkedImageExportsBeforeReplacingTheDestination)
+{
+    QTemporaryDir temporary;
+    const auto input = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images/linked-images.trk";
+    const auto original = motrack::importTrackerDocument(input);
+    const auto destination = temporary.filePath("existing.trk");
+    {
+        QFile file(destination);
+        ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+        ASSERT_EQ(file.write("existing"), 8);
+    }
+    const std::vector<std::function<void(motrack::WorkspaceDocument&)>> mutations{
+        [](auto& doc) { doc.trackerSource.reset(); },
+        [](auto& doc) { doc.movie = true; },
+        [](auto& doc) { doc.movieFrameTimes = {0.0}; },
+        [](auto& doc) { doc.useDisplayOrientation = true; },
+        [](auto& doc) { doc.archiveReference = "old.trz"; },
+        [](auto& doc) { doc.archiveMember = "project.trk"; },
+        [](auto& doc) { doc.project.clip.mediaReferences[1] = "missing.png"; },
+        [](auto& doc) { doc.project.clip.mediaReferences[1] = "https://example.org/frame.png"; },
+        [](auto& doc) { doc.project.clip.mediaReferences[1] = "archive.zip!/frame.png"; },
+        [](auto& doc) { doc.project.clip.mediaReferences[1] = ":resource.png"; },
+        [](auto& doc) { doc.project.clip.mediaReferences[1] = "line\nbreak.png"; },
+        [](auto& doc) { doc.project.clip.mediaReferences.pop_back(); },
+        [](auto& doc) { doc.project.clip.sourceFrameCount = 3; },
+        [](auto& doc) { doc.project.clip.firstFrame = 1; },
+        [](auto& doc) { doc.project.clip.frameDurationMs = 250.0; },
+        [](auto& doc) { doc.project.clip.startTimeMs = 0.0; },
+        [](auto& doc) { doc.project.pointMasses.front().marks.front().frame = 4; },
+        [](auto& doc)
+        {
+            const std::string previous = "<property name=\"path\" type=\"string\">images/frame0.png";
+            const auto position = doc.trackerSource->xml.find(previous);
+            ASSERT_NE(position, std::string::npos);
+            doc.trackerSource->xml.replace(position, previous.size(), "<property name=\"path\" type=\"string\">images/frame1.png");
+        },
+        [](auto& doc)
+        {
+            const std::string previous = "<property name=\"delta_t\" type=\"double\">125.0";
+            const auto position = doc.trackerSource->xml.find(previous);
+            ASSERT_NE(position, std::string::npos);
+            doc.trackerSource->xml.replace(position, previous.size(), "<property name=\"delta_t\" type=\"double\">250.0");
+        }};
+    for (std::size_t index = 0; index < mutations.size(); ++index)
+    {
+        SCOPED_TRACE(index);
+        auto document = original;
+        mutations[index](document);
+        EXPECT_THROW(motrack::writeTrackerDocument(destination, document, input), motrack::ProjectError);
+        EXPECT_EQ(readBytes(destination), "existing");
+    }
+    EXPECT_THROW(motrack::writeTrackerDocument(destination, original, {}), motrack::ProjectError);
+    EXPECT_THROW(motrack::writeTrackerDocument(destination, original, "relative.trk"), motrack::ProjectError);
+    EXPECT_THROW(motrack::writeTrackerDocument(temporary.filePath("missing/output.trk"), original, input), motrack::ProjectError);
+    EXPECT_THROW(motrack::writeTrackerDocument(temporary.filePath("output.trz"), original, input), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), "existing");
 }
 
 TEST(TrackerWriter, PatchesTheBoundMassAfterNativeReopenAndKeepsUnknownContent)
