@@ -20,10 +20,15 @@ public final class ArchiveImagesFixture {
     }
 
     public static void main(String[] args) throws Exception {
-        if (args.length != 2) throw new IllegalArgumentException("Usage: ArchiveImagesFixture linked-image-directory fresh-output.trz");
+        if (args.length != 2 && args.length != 3)
+            throw new IllegalArgumentException("Usage: ArchiveImagesFixture linked-image-directory fresh-output.trz [second-experiment.trk]");
         Path root = Path.of(args[0]);
         List<Member> members = new ArrayList<>();
         members.add(read(root, "linked-images.trk", "experiment.trk"));
+        if (args.length == 3) {
+            Path second = Path.of(args[2]).toAbsolutePath();
+            members.add(read(second.getParent(), second.getFileName().toString(), "second.trk"));
+        }
         for (int i = 0; i < 4; i++) members.add(read(root, "images/frame" + i + ".png", "images/frame" + i + ".png"));
         members.add(new Member("support/notes é.txt", "Untouched supporting document: α, β and image measurements.\n".getBytes(StandardCharsets.UTF_8)));
         members.add(new Member("support/opaque.bin", new byte[] {0, 1, 2, 127, (byte) 128, (byte) 255}));

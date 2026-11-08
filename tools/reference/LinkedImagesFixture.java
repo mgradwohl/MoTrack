@@ -33,8 +33,10 @@ public final class LinkedImagesFixture {
 
     public static void main(String[] args) {
         try {
-            if (args.length != 1 || !OSPRuntime.VERSION.equals("6.3.5"))
-                throw new IllegalArgumentException("Expected Tracker 6.3.5 and one fresh output directory");
+            if ((args.length != 1 && args.length != 2) || !OSPRuntime.VERSION.equals("6.3.5")
+                    || (args.length == 2 && !args[1].equals("secondary")))
+                throw new IllegalArgumentException("Expected Tracker 6.3.5 and one fresh output directory [secondary]");
+            boolean secondary = args.length == 2;
             Path directory = Path.of(args[0]).toAbsolutePath();
             if (Files.exists(directory)) throw new IllegalArgumentException("Output directory already exists");
             Files.createDirectories(directory.resolve("images"));
@@ -55,8 +57,8 @@ public final class LinkedImagesFixture {
             coords.setOriginXY(0, 2, 20);
             coords.setScaleXY(0, 2, 4);
             PointMass mass = new PointMass();
-            mass.setName("image mass");
-            mass.setMass(2);
+            mass.setName(secondary ? "other image mass" : "image mass");
+            mass.setMass(secondary ? 3.5 : 2);
             mass.createStep(0, 4, 16);
             mass.createStep(2, 12, 4);
             XMLControlElement root = new XMLControlElement(TrackerPanel.class);
@@ -76,7 +78,7 @@ public final class LinkedImagesFixture {
             root.setValue("length_unit", "m");
             root.setValue("mass_unit", "kg");
             root.setValue("tracks", new ArrayList<TTrack>(List.of(new CoordAxes(), mass)));
-            root.setValue("selectedtrack", "image mass");
+            root.setValue("selectedtrack", mass.getName());
             Path path = directory.resolve("linked-images.trk");
             if (root.write(path.toString()) == null) throw new IllegalStateException("Could not write fixture");
             Files.writeString(path, Files.readString(path, StandardCharsets.UTF_8).replace("\r\n", "\n"), StandardCharsets.UTF_8);

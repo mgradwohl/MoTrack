@@ -19,6 +19,242 @@
   },
   "cases": [
     {
+      "id": "multitab-images",
+      "tracker_version": "6.3.5",
+      "file": "multitab-images.trz",
+      "local_file": "fixtures/linked-images/multitab-images.trz",
+      "sha256": "6300452e7b1d3af4cae41c09aba849b386847fcb0a333d4278575555f1ec6494",
+      "bytes": 9120,
+      "expected": "expected/linked-images.json",
+      "provenance": "ArchiveImagesFixture packages two independently authored Tracker experiments, the four original PNGs and opaque supporting members. Two JDK 17 generations are byte-identical.",
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "image mass"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": true,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "image mass",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": -250.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 125.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.core.ImageVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "project_member": "experiment.trk",
+      "session_archive": true,
+      "native_archive_image_roundtrip": true,
+      "features": [
+        "archive-selected-member",
+        "opaque-supporting-members",
+        "zip-entry-and-archive-comments",
+        "unicode-archive-member",
+        "multiple-experiment-tabs"
+      ],
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "linked-images"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ]
+    },
+    {
+      "id": "secondary-images",
+      "tracker_version": "6.3.5",
+      "file": "secondary-images.trk",
+      "local_file": "fixtures/linked-images/secondary-images.trk",
+      "sha256": "d3974b34d0124962b8156d33fea5f7f5d701c39eeb78b251385ba59ef1bd75c3",
+      "bytes": 5746,
+      "expected": "expected/secondary-images.json",
+      "provenance": "LinkedImagesFixture secondary mode uses Tracker 6.3.5 serializers to author an independent 3.5 kg point mass with the same calibrated images; two generations are byte-identical.",
+      "assets": [
+        {
+          "file": "frame0.png",
+          "local_file": "fixtures/linked-images/images/frame0.png",
+          "sha256": "92109968bf1bb896af9283616e0615470bf1d0446a6de30f5b97fed8075dd764",
+          "bytes": 1345
+        },
+        {
+          "file": "frame1.png",
+          "local_file": "fixtures/linked-images/images/frame1.png",
+          "sha256": "b04d3a4a2cc7383f43ffb0e3402909ed258f8e4da49e8d0f42b6ea74a7ce52d1",
+          "bytes": 1427
+        },
+        {
+          "file": "frame2.png",
+          "local_file": "fixtures/linked-images/images/frame2.png",
+          "sha256": "bf33ac1122acf24cacedac9a1043fa004e85fa3de46028f01023a87e2f52868c",
+          "bytes": 1498
+        },
+        {
+          "file": "frame3.png",
+          "local_file": "fixtures/linked-images/images/frame3.png",
+          "sha256": "1e4d3e4489b7f53b8f60b5fd9f582df93c89d0223f69463a558d3a6d91093337",
+          "bytes": 1499
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "other image mass"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": true,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "other image mass",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": -250.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 125.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.core.ImageVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      }
+    },
+    {
       "id": "archived-images",
       "tracker_version": "6.3.5",
       "file": "archived-images.trz",

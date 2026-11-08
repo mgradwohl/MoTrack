@@ -155,7 +155,7 @@ try
 {
     const QCoreApplication application(argc, argv);
     const auto args = application.arguments();
-    if (args.size() == 4 && args[1] == "--export-archive-images")
+    if (args.size() == 4 && (args[1] == "--export-archive-images" || args[1] == "--export-multitab-archive-images"))
     {
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trz");
@@ -163,7 +163,9 @@ try
         if (!temporary.isValid() || !QFile::copy(args[2], source))
             throw motrack::ProjectError("Could not prepare archive round trip.");
         auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(source));
-        if (payload->projects() != QStringList{"experiment.trk"})
+        const auto expected =
+            args[1] == "--export-multitab-archive-images" ? QStringList{"experiment.trk", "second.trk"} : QStringList{"experiment.trk"};
+        if (payload->projects() != expected)
             throw motrack::ProjectError("Expected the pinned archive experiment.");
         auto document = motrack::importTrackerDocument(payload->projectPath("experiment.trk"));
         payload->resolveMedia(document.project, "experiment.trk");
