@@ -676,6 +676,10 @@ at (nextafter(16,17),16) expose incompatible affine cancellation and must reject
 The pinned headless ImageCoordSystem API independently gives X=3.1082702275611665e85, while
 the native result is 3.552713678800501e85; the regression failed before the guard and passes after it.
 Sorted identity inclusion bounds the original-track membership check to linear work.
+Native regression cases export a new mass marked at frame 10000 or 500000, reimport the standard file,
+save/reopen natively, create another mass and export again. The point-mass frame-array schema audit
+uses the same 500000 frame bound as the writer; it does not relax generic array indices, entry/depth
+limits or allocation budgets. The frame-10000 reimport regression failed before this audit correction.
 Linux actual-application acceptance is required before merging this slice.
 
 The historical [Tracker #10 save/load report](https://github.com/OpenSourcePhysics/tracker/issues/10)
