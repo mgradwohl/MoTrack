@@ -546,9 +546,29 @@ unchanged image hashes and full XML preservation. Actual Tracker load/resave/fre
 passed the `packaged-images` mode at `f8ea95f` in Linux job 128802309844 of
 [run 42503907010](https://github.com/mgradwohl/MoTrack/actions/runs/42503907010), with all six platform/coverage
 checks green. Later revisions still require their own CI and review. Missing or unreadable input diagnostics
-include the resolved source path while preserving an existing output. Packaging UI,
-paired native snapshot adoption, movies and arbitrary supporting-resource collection remain unfinished.
+include the resolved source path while preserving an existing output.
+Paired native snapshot adoption, movies and arbitrary supporting-resource collection remain unfinished.
 
 Local Windows validation for this slice passes all six CTest suites, formatting, clang-tidy,
 77 Python corpus tests and the native corpus checks, with 95.65% production line coverage
 (8173/8545). Current-revision Windows/macOS/Linux CI and code review remain required before merge.
+
+### Desktop portable-image export
+
+`File → Export portable image archive…` chooses a `.trz` destination and runs the adapter on the
+session's bounded save worker with an immutable document snapshot. The filename chooser is guarded
+against document replacement and window destruction. Progress and cancellation remain on the GUI thread;
+closing or destroying the window cannot leave a worker borrowing its widgets. Prepared project opens
+wait until export bookkeeping has finished, and overlapping save/export requests are rejected.
+
+The action is available for imported linked-image documents. The writer remains the authoritative schema
+check, so an enabled action does not promise that every imported setting or edit is exportable. Missing
+source diagnostics identify the resolved file. A successful export preserves the source paths, native and
+Tracker checkpoints, title, dirty state and undo/redo history. Edits made programmatically during export
+remain unsaved; the status identifies that the exported snapshot predates them. Ordinary Save continues
+to use the previously selected native or paired destinations.
+
+Controller regressions cover clean/dirty export, undo/redo, ordinary Save after export, unsupported and
+missing inputs, cancellation, overlapping saves, queued project opens, stale filename dialogs and window
+destruction during both filename selection and worker progress. The four-PNG actual-Tracker acceptance
+above verifies the underlying format; new desktop-controller revisions require their own platform checks.
