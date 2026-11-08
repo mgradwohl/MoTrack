@@ -60,8 +60,10 @@ public final class TrackerSessionReference {
     public static void main(String[] args) {
         int status = 1;
         try {
-            if ((args.length != 3 && args.length != 4) || !(args[2].equals("save") || args[2].equals("reopen")))
-                throw new IllegalArgumentException("Usage: TrackerSessionReference input.trk|trz output-directory save|reopen [selected-xml]");
+            boolean multiple = args.length >= 3 && args[2].equals("save-tabs");
+            if (multiple ? args.length < 5 || args.length > 11
+                    : (args.length != 3 && args.length != 4) || !(args[2].equals("save") || args[2].equals("reopen")))
+                throw new IllegalArgumentException("Usage: TrackerSessionReference input.trk|trz output-directory save|reopen [selected-xml], or save-tabs member-xml...");
             if (!OSPRuntime.VERSION.equals("6.3.5")) throw new IllegalStateException("Expected Tracker 6.3.5");
             // Unhandled asynchronous loader/EDT failures must fail this isolated reference
             // immediately with their cause, rather than disappearing behind a later timeout.
@@ -79,21 +81,36 @@ public final class TrackerSessionReference {
             // Archive metadata is inspected separately, but the application must open the
             // actual archive through TrackerIO. Never substitute extracted XML for that load.
             Path metadata = args.length == 4 ? Path.of(args[3]).toAbsolutePath() : input;
-            List<AttachmentRequirement> attachmentRequirements = attachmentRequirements(metadata);
-            List<ModelRequirement> modelRequirements = modelRequirements(metadata);
+            List<AttachmentRequirement> attachmentRequirements = multiple ? List.of() : attachmentRequirements(metadata);
+            List<ModelRequirement> modelRequirements = multiple ? List.of() : modelRequirements(metadata);
+            List<ArchiveTab> archiveTabs = new ArrayList<>();
+            if (multiple) for (int i = 3; i < args.length; i++) {
+                Path member = Path.of(args[i]).toAbsolutePath();
+                String name = member.getFileName().toString();
+                if (!name.matches("[A-Za-z0-9_.-]+\\.trk") || archiveTabs.stream().anyMatch(tab -> tab.member().equals(name)))
+                    throw new IllegalArgumentException("Invalid or duplicate archive reference member");
+                archiveTabs.add(new ArchiveTab(name, attachmentRequirements(member), modelRequirements(member)));
+            }
             SwingUtilities.invokeAndWait(guard(() -> {
                 TFrame originalFrame = new TFrame();
-                Runnable loaded = once(guard(() -> whenEvaluated(originalFrame, attachmentRequirements, modelRequirements, () -> {
-                    TrackerPanel panel = onlyPanel(originalFrame);
-                    Map<String, Object> before = snapshot(panel);
-                    if (save && (TrackerIO.save(saved.toFile(), panel) == null || !Files.isRegularFile(saved) || saved.toFile().length() == 0))
-                        throw new IllegalStateException("Tracker did not save the loaded session");
-                    REPORT.set(TrackerReference.map("reference_version", OSPRuntime.VERSION,
-                        "verification_level", "tracker_session_" + args[2],
-                        "view_preparation", "expand_visit_custom_tables_restore_selection", "loaded", before,
-                        "after_save", save ? snapshot(panel) : null));
-                    DONE.countDown();
-                })));
+                Runnable loaded = once(guard(() -> {
+                    if (multiple) {
+                        List<TrackerPanel> panels = archivePanels(originalFrame, input, archiveTabs);
+                        saveArchiveTab(originalFrame, panels, archiveTabs, directory, 0, new ArrayList<>());
+                        return;
+                    }
+                    whenEvaluated(onlyPanel(originalFrame), attachmentRequirements, modelRequirements, () -> {
+                        TrackerPanel panel = onlyPanel(originalFrame);
+                        Map<String, Object> before = snapshot(panel);
+                        if (save && (TrackerIO.save(saved.toFile(), panel) == null || !Files.isRegularFile(saved) || saved.toFile().length() == 0))
+                            throw new IllegalStateException("Tracker did not save the loaded session");
+                        REPORT.set(TrackerReference.map("reference_version", OSPRuntime.VERSION,
+                            "verification_level", "tracker_session_" + args[2],
+                            "view_preparation", "expand_visit_custom_tables_restore_selection", "loaded", before,
+                            "after_save", save ? snapshot(panel) : null));
+                        DONE.countDown();
+                    });
+                }));
                 // Pinned AsyncLoader can reach doneLoading from both checkDone and doneAsync.
                 // A repeated callback must not launch another timer/save after DONE is released.
                 TrackerIO.openURL(input.toString(), originalFrame, () -> {
@@ -186,6 +203,53 @@ public final class TrackerSessionReference {
 
     private record AttachmentRequirement(String owner, String[] targets) {}
     private record ModelRequirement(String owner, String booster, String[] particles) {}
+    private record ArchiveTab(String member, List<AttachmentRequirement> attachments, List<ModelRequirement> models) {}
+
+    private static List<TrackerPanel> archivePanels(TFrame frame, Path archive, List<ArchiveTab> expected) {
+        if (frame.getTabCount() != expected.size())
+            throw new IllegalStateException("Unexpected loaded archive tab count: " + frame.getTabCount());
+        Map<String, TrackerPanel> byTitle = new TreeMap<>();
+        for (int i = 0; i < frame.getTabCount(); i++) {
+            TrackerPanel panel = frame.getTrackerPanelForTab(i);
+            if (panel == null || panel.getToolTipPath() == null
+                    || !Path.of(panel.getToolTipPath()).toAbsolutePath().normalize().equals(archive.normalize())
+                    || byTitle.put(panel.getTitle(), panel) != null)
+                throw new IllegalStateException("Missing, ambiguous or non-archive experiment tab");
+        }
+        List<TrackerPanel> panels = new ArrayList<>();
+        for (ArchiveTab tab : expected) {
+            // The pinned archive loader uses the member basename without .trk as its title.
+            TrackerPanel panel = byTitle.remove(tab.member().substring(0, tab.member().length() - 4));
+            if (panel == null) throw new IllegalStateException("Archive did not load member: " + tab.member());
+            panels.add(panel);
+        }
+        if (!byTitle.isEmpty()) throw new IllegalStateException("Unexpected archive experiment tabs");
+        return panels;
+    }
+
+    private static void saveArchiveTab(TFrame frame, List<TrackerPanel> panels, List<ArchiveTab> expected,
+            Path output, int index, List<Object> reports) {
+        if (frame.getTabCount() != panels.size()) throw new IllegalStateException("Archive tab count changed during save");
+        TrackerPanel panel = panels.get(index);
+        ArchiveTab tab = expected.get(index);
+        frame.setSelectedTab(panel);
+        whenEvaluated(panel, tab.attachments(), tab.models(), () -> {
+            Map<String, Object> before = snapshot(panel);
+            Path saved = output.resolve("tracker-resaved-" + index + ".trk");
+            if (Files.exists(saved) || TrackerIO.save(saved.toFile(), panel) == null
+                    || !Files.isRegularFile(saved) || saved.toFile().length() == 0)
+                throw new IllegalStateException("Tracker did not save archive member: " + tab.member());
+            reports.add(TrackerReference.map("member", tab.member(), "loaded", before, "after_save", snapshot(panel)));
+            if (index + 1 < panels.size()) {
+                saveArchiveTab(frame, panels, expected, output, index + 1, reports);
+            } else {
+                REPORT.set(TrackerReference.map("reference_version", OSPRuntime.VERSION,
+                    "verification_level", "tracker_session_save-tabs",
+                    "view_preparation", "expand_visit_custom_tables_restore_selection", "tabs", reports));
+                DONE.countDown();
+            }
+        });
+    }
 
     private static List<ModelRequirement> modelRequirements(Path input) {
         XMLControlElement source = new XMLControlElement(input.toString());
@@ -275,8 +339,8 @@ public final class TrackerSessionReference {
         return true;
     }
 
-    private static void whenEvaluated(TFrame frame, List<AttachmentRequirement> attachments, List<ModelRequirement> models, Runnable action) {
-        TrackerPanel panel = onlyPanel(frame);
+    private static void whenEvaluated(TrackerPanel panel, List<AttachmentRequirement> attachments, List<ModelRequirement> models, Runnable action) {
+        TFrame frame = panel.getTFrame();
         WAITING.set("showing the loaded experiment");
         VideoClip clip = panel.getPlayer().getVideoClip();
         if (clip.getStepCount() < 1 || clip.getStepCount() > 10000)

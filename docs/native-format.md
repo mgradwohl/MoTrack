@@ -1,5 +1,34 @@
 # Native document compatibility
 
+Desktop sessions retain resolved local media locations separately from serialized references when opening a project. Native Save As and linked-image standard export can therefore rebase those locations even after the original project and its empty directory are removed. These runtime bindings are rebuilt on open and are not serialized; changing a media source must rebuild them. Native saving rejects an unresolved local rebase before replacing the destination.
+
+Successful native saves also adopt the worker snapshot's refreshed physical locations. Restoring media
+through a temporary alias and later removing that alias therefore preserves subsequent saves and
+undo/redo. The active image reader adopts the same locations without resetting frame navigation.
+Failed writes and replaced-document completions do not adopt those runtime bindings. A temporarily
+missing image with an unrecognized suffix retains its known reader; later saves retry image detection
+even when an earlier open could not create a reader. A successful save redraws the current image and
+restores clip controls without moving the playhead; single-image recovery needs no navigation event.
+This redraw preserves AutoTracker timers and pending matches and does not start a duplicate match.
+An empty location captured from an unresolved media alias is retried against the source path after
+repair; nonempty physical bindings retain their original base when the source directory is removed.
+
+When both a native destination and a linked media file are absent in the same physical directory,
+save preflight compares their original basenames inside one private temporary child directory.
+It uses the inherited filesystem naming policy without creating either requested file or globally
+folding names. Keeping the basenames unchanged avoids exceeding the filename limit with a UUID prefix.
+The probe and directory are removed before writing or on failure; existing-file identity checks remain
+in place. If verification cannot be completed, saving stops before replacing the destination.
+[Windows inherits the parent case-sensitivity flag for new directories](https://devblogs.microsoft.com/commandline/improved-per-directory-case-sensitivity-support-in-wsl/#case-sensitivity-inheritance);
+[Linux ext4 likewise inherits its casefold flag](https://github.com/torvalds/linux/blob/master/fs/ext4/ext4.h).
+
+On Windows, existing-file identity queries that fail with ordinary paths retry using canonical
+[extended-length paths](https://learn.microsoft.com/windows/win32/fileio/maximum-file-path-limitation).
+This preserves overwrite protection when Qt can open a long media pathname that the standard-library
+query cannot otherwise inspect. Canonicalization precedes the prefix so dot/parent path handling is
+not changed by Win32's extended-path rules. Long existing-media aliases and long missing-media names
+are covered alongside case and Unicode variants; both failure and success leave no probe artifacts.
+
 MoTrack saves bounded JSON metadata with `format: "MoTrack"`. The current writer emits version 5;
 the reader accepts versions 1 through 5 and rejects unknown versions. Archive-backed documents use
 the native ZIP container described below; other documents remain plain JSON. Existing measurement, calibration,
@@ -489,34 +518,18 @@ failure/cancellation. The corpus independently checks edited XML, every untouche
 record and central metadata. The baseline and edited archive passed actual Tracker `.trz` loading,
 resave, fresh-process reopen and native reimport at `fec0e7a`, Linux job 128733094094 in
 [run 42481133737](https://github.com/mgradwohl/MoTrack/actions/runs/42481133737), including every
-independent pixel/time/geometry expectation. Subsequent destination/member-alias guards still need
-current-head CI. Multi-tab application acceptance, new-archive packaging, broader ZIP/media support
-and paired-save recovery remain unfinished.
-Desktop sessions retain resolved local media locations separately from serialized references when opening a project. Native Save As and linked-image standard export can therefore rebase those locations even after the original project and its empty directory are removed. These runtime bindings are rebuilt on open and are not serialized; changing a media source must rebuild them. Native saving rejects an unresolved local rebase before replacing the destination.
+independent pixel/time/geometry expectation. The destination/member-alias guards also passed at `6e35268`, Linux job 128744838260 in
+[run 42484998884](https://github.com/mgradwohl/MoTrack/actions/runs/42484998884). The later immutable-source
+digest protection still requires its own current-revision CI. New-archive packaging, broader ZIP/media
+support and paired-save recovery remain unfinished.
 
-Successful native saves also adopt the worker snapshot's refreshed physical locations. Restoring media
-through a temporary alias and later removing that alias therefore preserves subsequent saves and
-undo/redo. The active image reader adopts the same locations without resetting frame navigation.
-Failed writes and replaced-document completions do not adopt those runtime bindings. A temporarily
-missing image with an unrecognized suffix retains its known reader; later saves retry image detection
-even when an earlier open could not create a reader. A successful save redraws the current image and
-restores clip controls without moving the playhead; single-image recovery needs no navigation event.
-This redraw preserves AutoTracker timers and pending matches and does not start a duplicate match.
-An empty location captured from an unresolved media alias is retried against the source path after
-repair; nonempty physical bindings retain their original base when the source directory is removed.
-
-When both a native destination and a linked media file are absent in the same physical directory,
-save preflight compares their original basenames inside one private temporary child directory.
-It uses the inherited filesystem naming policy without creating either requested file or globally
-folding names. Keeping the basenames unchanged avoids exceeding the filename limit with a UUID prefix.
-The probe and directory are removed before writing or on failure; existing-file identity checks remain
-in place. If verification cannot be completed, saving stops before replacing the destination.
-[Windows inherits the parent case-sensitivity flag for new directories](https://devblogs.microsoft.com/commandline/improved-per-directory-case-sensitivity-support-in-wsl/#case-sensitivity-inheritance);
-[Linux ext4 likewise inherits its casefold flag](https://github.com/torvalds/linux/blob/master/fs/ext4/ext4.h).
-
-On Windows, existing-file identity queries that fail with ordinary paths retry using canonical
-[extended-length paths](https://learn.microsoft.com/windows/win32/fileio/maximum-file-path-limitation).
-This preserves overwrite protection when Qt can open a long media pathname that the standard-library
-query cannot otherwise inspect. Canonicalization precedes the prefix so dot/parent path handling is
-not changed by Win32's extended-path rules. Long existing-media aliases and long missing-media names
-are covered alongside case and Unicode variants; both failure and success leave no probe artifacts.
+The additional two-experiment corpus case verifies that selected-member editing does not damage a
+second experiment sharing the same images. Its independent archive/XML oracle preserves that
+experiment byte-for-byte. The reference opens the actual archive once, matches loaded tabs to the
+explicit member inventory, saves every tab through Tracker, and reopens each saved standard file
+in its own process. Each tab has separate scientific/media expectations, including a different mass
+and track name. Manifest validation and negative oracles reject omitted/duplicate tabs and matching
+but incorrect results across save/reopen. Both `tracker_archive_tabs_resave` and
+`motrack_archive_tabs_roundtrip` passed at `505c40c5`, Linux job 128744837376 in
+[run 42484997811](https://github.com/mgradwohl/MoTrack/actions/runs/42484997811). This scoped application
+evidence does not provide native multi-tab workspace editing or expand the supported archive/media schema.

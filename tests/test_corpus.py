@@ -28,6 +28,151 @@ class Download(io.BytesIO):
 
 
 class CorpusTests(unittest.TestCase):
+    def test_multitab_manifest_requires_independent_bounded_member_expectations(self):
+        original = corpus.load_manifest()
+        for mutation in ["not-archive", "not-list", "one-tab", "too-many", "duplicate", "escape", "wrong-shape",
+                         "missing-template", "unaudited-template", "known-issue", "nested-archive", "selected-mismatch"]:
+            manifest = copy.deepcopy(original)
+            case = next(c for c in manifest["cases"] if c["id"] == "multitab-images")
+            secondary = next(c for c in manifest["cases"] if c["id"] == "secondary-images")
+            tabs = case["session_archive_tabs"]
+            if mutation == "not-archive": case["session_archive"] = False
+            elif mutation == "not-list": case["session_archive_tabs"] = {}
+            elif mutation == "one-tab": tabs.pop()
+            elif mutation == "too-many": case["session_archive_tabs"] = tabs * 5
+            elif mutation == "duplicate": tabs[1]["member"] = tabs[0]["member"]
+            elif mutation == "escape": tabs[1]["member"] = "../outside.trk"
+            elif mutation == "wrong-shape": tabs[1]["extra"] = "unreviewed"
+            elif mutation == "missing-template": tabs[1]["case"] = "missing"
+            elif mutation == "unaudited-template": del secondary["session_tracks"]
+            elif mutation == "known-issue": secondary["session_known_issue"] = "known loss"
+            elif mutation == "nested-archive": secondary["session_archive"] = True
+            elif mutation == "selected-mismatch": tabs[0]["case"] = "secondary-images"
+            path = self.root / "manifest.json"
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                corpus.load_manifest(path)
+
+    def test_multitab_sessions_open_the_archive_and_independently_check_every_tab(self):
+        manifest = corpus.load_manifest()
+        case = next(c for c in manifest["cases"] if c["id"] == "multitab-images")
+        templates = [next(c for c in manifest["cases"] if c["id"] == tab["case"])
+                     for tab in case["session_archive_tabs"]]
+        snapshots = []
+        for template in templates:
+            expected = json.loads(corpus.expected_path(template).read_text(encoding="utf-8"))["project"]
+            mass = expected["point_masses"][0]
+            snapshots.append({"tracks": [template["session_tracks"][0], {
+                **template["session_tracks"][1], "mass": mass["mass"],
+                "samples": [{"frame": sample["frame"], "points": [sample["image"]], "world": sample["world"]}
+                            for sample in mass["samples"]]}],
+                "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                "media": copy.deepcopy(template["session_media"]), "frame_duration_ms": 125.0,
+                "axes": copy.deepcopy(template["session_axes"]), "calibration": copy.deepcopy(template["session_calibration"]),
+                "time_samples": copy.deepcopy(template["session_time_samples"]),
+                "name_references": {"selected_track": mass["name"]}, **corpus.session_units(template, expected)})
+        (self.root / "reports").mkdir()
+        for mutation in [None, "missing", "duplicate", "non-object", "second-mass", "second-pixels", "second-origin"]:
+            output = self.root / (mutation or "valid")
+            output.mkdir()
+            calls, homes = [], []
+            observed = copy.deepcopy(snapshots)
+            if mutation == "second-mass": observed[1]["tracks"][1]["mass"] = 8.0
+            elif mutation == "second-pixels": observed[1]["media"]["frames"][0]["rgb_sha256"] = "0" * 64
+            elif mutation == "second-origin": observed[1]["calibration"]["keys"][0]["origin"][0] += 1
+
+            def session(command, *, display=None):
+                self.assertEqual(display, ":77")
+                self.assertIn("-Xmx256m", command)
+                args = command[command.index("TrackerSessionReference") + 1:]
+                source, destination, stage = Path(args[0]), Path(args[1]), args[2]
+                home = Path(next(arg.split("=", 1)[1] for arg in command if arg.startswith("-Duser.home=")))
+                self.assertTrue(home.is_dir())
+                self.assertTrue(home.is_relative_to(output))
+                homes.append(home)
+                calls.append((source, stage))
+                report = {"reference_version": "6.3.5", "verification_level": "tracker_session_" + stage,
+                          "view_preparation": "expand_visit_custom_tables_restore_selection", "loader_callbacks": 2}
+                if stage == "save-tabs":
+                    self.assertEqual(source, corpus.local_fixture_path(case))
+                    self.assertEqual([Path(arg).name for arg in args[3:]], ["experiment.trk", "second.trk"])
+                    for i, template in enumerate(templates):
+                        data = corpus.local_fixture_path(template).read_bytes()
+                        self.assertEqual(Path(args[3 + i]).read_bytes(), data)
+                        (destination / f"tracker-resaved-{i}.trk").write_bytes(data)
+                    report["tabs"] = [{"member": tab["member"], "loaded": observed[i], "after_save": observed[i]}
+                                      for i, tab in enumerate(case["session_archive_tabs"])]
+                    if mutation == "missing": report["tabs"].pop()
+                    elif mutation == "duplicate": report["tabs"][1]["member"] = "experiment.trk"
+                    elif mutation == "non-object": report["tabs"][1] = None
+                else:
+                    self.assertEqual(stage, "reopen")
+                    index = int(source.stem.rsplit("-", 1)[1])
+                    self.assertEqual(source, output / f"tracker-resaved-{index}.trk")
+                    report["loaded"] = observed[index]
+                (destination / f"session-{stage}.json").write_text(json.dumps(report), encoding="utf-8")
+
+            with self.subTest(mutation=mutation), patch.object(corpus, "run", side_effect=session):
+                if mutation:
+                    with self.assertRaises(ValueError):
+                        corpus.check_archive_tabs(case, manifest, self.root, "java", self.root / "classes",
+                                                  self.root / "reference.jar", output, ":77")
+                else:
+                    corpus.check_archive_tabs(case, manifest, self.root, "java", self.root / "classes",
+                                              self.root / "reference.jar", output, ":77")
+                    self.assertEqual([stage for _, stage in calls], ["save-tabs", "reopen", "reopen"])
+                    self.assertEqual(len(set(homes)), 3)
+                    report = json.loads((self.root / "reports/multitab-images-tracker_archive_tabs_resave.json").read_text())
+                    self.assertEqual([tab["member"] for tab in report["tabs"]], ["experiment.trk", "second.trk"])
+
+    def test_multitab_session_refuses_an_omitted_or_changed_experiment(self):
+        manifest = corpus.load_manifest()
+        case = next(c for c in manifest["cases"] if c["id"] == "multitab-images")
+        original_path = corpus.local_fixture_path
+        for mutation in ["missing", "changed"]:
+            damaged = self.root / (mutation + ".trz")
+            with zipfile.ZipFile(original_path(case)) as source, zipfile.ZipFile(damaged, "w") as output:
+                for entry in source.infolist():
+                    if entry.filename == "second.trk" and mutation == "missing":
+                        continue
+                    data = source.read(entry)
+                    if entry.filename == "second.trk":
+                        self.assertIn(b">3.5<", data)
+                        data = data.replace(b">3.5<", b">4.5<")
+                    output.writestr(entry, data)
+            with self.subTest(mutation=mutation), \
+                    patch.object(corpus, "local_fixture_path", side_effect=lambda value: damaged if value["id"] == case["id"] else original_path(value)), \
+                    patch.object(corpus, "run") as run, self.assertRaisesRegex(ValueError, "independent"):
+                corpus.check_archive_tabs(case, manifest, self.root, "java", self.root / "classes",
+                                          self.root / "reference.jar", self.root / "output", ":77")
+            run.assert_not_called()
+
+    def test_failed_multitab_session_cleans_its_private_home_and_outputs(self):
+        manifest = corpus.load_manifest()
+        manifest["cases"] = [case for case in manifest["cases"] if case["id"] in
+                             {"multitab-images", "linked-images", "secondary-images"}]
+        calls = []
+
+        def fail_session(command, *, display=None):
+            if "TrackerSessionReference" not in command:
+                return
+            self.assertEqual(display, ":77")
+            args = command[command.index("TrackerSessionReference") + 1:]
+            calls.append(args)
+            self.assertEqual(args[2], "save-tabs")
+            home = Path(next(arg.split("=", 1)[1] for arg in command if arg.startswith("-Duser.home=")))
+            self.assertTrue(home.is_dir())
+            (home / "preferences.xml").write_text("private", encoding="utf-8")
+            raise ValueError("multi-tab loader failure")
+
+        with patch.object(corpus.sys, "platform", "linux"), \
+                patch.object(corpus, "private_display", return_value=nullcontext(":77")), \
+                patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "run", side_effect=fail_session):
+            with self.assertRaisesRegex(ValueError, "multi-tab loader failure"):
+                corpus.check_sessions(manifest, self.root, "java")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(list(self.root.glob("session-*")), [])
+
     def test_archive_oracle_checks_opaque_payloads_metadata_and_edited_xml(self):
         case = next(case for case in corpus.load_manifest()["cases"] if case["id"] == "archived-images")
         fixture = corpus.local_fixture_path(case)

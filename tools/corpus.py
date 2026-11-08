@@ -45,6 +45,26 @@ def load_manifest(path=CORPUS / "manifest.json"):
             expected_path({"expected": case["native_reference_index"]})
         if case.get("session_archive") and (not case.get("project_member") or "session_tracks" not in case):
             raise ValueError("Archive sessions require an explicit project member and independent track expectations")
+    by_id = {case["id"]: case for case in manifest["cases"]}
+    for case in manifest["cases"]:
+        if "session_archive_tabs" not in case:
+            continue
+        tabs = case["session_archive_tabs"]
+        if not case.get("session_archive") or not isinstance(tabs, list) or not 2 <= len(tabs) <= 8:
+            raise ValueError("Multi-tab archive sessions require 2–8 explicit member expectations")
+        members = set()
+        for tab in tabs:
+            if not isinstance(tab, dict) or set(tab) != {"member", "case"}:
+                raise ValueError("Invalid multi-tab archive expectation")
+            member = tab["member"]
+            reference = by_id.get(tab["case"]) if isinstance(tab["case"], str) else None
+            if (not isinstance(member, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+\.trk", member)
+                    or member in members or reference is None or "session_tracks" not in reference
+                    or reference.get("session_archive") or reference.get("session_known_issue")):
+                raise ValueError("Invalid, duplicate or unaudited archive member expectation")
+            members.add(member)
+        if tabs[0]["member"] != case["project_member"] or by_id[tabs[0]["case"]]["expected"] != case["expected"]:
+            raise ValueError("Selected archive member must match its independent expectation")
     assets = []
     for case in manifest["cases"]:
         values = case.get("assets", [])
@@ -414,7 +434,7 @@ def private_display():
 
 
 def linked_images_roundtrip_expected(case):
-    if case["id"] not in {"linked-images", "archived-images"}:
+    if case["id"] not in {"linked-images", "archived-images", "multitab-images"}:
         raise ValueError("Linked-image edits require the pinned image experiment")
     expected = json.loads(expected_path(case).read_text(encoding="utf-8"))["project"]
     expected["point_masses"][0]["mass"] = 5.0
@@ -475,7 +495,7 @@ def verify_linked_image_export_xml(original, exported, case):
         verify_file(exported.parent / "media é & frames" / asset["file"], asset)
 
 
-def verify_archive_image_export(original, exported, selected_xml):
+def verify_archive_image_export(original, exported, selected_xml, member_count=7):
     """Independent ZIP reader: only the selected XML and its encoding metadata may change."""
     if max(original.stat().st_size, exported.stat().st_size) > 1024 * 1024:
         raise ValueError("Archive reference exceeds the small-fixture limit")
@@ -483,7 +503,7 @@ def verify_archive_image_export(original, exported, selected_xml):
     with zipfile.ZipFile(original) as before, zipfile.ZipFile(exported) as after:
         left, right = before.infolist(), after.infolist()
         if ([entry.filename for entry in left] != [entry.filename for entry in right]
-                or len(left) != 7 or before.comment != after.comment or after.testzip() is not None):
+                or len(left) != member_count or before.comment != after.comment or after.testzip() is not None):
             raise ValueError("Archive inventory, comment or member integrity changed")
         ordered_left = sorted(left, key=lambda entry: entry.header_offset)
         ordered_right = sorted(right, key=lambda entry: entry.header_offset)
@@ -1655,6 +1675,80 @@ def verify_vector_export_xml(original, exported, expected_project):
         raise ValueError("Standard export changed content beyond the requested vector edits")
 
 
+def check_archive_tabs(case, manifest, cache, java, classes, jar, output, display, probe=None):
+    """Open the actual archive once, save every loaded tab, then reopen each in a fresh JVM."""
+    by_id = {item["id"]: item for item in manifest["cases"]}
+    tabs = case["session_archive_tabs"]
+    members = [tab["member"] for tab in tabs]
+    templates = [by_id[tab["case"]] for tab in tabs]
+    source = local_fixture_path(case) if "local_file" in case else cache / "fixtures" / case["file"]
+    with zipfile.ZipFile(source) as archive:
+        projects = [entry.filename for entry in archive.infolist() if entry.filename.lower().endswith(".trk")]
+        if sorted(projects) != sorted(members):
+            raise ValueError("Archive experiments do not match the independent tab inventory")
+        for member, template in zip(members, templates):
+            if archive.getinfo(member).file_size > MAX_XML_BYTES or archive.read(member) != project_path(template, cache).read_bytes():
+                raise ValueError("Archive tab differs from its pinned independent source")
+    expected = [json.loads(expected_path(template).read_text(encoding="utf-8"))["project"] for template in templates]
+    if probe:
+        exported = output / "motrack-export.trz"
+        run([str(Path(probe).resolve()), "--export-multitab-archive-images", str(source), str(exported)])
+        verify_archive_image_export(source, exported, output / "exported-member.trk", member_count=8)
+        expected[0] = linked_images_roundtrip_expected(case)
+        source = exported
+    metadata = output / "metadata"
+    metadata.mkdir()
+    with zipfile.ZipFile(source) as archive:
+        for member in members:
+            if archive.getinfo(member).file_size > MAX_XML_BYTES:
+                raise ValueError("Archive member exceeds the metadata limit")
+            (metadata / member).write_bytes(archive.read(member))
+
+    def execute(input_file, destination, stage, metadata_args=()):
+        home = destination / "private-home"
+        home.mkdir(parents=True)
+        try:
+            run([str(java), f"-Duser.home={home}", "-Duser.language=en", "-Duser.country=US", "-Xmx256m",
+                 "-cp", os.pathsep.join([str(classes), str(jar)]), "TrackerSessionReference",
+                 str(input_file), str(destination), stage, *map(str, metadata_args)], display=display)
+        except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+            raise ValueError(f"{case['id']}/{stage}: multi-tab reference failed: {error}") from error
+        report = json.loads((destination / f"session-{stage}.json").read_text(encoding="utf-8"))
+        if (report.get("reference_version") != manifest["reference"]["version"]
+                or report.get("verification_level") != "tracker_session_" + stage
+                or report.get("view_preparation") != "expand_visit_custom_tables_restore_selection"
+                or type(report.get("loader_callbacks")) is not int or report["loader_callbacks"] < 1):
+            raise ValueError("Unexpected multi-tab Tracker session stage")
+        return report
+
+    saved = execute(source, output, "save-tabs", [metadata / member for member in members])
+    if (not isinstance(saved.get("tabs"), list) or any(not isinstance(tab, dict) for tab in saved["tabs"])
+            or [tab.get("member") for tab in saved["tabs"]] != members):
+        raise ValueError("Tracker did not report each archive experiment exactly once")
+    reports = []
+    for i, (member, template, desired, before) in enumerate(zip(members, templates, expected, saved["tabs"])):
+        file = output / f"tracker-resaved-{i}.trk"
+        reopened = execute(file, output / f"reopen-{i}", "reopen")
+        report = {"reference_version": saved["reference_version"], "verification_level": "tracker_session_resave",
+                  "view_preparation": saved["view_preparation"], "before": before["loaded"],
+                  "after_save": before["after_save"], "after": reopened["loaded"]}
+        try:
+            validate_session(template, report, manifest, desired, [[0, 1, 2]] if probe and i == 0 else None)
+        except ValueError as error:
+            raise ValueError(f"{case['id']}/{member}: {error}\nTracker tab snapshots (bounded): {json.dumps(report)[:24000]}") from error
+        if probe:
+            native = output / f"native-reimport-{i}.json"
+            run([str(Path(probe).resolve()), str(file), str(native)])
+            desired["source_version"] = manifest["reference"]["version"]
+            desired.update(session_units(template, desired))
+            compare(desired, json.loads(native.read_text(encoding="utf-8")), manifest["tolerance"], member + ".reimport")
+        reports.append({"member": member, "tracker_session": report, "expected": desired})
+    level = "motrack_archive_tabs_roundtrip" if probe else "tracker_archive_tabs_resave"
+    (cache / "reports" / f"{case['id']}-{level}.json").write_text(
+        json.dumps({"verification_level": level, "tabs": reports}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"{case['id']}: passed ({level}; all loaded tabs saved and individually reopened)")
+
+
 def check_sessions(manifest, cache, java, probe=None):
     if sys.platform != "linux":
         raise ValueError("Session checks currently require Linux with Xvfb")
@@ -1715,6 +1809,9 @@ def check_sessions(manifest, cache, java, probe=None):
             output = root / (case["id"] + ("-" + mode if probe else ""))
             java_home = output / "java-home"
             java_home.mkdir(parents=True)
+            if case.get("session_archive_tabs"):
+                check_archive_tabs(case, manifest, cache, java_path, classes, jar, output, display, probe)
+                continue
             project = project_path(case, cache)
             archive_input = (local_fixture_path(case) if "local_file" in case else cache / "fixtures" / case["file"]) if case.get("session_archive") else None
             if mode in {"name", "unselected-name", "vector-name", "plot-owner-name", "plot-guest-name", "center-member-name",
