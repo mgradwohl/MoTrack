@@ -69,10 +69,6 @@ public final class TrackerSessionReference {
             List<ModelRequirement> modelRequirements = modelRequirements(input);
             SwingUtilities.invokeAndWait(guard(() -> {
                 TFrame originalFrame = new TFrame();
-                // Open from a running desktop, as a user would. A hidden frame suppresses table
-                // refresh while the asynchronous loader schedules restored column order.
-                originalFrame.setVisible(true);
-                originalFrame.validate();
                 Runnable loaded = once(guard(() -> whenEvaluated(originalFrame, attachmentRequirements, modelRequirements, () -> {
                     TrackerPanel panel = onlyPanel(originalFrame);
                     Map<String, Object> before = snapshot(panel);
