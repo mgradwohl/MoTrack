@@ -153,9 +153,11 @@ void writeTrackerImagePackage(const QString& path,
     ZipOutput output{.file = QFile(staged), .cancelled = cancelled};
     require(output.file.open(QIODevice::WriteOnly | QIODevice::NewOnly));
     std::unique_ptr<archive, decltype(&archive_write_free)> writer(archive_write_new(), &archive_write_free);
+    // libarchive streams a data descriptor after each member. Java ZipInputStream (used by Tracker)
+    // accepts descriptors only for DEFLATED entries, even when all uncompressed sizes are known.
     require(writer && archive_write_set_format_zip(writer.get()) == ARCHIVE_OK &&
             archive_write_set_bytes_per_block(writer.get(), 0) == ARCHIVE_OK &&
-            archive_write_set_options(writer.get(), "zip:compression=store") == ARCHIVE_OK &&
+            archive_write_set_options(writer.get(), "zip:compression=deflate,zip:compression-level=1") == ARCHIVE_OK &&
             archive_write_open(writer.get(), &output, nullptr, &writeBlock, nullptr) == ARCHIVE_OK);
     for (const auto& member : members)
         writeMember(writer.get(), member, temporary.filePath(member), cancelled);

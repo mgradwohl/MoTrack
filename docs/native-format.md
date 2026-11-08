@@ -531,7 +531,9 @@ It is an export copy, not a new session save checkpoint or an automatically pair
 
 Preparation uses a private temporary directory, at most 4095 images plus one experiment, 512 MiB total
 extracted content and 544 MiB ZIP bytes, with 64 KiB copy buffers and cancellation checks. The generated
-ZIP has no trailing block padding. The normal archive reader validates it before the destination is
+ZIP uses DEFLATE with streaming data descriptors and has no trailing block padding. Java’s streaming
+ZIP reader rejects descriptors on stored entries, so uncompressed streaming entries are not compatible.
+The normal archive reader validates the package before the destination is
 atomically replaced. Output-file aliases, linked-media overwrites, missing images, movies, existing
 archive inputs, unsupported edits and nonportable image extensions are refused. Image formats are
 preserved, not transcoded; the initial application acceptance fixture consists of four PNGs.

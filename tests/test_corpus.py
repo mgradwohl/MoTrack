@@ -229,7 +229,8 @@ class CorpusTests(unittest.TestCase):
             xml = xml.replace(f"images/frame{index}.png", f"images/frame-{index:06d}.png")
 
         def build(mutation=None):
-            with zipfile.ZipFile(exported, "w") as package:
+            with zipfile.ZipFile(exported, "w", compression=(zipfile.ZIP_STORED if mutation == "stored"
+                                                          else zipfile.ZIP_DEFLATED)) as package:
                 data = xml
                 if mutation == "xml":
                     data = data.replace('name="xorigin" type="double">2.0', 'name="xorigin" type="double">3.0')
@@ -249,7 +250,7 @@ class CorpusTests(unittest.TestCase):
         build()
         corpus.verify_image_package_export(original, exported, selected, case)
         self.assertEqual(selected.read_text(encoding="utf-8"), xml)
-        for mutation in ["xml", "path", "pixels", "missing", "extra"]:
+        for mutation in ["xml", "path", "pixels", "missing", "extra", "stored"]:
             build(mutation)
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
                 corpus.verify_image_package_export(original, exported, selected, case)

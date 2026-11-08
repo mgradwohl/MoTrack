@@ -503,7 +503,7 @@ def verify_image_package_export(original, exported, selected_xml, case):
     images = [f"images/frame-{index:06d}.png" for index in range(4)]
     with zipfile.ZipFile(exported) as package:
         if (package.namelist() != ["experiment.trk", *images] or package.comment or package.testzip() is not None
-                or any(entry.compress_type != zipfile.ZIP_STORED or entry.extract_version > 20 for entry in package.infolist())):
+                or any(entry.compress_type != zipfile.ZIP_DEFLATED or entry.extract_version > 20 for entry in package.infolist())):
             raise ValueError("Unexpected image package inventory or encoding")
         for member, asset in zip(images, case["assets"], strict=True):
             payload = package.read(member)
