@@ -161,6 +161,50 @@ TEST(PairedWorkspace, RecoversAnOlderPairThenSavesCurrentEdits)
     EXPECT_DOUBLE_EQ(motrack::readWorkspaceDocument(partial.nativePath).project.pointMasses.at(0).mass, 7);
 }
 
+TEST(PairedWorkspace, ExternalRecoveryChangesRequireReconfirmationBeforeWritingTheCurrentSnapshot)
+{
+    for (const bool replaced : {false, true})
+    {
+        SCOPED_TRACE(replaced);
+        QTemporaryDir temporary;
+        const auto target = temporary.filePath("saved.trk");
+        std::atomic_bool cancelled{false};
+        const auto interrupt = [&cancelled](auto state)
+        {
+            cancelled = state == motrack::PairedSaveProgress::StandardSaved;
+        };
+        auto external = motrack::importTrackerDocument(fixture());
+        const auto first = motrack::writePairedDocuments(target, external, fixture(), &cancelled, interrupt);
+        ASSERT_EQ(first.status, motrack::PairedSaveStatus::RecoveryRequired);
+        motrack::MainWindow window;
+        ASSERT_TRUE(window.loadProject(fixture()));
+        ASSERT_TRUE(editMass(window, 5));
+        EXPECT_FALSE(window.saveTrackerProject(target));
+        ASSERT_EQ(motrack::recoverPairedDocuments(first.recoveryPath).status, motrack::PairedSaveStatus::Saved);
+        if (replaced)
+        {
+            motrack::TrackEdits edits;
+            ASSERT_TRUE(edits.setPointMassValue(external.project, 0, 7));
+            cancelled = false;
+            const auto second = motrack::writePairedDocuments(target, external, fixture(), &cancelled, interrupt);
+            ASSERT_EQ(second.status, motrack::PairedSaveStatus::RecoveryRequired);
+            const auto standard = bytes(target);
+            const auto native = bytes(second.nativePath);
+            const auto journal = bytes(second.recoveryPath);
+            EXPECT_FALSE(window.saveTrackerProject(target, true));
+            EXPECT_TRUE(window.isWindowModified());
+            EXPECT_EQ(bytes(target), standard);
+            EXPECT_EQ(bytes(second.nativePath), native);
+            EXPECT_EQ(bytes(second.recoveryPath), journal);
+        }
+        ASSERT_TRUE(window.saveTrackerProject(target, true));
+        EXPECT_FALSE(window.isWindowModified());
+        EXPECT_FALSE(QFile::exists(first.recoveryPath));
+        EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(target).project.pointMasses.at(0).mass, 5);
+        EXPECT_DOUBLE_EQ(motrack::readWorkspaceDocument(first.nativePath).project.pointMasses.at(0).mass, 5);
+    }
+}
+
 TEST(PairedWorkspace, RecoveryConflictsKeepCurrentEditsAndBothDestinations)
 {
     QTemporaryDir temporary;
@@ -421,6 +465,8 @@ TEST(PairedWorkspace, FileMenuAsksBeforeReplacingAnUnrelatedCompanion)
                                  {
                                      choseFile = true;
                                      dialog->selectFile(target);
+                                     EXPECT_TRUE(
+                                         QTest::qWaitFor([dialog, &target] { return dialog->selectedFiles() == QStringList{target}; }));
                                      QMetaObject::invokeMethod(dialog, "accept");
                                  }
                              }
@@ -505,6 +551,8 @@ TEST(PairedWorkspace, PendingOpensInvalidateTheTrackerChooserAndCompanionConfirm
                                          replace();
                                      }
                                      dialog->selectFile(target);
+                                     EXPECT_TRUE(
+                                         QTest::qWaitFor([dialog, &target] { return dialog->selectedFiles() == QStringList{target}; }));
                                      QMetaObject::invokeMethod(dialog, "accept");
                                  }
                              }
@@ -619,27 +667,72 @@ TEST(PairedWorkspace, PendingOpenInvalidatesRecoveryConfirmationAndItsSaveDestin
 
 TEST(PairedWorkspace, DestroyingTheWindowDuringSaveCancelsAndReleasesTheWorker)
 {
-    QTemporaryDir temporary;
-    QSemaphore entered;
-    QSemaphore release;
-    QPointer<motrack::MainWindow> window = new motrack::MainWindow;
-    const auto cleanup = qScopeGuard([&window] { delete window.data(); });
-    ASSERT_TRUE(window->loadProject(fixture()));
-    auto* pool = window->findChild<QThreadPool*>("workspaceSavePool");
-    ASSERT_NE(pool, nullptr);
-    pool->start(
-        [&]
+    for (const bool throughMenu : {false, true})
+    {
+        SCOPED_TRACE(throughMenu);
+        QTemporaryDir temporary;
+        const auto target = temporary.filePath("saved.trk");
+        QSemaphore entered;
+        QSemaphore release;
+        QPointer<motrack::MainWindow> window = new motrack::MainWindow;
+        const auto cleanup = qScopeGuard([&window] { delete window.data(); });
+        ASSERT_TRUE(window->loadProject(fixture()));
+        auto* pool = window->findChild<QThreadPool*>("workspaceSavePool");
+        ASSERT_NE(pool, nullptr);
+        pool->start(
+            [&]
+            {
+                entered.release();
+                static_cast<void>(release.tryAcquire(1, 5000));
+            });
+        ASSERT_TRUE(entered.tryAcquire(1, 5000));
+        QTimer poll;
+        QTimer watchdog;
+        bool choseFile = false;
+        QObject::connect(&poll,
+                         &QTimer::timeout,
+                         [&]
+                         {
+                             if (throughMenu && !choseFile)
+                             {
+                                 if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget()))
+                                 {
+                                     choseFile = true;
+                                     dialog->selectFile(target);
+                                     EXPECT_TRUE(
+                                         QTest::qWaitFor([dialog, &target] { return dialog->selectedFiles() == QStringList{target}; }));
+                                     QMetaObject::invokeMethod(dialog, "accept");
+                                 }
+                                 return;
+                             }
+                             if (window && window->findChild<QDialog*>("pairedSaveProgress"))
+                             {
+                                 poll.stop();
+                                 release.release();
+                                 delete window.data();
+                             }
+                         });
+        QObject::connect(&watchdog,
+                         &QTimer::timeout,
+                         [&]
+                         {
+                             release.release();
+                             if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
+                                 dialog->reject();
+                         });
+        poll.start(10);
+        watchdog.start(3000);
+        if (throughMenu)
         {
-            entered.release();
-            static_cast<void>(release.tryAcquire(1, 5000));
-        });
-    ASSERT_TRUE(entered.tryAcquire(1, 5000));
-    QTimer::singleShot(0,
-                       [window, &release]
-                       {
-                           release.release();
-                           delete window.data();
-                       });
-    EXPECT_FALSE(window->saveTrackerProject(temporary.filePath("saved.trk")));
+            auto* action = window->findChild<QAction*>("saveTrackerProject");
+            ASSERT_NE(action, nullptr);
+            action->trigger();
+            EXPECT_TRUE(choseFile);
+        }
+        else
+            EXPECT_FALSE(window->saveTrackerProject(target));
+        EXPECT_TRUE(window.isNull());
+    }
 }
+
 } // namespace

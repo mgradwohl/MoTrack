@@ -1685,15 +1685,18 @@ bool MainWindow::chooseTrackerPath()
     const auto checkpoint = m_Session.saveCheckpoint();
     const bool archive = static_cast<bool>(m_Session.document.archivePayload);
     const auto suffix = archive ? QStringLiteral("trz") : QStringLiteral("trk");
-    QFileDialog dialog(this,
-                       tr("Save Tracker project and MoTrack companion"),
-                       m_Session.standardSavePath(),
-                       archive ? tr("Tracker archives (*.trz)") : tr("Tracker projects (*.trk)"));
-    dialog.setAcceptMode(QFileDialog::AcceptSave);
-    dialog.setDefaultSuffix(suffix);
-    if (dialog.exec() != QDialog::Accepted || checkpoint.identity != m_Session.saveCheckpoint().identity)
-        return false;
-    const auto path = dialog.selectedFiles().value(0);
+    QString path;
+    {
+        QFileDialog dialog(this,
+                           tr("Save Tracker project and MoTrack companion"),
+                           m_Session.standardSavePath(),
+                           archive ? tr("Tracker archives (*.trz)") : tr("Tracker projects (*.trk)"));
+        dialog.setAcceptMode(QFileDialog::AcceptSave);
+        dialog.setDefaultSuffix(suffix);
+        if (dialog.exec() != QDialog::Accepted || checkpoint.identity != m_Session.saveCheckpoint().identity)
+            return false;
+        path = dialog.selectedFiles().value(0);
+    } // Destroy the parented stack dialog before another nested dialog/save can destroy the window.
     const QFileInfo target(path);
     const auto companion = target.absoluteDir().filePath(target.completeBaseName() + ".motrack");
     if (QFileInfo::exists(companion) && companion != m_Session.nativeSavePath() &&
@@ -1780,13 +1783,19 @@ bool MainWindow::saveTrackerProject(const QString& path, bool recoverPending)
     QFutureWatcher<WorkResult> watcher;
     connect(&watcher, &QFutureWatcher<WorkResult>::finished, &loop, &QEventLoop::quit);
     watcher.setFuture(QtConcurrent::run(m_SavePool,
-                                        [path, pending, cancelled, sourcePath = m_MediaProjectPath, document = m_Session.document]
+                                        [path,
+                                         pending,
+                                         cancelled,
+                                         expectedTransaction = checkpoint.recoveryTransactions.value(pending),
+                                         sourcePath = m_MediaProjectPath,
+                                         document = m_Session.document]
                                         {
                                             WorkResult result;
                                             if (!pending.isEmpty())
                                             {
-                                                result.recovery = recoverPairedDocuments(pending, cancelled.get());
-                                                if (result.recovery->status != PairedSaveStatus::Saved)
+                                                result.recovery = recoverPairedDocuments(pending, cancelled.get(), {}, expectedTransaction);
+                                                if (result.recovery->status != PairedSaveStatus::Saved &&
+                                                    result.recovery->status != PairedSaveStatus::RecoveryNotNeeded)
                                                     return result;
                                             }
                                             result.saved = writePairedDocuments(path, document, sourcePath, cancelled.get());

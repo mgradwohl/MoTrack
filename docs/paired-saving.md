@@ -47,6 +47,8 @@ explicit original state, not a wildcard authorizing overwrite.
 
 The initial API is an internal adapter operating on an immutable snapshot in a worker. It reports
 saved, canceled, failed-before-commit and recovery-required outcomes, with individual output status.
+For a known transaction, an absent journal observed under its lock is reported separately as
+recovery-not-needed; this does not claim either destination is current.
 Cancellation is checked before preparation and at bounded copy/commit boundaries.
 Cancellation reported by nested archive/native adapters is classified consistently before commitment. Progress callbacks
 must never touch widgets directly. Session identity/revision checks remain necessary when applying
@@ -184,8 +186,8 @@ confirmation, and window destruction during a queued save. Current Windows valid
 cross-platform CI are reported with the desktop PR. The established actual-Tracker paired corpus gates
 continue validating the same adapter; these UI tests do not independently establish broader export parity.
 
-Local Windows desktop validation: all twelve paired-workspace tests and all six CTest suites pass.
-Combined production line coverage is 95.58% (8000/8370), above the unchanged 90% gate.
+Local Windows desktop validation: all thirteen paired-workspace tests and all six CTest suites pass.
+Combined production line coverage is 95.59% (8044/8415), above the unchanged 90% gate.
 The 76 Python corpus tests and native corpus checks also pass.
 Formatting and clang-tidy pass for the controller and desktop tests. Linux/macOS/current-head CI
 and code review remain required before this desktop slice can be merged.
@@ -207,3 +209,16 @@ Desktop regressions accept those dialogs after asynchronous replacement and veri
 companions and recovery records remain unchanged. The progress dialog is parent-owned; its own
 connection contexts bound cancellation callbacks, and the window lifetime guard prevents access
 after destruction.
+
+The recovery worker receives the transaction identity captured for confirmation and validates it
+under the same per-stem lock used to commit. If another instance replaced the journal, recovery
+changes no files, reports the newly observed identity, and requires another explicit confirmation.
+If that instance already removed the known journal, the session clears only that obsolete pending
+entry and a fresh paired write is still required. Delayed blocked retries cannot restore a cleared
+identity or overwrite a newer pending transaction. Direct accessor arguments are copied before list
+mutation, so clearing the first pending entry cannot invalidate the path used for identity cleanup.
+
+Native and paired media-overwrite checks compare actual filesystem identity. Distinct case or Unicode
+spellings remain usable where the filesystem distinguishes them; true aliases stay protected. The
+Tracker filename chooser is destroyed before companion/recovery/progress dialogs begin, including
+when the window is destroyed during an action-triggered save.
