@@ -37,7 +37,16 @@ def load_manifest(path=CORPUS / "manifest.json"):
         expected_path(case)
         if "native_reference_index" in case:
             expected_path({"expected": case["native_reference_index"]})
-    for artifact in [manifest["reference"], *manifest["cases"]]:
+    assets = []
+    for case in manifest["cases"]:
+        values = case.get("assets", [])
+        if not isinstance(values, list) or len(values) > 10000:
+            raise ValueError("Invalid corpus asset list")
+        for asset in values:
+            if not isinstance(asset, dict) or "local_file" not in asset:
+                raise ValueError("Corpus media assets must be pinned local fixtures")
+        assets.extend(values)
+    for artifact in [manifest["reference"], *manifest["cases"], *assets]:
         local = "local_file" in artifact
         if (not re.fullmatch(r"[A-Za-z0-9_.-]+", artifact["file"])
                 or artifact["file"] in {".", ".."}
@@ -109,6 +118,8 @@ def artifacts(manifest, cache):
     yield cache / manifest["reference"]["file"], manifest["reference"]
     for case in manifest["cases"]:
         yield local_fixture_path(case) if "local_file" in case else cache / "fixtures" / case["file"], case
+        for asset in case.get("assets", []):
+            yield local_fixture_path(asset), asset
 
 
 def project_path(case, cache):
@@ -293,6 +304,10 @@ def validate_session(case, report, manifest, expected=None, key_frames=None, cal
         compare(case["session_time_samples"], before.get("time_samples"), tolerance, case["id"] + ".time_samples")
     if "session_frame_duration_ms" in case:
         compare(case["session_frame_duration_ms"], before.get("frame_duration_ms"), tolerance, case["id"] + ".frame_duration_ms")
+    if "session_media" in case:
+        compare(case["session_media"], before.get("media"), tolerance, case["id"] + ".media")
+    elif before.get("media") is not None:
+        raise ValueError("Media sessions require independent pixel and timing expectations")
     if "session_created_mass_appearance" in case:
         compare(case["session_created_mass_appearance"], before["tracks"][-1].get("appearance"),
                 tolerance, case["id"] + ".created_mass_appearance")

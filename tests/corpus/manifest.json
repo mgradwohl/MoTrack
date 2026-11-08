@@ -18,6 +18,97 @@
     "redistribution": "Examples are fetched unchanged into an ignored cache. No upstream example or binary is vendored. Individual media redistribution terms have not been separately audited."
   },
   "cases": [
+    {
+      "id": "linked-images",
+      "file": "linked-images.trk",
+      "local_file": "fixtures/linked-images/linked-images.trk",
+      "sha256": "077149850c4628c2c98fb03d2ec4d6e6b026698ff32473f8f4cd1f981a8cff60",
+      "bytes": 5734,
+      "expected": "expected/linked-images.json",
+      "provenance": "Authored using Tracker 6.3.5 geometry serializers and OSP controls; four deterministic Java ImageIO PNGs. tools/reference/LinkedImagesFixture.java.",
+      "assets": [
+        {
+          "file": "frame0.png",
+          "local_file": "fixtures/linked-images/images/frame0.png",
+          "sha256": "92109968bf1bb896af9283616e0615470bf1d0446a6de30f5b97fed8075dd764",
+          "bytes": 1345
+        },
+        {
+          "file": "frame1.png",
+          "local_file": "fixtures/linked-images/images/frame1.png",
+          "sha256": "b04d3a4a2cc7383f43ffb0e3402909ed258f8e4da49e8d0f42b6ea74a7ce52d1",
+          "bytes": 1427
+        },
+        {
+          "file": "frame2.png",
+          "local_file": "fixtures/linked-images/images/frame2.png",
+          "sha256": "bf33ac1122acf24cacedac9a1043fa004e85fa3de46028f01023a87e2f52868c",
+          "bytes": 1498
+        },
+        {
+          "file": "frame3.png",
+          "local_file": "fixtures/linked-images/images/frame3.png",
+          "sha256": "1e4d3e4489b7f53b8f60b5fd9f582df93c89d0223f69463a558d3a6d91093337",
+          "bytes": 1499
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "image mass"
+        }
+      ],
+      "session_selected_track": "image mass",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": -250.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 125.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.core.ImageVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      }
+    },
     {"id": "mixed-calibration-1","native_mixed_calibration_roundtrip": true,"mixed_calibration_flags": 1,"local_file": "fixtures/mixed-calibration-1.trk","file": "mixed-calibration-1.trk","bytes": 6637,"sha256": "528ea4d862cfc4073032fa3519e92b96f4d7ae36ec75aa94ec7baf5c671112d2","tracker_version": "6.3.5","features": ["partly-fixed-calibration","nonuniform-scale","key-boundaries","java-authored-synthetic"],"requirements": ["R02","R03","R09"],"expected": "expected/mixed-calibration-1.json","session_tracks": [{"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes","name": "axes"},{"class": "org.opensourcephysics.cabrillo.tracker.PointMass","name": "calibration probe"}],"provenance": "Public setters and serializers in pinned Tracker 6.3.5; two independent Java authoring runs reproduced identical bytes; baseline coordinates also checked by independent quadrant arithmetic."},
     {"id": "mixed-calibration-2","native_mixed_calibration_roundtrip": true,"mixed_calibration_flags": 2,"local_file": "fixtures/mixed-calibration-2.trk","file": "mixed-calibration-2.trk","bytes": 6640,"sha256": "f941cec2e4a59401f1e467c26e5d3c6d8298ad881c322b06eabc68368c6500c5","tracker_version": "6.3.5","features": ["partly-fixed-calibration","nonuniform-scale","key-boundaries","java-authored-synthetic"],"requirements": ["R02","R03","R09"],"expected": "expected/mixed-calibration-2.json","session_tracks": [{"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes","name": "axes"},{"class": "org.opensourcephysics.cabrillo.tracker.PointMass","name": "calibration probe"}],"provenance": "Public setters and serializers in pinned Tracker 6.3.5; two independent Java authoring runs reproduced identical bytes; baseline coordinates also checked by independent quadrant arithmetic."},
     {"id": "mixed-calibration-3","native_mixed_calibration_roundtrip": true,"mixed_calibration_flags": 3,"local_file": "fixtures/mixed-calibration-3.trk","file": "mixed-calibration-3.trk","bytes": 6639,"sha256": "863c441f3c3d76a166053665a314d746184b59f0c3bd54c91c502e8702b3cebc","tracker_version": "6.3.5","features": ["partly-fixed-calibration","nonuniform-scale","key-boundaries","java-authored-synthetic"],"requirements": ["R02","R03","R09"],"expected": "expected/mixed-calibration-3.json","session_tracks": [{"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes","name": "axes"},{"class": "org.opensourcephysics.cabrillo.tracker.PointMass","name": "calibration probe"}],"provenance": "Public setters and serializers in pinned Tracker 6.3.5; two independent Java authoring runs reproduced identical bytes; baseline coordinates also checked by independent quadrant arithmetic."},

@@ -1,6 +1,8 @@
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -8,6 +10,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.HexFormat;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -39,6 +42,7 @@ import org.opensourcephysics.display.OSPRuntime;
 import org.opensourcephysics.display.Dataset;
 import org.opensourcephysics.display.DatasetManager;
 import org.opensourcephysics.media.core.ImageCoordSystem;
+import org.opensourcephysics.media.core.ImageVideo;
 import org.opensourcephysics.media.core.TPoint;
 import org.opensourcephysics.media.core.VideoClip;
 
@@ -165,7 +169,8 @@ public final class TrackerSessionReference {
         if (frame.getTabCount() != 1) throw new IllegalStateException("Expected exactly one fully loaded tab");
         TrackerPanel panel = frame.getTrackerPanelForTab(0);
         if (panel == null || panel.getTracks().isEmpty()) throw new IllegalStateException("Loaded tab has no tracks");
-        if (panel.getVideo() != null) throw new IllegalStateException("Media session reference is not implemented yet");
+        if (panel.getVideo() != null && !(panel.getVideo() instanceof ImageVideo))
+            throw new IllegalStateException("Only image-sequence media sessions are audited");
         return panel;
     }
 
@@ -508,7 +513,7 @@ public final class TrackerSessionReference {
             "length_unit", panel.getLengthUnit(), "mass_unit", panel.getMassUnit(),
             "time_unit", panel.getTimeUnit(), "time_samples", times,
             "frame_duration_ms", panel.getPlayer().getClipControl().getMeanFrameDuration(),
-            "name_references", nameReferences(panel),
+            "name_references", nameReferences(panel), "media", imageMedia(panel),
             "saved_views", savedViews(panel),
             "centers_of_mass", centers,
             "vector_sums", sums,
@@ -517,6 +522,39 @@ public final class TrackerSessionReference {
             "calibration", TrackerReference.map("fixed_origin", coords.isFixedOrigin(), "fixed_angle", coords.isFixedAngle(),
                 "fixed_scale", coords.isFixedScale(), "keys", calibrationKeys),
             "tracks", tracks, "coordinate_samples", coordinates);
+    }
+
+    private static Map<String, Object> imageMedia(TrackerPanel panel) {
+        if (panel.getVideo() == null) return null;
+        if (!(panel.getVideo() instanceof ImageVideo video) || !video.getFilterStack().isEmpty())
+            throw new IllegalStateException("Expected an unfiltered image sequence");
+        int count = video.getFrameCount();
+        if (count < 1 || count > 100) throw new IllegalStateException("Image reference frame limit exceeded");
+        List<Object> frames = new ArrayList<>();
+        int original = video.getFrameNumber();
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            for (int frame = 0; frame < count; frame++) {
+                video.setFrameNumber(frame);
+                java.awt.image.BufferedImage image = video.getImage();
+                if (image == null || image.getWidth() > 256 || image.getHeight() > 256)
+                    throw new IllegalStateException("Missing or oversized reference image");
+                digest.reset();
+                for (int y = 0; y < image.getHeight(); y++) for (int x = 0; x < image.getWidth(); x++) {
+                    int rgb = image.getRGB(x, y);
+                    digest.update((byte) (rgb >> 16));
+                    digest.update((byte) (rgb >> 8));
+                    digest.update((byte) rgb);
+                }
+                frames.add(TrackerReference.map("frame", frame, "width", image.getWidth(), "height", image.getHeight(),
+                    "rgb_sha256", HexFormat.of().formatHex(digest.digest()), "time_ms", video.getFrameTime(frame)));
+            }
+        } catch (NoSuchAlgorithmException error) {
+            throw new IllegalStateException(error);
+        } finally {
+            video.setFrameNumber(original);
+        }
+        return TrackerReference.map("class", video.getClass().getName(), "frame_count", count, "frames", frames);
     }
 
     private static Map<String, Object> nameReferences(TrackerPanel panel) {
