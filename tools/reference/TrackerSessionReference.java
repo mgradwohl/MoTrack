@@ -334,6 +334,10 @@ public final class TrackerSessionReference {
             for (List<String> row : stringRows(new XMLControlElement(visit.view()).getObject("track_columns"), 0)) {
                 if (!visit.track().getName().equals(row.get(0))) continue;
                 found = true;
+                WAITING.set("custom table owner=" + bounded(visit.track().getName(), 80)
+                    + " columns=" + bounded(row.toString(), 200)
+                    + " viewShowing=" + visit.view().isShowing()
+                    + " trackViewShowing=" + visit.view().getTrackView(visit.track()).isShowing());
                 if (row.stream().anyMatch(value -> value == null)) return;
             }
             if (!found) throw new IllegalStateException("Customized table disappeared during selection");
