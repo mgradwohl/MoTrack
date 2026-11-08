@@ -203,7 +203,7 @@ TEST(TrackerImagePackage, NamesMissingOrNonFileSourcesWithoutReplacingOutput)
         catch (const motrack::ProjectError& error)
         {
             const auto diagnostic = QString::fromUtf8(error.what());
-            EXPECT_TRUE(diagnostic.contains(missing)) << diagnostic.toStdString();
+            EXPECT_TRUE(QDir::fromNativeSeparators(diagnostic).contains(missing)) << diagnostic.toStdString();
         }
         EXPECT_EQ(bytes(target), "original archive");
     }
