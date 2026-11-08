@@ -1262,6 +1262,39 @@ class CorpusTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertEqual(list(self.root.glob("session-*")), [])
 
+    def test_session_failure_context_distinguishes_save_reopen_and_preserves_cleanup_without_retry(self):
+        manifest = corpus.load_manifest()
+        manifest["cases"] = [next(case for case in manifest["cases"] if case["id"] == "protractor")]
+        (self.root / "fixtures").mkdir()
+        (self.root / "fixtures/protractor.trk").write_text("<object/>", encoding="utf-8")
+        for failing_stage in ["save", "reopen"]:
+            for failure in [ValueError("loader callback timed out"), OSError("could not launch Java"),
+                            corpus.subprocess.TimeoutExpired(["java"], 45)]:
+                calls = []
+                def session(command, *, display=None):
+                    if "TrackerSessionReference" not in command:
+                        return
+                    source, output, stage = command[-3:]
+                    calls.append(stage)
+                    self.assertEqual(display, ":77")
+                    if stage == failing_stage:
+                        raise failure
+                    output = Path(output)
+                    (output / "tracker-resaved.trk").write_text("<object/>", encoding="utf-8")
+                    report = {"reference_version": "6.3.5", "verification_level": "tracker_session_save",
+                              "view_preparation": "visit_custom_tables_restore_selection", "loaded": {}, "after_save": {}}
+                    (output / "session-save.json").write_text(json.dumps(report), encoding="utf-8")
+                with self.subTest(stage=failing_stage, error=type(failure).__name__), \
+                        patch.object(corpus.sys, "platform", "linux"), \
+                        patch.object(corpus, "private_display", return_value=nullcontext(":77")), \
+                        patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "run", side_effect=session):
+                    with self.assertRaisesRegex(ValueError, "protractor/session/" + failing_stage) as raised:
+                        corpus.check_sessions(manifest, self.root, "java")
+                    self.assertIs(raised.exception.__cause__, failure)
+                    self.assertIn("protractor.trk" if failing_stage == "save" else "tracker-resaved.trk", str(raised.exception))
+                    self.assertEqual(calls, ["save"] if failing_stage == "save" else ["save", "reopen"])
+                    self.assertEqual(list(self.root.glob("session-*")), [])
+
     def test_reopen_runs_in_a_separate_process_and_private_home(self):
         manifest = corpus.load_manifest()
         manifest["cases"] = [next(case for case in manifest["cases"] if case["id"] == "protractor")]
