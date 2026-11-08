@@ -236,6 +236,55 @@ TEST(TrackerArchiveWriter, ExportsAnEditedImageDocumentAfterNativeReopenAndOrigi
     EXPECT_EQ(readBytes(destination), firstOutput);
 }
 
+#ifndef Q_OS_WIN
+TEST(TrackerArchiveWriter, RejectsIdenticalExternalFileAndDirectoryAliases)
+{
+    const auto fixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images/archived-images.trz";
+    for (const int kind : {0, 1, 2})
+    {
+        SCOPED_TRACE(kind); // Image file, image parent directory, selected project file.
+        QTemporaryDir temporary;
+        auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(fixture));
+        auto document = motrack::importTrackerDocument(payload->projectPath("experiment.trk"));
+        payload->resolveMedia(document.project, "experiment.trk");
+        document.archivePayload = payload;
+        document.archiveMember = "experiment.trk";
+        document.project.pointMasses.front().mass = 5;
+        const auto destination = temporary.filePath("edited.trz");
+        motrack::writeTrackerArchiveDocument(destination, document);
+        const auto valid = readBytes(destination);
+        const auto original = readBytes(payload->sourcePath());
+        const auto member = kind == 2 ? QString("experiment.trk") : QString("images/frame0.png");
+        const auto extracted = QDir(payload->root()).filePath(member);
+        ASSERT_TRUE(payload->memberMatchesSource(member));
+        if (kind == 1)
+        {
+            const auto outside = temporary.filePath("external-images");
+            ASSERT_TRUE(QDir().mkpath(outside));
+            for (int i = 0; i < 4; ++i)
+            {
+                const auto name = QString("frame%1.png").arg(i);
+                ASSERT_TRUE(QFile::copy(QDir(payload->root()).filePath("images/" + name), outside + '/' + name));
+            }
+            QDir root(payload->root());
+            ASSERT_TRUE(root.rename("images", "original-images"));
+            ASSERT_TRUE(QFile::link(outside, root.filePath("images")));
+        }
+        else
+        {
+            const auto outside = temporary.filePath(kind == 2 ? "external.trk" : "external.png");
+            ASSERT_TRUE(QFile::copy(extracted, outside));
+            ASSERT_TRUE(QFile::remove(extracted));
+            ASSERT_TRUE(QFile::link(outside, extracted));
+        }
+        EXPECT_FALSE(payload->memberMatchesSource(member));
+        EXPECT_THROW(motrack::writeTrackerArchiveDocument(destination, document), motrack::ProjectError);
+        EXPECT_EQ(readBytes(destination), valid);
+        EXPECT_EQ(readBytes(payload->sourcePath()), original);
+    }
+}
+#endif
+
 TEST(TrackerArchiveWriter, PreservesJavaDeflatedMembersUnicodeNamesAndComments)
 {
     const auto fixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images/archived-images.trz";

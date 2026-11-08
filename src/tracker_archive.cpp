@@ -87,6 +87,8 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
 {
     TrackerArchive result;
     require(result.m_Directory.isValid() && result.m_SourceDirectory.isValid());
+    result.m_CanonicalRoot = QFileInfo(result.m_Directory.path()).canonicalFilePath();
+    require(!result.m_CanonicalRoot.isEmpty());
     snapshotArchive(path, result.sourcePath(), cancelled);
 #ifndef _WIN32
     // libarchive converts ZIP names through the calling thread's character locale,
@@ -200,7 +202,9 @@ bool TrackerArchive::memberMatchesSource(const QString& member, const std::atomi
     if (expected == m_MemberDigests.cend())
         return false;
     QFile input(m_Directory.filePath(member));
-    if (!QFileInfo(input).isFile() || !input.open(QIODevice::ReadOnly) || input.size() > MAX_EXTRACTED_BYTES)
+    const QFileInfo info(input);
+    if (!info.isFile() || !info.canonicalFilePath().startsWith(m_CanonicalRoot + '/') || !input.open(QIODevice::ReadOnly) ||
+        input.size() > MAX_EXTRACTED_BYTES)
         return false;
     QCryptographicHash digest(QCryptographicHash::Sha256);
     std::array<char, READ_BLOCK_BYTES> buffer{};
