@@ -51,6 +51,7 @@
 #include <cmath>
 #include <iterator>
 #include <limits>
+#include <memory>
 #include <utility>
 
 namespace motrack
