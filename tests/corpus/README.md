@@ -781,6 +781,13 @@ removes mass A and its complete custom plot view, clears the panel selection and
 mass B in the plot chooser. `delete-plot-guest` removes mass B from both plots, preserving only mass C
 on the first plot and no guests on the second. `delete-first-plot-guest` removes mass C and compacts
 the first plot's guest array to mass B; the second plot retains mass B unchanged.
+The pinned `TFrame.createTViews` bytecode creates a default plot in chooser 0 and table in chooser 1;
+loading a custom plot preserves that default table. Its first-viewable-track selection is therefore
+independently expected to be mass B after owner deletion and mass A after either guest deletion.
+The packed selection oracle includes both views. Guest compaction follows numeric array indices,
+including out-of-order source cells, while owner collections retain their original order.
+A pinned headless OSP check confirms that cells stored as `[1]=C, [0]=B, [2]=D` decode as B,C,D;
+the native regression deletes D and requires B,C to survive in that numeric order.
 
 The native probe uses normal deletion/undo/redo, closes/reopens its native companion after deleting
 the temporary source copy, then exports. Independent expectations retain baseline mass values,

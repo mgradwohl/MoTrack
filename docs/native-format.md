@@ -322,7 +322,8 @@ Independent application cases require removal of selected mass B (fallback mass 
 
 Deleted custom plot owners remove their entire `PlotTrackView`; deleted comparison guests remove
 only their ordered string cells, compacting surviving indices and omitting an empty guest property.
-Remaining axes, lines/points settings, plot order and guest order are retained. Source reference nodes
+Remaining axes, lines/points settings, plot order and numeric guest-index order are retained, even
+when source array cells appear out of order in XML. Source reference nodes
 are collected before any removal, so deletion cannot shift a later collection ordinal onto a different
 view. Live-name changes precede this cleanup; reusing a deleted name never transfers its plot data.
 Only modified arrays/collections have whitespace normalized for OSP, with a newline before every

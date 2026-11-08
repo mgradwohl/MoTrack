@@ -597,8 +597,8 @@ def deletion_roundtrip_expected(case, mode):
         owner = mode == "delete-plot-owner"
         selected = "mass B" if owner else "mass A"
         case["session_names"] = {"selected_track": None if owner else "mass A",
-                                 "view_tracks": [[selected, None], [None, None], [None, None], [None, None]],
-                                 "packed_view_tracks": f"{selected},null;null,null;null,null;null,null"}
+                                 "view_tracks": [[selected, None], [None, selected], [None, None], [None, None]],
+                                 "packed_view_tracks": f"{selected},null;null,{selected};null,null;null,null"}
         if owner:
             case["session_views"]["plots"] = []
         else:

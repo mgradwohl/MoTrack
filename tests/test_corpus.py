@@ -92,6 +92,7 @@ class CorpusTests(unittest.TestCase):
                     with self.subTest(mode=mode, mutation=mutation), self.assertRaises(ValueError):
                         corpus.validate_session(case, invalid, manifest, expected, keys)
             elif mode in corpus.PLOT_DELETION_NAMES:
+                self.assertEqual(case["session_names"]["view_tracks"][1][1], "mass B" if mode == "delete-plot-owner" else "mass A")
                 if mode == "delete-plot-owner":
                     self.assertEqual(case["session_views"]["plots"], [])
                     self.assertIsNone(case["session_names"]["selected_track"])
