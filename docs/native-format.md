@@ -249,6 +249,13 @@ edit leaves the project, saved/dirty state and both history directions unchanged
 desktop timing controls remain separate work. The corpus guide documents the independent negative-origin
 and nonzero-first-frame/stride acceptance cases.
 
+Time origins must also preserve adjacent intervals within relative `1e-9` in both milliseconds and
+seconds, preventing large offsets from materially distorting consumers that subtract absolute times.
+Native constant-time derivatives use original-frame differences and duration directly, so imported
+large origins cannot invent acceleration. Range changes and timing history validate the complete
+candidate span; undo can restore original absent or legacy timing/ranges when the corresponding
+range/timebase is unchanged. Range-only export applies the same timing checks before replacing a file.
+
 New independent point masses can be appended to an audited media-free source after native save/reopen.
 Original bindings stay unchanged in the native envelope. Each export maps newly allocated IDs to fresh
 source objects, so repeated exports do not duplicate tracks and reordered native lists cannot change

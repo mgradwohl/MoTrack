@@ -41,7 +41,9 @@ class CorpusTests(unittest.TestCase):
             tracks = []
             for identity in case["session_tracks"]:
                 vector = next((v for v in expected["vectors"] if v["name"] == identity["name"]), None)
+                calibrated = next((v for v in case["session_vector_data"] if v["name"] == identity["name"]), None)
                 tracks.append({**identity, "samples": [], "vector_samples": vector["samples"] if vector else [],
+                               "calibrated_vector_samples": copy.deepcopy(calibrated["samples"]) if calibrated else [],
                                "appearance": copy.deepcopy(corpus.CREATED_VECTOR_APPEARANCE)})
             before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
                       **corpus.session_units(case, expected)}
@@ -57,6 +59,19 @@ class CorpusTests(unittest.TestCase):
                     invalid[stage]["tracks"][-1][field] = value
                 with self.subTest(empty=empty, field=field), self.assertRaises(ValueError):
                     corpus.validate_session(case, invalid, manifest, expected)
+            self.assertEqual([s["components"] for s in case["session_vector_data"][-1]["samples"]],
+                             [] if empty else [[2, 2], [0, 0], [-3, -3]])
+            for target in [1, len(tracks) - 1]:
+                for field in ["components", "magnitude", "frame"]:
+                    invalid = copy.deepcopy(report)
+                    for stage in ["before", "after_save", "after"]:
+                        values = invalid[stage]["tracks"][target]["calibrated_vector_samples"]
+                        if values:
+                            values[0][field] = [4, -8] if field == "components" else 123
+                        else:
+                            values.append({"frame": 1, "components": [2, 2], "magnitude": 8 ** 0.5})
+                    with self.subTest(empty=empty, target=target, field=field), self.assertRaisesRegex(ValueError, "calibrated_vectors"):
+                        corpus.validate_session(case, invalid, manifest, expected)
         self.assertEqual(original, baseline)
         with self.assertRaises(ValueError):
             corpus.create_vector_roundtrip_expected({**original, "id": "wrong"})

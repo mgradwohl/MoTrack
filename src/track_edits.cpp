@@ -406,7 +406,7 @@ bool TrackEdits::setClipRange(LegacyProject& project, int firstFrame, int lastFr
     {
         return false;
     }
-    return append(project, ChangeClip{.after = after, .before = before});
+    return append(project, ChangeClip{.after = after, .before = before, .originalTiming = clipTiming(project.clip)});
 }
 
 bool TrackEdits::canRedo() const
@@ -425,7 +425,7 @@ bool TrackEdits::setClipTiming(LegacyProject& project, double frameDurationMs, d
     {
         return false;
     }
-    return append(project, ChangeClipTiming{.after = after, .before = before});
+    return append(project, ChangeClipTiming{.after = after, .before = before, .originalRange = clipRange(project.clip)});
 }
 
 bool TrackEdits::undo(LegacyProject& project)
@@ -568,9 +568,14 @@ bool TrackEdits::apply(LegacyProject& project, const Edit& edit, bool forward)
     if (const auto* change = std::get_if<ChangeClip>(&edit))
     {
         const auto& range = forward ? change->after : change->before;
-        project.clip.firstFrame = range.firstFrame;
-        project.clip.stepSize = range.stepSize;
-        project.clip.stepCount = range.stepCount;
+        auto candidate = project.clip;
+        candidate.firstFrame = range.firstFrame;
+        candidate.stepSize = range.stepSize;
+        candidate.stepCount = range.stepCount;
+        const bool restoringOriginal = !forward && clipTiming(project.clip) == change->originalTiming;
+        if (candidate.mediaReferences.empty() && candidate.frameDurationMs && !restoringOriginal && !validConstantClipTiming(candidate))
+            return false;
+        project.clip = std::move(candidate);
         return true;
     }
     if (const auto* change = std::get_if<ChangeClipTiming>(&edit))
@@ -580,8 +585,13 @@ bool TrackEdits::apply(LegacyProject& project, const Edit& edit, bool forward)
             return false;
         }
         const auto& timing = forward ? change->after : change->before;
-        project.clip.frameDurationMs = timing.frameDurationMs;
-        project.clip.startTimeMs = timing.startTimeMs;
+        auto candidate = project.clip;
+        candidate.frameDurationMs = timing.frameDurationMs;
+        candidate.startTimeMs = timing.startTimeMs;
+        const bool restoringOriginal = !forward && clipRange(project.clip) == change->originalRange;
+        if (candidate.frameDurationMs && !restoringOriginal && !validConstantClipTiming(candidate))
+            return false;
+        project.clip = std::move(candidate);
         return true;
     }
 

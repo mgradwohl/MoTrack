@@ -122,6 +122,8 @@ void patchUnit(QDomDocument& xml, const QString& name, const std::string& unit)
 
 void patchClipRange(QDomDocument& xml, const Clip& clip)
 {
+    if (clip.frameDurationMs)
+        require(validConstantClipTiming(clip));
     const auto count = clip.stepCount.value_or(0);
     require(clip.firstFrame >= 0 && clip.stepSize > 0 && count > 0);
     const auto end = static_cast<std::int64_t>(clip.firstFrame) + static_cast<std::int64_t>(count - 1) * clip.stepSize;
