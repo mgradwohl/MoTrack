@@ -17,7 +17,7 @@ case adds ordered, nonempty comparison guests on two plots, checked through the 
 and independent point-mass image/world baselines. A separate Java/OSP-authored source-structure case adds two nonempty table dataset owner rows;
 it has no media and is not an application-session acceptance case. Media-backed dataset behavior,
 protractor/circle attachment behavior, dynamic systems and edited dependency cases remain. A separate
-tape-attachment fixture requires two attached endpoints and a partly attached tape to follow point
+tape-attachment fixture requires two attached endpoints and each partly attached tape to follow point
 masses and retain independently calculated lengths through normal Java load/save/reopen. The vector-sum reference
 retains named members, independently expected image/world components and missing-member frames, but
 exposes a pinned 6.3.5 defect: the loader leaves pending names uninitialized, so the live sum has no members
@@ -95,15 +95,19 @@ with an independently transcribed native-index oracle. It has no media; actual a
 line-profile measurements and dataset editing/export still require a media-backed reference case.
 Attachment arrays on exact `TapeMeasure`, `Protractor` and `CircleFitter` source classes retain every
 ordered slot. Canonical OSP null objects (`type="object"` with literal `null` text) become `NoTarget`
-with an empty `originalName`; a string containing `null` remains an ordinary name. Dense arrays,
-canonical null encodings and well-formed bounded strings are required before emitting any slot.
+with an empty `originalName`; a string containing `null` remains an ordinary name. OSP omits interior
+null entries, so gaps up to the last encoded index also become `NoTarget` and consume the shared entry
+budget. Trailing null extent omitted by a normal Java save is not invented by the source index.
+Canonical null encodings and well-formed bounded strings are required before emitting any slot.
 Empty arrays and absent fields are allowed. The index describes serialized slots, including unusual
 slot counts; it does not claim that every slot maps to an active tool point. Generic panel name lookup
 retains ambiguous/missing targets and unsupported source nodes. Unknown owner classes are not assumed
 to implement TTrack attachment semantics. CircleFitter's separate `step_attachment` scalar is indexed
 independently; its frame settings are data. All slots share the entry/candidate budgets.
-The actual-application attachment case covers two read-only tapes and marked point masses on three
-frames, including a trailing null slot. Normal deferred attachment refresh is observed through live
+The actual-application attachment case covers three read-only tapes and marked point masses on three
+frames, including leading implicit and trailing explicit null slots. The application harness pads only
+its expected tape slot shape to two endpoints when Java omits trailing null extent; it does not alter
+the loaded objects or the independent measurement expectations. Normal deferred attachment refresh is observed through live
 membership, attached points and matching endpoints; the harness never repairs the loaded objects.
 Protractor/circle application cases, absent target steps, cycles, unknown classes and edited attachment
 round trips remain. These are preserved source relationships, not native attachment evaluation.

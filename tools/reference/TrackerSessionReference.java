@@ -110,10 +110,13 @@ public final class TrackerSessionReference {
             if (!track.getObjectClassName().equals(TapeMeasure.class.getName()))
                 throw new IllegalStateException("Attachment application reference currently supports tape measures only");
             String[] targets = (String[]) track.getObject("attachments");
-            if (targets == null || targets.length != 2 || result.size() >= 10000)
+            if (targets == null || targets.length > 2 || result.size() >= 10000)
                 throw new IllegalStateException("Unexpected tape attachment requirements in " + input.getFileName()
                     + " for " + track.getString("name") + ": " + Arrays.toString(targets));
-            result.add(new AttachmentRequirement(track.getString("name"), targets));
+            // Normal Tracker saves omit trailing null array entries. TapeMeasure's public
+            // getAttachments() restores its two endpoint slots on load; normalize only our
+            // expected shape, never the loaded objects or the independent manifest values.
+            result.add(new AttachmentRequirement(track.getString("name"), Arrays.copyOf(targets, 2)));
         }
         source.dispose();
         return result;

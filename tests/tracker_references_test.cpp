@@ -660,7 +660,7 @@ TEST(TrackerReferences, RejectsMalformedAttachmentsWithoutPartialSlotLists)
          {property("attachments", "A"),
           valid + valid,
           arrayXml("attachments", "wrong", property("[0]", "A")),
-          stringRow("attachments", property("[1]", "A")),
+          stringRow("attachments", property("[10000]", "A")),
           stringRow("attachments", property("[0]", "A") + property("[0]", "A")),
           stringRow("attachments", property("[0]", "A") + "<property name='[1]' type='object'><object class='Unknown'/></property>"),
           stringRow("attachments", property("[0]", "A") + "<property name='[1]' type='object'>null<other/></property>"),
@@ -681,6 +681,10 @@ TEST(TrackerReferences, RejectsMalformedAttachmentsWithoutPartialSlotLists)
 
 TEST(TrackerReferences, AttachmentsShareEntryAndCandidateBudgets)
 {
+    // One far-away serialized slot still implies 9999 null slots; no sparse-array budget bypass.
+    EXPECT_THROW((void)index(project(point("A") + dependent("CircleFitter", stringRow("attachments", property("[9999]", "A"))),
+                                     savedViews(viewXml("TableTView", {})))),
+                 motrack::ProjectError);
     std::string attachmentSlots;
     for (unsigned i = 0; i < 10000; ++i)
         attachmentSlots += property("[" + std::to_string(i) + "]", "A");
@@ -695,6 +699,25 @@ TEST(TrackerReferences, AttachmentsShareEntryAndCandidateBudgets)
         attachmentSlots += property("[" + std::to_string(i) + "]", "same");
     EXPECT_THROW((void)index(project(tracks + dependent("CircleFitter", stringRow("attachments", attachmentSlots)))),
                  motrack::ProjectError);
+}
+
+TEST(TrackerReferences, DecodesImplicitNullAttachmentSlotsWithinTheSerializedExtent)
+{
+    const auto result = index(project(point("A") + dependent("Protractor", stringRow("attachments", property("[2]", "A")))));
+    EXPECT_TRUE(result.malformedPaths.empty());
+    ASSERT_EQ(result.references.size(), 3u);
+    for (std::size_t i = 0; i < 2; ++i)
+    {
+        EXPECT_EQ(result.references[i].path, "/tracks/1/attachments/" + std::to_string(i));
+        EXPECT_EQ(result.references[i].resolution, Resolution::NoTarget);
+        EXPECT_EQ(result.references[i].originalName, "");
+    }
+    EXPECT_EQ(result.references[2].resolution, Resolution::Resolved);
+    EXPECT_EQ(result.references[2].candidateSourceIndices, (std::vector<std::size_t>{0}));
+    // A trailing omitted null has no encoded extent; the index does not invent a tool's slot count.
+    const auto trimmed = index(project(point("A") + dependent("TapeMeasure", stringRow("attachments", property("[0]", "A")))));
+    ASSERT_EQ(trimmed.references.size(), 1u);
+    EXPECT_EQ(trimmed.references[0].candidateSourceIndices, (std::vector<std::size_t>{0}));
 }
 
 TEST(TrackerReferences, AttachmentIdentitySurvivesNativeEditsUndoAndReopen)

@@ -502,24 +502,25 @@ struct ReferenceReader
         {
             return;
         }
-        if (!attachmentSlots->empty() &&
-            (attachmentSlots->begin()->first != 0 || attachmentSlots->rbegin()->first != attachmentSlots->size() - 1))
+        // OSP omits null entries before the last encoded cell. The decoded extent is bounded
+        // by array(), and implicit null cells must consume the shared entry budget too.
+        const auto extent = attachmentSlots->empty() ? 0U : attachmentSlots->rbegin()->first + 1;
+        for (auto count = attachmentSlots->size(); count < extent; ++count)
         {
-            result.malformedPaths.push_back(path);
-            return;
+            countEntry();
         }
-        std::vector<std::optional<QString>> targets;
+        std::vector<std::optional<QString>> targets(extent);
         for (const auto& [slot, item] : *attachmentSlots)
         {
             const auto child = item.firstChild();
             if (item.attribute("type") == "object" && !item.hasAttribute("class") && (child.isText() || child.isCDATASection()) &&
                 child.nodeValue() == "null" && child.nextSibling().isNull())
             {
-                targets.emplace_back(std::nullopt);
+                continue;
             }
             else if (const auto name = stringValue({.element = item}, MAX_NAME_UNITS))
             {
-                targets.emplace_back(*name);
+                targets[slot] = *name;
             }
             else
             {

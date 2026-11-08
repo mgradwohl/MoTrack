@@ -338,8 +338,8 @@
       "id": "attachments",
       "file": "attachments.trk",
       "local_file": "fixtures/attachments.trk",
-      "sha256": "5bcf75cb7a9d1d888ac2028620787b55890617f0408ffb0c5753f6a3c27ee3d7",
-      "bytes": 11557,
+      "sha256": "8d0c1d73dee56351ddaf5e56dd7463039be2981afadc1494f9e4e22d2a11fcd3",
+      "bytes": 13674,
       "tracker_version": "6.3.5",
       "features": [
         "point-masses",
@@ -375,6 +375,10 @@
         {
           "class": "org.opensourcephysics.cabrillo.tracker.TapeMeasure",
           "name": "one end"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.TapeMeasure",
+          "name": "last end"
         }
       ],
       "session_attachments": [
@@ -503,9 +507,72 @@
               ]
             }
           ]
+        },
+        {
+          "name": "last end",
+          "targets": [
+            null,
+            "mass B"
+          ],
+          "samples": [
+            {
+              "frame": 0,
+              "endpoints": [
+                [
+                  40,
+                  40
+                ],
+                [
+                  26,
+                  48
+                ]
+              ],
+              "world_length": 8.06225774829855,
+              "attached": [
+                false,
+                true
+              ]
+            },
+            {
+              "frame": 1,
+              "endpoints": [
+                [
+                  40,
+                  40
+                ],
+                [
+                  31,
+                  52
+                ]
+              ],
+              "world_length": 7.5,
+              "attached": [
+                false,
+                true
+              ]
+            },
+            {
+              "frame": 2,
+              "endpoints": [
+                [
+                  40,
+                  40
+                ],
+                [
+                  36,
+                  56
+                ]
+              ],
+              "world_length": 8.246211251235321,
+              "attached": [
+                false,
+                true
+              ]
+            }
+          ]
         }
       ],
-      "provenance": "Authored by tools/reference/AttachmentsFixture.java through pinned Tracker 6.3.5 APIs/serializers. Both tapes start with deliberately stale attached endpoints. Independent per-frame endpoint/length expectations require normal attachment resolution and evaluation. One trailing null slot must remain unattached. No native output supplies expected values."
+      "provenance": "Authored by tools/reference/AttachmentsFixture.java through pinned Tracker 6.3.5 APIs/serializers. Three tapes start with deliberately stale attached endpoints. Independent per-frame endpoint/length expectations require normal attachment resolution and evaluation. Leading implicit and trailing explicit null slots remain unattached; normal application saves may omit trailing null extent. No native output supplies expected values."
     }
   ]
 }

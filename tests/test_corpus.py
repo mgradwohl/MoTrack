@@ -362,6 +362,7 @@ class CorpusTests(unittest.TestCase):
                    ([0, "targets"], ["mass B", "mass A"]), ([0, "targets"], ["mass A", "mass A"]),
                    ([1, "targets"], ["mass A", "null"]), ([1, "targets"], [None, "mass A"]),
                    ([1, "samples", 0, "attached"], [True, True]), ([0, "samples", 0, "attached"], [False, False]),
+                   ([2, "samples", 0, "attached"], [True, True]), ([2, "targets"], ["mass B", None]),
                    ([0, "samples"], []), ([0, "samples", 0, "endpoints"], [[100, 100], [110, 100]]),
                    ([0, "samples", 1, "world_length"], 15.0), ([0, "samples", 2, "frame"], 3),
                    ([1, "samples", 2, "endpoints"], [[24, 40], [0, 0]])]

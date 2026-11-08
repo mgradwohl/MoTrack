@@ -69,7 +69,7 @@ struct TrackerReferenceIndex
 /// Other same-named classes stay Unclassified; duplicates stay Ambiguous, not simulated Java membership.
 /// Plot guests retain ordered source slots, including duplicate names; lookup does not claim drawable/data compatibility.
 /// Table dataset rows index owners only; canonical nonnegative Java-int settings remain data, not references.
-/// TapeMeasure/Protractor/CircleFitter attachment slots retain explicit nulls as NoTarget with an empty originalName.
+/// TapeMeasure/Protractor/CircleFitter attachment slots retain explicit/implicit nulls as NoTarget with an empty originalName.
 /// CircleFitter.step_attachment is indexed separately. Resolution does not certify supported attachment geometry.
 /// Malformed known fields are explicit. Model dependencies are NOT indexed:
 /// an empty malformedPaths list is NOT proof that a rename/export is safe. Tracker's vector-sum reload defect still applies.

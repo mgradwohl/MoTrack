@@ -29,6 +29,12 @@
       "class": "org.opensourcephysics.cabrillo.tracker.TapeMeasure",
       "name": "one end",
       "native_id": null
+    },
+    {
+      "source_index": 5,
+      "class": "org.opensourcephysics.cabrillo.tracker.TapeMeasure",
+      "name": "last end",
+      "native_id": null
     }
   ],
   "references": [
@@ -74,6 +80,22 @@
       "name": "",
       "resolution": "no_target",
       "targets": []
+    },
+    {
+      "kind": "attachment",
+      "path": "/tracks/5/attachments/0",
+      "name": "",
+      "resolution": "no_target",
+      "targets": []
+    },
+    {
+      "kind": "attachment",
+      "path": "/tracks/5/attachments/1",
+      "name": "mass B",
+      "resolution": "resolved",
+      "targets": [
+        2
+      ]
     }
   ],
   "malformed_paths": []

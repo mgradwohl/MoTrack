@@ -2,6 +2,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import org.opensourcephysics.cabrillo.tracker.CoordAxes;
@@ -49,13 +50,26 @@ public final class AttachmentsFixture {
             one.setReadOnly(true);
             one.createStep(0, 100, 100, 40, 40); // End 1 must follow A; end 2 remains fixed.
             one.getAttachments()[0] = first;
+            TapeMeasure last = new TapeMeasure();
+            last.setName("last end");
+            last.setReadOnly(true);
+            last.createStep(0, 40, 40, 100, 100);
+            last.getAttachments()[1] = second;
+            // Normal application saves omit interior null cells and trailing null extent.
+            // Confirm the pinned OSP codec independently of the application wait logic.
+            XMLControlElement encoded = new XMLControlElement(TapeMeasure.class);
+            encoded.setValue("attachments", new String[] {null, "mass B", null}, false);
+            XMLControlElement decoded = new XMLControlElement();
+            decoded.readXML(encoded.toXML());
+            if (!Arrays.equals((String[]) decoded.getObject("attachments"), new String[] {null, "mass B"}))
+                throw new IllegalStateException("Unexpected OSP null attachment encoding");
             XMLControlElement root = new XMLControlElement(TrackerPanel.class);
             root.setValue("semantic_version", OSPRuntime.VERSION);
             root.setValue("videoclip", clip);
             root.setValue("coords", coords);
             root.setValue("length_unit", "m");
             root.setValue("mass_unit", "kg");
-            root.setValue("tracks", new ArrayList<TTrack>(List.of(new CoordAxes(), first, second, both, one)));
+            root.setValue("tracks", new ArrayList<TTrack>(List.of(new CoordAxes(), first, second, both, one, last)));
             root.setValue("selectedtrack", "both ends");
             if (root.write(path.toString()) == null) throw new IllegalStateException("Could not write fixture");
             Files.writeString(path, Files.readString(path, StandardCharsets.UTF_8).replace("\r\n", "\n"), StandardCharsets.UTF_8);
