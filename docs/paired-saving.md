@@ -119,8 +119,10 @@ source-digest and standalone-media corrections require the next combined current
 
 Prepared-file fingerprints are fixed immediately after each validated write, before notifying progress
 observers. A changed stage is rejected before journaling or destination replacement. Linked media is
-compared against both output paths with normalized, case-folded spelling, conservatively protecting
-case-insensitive filesystems even when a media file uses a project-like filename extension.
+compared against both output paths by filesystem identity, including aliases and hard links. Distinct
+case or Unicode spellings remain usable when the filesystem distinguishes them; a media file with a
+project-like filename extension still cannot be overwritten. When identity is unavailable, the fallback
+compares exact absolute paths rather than unconditionally folding their case.
 
 Every journal contains a persistent transaction UUID, returned by both paired writes and recovery.
 A new transaction at the same pathname receives a new identity. Session completion checks use this
