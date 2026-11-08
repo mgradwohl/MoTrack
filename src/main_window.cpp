@@ -1026,6 +1026,18 @@ void MainWindow::refreshImageMediaLocations()
         auto sequence = ImageSequence::open(m_MediaProjectPath, m_Session.document.project.clip, m_Session.document.mediaLocations);
         if (sequence)
             m_Sequence = std::move(sequence);
+        if (m_Sequence)
+        {
+            const auto step = m_StepSlider->value();
+            const auto count = m_Sequence->stepCount();
+            {
+                const QSignalBlocker blocker(m_StepSlider);
+                m_StepSlider->setRange(0, std::max(0, count - 1));
+                m_StepSlider->setValue(step);
+            }
+            m_ClipSettings->setEnabled(count > 0);
+            displayStep(m_StepSlider->value());
+        }
     }
 }
 
@@ -1703,6 +1715,7 @@ bool MainWindow::saveWorkspace(const QString& path)
     {
         bool saved = false;
         QHash<QString, QString> mediaLocations;
+        std::optional<SaveDestinationConflict> conflict = std::nullopt;
     };
     QFutureWatcher<SaveResult> watcher;
     connect(&watcher, &QFutureWatcher<SaveResult>::finished, &loop, &QEventLoop::quit);
@@ -1718,6 +1731,10 @@ bool MainWindow::saveWorkspace(const QString& path)
                                   rebaseWorkspaceMedia(document, sourcePath, path);
                                   writeNativeDocument(path, document, cancelled.get());
                                   return {.saved = true, .mediaLocations = std::move(document.mediaLocations)};
+                              }
+                              catch (const SaveDestinationError& error)
+                              {
+                                  return {.conflict = error.conflict()};
                               }
                               catch (const std::exception&)
                               {
@@ -1738,7 +1755,12 @@ bool MainWindow::saveWorkspace(const QString& path)
     }
     if (outcome == SaveOutcome::Failed)
     {
-        statusBar()->showMessage(tr("Could not save this project."));
+        statusBar()->showMessage(
+            result.conflict == SaveDestinationConflict::PendingRecovery
+                ? tr("An interrupted paired save needs recovery. Use Save Tracker project for this destination, or save a copy elsewhere.")
+            : result.conflict == SaveDestinationConflict::Busy
+                ? tr("Another save is using this destination. Wait for it to finish and retry, or save a copy elsewhere.")
+                : tr("Could not save this project."));
         return false;
     }
     // The snapshot may have resolved media restored through a temporary alias since opening.

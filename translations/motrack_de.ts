@@ -3,6 +3,8 @@
 <TS version="2.1" language="de">
   <context>
     <name>MainWindow</name>
+    <message><source>An interrupted paired save needs recovery. Use Save Tracker project for this destination, or save a copy elsewhere.</source><translation type="unfinished"></translation></message>
+    <message><source>Another save is using this destination. Wait for it to finish and retry, or save a copy elsewhere.</source><translation type="unfinished"></translation></message>
     <message><source>An interrupted save needs recovery before continuing.</source><translation type="unfinished"></translation></message>
     <message><source>Both files were saved. Recovery cleanup remains.</source><translation type="unfinished"></translation></message>
     <message><source>Cancel</source><translation type="unfinished"></translation></message>
