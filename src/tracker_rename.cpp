@@ -3,13 +3,13 @@
 #include "tracker_references.hpp"
 
 #include <QDomDocument>
+#include <QRegularExpression>
 #include <QStringList>
 
 #include <algorithm>
 #include <cmath>
 #include <map>
 #include <set>
-#include <vector>
 
 namespace motrack
 {
@@ -138,6 +138,8 @@ Fields fields(const QString& name)
         {
             result.insert(
                 {{"mass", "double"}, {"framedata", "array:[L" + QString(TRACKER) + "PointMass$FrameData;"}, {"keyFrames", "array:[I"}});
+            if (name.endsWith(".PointMass"))
+                result.emplace("number_formats", "array:[Ljava.lang.String;");
             if (name.endsWith(".CenterOfMass"))
                 result.emplace("masses", "collection:java.util.ArrayList");
         }
@@ -289,6 +291,22 @@ struct RenameSchema
             propertyValue(child, allowed.at(name), depth + 1);
         }
         require(actual != QString(TRACKER) + "CenterOfMass" || seen.contains("masses"));
+        if (actual == QString(TRACKER) + "PointMass" && seen.contains("number_formats"))
+        {
+            const auto formats = property(value, "number_formats");
+            require(denseArraySize(formats) % 2 == 0);
+            static const QRegularExpression decimal(R"(\A0(?:\.0{1,12})?\z)");
+            std::set<QString> variables;
+            for (auto cell = formats.firstChildElement(); !cell.isNull();)
+            {
+                const auto variable = cell.text();
+                require((variable == "x" || variable == "y" || variable == "t" || variable == "frame" || variable == "step") &&
+                        variables.insert(variable).second);
+                cell = cell.nextSiblingElement();
+                require(!cell.isNull() && decimal.match(cell.text()).hasMatch());
+                cell = cell.nextSiblingElement();
+            }
+        }
         if (actual == "org.opensourcephysics.tools.Parameter")
             require(seen.contains("name") && seen.contains("function"));
         if (actual == "org.opensourcephysics.tools.UserFunction")
@@ -570,12 +588,13 @@ void validateTrackerTrackMembership(const QDomDocument& xml, const LegacyProject
             require(reference.candidateSourceIndices.size() == 1);
             const auto target = originalTracks.find(reference.candidateSourceIndices.front());
             require(target != originalTracks.end());
-            // Selections and plot links have explicit cleanup policies. Table data and scientific
+            // Saved views have explicit cleanup policies. Dataset selections and scientific
             // dependencies must not silently disappear or rebind to a new same-name track.
             const auto targetId = target->second->nativeId;
             require(!targetId || liveIds.contains(*targetId) || reference.kind == TrackerReferenceKind::SelectedTrack ||
                     reference.kind == TrackerReferenceKind::PlotSelection || reference.kind == TrackerReferenceKind::TableSelection ||
-                    reference.kind == TrackerReferenceKind::PlotOwner || reference.kind == TrackerReferenceKind::PlotGuest);
+                    reference.kind == TrackerReferenceKind::PlotOwner || reference.kind == TrackerReferenceKind::PlotGuest ||
+                    reference.kind == TrackerReferenceKind::TableColumnOwner || reference.kind == TrackerReferenceKind::TableFormatOwner);
             if (reference.kind != TrackerReferenceKind::SelectedTrack)
                 require(target->second->className != std::string(TRACKER) + "CoordAxes");
         }
@@ -612,8 +631,9 @@ void patchTrackerDeletedReferences(QDomDocument& xml, const LegacyProject& proje
         }
     }
     QStringList packed;
-    std::vector<QDomElement> removals;
+    std::map<std::string, QDomElement> removals;
     std::map<std::string, QDomElement> changedParents;
+    std::map<std::string, QDomElement> changedTableViews;
     for (const auto& reference : index.references)
     {
         if (reference.resolution != TrackerReferenceResolution::Resolved)
@@ -624,19 +644,34 @@ void patchTrackerDeletedReferences(QDomDocument& xml, const LegacyProject& proje
         const auto targetId = target->second->nativeId;
         if (!targetId || liveIds.contains(*targetId))
             continue;
-        if (reference.kind == TrackerReferenceKind::PlotOwner || reference.kind == TrackerReferenceKind::PlotGuest)
+        if (reference.kind == TrackerReferenceKind::PlotOwner || reference.kind == TrackerReferenceKind::PlotGuest ||
+            reference.kind == TrackerReferenceKind::TableColumnOwner || reference.kind == TrackerReferenceKind::TableFormatOwner)
         {
             auto value = referenceProperty(xml.documentElement(), reference.path);
             require(value.text().toStdString() == reference.originalName);
-            // Resolve every source ordinal before removing any collection entries. An owner's
-            // complete custom view goes away; guests remove only their own ordered string cells.
-            const bool owner = reference.kind == TrackerReferenceKind::PlotOwner;
-            auto removed = owner ? value.parentNode().parentNode().toElement() : value;
-            auto parentPath = reference.path.substr(0, reference.path.rfind('/'));
-            if (owner)
-                parentPath.resize(parentPath.rfind('/'));
+            // Resolve source paths before any removal. Multiple format rows share one owner group;
+            // remove that whole group once, retaining other owners' column/format order.
+            auto removed = value;
+            auto removedPath = reference.path;
+            if (reference.kind == TrackerReferenceKind::PlotOwner)
+            {
+                removed = removed.parentNode().parentNode().toElement();
+                removedPath.resize(removedPath.rfind('/'));
+            }
+            else if (reference.kind != TrackerReferenceKind::PlotGuest)
+            {
+                const int levels = reference.kind == TrackerReferenceKind::TableFormatOwner ? 2 : 1;
+                for (int level = 0; level < levels; ++level)
+                {
+                    removed = removed.parentNode().toElement();
+                    removedPath.resize(removedPath.rfind('/'));
+                }
+            }
+            const auto parentPath = removedPath.substr(0, removedPath.rfind('/'));
             changedParents.emplace(parentPath, removed.parentNode().toElement());
-            removals.push_back(removed);
+            if (reference.kind == TrackerReferenceKind::TableColumnOwner || reference.kind == TrackerReferenceKind::TableFormatOwner)
+                changedTableViews.emplace(parentPath.substr(0, parentPath.rfind('/')), removed.parentNode().parentNode().toElement());
+            removals.emplace(removedPath, removed);
             continue;
         }
         require(reference.kind == TrackerReferenceKind::SelectedTrack || reference.kind == TrackerReferenceKind::PlotSelection ||
@@ -654,6 +689,8 @@ void patchTrackerDeletedReferences(QDomDocument& xml, const LegacyProject& proje
         {
             auto value = referenceProperty(xml.documentElement(), reference.path);
             require(value.text().toStdString() == reference.originalName);
+            if (reference.kind == TrackerReferenceKind::TableSelection && !fallback)
+                changedTableViews.emplace(reference.path.substr(0, reference.path.rfind('/')), value.parentNode().toElement());
             if (reference.kind == TrackerReferenceKind::SelectedTrack || !fallback)
                 value.parentNode().removeChild(value);
             else
@@ -667,7 +704,7 @@ void patchTrackerDeletedReferences(QDomDocument& xml, const LegacyProject& proje
             pairs.append(packed[i] + "," + packed[i + 1]);
         patchString(xml, property(xml.documentElement(), "selected_track_views"), pairs.join(';'));
     }
-    for (const auto& value : removals)
+    for (const auto& [path, value] : removals)
     {
         auto parent = value.parentNode().toElement();
         require(parent.attribute("type") == "array" || parent.attribute("type") == "collection");
@@ -677,7 +714,7 @@ void patchTrackerDeletedReferences(QDomDocument& xml, const LegacyProject& proje
     {
         if (parent.attribute("type") == "array" && parent.firstChildElement().isNull())
         {
-            parent.parentNode().removeChild(parent); // Tracker omits an empty guest list.
+            parent.parentNode().removeChild(parent); // Tracker omits empty guest/column/format lists.
             continue;
         }
         std::map<unsigned, QDomElement> ordered;
@@ -711,6 +748,32 @@ void patchTrackerDeletedReferences(QDomDocument& xml, const LegacyProject& proje
             parent.insertBefore(xml.createTextNode("\n"), item);
         if (parent.hasChildNodes())
             parent.appendChild(xml.createTextNode("\n"));
+    }
+    for (auto& [path, view] : changedTableViews)
+    {
+        require(view.attribute("class") == QString(TRACKER) + "TableTView");
+        for (auto child = view.firstChildElement(); !child.isNull();)
+        {
+            const auto next = child.nextSiblingElement();
+            const auto name = child.attribute("name");
+            if ((name == "track_columns" || name == "column_formats") && child.firstChildElement().isNull())
+                view.removeChild(child);
+            child = next;
+        }
+        if (!view.firstChildElement().isNull())
+            continue;
+        // Tracker's TableTView loader passes its missing selection to getTrackByName,
+        // which dereferences null. Its own saver omits a view with no custom state.
+        // Remove only this emptied slot and empty enclosing arrays; view indices are roles.
+        auto slot = view.parentNode();
+        auto chooser = slot.parentNode();
+        auto views = chooser.parentNode();
+        require(slot.isElement() && chooser.toElement().attribute("type") == "array" && views.toElement().attribute("name") == "views");
+        chooser.removeChild(slot);
+        if (chooser.firstChildElement().isNull())
+            views.removeChild(chooser);
+        if (views.firstChildElement().isNull())
+            views.parentNode().removeChild(views);
     }
 }
 

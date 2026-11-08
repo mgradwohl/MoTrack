@@ -34,6 +34,9 @@ def load_manifest(path=CORPUS / "manifest.json"):
         if not re.fullmatch(r"[a-z0-9-]+", case["id"]) or case["id"] in seen:
             raise ValueError("Invalid or duplicate corpus case ID")
         seen.add(case["id"])
+        if "session_exclusion" in case and ("session_tracks" in case or any(
+                key.startswith("native_") and key.endswith("_roundtrip") and value for key, value in case.items())):
+            raise ValueError(f"{case['id']}: session_exclusion conflicts with session_tracks or an enabled native round-trip flag")
         expected_path(case)
         if "native_reference_index" in case:
             expected_path({"expected": case["native_reference_index"]})
@@ -261,7 +264,7 @@ def session_units(case, expected):
 def validate_session(case, report, manifest, expected=None, key_frames=None, calibration=None):
     if (report["reference_version"] != manifest["reference"]["version"]
             or report["verification_level"] != "tracker_session_resave"
-            or report.get("view_preparation") != "visit_custom_tables_restore_selection"):
+            or report.get("view_preparation") != "expand_visit_custom_tables_restore_selection"):
         raise ValueError("Unexpected session reference version or verification level")
     before = report["before"]
     tolerance = manifest["tolerance"]
@@ -580,6 +583,8 @@ CREATED_VECTOR_APPEARANCE = {"visible": True, "trail": True, "locked": False, "f
 
 
 PLOT_DELETION_NAMES = {"delete-plot-owner": "mass A", "delete-plot-guest": "mass B", "delete-first-plot-guest": "mass C"}
+TABLE_DELETION_NAMES = {"delete-first-table-owner": {"mass A"}, "delete-selected-table-owner": {"mass B"},
+                        "delete-last-table-owner": {"mass C"}, "delete-all-table-owners": {"mass A", "mass B", "mass C"}}
 
 
 def deletion_roundtrip_expected(case, mode):
@@ -587,11 +592,28 @@ def deletion_roundtrip_expected(case, mode):
     if (mode in mass_modes and case["id"] != "protractor"
             or mode in {"delete-vector", "delete-all-vectors"} and case["id"] != "independent-vectors"
             or mode in PLOT_DELETION_NAMES and case["id"] != "plot-guests"
-            or mode not in mass_modes | {"delete-vector", "delete-all-vectors"} | PLOT_DELETION_NAMES.keys()):
+            or mode in TABLE_DELETION_NAMES and case["id"] != "table-default-format-owners"
+            or mode not in mass_modes | {"delete-vector", "delete-all-vectors"} | PLOT_DELETION_NAMES.keys() | TABLE_DELETION_NAMES.keys()):
         raise ValueError("The deletion oracle requires its pinned mass/vector case")
     expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
     case = copy.deepcopy(case)
-    if mode in PLOT_DELETION_NAMES:
+    if mode in TABLE_DELETION_NAMES:
+        removed = TABLE_DELETION_NAMES[mode]
+        expected["point_masses"] = [track for track in expected["point_masses"] if track["name"] not in removed]
+        all_owners = mode == "delete-all-table-owners"
+        selected = None if all_owners else "mass A" if "mass B" in removed else "mass B"
+        first = None if all_owners else "mass B" if "mass A" in removed else "mass A"
+        case["session_names"] = {"selected_track": None if "mass B" in removed else "mass B",
+                                 "view_tracks": [[first, selected], [None, first], [None, None], [None, None]],
+                                 "packed_view_tracks": f"{first or 'null'},{selected or 'null'};null,{first or 'null'};null,null;null,null"}
+        if all_owners:
+            case["session_views"]["tables"] = []
+        else:
+            table = case["session_views"]["tables"][0]
+            table["selected_track"] = selected
+            for field in ["track_columns", "column_formats"]:
+                table[field] = [row for row in table[field] if row[0] not in removed]
+    elif mode in PLOT_DELETION_NAMES:
         removed = {PLOT_DELETION_NAMES[mode]}
         expected["point_masses"] = [track for track in expected["point_masses"] if track["name"] not in removed]
         owner = mode == "delete-plot-owner"
@@ -627,13 +649,15 @@ def deletion_roundtrip_expected(case, mode):
 def verify_deletion_export_xml(original, exported, mode):
     names = {"delete-mass": {"mass A"}, "delete-selected-mass": {"mass B"}, "delete-all-masses": {"mass A", "mass B"},
              "delete-vector": {"vector A"}, "delete-all-vectors": {"vector A", "vector B"},
-             **{key: {value} for key, value in PLOT_DELETION_NAMES.items()}}
+             **{key: {value} for key, value in PLOT_DELETION_NAMES.items()}, **TABLE_DELETION_NAMES}
     if mode not in names:
         raise ValueError("Unknown deletion mode")
     expected = minidom.parse(str(original))
     root = expected.documentElement
     if mode in PLOT_DELETION_NAMES:
         patch_expected_plot_deletion(expected, mode)
+    elif mode in TABLE_DELETION_NAMES:
+        patch_expected_table_deletion(expected, mode)
     if mode in {"delete-selected-mass", "delete-all-masses"}:
         fallback = "protractor A" if mode == "delete-all-masses" else "mass A"
 
@@ -692,6 +716,85 @@ def verify_deletion_export_xml(original, exported, mode):
     actual.unlink()
     if not matches:
         raise ValueError("Standard export changed content beyond the requested track deletion")
+
+
+def patch_expected_table_deletion(document, mode):
+    """Remove only the explicitly requested owners from the pinned three-table source."""
+    def prop(parent, name):
+        values = [node for node in parent.childNodes if node.nodeType == node.ELEMENT_NODE
+                  and node.tagName == "property" and node.getAttribute("name") == name]
+        if len(values) != 1:
+            raise ValueError("Expected one original table property")
+        return values[0]
+
+    def text(node):
+        if node.getAttribute("type") != "string" or any(c.nodeType not in {c.TEXT_NODE, c.CDATA_SECTION_NODE} for c in node.childNodes):
+            raise ValueError("Expected an original table string")
+        return "".join(c.data for c in node.childNodes)
+
+    def cells(node):
+        items = [c for c in node.childNodes if c.nodeType == c.ELEMENT_NODE]
+        if [c.getAttribute("name") for c in items] != [f"[{i}]" for i in range(len(items))]:
+            raise ValueError("Expected contiguous original table indices")
+        return items
+
+    tables = [node for node in document.getElementsByTagName("object")
+              if node.getAttribute("class") == "org.opensourcephysics.cabrillo.tracker.TableTView"]
+    if len(tables) != 1:
+        raise ValueError("Expected the original custom table")
+    table = tables[0]
+    root = document.documentElement
+    if text(prop(table, "selected_track")) != "mass B" or text(prop(root, "selectedtrack")) != "mass B":
+        raise ValueError("Expected the original table selections")
+    removed = TABLE_DELETION_NAMES[mode]
+    columns = prop(table, "track_columns")
+    rows = cells(columns)
+    if [[text(value) for value in cells(row)] for row in rows] != [["mass A", "t", "x", "y", "frame"], ["mass B", "t", "x", "frame"], ["mass C", "t", "y", "frame"]]:
+        raise ValueError("Expected the pinned original table columns")
+    formats = prop(table, "column_formats")
+    groups = cells(formats)
+    if [[[text(value) for value in cells(row)] for row in cells(group)] for group in groups] != [
+            [["mass A", "frame", "0"], ["mass A", "step", "0"]],
+            [["mass B", "frame", "0"], ["mass B", "t", "0.000"]], [["mass C", "step", "0"]]]:
+        raise ValueError("Expected the pinned original table formats")
+    for array, entries in [(columns, rows), (formats, groups)]:
+        for name, entry in zip(["mass A", "mass B", "mass C"], entries):
+            if name in removed:
+                array.removeChild(entry)
+        survivors = [node for node in array.childNodes if node.nodeType == node.ELEMENT_NODE]
+        if survivors:
+            for i, node in enumerate(survivors):
+                node.setAttribute("name", f"[{i}]")
+        else:
+            table.removeChild(array)
+    if "mass B" in removed:
+        root.removeChild(prop(root, "selectedtrack"))
+        selected = prop(table, "selected_track")
+        if mode == "delete-all-table-owners":
+            table.removeChild(selected)
+            # The pinned saver omits a table with no custom state. An empty TableTView
+            # would pass a null selection to TrackerPanel.getTrackByName during load.
+            slot = table.parentNode
+            chooser = slot.parentNode
+            views = chooser.parentNode
+            chooser.removeChild(slot)
+            if not any(child.nodeType == child.ELEMENT_NODE for child in chooser.childNodes):
+                views.removeChild(chooser)
+            if not any(child.nodeType == child.ELEMENT_NODE for child in views.childNodes):
+                root.removeChild(views)
+        else:
+            for child in list(selected.childNodes):
+                selected.removeChild(child)
+            selected.appendChild(document.createTextNode("mass A"))
+    packed = prop(root, "selected_track_views")
+    if text(packed) != "mass A,mass B;null,mass A;null,null;null,null":
+        raise ValueError("Expected the pinned original packed table selections")
+    first = next((name for name in ["mass A", "mass B", "mass C"] if name not in removed), "null")
+    a = "mass A" if "mass A" not in removed else first
+    b = "mass B" if "mass B" not in removed else first
+    for child in list(packed.childNodes):
+        packed.removeChild(child)
+    packed.appendChild(document.createTextNode(f"{a},{b};null,{a};null,null;null,null"))
 
 
 def patch_expected_plot_deletion(document, mode):
@@ -1437,6 +1540,8 @@ def check_sessions(manifest, cache, java, probe=None):
              ("delete-all-masses", "native_delete_selected_mass_roundtrip"),
              ("delete-plot-owner", "native_delete_plot_roundtrip"), ("delete-plot-guest", "native_delete_plot_roundtrip"),
              ("delete-first-plot-guest", "native_delete_plot_roundtrip"),
+             ("delete-first-table-owner", "native_delete_table_roundtrip"), ("delete-selected-table-owner", "native_delete_table_roundtrip"),
+             ("delete-last-table-owner", "native_delete_table_roundtrip"), ("delete-all-table-owners", "native_delete_table_roundtrip"),
              ("name", "native_name_roundtrip"), ("unselected-name", "native_name_roundtrip"),
              ("vector-name", "native_vector_name_roundtrip"),
              ("plot-owner-name", "native_plot_name_roundtrip"), ("plot-guest-name", "native_plot_name_roundtrip"),
@@ -1524,7 +1629,7 @@ def check_sessions(manifest, cache, java, probe=None):
                     empty = mode == "create-empty-vector"
                     verify_create_vector_export_xml(project, exported, empty)
                     expected, case = create_vector_roundtrip_expected(case, empty)
-                elif mode in {"delete-mass", "delete-vector", "delete-all-vectors", "delete-selected-mass", "delete-all-masses"} | PLOT_DELETION_NAMES.keys():
+                elif mode in {"delete-mass", "delete-vector", "delete-all-vectors", "delete-selected-mass", "delete-all-masses"} | PLOT_DELETION_NAMES.keys() | TABLE_DELETION_NAMES.keys():
                     verify_deletion_export_xml(project, exported, mode)
                     expected, case = deletion_roundtrip_expected(case, mode)
                 elif mode in {"name", "unselected-name", "vector-name", "plot-owner-name", "plot-guest-name", "center-member-name",
@@ -1591,7 +1696,7 @@ def check_sessions(manifest, cache, java, probe=None):
                 stages[stage] = json.loads((output / ("session-" + stage + ".json")).read_text(encoding="utf-8"))
                 if (stages[stage]["reference_version"] != manifest["reference"]["version"]
                         or stages[stage]["verification_level"] != "tracker_session_" + stage
-                        or stages[stage].get("view_preparation") != "visit_custom_tables_restore_selection"):
+                        or stages[stage].get("view_preparation") != "expand_visit_custom_tables_restore_selection"):
                     raise ValueError("Unexpected Tracker session stage")
                 callbacks = stages[stage].get("loader_callbacks")
                 if type(callbacks) is not int or callbacks < 1:
@@ -1612,6 +1717,8 @@ def check_sessions(manifest, cache, java, probe=None):
                 keys = []
             elif mode in PLOT_DELETION_NAMES:
                 keys = [[0, 2], [1, 3]] if mode != "delete-first-plot-guest" else [[0, 2], [0, 2]]
+            elif mode in TABLE_DELETION_NAMES:
+                keys = [] if mode == "delete-all-table-owners" else [[0, 2], [0, 2]] if mode == "delete-last-table-owner" else [[0, 2], [1, 3]]
             calibration = keyed_calibration_expected(mode == "keyed-calibration") if case["id"] == "keyed-calibration" else None
             if "mixed_calibration_flags" in case:
                 calibration = mixed_calibration_expected(case, mode == "mixed-calibration")

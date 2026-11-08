@@ -747,7 +747,7 @@ The native probe removes a track through normal history, undoes/redoes the delet
 `.motrack` after removing its temporary input copy, then exports. Native tests exercise first/middle/last
 and all deletions across interleaved mass/vector source objects, reordered native lists, allocation
 gaps, same-count delete/create, safe name reuse and repeated exports. Original bindings remain in the
-native envelope; reimported compact IDs are mapped in surviving source order. Table-data-owner/dependent
+native envelope; reimported compact IDs are mapped in surviving source order. Dataset-owner/dependent
 removals, replacement-by-the-same-name rebinding, malformed/unknown schemas and ambiguous names refuse
 before replacing an existing destination. The historical MOV/open-entry-point report remains tracked
 by [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65); these media-free cases do not close it.
@@ -769,7 +769,7 @@ Pinned 6.3.5 bytecode for `TrackerPanel.removeTrack` clears the selected track, 
 omits a null panel selection and restores null when absent. Native regressions cover renamed survivors,
 retained tools, no viewable survivors, newly appended replacements, undo/redo, original-envelope native
 reopen and repeated export. Copied optional identities keep the checks portable across Clang versions.
-The plot cleanup below extends this policy; deleting a custom table data owner or scientific dependency
+The plot/table cleanup below extends this policy; deleting a dataset owner or scientific dependency
 still refuses export. This does not accept a dangling name or transfer old data to a same-name replacement.
 Actual Tracker load/save/fresh-process reopen and native reimport must pass in Linux CI before merging;
 the Windows tests use native code and never launch the Java desktop application.
@@ -802,6 +802,47 @@ retained the independently expected owner/guest lists after it. Actual applicati
 separate required check.
 
 These cases require actual Tracker load/save/fresh-process reopen and native reimport in Linux CI;
-local Windows validation does not run the Java desktop application. Custom table owners and scientific
-dependencies remain excluded. Media/archive saving, paired transactions and full standard Save are
+local Windows validation does not run the Java desktop application. Dataset owners and scientific
+dependencies remain excluded; table-column/format cleanup is covered below. Media/archive saving, paired transactions and full standard Save are
 still unfinished, so [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65) remains open.
+
+
+## Removing custom table owners
+
+`TableOwnersFixture.java` authors three point masses with sparse marks and fixed nonuniform
+calibration using the pinned Tracker/OSP serializers. The source reference index records each
+column/format owner independently. Native deletion removes whole original owner rows/groups,
+compacts indices and preserves survivors through rename, name reuse, undo and native close/reopen.
+
+The current application candidate is **`table-default-format-owners.trk`**, generated in
+`default-formats` mode. A uses `t,x,y,frame`, B uses `t,x,frame`, and C uses `t,y,frame`. Each uses
+only the pinned default numeric formats (frame/step `0`, time `0.000`). Four export cases remove the
+first, selected, last or all owners. The expected XML is independently patched, preserving surviving
+rows, format groups and packed selections; Java load/save/fresh-process reopen must also retain the
+independent geometry, columns and selections. These cases are pending CI acceptance.
+
+The following earlier failures are retained separately, never counted as passing round trips:
+
+- `table-owners-subset.trk` (`subset`): original C `t,x` row remained null in the old collapsed-pane run.
+- `table-owners-defaults.trk` (`defaults`): default columns omitted custom formats and selection
+  in [run 42464749233](https://github.com/mgradwohl/MoTrack/actions/runs/42464749233).
+- `table-owners-legacy-formats.trk` (`legacy-formats`): expanded panes populated columns but custom
+  formats, order and selection were lost in [run 42467068600](https://github.com/mgradwohl/MoTrack/actions/runs/42467068600).
+- `table-owners.trk` (default generator mode): modern per-track format records and packed selections
+  retained the selected track but still lost custom formats/order in
+  [run 42468681114](https://github.com/mgradwohl/MoTrack/actions/runs/42468681114).
+  The original complete strict case remains [table-owners-rejected-session.json](expected/table-owners-rejected-session.json).
+  Corruption tests still reject its observed custom-format and order loss; the oracle was not relaxed.
+
+The harness marker `expand_visit_custom_tables_restore_selection` means ordinary divider actions
+expand panes before custom table visits, then restore their original selection. Swing `isShowing()`
+alone did not imply Tracker's `isViewPaneVisible()`. No expected values or protected refresh methods
+are injected. Earlier subset/default failures need revalidation under this expanded-pane workflow
+before their conservative guards can be lifted.
+
+Changed exports refuse observed unsafe column shapes and nondefault point-mass numeric formats,
+even when backed by modern per-track records. Malformed records and unsupported survivors fail
+before replacing the destination; unchanged rendering/native saving still retain their source.
+All four fixtures remain geometry/source-index cases under [#64](https://github.com/mgradwohl/MoTrack/issues/64).
+Deleting all affected owners removes the unsafe settings; deleting only one cannot exempt another.
+Dataset owners, full table editing, media/archive saving and paired-output recovery remain unfinished.

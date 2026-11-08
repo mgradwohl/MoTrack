@@ -165,7 +165,9 @@ try
          args[1] == "--export-create-vector" || args[1] == "--export-create-empty-vector" || args[1] == "--export-delete-mass" ||
          args[1] == "--export-delete-vector" || args[1] == "--export-delete-all-vectors" || args[1] == "--export-delete-selected-mass" ||
          args[1] == "--export-delete-all-masses" || args[1] == "--export-delete-plot-owner" || args[1] == "--export-delete-plot-guest" ||
-         args[1] == "--export-delete-first-plot-guest"))
+         args[1] == "--export-delete-first-plot-guest" || args[1] == "--export-delete-first-table-owner" ||
+         args[1] == "--export-delete-selected-table-owner" || args[1] == "--export-delete-last-table-owner" ||
+         args[1] == "--export-delete-all-table-owners"))
     {
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trk");
@@ -176,8 +178,23 @@ try
         }
         auto document = motrack::importTrackerDocument(source);
         motrack::TrackEdits edits;
-        if (args[1] == "--export-delete-plot-owner" || args[1] == "--export-delete-plot-guest" ||
-            args[1] == "--export-delete-first-plot-guest")
+        if (args[1] == "--export-delete-first-table-owner" || args[1] == "--export-delete-selected-table-owner" ||
+            args[1] == "--export-delete-last-table-owner" || args[1] == "--export-delete-all-table-owners")
+        {
+            if (document.project.pointMasses.size() != 3)
+                throw motrack::ProjectError("Expected the round-trip table owners.");
+            const std::size_t index = args[1] == "--export-delete-selected-table-owner" ? 1
+                                      : args[1] == "--export-delete-last-table-owner"   ? 2
+                                                                                        : 0;
+            const int count = args[1] == "--export-delete-all-table-owners" ? 3 : 1;
+            for (int i = 0; i < count; ++i)
+                if (!edits.removePointMass(document.project, index))
+                    throw motrack::ProjectError("Could not delete the round-trip table owner.");
+            if (!edits.undo(document.project) || !edits.redo(document.project))
+                throw motrack::ProjectError("Could not replay the round-trip table deletion.");
+        }
+        else if (args[1] == "--export-delete-plot-owner" || args[1] == "--export-delete-plot-guest" ||
+                 args[1] == "--export-delete-first-plot-guest")
         {
             const std::size_t index = args[1] == "--export-delete-plot-owner" ? 0 : args[1] == "--export-delete-plot-guest" ? 1 : 2;
             if (document.project.pointMasses.size() != 3 || !edits.removePointMass(document.project, index) ||

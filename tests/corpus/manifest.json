@@ -18,12 +18,227 @@
     "redistribution": "Examples are fetched unchanged into an ignored cache. No upstream example or binary is vendored. Individual media redistribution terms have not been separately audited."
   },
   "cases": [
+    {
+      "tracker_version": "6.3.5",
+      "expected": "expected/table-owners.json",
+      "native_reference_index": "expected/table-owners-references.json",
+      "id": "table-owners-subset",
+      "file": "table-owners-subset.trk",
+      "local_file": "fixtures/table-owners-subset.trk",
+      "sha256": "2a93db64ddb884748c95cb19c6238182813883e7ed6940d4a3b9b1d1a8545aa3",
+      "bytes": 12539,
+      "session_exclusion": {
+        "issue": "https://github.com/mgradwohl/MoTrack/issues/64",
+        "reason": "Tracker 6.3.5 keeps null columns for the visible mass C t,x subset; selection and one normal frame refresh fail. Not accepted round-trip evidence."
+      }
+    },
     {"id": "mixed-calibration-1","native_mixed_calibration_roundtrip": true,"mixed_calibration_flags": 1,"local_file": "fixtures/mixed-calibration-1.trk","file": "mixed-calibration-1.trk","bytes": 6637,"sha256": "528ea4d862cfc4073032fa3519e92b96f4d7ae36ec75aa94ec7baf5c671112d2","tracker_version": "6.3.5","features": ["partly-fixed-calibration","nonuniform-scale","key-boundaries","java-authored-synthetic"],"requirements": ["R02","R03","R09"],"expected": "expected/mixed-calibration-1.json","session_tracks": [{"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes","name": "axes"},{"class": "org.opensourcephysics.cabrillo.tracker.PointMass","name": "calibration probe"}],"provenance": "Public setters and serializers in pinned Tracker 6.3.5; two independent Java authoring runs reproduced identical bytes; baseline coordinates also checked by independent quadrant arithmetic."},
     {"id": "mixed-calibration-2","native_mixed_calibration_roundtrip": true,"mixed_calibration_flags": 2,"local_file": "fixtures/mixed-calibration-2.trk","file": "mixed-calibration-2.trk","bytes": 6640,"sha256": "f941cec2e4a59401f1e467c26e5d3c6d8298ad881c322b06eabc68368c6500c5","tracker_version": "6.3.5","features": ["partly-fixed-calibration","nonuniform-scale","key-boundaries","java-authored-synthetic"],"requirements": ["R02","R03","R09"],"expected": "expected/mixed-calibration-2.json","session_tracks": [{"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes","name": "axes"},{"class": "org.opensourcephysics.cabrillo.tracker.PointMass","name": "calibration probe"}],"provenance": "Public setters and serializers in pinned Tracker 6.3.5; two independent Java authoring runs reproduced identical bytes; baseline coordinates also checked by independent quadrant arithmetic."},
     {"id": "mixed-calibration-3","native_mixed_calibration_roundtrip": true,"mixed_calibration_flags": 3,"local_file": "fixtures/mixed-calibration-3.trk","file": "mixed-calibration-3.trk","bytes": 6639,"sha256": "863c441f3c3d76a166053665a314d746184b59f0c3bd54c91c502e8702b3cebc","tracker_version": "6.3.5","features": ["partly-fixed-calibration","nonuniform-scale","key-boundaries","java-authored-synthetic"],"requirements": ["R02","R03","R09"],"expected": "expected/mixed-calibration-3.json","session_tracks": [{"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes","name": "axes"},{"class": "org.opensourcephysics.cabrillo.tracker.PointMass","name": "calibration probe"}],"provenance": "Public setters and serializers in pinned Tracker 6.3.5; two independent Java authoring runs reproduced identical bytes; baseline coordinates also checked by independent quadrant arithmetic."},
     {"id": "mixed-calibration-4","native_mixed_calibration_roundtrip": true,"mixed_calibration_flags": 4,"local_file": "fixtures/mixed-calibration-4.trk","file": "mixed-calibration-4.trk","bytes": 6637,"sha256": "50803e6f29e2335090f1f5abb363bb69b4999108363dcb115e4f5301061580bd","tracker_version": "6.3.5","features": ["partly-fixed-calibration","nonuniform-scale","key-boundaries","java-authored-synthetic"],"requirements": ["R02","R03","R09"],"expected": "expected/mixed-calibration-4.json","session_tracks": [{"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes","name": "axes"},{"class": "org.opensourcephysics.cabrillo.tracker.PointMass","name": "calibration probe"}],"provenance": "Public setters and serializers in pinned Tracker 6.3.5; two independent Java authoring runs reproduced identical bytes; baseline coordinates also checked by independent quadrant arithmetic."},
     {"id": "mixed-calibration-5","native_mixed_calibration_roundtrip": true,"mixed_calibration_flags": 5,"local_file": "fixtures/mixed-calibration-5.trk","file": "mixed-calibration-5.trk","bytes": 6636,"sha256": "a0ce7d5a19a3d74081867068c48fbbf4f7738668a38f08d714d69f6b95190f1c","tracker_version": "6.3.5","features": ["partly-fixed-calibration","nonuniform-scale","key-boundaries","java-authored-synthetic"],"requirements": ["R02","R03","R09"],"expected": "expected/mixed-calibration-5.json","session_tracks": [{"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes","name": "axes"},{"class": "org.opensourcephysics.cabrillo.tracker.PointMass","name": "calibration probe"}],"provenance": "Public setters and serializers in pinned Tracker 6.3.5; two independent Java authoring runs reproduced identical bytes; baseline coordinates also checked by independent quadrant arithmetic."},
     {"id": "mixed-calibration-6","native_mixed_calibration_roundtrip": true,"mixed_calibration_flags": 6,"local_file": "fixtures/mixed-calibration-6.trk","file": "mixed-calibration-6.trk","bytes": 6639,"sha256": "6a5146b0d61a90c7fd356d96adef201d82cc4b94c62e2d85f64fdb0518b97190","tracker_version": "6.3.5","features": ["partly-fixed-calibration","nonuniform-scale","key-boundaries","java-authored-synthetic"],"requirements": ["R02","R03","R09"],"expected": "expected/mixed-calibration-6.json","session_tracks": [{"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes","name": "axes"},{"class": "org.opensourcephysics.cabrillo.tracker.PointMass","name": "calibration probe"}],"provenance": "Public setters and serializers in pinned Tracker 6.3.5; two independent Java authoring runs reproduced identical bytes; baseline coordinates also checked by independent quadrant arithmetic."},
+    {
+      "tracker_version": "6.3.5",
+      "expected": "expected/table-owners.json",
+      "native_reference_index": "expected/table-owners-references.json",
+      "id": "table-owners-defaults",
+      "file": "table-owners-defaults.trk",
+      "local_file": "fixtures/table-owners-defaults.trk",
+      "sha256": "6417e60e91c84d928e74e51286553760f2e5850b48faa84a4852d748984e06c0",
+      "bytes": 12611,
+      "session_exclusion": {
+        "issue": "https://github.com/mgradwohl/MoTrack/issues/64",
+        "reason": "Default-column views omit custom formats and selection in pinned Tracker; not application acceptance evidence."
+      },
+      "provenance": "Pinned default-column variant: baseline Tracker 6.3.5 application load/save/reopen omitted custom table formats and selected owner in CI run 42464749233. Reproduce with TableOwnersFixture defaults mode."
+    },
+    {
+      "tracker_version": "6.3.5",
+      "expected": "expected/table-owners.json",
+      "native_reference_index": "expected/table-owners-references.json",
+      "id": "table-owners-legacy-formats",
+      "file": "table-owners-legacy-formats.trk",
+      "local_file": "fixtures/table-owners-legacy-formats.trk",
+      "sha256": "6051ad165c8615d065dc8cdec21ba3997aa32f7343f73aaed195ff94303b526f",
+      "bytes": 12839,
+      "session_exclusion": {
+        "issue": "https://github.com/mgradwohl/MoTrack/issues/64",
+        "reason": "Legacy-only formats/order/selection fail the expanded-pane application baseline; retained as source/geometry evidence only."
+      },
+      "provenance": "The earlier explicit-frame-column fixture with legacy table-only formats. Expanded-pane CI run 42467068600 populated columns but lost custom formats, column order and selected table owner. Reproduce with TableOwnersFixture legacy-formats mode."
+    },
+    {
+      "id": "table-owners",
+      "file": "table-owners.trk",
+      "local_file": "fixtures/table-owners.trk",
+      "sha256": "854dcf2e4468a60f4c5e6fd21c929c6b1c6bc6aa519f92e64cb424d25dba939d",
+      "bytes": 14090,
+      "tracker_version": "6.3.5",
+      "features": [
+        "three-point-masses",
+        "sparse-marks",
+        "nonuniform-calibration",
+        "custom-table-columns",
+        "explicit-frame-column",
+        "custom-table-formats"
+      ],
+      "requirements": [
+        "R02",
+        "R03",
+        "R15"
+      ],
+      "expected": "expected/table-owners.json",
+      "native_reference_index": "expected/table-owners-modern-references.json",
+      "session_exclusion": {
+        "issue": "https://github.com/mgradwohl/MoTrack/issues/64",
+        "reason": "Modern per-track formats still lose custom patterns and column order in expanded-pane CI run 42468681114. Original strict expectations retained in rejected_session_case; not accepted evidence."
+      },
+      "rejected_session_case": "expected/table-owners-rejected-session.json"
+    },
+    {
+      "id": "table-default-format-owners",
+      "native_delete_table_roundtrip": true,
+      "file": "table-default-format-owners.trk",
+      "local_file": "fixtures/table-default-format-owners.trk",
+      "sha256": "4708ef79a46e0c93d63d8edcf084ad0b5d9d322cb251786a905c58c954c70e17",
+      "bytes": 12952,
+      "tracker_version": "6.3.5",
+      "features": [
+        "three-point-masses",
+        "sparse-marks",
+        "nonuniform-calibration",
+        "custom-table-columns",
+        "explicit-frame-column",
+        "default-number-formats"
+      ],
+      "requirements": [
+        "R02",
+        "R03",
+        "R15"
+      ],
+      "expected": "expected/table-owners.json",
+      "native_reference_index": "expected/table-owners-modern-references.json",
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "mass A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "mass B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "mass C"
+        }
+      ],
+      "session_names": {
+        "selected_track": "mass B",
+        "view_tracks": [
+          [
+            "mass A",
+            "mass B"
+          ],
+          [
+            null,
+            "mass A"
+          ],
+          [
+            null,
+            null
+          ],
+          [
+            null,
+            null
+          ]
+        ],
+        "packed_view_tracks": "mass A,mass B;null,mass A;null,null;null,null"
+      },
+      "session_views": {
+        "tables": [
+          {
+            "chooser": 0,
+            "selected_track": "mass B",
+            "track_columns": [
+              [
+                "mass A",
+                "t",
+                "x",
+                "y",
+                "frame"
+              ],
+              [
+                "mass B",
+                "t",
+                "x",
+                "frame"
+              ],
+              [
+                "mass C",
+                "t",
+                "y",
+                "frame"
+              ]
+            ],
+            "column_formats": [
+              [
+                "mass A",
+                "frame",
+                "0"
+              ],
+              [
+                "mass A",
+                "step",
+                "0"
+              ],
+              [
+                "mass A",
+                "t",
+                "0.000"
+              ],
+              [
+                "mass B",
+                "frame",
+                "0"
+              ],
+              [
+                "mass B",
+                "step",
+                "0"
+              ],
+              [
+                "mass B",
+                "t",
+                "0.000"
+              ],
+              [
+                "mass C",
+                "frame",
+                "0"
+              ],
+              [
+                "mass C",
+                "step",
+                "0"
+              ],
+              [
+                "mass C",
+                "t",
+                "0.000"
+              ]
+            ],
+            "dataset_indices": []
+          }
+        ],
+        "plots": []
+      },
+      "provenance": "Separate default-format deletion baseline authored by TableOwnersFixture default-formats mode. Does not replace or relax the retained custom-format failure oracles."
+    },
     {
       "id": "plot-guests",
       "native_plot_name_roundtrip": true,

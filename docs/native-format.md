@@ -296,7 +296,7 @@ Membership comparisons use sorted IDs; surviving source-order IDs are remapped e
 
 Unreferenced original point masses and independent vectors may also be removed from an audited source.
 The source envelope and its original bindings remain intact in `.motrack`; each export removes only
-bound objects absent from the live document. A table-data-owner or dependent reference to any removed
+bound objects absent from the live document. A dataset-owner or dependent reference to any removed
 identity refuses export, even if a new track reuses the old name. Stored data ownership and dependent
 links are never silently redirected. Unknown schemas, missing/ambiguous references and dependent-track sources
 remain excluded from membership edits.
@@ -306,8 +306,7 @@ in surviving XML order before appending new objects. Equal-count delete/create o
 identities, not sizes. Existing-name updates happen before node deletion to preserve original source
 paths. An unreferenced name can be reused by a surviving renamed track after that audit. Original
 objects and their content remain unchanged except for explicitly supported edits; only collection
-whitespace is normalized for OSP. Plot-owner/guest cleanup is specified below; table ownership and
-dependent-link cleanup still require separate policies and application acceptance.
+whitespace is normalized for OSP. Plot-owner/guest cleanup is specified below; table-column/format ownership is specified below. Dataset-owner and dependent-link cleanup still require separate policies and application acceptance.
 
 Tracks referenced only by panel, plot and table selections can be deleted with explicit cleanup.
 The panel selection is cleared. Each affected plot/table selects the first remaining viewable track
@@ -332,3 +331,46 @@ even though general XML parsers accept children on the container's line. Seven n
 cover renamed survivors, native close/reopen, repeated export and replacement-name isolation.
 Three independent corpus cases remove the owner, a guest present on both plots, or the first guest
 in an ordered pair. Actual Tracker application acceptance remains required before merging this slice.
+
+Custom table ownership is cleaned up by original identity, independently of view selection. A deleted
+column owner removes its entire `String[]` row from `track_columns`; a deleted format owner removes
+its whole `String[][]` group from `column_formats`. Every row in a format group must already name the
+same unambiguous owner. Multiple reference rows therefore identify one removal target, deduplicated
+by original path before mutation. Surviving row/group indices are compacted, empty properties omitted,
+and OSP property line separators restored. Remaining columns, formats and owner order are retained.
+If cleanup leaves a custom table with no properties, its saved view slot and any empty enclosing
+view arrays are omitted, matching Tracker's saver. Retained view indices are roles and are not
+renumbered. An empty `TableTView` would pass a missing selected name to the pinned loader's
+null-unsafe `getTrackByName`; removing the empty custom state preserves the selected table-pane type.
+This also covers selection-only tables and already empty column/format arrays when the last
+viewable track is removed. Native cases retain unrelated plot slots in the same and another chooser
+and verify their role indices. Selection fallback still preserves a table when a viewable track remains.
+Original source bindings and undo history remain intact; replacement tracks cannot inherit deleted
+owners' settings. Dataset-index owners and scientific dependencies remain excluded.
+
+Four independent application cases remove the first, selected or last owner, or all owners from
+`table-default-format-owners.trk`. This separate fixture uses three explicit-frame column sets and
+only Tracker's default frame/step/time formats. Seven native subsets additionally exercise renamed
+survivors, name reuse and native save/reopen. The first three cases passed actual Tracker resave,
+fresh reopen and native reimport in Linux job 128705864359 (run 42469588233). The all-owner case
+exposed the empty-table loader failure above; its corrected export still requires CI acceptance. The reference
+harness expands panes through public divider actions, visits custom tables and restores their
+selection; this does not establish immediate unvisited-resave fidelity.
+
+Four earlier variants remain checksum-pinned failures under [MoTrack #64](https://github.com/mgradwohl/MoTrack/issues/64).
+The original subset/default-column cases were loaded with a pane that Swing considered showing but
+Tracker considered collapsed. Expanding it populated columns in the explicit-frame legacy case,
+but formats, order and selection were lost. Adding modern per-track format records and packed
+selections retained the selected owner but still lost custom patterns and order in run 42468681114.
+Its original strict session oracle remains in `table-owners-rejected-session.json`, exercised by
+Python corruption tests; its losses are not accepted as the new expected result.
+
+Changed exports conservatively refuse the observed `t,x`, `t,x,y`, `t,y,x` and `t,y,x,frame` rows,
+and custom point-mass numeric patterns in either legacy tables or per-track records. Only default
+frame/step `0`, time `0.000`, or an empty table override are accepted. Dense, unique per-track
+variable/pattern grammar remains audited before use, including mass-only edits. This does not claim
+broader column combinations are verified. All failures leave an existing destination untouched.
+
+Native saving and unchanged byte-preserving rendering retain every failing variant. Removing all
+affected owners removes their unsafe rows; deleting one cannot waive checks on survivors. Numeric
+format editing, custom order, broader pattern grammars and full view parity remain unfinished.

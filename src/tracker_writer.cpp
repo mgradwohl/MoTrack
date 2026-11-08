@@ -559,6 +559,85 @@ void requireBoundedMassFrames(const QDomDocument& xml)
     }
 }
 
+void requireStableTableColumns(const QDomDocument& xml, const LegacyProject& project)
+{
+    std::unordered_set<std::string> massNames;
+    for (const auto& mass : project.pointMasses)
+        massNames.insert(mass.name);
+    const auto objects = xml.elementsByTagName("object");
+    for (int index = 0; index < objects.size(); ++index)
+    {
+        const auto object = objects.at(index).toElement();
+        if (object.attribute("class") == "org.opensourcephysics.cabrillo.tracker.PointMass" &&
+            !uniqueProperty(object, "number_formats").isNull())
+        {
+            // This newly supported metadata requires the audited format grammar even for a
+            // mass-only edit, which otherwise permits opaque source content to pass through.
+            validateTrackerEditSchema(xml);
+            break;
+        }
+    }
+    const auto defaultPattern = [](const std::string& variable, const std::string& pattern)
+    {
+        return ((variable == "frame" || variable == "step") && pattern == "0") || (variable == "t" && pattern == "0.000") ||
+               pattern.empty();
+    };
+    for (int index = 0; index < objects.size(); ++index)
+    {
+        const auto object = objects.at(index).toElement();
+        if (object.attribute("class") != "org.opensourcephysics.cabrillo.tracker.PointMass")
+            continue;
+        const auto owner = uniqueProperty(object, "name").text().toStdString();
+        for (auto cell = uniqueProperty(object, "number_formats").firstChildElement(); !cell.isNull();)
+        {
+            const auto variable = cell.text().toStdString();
+            cell = cell.nextSiblingElement();
+            require(!cell.isNull());
+            if (!defaultPattern(variable, cell.text().toStdString()))
+                throw ProjectError("Tracker cannot retain custom number formats for '" + owner + "' (MoTrack issue #64).");
+            cell = cell.nextSiblingElement();
+        }
+    }
+    for (int index = 0; index < objects.size(); ++index)
+    {
+        const auto object = objects.at(index).toElement();
+        if (object.attribute("class") != "org.opensourcephysics.cabrillo.tracker.TableTView")
+            continue;
+        const auto columns = uniqueProperty(object, "track_columns");
+        for (auto row = columns.firstChildElement("property"); !row.isNull(); row = row.nextSiblingElement("property"))
+        {
+            const auto owner = uniqueProperty(row, "[0]").text().toStdString();
+            if (!massNames.contains(owner) || uniqueProperty(row, "[1]").text() != "t")
+                continue;
+            const auto second = uniqueProperty(row, "[2]").text();
+            const auto third = uniqueProperty(row, "[3]");
+            const bool subset = second == "x" && third.isNull();
+            const bool defaults =
+                uniqueProperty(row, "[4]").isNull() && ((second == "x" && third.text() == "y") || (second == "y" && third.text() == "x"));
+            // Pinned 6.3.5 can serialize t,x as null columns, or omit a default-column view's
+            // custom formats/order. Preserve these source rows natively until a safe reference
+            // workflow has evidence; do not let a changed standard save imply fidelity.
+            const bool reordered =
+                second == "y" && third.text() == "x" && uniqueProperty(row, "[4]").text() == "frame" && uniqueProperty(row, "[5]").isNull();
+            if (subset || defaults || reordered)
+                throw ProjectError("Tracker cannot safely resave the table columns for '" + owner + "' (MoTrack issue #64).");
+        }
+        for (auto group = uniqueProperty(object, "column_formats").firstChildElement(); !group.isNull(); group = group.nextSiblingElement())
+        {
+            for (auto row = group.firstChildElement(); !row.isNull(); row = row.nextSiblingElement())
+            {
+                const auto owner = uniqueProperty(row, "[0]").text().toStdString();
+                if (!massNames.contains(owner))
+                    continue;
+                const auto variable = uniqueProperty(row, "[1]").text().toStdString();
+                const auto pattern = uniqueProperty(row, "[2]").text().toStdString();
+                if (!defaultPattern(variable, pattern))
+                    throw ProjectError("Tracker cannot retain custom table formats for '" + owner + "' (MoTrack issue #64).");
+            }
+        }
+    }
+}
+
 void requireTrackerCoordinates(const LegacyProject& project, const Calibration& calibration)
 {
     require(!calibration.keyframes.empty() && calibration.keyframes.front().frame == 0);
@@ -1088,6 +1167,7 @@ std::string renderTrackerProject(const LegacyProject& project, const TrackerSour
     {
         return source.xml;
     }
+    requireStableTableColumns(xml, expected);
     // Pinned Tracker 6.3.5 never initializes saved VectorSum members and loses their names on resave.
     // Do not let clearing all independent samples bypass the nonempty-vector safeguards below.
     require(std::ranges::find(expected.unsupportedTrackTypes, "org.opensourcephysics.cabrillo.tracker.VectorSum") ==
