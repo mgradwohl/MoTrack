@@ -76,12 +76,12 @@ TEST(TrackerMoviePackage, RetainsEditedClipAndCompleteMovieAfterNativeReopenAndS
     const auto before = document.project;
     const auto bindings = document.mediaLocations;
     ASSERT_TRUE(document.trackerSource);
-    const auto originalXml = document.trackerSource->xml;
+    const auto originalXml = document.trackerSource.value().xml;
     const auto target = temporary.filePath(QString::fromUtf8("portable é & movie.trz"));
     motrack::writeTrackerMoviePackageCopy(target, document, native);
     EXPECT_EQ(document.project, before);
     EXPECT_EQ(document.mediaLocations, bindings);
-    EXPECT_EQ(document.trackerSource->xml, originalXml);
+    EXPECT_EQ(document.trackerSource.value().xml, originalXml);
     ASSERT_TRUE(QFile::remove(native));
     ASSERT_TRUE(QFile::remove(movie));
     ASSERT_TRUE(QDir(temporary.path()).mkdir("relocated"));
