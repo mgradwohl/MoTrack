@@ -542,8 +542,10 @@ void rebaseWorkspaceMedia(WorkspaceDocument& document, const QString& sourcePath
     }
 }
 
-void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& document)
+void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled)
 {
+    if (cancelled && *cancelled)
+        throw ProjectError("Project save canceled.");
     const auto& project = document.project;
     validateTrackIdentities(project);
     validateArchive(document);
@@ -583,7 +585,7 @@ void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& docume
         {"movieFrameTimes", frameTimes},
         {"clip", clipObject}};
     const auto bytes = QJsonDocument(output).toJson(QJsonDocument::Compact);
-    writeWorkspaceStorage(path, bytes, document.archivePayload);
+    writeWorkspaceStorage(path, bytes, document.archivePayload, cancelled);
 }
 
 } // namespace motrack

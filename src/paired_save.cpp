@@ -551,7 +551,7 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
         notify(observer, PairedSaveProgress::StandardPrepared);
         checkCancelled(cancelled);
         rebaseWorkspaceMedia(snapshot, mediaProjectPath, result.nativePath);
-        writeWorkspaceDocument(native, snapshot);
+        writeWorkspaceDocument(native, snapshot, cancelled);
         validateNativeSnapshot(snapshot, readWorkspaceDocument(native, cancelled));
         const auto nativeFingerprint = fingerprint(native, parent, cancelled);
         if (!nativeFingerprint)
@@ -613,7 +613,7 @@ NativeSaveResult writeNativeDocument(const QString& path,
         throw SaveDestinationError(SaveDestinationConflict::PendingRecovery);
     checkCancelled(cancelled);
     NativeSaveResult result{.mediaLocations = document.mediaLocations};
-    writeWorkspaceDocument(physical, document);
+    writeWorkspaceDocument(physical, document, cancelled);
     const auto completed = [&result]
     {
         result.saved = true;
