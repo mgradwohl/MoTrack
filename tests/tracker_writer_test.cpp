@@ -263,6 +263,107 @@ TEST(TrackerWriter, FixedVectorOriginUsesLastLoadedKeyForSnapping)
     EXPECT_EQ(readBytes(target), before);
 }
 
+TEST(TrackerWriter, VectorOnlyEditsBoundCoordinateWorkIncludingRetainedPadding)
+{
+    QDomDocument source;
+    ASSERT_TRUE(source.setContent(
+        QByteArray::fromStdString(readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk"))));
+    QDomElement coordinates;
+    const auto properties = source.elementsByTagName("property");
+    for (int index = 0; index < properties.size(); ++index)
+    {
+        auto property = properties.at(index).toElement();
+        if (property.attribute("name") == "fixedangle")
+            property.firstChild().setNodeValue("false");
+        if (property.attribute("class") == "[Lorg.opensourcephysics.media.core.ImageCoordSystem$FrameData;")
+            coordinates = property;
+    }
+    ASSERT_FALSE(coordinates.isNull());
+    for (const int frame : {1, 2})
+    {
+        auto key = coordinates.firstChildElement().cloneNode(true).toElement();
+        key.setAttribute("name", QString("[%1]").arg(frame));
+        coordinates.appendChild(key);
+    }
+    const auto xml = source.toByteArray(-1).toStdString();
+    const auto imported = motrack::parseTrackerProject(xml);
+    if (!imported.project.calibration)
+        FAIL() << "Missing keyed vector calibration.";
+    ASSERT_EQ(imported.project.calibration->keyframes.size(), 3);
+    ASSERT_TRUE(imported.project.calibration->fixedOrigin);
+    ASSERT_FALSE(imported.project.calibration->fixedAngle);
+    ASSERT_FALSE(imported.project.vectors.empty());
+    ASSERT_FALSE(imported.project.vectors.front().samples.empty());
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("existing.trk");
+    auto changed = imported.project;
+    // Three fixed-origin setters each visit 333333 frames: 999999 updates are allowed.
+    changed.vectors.front().samples.back().frame = 333332;
+    ASSERT_NO_THROW(motrack::writeTrackerProject(output, changed, imported.source));
+    const auto saved = readBytes(output);
+    EXPECT_EQ(motrack::parseLegacyProject(saved), changed);
+    EXPECT_EQ(changed.calibration, imported.project.calibration);
+    for (const int frame : {333333, 400000})
+    {
+        SCOPED_TRACE(frame);
+        changed.vectors.front().samples.back().frame = frame;
+        EXPECT_THROW(motrack::writeTrackerProject(output, changed, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), saved);
+    }
+    // A clip-only change must use the same budget even though all samples and keys are unchanged.
+    changed = imported.project;
+    changed.clip.stepCount = 333334;
+    EXPECT_THROW(motrack::writeTrackerProject(output, changed, imported.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(output), saved);
+
+    for (const auto* arrayClass :
+         {"[Lorg.opensourcephysics.media.core.ImageCoordSystem$FrameData;", "[Lorg.opensourcephysics.cabrillo.tracker.Vector$FrameData;"})
+    {
+        SCOPED_TRACE(arrayClass);
+        QDomDocument padded;
+        ASSERT_TRUE(padded.setContent(QByteArray::fromStdString(xml)));
+        const auto arrays = padded.elementsByTagName("property");
+        bool added = false;
+        for (int index = 0; index < arrays.size() && !added; ++index)
+        {
+            auto array = arrays.at(index).toElement();
+            if (array.attribute("class") != arrayClass)
+                continue;
+            auto placeholder = padded.createElement("property");
+            placeholder.setAttribute("name", "[333333]");
+            placeholder.setAttribute("type", "object");
+            placeholder.appendChild(padded.createTextNode("null"));
+            array.appendChild(placeholder);
+            added = true;
+        }
+        ASSERT_TRUE(added);
+        const auto paddedXml = padded.toByteArray(-1).toStdString();
+        const auto original = motrack::parseTrackerProject(paddedXml);
+        EXPECT_EQ(original.project, imported.project); // Native samples/keys do not contain the null padding.
+        const auto untouched = temporary.filePath("unchanged.trk");
+        ASSERT_NO_THROW(motrack::writeTrackerProject(untouched, original.project, original.source));
+        EXPECT_EQ(readBytes(untouched), paddedXml); // Unchanged source bytes retain their passthrough contract.
+        motrack::WorkspaceDocument document{.project = original.project, .movieFrameTimes = {}, .trackerSource = original.source};
+        document.project.vectors.front().samples.front().tailX += 1;
+        const auto native = temporary.filePath("padded.motrack");
+        motrack::writeWorkspaceDocument(native, document);
+        document = motrack::readWorkspaceDocument(native);
+        EXPECT_EQ(document.project.calibration, imported.project.calibration);
+        EXPECT_THROW(motrack::writeTrackerProject(output, document.project, retainedSource(document)), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), saved);
+        if (!document.project.calibration)
+            FAIL() << "Native reopen lost calibration.";
+        document.project.calibration->keyframes.back().angleDegrees = 1;
+        EXPECT_THROW(motrack::writeTrackerProject(output, document.project, retainedSource(document)), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), saved);
+        document.project = original.project;
+        for (auto& vector : document.project.vectors)
+            vector.samples.clear();
+        EXPECT_THROW(motrack::writeTrackerProject(output, document.project, retainedSource(document)), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), saved);
+    }
+}
+
 TEST(TrackerWriter, MediaVectorsRetainSnappingPrecisionIdentityFrameAndAtomicSaveGuards)
 {
     const std::vector<std::function<void(motrack::WorkspaceDocument&)>> mutations{

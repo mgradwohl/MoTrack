@@ -254,7 +254,8 @@ origin and independent coordinate probe are validated; retained marks use the ac
 original frame number. Unchanged keys are validated too, preventing a different edit from hiding an
 unstable transform. New/retained calibration frame indices, including null source placeholders, are
 bounded at 500000 for OSP's dense arrays. Partly fixed and varying systems bound coordinate-setter work at 1000000 dense frame slots, including
-the clip, marks and vector samples. Each varying setter counts its remaining frame range; fixed-origin/angle setters count
+the clip, marks, vector samples and retained coordinate/vector XML padding. Changed vector exports apply this budget
+even when calibration is unchanged or all samples are cleared. Each varying setter counts its remaining frame range; fixed-origin/angle setters count
 the entire dense range because OSP applies those changes globally.
 This rejects excessive work before opening a file, without running a stress test. Updates preserve unknown key fields and untouched keys.
 The existing distance/axes commands own these changes with undo/redo and native save/reopen. Removing

@@ -758,37 +758,20 @@ void requireTrackerCoordinates(const LegacyProject& project, const Calibration& 
     }
 }
 
-void patchCalibration(QDomDocument& xml, const Calibration& original, const Calibration& current, const LegacyProject& project)
+void requireBoundedCoordinateUpdates(const QDomDocument& xml, const Calibration& current, const LegacyProject& project)
 {
-    const bool fixed = original.fixedOrigin && original.fixedAngle && original.fixedScale && current.fixedOrigin && current.fixedAngle &&
-                       current.fixedScale && original.keyframes.size() == 1 && current.keyframes.size() == 1 &&
-                       original.keyframes.front().frame == 0 && current.keyframes.front().frame == 0;
-    const bool keyed = !(original.fixedOrigin && original.fixedAngle && original.fixedScale) &&
-                       original.fixedOrigin == current.fixedOrigin && original.fixedAngle == current.fixedAngle &&
-                       original.fixedScale == current.fixedScale && !original.keyframes.empty() && original.keyframes.front().frame == 0;
-    require(fixed || keyed); // Changing fixed flags needs its own reversible command and reference cases.
-    requireTrackerCoordinates(project, current);
-    // Existing commands add or edit calibration keys. Key removal needs its own reversible command/oracle.
-    for (const auto& key : original.keyframes)
-    {
-        require(std::ranges::binary_search(current.keyframes, key.frame, {}, &CalibrationKey::frame));
-    }
-    const auto property = uniqueProperty(xml.documentElement(), "coords");
-    const auto object = property.firstChildElement("object");
-    require(property.attribute("type") == "object" && object.attribute("class") == "org.opensourcephysics.media.core.ImageCoordSystem" &&
-            object.nextSiblingElement().isNull());
-    const auto locked = uniqueProperty(object, "locked");
-    require(locked.isNull() ||
-            (locked.attribute("type") == "boolean" && locked.firstChildElement().isNull() && locked.text().trimmed() == "false"));
+    require(!current.keyframes.empty());
+    const auto object = uniqueProperty(xml.documentElement(), "coords").firstChildElement("object");
     const auto data = uniqueProperty(object, "framedata");
     int lastFrame = current.keyframes.back().frame;
+    require(lastFrame >= 0 && lastFrame <= 500000);
     for (auto item = data.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"))
     {
         const auto frame = frameIndex(item.attribute("name"));
         require(frame <= 500000); // Includes null entries in OSP's dense array allocation.
         lastFrame = std::max(lastFrame, frame);
     }
-    if (keyed)
+    if (!(current.fixedOrigin && current.fixedAngle && current.fixedScale) || current.keyframes.size() > 1)
     {
         const auto count = project.clip.stepCount.value_or(1);
         require(project.clip.firstFrame >= 0 && project.clip.stepSize > 0 && count > 0);
@@ -812,17 +795,58 @@ void patchCalibration(QDomDocument& xml, const Calibration& original, const Cali
                 lastFrame = std::max(lastFrame, sample.frame);
             }
         }
+        // Retained null vector entries are absent from native samples, but still size OSP arrays.
+        const auto objects = xml.elementsByTagName("object");
+        for (int index = 0; index < objects.size(); ++index)
+        {
+            const auto vector = objects.at(index).toElement();
+            if (vector.attribute("class") != "org.opensourcephysics.cabrillo.tracker.Vector")
+                continue;
+            for (auto item = uniqueProperty(vector, "framedata").firstChildElement("property"); !item.isNull();
+                 item = item.nextSiblingElement("property"))
+            {
+                const auto frame = frameIndex(item.attribute("name"));
+                require(frame <= 500000);
+                lastFrame = std::max(lastFrame, frame);
+            }
+        }
         // OSP updates the remaining dense transform range for each loaded key. A bound on
         // the final index alone still permits quadratic work on many closely spaced keys.
         std::size_t frameUpdates = 0;
         for (const auto& key : current.keyframes)
         {
+            require(key.frame >= 0 && key.frame <= lastFrame);
             // Fixed origin/angle setters update the entire dense range for each loaded key.
             const auto firstAffected = current.fixedOrigin || current.fixedAngle ? 0 : key.frame;
             frameUpdates += static_cast<std::size_t>(lastFrame - firstAffected) + 1;
             require(frameUpdates <= 1000000);
         }
     }
+}
+
+void patchCalibration(QDomDocument& xml, const Calibration& original, const Calibration& current, const LegacyProject& project)
+{
+    const bool fixed = original.fixedOrigin && original.fixedAngle && original.fixedScale && current.fixedOrigin && current.fixedAngle &&
+                       current.fixedScale && original.keyframes.size() == 1 && current.keyframes.size() == 1 &&
+                       original.keyframes.front().frame == 0 && current.keyframes.front().frame == 0;
+    const bool keyed = !(original.fixedOrigin && original.fixedAngle && original.fixedScale) &&
+                       original.fixedOrigin == current.fixedOrigin && original.fixedAngle == current.fixedAngle &&
+                       original.fixedScale == current.fixedScale && !original.keyframes.empty() && original.keyframes.front().frame == 0;
+    require(fixed || keyed); // Changing fixed flags needs its own reversible command and reference cases.
+    requireTrackerCoordinates(project, current);
+    // Existing commands add or edit calibration keys. Key removal needs its own reversible command/oracle.
+    for (const auto& key : original.keyframes)
+    {
+        require(std::ranges::binary_search(current.keyframes, key.frame, {}, &CalibrationKey::frame));
+    }
+    const auto property = uniqueProperty(xml.documentElement(), "coords");
+    const auto object = property.firstChildElement("object");
+    require(property.attribute("type") == "object" && object.attribute("class") == "org.opensourcephysics.media.core.ImageCoordSystem" &&
+            object.nextSiblingElement().isNull());
+    const auto locked = uniqueProperty(object, "locked");
+    require(locked.isNull() ||
+            (locked.attribute("type") == "boolean" && locked.firstChildElement().isNull() && locked.text().trimmed() == "false"));
+    requireBoundedCoordinateUpdates(xml, current, project);
     patchFrameData(xml,
                    object,
                    original.keyframes,
@@ -1334,6 +1358,8 @@ std::string renderTrackerProjectImpl(const LegacyProject& project,
     require(std::ranges::find(expected.unsupportedTrackTypes, "org.opensourcephysics.cabrillo.tracker.VectorSum") ==
             expected.unsupportedTrackTypes.end());
     requireStableVectors(expected, objects);
+    if (!expected.vectors.empty() && expected.calibration)
+        requireBoundedCoordinateUpdates(xml, *expected.calibration, expected);
     requireBoundedMassFrames(xml);
     if (auditFinalSchema)
     {
