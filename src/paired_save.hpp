@@ -93,10 +93,16 @@ NativeSaveResult writeNativeDocument(const QString& path,
 
 /// Export a standalone image archive copy under the same per-stem destination lock as paired saving.
 /// Refuses pending journals and file aliases; no session checkpoints or companion files are changed.
+/// Implemented by the image-package adapter, which depends on the project library.
 void writeTrackerImagePackageCopy(const QString& path,
                                   const WorkspaceDocument& document,
                                   const QString& mediaProjectPath,
                                   const std::atomic_bool* cancelled = nullptr);
+
+/// Invoke a writer synchronously with its canonical physical destination while holding the sibling save lock.
+/// Refuses pending recovery records. The callback must finish its write before returning and must not
+/// re-enter this destination's save operations; it cannot retain the borrowed path or change session state.
+void withSaveDestinationLock(const QString& path, const std::atomic_bool* cancelled, const std::function<void(const QString&)>& write);
 
 /// Explicitly resume a locally initiated pair. Refuses altered destinations, stages, aliases and escaping paths.
 /// Recovery is never implicitly triggered by opening imported project/archive content.
