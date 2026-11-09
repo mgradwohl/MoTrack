@@ -6,15 +6,19 @@
 #include "workspace_storage.hpp"
 
 #include <QByteArray>
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QTemporaryDir>
 
 #include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <utility>
 
 namespace motrack
@@ -487,6 +491,55 @@ WorkspaceDocument readWorkspaceDocument(const QString& path, const std::atomic_b
     }
     validateArchive(result);
     return result;
+}
+
+void rebaseWorkspaceMedia(WorkspaceDocument& document, const QString& sourcePath, const QString& destinationPath)
+{
+    if (!document.archivePayload)
+    {
+        const auto directory = localProjectDirectory(destinationPath);
+        if (directory.isEmpty())
+        {
+            throw ProjectError("Could not resolve the native project destination.");
+        }
+        const QDir destination(directory);
+        const auto target = localProjectPath(destinationPath);
+        std::unique_ptr<QTemporaryDir> probeDirectory;
+        QFile nameProbe; // Close before its owning temporary directory is removed.
+        for (auto& reference : document.project.clip.mediaReferences)
+        {
+            const auto source = workspaceMediaPath(document, sourcePath, reference);
+            if (source.isEmpty())
+                throw ProjectError("Could not resolve a native project media reference.");
+            if (sameLocalFile(source, target))
+                throw ProjectError("Native saving cannot overwrite linked media.");
+            if (!QFileInfo::exists(source) && !QFileInfo::exists(target) && sameLocalFile(QFileInfo(source).absolutePath(), directory))
+            {
+                // A private child directory inherits the destination filesystem's naming policy.
+                // Keep the full original basenames: adding a UUID prefix can exceed NAME_MAX.
+                if (!nameProbe.isOpen())
+                {
+                    probeDirectory = std::make_unique<QTemporaryDir>(destination.filePath(".motrack-name-XXXXXX"));
+                    if (!probeDirectory->isValid())
+                        throw ProjectError("Could not verify the native destination against missing media filenames.");
+                    nameProbe.setFileName(probeDirectory->filePath(QFileInfo(target).fileName()));
+                    if (!nameProbe.open(QIODevice::WriteOnly | QIODevice::NewOnly))
+                        throw ProjectError("Could not verify the native destination against missing media filenames.");
+                }
+                // This private directory contains only the destination probe. Resolving the
+                // source spelling therefore identifies an alias, including Windows long paths.
+                if (QFileInfo::exists(probeDirectory->filePath(QFileInfo(source).fileName())))
+                    throw ProjectError("Native saving cannot overwrite linked media.");
+            }
+            const auto rebased = destination.relativeFilePath(source).toStdString();
+            const auto resolved = resolveLocalMediaPath(destinationPath, rebased);
+            if (resolved.isEmpty() || QDir::cleanPath(resolved) != QDir::cleanPath(source))
+            {
+                throw ProjectError("Could not preserve a native project media reference.");
+            }
+            reference = rebased;
+        }
+    }
 }
 
 void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& document)

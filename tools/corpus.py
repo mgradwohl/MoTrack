@@ -1753,6 +1753,7 @@ def check_sessions(manifest, cache, java, probe=None):
     if sys.platform != "linux":
         raise ValueError("Session checks currently require Linux with Xvfb")
     modes = [("archive-images", "native_archive_image_roundtrip"), ("linked-images", "native_linked_image_roundtrip"),
+             ("paired-archive-images", "native_paired_archive_roundtrip"), ("paired-linked-images", "native_paired_linked_roundtrip"),
              ("mass", "native_mass_roundtrip"), ("marks", "native_mark_roundtrip"),
              ("empty-marks", "native_mark_roundtrip"), ("first-mark", "native_mark_roundtrip"),
              ("vectors", "native_vector_roundtrip"), ("empty-vectors", "native_vector_roundtrip"),
@@ -1839,9 +1840,9 @@ def check_sessions(manifest, cache, java, probe=None):
                 case = {**case, "session_tracks": [track for track in case["session_tracks"]
                                                    if track["class"] == "org.opensourcephysics.cabrillo.tracker.CoordAxes"]}
             expected = None
-            if mode == "archive-images":
+            if mode in {"archive-images", "paired-archive-images"}:
                 exported = output / "motrack-export.trz"
-                run([str(Path(probe).resolve()), "--export-archive-images", str(archive_input), str(exported)])
+                run([str(Path(probe).resolve()), "--export-" + mode, str(archive_input), str(exported)])
                 project = output / "exported-member.trk"
                 verify_archive_image_export(archive_input, exported, project)
                 expected = linked_images_roundtrip_expected(case)
@@ -1863,7 +1864,7 @@ def check_sessions(manifest, cache, java, probe=None):
             elif probe:
                 exported = output / "motrack-export.trk"
                 run([str(Path(probe).resolve()), "--export-" + mode, str(project), str(exported)])
-                if mode == "linked-images":
+                if mode in {"linked-images", "paired-linked-images"}:
                     verify_linked_image_export_xml(project, exported, case)
                     expected = linked_images_roundtrip_expected(case)
                 elif mode == "mass":
@@ -1958,7 +1959,7 @@ def check_sessions(manifest, cache, java, probe=None):
                       "before": stages["save"]["loaded"], "after_save": stages["save"]["after_save"],
                       "after": stages["reopen"]["loaded"]}
             keys = {"marks": [[0, 3], [7]], "empty-marks": [[], [0]], "first-mark": [[4], [0]]}.get(mode)
-            if mode in {"linked-images", "archive-images"}:
+            if mode in {"linked-images", "archive-images", "paired-linked-images", "paired-archive-images"}:
                 keys = [[0, 1, 2]]
             if mode in {"create-mass", "create-empty-mass"}:
                 keys = [[0], [0], [] if mode == "create-empty-mass" else [1, 4, 8]]
@@ -1996,8 +1997,9 @@ def check_sessions(manifest, cache, java, probe=None):
                     saved_report["verification_level"] = "motrack_rejected_" + mode
                     print(f"{case['id']}/{mode}: passed (MoTrack rejected unsafe export; actual Tracker snapping confirmed; resave/reimport)")
                 else:
-                    standard = "TRZ" if mode == "archive-images" else "TRK"
-                    print(f"{case['id']}/{mode}: passed (MoTrack edit/native reopen/{standard} export; Tracker load/save/reopen; native reimport)")
+                    standard = "TRZ" if mode in {"archive-images", "paired-archive-images"} else "TRK"
+                    pair = "interrupted paired save/recovery; " if mode.startswith("paired-") else ""
+                    print(f"{case['id']}/{mode}: passed (MoTrack edit/native reopen/{standard} export; {pair}Tracker load/save/reopen; native reimport)")
             elif known_report is not None:
                 saved_report, suffix = known_report, "-known-issue.json"
                 print(f"{case['id']}: KNOWN TRACKER DEFECT reproduced (members and samples lost; round trip NOT accepted)")

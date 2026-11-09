@@ -1,5 +1,6 @@
 #include "legacy_project.hpp"
 #include "measurements.hpp"
+#include "paired_save.hpp"
 #include "track_edits.hpp"
 #include "tracker_archive.hpp"
 #include "tracker_references.hpp"
@@ -21,6 +22,7 @@
 #include <array>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <limits>
@@ -148,6 +150,30 @@ QJsonObject snapshot(const motrack::LegacyProject& project)
             {"coordinate_samples", coordinates}};
 }
 
+void saveAndRecoverPair(const QString& path, const motrack::WorkspaceDocument& document, const QString& mediaPath)
+{
+    std::atomic_bool cancelled{false};
+    const auto partial =
+        motrack::writePairedDocuments(path,
+                                      document,
+                                      mediaPath,
+                                      &cancelled,
+                                      [&cancelled](auto state) { cancelled = state == motrack::PairedSaveProgress::StandardSaved; });
+    if (partial.status != motrack::PairedSaveStatus::RecoveryRequired || !partial.standardCurrent || partial.nativeCurrent ||
+        partial.recoveryPath.isEmpty())
+        throw motrack::ProjectError("Paired corpus save did not retain the interrupted standard/native pair.");
+    const auto recovered = motrack::recoverPairedDocuments(partial.recoveryPath);
+    if (recovered.status != motrack::PairedSaveStatus::Saved || !recovered.standardCurrent || !recovered.nativeCurrent ||
+        QFileInfo::exists(partial.recoveryPath))
+        throw motrack::ProjectError("Paired corpus recovery did not complete both outputs.");
+    auto expected = document;
+    motrack::rebaseWorkspaceMedia(expected, mediaPath, recovered.nativePath);
+    const auto reopened = motrack::readWorkspaceDocument(recovered.nativePath);
+    if (reopened.project != expected.project || reopened.archiveMember != expected.archiveMember || !reopened.trackerSource ||
+        !expected.trackerSource || reopened.trackerSource->xml != expected.trackerSource->xml)
+        throw motrack::ProjectError("Recovered native companion changed the edited project or original source.");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -155,7 +181,24 @@ try
 {
     const QCoreApplication application(argc, argv);
     const auto args = application.arguments();
-    if (args.size() == 4 && (args[1] == "--export-archive-images" || args[1] == "--export-multitab-archive-images"))
+    if (args.size() == 4 && args[1] == "--interrupt-paired-save")
+    {
+        // Run only as a short-lived test child: simulate abrupt process loss without destructors.
+        // The input is standalone, so the recovery files are the only owned temporary artifacts.
+        const auto document = motrack::importTrackerDocument(args[2]);
+        const auto result = motrack::writePairedDocuments(args[3],
+                                                          document,
+                                                          args[2],
+                                                          nullptr,
+                                                          [](auto state)
+                                                          {
+                                                              if (state == motrack::PairedSaveProgress::StandardSaved)
+                                                                  std::_Exit(0);
+                                                          });
+        throw motrack::ProjectError("Interruption probe did not reach the first commit: " + result.diagnostic.toStdString());
+    }
+    if (args.size() == 4 && (args[1] == "--export-archive-images" || args[1] == "--export-paired-archive-images" ||
+                             args[1] == "--export-multitab-archive-images"))
     {
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trz");
@@ -182,10 +225,13 @@ try
         if (!QFile::remove(source))
             throw motrack::ProjectError("Could not remove original archive reference.");
         document = motrack::readWorkspaceDocument(native);
-        motrack::writeTrackerArchiveDocument(args[3], document);
+        if (args[1] == "--export-paired-archive-images")
+            saveAndRecoverPair(args[3], document, native);
+        else
+            motrack::writeTrackerArchiveDocument(args[3], document);
         return 0;
     }
-    if (args.size() == 4 && args[1] == "--export-linked-images")
+    if (args.size() == 4 && (args[1] == "--export-linked-images" || args[1] == "--export-paired-linked-images"))
     {
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trk");
@@ -218,7 +264,10 @@ try
         if (!QFile::remove(source))
             throw motrack::ProjectError("Could not remove linked-image source.");
         document = motrack::readWorkspaceDocument(native);
-        motrack::writeTrackerDocument(args[3], document, native);
+        if (args[1] == "--export-paired-linked-images")
+            saveAndRecoverPair(args[3], document, native);
+        else
+            motrack::writeTrackerDocument(args[3], document, native);
         return 0;
     }
     if (args.size() == 4 &&
