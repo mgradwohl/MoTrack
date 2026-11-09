@@ -652,8 +652,9 @@ Windows/macOS and actual Tracker package acceptance, with 95.72% combined C++ li
 
 The document writer accepts the explicitly audited `XuggleVideo`/`VideoClipControl` schema only through
 its movie adapter. Existing point-mass values and image-coordinate marks, clip start/step/count, existing
-fixed, fully varying or partly fixed calibration, length-unit labels and the linked media path may change. Original names, membership,
-mass/time-unit labels, numeric clip timing and other parsed fields must remain unchanged. Filters, vectors, other track types except axes, display-orientation
+fixed, fully varying or partly fixed calibration, length-unit labels and the linked media path may change.
+Audited independent point-mass names and membership can also change through the movie adapter.
+Mass/time-unit labels, numeric clip timing and other parsed fields must remain unchanged. Filters, vectors, other track types except axes, display-orientation
 transforms remain refused. The selected-member archive writer uses the same audited movie adapter
 after verifying its immutable source, media members and completed native index.
 This opt-in schema does not enable movie renames or
@@ -680,7 +681,9 @@ The [varying movie cases](../tests/corpus/README.md#varying-and-partly-fixed-mov
 nonconstant fixed-flag combinations. Each independently checks existing and newly added keys, every
 original-frame mark, complete movie bytes/times and the untouched archive tab through linked, archived,
 recovered paired and portable saves. The 28 native exports and independent XML/media/reimport checks
-pass locally; these new modes still require current-revision actual-Tracker CI and review.
+passed actual Tracker load/save/fresh reopen and native reimport in [PR #143](https://github.com/mgradwohl/MoTrack/pull/143),
+reviewed at `7e7ace4` with [CI 42602902771](https://github.com/mgradwohl/MoTrack/actions/runs/42602902771)
+and **95.83% combined coverage (8940/9329)**.
 
 Default point-mass number formats use the same movie-aware schema audit and remain in the exported
 XML after native reopen. Custom formats remain refused under the existing #64 fidelity guard.
@@ -806,8 +809,8 @@ project persistence does not link media decoders. The package contains `experime
 `media/movie.mov`; the complete source movie is copied byte for byte, including frames excluded by a
 trimmed or strided clip. No transcode, frame renumbering or timestamp change is performed.
 
-The standalone movie writer validates mass/mark/clip-range and existing calibration edits, with unchanged timing and
-track identity against the retained source envelope. Staging clears runtime media bindings only in its
+The standalone movie writer validates mass/mark/clip-range, existing calibration and audited point-mass
+identity/membership edits, with unchanged timing against the retained source envelope. Staging clears runtime media bindings only in its
 private snapshot, so generated members resolve inside the package. Before atomic replacement, the
 normal archive reader reopens the ZIP, resolves its media, and FFmpeg decodes/indexes the staged movie.
 Its complete frame count and relative timestamps must match the retained document index. Corrupt media,
@@ -830,7 +833,7 @@ paired saving of the reopened package. Three independent corpus modes require ac
 load/save/fresh reopen in [PR #141](https://github.com/mgradwohl/MoTrack/pull/141), reviewed at `d0e1a66`;
 [CI 42583275559](https://github.com/mgradwohl/MoTrack/actions/runs/42583275559) passed all six checks with
 **95.83% combined C++ line coverage (8931/9320)**. The `packaged-movie-calibration` extension passed
-in PR #142. The seven new `packaged-movie-keyed-calibration` variants still await their own current-revision acceptance. Broader movie formats and full export authoring remain unfinished.
+in PR #142. All seven `packaged-movie-keyed-calibration` variants passed in PR #143. Broader movie formats and full export authoring remain unfinished.
 
 Local Windows validation at `f18cecd` passes all ten CTest groups in **127.87 seconds** with
 **95.75% C++ line coverage (8897/9292)**, 90 Python corpus tests and all three native package
@@ -840,3 +843,18 @@ The three existing LLVM function-profile mismatch warnings remain visible.
 The subsequent review correction sends the shared image/MOV destination-refusal message through Qt
 translation and adds unfinished entries to all three catalogs. Its rebuilt package tests (12 cases),
 affected-source formatting/static analysis and catalog checks pass; package behavior is unchanged.
+
+### Movie point-mass authoring
+
+The movie writer now applies the existing source-binding, name-reference and membership audits using
+its explicit movie schema. Selected/unselected renames, empty/marked creation, selected/unselected/all
+mass deletion and same-name replacement retain stable native IDs through history and native reopen.
+Deletion clears the original selected-track reference; a new track with the same name does not inherit
+that deleted identity. Known source relationships still require unambiguous resolution, and unknown
+fields, dangling links, duplicate/reserved names and out-of-movie marks refuse output atomically.
+Movie vectors, broader dependencies, numeric timing edits and mass/time-label edits remain refused.
+
+The two-mass MOV fixture and unchanged image experiment provide 28 linked/archive/paired-recovery/
+portable-package reference modes. All pass local whole-XML/media/numeric oracles; the desktop paired-save
+regression exercises create, rename, mark, delete, undo/redo and native reopen. These new authoring
+modes still await actual Tracker application acceptance and current-revision cross-platform CI/review.

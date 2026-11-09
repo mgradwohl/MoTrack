@@ -559,9 +559,12 @@ void validateTrackerMovieEditSchema(const QDomDocument& xml)
     RenameSchema{.movie = true}.object(xml.documentElement(), QString(TRACKER) + "TrackerPanel");
 }
 
-void validateTrackerTrackMembership(const QDomDocument& xml, const LegacyProject& project, const TrackerSource& source)
+void validateTrackerTrackMembership(const QDomDocument& xml, const LegacyProject& project, const TrackerSource& source, bool movie)
 {
-    validateTrackerEditSchema(xml);
+    if (movie)
+        validateTrackerMovieEditSchema(xml);
+    else
+        validateTrackerEditSchema(xml);
     const auto index = indexTrackerReferences(source, project);
     require(index.malformedPaths.empty());
     std::set<std::string> originalNames;
@@ -797,7 +800,7 @@ void patchTrackerDeletedReferences(QDomDocument& xml, const LegacyProject& proje
     }
 }
 
-bool patchTrackerNames(QDomDocument& xml, const LegacyProject& project, LegacyProject& baseline, const TrackerSource& source)
+bool patchTrackerNames(QDomDocument& xml, const LegacyProject& project, LegacyProject& baseline, const TrackerSource& source, bool movie)
 {
     std::map<TrackId, std::string> renamed;
     std::set<TrackId> liveIds;
@@ -816,7 +819,10 @@ bool patchTrackerNames(QDomDocument& xml, const LegacyProject& project, LegacyPr
     collect(project.vectors, baseline.vectors);
     if (renamed.empty())
         return false;
-    validateTrackerEditSchema(xml);
+    if (movie)
+        validateTrackerMovieEditSchema(xml);
+    else
+        validateTrackerEditSchema(xml);
     const auto index = indexTrackerReferences(source, project);
     require(index.malformedPaths.empty());
     std::map<std::size_t, QString> replacements;

@@ -796,6 +796,82 @@ class CorpusTests(unittest.TestCase):
                 self.assertIsNotNone(raw_keys)
                 self.assertEqual(list(raw_keys), [])
 
+    def test_movie_authoring_sessions_reject_consistent_data_identity_and_media_loss(self):
+        manifest = corpus.load_manifest()
+        source = next(case for case in manifest["cases"] if case["id"] == "movie-tracks")
+        for scenario in corpus.MOVIE_TRACK_SCENARIOS:
+            expected, case = corpus.movie_tracks_roundtrip_expected(source, scenario)
+            tracks = [copy.deepcopy(case["session_tracks"][0])]
+            for mass, keys in zip(expected["point_masses"], case["session_key_frames"], strict=True):
+                tracks.append({"class": "org.opensourcephysics.cabrillo.tracker.PointMass", "name": mass["name"],
+                               "mass": mass["mass"], "key_frames": keys,
+                               "appearance": case.get("session_track_appearances", {}).get(mass["name"], {}),
+                               "samples": [{"frame": sample["frame"], "points": [sample["image"]], "world": sample["world"]}
+                                           for sample in mass["samples"]]})
+            before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                      "media": case["session_media"], "frame_duration_ms": 125.0, "axes": case["session_axes"],
+                      "calibration": case["session_calibration"], "time_samples": case["session_time_samples"],
+                      "name_references": {"selected_track": case["session_selected_track"]}, **corpus.session_units(case, expected)}
+            valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                     "view_preparation": "expand_visit_custom_tables_restore_selection",
+                     **{stage: copy.deepcopy(before) for stage in ["before", "after_save", "after"]}}
+            corpus.validate_session(case, valid, manifest, expected)
+            mutations = [lambda row: row["name_references"].update(selected_track="wrong target"),
+                         lambda row: row["media"].update(frame_count=3),
+                         lambda row: row["media"]["frames"][0].update(rgb_sha256="0" * 64),
+                         lambda row: row["tracks"].append(copy.deepcopy(row["tracks"][0])),
+                         lambda row: row["clip"].update(step_count=3)]
+            if expected["point_masses"]:
+                mutations.extend([lambda row: row["tracks"][1].update(mass=99),
+                                  lambda row: row["tracks"][1].update(name="other identity"),
+                                  lambda row: row["tracks"][1].update(key_frames=[99]),
+                                  lambda row: row["tracks"][1].update(samples=[])])
+            if case.get("session_track_appearances"):
+                mutations.append(lambda row: row["tracks"][-1].update(appearance={}))
+            for i, mutate in enumerate(mutations):
+                for stages in [["after"], ["before", "after_save", "after"]]:
+                    with self.subTest(scenario=scenario, mutation=i, stages=stages):
+                        bad = copy.deepcopy(valid)
+                        for stage in stages:
+                            mutate(bad[stage])
+                        with self.assertRaises(ValueError):
+                            corpus.validate_session(case, bad, manifest, expected)
+
+    def test_movie_authoring_archive_modes_visit_both_experiments(self):
+        manifest = corpus.load_manifest()
+        manifest["cases"] = [c for c in manifest["cases"] if c["id"] == "archived-movie-tracks"]
+        with patch.object(corpus.sys, "platform", "linux"), \
+                patch.object(corpus, "private_display", return_value=nullcontext(":77")), \
+                patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "run"), \
+                patch.object(corpus, "check_archive_tabs") as check:
+            corpus.check_sessions(manifest, self.root, "java", "native-probe")
+        self.assertEqual([call.args[-1] for call in check.call_args_list],
+                         [prefix + "-movie-tracks-" + scenario for prefix in ["archive", "paired-archive"]
+                          for scenario in corpus.MOVIE_TRACK_SCENARIOS])
+
+    def test_movie_authoring_xml_oracle_rejects_unrequested_mutations(self):
+        case = next(c for c in corpus.load_manifest()["cases"] if c["id"] == "movie-tracks")
+        original = corpus.local_fixture_path(case)
+        media = self.root / "média & movie"
+        media.mkdir()
+        asset = corpus.local_fixture_path(case["assets"][0])
+        (media / asset.name).write_bytes(asset.read_bytes())
+        output = self.root / "edited.trk"
+        for scenario in corpus.MOVIE_TRACK_SCENARIOS:
+            with corpus.minidom.parse(str(original)) as document:
+                corpus.patch_expected_linked_media(document, movie=True, authoring=scenario)
+                valid = document.toxml()
+            output.write_text(valid, encoding="utf-8")
+            corpus.verify_linked_movie_export_xml(original, output, case, authoring=scenario)
+            for before, after in [('movie mass and other mass are words', 'renamed words'),
+                                  ('<property name="mass_unit" type="string">kg', '<property name="mass_unit" type="string">g'),
+                                  ('<property name="stepcount" type="int">4', '<property name="stepcount" type="int">3')]:
+                with self.subTest(scenario=scenario, mutation=before):
+                    self.assertIn(before, valid)
+                    output.write_text(valid.replace(before, after), encoding="utf-8")
+                    with self.assertRaises(ValueError):
+                        corpus.verify_linked_movie_export_xml(original, output, case, authoring=scenario)
+
     def test_keyed_movie_sessions_reject_corrupted_keys_at_every_stage(self):
         for flags in range(7):
             for archived in [False, True]:

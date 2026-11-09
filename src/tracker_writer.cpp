@@ -1020,7 +1020,7 @@ bool patchLinkedMoviePath(QDomDocument& xml, const LegacyProject& project, Legac
     require(project.clip.mediaReferences.size() == 1 && baseline.clip.mediaReferences.size() == 1 && project.vectors.empty() &&
             std::ranges::all_of(project.unsupportedTrackTypes,
                                 [](const auto& type) { return type == "org.opensourcephysics.cabrillo.tracker.CoordAxes"; }));
-    // Movie edits retain original timing and identity. Clip ranges keep source frame numbers.
+    // Movie edits retain original timing. Clip ranges and marks keep source frame numbers.
     // Existing calibration uses the shared coordinate writer and its numerical checks below.
     auto unchanged = project;
     if (project.calibration != baseline.calibration)
@@ -1035,12 +1035,9 @@ bool patchLinkedMoviePath(QDomDocument& xml, const LegacyProject& project, Legac
     unchanged.clip.firstFrame = baseline.clip.firstFrame;
     unchanged.clip.stepSize = baseline.clip.stepSize;
     unchanged.clip.stepCount = baseline.clip.stepCount;
-    require(unchanged.pointMasses.size() == baseline.pointMasses.size());
-    for (std::size_t index = 0; index < unchanged.pointMasses.size(); ++index)
-    {
-        unchanged.pointMasses[index].mass = baseline.pointMasses[index].mass;
-        unchanged.pointMasses[index].marks = baseline.pointMasses[index].marks;
-    }
+    // The shared identity/membership writers below audit source bindings, names, relationships,
+    // new-track defaults and deletion cleanup before the final full-project equality check.
+    unchanged.pointMasses = baseline.pointMasses;
     require(unchanged == baseline);
     const auto clip = uniqueProperty(xml.documentElement(), "videoclip").firstChildElement("object");
     const auto video = uniqueProperty(clip, "video").firstChildElement("object");
@@ -1133,7 +1130,7 @@ std::string renderTrackerProjectImpl(const LegacyProject& project,
     bool massCoordinatesChecked = false;
     if (membershipChanged)
     {
-        validateTrackerTrackMembership(xml, expected, source);
+        validateTrackerTrackMembership(xml, expected, source, media == LinkedMedia::Movie);
         auditFinalSchema = true;
         require(expected.calibration || uniqueProperty(xml.documentElement(), "coords").isNull());
         if (expected.calibration)
@@ -1188,7 +1185,7 @@ std::string renderTrackerProjectImpl(const LegacyProject& project,
         sortTracks(baseline.project);
         changed = true;
     }
-    const bool renamed = patchTrackerNames(xml, expected, baseline.project, source);
+    const bool renamed = patchTrackerNames(xml, expected, baseline.project, source, media == LinkedMedia::Movie);
     changed = renamed || changed;
     auditFinalSchema = auditFinalSchema || renamed;
     // Name patching uses original source ordinals, so erase nodes only after its reference updates.

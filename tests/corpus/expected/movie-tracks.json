@@ -1,0 +1,102 @@
+{
+  "reference_version": "6.3.5",
+  "verification_level": "xml_and_coordinate_api",
+  "project": {
+    "source_version": "6.3.5",
+    "length_unit": "m",
+    "mass_unit": "kg",
+    "time_unit": "s",
+    "clip": {
+      "first_frame": 0,
+      "step_size": 1,
+      "step_count": 4,
+      "start_ms": -250.0
+    },
+    "point_masses": [
+      {
+        "name": "movie mass",
+        "samples": [
+          {
+            "frame": 0,
+            "image": [
+              4.0,
+              16.0
+            ],
+            "world": [
+              1.0,
+              1.0
+            ]
+          },
+          {
+            "frame": 2,
+            "image": [
+              12.0,
+              4.0
+            ],
+            "world": [
+              5.0,
+              4.0
+            ]
+          }
+        ],
+        "mass": 2.0
+      },
+      {
+        "name": "other mass",
+        "samples": [
+          {
+            "frame": 1,
+            "image": [
+              6.0,
+              8.0
+            ],
+            "world": [
+              2.0,
+              3.0
+            ]
+          },
+          {
+            "frame": 3,
+            "image": [
+              10.0,
+              12.0
+            ],
+            "world": [
+              4.0,
+              2.0
+            ]
+          }
+        ],
+        "mass": 3.0
+      }
+    ],
+    "vectors": [],
+    "unsupported_tracks": [
+      "org.opensourcephysics.cabrillo.tracker.CoordAxes"
+    ],
+    "coordinate_samples": [
+      {
+        "frame": 0,
+        "image": [
+          13.5,
+          17.25
+        ],
+        "world": [
+          5.75,
+          0.6875
+        ]
+      },
+      {
+        "frame": 3,
+        "image": [
+          13.5,
+          17.25
+        ],
+        "world": [
+          5.75,
+          0.6875
+        ]
+      }
+    ]
+  }
+}

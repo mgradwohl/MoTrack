@@ -50,9 +50,18 @@ saves/reopens fixed calibration in both file formats. Those four independent mov
 passed actual Tracker acceptance in [PR #142](https://github.com/mgradwohl/MoTrack/pull/142), reviewed at
 `9c864e0` with all six checks passing in [CI 42591194102](https://github.com/mgradwohl/MoTrack/actions/runs/42591194102).
 The current varying/partly fixed extension refreshes the same discussions and adds seven flag combinations,
-frame-specific desktop placement/undo/save tests and 28 application cases awaiting their own acceptance. This is scoped phase-3 persistence evidence;
+frame-specific desktop placement/undo/save tests and 28 application cases, all accepted in
+[PR #143](https://github.com/mgradwohl/MoTrack/pull/143) at `7e7ace4` with
+[CI 42602902771](https://github.com/mgradwohl/MoTrack/actions/runs/42602902771). This is scoped phase-3 persistence evidence;
 [MoTrack #78](https://github.com/mgradwohl/MoTrack/issues/78) stays open for the full phase-5 tool,
 selection/dragging, zoom/DPI and cancellation acceptance. The original reported bug is not claimed reproduced.
+
+Tracker #10 and its complete discussion were refreshed on **2026-11-09** for movie track authoring.
+The report remains open with no attached sample; the 2022 comment reports success through Open Recent.
+The new two-mass fixture covers creation, naming, deletion and same-name replacement through four
+standard save routes. Its local native/oracle checks pass; actual Tracker acceptance is pending.
+[MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65) remains open for the broader workflow.
+This preventive coverage does not establish reproduction or resolution of the 4.97/Windows 7 report.
 
 ## Defects discovered by the reference harness
 
