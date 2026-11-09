@@ -1135,6 +1135,68 @@ remote or archive references; local relative/absolute/file-URL paths have positi
 native exports, full XML/movie hashes and native reimport pass locally. All nine Windows CTest groups
 pass in 124.80 seconds, with 95.64% line coverage (8838/9241); formatting and all four changed C++
 source-file static analyses pass. Three existing LLVM function-profile mismatch warnings remain visible.
-The new modes still require current-head Linux actual Tracker load/save/fresh reopen/native reimport
-and three-platform CI before merge. This does not close MoTrack #65 or reproduce the historical MOV/
+The final reviewed head `4cf2b0f` merged in [#136](https://github.com/mgradwohl/MoTrack/pull/136) after
+all six checks passed in [run 42561178958](https://github.com/mgradwohl/MoTrack/actions/runs/42561178958),
+including both actual-Tracker clip modes and 95.72% combined C++ line coverage (8874/9271).
+This does not close MoTrack #65 or reproduce the historical MOV/
 Open Recent report; the upstream issue and complete discussion were refreshed for this slice.
+
+## Existing movie archive round trips
+
+The initial AVI archive remains pinned as `archived-avi`: **15705 bytes**, SHA-256
+`aaf84ffdd4e637c93490149d173a4c99d803531e8f239fb8ea736b40bab05b64`. The first Linux run at `bb373ea`
+[failed before any MoTrack edits](https://github.com/mgradwohl/MoTrack/actions/runs/42565821290/job/128991986521):
+Tracker 6.3.5 does not register AVI for automatic archive extraction and its Xuggle loader cannot open
+the resulting jar URL. [#140](https://github.com/mgradwohl/MoTrack/issues/140) records the pinned bytecode,
+matching source-candidate registration and native restriction. This case remains in native/headless
+import validation with an explicit session exclusion. No reference-loader patch or relaxed expectation
+converts this failure into accepted compatibility. Non-MOV movie archive output is refused without
+replacing a destination, including after native reopen.
+
+[LinkedMovieFixture.java](../../tools/reference/LinkedMovieFixture.java) accepts a second `mov` argument
+to author a genuine QuickTime raw RGB24 movie and OSP controls. Its fixed movie/track/media headers and
+sample tables follow Apple's [QuickTime format](https://developer.apple.com/documentation/quicktime-file-format/video_sample_description).
+Four 32×24 frames at 8 fps use the independent formula R=x+16f, G=y, B=32f, the original timestamps
+0/125/250/375 ms, and the same separately pinned calibration/measurement expectations as the AVI case.
+Both native FFmpeg and headless pinned Xuggle decoding check every pixel and timestamp. The original AVI
+generator remains available; `mov` selects a different container, not a renamed AVI.
+
+The `linked-mov` fixture's `constant-rate.mov` is **9799 bytes**, SHA-256
+`0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832`; its `linked-movie.trk` is **5246 bytes**,
+SHA-256 `1e6570d63d0dfd646c1ff527da32598f5cfa6e18d27f8d2d7aa9824ef6ffc5e8`.
+[ArchiveMovieFixture.java](../../tools/reference/ArchiveMovieFixture.java) packages that experiment and
+the secondary image experiment without modifying their XML. The archive has nine entries: two experiments,
+the complete MOV, four PNGs and two opaque supporting members, with entry/archive comments and a Unicode filename.
+Compile the archive generator with `javac -encoding UTF-8`; arguments are the linked-MOV directory,
+linked-images directory, fresh output path and `mov`. Omitting `mov` reproduces the retained AVI case.
+The movie/XML/archive were independently generated under headless pinned JDK 17 in UTC and
+Pacific/Kiritimati with identical bytes. The MOV archive is **15793 bytes**, SHA-256
+`521fef2518062773be4e3f7296ed9137aa31ddbf47f0b1f0d04769672fbb0259`.
+
+The positive `archived-movie` case declares both tabs independently: `experiment.trk` uses `linked-mov`,
+and `second.trk` uses `secondary-images`. Baseline loading copies the archive alone into a fresh directory,
+so neighboring fixture files cannot satisfy the media load. Tracker must save every loaded tab and reopen
+each in a fresh JVM. The movie uses explicitly pinned runtime dependencies; MoTrack gains no Java dependency.
+
+The bare `TFrame` harness initializes the normal `ResourceLoader.setOSPCache` preference under each
+subprocess's private home. Otherwise the pinned loader marks extracted MOV files for deletion on exit:
+run 42567671197 opened/saved the MOV archive but its complete-media check failed after the JVM exited.
+An independent headless resource check reproduced deletion without cache setup and exact-byte retention
+with it. The all-tab reports require and record `private_persistent_osp_cache` for save and reopen;
+every movie/image checksum and fresh-process reopen remains mandatory. No media copying or loader patch
+is used, and the unsupported AVI archive remains excluded from accepted application compatibility.
+
+Four native modes use that complete-tab path: `archive-movie`, `archive-movie-clip`,
+`archive-movie-clip-single` and `paired-archive-movie`. The native probe builds the complete movie index,
+edits mass and mark 1 with undo/redo, optionally selects frames 1/3 or frame 2, saves/reopens a native
+copy and removes the original archive before standard export. The paired mode also interrupts after
+the standard commit and recovers both outputs, checking retained movie flags and timestamps.
+
+The independent ZIP/XML oracle permits only the selected experiment's requested edits; every other
+compressed record, payload and metadata remains unchanged. Independent numerical and pixel expectations
+apply to both loaded tabs, including the untouched 3.5 kg image experiment. After Tracker saves and
+freshly reopens, the complete saved movie and every image reference must retain the pinned byte count
+and SHA-256, including excluded frames. Bounded local archive references are allowed; missing/duplicate
+members, changed bytes, path escapes and remote URLs fail. Current-head actual Tracker acceptance,
+three-platform CI and review remain required. New movie packaging, broader archive containers, variable
+timing, filters, broader schemas and the historical MOV/Open Recent report remain separate work.

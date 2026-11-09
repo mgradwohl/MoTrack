@@ -171,7 +171,9 @@ void saveAndRecoverPair(const QString& path, const motrack::WorkspaceDocument& d
     motrack::rebaseWorkspaceMedia(expected, mediaPath, recovered.nativePath);
     const auto reopened = motrack::readWorkspaceDocument(recovered.nativePath);
     if (reopened.project != expected.project || reopened.archiveMember != expected.archiveMember || !reopened.trackerSource ||
-        !expected.trackerSource || reopened.trackerSource->xml != expected.trackerSource->xml)
+        !expected.trackerSource || reopened.trackerSource->xml != expected.trackerSource->xml || reopened.movie != expected.movie ||
+        reopened.movieFrameTimes != expected.movieFrameTimes || reopened.alignMovieToClip != expected.alignMovieToClip ||
+        reopened.useDisplayOrientation != expected.useDisplayOrientation)
         throw motrack::ProjectError("Recovered native companion changed the edited project or original source.");
 }
 
@@ -199,36 +201,59 @@ try
         throw motrack::ProjectError("Interruption probe did not reach the first commit: " + result.diagnostic.toStdString());
     }
     if (args.size() == 4 && (args[1] == "--export-archive-images" || args[1] == "--export-paired-archive-images" ||
-                             args[1] == "--export-multitab-archive-images" || args[1] == "--export-archive-image-clip"))
+                             args[1] == "--export-multitab-archive-images" || args[1] == "--export-archive-image-clip" ||
+                             args[1] == "--export-archive-movie" || args[1] == "--export-archive-movie-clip" ||
+                             args[1] == "--export-archive-movie-clip-single" || args[1] == "--export-paired-archive-movie"))
     {
+        const bool movie = args[1].contains("movie");
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trz");
         const auto native = temporary.filePath("saved.motrack");
         if (!temporary.isValid() || !QFile::copy(args[2], source))
             throw motrack::ProjectError("Could not prepare archive round trip.");
         auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(source));
-        const auto expected =
-            args[1] == "--export-multitab-archive-images" ? QStringList{"experiment.trk", "second.trk"} : QStringList{"experiment.trk"};
+        const auto expected = movie || args[1] == "--export-multitab-archive-images" ? QStringList{"experiment.trk", "second.trk"}
+                                                                                     : QStringList{"experiment.trk"};
         if (payload->projects() != expected)
             throw motrack::ProjectError("Expected the pinned archive experiment.");
         auto document = motrack::importTrackerDocument(payload->projectPath("experiment.trk"));
         payload->resolveMedia(document.project, "experiment.trk");
         document.archivePayload = payload;
         document.archiveMember = "experiment.trk";
+        if (movie)
+        {
+            if (document.project.clip.mediaReferences != std::vector<std::string>{"constant-rate.mov"})
+                throw motrack::ProjectError("Expected the pinned archived movie.");
+            const std::atomic_bool cancelled{false};
+            const auto index = motrack::buildMovieIndex(
+                QDir(payload->root()).filePath("constant-rate.mov"), motrack::VideoOrientation::Encoded, cancelled);
+            if (index.frameCount != 4 || index.frameTimes != std::vector<double>{0.0, 0.125, 0.25, 0.375})
+                throw motrack::ProjectError("The archived movie index differs from the independent timing values.");
+            document.movie = true;
+            document.alignMovieToClip = true;
+            document.movieFrameTimes = index.frameTimes;
+            document.project.clip.sourceFrameCount = index.frameCount;
+        }
         motrack::TrackEdits edits;
         if (!edits.setPointMassValue(document.project, 0, 5.0) ||
             !edits.markPointMass(document.project, 0, {.frame = 1, .x = 8.0, .y = 12.0}) || !edits.undo(document.project) ||
             !edits.redo(document.project))
-            throw motrack::ProjectError("Could not edit archived image reference.");
-        if (args[1] == "--export-archive-image-clip" && !edits.setClipRange(document.project, 1, 3, 2))
-            throw motrack::ProjectError("Could not edit the archived image clip.");
+            throw motrack::ProjectError("Could not edit archived media reference.");
+        if (args[1] == "--export-archive-image-clip" || args[1] == "--export-archive-movie-clip" ||
+            args[1] == "--export-archive-movie-clip-single")
+        {
+            const bool single = args[1] == "--export-archive-movie-clip-single";
+            if (!edits.setClipRange(document.project, single ? 2 : 1, single ? 2 : 3, single ? 1 : 2) || !edits.undo(document.project) ||
+                !edits.redo(document.project))
+                throw motrack::ProjectError("Could not edit the archived media clip.");
+        }
         motrack::writeWorkspaceDocument(native, document);
         document = {};
         payload.reset();
         if (!QFile::remove(source))
             throw motrack::ProjectError("Could not remove original archive reference.");
         document = motrack::readWorkspaceDocument(native);
-        if (args[1] == "--export-paired-archive-images")
+        if (args[1] == "--export-paired-archive-images" || args[1] == "--export-paired-archive-movie")
             saveAndRecoverPair(args[3], document, native);
         else
             motrack::writeTrackerArchiveDocument(args[3], document);

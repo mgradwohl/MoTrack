@@ -3,6 +3,8 @@ import java.util.List;
 import org.opensourcephysics.cabrillo.tracker.CoordAxes;
 import org.opensourcephysics.controls.XMLControlElement;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /** Headless checks for bounded stack selection; never constructs or operates Tracker windows. */
 public final class TrackerSessionDiagnosticsTest {
@@ -10,8 +12,13 @@ public final class TrackerSessionDiagnosticsTest {
         return new StackTraceElement(name, "method", "Example.java", line);
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         if (!Boolean.getBoolean("java.awt.headless")) throw new AssertionError("Diagnostics test must run headless");
+        Path home = Path.of(System.getProperty("user.home")).toRealPath();
+        Path cache = TrackerSessionReference.initializeReferenceCache(home);
+        if (!cache.equals(home.resolve("osp-cache")) || !Files.isDirectory(cache)
+                || !TrackerSessionReference.initializeReferenceCache(home).equals(cache))
+            throw new AssertionError("Reference cache escaped its private home or changed on repeated initialization");
         for (int count = 0; count < 20; ++count) {
             List<StackTraceElement> platform = new ArrayList<>();
             for (int i = 0; i < count; ++i) platform.add(frame("java.awt.Dialog", i));
@@ -62,6 +69,7 @@ public final class TrackerSessionDiagnosticsTest {
         if (!TrackerSessionReference.axesGrid(axes).equals(TrackerReference.map("visible", true, "alpha", 73, "argb", 0x49123456)))
             throw new AssertionError("Persistent axes grid settings were lost: " + TrackerSessionReference.axesGrid(axes));
         System.out.println("Tracker axes serializer/geometry boundary passed (headless)");
+        System.out.println("Tracker persistent reference cache passed (headless, private, idempotent)");
         System.out.println("Tracker diagnostic frame selection passed (headless, bounded)");
         System.out.println("Tracker reference completion passed (duplicate/reentrant/failed callbacks, headless)");
     }

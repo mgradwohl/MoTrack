@@ -20,7 +20,7 @@ import org.opensourcephysics.media.xuggle.XuggleVideo;
 import org.opensourcephysics.media.core.VideoClipControl;
 import org.opensourcephysics.media.core.VideoClip;
 
-/** Authors an exact four-frame raw AVI and OSP controls; Linux tests load the real movie/application. */
+/** Authors exact four-frame raw AVI/MOV files and OSP controls; Linux tests load the real application. */
 public final class LinkedMovieFixture {
     private static byte[] bytes(String value) { return value.getBytes(StandardCharsets.US_ASCII); }
     private static ByteBuffer buffer(int size) { return ByteBuffer.allocate(size).order(ByteOrder.LITTLE_ENDIAN); }
@@ -67,6 +67,45 @@ public final class LinkedMovieFixture {
             list("movi", frames), chunk("idx1", index.array())));
     }
 
+    private static byte[] ints(int... values) {
+        ByteBuffer output = ByteBuffer.allocate(values.length * 4);
+        for (int value : values) output.putInt(value);
+        return output.array();
+    }
+
+    private static byte[] atom(String type, byte[]... contents) {
+        byte[] content = join(contents);
+        return join(ints(content.length + 8), bytes(type), content);
+    }
+
+    private static byte[] quickTimeMovie() {
+        // QuickTime File Format: mvhd/tkhd/mdhd and the raw RGB video sample description.
+        // https://developer.apple.com/documentation/quicktime-file-format/video_sample_description
+        // Fixed timestamps, identity transforms, one chunk, four full RGB24 samples at 8 fps.
+        int width = 32, height = 24, frameBytes = width * height * 3;
+        byte[] matrix = ints(65536, 0, 0, 0, 65536, 0, 0, 0, 0x40000000);
+        byte[] ftyp = atom("ftyp", bytes("qt  "), ints(0), bytes("qt  "));
+        ByteBuffer pixels = ByteBuffer.allocate(frameBytes * 4);
+        for (int frame = 0; frame < 4; frame++) for (int y = 0; y < height; y++) for (int x = 0; x < width; x++)
+            pixels.put((byte) (x + frame * 16)).put((byte) y).put((byte) (frame * 32));
+        byte[] mvhd = atom("mvhd", ints(0, 0, 0, 1000, 500, 65536),
+            new byte[] {1, 0}, new byte[10], matrix, ints(0, 0, 0, 0, 0, 0, 2));
+        byte[] tkhd = atom("tkhd", ints(7, 0, 0, 1, 0, 500), new byte[16], matrix, ints(width << 16, height << 16));
+        byte[] mdhd = atom("mdhd", ints(0, 0, 0, 1000, 500, 0));
+        byte[] hdlr = atom("hdlr", ints(0), bytes("mhlrvide"), new byte[13]);
+        ByteBuffer description = ByteBuffer.allocate(78);
+        description.put(new byte[6]).putShort((short) 1).putShort((short) 0).putShort((short) 0);
+        description.putInt(0).putInt(0).putInt(0).putShort((short) width).putShort((short) height);
+        description.putInt(72 << 16).putInt(72 << 16).putInt(0).putShort((short) 1);
+        description.put(new byte[32]).putShort((short) 24).putShort((short) -1);
+        byte[] stbl = atom("stbl", atom("stsd", ints(0, 1), atom("raw ", description.array())),
+            atom("stts", ints(0, 1, 4, 125)), atom("stsc", ints(0, 1, 1, 4, 1)),
+            atom("stsz", ints(0, frameBytes, 4)), atom("stco", ints(0, 1, ftyp.length + 8)));
+        byte[] minf = atom("minf", atom("vmhd", ints(1, 0, 0)),
+            atom("dinf", atom("dref", ints(0, 1), atom("url ", ints(1)))), stbl);
+        return join(ftyp, atom("mdat", pixels.array()), atom("moov", mvhd, atom("trak", tkhd, atom("mdia", mdhd, hdlr, minf))));
+    }
+
     private static XMLControlElement object(XMLControlElement parent, String name, Class<?> type) {
         XMLPropertyElement property = new XMLPropertyElement(parent, name, XMLProperty.TYPE_OBJECT, null);
         XMLControlElement control = new XMLControlElement(property);
@@ -79,12 +118,15 @@ public final class LinkedMovieFixture {
 
     public static void main(String[] args) {
         try {
-            if (args.length != 1 || !OSPRuntime.VERSION.equals("6.3.5"))
-                throw new IllegalArgumentException("Expected Tracker 6.3.5 and one fresh output directory");
+            if ((args.length != 1 && args.length != 2) || (args.length == 2 && !args[1].equals("mov"))
+                    || !OSPRuntime.VERSION.equals("6.3.5"))
+                throw new IllegalArgumentException("Expected Tracker 6.3.5, fresh output directory and optional mov format");
+            boolean mov = args.length == 2;
+            String movieName = mov ? "constant-rate.mov" : "constant-rate.avi";
             Path directory = Path.of(args[0]).toAbsolutePath();
             if (Files.exists(directory)) throw new IllegalArgumentException("Output directory already exists");
             Files.createDirectories(directory);
-            Files.write(directory.resolve("constant-rate.avi"), movie());
+            Files.write(directory.resolve(movieName), mov ? quickTimeMovie() : movie());
             Locale.setDefault(Locale.US);
             VideoClip clip = new VideoClip(null);
             clip.setStepCount(4);
@@ -103,7 +145,7 @@ public final class LinkedMovieFixture {
             // The application/decoder is exercised separately under Linux Xvfb. Author the public
             // movie path control headlessly, without constructing a GUI-backed video factory here.
             XMLControlElement video = object((XMLControlElement) root.getChildControl("videoclip"), "video", XuggleVideo.class);
-            video.setValue("path", "constant-rate.avi");
+            video.setValue("path", movieName);
             XMLControlElement control = object(root, "clipcontrol", VideoClipControl.class);
             control.setValue("rate", 1.0);
             control.setValue("delta_t", 125.0);

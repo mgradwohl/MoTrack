@@ -1422,9 +1422,15 @@ void writeTrackerDocument(const QString& path, const WorkspaceDocument& document
 void writeTrackerArchiveDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled)
 {
     require(!cancelled || !cancelled->load());
-    require(!document.movie);
     if (!document.archivePayload || !document.archiveMember || !document.trackerSource)
         throw ProjectError("Tracker archive export requires its original archive and selected project.");
+    // Tracker 6.3.5 does not extract archived AVI files for Xuggle (#140). Limit this
+    // adapter to the MOV container covered by actual archive load/save/reopen acceptance.
+    if (document.movie)
+        require(
+            document.project.clip.mediaReferences.size() == 1 &&
+            QFileInfo(QString::fromStdString(document.project.clip.mediaReferences.front())).suffix().compare("mov", Qt::CaseInsensitive) ==
+                0);
     require(document.archiveReference.empty());
     const auto& archive = *document.archivePayload;
     const auto member = QString::fromStdString(*document.archiveMember);

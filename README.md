@@ -56,7 +56,7 @@ New Tracker imports also keep their original XML inside the saved `.motrack` fil
 ### Save a Tracker project and its MoTrack companion
 
 For a supported imported experiment, choose **File → Save Tracker project…**. Save a supported linked-movie, local-image or
-media-free project as `.trk`, or an imported image archive as `.trz`. MoTrack also writes a sibling
+media-free project as `.trk`, or a supported imported image/MOV archive as `.trz`. MoTrack also writes a sibling
 `.motrack` file with the same name. Tracker opens the standard file directly. Existing archives retain
 other experiments and supporting files; the desktop edits only the selected experiment.
 
@@ -71,14 +71,16 @@ then write your current edits. Changes made by another program are preserved and
 conflict. Recovery never marks newer edits saved without writing them to both files.
 
 This workflow currently covers audited media-free and local-image experiments, plus selected-member
-updates to existing image archives. The linked-movie writer supports mass, mark and clip-range edits in
+updates to existing image/MOV archives. The movie writer supports mass, mark and clip-range edits in
 audited constant-rate imports after timestamp indexing; its edited-file Tracker save/reopen acceptance
-has passed for the pinned four-frame AVI case. Later revisions still require their own CI and review.
+has passed for the pinned linked four-frame AVI case. Archive acceptance and later revisions require
+their own CI and review. Archived AVI output is refused because pinned Tracker cannot reopen it;
+the original case and compatibility restriction are tracked in [#140](https://github.com/mgradwohl/MoTrack/issues/140).
 Movie timing/calibration/track-identity edits, movie packaging, filters and broader settings remain unfinished. An unsupported export is refused; save a MoTrack copy to retain work.
 Image experiments can retain Clip Settings changes to the starting frame, ending frame and frame
 interval in linked `.trk` files, existing image archives and portable image exports. All source images
 and marks remain available, including those outside the selected clip; image timing stays unchanged.
-Audited linked movies also retain Clip Settings range and interval edits after indexing. The complete
+Audited linked movies and archived MOV files also retain Clip Settings range and interval edits after indexing. The complete
 movie and all measurements stay available; source frame numbers and numeric timing are unchanged.
 The [format guide](docs/native-format.md) records the exact supported edits and compatibility evidence.
 
