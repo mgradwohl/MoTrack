@@ -125,6 +125,283 @@ TEST(TrackerWriter, SavesMediaVectorsThroughHistoryNativeReopenReorderingAndStan
     }
 }
 
+TEST(TrackerWriter, SavesVaryingVectorCalibrationWithHistoryNativeReopenAndIndependentComponents)
+{
+    // Columns are A0, A3 and B1; components use orthogonal rotations after nonuniform scaling.
+    const std::array<std::array<std::array<double, 2>, 3>, 7> components{{
+        {{{2, -1}, {-0.25, 0.25}, {0, -1.5}}},
+        {{{2, -1}, {-0.25, 0.25}, {0, -1.5}}},
+        {{{1, 2}, {-0.25, -0.25}, {0, -1.5}}},
+        {{{1, 2}, {-0.25, -0.25}, {0, -1.5}}},
+        {{{0.5, -0.25}, {-0.25, 0.25}, {0, -0.375}}},
+        {{{0.5, -0.25}, {-0.25, 0.25}, {0, -0.375}}},
+        {{{0.25, 0.5}, {-0.25, -0.25}, {0, -0.375}}},
+    }};
+    for (const bool movie : {false, true})
+    {
+        for (std::size_t flags = 0; flags < components.size(); ++flags)
+        {
+            SCOPED_TRACE(movie);
+            SCOPED_TRACE(flags);
+            QTemporaryDir temporary;
+            const auto kind = movie ? "movie" : "images";
+            const auto source = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/keyed-vector-" + kind + "-" +
+                                QString::number(flags) + "/linked-" + kind + ".trk";
+            const auto input = temporary.filePath("input.trk");
+            ASSERT_TRUE(QFile::copy(source, input));
+            auto document = movie ? indexedMovieDocument(input) : motrack::importTrackerDocument(input);
+            motrack::retainWorkspaceMediaLocations(document, source);
+            motrack::TrackEdits edits;
+            ASSERT_NO_THROW(editMediaVectors(document.project, edits, "keyed-calibration"));
+            const auto native = temporary.filePath("saved.motrack");
+            motrack::rebaseWorkspaceMedia(document, source, native);
+            const auto expected = document.project;
+            motrack::writeWorkspaceDocument(native, document);
+            document = {};
+            ASSERT_TRUE(QFile::remove(input));
+            document = motrack::readWorkspaceDocument(native);
+            EXPECT_EQ(document.project, expected);
+            const auto target = temporary.filePath("saved.trk");
+            ASSERT_NO_THROW(motrack::writeTrackerDocument(target, document, native));
+            const auto reopened = motrack::importTrackerDocument(target).project;
+            EXPECT_EQ(reopened.vectors, expected.vectors);
+            EXPECT_EQ(reopened.calibration, expected.calibration);
+            if (!reopened.calibration)
+                FAIL() << "Saved vectors lost their calibration.";
+            ASSERT_GE(reopened.vectors.size(), 2);
+            ASSERT_EQ(reopened.vectors[0].samples.size(), 2);
+            ASSERT_FALSE(reopened.vectors[1].samples.empty());
+            const auto& first = reopened.vectors[0].samples;
+            const std::array samples{first[0], first[1], reopened.vectors[1].samples[0]};
+            for (std::size_t index = 0; index < samples.size(); ++index)
+            {
+                const auto& sample = samples[index];
+                const auto tail =
+                    motrack::worldPosition(*reopened.calibration, {.frame = sample.frame, .x = sample.tailX, .y = sample.tailY});
+                const auto tip = motrack::worldPosition(
+                    *reopened.calibration,
+                    {.frame = sample.frame, .x = sample.tailX + sample.componentX, .y = sample.tailY + sample.componentY});
+                if (!tail || !tip)
+                    FAIL() << "Saved vector endpoints have no world positions.";
+                EXPECT_NEAR(tip->x - tail->x, components[flags][index][0], 1e-12);
+                EXPECT_NEAR(tip->y - tail->y, components[flags][index][1], 1e-12);
+            }
+            ASSERT_TRUE(edits.setClipRange(document.project, 1, 3, 2));
+            ASSERT_NO_THROW(motrack::writeTrackerDocument(target, document, native));
+            EXPECT_EQ(motrack::importTrackerDocument(target).project.vectors, expected.vectors);
+            EXPECT_EQ(document.project.vectors, expected.vectors);
+        }
+    }
+}
+
+TEST(TrackerWriter, VaryingVectorsRejectOtherFramesSnapOriginsBeforeReplacingOutput)
+{
+    for (const bool movie : {false, true})
+    {
+        QTemporaryDir temporary;
+        const auto kind = movie ? "movie" : "images";
+        const auto source = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/keyed-vector-" + kind + "-0/linked-" + kind + ".trk";
+        const auto original = movie ? indexedMovieDocument(source) : motrack::importTrackerDocument(source);
+        const auto target = temporary.filePath("existing.trk");
+        QFile file(target);
+        ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+        ASSERT_EQ(file.write("existing"), 8);
+        file.close();
+        for (const double distance : {0.0, 8.0})
+        {
+            auto document = original;
+            motrack::TrackEdits edits;
+            ASSERT_TRUE(edits.removeVectorSample(document.project, 0, 2));
+            // A0 stays far from its own frame's origin but can first draw as a trail at frame 2.
+            ASSERT_TRUE(edits.setCoordinateAxes(document.project,
+                                                {.frame = 2, .originX = 20 - distance, .originY = 4, .positiveX = 28, .positiveY = 4}));
+            ASSERT_TRUE(edits.setClipRange(document.project, 1, 3, 1));
+            EXPECT_THROW(motrack::writeTrackerDocument(target, document, source), motrack::ProjectError);
+            EXPECT_EQ(readBytes(target), "existing");
+        }
+        const std::vector<std::function<void(motrack::WorkspaceDocument&)>> invalid{
+            [](auto& doc) { doc.project.calibration->keyframes.back().frame = 4; },
+            [](auto& doc) { doc.project.calibration->keyframes.pop_back(); },
+            [](auto& doc) { doc.project.calibration->fixedAngle = true; },
+            [](auto& doc) { doc.project.calibration->keyframes.back().scaleX = 0; },
+            [](auto& doc) { doc.project.vectors[0].samples[0].tailX = 1e100; },
+        };
+        for (const auto& change : invalid)
+        {
+            auto document = original;
+            change(document);
+            EXPECT_THROW(motrack::writeTrackerDocument(target, document, source), motrack::ProjectError);
+            EXPECT_EQ(readBytes(target), "existing");
+        }
+        auto document = original;
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.removeVectorSample(document.project, 0, 2));
+        ASSERT_TRUE(
+            edits.setCoordinateAxes(document.project, {.frame = 2, .originX = 11.99, .originY = 4, .positiveX = 28, .positiveY = 4}));
+        ASSERT_NO_THROW(motrack::writeTrackerDocument(target, document, source));
+        EXPECT_EQ(motrack::importTrackerDocument(target).project.vectors, document.project.vectors);
+    }
+}
+
+TEST(TrackerWriter, FixedVectorOriginUsesLastLoadedKeyForSnapping)
+{
+    QTemporaryDir temporary;
+    const auto source = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/keyed-vector-images-1/linked-images.trk";
+    auto document = motrack::importTrackerDocument(source);
+    if (!document.project.calibration)
+        FAIL() << "Vector fixture has no calibration.";
+    const auto target = temporary.filePath("saved.trk");
+    // A raw earlier key lies on A0, but a fixed origin takes its value from the last key.
+    auto& keys = document.project.calibration->keyframes;
+    keys.front().originX = 20;
+    keys.front().originY = 4;
+    ASSERT_NO_THROW(motrack::writeTrackerDocument(target, document, source));
+    const auto before = readBytes(target);
+    keys.back().originX = 20;
+    keys.back().originY = 4;
+    EXPECT_THROW(motrack::writeTrackerDocument(target, document, source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(target), before);
+}
+
+TEST(TrackerWriter, VectorOnlyEditsBoundCoordinateWorkIncludingRetainedPadding)
+{
+    QDomDocument source;
+    ASSERT_TRUE(source.setContent(
+        QByteArray::fromStdString(readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk"))));
+    QDomElement coordinates;
+    const auto properties = source.elementsByTagName("property");
+    for (int index = 0; index < properties.size(); ++index)
+    {
+        auto property = properties.at(index).toElement();
+        if (property.attribute("name") == "fixedangle")
+            property.firstChild().setNodeValue("false");
+        if (property.attribute("class") == "[Lorg.opensourcephysics.media.core.ImageCoordSystem$FrameData;")
+            coordinates = property;
+    }
+    ASSERT_FALSE(coordinates.isNull());
+    for (const int frame : {1, 2})
+    {
+        auto key = coordinates.firstChildElement().cloneNode(true).toElement();
+        key.setAttribute("name", QString("[%1]").arg(frame));
+        coordinates.appendChild(key);
+    }
+    const auto xml = source.toByteArray(-1).toStdString();
+    const auto imported = motrack::parseTrackerProject(xml);
+    if (!imported.project.calibration)
+        FAIL() << "Missing keyed vector calibration.";
+    ASSERT_EQ(imported.project.calibration->keyframes.size(), 3);
+    ASSERT_TRUE(imported.project.calibration->fixedOrigin);
+    ASSERT_FALSE(imported.project.calibration->fixedAngle);
+    ASSERT_FALSE(imported.project.vectors.empty());
+    ASSERT_FALSE(imported.project.vectors.front().samples.empty());
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("existing.trk");
+    auto changed = imported.project;
+    // Three fixed-origin setters each visit 333333 frames: 999999 updates are allowed.
+    changed.vectors.front().samples.back().frame = 333332;
+    ASSERT_NO_THROW(motrack::writeTrackerProject(output, changed, imported.source));
+    const auto saved = readBytes(output);
+    EXPECT_EQ(motrack::parseLegacyProject(saved), changed);
+    EXPECT_EQ(changed.calibration, imported.project.calibration);
+    for (const int frame : {333333, 400000})
+    {
+        SCOPED_TRACE(frame);
+        changed.vectors.front().samples.back().frame = frame;
+        EXPECT_THROW(motrack::writeTrackerProject(output, changed, imported.source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), saved);
+    }
+    // A clip-only change must use the same budget even though all samples and keys are unchanged.
+    changed = imported.project;
+    changed.clip.stepCount = 333334;
+    EXPECT_THROW(motrack::writeTrackerProject(output, changed, imported.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(output), saved);
+
+    // Removing every vector must not remove the budget for the surviving clip/calibration.
+    const auto removedOutput = temporary.filePath("removed.trk");
+    changed.vectors.clear();
+    changed.clip.stepCount = 333333;
+    ASSERT_NO_THROW(motrack::writeTrackerProject(removedOutput, changed, imported.source));
+    const auto removed = readBytes(removedOutput);
+    EXPECT_TRUE(motrack::parseLegacyProject(removed).vectors.empty());
+    EXPECT_EQ(motrack::parseLegacyProject(removed).clip, changed.clip);
+    changed.clip.stepCount = 333334;
+    EXPECT_THROW(motrack::writeTrackerProject(removedOutput, changed, imported.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(removedOutput), removed);
+
+    // The budget must describe final arrays, excluding a real sample removed by the same edit.
+    auto longSource = source.cloneNode(true).toDocument();
+    const auto longProperties = longSource.elementsByTagName("property");
+    bool moved = false;
+    for (int index = 0; index < longProperties.size() && !moved; ++index)
+    {
+        auto property = longProperties.at(index).toElement();
+        if (property.attribute("name") != "[5]")
+            continue;
+        property.setAttribute("name", "[400000]");
+        property.parentNode().appendChild(property); // Keep the sparse XML array in increasing frame order.
+        moved = true;
+    }
+    ASSERT_TRUE(moved);
+    const auto longImported = motrack::parseTrackerProject(longSource.toByteArray(-1).toStdString());
+    auto shortened = longImported.project;
+    ASSERT_EQ(shortened.vectors.front().samples.back().frame, 400000);
+    shortened.vectors.front().samples.pop_back();
+    if (!shortened.calibration)
+        FAIL() << "Missing calibration for the combined removal edit.";
+    shortened.calibration->keyframes.back().angleDegrees = 1;
+    const auto shortenedOutput = temporary.filePath("shortened.trk");
+    EXPECT_NO_THROW(motrack::writeTrackerProject(shortenedOutput, shortened, longImported.source));
+    if (QFile::exists(shortenedOutput))
+        EXPECT_EQ(motrack::parseLegacyProject(readBytes(shortenedOutput)), shortened);
+
+    for (const auto* arrayClass :
+         {"[Lorg.opensourcephysics.media.core.ImageCoordSystem$FrameData;", "[Lorg.opensourcephysics.cabrillo.tracker.Vector$FrameData;"})
+    {
+        SCOPED_TRACE(arrayClass);
+        QDomDocument padded;
+        ASSERT_TRUE(padded.setContent(QByteArray::fromStdString(xml)));
+        const auto arrays = padded.elementsByTagName("property");
+        bool added = false;
+        for (int index = 0; index < arrays.size() && !added; ++index)
+        {
+            auto array = arrays.at(index).toElement();
+            if (array.attribute("class") != arrayClass)
+                continue;
+            auto placeholder = padded.createElement("property");
+            placeholder.setAttribute("name", "[333333]");
+            placeholder.setAttribute("type", "object");
+            placeholder.appendChild(padded.createTextNode("null"));
+            array.appendChild(placeholder);
+            added = true;
+        }
+        ASSERT_TRUE(added);
+        const auto paddedXml = padded.toByteArray(-1).toStdString();
+        const auto original = motrack::parseTrackerProject(paddedXml);
+        EXPECT_EQ(original.project, imported.project); // Native samples/keys do not contain the null padding.
+        const auto untouched = temporary.filePath("unchanged.trk");
+        ASSERT_NO_THROW(motrack::writeTrackerProject(untouched, original.project, original.source));
+        EXPECT_EQ(readBytes(untouched), paddedXml); // Unchanged source bytes retain their passthrough contract.
+        motrack::WorkspaceDocument document{.project = original.project, .movieFrameTimes = {}, .trackerSource = original.source};
+        document.project.vectors.front().samples.front().tailX += 1;
+        const auto native = temporary.filePath("padded.motrack");
+        motrack::writeWorkspaceDocument(native, document);
+        document = motrack::readWorkspaceDocument(native);
+        EXPECT_EQ(document.project.calibration, imported.project.calibration);
+        EXPECT_THROW(motrack::writeTrackerProject(output, document.project, retainedSource(document)), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), saved);
+        if (!document.project.calibration)
+            FAIL() << "Native reopen lost calibration.";
+        document.project.calibration->keyframes.back().angleDegrees = 1;
+        EXPECT_THROW(motrack::writeTrackerProject(output, document.project, retainedSource(document)), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), saved);
+        document.project = original.project;
+        for (auto& vector : document.project.vectors)
+            vector.samples.clear();
+        EXPECT_THROW(motrack::writeTrackerProject(output, document.project, retainedSource(document)), motrack::ProjectError);
+        EXPECT_EQ(readBytes(output), saved);
+    }
+}
+
 TEST(TrackerWriter, MediaVectorsRetainSnappingPrecisionIdentityFrameAndAtomicSaveGuards)
 {
     const std::vector<std::function<void(motrack::WorkspaceDocument&)>> mutations{
@@ -4453,6 +4730,10 @@ TEST(TrackerWriter, RejectsMixedCalibrationFlagChangesAndExcessiveGlobalUpdatesA
     {
         FAIL() << "Missing source calibration.";
     }
+    auto massOnly = imported.project;
+    massOnly.pointMasses.front().mass += 1;
+    EXPECT_THROW(motrack::writeTrackerProject(output, massOnly, imported.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(output), xml);
     imported.project.calibration->keyframes.back().originX += 1;
     // Relative key-to-end ranges total 900003, but fixed-origin setters touch 1200003 frames.
     EXPECT_THROW(motrack::writeTrackerProject(output, imported.project, imported.source), motrack::ProjectError);

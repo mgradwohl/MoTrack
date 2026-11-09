@@ -412,6 +412,88 @@ TEST(PairedWorkspace, SavesMovingMovieCalibrationAtOriginalFramesWithUndoRedo)
     EXPECT_EQ(motrack::importTrackerDocument(target).project.calibration, saved.project.calibration);
 }
 
+TEST(PairedWorkspace, SavesMovingVectorAxesThroughDesktopHistoryAndNativeReopen)
+{
+    for (const bool movie : {false, true})
+    {
+        SCOPED_TRACE(movie);
+        QTemporaryDir temporary;
+        const auto kind = movie ? "movie" : "images";
+        const auto directory = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/keyed-vector-" + kind + "-0/";
+        const auto input = temporary.filePath("input.trk");
+        ASSERT_TRUE(QFile::copy(directory + "linked-" + kind + ".trk", input));
+        if (movie)
+            ASSERT_TRUE(QFile::copy(directory + "constant-rate.mov", temporary.filePath("constant-rate.mov")));
+        else
+        {
+            ASSERT_TRUE(QDir().mkdir(temporary.filePath("images")));
+            for (int frame = 0; frame < 4; ++frame)
+            {
+                const auto image = QString("images/frame%1.png").arg(frame);
+                ASSERT_TRUE(QFile::copy(directory + image, temporary.filePath(image)));
+            }
+        }
+        const auto target = temporary.filePath("saved.trk");
+        const auto native = temporary.filePath("saved.motrack");
+        const auto vectors = motrack::importTrackerDocument(input).project.vectors;
+        {
+            motrack::MainWindow window;
+            ASSERT_TRUE(window.loadProject(input));
+            auto* video = dynamic_cast<motrack::VideoCanvas*>(window.findChild<QWidget*>("videoCanvas"));
+            auto* slider = window.findChild<QSlider*>("stepSlider");
+            auto* axes = window.findChild<QAction*>("setCoordinateAxes");
+            auto* undo = window.findChild<QAction*>("undoEdit");
+            auto* redo = window.findChild<QAction*>("redoEdit");
+            auto* exportArchive = window.findChild<QAction*>("exportTrackerArchive");
+            ASSERT_TRUE(video && slider && axes && undo && redo && exportArchive);
+            ASSERT_TRUE(QTest::qWaitFor([exportArchive] { return exportArchive->isEnabled(); }));
+            slider->setValue(2);
+            ASSERT_TRUE(QTest::qWaitFor([video] { return video->accessibleName() == "Frame 2"; }));
+            axes->trigger();
+            ASSERT_TRUE(video->pick({12, 16}, false));
+            ASSERT_TRUE(video->pick({20, 16}, false));
+            slider->setValue(1);
+            ASSERT_TRUE(QTest::qWaitFor([video] { return video->accessibleName() == "Frame 1"; }));
+            axes->trigger();
+            ASSERT_TRUE(video->pick({6, 14}, false));
+            ASSERT_TRUE(video->pick({6, 22}, false));
+            ASSERT_TRUE(QFile::remove(input));
+            undo->trigger();
+            ASSERT_TRUE(window.saveTrackerProject(target));
+            const auto undone = motrack::readWorkspaceDocument(native);
+            if (!undone.project.calibration)
+                FAIL() << "Undo save lost vector calibration.";
+            EXPECT_EQ(undone.project.calibration->keyframes.size(), 2);
+            ASSERT_TRUE(redo->isEnabled());
+            redo->trigger();
+            ASSERT_TRUE(window.saveTrackerProject(target));
+            EXPECT_FALSE(window.isWindowModified());
+        }
+        const auto saved = motrack::readWorkspaceDocument(native);
+        if (!saved.project.calibration)
+            FAIL() << "Moving vector calibration was not saved.";
+        ASSERT_EQ(saved.project.calibration->keyframes.size(), 3);
+        const auto& keys = saved.project.calibration->keyframes;
+        EXPECT_EQ(keys[1].frame, 1);
+        EXPECT_DOUBLE_EQ(keys[1].originX, 6);
+        EXPECT_DOUBLE_EQ(keys[1].originY, 14);
+        EXPECT_DOUBLE_EQ(keys[1].angleDegrees, -90);
+        EXPECT_EQ(keys[2].frame, 2);
+        EXPECT_DOUBLE_EQ(keys[2].originX, 12);
+        EXPECT_DOUBLE_EQ(keys[2].originY, 16);
+        EXPECT_DOUBLE_EQ(keys[2].angleDegrees, 0);
+        EXPECT_EQ(saved.project.vectors, vectors);
+        EXPECT_EQ(motrack::importTrackerDocument(target).project.calibration, saved.project.calibration);
+        motrack::MainWindow reopened;
+        ASSERT_TRUE(reopened.loadProject(native));
+        auto* exportArchive = reopened.findChild<QAction*>("exportTrackerArchive");
+        ASSERT_TRUE(exportArchive);
+        ASSERT_TRUE(QTest::qWaitFor([exportArchive] { return exportArchive->isEnabled(); }));
+        ASSERT_TRUE(reopened.saveTrackerProject(target));
+        EXPECT_EQ(motrack::importTrackerDocument(target).project.vectors, vectors);
+    }
+}
+
 TEST(PairedWorkspace, SavesArchivedMovieClipsAndBothCopiesAfterOriginalRemoval)
 {
     QTemporaryDir temporary;

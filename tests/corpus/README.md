@@ -291,8 +291,8 @@ native reparse, actual Tracker load/save/reopen and native reimport check the ed
 The loaded Tracker panel's fixed flags and every calibration key's frame, origin, angle and scale are
 also checked against independent constants before and after resave; unchanged mark positions alone
 cannot prove that all calibration parameters survived.
-Fixed-state changes, key deletion, varying vector coordinates, attachments and reference frames are
-separate follow-ups; this case must not be reported as full calibration parity.
+Fixed-state changes, key deletion, attachments and reference frames are separate follow-ups;
+varying vector coordinates have their own later corpus section. This case must not be reported as full calibration parity.
 
 ## Partly fixed calibration export
 
@@ -1416,8 +1416,10 @@ independent image/calibrated components and magnitudes, identities/selection/app
 media frames/times, actual Tracker save/fresh-process reopen and native reimport. Archive sessions
 visit and separately reopen both tabs. Negative oracle tests reject wrong values even when all three
 application snapshots agree with each other. Existing snap, precision, frame, identity, schema and
-atomic-replacement guards remain covered. All 48 local exports and native reimports pass; actual
-Tracker application acceptance and current-revision CI/review are pending.
+atomic-replacement guards remain covered. All four baselines and 48 edited modes passed actual
+Tracker application acceptance in [PR #145](https://github.com/mgradwohl/MoTrack/pull/145), reviewed at
+`23b3a10`, with all six checks and 95.83% combined C++ line coverage passing in
+[CI 42620528465](https://github.com/mgradwohl/MoTrack/actions/runs/42620528465).
 
 The first application run at `a1a9ee3` exposed [#146](https://github.com/mgradwohl/MoTrack/issues/146):
 Tracker 6.3.5's live vector datasets omit negative experiment times. The original image/MOV TRKs are
@@ -1431,3 +1433,57 @@ labels its report `compatibility_accepted: false`, and is excluded from native-e
 The ordinary validator still rejects those missing rows. No helper filters or fabricates live data,
 and no time origin is changed during a tested save. Full negative-time vector analysis parity remains
 open in #146; the 48 acceptance modes use the separately generated zero-origin fixtures.
+
+
+### Varying and partly fixed vector calibration
+
+`KeyedVectorCalibrationFixture.java` applies public `ImageCoordSystem` setters to the frozen
+positive image/MOV vector controls. Bits 1/2/4 fix origin/angle/scale; flags 0 through 6 cover all
+seven nonconstant combinations. Compile/run with the same headless JDK 17, private directories,
+256 MB heap and 45-second deadline described above. Arguments are the original vector fixture
+directory, a fresh output directory and `images` or `movie`. The existing archive generators add
+the unchanged secondary image experiment and opaque support records. All 63 generated files are
+byte-identical under UTC and Pacific/Kiritimati. No MoTrack output supplies expected values.
+These 28 cases bring the corpus to **80 pinned cases**, preserving the original 52 cases and metadata.
+
+The initial PR #147 application run at `c7c18da` caught a harness-contract mismatch: the new manifest
+listed four experiment-time observations, but `TrackerSessionReference.snapshot` deliberately returns
+the first and last clip times. The manifest now requires those two endpoints; all four source-media
+timestamps remain independently required in `session_media.frames`. No fixture, geometry, calibration,
+timing value or helper behavior changed. Regression checks pin that distinction and reject corrupted
+intermediate media timestamps. The captured first baseline retains every expected vector component
+and calibration value through load/save/reopen; complete current-revision acceptance is still pending.
+
+Source keys are frame 0: origin (2,20), angle 0, scale (2,4); frame 2: origin (10,18), angle 90,
+scale (4,8). Public fixed setters normalize the appropriate fields. Raw vectors remain exactly the
+original three tracks. Independent expected components use dx/scaleX and dy/scaleY followed by
+orthogonal rotation with the image Y direction reversed. Magnitude is the Euclidean norm. All four
+original media times and complete frame hashes are retained; time origin remains zero.
+
+One combined edit exercises each calibration through linked TRK, portable package, existing TRZ
+and interrupted/recovered paired saving for both media kinds (56 modes): set distance at frame 2
+to 1 cm for an 8-pixel horizontal segment; set frame-2 axes at (12,16), angle 0; set frame-1 axes
+at (6,14), angle -90. Existing keys and fixed flags remain; a new frame-1 key appears except when
+both origin and angle are fixed. Replace A0 with tail (0,0), components (4,4); delete A2; add A3
+with tail (32,0), components (-2,-4). Vector B and the empty vector remain untouched.
+
+| Flags | A0 components | A3 components | B1 components | B3 components |
+| --- | --- | --- | --- | --- |
+| 0, 1 | (2,-1) | (-0.25,0.25) | (0,-1.5) | (0,0) |
+| 2, 3 | (1,2) | (-0.25,-0.25) | (0,-1.5) | (0,0) |
+| 4, 5 | (0.5,-0.25) | (-0.25,0.25) | (0,-0.375) | (0,0) |
+| 6 | (0.25,0.5) | (-0.25,-0.25) | (0,-0.375) | (0,0) |
+
+Every edit is undone/redone; native saving and reopening occurs after original-project removal.
+Whole-XML oracles retain coordinate/vector null padding, descriptions, units and all other records.
+Archive checks retain both experiments and every untouched compressed record; packages remove their
+external media. Negative tests reject wrong raw/calibrated geometry, flags, keys, padding, timing,
+selection, media and consistently wrong application results. Native tests also combine strided clips
+with saved outside-clip samples, reject tails at or within eight pixels of another frame's origin,
+and require fixed origins to use the last loaded key.
+
+All 56 local native exports, independent XML/media oracles and native reimports pass. All 14
+headless reference imports match independent coordinate expectations. The 28 baseline application
+sessions and 56 edited application modes still require current-revision Linux Tracker acceptance;
+Windows/macOS/Linux CI and code review remain pending. This is independent-vector coordinate saving,
+not fixed-flag editing, key deletion, linked vectors, mixed-track snapping or moving reference frames.

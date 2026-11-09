@@ -194,10 +194,10 @@ Clip edits retain all measurements, including frames outside the clip.
 Vector exports reject nonfinite endpoints and components that Tracker's endpoint subtraction would
 change beyond the reference tolerance (absolute `1e-10` image pixels or relative `1e-12`).
 Tracker also automatically snaps newly loaded arrows on their first draw. Changed files containing
-vector samples currently require one fixed calibration key at frame 0, plain Arrow/BoldArrow footprints, no point-mass
+vector samples require a validated calibration beginning at frame 0, plain Arrow/BoldArrow footprints, no point-mass
 or unsupported vector providers, and at most 4096 samples. Vector frame indices (including retained
 null XML entries) cannot exceed 500000, and the sum of dense frame-array lengths across vectors cannot
-exceed 500001 slots; this bounds Tracker's allocation for sparse high-frame samples. Tails within 8 image pixels of the origin or
+exceed 500001 slots; this bounds Tracker's allocation for sparse high-frame samples. Tails within 8 image pixels of any effective origin or
 any other sample's tip are rejected before output replacement; the comparison includes other frames
 because trails can expose them. This conservative bound avoids silently introducing links or moving
 geometry. Full dependent-vector/display semantics must replace these restrictions before full parity.
@@ -207,8 +207,8 @@ every other changed domain field before opening its atomic replacement file, inc
 timing, moving reference frames, fixed-flag changes and referenced-track deletions. Range exports require a known `VideoClip` without
 video, frame-shift or saved-video-frame-count properties. They reject missing/invalid counts, endpoints
 beyond Tracker 6.3.5's media-free frame 500000 limit, and overflow in its temporary frame-count arithmetic.
-Media references are rejected until relocation
-and packaging are supported. Changed/new marks become manual keyframes; unchanged automatic marks
+The media-free rendering entry point rejects media references; the adapters described below handle
+audited relocation and packaging. Changed/new marks become manual keyframes; unchanged automatic marks
 retain their original key status. Deleting the last manual key while leaving automatic marks is rejected,
 because Tracker treats an empty key list as all remaining marks being manual. Unknown properties on
 retained frame objects survive; deleting a mark removes its frame object. Rewritten frame arrays omit
@@ -219,8 +219,9 @@ This path is exercised by the reference corpus.
 Vector cases also clear every sample and add the first sample after Java resaves the empty vector.
 The shared frame writer retains unknown properties on existing frames, validates finite positions/components,
 and preserves original frame numbers; vector samples do not acquire point-mass keyframe lists.
-It does not add a desktop export action or mark the native document saved. Standard export checkpoints,
-additional edit types, media relocation, `.trz` packaging and paired-save recovery remain phase-3 work.
+Rendering by itself does not mark the native document saved. The session/desktop adapters described
+below provide per-output checkpoints, paired saving, media relocation and audited `.trz` packaging;
+broader edit/dependency schemas remain phase-3 work.
 
 See the [full-port implementation order](migration-plan.md#implementation-order-and-exit-gates) and
 [round-trip acceptance requirements](migration-plan.md#tracker-round-trip-compatibility). Tests exercise
@@ -238,25 +239,28 @@ alone cannot detect cancellation near zero. Translation-free vector components m
 Tracker's squared-component magnitude calculation must remain finite. Component checks use Tracker's
 reconstructed `(tail + component) - tail` values, so scale amplification cannot hide behind the image-pixel
 tolerance. Changed vector files receive these checks even when the calibration itself is unchanged;
-keyed and partly fixed vector-coordinate systems need their own reference cases before export. Angles stay in the native editor's -180 to 180 degree range.
+keyed and partly fixed vector cases use the same per-frame checks plus the all-origin snapping audit
+described below. Angles stay in the native editor's -180 to 180 degree range.
 Unknown fields and measured image positions are retained. Creating/removing a coordinate system,
 changing fixed flags and moving reference frames require later reference cases.
 The vector snapping guard also runs after calibration changes, preventing an origin move from silently
 reattaching a previously independent vector when Tracker opens the export.
 
 The same writer supports adding/editing keys in existing, unlocked partly fixed or fully varying
-coordinate systems, starting at frame 0, in projects without vector tracks. The fixed flags must remain
+coordinate systems, starting at frame 0, including audited independent vectors. The fixed flags must remain
 unchanged. Fixed origin/angle use the last loaded key and fixed scale uses the first; validation uses
 that effective calibration at each original frame. Each key's inverse,
 origin and independent coordinate probe are validated; retained marks use the active key at their own
 original frame number. Unchanged keys are validated too, preventing a different edit from hiding an
 unstable transform. New/retained calibration frame indices, including null source placeholders, are
 bounded at 500000 for OSP's dense arrays. Partly fixed and varying systems bound coordinate-setter work at 1000000 dense frame slots, including
-the clip/marks. Each varying setter counts its remaining frame range; fixed-origin/angle setters count
+the clip, marks, vector samples and retained coordinate/vector XML padding. Every changed calibrated export applies this budget
+to the final document, even when calibration is unchanged or all vectors are deleted. Removed samples no longer count,
+but retained null XML padding still does. Each varying setter counts its remaining frame range; fixed-origin/angle setters count
 the entire dense range because OSP applies those changes globally.
 This rejects excessive work before opening a file, without running a stress test. Updates preserve unknown key fields and untouched keys.
 The existing distance/axes commands own these changes with undo/redo and native save/reopen. Removing
-keys, changing fixed flags, varying vector coordinates and moving reference frames remain unsupported;
+keys, changing fixed flags and moving reference frames remain unsupported;
 failed validation leaves an existing destination unchanged.
 
 Length- and mass-unit labels can be exported independently or with other supported edits. The current
@@ -874,19 +878,35 @@ same-name replacement use ordinary reversible commands. All samples must stay wi
 image inventory or indexed movie, even when outside the selected clip. Native close/reopen and
 reordered native lists retain IDs; standard reimport reconstructs bindings in emitted object order.
 
-The original snapping and numerical guards remain: one fixed frame-0 calibration, ordinary
-Arrow/BoldArrow footprints, finite reconstructable components, bounded dense arrays, no point-mass
-snap providers for sampled vectors, and tails more than eight image pixels from every other visible
-tip and the origin. Mixed/dependent vectors, vector sums, varying vector calibration and full display
-scaling/attachment semantics remain unfinished. This extension does not change numeric media timing.
+The snapping and numerical guards require ordinary Arrow/BoldArrow footprints, finite reconstructable
+components, bounded dense arrays and no point-mass snap providers for sampled vectors. Every tail
+must remain more than eight image pixels from every other potential vector tip and every effective
+coordinate origin. Tracker's first draw can expose a trail sample at another playhead; checking only
+the sample frame's origin is insufficient. Fixed origin uses the last loaded key. Varying-origin
+sample/key comparisons are bounded to one million; the existing 4096-sample bound also limits tip
+comparisons. Per-frame calibrated components, endpoint reconstruction and magnitude must remain safe.
+Mixed/dependent vectors, vector sums and full display scaling/attachment semantics remain unfinished.
+This extension does not change numeric media timing.
 
 Four independent Java-authored fixtures cover linked image and MOV projects and corresponding
 mixed-tab archives. Six scenarios run through linked TRK, existing TRZ, interrupted/recovered paired
 TRZ and portable TRZ for each media kind (48 modes). Full XML, untouched compressed ZIP records,
 all media bytes, independent image/calibrated components, selection, created-track appearance and
 native reimport are checked. The desktop regression creates, renames and draws a vector, deletes it,
-undoes/redoes, saves both files and opens the native companion again. These local checks pass;
-actual Tracker first-draw/load/save/fresh-JVM reopen acceptance and current-revision CI/review remain pending.
+undoes/redoes, saves both files and opens the native companion again. All 48 modes passed actual
+Tracker first-draw/load/save/fresh-JVM reopen in [PR #145](https://github.com/mgradwohl/MoTrack/pull/145),
+reviewed at `23b3a10`, with all six checks and 95.83% combined C++ line coverage passing in
+[CI 42620528465](https://github.com/mgradwohl/MoTrack/actions/runs/42620528465).
+
+The following varying-coordinate extension retains the original fixed flags and existing keys,
+supports editing/adding keys, and includes every vector sample when bounding coordinate updates.
+Fourteen Java-authored image/MOV coordinate variants cover all seven combinations of fixed and
+varying origin, angle and scale. Their linked/archive/package/recovered-pair cases combine coordinate
+edits with sample replacement, deletion and addition (56 modes). The corresponding 28 baseline sessions
+and 56 edited modes still require current-revision actual-Tracker acceptance and code review. Native
+and desktop tests cover history, source removal, native reopen, unchanged raw vectors on coordinate-only
+edits, and another frame's origin within or exactly on the snapping boundary. Fixed-flag toggles,
+key deletion and moving reference frames remain separate work.
 
 These acceptance fixtures use a zero time origin. The original negative-origin fixtures exposed
 [Tracker's missing negative-time vector analysis rows](https://github.com/mgradwohl/MoTrack/issues/146).

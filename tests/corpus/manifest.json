@@ -5221,6 +5221,5858 @@
         "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
         "slf4j-api-1.7.30.jar"
       ]
+    },
+    {
+      "id": "keyed-vector-images-0",
+      "tracker_version": "6.3.5",
+      "file": "keyed-vector-images-0.trk",
+      "local_file": "fixtures/keyed-vector-images-0/linked-images.trk",
+      "sha256": "20adab44116321b51b4455f29ec440c15dc97f78edf01d2fe6e79a7b10e2352e",
+      "bytes": 9708,
+      "expected": "expected/keyed-vector-images-0.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used.",
+      "assets": [
+        {
+          "file": "frame0.png",
+          "local_file": "fixtures/keyed-vector-images-0/images/frame0.png",
+          "sha256": "92109968bf1bb896af9283616e0615470bf1d0446a6de30f5b97fed8075dd764",
+          "bytes": 1345
+        },
+        {
+          "file": "frame1.png",
+          "local_file": "fixtures/keyed-vector-images-0/images/frame1.png",
+          "sha256": "b04d3a4a2cc7383f43ffb0e3402909ed258f8e4da49e8d0f42b6ea74a7ce52d1",
+          "bytes": 1427
+        },
+        {
+          "file": "frame2.png",
+          "local_file": "fixtures/keyed-vector-images-0/images/frame2.png",
+          "sha256": "bf33ac1122acf24cacedac9a1043fa004e85fa3de46028f01023a87e2f52868c",
+          "bytes": 1498
+        },
+        {
+          "file": "frame3.png",
+          "local_file": "fixtures/keyed-vector-images-0/images/frame3.png",
+          "sha256": "1e4d3e4489b7f53b8f60b5fd9f582df93c89d0223f69463a558d3a6d91093337",
+          "bytes": 1499
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": false,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.core.ImageVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "native_media_vector_roundtrip": true,
+      "media_vector_kind": "images",
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                1.5,
+                -1.0
+              ],
+              "magnitude": 1.8027756377319946
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -1.5,
+                -0.0
+              ],
+              "magnitude": 1.5
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 0
+    },
+    {
+      "id": "archived-keyed-vector-images-0",
+      "tracker_version": "6.3.5",
+      "file": "archived-keyed-vector-images-0.trz",
+      "local_file": "fixtures/keyed-vector-images-0/archived-vectors.trz",
+      "sha256": "2330f092f99fcc79b1dac901a0307ee6133039ff8aa03a567490bc23345fcb3b",
+      "bytes": 9122,
+      "expected": "expected/keyed-vector-images-0.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used. Existing Java ZIP generator retains the unchanged secondary image experiment and opaque records.",
+      "assets": [
+        {
+          "file": "frame0.png",
+          "local_file": "fixtures/keyed-vector-images-0/images/frame0.png",
+          "sha256": "92109968bf1bb896af9283616e0615470bf1d0446a6de30f5b97fed8075dd764",
+          "bytes": 1345
+        },
+        {
+          "file": "frame1.png",
+          "local_file": "fixtures/keyed-vector-images-0/images/frame1.png",
+          "sha256": "b04d3a4a2cc7383f43ffb0e3402909ed258f8e4da49e8d0f42b6ea74a7ce52d1",
+          "bytes": 1427
+        },
+        {
+          "file": "frame2.png",
+          "local_file": "fixtures/keyed-vector-images-0/images/frame2.png",
+          "sha256": "bf33ac1122acf24cacedac9a1043fa004e85fa3de46028f01023a87e2f52868c",
+          "bytes": 1498
+        },
+        {
+          "file": "frame3.png",
+          "local_file": "fixtures/keyed-vector-images-0/images/frame3.png",
+          "sha256": "1e4d3e4489b7f53b8f60b5fd9f582df93c89d0223f69463a558d3a6d91093337",
+          "bytes": 1499
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": false,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.core.ImageVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "media_vector_kind": "images",
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                1.5,
+                -1.0
+              ],
+              "magnitude": 1.8027756377319946
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -1.5,
+                -0.0
+              ],
+              "magnitude": 1.5
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 0,
+      "session_archive": true,
+      "project_member": "experiment.trk",
+      "native_media_vector_archive_roundtrip": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "keyed-vector-images-0"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ]
+    },
+    {
+      "id": "keyed-vector-images-1",
+      "tracker_version": "6.3.5",
+      "file": "keyed-vector-images-1.trk",
+      "local_file": "fixtures/keyed-vector-images-1/linked-images.trk",
+      "sha256": "baf200c1a007c00cd09d76be251b01d7229bc1767fa39c86f80260331149d2b8",
+      "bytes": 9708,
+      "expected": "expected/keyed-vector-images-1.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used.",
+      "assets": [
+        {
+          "file": "frame0.png",
+          "local_file": "fixtures/keyed-vector-images-1/images/frame0.png",
+          "sha256": "92109968bf1bb896af9283616e0615470bf1d0446a6de30f5b97fed8075dd764",
+          "bytes": 1345
+        },
+        {
+          "file": "frame1.png",
+          "local_file": "fixtures/keyed-vector-images-1/images/frame1.png",
+          "sha256": "b04d3a4a2cc7383f43ffb0e3402909ed258f8e4da49e8d0f42b6ea74a7ce52d1",
+          "bytes": 1427
+        },
+        {
+          "file": "frame2.png",
+          "local_file": "fixtures/keyed-vector-images-1/images/frame2.png",
+          "sha256": "bf33ac1122acf24cacedac9a1043fa004e85fa3de46028f01023a87e2f52868c",
+          "bytes": 1498
+        },
+        {
+          "file": "frame3.png",
+          "local_file": "fixtures/keyed-vector-images-1/images/frame3.png",
+          "sha256": "1e4d3e4489b7f53b8f60b5fd9f582df93c89d0223f69463a558d3a6d91093337",
+          "bytes": 1499
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": false,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.core.ImageVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "native_media_vector_roundtrip": true,
+      "media_vector_kind": "images",
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                1.5,
+                -1.0
+              ],
+              "magnitude": 1.8027756377319946
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -1.5,
+                -0.0
+              ],
+              "magnitude": 1.5
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 1
+    },
+    {
+      "id": "archived-keyed-vector-images-1",
+      "tracker_version": "6.3.5",
+      "file": "archived-keyed-vector-images-1.trz",
+      "local_file": "fixtures/keyed-vector-images-1/archived-vectors.trz",
+      "sha256": "387e5d0b7001f1de2774793b9cc947dff9920000481ff445f282ad5e539b5600",
+      "bytes": 9117,
+      "expected": "expected/keyed-vector-images-1.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used. Existing Java ZIP generator retains the unchanged secondary image experiment and opaque records.",
+      "assets": [
+        {
+          "file": "frame0.png",
+          "local_file": "fixtures/keyed-vector-images-1/images/frame0.png",
+          "sha256": "92109968bf1bb896af9283616e0615470bf1d0446a6de30f5b97fed8075dd764",
+          "bytes": 1345
+        },
+        {
+          "file": "frame1.png",
+          "local_file": "fixtures/keyed-vector-images-1/images/frame1.png",
+          "sha256": "b04d3a4a2cc7383f43ffb0e3402909ed258f8e4da49e8d0f42b6ea74a7ce52d1",
+          "bytes": 1427
+        },
+        {
+          "file": "frame2.png",
+          "local_file": "fixtures/keyed-vector-images-1/images/frame2.png",
+          "sha256": "bf33ac1122acf24cacedac9a1043fa004e85fa3de46028f01023a87e2f52868c",
+          "bytes": 1498
+        },
+        {
+          "file": "frame3.png",
+          "local_file": "fixtures/keyed-vector-images-1/images/frame3.png",
+          "sha256": "1e4d3e4489b7f53b8f60b5fd9f582df93c89d0223f69463a558d3a6d91093337",
+          "bytes": 1499
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": false,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.core.ImageVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "media_vector_kind": "images",
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                1.5,
+                -1.0
+              ],
+              "magnitude": 1.8027756377319946
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -1.5,
+                -0.0
+              ],
+              "magnitude": 1.5
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 1,
+      "session_archive": true,
+      "project_member": "experiment.trk",
+      "native_media_vector_archive_roundtrip": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "keyed-vector-images-1"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ]
+    },
+    {
+      "id": "keyed-vector-images-2",
+      "tracker_version": "6.3.5",
+      "file": "keyed-vector-images-2.trk",
+      "local_file": "fixtures/keyed-vector-images-2/linked-images.trk",
+      "sha256": "1703bc434f77e2cda57b5ba03606575e22f0109391575e68b1e5273d59e123f2",
+      "bytes": 9708,
+      "expected": "expected/keyed-vector-images-2.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used.",
+      "assets": [
+        {
+          "file": "frame0.png",
+          "local_file": "fixtures/keyed-vector-images-2/images/frame0.png",
+          "sha256": "92109968bf1bb896af9283616e0615470bf1d0446a6de30f5b97fed8075dd764",
+          "bytes": 1345
+        },
+        {
+          "file": "frame1.png",
+          "local_file": "fixtures/keyed-vector-images-2/images/frame1.png",
+          "sha256": "b04d3a4a2cc7383f43ffb0e3402909ed258f8e4da49e8d0f42b6ea74a7ce52d1",
+          "bytes": 1427
+        },
+        {
+          "file": "frame2.png",
+          "local_file": "fixtures/keyed-vector-images-2/images/frame2.png",
+          "sha256": "bf33ac1122acf24cacedac9a1043fa004e85fa3de46028f01023a87e2f52868c",
+          "bytes": 1498
+        },
+        {
+          "file": "frame3.png",
+          "local_file": "fixtures/keyed-vector-images-2/images/frame3.png",
+          "sha256": "1e4d3e4489b7f53b8f60b5fd9f582df93c89d0223f69463a558d3a6d91093337",
+          "bytes": 1499
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": true,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.core.ImageVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "native_media_vector_roundtrip": true,
+      "media_vector_kind": "images",
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                -1.0,
+                -1.5
+              ],
+              "magnitude": 1.8027756377319946
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -0.0,
+                1.5
+              ],
+              "magnitude": 1.5
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 2
+    },
+    {
+      "id": "archived-keyed-vector-images-2",
+      "tracker_version": "6.3.5",
+      "file": "archived-keyed-vector-images-2.trz",
+      "local_file": "fixtures/keyed-vector-images-2/archived-vectors.trz",
+      "sha256": "727dc03e94fb591a15b2b5feaf799876642f2420665f024b77ad0e4bb59c272d",
+      "bytes": 9123,
+      "expected": "expected/keyed-vector-images-2.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used. Existing Java ZIP generator retains the unchanged secondary image experiment and opaque records.",
+      "assets": [
+        {
+          "file": "frame0.png",
+          "local_file": "fixtures/keyed-vector-images-2/images/frame0.png",
+          "sha256": "92109968bf1bb896af9283616e0615470bf1d0446a6de30f5b97fed8075dd764",
+          "bytes": 1345
+        },
+        {
+          "file": "frame1.png",
+          "local_file": "fixtures/keyed-vector-images-2/images/frame1.png",
+          "sha256": "b04d3a4a2cc7383f43ffb0e3402909ed258f8e4da49e8d0f42b6ea74a7ce52d1",
+          "bytes": 1427
+        },
+        {
+          "file": "frame2.png",
+          "local_file": "fixtures/keyed-vector-images-2/images/frame2.png",
+          "sha256": "bf33ac1122acf24cacedac9a1043fa004e85fa3de46028f01023a87e2f52868c",
+          "bytes": 1498
+        },
+        {
+          "file": "frame3.png",
+          "local_file": "fixtures/keyed-vector-images-2/images/frame3.png",
+          "sha256": "1e4d3e4489b7f53b8f60b5fd9f582df93c89d0223f69463a558d3a6d91093337",
+          "bytes": 1499
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": true,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.core.ImageVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "media_vector_kind": "images",
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                -1.0,
+                -1.5
+              ],
+              "magnitude": 1.8027756377319946
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -0.0,
+                1.5
+              ],
+              "magnitude": 1.5
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 2,
+      "session_archive": true,
+      "project_member": "experiment.trk",
+      "native_media_vector_archive_roundtrip": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "keyed-vector-images-2"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ]
+    },
+    {
+      "id": "keyed-vector-images-3",
+      "tracker_version": "6.3.5",
+      "file": "keyed-vector-images-3.trk",
+      "local_file": "fixtures/keyed-vector-images-3/linked-images.trk",
+      "sha256": "f5616ab0b89fe30f2c35c7468f7f1fe6dc088aacaf87bfea893a5246cbd95994",
+      "bytes": 9708,
+      "expected": "expected/keyed-vector-images-3.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used.",
+      "assets": [
+        {
+          "file": "frame0.png",
+          "local_file": "fixtures/keyed-vector-images-3/images/frame0.png",
+          "sha256": "92109968bf1bb896af9283616e0615470bf1d0446a6de30f5b97fed8075dd764",
+          "bytes": 1345
+        },
+        {
+          "file": "frame1.png",
+          "local_file": "fixtures/keyed-vector-images-3/images/frame1.png",
+          "sha256": "b04d3a4a2cc7383f43ffb0e3402909ed258f8e4da49e8d0f42b6ea74a7ce52d1",
+          "bytes": 1427
+        },
+        {
+          "file": "frame2.png",
+          "local_file": "fixtures/keyed-vector-images-3/images/frame2.png",
+          "sha256": "bf33ac1122acf24cacedac9a1043fa004e85fa3de46028f01023a87e2f52868c",
+          "bytes": 1498
+        },
+        {
+          "file": "frame3.png",
+          "local_file": "fixtures/keyed-vector-images-3/images/frame3.png",
+          "sha256": "1e4d3e4489b7f53b8f60b5fd9f582df93c89d0223f69463a558d3a6d91093337",
+          "bytes": 1499
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": true,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.core.ImageVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "native_media_vector_roundtrip": true,
+      "media_vector_kind": "images",
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                -1.0,
+                -1.5
+              ],
+              "magnitude": 1.8027756377319946
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -0.0,
+                1.5
+              ],
+              "magnitude": 1.5
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 3
+    },
+    {
+      "id": "archived-keyed-vector-images-3",
+      "tracker_version": "6.3.5",
+      "file": "archived-keyed-vector-images-3.trz",
+      "local_file": "fixtures/keyed-vector-images-3/archived-vectors.trz",
+      "sha256": "03f834227bc292be36ba0d4986368cf1e6aa311fb7db196e5818ba4bed3596e2",
+      "bytes": 9112,
+      "expected": "expected/keyed-vector-images-3.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used. Existing Java ZIP generator retains the unchanged secondary image experiment and opaque records.",
+      "assets": [
+        {
+          "file": "frame0.png",
+          "local_file": "fixtures/keyed-vector-images-3/images/frame0.png",
+          "sha256": "92109968bf1bb896af9283616e0615470bf1d0446a6de30f5b97fed8075dd764",
+          "bytes": 1345
+        },
+        {
+          "file": "frame1.png",
+          "local_file": "fixtures/keyed-vector-images-3/images/frame1.png",
+          "sha256": "b04d3a4a2cc7383f43ffb0e3402909ed258f8e4da49e8d0f42b6ea74a7ce52d1",
+          "bytes": 1427
+        },
+        {
+          "file": "frame2.png",
+          "local_file": "fixtures/keyed-vector-images-3/images/frame2.png",
+          "sha256": "bf33ac1122acf24cacedac9a1043fa004e85fa3de46028f01023a87e2f52868c",
+          "bytes": 1498
+        },
+        {
+          "file": "frame3.png",
+          "local_file": "fixtures/keyed-vector-images-3/images/frame3.png",
+          "sha256": "1e4d3e4489b7f53b8f60b5fd9f582df93c89d0223f69463a558d3a6d91093337",
+          "bytes": 1499
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": true,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.core.ImageVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "media_vector_kind": "images",
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                -1.0,
+                -1.5
+              ],
+              "magnitude": 1.8027756377319946
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -0.0,
+                1.5
+              ],
+              "magnitude": 1.5
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 3,
+      "session_archive": true,
+      "project_member": "experiment.trk",
+      "native_media_vector_archive_roundtrip": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "keyed-vector-images-3"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ]
+    },
+    {
+      "id": "keyed-vector-images-4",
+      "tracker_version": "6.3.5",
+      "file": "keyed-vector-images-4.trk",
+      "local_file": "fixtures/keyed-vector-images-4/linked-images.trk",
+      "sha256": "c09a5889e6735eadd5de722c3774509fabca63fcca78470ac424a1690db6db9b",
+      "bytes": 9707,
+      "expected": "expected/keyed-vector-images-4.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used.",
+      "assets": [
+        {
+          "file": "frame0.png",
+          "local_file": "fixtures/keyed-vector-images-4/images/frame0.png",
+          "sha256": "92109968bf1bb896af9283616e0615470bf1d0446a6de30f5b97fed8075dd764",
+          "bytes": 1345
+        },
+        {
+          "file": "frame1.png",
+          "local_file": "fixtures/keyed-vector-images-4/images/frame1.png",
+          "sha256": "b04d3a4a2cc7383f43ffb0e3402909ed258f8e4da49e8d0f42b6ea74a7ce52d1",
+          "bytes": 1427
+        },
+        {
+          "file": "frame2.png",
+          "local_file": "fixtures/keyed-vector-images-4/images/frame2.png",
+          "sha256": "bf33ac1122acf24cacedac9a1043fa004e85fa3de46028f01023a87e2f52868c",
+          "bytes": 1498
+        },
+        {
+          "file": "frame3.png",
+          "local_file": "fixtures/keyed-vector-images-4/images/frame3.png",
+          "sha256": "1e4d3e4489b7f53b8f60b5fd9f582df93c89d0223f69463a558d3a6d91093337",
+          "bytes": 1499
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": false,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.core.ImageVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "native_media_vector_roundtrip": true,
+      "media_vector_kind": "images",
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                0.75,
+                -0.5
+              ],
+              "magnitude": 0.9013878188659973
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -0.75,
+                -0.0
+              ],
+              "magnitude": 0.75
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 4
+    },
+    {
+      "id": "archived-keyed-vector-images-4",
+      "tracker_version": "6.3.5",
+      "file": "archived-keyed-vector-images-4.trz",
+      "local_file": "fixtures/keyed-vector-images-4/archived-vectors.trz",
+      "sha256": "223b139e20b2e0cddbc92bee1445c049e8b4c486b311ed884d6943bbfe20dae5",
+      "bytes": 9118,
+      "expected": "expected/keyed-vector-images-4.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used. Existing Java ZIP generator retains the unchanged secondary image experiment and opaque records.",
+      "assets": [
+        {
+          "file": "frame0.png",
+          "local_file": "fixtures/keyed-vector-images-4/images/frame0.png",
+          "sha256": "92109968bf1bb896af9283616e0615470bf1d0446a6de30f5b97fed8075dd764",
+          "bytes": 1345
+        },
+        {
+          "file": "frame1.png",
+          "local_file": "fixtures/keyed-vector-images-4/images/frame1.png",
+          "sha256": "b04d3a4a2cc7383f43ffb0e3402909ed258f8e4da49e8d0f42b6ea74a7ce52d1",
+          "bytes": 1427
+        },
+        {
+          "file": "frame2.png",
+          "local_file": "fixtures/keyed-vector-images-4/images/frame2.png",
+          "sha256": "bf33ac1122acf24cacedac9a1043fa004e85fa3de46028f01023a87e2f52868c",
+          "bytes": 1498
+        },
+        {
+          "file": "frame3.png",
+          "local_file": "fixtures/keyed-vector-images-4/images/frame3.png",
+          "sha256": "1e4d3e4489b7f53b8f60b5fd9f582df93c89d0223f69463a558d3a6d91093337",
+          "bytes": 1499
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": false,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.core.ImageVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "media_vector_kind": "images",
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                0.75,
+                -0.5
+              ],
+              "magnitude": 0.9013878188659973
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -0.75,
+                -0.0
+              ],
+              "magnitude": 0.75
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 4,
+      "session_archive": true,
+      "project_member": "experiment.trk",
+      "native_media_vector_archive_roundtrip": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "keyed-vector-images-4"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ]
+    },
+    {
+      "id": "keyed-vector-images-5",
+      "tracker_version": "6.3.5",
+      "file": "keyed-vector-images-5.trk",
+      "local_file": "fixtures/keyed-vector-images-5/linked-images.trk",
+      "sha256": "f66ea4737f73c83059bfcd7a9f8c9348fcc9c158c9ab9a223b35f87af69288d2",
+      "bytes": 9707,
+      "expected": "expected/keyed-vector-images-5.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used.",
+      "assets": [
+        {
+          "file": "frame0.png",
+          "local_file": "fixtures/keyed-vector-images-5/images/frame0.png",
+          "sha256": "92109968bf1bb896af9283616e0615470bf1d0446a6de30f5b97fed8075dd764",
+          "bytes": 1345
+        },
+        {
+          "file": "frame1.png",
+          "local_file": "fixtures/keyed-vector-images-5/images/frame1.png",
+          "sha256": "b04d3a4a2cc7383f43ffb0e3402909ed258f8e4da49e8d0f42b6ea74a7ce52d1",
+          "bytes": 1427
+        },
+        {
+          "file": "frame2.png",
+          "local_file": "fixtures/keyed-vector-images-5/images/frame2.png",
+          "sha256": "bf33ac1122acf24cacedac9a1043fa004e85fa3de46028f01023a87e2f52868c",
+          "bytes": 1498
+        },
+        {
+          "file": "frame3.png",
+          "local_file": "fixtures/keyed-vector-images-5/images/frame3.png",
+          "sha256": "1e4d3e4489b7f53b8f60b5fd9f582df93c89d0223f69463a558d3a6d91093337",
+          "bytes": 1499
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": false,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.core.ImageVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "native_media_vector_roundtrip": true,
+      "media_vector_kind": "images",
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                0.75,
+                -0.5
+              ],
+              "magnitude": 0.9013878188659973
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -0.75,
+                -0.0
+              ],
+              "magnitude": 0.75
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 5
+    },
+    {
+      "id": "archived-keyed-vector-images-5",
+      "tracker_version": "6.3.5",
+      "file": "archived-keyed-vector-images-5.trz",
+      "local_file": "fixtures/keyed-vector-images-5/archived-vectors.trz",
+      "sha256": "6fa1454a2b72dc5cd4b0855b31ae6fda1612dc68fa0c4280c1e558b6b83d37e0",
+      "bytes": 9105,
+      "expected": "expected/keyed-vector-images-5.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used. Existing Java ZIP generator retains the unchanged secondary image experiment and opaque records.",
+      "assets": [
+        {
+          "file": "frame0.png",
+          "local_file": "fixtures/keyed-vector-images-5/images/frame0.png",
+          "sha256": "92109968bf1bb896af9283616e0615470bf1d0446a6de30f5b97fed8075dd764",
+          "bytes": 1345
+        },
+        {
+          "file": "frame1.png",
+          "local_file": "fixtures/keyed-vector-images-5/images/frame1.png",
+          "sha256": "b04d3a4a2cc7383f43ffb0e3402909ed258f8e4da49e8d0f42b6ea74a7ce52d1",
+          "bytes": 1427
+        },
+        {
+          "file": "frame2.png",
+          "local_file": "fixtures/keyed-vector-images-5/images/frame2.png",
+          "sha256": "bf33ac1122acf24cacedac9a1043fa004e85fa3de46028f01023a87e2f52868c",
+          "bytes": 1498
+        },
+        {
+          "file": "frame3.png",
+          "local_file": "fixtures/keyed-vector-images-5/images/frame3.png",
+          "sha256": "1e4d3e4489b7f53b8f60b5fd9f582df93c89d0223f69463a558d3a6d91093337",
+          "bytes": 1499
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": false,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.core.ImageVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "media_vector_kind": "images",
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                0.75,
+                -0.5
+              ],
+              "magnitude": 0.9013878188659973
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -0.75,
+                -0.0
+              ],
+              "magnitude": 0.75
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 5,
+      "session_archive": true,
+      "project_member": "experiment.trk",
+      "native_media_vector_archive_roundtrip": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "keyed-vector-images-5"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ]
+    },
+    {
+      "id": "keyed-vector-images-6",
+      "tracker_version": "6.3.5",
+      "file": "keyed-vector-images-6.trk",
+      "local_file": "fixtures/keyed-vector-images-6/linked-images.trk",
+      "sha256": "dc7b8a36cefa17f8b7b932d9cdc77c6c378e000d4acea0362467c05449567ff3",
+      "bytes": 9707,
+      "expected": "expected/keyed-vector-images-6.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used.",
+      "assets": [
+        {
+          "file": "frame0.png",
+          "local_file": "fixtures/keyed-vector-images-6/images/frame0.png",
+          "sha256": "92109968bf1bb896af9283616e0615470bf1d0446a6de30f5b97fed8075dd764",
+          "bytes": 1345
+        },
+        {
+          "file": "frame1.png",
+          "local_file": "fixtures/keyed-vector-images-6/images/frame1.png",
+          "sha256": "b04d3a4a2cc7383f43ffb0e3402909ed258f8e4da49e8d0f42b6ea74a7ce52d1",
+          "bytes": 1427
+        },
+        {
+          "file": "frame2.png",
+          "local_file": "fixtures/keyed-vector-images-6/images/frame2.png",
+          "sha256": "bf33ac1122acf24cacedac9a1043fa004e85fa3de46028f01023a87e2f52868c",
+          "bytes": 1498
+        },
+        {
+          "file": "frame3.png",
+          "local_file": "fixtures/keyed-vector-images-6/images/frame3.png",
+          "sha256": "1e4d3e4489b7f53b8f60b5fd9f582df93c89d0223f69463a558d3a6d91093337",
+          "bytes": 1499
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": true,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.core.ImageVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "native_media_vector_roundtrip": true,
+      "media_vector_kind": "images",
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                -0.5,
+                -0.75
+              ],
+              "magnitude": 0.9013878188659973
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -0.0,
+                0.75
+              ],
+              "magnitude": 0.75
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 6
+    },
+    {
+      "id": "archived-keyed-vector-images-6",
+      "tracker_version": "6.3.5",
+      "file": "archived-keyed-vector-images-6.trz",
+      "local_file": "fixtures/keyed-vector-images-6/archived-vectors.trz",
+      "sha256": "06c091437974c88921e97febef60725376d9e7f61d48cca15f33b1cc5d68ea3c",
+      "bytes": 9115,
+      "expected": "expected/keyed-vector-images-6.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used. Existing Java ZIP generator retains the unchanged secondary image experiment and opaque records.",
+      "assets": [
+        {
+          "file": "frame0.png",
+          "local_file": "fixtures/keyed-vector-images-6/images/frame0.png",
+          "sha256": "92109968bf1bb896af9283616e0615470bf1d0446a6de30f5b97fed8075dd764",
+          "bytes": 1345
+        },
+        {
+          "file": "frame1.png",
+          "local_file": "fixtures/keyed-vector-images-6/images/frame1.png",
+          "sha256": "b04d3a4a2cc7383f43ffb0e3402909ed258f8e4da49e8d0f42b6ea74a7ce52d1",
+          "bytes": 1427
+        },
+        {
+          "file": "frame2.png",
+          "local_file": "fixtures/keyed-vector-images-6/images/frame2.png",
+          "sha256": "bf33ac1122acf24cacedac9a1043fa004e85fa3de46028f01023a87e2f52868c",
+          "bytes": 1498
+        },
+        {
+          "file": "frame3.png",
+          "local_file": "fixtures/keyed-vector-images-6/images/frame3.png",
+          "sha256": "1e4d3e4489b7f53b8f60b5fd9f582df93c89d0223f69463a558d3a6d91093337",
+          "bytes": 1499
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": true,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.core.ImageVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "media_vector_kind": "images",
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                -0.5,
+                -0.75
+              ],
+              "magnitude": 0.9013878188659973
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -0.0,
+                0.75
+              ],
+              "magnitude": 0.75
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 6,
+      "session_archive": true,
+      "project_member": "experiment.trk",
+      "native_media_vector_archive_roundtrip": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "keyed-vector-images-6"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ]
+    },
+    {
+      "id": "keyed-vector-movie-0",
+      "tracker_version": "6.3.5",
+      "file": "keyed-vector-movie-0.trk",
+      "local_file": "fixtures/keyed-vector-movie-0/linked-movie.trk",
+      "sha256": "df260cd4fbbad18e60e5aa1055f1f57182cf8a5bb14e31256eea500d8d54f3ae",
+      "bytes": 9220,
+      "expected": "expected/keyed-vector-movie-0.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-vector-movie-0/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": false,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "native_media_vector_roundtrip": true,
+      "media_vector_kind": "movie",
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                1.5,
+                -1.0
+              ],
+              "magnitude": 1.8027756377319946
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -1.5,
+                -0.0
+              ],
+              "magnitude": 1.5
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 0
+    },
+    {
+      "id": "archived-keyed-vector-movie-0",
+      "tracker_version": "6.3.5",
+      "file": "archived-keyed-vector-movie-0.trz",
+      "local_file": "fixtures/keyed-vector-movie-0/archived-vectors.trz",
+      "sha256": "5185acee883626b2094d69c5b9ee14358048cb2fd755da51a823b890889391f6",
+      "bytes": 15946,
+      "expected": "expected/keyed-vector-movie-0.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used. Existing Java ZIP generator retains the unchanged secondary image experiment and opaque records.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-vector-movie-0/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": false,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "media_vector_kind": "movie",
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                1.5,
+                -1.0
+              ],
+              "magnitude": 1.8027756377319946
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -1.5,
+                -0.0
+              ],
+              "magnitude": 1.5
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 0,
+      "session_archive": true,
+      "project_member": "experiment.trk",
+      "native_media_vector_archive_roundtrip": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "keyed-vector-movie-0"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ]
+    },
+    {
+      "id": "keyed-vector-movie-1",
+      "tracker_version": "6.3.5",
+      "file": "keyed-vector-movie-1.trk",
+      "local_file": "fixtures/keyed-vector-movie-1/linked-movie.trk",
+      "sha256": "082aa8c7f282685233317a3a4dd38a4b3642d5296a3a0b3e929560e7c6c486bf",
+      "bytes": 9220,
+      "expected": "expected/keyed-vector-movie-1.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-vector-movie-1/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": false,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "native_media_vector_roundtrip": true,
+      "media_vector_kind": "movie",
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                1.5,
+                -1.0
+              ],
+              "magnitude": 1.8027756377319946
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -1.5,
+                -0.0
+              ],
+              "magnitude": 1.5
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 1
+    },
+    {
+      "id": "archived-keyed-vector-movie-1",
+      "tracker_version": "6.3.5",
+      "file": "archived-keyed-vector-movie-1.trz",
+      "local_file": "fixtures/keyed-vector-movie-1/archived-vectors.trz",
+      "sha256": "6410fdf2b1035d833ac3cb5b53139e9792d61797ba97f15ca8a31ac334ea8069",
+      "bytes": 15940,
+      "expected": "expected/keyed-vector-movie-1.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used. Existing Java ZIP generator retains the unchanged secondary image experiment and opaque records.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-vector-movie-1/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": false,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "media_vector_kind": "movie",
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                1.5,
+                -1.0
+              ],
+              "magnitude": 1.8027756377319946
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -1.5,
+                -0.0
+              ],
+              "magnitude": 1.5
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 1,
+      "session_archive": true,
+      "project_member": "experiment.trk",
+      "native_media_vector_archive_roundtrip": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "keyed-vector-movie-1"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ]
+    },
+    {
+      "id": "keyed-vector-movie-2",
+      "tracker_version": "6.3.5",
+      "file": "keyed-vector-movie-2.trk",
+      "local_file": "fixtures/keyed-vector-movie-2/linked-movie.trk",
+      "sha256": "d2f911843243f99e20ede4870841252764fecbd855d13bab4029f5009d454975",
+      "bytes": 9220,
+      "expected": "expected/keyed-vector-movie-2.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-vector-movie-2/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": true,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "native_media_vector_roundtrip": true,
+      "media_vector_kind": "movie",
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                -1.0,
+                -1.5
+              ],
+              "magnitude": 1.8027756377319946
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -0.0,
+                1.5
+              ],
+              "magnitude": 1.5
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 2
+    },
+    {
+      "id": "archived-keyed-vector-movie-2",
+      "tracker_version": "6.3.5",
+      "file": "archived-keyed-vector-movie-2.trz",
+      "local_file": "fixtures/keyed-vector-movie-2/archived-vectors.trz",
+      "sha256": "1dda27b530b5aeadccd1a9c991366f08bd4991742244050b6a45b1bd2a1361d6",
+      "bytes": 15946,
+      "expected": "expected/keyed-vector-movie-2.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used. Existing Java ZIP generator retains the unchanged secondary image experiment and opaque records.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-vector-movie-2/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": true,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "media_vector_kind": "movie",
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                -1.0,
+                -1.5
+              ],
+              "magnitude": 1.8027756377319946
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -0.0,
+                1.5
+              ],
+              "magnitude": 1.5
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 2,
+      "session_archive": true,
+      "project_member": "experiment.trk",
+      "native_media_vector_archive_roundtrip": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "keyed-vector-movie-2"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ]
+    },
+    {
+      "id": "keyed-vector-movie-3",
+      "tracker_version": "6.3.5",
+      "file": "keyed-vector-movie-3.trk",
+      "local_file": "fixtures/keyed-vector-movie-3/linked-movie.trk",
+      "sha256": "a6cf822fc885887d025076410949ebcd3d188383eacc8bba29689f3bd467ac0f",
+      "bytes": 9220,
+      "expected": "expected/keyed-vector-movie-3.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-vector-movie-3/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": true,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "native_media_vector_roundtrip": true,
+      "media_vector_kind": "movie",
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                -1.0,
+                -1.5
+              ],
+              "magnitude": 1.8027756377319946
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -0.0,
+                1.5
+              ],
+              "magnitude": 1.5
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 3
+    },
+    {
+      "id": "archived-keyed-vector-movie-3",
+      "tracker_version": "6.3.5",
+      "file": "archived-keyed-vector-movie-3.trz",
+      "local_file": "fixtures/keyed-vector-movie-3/archived-vectors.trz",
+      "sha256": "055e77a169e2df5ddc425e252ec37826f643c9dad1e8ec62d31efa60b3e97523",
+      "bytes": 15935,
+      "expected": "expected/keyed-vector-movie-3.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used. Existing Java ZIP generator retains the unchanged secondary image experiment and opaque records.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-vector-movie-3/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": true,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "media_vector_kind": "movie",
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                -1.0,
+                -1.5
+              ],
+              "magnitude": 1.8027756377319946
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -0.0,
+                1.5
+              ],
+              "magnitude": 1.5
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 3,
+      "session_archive": true,
+      "project_member": "experiment.trk",
+      "native_media_vector_archive_roundtrip": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "keyed-vector-movie-3"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ]
+    },
+    {
+      "id": "keyed-vector-movie-4",
+      "tracker_version": "6.3.5",
+      "file": "keyed-vector-movie-4.trk",
+      "local_file": "fixtures/keyed-vector-movie-4/linked-movie.trk",
+      "sha256": "85e322560b312cec0a96646bc8ff4473fe400f58793d76dfdca699a9fff59707",
+      "bytes": 9219,
+      "expected": "expected/keyed-vector-movie-4.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-vector-movie-4/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": false,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "native_media_vector_roundtrip": true,
+      "media_vector_kind": "movie",
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                0.75,
+                -0.5
+              ],
+              "magnitude": 0.9013878188659973
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -0.75,
+                -0.0
+              ],
+              "magnitude": 0.75
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 4
+    },
+    {
+      "id": "archived-keyed-vector-movie-4",
+      "tracker_version": "6.3.5",
+      "file": "archived-keyed-vector-movie-4.trz",
+      "local_file": "fixtures/keyed-vector-movie-4/archived-vectors.trz",
+      "sha256": "c00f08dec015b115e47271eafecd4d3c44317896adcfc5ad3670cbd204dc6c90",
+      "bytes": 15941,
+      "expected": "expected/keyed-vector-movie-4.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used. Existing Java ZIP generator retains the unchanged secondary image experiment and opaque records.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-vector-movie-4/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": false,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "media_vector_kind": "movie",
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                0.75,
+                -0.5
+              ],
+              "magnitude": 0.9013878188659973
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -0.75,
+                -0.0
+              ],
+              "magnitude": 0.75
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 4,
+      "session_archive": true,
+      "project_member": "experiment.trk",
+      "native_media_vector_archive_roundtrip": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "keyed-vector-movie-4"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ]
+    },
+    {
+      "id": "keyed-vector-movie-5",
+      "tracker_version": "6.3.5",
+      "file": "keyed-vector-movie-5.trk",
+      "local_file": "fixtures/keyed-vector-movie-5/linked-movie.trk",
+      "sha256": "2a4a0061b9518ca5c4b2729bf939b6c1484af5b42df2ab38147cc7e2a51183ff",
+      "bytes": 9219,
+      "expected": "expected/keyed-vector-movie-5.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-vector-movie-5/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": false,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "native_media_vector_roundtrip": true,
+      "media_vector_kind": "movie",
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                0.75,
+                -0.5
+              ],
+              "magnitude": 0.9013878188659973
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -0.75,
+                -0.0
+              ],
+              "magnitude": 0.75
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 5
+    },
+    {
+      "id": "archived-keyed-vector-movie-5",
+      "tracker_version": "6.3.5",
+      "file": "archived-keyed-vector-movie-5.trz",
+      "local_file": "fixtures/keyed-vector-movie-5/archived-vectors.trz",
+      "sha256": "99f35a583f6e69091bab03b920cb880229e4d461a6b69733014dd119d59fdd60",
+      "bytes": 15929,
+      "expected": "expected/keyed-vector-movie-5.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used. Existing Java ZIP generator retains the unchanged secondary image experiment and opaque records.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-vector-movie-5/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": false,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "media_vector_kind": "movie",
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                0.75,
+                -0.5
+              ],
+              "magnitude": 0.9013878188659973
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -0.75,
+                -0.0
+              ],
+              "magnitude": 0.75
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 5,
+      "session_archive": true,
+      "project_member": "experiment.trk",
+      "native_media_vector_archive_roundtrip": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "keyed-vector-movie-5"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ]
+    },
+    {
+      "id": "keyed-vector-movie-6",
+      "tracker_version": "6.3.5",
+      "file": "keyed-vector-movie-6.trk",
+      "local_file": "fixtures/keyed-vector-movie-6/linked-movie.trk",
+      "sha256": "974b5a4684f43348d569c6db2bcf9727cda465f3f3433ac2387c69380e407817",
+      "bytes": 9219,
+      "expected": "expected/keyed-vector-movie-6.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-vector-movie-6/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": true,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "native_media_vector_roundtrip": true,
+      "media_vector_kind": "movie",
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                -0.5,
+                -0.75
+              ],
+              "magnitude": 0.9013878188659973
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -0.0,
+                0.75
+              ],
+              "magnitude": 0.75
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 6
+    },
+    {
+      "id": "archived-keyed-vector-movie-6",
+      "tracker_version": "6.3.5",
+      "file": "archived-keyed-vector-movie-6.trz",
+      "local_file": "fixtures/keyed-vector-movie-6/archived-vectors.trz",
+      "sha256": "7ffaf62c1308cae276621a97249eb91757b9aac98aca665e01862c6ffcfe9c8b",
+      "bytes": 15940,
+      "expected": "expected/keyed-vector-movie-6.json",
+      "provenance": "KeyedVectorCalibrationFixture uses public Tracker 6.3.5 ImageCoordSystem setters over pinned MediaVectorsFixture controls. Two keys at 0/2; bits 1/2/4 fix origin/angle/scale. Independent orthogonal-coordinate and component expectations; UTC/Pacific-Kiritimati outputs are byte-identical. No MoTrack output used. Existing Java ZIP generator retains the unchanged secondary image experiment and opaque records.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-vector-movie-6/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": true,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": 0.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 375.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing",
+        "varying-calibration",
+        "partly-fixed-calibration"
+      ],
+      "media_vector_kind": "movie",
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R07",
+        "R09"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                -0.5,
+                -0.75
+              ],
+              "magnitude": 0.9013878188659973
+            },
+            {
+              "frame": 2,
+              "components": [
+                0.25,
+                1.0
+              ],
+              "magnitude": 1.0307764064044151
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -0.0,
+                0.75
+              ],
+              "magnitude": 0.75
+            },
+            {
+              "frame": 3,
+              "components": [
+                -0.0,
+                -0.0
+              ],
+              "magnitude": 0.0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "vector_calibration_flags": 6,
+      "session_archive": true,
+      "project_member": "experiment.trk",
+      "native_media_vector_archive_roundtrip": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "keyed-vector-movie-6"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ]
     }
   ]
 }
