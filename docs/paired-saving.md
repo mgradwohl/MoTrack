@@ -1,9 +1,15 @@
 # Standard and native paired saving
 
-Status: internal phase-3 paired writer, explicit recovery adapter and per-output session checkpoints
-are implemented. Earlier three-platform and actual Tracker acceptance is recorded below; later review
-fixes require current-revision CI. Desktop standard Save and explicit recovery controls are implemented
-in the current slice; cross-platform acceptance of the desktop controller remains pending.
+Status: the internal phase-3 paired writer, explicit recovery adapter and per-output session
+checkpoints are implemented. The paired-image adapter passed all six checks at `6ae83b6` in
+[run 42534998602](https://github.com/mgradwohl/MoTrack/actions/runs/42534998602), with 95.48%
+combined coverage and both recovered exports loaded, saved, freshly reopened in Tracker and
+reimported in MoTrack. The session slice passed all six checks at `d4449c6` in
+[run 42534997479](https://github.com/mgradwohl/MoTrack/actions/runs/42534997479), with 95.56%
+combined coverage; subsequent fixes retain their own CI/review gates. Desktop standard Save
+actions and recovery choices are implemented; controller `d9651f9` passed all six checks in
+[run 42534998848](https://github.com/mgradwohl/MoTrack/actions/runs/42534998848), with 95.72%
+combined coverage. Subsequent fixes retain current-head CI and review gates.
 The [full-port plan](migration-plan.md#implementation-order-and-exit-gates) and
 [format guide](native-format.md) remain the canonical status and supported-schema references.
 
@@ -118,7 +124,7 @@ must refuse that claim; the separate terminated-child regression still proves de
 After the destination-status review fixes in `7d04cd4`, all six Windows suites and formatting/clang-tidy
 pass; coverage is 95.34% (7679/8054). Both output statuses are refreshed before reporting conflicts or
 read failures, so an early conflict cannot hide or falsely retain a companion commit. The inherited
-source-digest and standalone-media corrections require the next combined current-revision CI run.
+source-digest and standalone-media corrections subsequently passed the `6ae83b6` run recorded above.
 
 
 
@@ -323,8 +329,17 @@ delayed observation of the copy. Each output destination also retains its observ
 older successful callback cannot replace a newer selected destination or its saved checkpoint. Older
 pending journals are still registered and reconciled independently of destination selection.
 
-Native-only writes and paired writes share this process-local completion order. The native writer
-returns a `NativeSaveResult` containing its completion stamp and original-reference media bindings;
+Native-only writes and paired writes share this process-local completion order. The `writeNativeDocument`
+adapter holds the same physical per-stem destination lock across native replacement and observation
+stamping, and refuses pending recovery journals. It returns a `NativeSaveResult` containing its stamp
+and original-reference media bindings. Low-level `writeWorkspaceDocument` performs storage only and
+returns no completion token; desktop workers and real-file session callers use the locked adapter.
+Its worker observer reports `NativeSaved` between replacement and stamping. A regression attempts
+both an older native write and an older paired write in that interval: both are refused, the current
+file remains on disk and only its matching completion can make the session clean. A later old write,
+after lock release, receives a later stamp and leaves the session dirty. An exception from the
+post-commit progress observer cannot change the successful storage outcome: the adapter still returns
+the stamped completion so a written snapshot cannot become invisible to session bookkeeping. In all cases,
 the worker must retain that result through callback delivery, rather than constructing a new stamp
 on the GUI thread. A superseded native callback leaves the selected destination, saved checkpoint and
 bindings untouched. A newer standard-only partial save can supply the latest media bindings while
@@ -342,3 +357,11 @@ regressions pass on Windows with all eight CTest groups (including all 28 sessio
 Combined local production line coverage is 95.49% (8108/8491); formatting and all six changed C++
 translation-unit static analyses pass. Persistence and session cases now have separate CTest groups
 from the UI, retaining every case and each 60-second limit. Current-revision CI/review remain required.
+
+The replacement/stamp lock regression, native cancellation/recovery guards and post-commit observer
+failure cases pass locally on Windows at `9d08bd85`. The complete eight-group suite passes in
+174.96 seconds, with 95.40% production line coverage (8174/8568); formatting and all five changed
+C++ translation units pass static analysis. Three existing LLVM function-mismatch warnings remain
+visible. The new interval regression deterministically attempts competing writes from the post-commit
+observer before the outer result is stamped. It also checks that a later obsolete write invalidates
+the session's saved state. Current-head three-platform CI and review remain required before merge.

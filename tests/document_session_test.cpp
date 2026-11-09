@@ -1004,6 +1004,73 @@ TEST(DocumentSession, RecoveryOfAnOlderRecordedSnapshotCannotClearNewEdits)
     EXPECT_DOUBLE_EQ(motrack::readWorkspaceDocument(current.nativePath).project.pointMasses.at(0).mass, 7);
 }
 
+TEST(DocumentSession, NativeCommitHoldsTheDestinationLockUntilItsObservationIsStamped)
+{
+    for (const bool paired : {false, true})
+    {
+        SCOPED_TRACE(paired);
+        QTemporaryDir temporary;
+        const auto source = fixturePath("../corpus/fixtures/linked-images/linked-images.trk");
+        const auto target = temporary.filePath("ordered.trk");
+        const auto native = temporary.filePath("ordered.motrack");
+        motrack::DocumentSession session;
+        session.replace(motrack::importTrackerDocument(source), source);
+        ASSERT_TRUE(session.history.setPointMassValue(session.document.project, 0, 5));
+        const auto oldCheckpoint = session.saveCheckpoint();
+        auto oldSnapshot = session.document;
+        motrack::rebaseWorkspaceMedia(oldSnapshot, source, native);
+        ASSERT_TRUE(session.history.setPointMassValue(session.document.project, 0, 7));
+        const auto currentCheckpoint = session.saveCheckpoint();
+        auto snapshot = session.document;
+        motrack::rebaseWorkspaceMedia(snapshot, source, native);
+        bool observed = false;
+        const auto current = motrack::writeNativeDocument(
+            native,
+            snapshot,
+            nullptr,
+            [&](auto progress)
+            {
+                EXPECT_EQ(progress, motrack::PairedSaveProgress::NativeSaved);
+                observed = true;
+                // Force the competing old write precisely after replacement, before stamping.
+                EXPECT_DOUBLE_EQ(motrack::readWorkspaceDocument(native).project.pointMasses.at(0).mass, 7);
+                if (paired)
+                {
+                    const auto blocked = motrack::writePairedDocuments(target, oldSnapshot, native);
+                    EXPECT_EQ(blocked.status, motrack::PairedSaveStatus::Failed);
+                    EXPECT_EQ(blocked.observation, 0);
+                    EXPECT_FALSE(blocked.nativeCurrent);
+                    EXPECT_EQ(session.completePairedSave(oldCheckpoint, blocked), motrack::SaveOutcome::Failed);
+                }
+                else
+                {
+                    try
+                    {
+                        motrack::writeNativeDocument(native, oldSnapshot);
+                        ADD_FAILURE() << "Native replacement escaped the destination lock";
+                    }
+                    catch (const motrack::SaveDestinationError& error)
+                    {
+                        EXPECT_EQ(error.conflict(), motrack::SaveDestinationConflict::Busy);
+                    }
+                }
+                EXPECT_EQ(motrack::readWorkspaceDocument(native).project, snapshot.project);
+            });
+        ASSERT_TRUE(observed);
+        ASSERT_TRUE(current.saved);
+        EXPECT_GT(current.observation, 0);
+        EXPECT_EQ(session.completeSave(currentCheckpoint, native, current), motrack::SaveOutcome::Saved);
+        EXPECT_FALSE(session.isModified());
+        EXPECT_EQ(motrack::readWorkspaceDocument(native).project, snapshot.project);
+
+        const auto old = motrack::writeNativeDocument(native, oldSnapshot);
+        EXPECT_GT(old.observation, current.observation);
+        EXPECT_EQ(session.completeSave(oldCheckpoint, native, old), motrack::SaveOutcome::Stale);
+        EXPECT_TRUE(session.isModified());
+        EXPECT_EQ(motrack::readWorkspaceDocument(native).project, oldSnapshot.project);
+    }
+}
+
 TEST(DocumentSession, ReorderedSuccessfulWritesCannotClearAStaleDiskSnapshot)
 {
     for (const bool paired : {false, true})

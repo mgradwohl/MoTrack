@@ -3,6 +3,7 @@
 #include "local_media_path.hpp"
 #include "measurements.hpp"
 #include "movie_worker.hpp"
+#include "paired_save.hpp"
 #include "position_plot.hpp"
 #include "track_identity.hpp"
 #include "video_canvas.hpp"

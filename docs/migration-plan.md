@@ -36,8 +36,8 @@ scope decisions. Record deliberate behavior changes, including corrections to re
 
 ## Current implementation and evidence
 
-Snapshot: **2026-11-07**, merged `main` at
-[`14c6057`](https://github.com/mgradwohl/MoTrack/commit/14c605737cdc3a590b12cc5b0d85593154f23e21).
+Snapshot: **2026-11-09**, merged `main` at
+[`8c01dbc`](https://github.com/mgradwohl/MoTrack/commit/8c01dbc3097addfb8a0843221090276575fcbf27).
 [PR #34](https://github.com/mgradwohl/MoTrack/pull/34) added independent vector editing,
 [PR #36](https://github.com/mgradwohl/MoTrack/pull/36) the reference corpus,
 [PR #38](https://github.com/mgradwohl/MoTrack/pull/38) actual Java application resave checks,
@@ -71,6 +71,17 @@ macOS, Linux, setup, and coverage checks passed in
 [CI run 42381811578](https://github.com/mgradwohl/MoTrack/actions/runs/42381811578): combined production
 line coverage **94.35% (5432/5757)**. The keyed-calibration and mass-unit writer PRs also passed actual
 Tracker edited-file load/save/reopen and native reimport before merging. This verifies the implemented slice, not full Tracker equivalence.
+
+Recent merged work adds audited linked-image saving in
+[PR #120](https://github.com/mgradwohl/MoTrack/pull/120), selected archive-member saving in
+[PR #121](https://github.com/mgradwohl/MoTrack/pull/121), all-experiment archive acceptance in
+[PR #124](https://github.com/mgradwohl/MoTrack/pull/124), and internal paired-save recovery in
+[PR #125](https://github.com/mgradwohl/MoTrack/pull/125). The last passed all six checks at `940a7bc`
+in [run 42537466953](https://github.com/mgradwohl/MoTrack/actions/runs/42537466953), including both
+recovered image exports loaded, saved and freshly reopened in Tracker, with **95.48% (7946/8322)**
+combined coverage. Per-output session completion, desktop paired Save, portable image packaging,
+movie export and image clip-range saving remain in the dependent PR sequence; implementation below
+does not imply every change is merged. Each current revision retains its own CI and review gates.
 
 Implemented and tested workflows include local movie/image opening, playback and indexed stepping,
 clip limits, a reusable background decoder with a bounded cache, cancellation of superseded opens,
@@ -318,7 +329,7 @@ or standard-file compatibility gates.
 | OS and CPU support | CI currently uses Windows 2025, macOS 15 and Ubuntu 24.04 runners. These are test environments, not declared minimum end-user OS versions. Specify release minimums and Intel/Arm coverage explicitly. | 1, finalized before 12 |
 | Codec coverage and export | FFmpeg import works for tested fixtures; pin a format/codec/container test matrix and identify any licensing or platform limitations. Do not label untested formats supported because FFmpeg recognizes their names. | 1, 6 and 10 |
 | Native preservation representation | Version 5 retains bounded original XML, document-scoped IDs, a non-reusing counter and original-object bindings, plus a streamed ZIP with native metadata and the exact original `.trz` payload. Versions 1–4 migrate without inventing lost source, bindings or selected archive tabs. See [native format](native-format.md). | 2 |
-| Pair-save recovery | [Internal contract and adapter](paired-saving.md) implement sibling staging, bounded journals, explicit recovery and per-output results. CI/application acceptance and user-visible partial-success integration remain; two independent replacements are not one atomic write. | 3 |
+| Pair-save recovery | [Internal contract and adapter](paired-saving.md) implement sibling staging, bounded journals, explicit recovery and per-output results. Three-platform CI and both linked/archive-image recovery application cases passed at `6ae83b6` in [run 42534998602](https://github.com/mgradwohl/MoTrack/actions/runs/42534998602). Per-output session checkpoints now share locked native/paired completion ordering; desktop controls are implemented with their own current-head CI/review gates. Two independent replacements are not one atomic write. | 3 |
 | Numerical equivalence | Freeze quantity-specific tolerances, derivative/solver choices, units and gap semantics from actual reference results, including boundary and near-zero values. | 1, extended per feature |
 | External-model exchange and supporting documents | Verify the reference's data protocols and choose native adapters/viewers without silently excluding those workflows or executing arbitrary document content. | 9–11 |
 
@@ -387,8 +398,9 @@ format. New imports also retain the original XML bytes in the native source enve
 is patched by an initial internal standard writer for mass values, marks, independent-vector samples, clip ranges/constant timing, existing fixed/partly fixed/fully varying calibration, length/mass/time-unit labels, audited names, new independent point masses/vectors, unreferenced removals and selection-only deletion; unsupported edited fields are rejected.
 The actual-Tracker corpus case exercises this limited export path after native reopen. Version 5 also embeds the entire original
 archive, preserving other tabs and media without yet making those tabs editable.
-Version-1 native documents cannot recover previously discarded content. Full writers, desktop export,
-archive/paired-save recovery and broader Java reopening remain unfinished. Treat full round-trip support as a compatibility milestone, not a
+Version-1 native documents cannot recover previously discarded content. Audited linked/archive-image
+exports and paired recovery pass actual Tracker save/reopen checks. Full writers, desktop export,
+broader recovery/schema coverage and broader Java reopening remain unfinished. Treat full round-trip support as a compatibility milestone, not a
 completed capability.
 
 Tracker's XML object format and ZIP experiment packaging are workable. The main implementation risk

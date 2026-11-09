@@ -592,7 +592,10 @@ SaveDestinationError::SaveDestinationError(SaveDestinationConflict conflict)
       m_Conflict(conflict)
 {}
 
-NativeSaveResult writeNativeDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled)
+NativeSaveResult writeNativeDocument(const QString& path,
+                                     const WorkspaceDocument& document,
+                                     const std::atomic_bool* cancelled,
+                                     const PairedSaveObserver& observer)
 {
     checkCancelled(cancelled);
     require(path.endsWith(".motrack", Qt::CaseInsensitive), "Choose a native project filename.");
@@ -609,7 +612,24 @@ NativeSaveResult writeNativeDocument(const QString& path, const WorkspaceDocumen
     if (QFileInfo::exists(recovery) || QFileInfo(recovery).isSymLink())
         throw SaveDestinationError(SaveDestinationConflict::PendingRecovery);
     checkCancelled(cancelled);
-    return writeWorkspaceDocument(physical, document, cancelled);
+    NativeSaveResult result{.mediaLocations = document.mediaLocations};
+    writeWorkspaceDocument(physical, document, cancelled);
+    const auto completed = [&result]
+    {
+        result.saved = true;
+        result.observation = nextSaveObservation();
+        return std::move(result);
+    };
+    try
+    {
+        notify(observer, PairedSaveProgress::NativeSaved);
+    }
+    catch (...)
+    {
+        // Progress cannot undo a committed replacement or hide its completion from the session.
+        return completed();
+    }
+    return completed();
 }
 
 PairedSaveResult recoverPairedDocuments(const QString& recoveryPath,
