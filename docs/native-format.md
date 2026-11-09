@@ -708,8 +708,10 @@ A desktop regression reproduced that failure, then verified single-frame export,
 index completion, expansion to all four frames, paired resave and display of the retained final frame.
 Index completion does not mark the document modified or remove measurements.
 
-After the reopen-bound correction, all nine Windows CTest groups pass in 132.22 seconds with 95.64%
-production line coverage (8839/9242). The new desktop regression first failed at the shortened bound
+After the reopen-bound correction, Linux static analysis required a checked image-sequence reference
+outside the test's frame loop. With that guard and the merged journal-group split, all ten Windows
+CTest groups pass in 150.73 seconds with 95.65% production line coverage (8840/9242).
+The new desktop regression first failed at the shortened bound
 and then passed with the correction; all three related desktop cases, both affected source-file static
 analyses and formatting pass. Three existing LLVM profile-mismatch warnings remain visible. Actual
 Tracker and three-platform acceptance still require the final published revision's CI.

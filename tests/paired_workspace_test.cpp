@@ -325,9 +325,10 @@ TEST(PairedWorkspace, SavesMediaClipSettingsAndReopensTheSameSourceFramesThrough
             const auto sequence = motrack::ImageSequence::open(native, reopened.project.clip);
             if (!sequence)
                 FAIL() << "The saved clip lost its image sequence.";
+            const auto& savedSequence = sequence.value();
             for (int step = 0; step < 2; ++step)
             {
-                const auto frame = sequence->readStep(step);
+                const auto frame = savedSequence.readStep(step);
                 if (!frame)
                     FAIL() << "The saved clip lost a source frame.";
                 EXPECT_EQ(frame->image, QImage(fixture("images/frame" + QString::number(1 + step * 2) + ".png")));
