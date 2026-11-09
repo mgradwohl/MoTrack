@@ -51,6 +51,7 @@ class MainWindow final : public QMainWindow
     bool saveMeasurements(const QString& path);
     bool saveWorkspace(const QString& path);
     bool saveTrackerProject(const QString& path, bool recoverPending = false);
+    bool exportTrackerArchive(const QString& path);
 
   protected:
     void closeEvent(QCloseEvent* event) override;
@@ -83,6 +84,7 @@ class MainWindow final : public QMainWindow
     void releaseArchive();
     bool chooseWorkspacePath();
     bool chooseTrackerPath();
+    bool chooseImageArchivePath();
     bool saveTrackerWithRecoveryPrompt(const QString& path);
     void finishSaving();
     bool saveCurrentWorkspace();
@@ -122,6 +124,7 @@ class MainWindow final : public QMainWindow
     QAction* m_SaveAs;
     QAction* m_Save;
     QAction* m_SaveTracker;
+    QAction* m_ExportArchive;
     QAction* m_NewPointMass;
     QAction* m_NewVector;
     QAction* m_RenamePointMass;

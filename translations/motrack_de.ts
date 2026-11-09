@@ -3,6 +3,17 @@
 <TS version="2.1" language="de">
   <context>
     <name>MainWindow</name>
+    <message><source>Export portable image &amp;archive…</source><translation type="unfinished"></translation></message>
+    <message><source>Copy this experiment and its images into one portable Tracker archive.</source><translation type="unfinished"></translation></message>
+    <message><source>Export portable image archive</source><translation type="unfinished"></translation></message>
+    <message><source>Choose a .trz filename for an imported image project.</source><translation type="unfinished"></translation></message>
+    <message><source>Exporting portable image archive</source><translation type="unfinished"></translation></message>
+    <message><source>Copying the experiment and its images…</source><translation type="unfinished"></translation></message>
+    <message><source>Canceling export…</source><translation type="unfinished"></translation></message>
+    <message><source>Export canceled. Existing files were kept.</source><translation type="unfinished"></translation></message>
+    <message><source>Could not export the Tracker archive: %1</source><translation type="unfinished"></translation></message>
+    <message><source>Portable Tracker archive exported.</source><translation type="unfinished"></translation></message>
+    <message><source>Archive exported. The project changed during export.</source><translation type="unfinished"></translation></message>
     <message><source>An interrupted paired save needs recovery. Use Save Tracker project for this destination, or save a copy elsewhere.</source><translation type="unfinished"></translation></message>
     <message><source>Another save is using this destination. Wait for it to finish and retry, or save a copy elsewhere.</source><translation type="unfinished"></translation></message>
     <message><source>An interrupted save needs recovery before continuing.</source><translation type="unfinished"></translation></message>

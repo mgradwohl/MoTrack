@@ -1,4 +1,5 @@
 #include "local_media_path.hpp"
+#include "paired_save.hpp"
 #include "tracker_archive.hpp"
 #include "tracker_writer.hpp"
 #include "workspace_document.hpp"
@@ -135,6 +136,17 @@ void writeMember(archive* writer, const QString& name, const QString& path, cons
     require(copied == size && archive_write_finish_entry(writer) == ARCHIVE_OK);
 }
 } // namespace
+
+void writeTrackerImagePackageCopy(const QString& path,
+                                  const WorkspaceDocument& document,
+                                  const QString& mediaProjectPath,
+                                  const std::atomic_bool* cancelled)
+{
+    if (!path.endsWith(".trz", Qt::CaseInsensitive) || QFileInfo(path).isSymbolicLink())
+        throw ProjectError("Choose a regular Tracker archive filename.");
+    withSaveDestinationLock(
+        path, cancelled, [&](const auto& physical) { writeTrackerImagePackage(physical, document, mediaProjectPath, cancelled); });
+}
 
 void writeTrackerImagePackage(const QString& path,
                               const WorkspaceDocument& document,

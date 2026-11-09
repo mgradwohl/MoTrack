@@ -6,6 +6,7 @@
 #include "paired_save.hpp"
 #include "position_plot.hpp"
 #include "track_identity.hpp"
+#include "tracker_writer.hpp"
 #include "video_canvas.hpp"
 #include "video_reader.hpp"
 #include "workspace_document.hpp"
@@ -67,6 +68,11 @@ QString physicalSourcePath(const QString& path)
     const QFileInfo info(path);
     const auto physical = info.canonicalFilePath();
     return physical.isEmpty() ? info.absoluteFilePath() : physical;
+}
+bool isLinkedImageDocument(const WorkspaceDocument& document)
+{
+    return document.trackerSource && !document.archivePayload && !document.archiveMember && document.archiveReference.empty() &&
+           !document.movie && document.movieFrameTimes.empty() && !document.project.clip.mediaReferences.empty();
 }
 
 // Dialogs may lose their parent inside the nested event loop. Qt owns these heap children;
@@ -150,6 +156,10 @@ MainWindow::MainWindow()
     m_SaveTracker->setObjectName("saveTrackerProject");
     m_SaveTracker->setToolTip(tr("Save a Tracker file and a MoTrack companion."));
     m_SaveTracker->setEnabled(false);
+    m_ExportArchive = fileMenu->addAction(tr("Export portable image &archive…"));
+    m_ExportArchive->setObjectName("exportTrackerArchive");
+    m_ExportArchive->setToolTip(tr("Copy this experiment and its images into one portable Tracker archive."));
+    m_ExportArchive->setEnabled(false);
     m_Export = new QAction(tr("&Export measurements…"), this);
     m_Export->setObjectName("exportMeasurements");
     m_Export->setEnabled(false);
@@ -426,6 +436,7 @@ MainWindow::MainWindow()
             });
     connect(m_SaveAs, &QAction::triggered, this, &MainWindow::chooseWorkspacePath);
     connect(m_SaveTracker, &QAction::triggered, this, &MainWindow::chooseTrackerPath);
+    connect(m_ExportArchive, &QAction::triggered, this, &MainWindow::chooseImageArchivePath);
     connect(m_Save, &QAction::triggered, this, &MainWindow::saveCurrentWorkspace);
     connect(m_Export,
             &QAction::triggered,
@@ -1017,6 +1028,7 @@ void MainWindow::activateProject(const QString& path)
     m_SaveAs->setEnabled(true);
     m_Save->setEnabled(true);
     m_SaveTracker->setEnabled(m_Session.document.trackerSource.has_value());
+    m_ExportArchive->setEnabled(isLinkedImageDocument(m_Session.document));
     refreshEditViews(0);
     syncClipControls();
     setWindowTitle(tr("%1[*] — MoTrack").arg(QFileInfo(path).fileName()));
@@ -1981,6 +1993,104 @@ bool MainWindow::saveTrackerProject(const QString& path, bool recoverPending)
         return false;
     }
     statusBar()->showMessage(tr("Tracker project and MoTrack companion saved."));
+    return true;
+}
+
+bool MainWindow::chooseImageArchivePath()
+{
+    if (m_Saving)
+        return false;
+    const auto checkpoint = m_Session.saveCheckpoint();
+    const auto path = chooseSaveFile(this, tr("Export portable image archive"), {}, tr("Tracker archives (*.trz)"), "trz");
+    if (!path || checkpoint.identity != m_Session.saveCheckpoint().identity)
+        return false;
+    return exportTrackerArchive(*path);
+}
+
+bool MainWindow::exportTrackerArchive(const QString& path)
+{
+    if (m_Saving)
+        return false;
+    if (!isLinkedImageDocument(m_Session.document) || !path.endsWith(".trz", Qt::CaseInsensitive))
+    {
+        statusBar()->showMessage(tr("Choose a .trz filename for an imported image project."));
+        return false;
+    }
+    struct ExportResult
+    {
+        bool saved = false;
+        QString diagnostic;
+        std::optional<SaveDestinationConflict> conflict = std::nullopt;
+    };
+    const auto checkpoint = m_Session.saveCheckpoint();
+    m_SaveCancelled = std::make_shared<std::atomic_bool>(false);
+    const auto cancelled = m_SaveCancelled;
+    bool alive = true;
+    QEventLoop loop;
+    connect(this, &QObject::destroyed, &loop, [&alive] { alive = false; });
+    m_Saving = true;
+    auto* progress = new QDialog(this);
+    progress->setObjectName("imageArchiveProgress");
+    progress->setWindowTitle(tr("Exporting portable image archive"));
+    progress->setWindowModality(Qt::WindowModal);
+    auto* layout = new QVBoxLayout(progress);
+    auto* label = new QLabel(tr("Copying the experiment and its images…"), progress);
+    auto* cancel = new QPushButton(tr("Cancel"), progress);
+    cancel->setObjectName("cancelImageArchiveExport");
+    layout->addWidget(label);
+    layout->addWidget(cancel);
+    const auto cancelExport = [progress, cancelled, label, cancel]
+    {
+        *cancelled = true;
+        label->setText(tr("Canceling export…"));
+        cancel->setEnabled(false);
+        progress->show();
+    };
+    connect(cancel, &QPushButton::clicked, progress, cancelExport);
+    connect(progress, &QDialog::rejected, progress, cancelExport);
+    progress->show();
+    QFutureWatcher<ExportResult> watcher;
+    connect(&watcher, &QFutureWatcher<ExportResult>::finished, &loop, &QEventLoop::quit);
+    watcher.setFuture(QtConcurrent::run(m_SavePool,
+                                        [path, cancelled, source = m_MediaProjectPath, document = m_Session.document]
+                                        {
+                                            try
+                                            {
+                                                writeTrackerImagePackageCopy(path, document, source, cancelled.get());
+                                                return ExportResult{.saved = true, .diagnostic = {}};
+                                            }
+                                            catch (const SaveDestinationError& error)
+                                            {
+                                                return ExportResult{.diagnostic = {}, .conflict = error.conflict()};
+                                            }
+                                            catch (const std::exception& error)
+                                            {
+                                                return ExportResult{.saved = false, .diagnostic = QString::fromUtf8(error.what())};
+                                            }
+                                        }));
+    loop.exec();
+    if (!alive)
+        return false;
+    delete progress;
+    finishSaving();
+    const auto current = m_Session.saveCheckpoint();
+    if (checkpoint.identity != current.identity)
+        return false;
+    const auto result = watcher.result();
+    if (!result.saved)
+    {
+        statusBar()->showMessage(
+            *cancelled ? tr("Export canceled. Existing files were kept.")
+            : result.conflict == SaveDestinationConflict::PendingRecovery
+                ? tr("An interrupted paired save needs recovery. Use Save Tracker project for this destination, or save a copy elsewhere.")
+            : result.conflict == SaveDestinationConflict::Busy
+                ? tr("Another save is using this destination. Wait for it to finish and retry, or save a copy elsewhere.")
+                : tr("Could not export the Tracker archive: %1").arg(result.diagnostic));
+        return false;
+    }
+    // Export is a separate copy: it never advances save checkpoints, changes the title or adopts a path.
+    statusBar()->showMessage(checkpoint.revision == current.revision ? tr("Portable Tracker archive exported.")
+                                                                     : tr("Archive exported. The project changed during export."));
     return true;
 }
 

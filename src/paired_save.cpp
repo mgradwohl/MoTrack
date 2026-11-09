@@ -560,6 +560,23 @@ void failed(PairedSaveResult& result, const std::exception& error, bool cancelle
 }
 } // namespace
 
+void withSaveDestinationLock(const QString& path, const std::atomic_bool* cancelled, const std::function<void(const QString&)>& write)
+{
+    checkCancelled(cancelled);
+    const auto physical = physicalLocalFilePath(path);
+    require(!physical.isEmpty(), "Could not resolve the project destination.");
+    const QFileInfo target(physical);
+    const auto parent = QFileInfo(target.absolutePath()).canonicalFilePath();
+    require(!parent.isEmpty(), "The destination directory must exist.");
+    require(!target.completeBaseName().isEmpty() && safeName(target.fileName()), "Invalid project filename.");
+    const auto recovery = QDir(parent).filePath(recordName(target.completeBaseName()));
+    const DestinationLock lock(recovery);
+    if (present(recovery) || present(otherRecordPath(recovery)))
+        throw SaveDestinationError(SaveDestinationConflict::PendingRecovery);
+    checkCancelled(cancelled);
+    write(physical);
+}
+
 PairedSaveResult writePairedDocuments(const QString& standardPath,
                                       const WorkspaceDocument& document,
                                       const QString& mediaProjectPath,
@@ -683,35 +700,30 @@ NativeSaveResult writeNativeDocument(const QString& path,
 {
     checkCancelled(cancelled);
     require(path.endsWith(".motrack", Qt::CaseInsensitive), "Choose a native project filename.");
-    const auto physical = physicalLocalFilePath(path);
-    require(!physical.isEmpty(), "Could not resolve the native project destination.");
-    const QFileInfo target(physical);
-    const auto parent = QFileInfo(target.absolutePath()).canonicalFilePath();
-    require(!parent.isEmpty(), "The native destination directory must exist.");
-    require(!target.completeBaseName().isEmpty() && safeName(target.fileName()), "Invalid native project filename.");
-    const auto recovery = QDir(parent).filePath(recordName(target.completeBaseName()));
-    const DestinationLock lock(recovery);
-    if (present(recovery) || present(otherRecordPath(recovery)))
-        throw SaveDestinationError(SaveDestinationConflict::PendingRecovery);
-    checkCancelled(cancelled);
     NativeSaveResult result{.mediaLocations = document.mediaLocations};
-    writeWorkspaceDocument(physical, document, cancelled);
-    const auto completed = [&result]
-    {
-        result.saved = true;
-        result.observation = nextSaveObservation();
-        return std::move(result);
-    };
-    try
-    {
-        notify(observer, PairedSaveProgress::NativeSaved);
-    }
-    catch (...)
-    {
-        // Progress cannot undo a committed replacement or hide its completion from the session.
-        return completed();
-    }
-    return completed();
+    withSaveDestinationLock(path,
+                            cancelled,
+                            [&](const auto& physical)
+                            {
+                                writeWorkspaceDocument(physical, document, cancelled);
+                                const auto completed = [&result]
+                                {
+                                    result.saved = true;
+                                    result.observation = nextSaveObservation();
+                                };
+                                try
+                                {
+                                    notify(observer, PairedSaveProgress::NativeSaved);
+                                }
+                                catch (...)
+                                {
+                                    // Report the committed replacement even if its progress observer fails.
+                                    completed();
+                                    return;
+                                }
+                                completed(); // Stamp before withSaveDestinationLock releases the shared lock.
+                            });
+    return result;
 }
 
 PairedSaveResult recoverPairedDocuments(const QString& recoveryPath,

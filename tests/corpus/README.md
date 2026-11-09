@@ -997,5 +997,6 @@ with all six platform/coverage checks green. Later revisions still require their
 and review; the historical result does not replace those gates. Local native tests separately delete
 the original media, move the package, reopen
 it, embed it in a native document, remove the package, reopen again and save another standard edit.
-The internal packager copies image bytes without converting formats. It does not yet provide a
-packaging dialog, movie/clip export, arbitrary auxiliary-resource collection or general multi-tab authoring.
+The packager copies image bytes without converting formats. The desktop portable-image export command
+uses this adapter and preserves ordinary-save destinations and unsaved edits. Movie/clip export,
+arbitrary auxiliary-resource collection and general multi-tab authoring remain unfinished.

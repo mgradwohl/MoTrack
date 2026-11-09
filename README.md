@@ -71,9 +71,21 @@ then write your current edits. Changes made by another program are preserved and
 conflict. Recovery never marks newer edits saved without writing them to both files.
 
 This workflow currently covers audited media-free and local-image experiments, plus selected-member
-updates to existing image archives. Movie export, new archive packaging, filters and broader Tracker
+updates to existing image archives. Movie export, filters and broader Tracker
 settings are still being ported. An unsupported export is refused; save a MoTrack copy to retain work.
 The [format guide](docs/native-format.md) records the exact supported edits and compatibility evidence.
+
+### Export a portable image experiment
+
+For a supported imported image experiment, choose **File → Export portable image archive…** and save
+as `.trz`. MoTrack copies the experiment and its linked images into one file that can be moved and
+opened in Tracker. The current project keeps its original save destinations, unsaved edits and undo
+history; exporting a copy does not replace ordinary Save or create a companion automatically.
+
+Export runs in the background with a Cancel button. Missing images are named in the error message,
+and failures or cancellation before replacement keep an existing archive intact. This command currently
+supports the audited local-image schemas described in the [format guide](docs/native-format.md#creating-a-portable-image-archive).
+Movie packaging, arbitrary supporting documents and newly created standalone image projects remain unfinished.
 
 ### Analyze motion
 
