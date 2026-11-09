@@ -642,8 +642,10 @@ The locked export wrapper lives in the image-package adapter and calls the proje
 destination-lock operation. This keeps the dependency one-way: project persistence never calls image
 decoders. Linux's static linker exposed the previous wrapper placement as an unresolved package symbol;
 the correction passes the ten desktop-export cases, eight package cases and native replacement/stamp-lock
-regression locally on Windows, plus formatting and both changed source-file static analyses. Fresh Linux,
-macOS and Windows CI remains required; local linking alone cannot establish Linux acceptance.
+regression locally on Windows, plus formatting and both changed source-file static analyses. Final
+revision 7a73ea7 then passed all six checks and review in [PR #130](https://github.com/mgradwohl/MoTrack/pull/130),
+[run 42549946662](https://github.com/mgradwohl/MoTrack/actions/runs/42549946662), including Linux build/setup,
+Windows/macOS and actual Tracker package acceptance, with 95.72% combined C++ line coverage.
 
 ### Linked constant-rate movie edits
 
@@ -679,5 +681,8 @@ native decoder; independent XML and movie-byte oracles allow only the requested 
 The edited linked-movie case passed actual Tracker load/save/fresh reopen and native reimport at
 `b9ca22d593f961a5a1e0b996d1a573f00f34a04d`, Linux job 128866258456 in
 [run 42524910795](https://github.com/mgradwohl/MoTrack/actions/runs/42524910795), with all six CI checks
-green and 95.83% combined C++ coverage. Subsequent format/review fixes require their own current-head
-CI; this scoped acceptance does not establish full movie interchange or resolve #65.
+green and 95.83% combined C++ coverage. The subsequent format/review fixes passed all six checks
+and review at d9a24c6 in [PR #133](https://github.com/mgradwohl/MoTrack/pull/133),
+[run 42549945960](https://github.com/mgradwohl/MoTrack/actions/runs/42549945960), including the edited
+Tracker movie case and 95.71% combined coverage. This scoped acceptance does not establish full
+movie interchange or resolve #65.

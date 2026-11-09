@@ -22,6 +22,11 @@ to it elsewhere. Do not describe planned functionality or unavailable tooling as
   work. Reuse a suitable checkout; use a separate branch for an independent change.
 - Keep PRs focused on one behavior or problem. Fix build failures, data loss, and incorrect scientific
   results before adding unrelated features. Use the PR and issue templates in `.github/`.
+- Keep the merge queue small: prefer one active feature PR and at most one dependent follow-up while
+  checks or review run. Resolve findings and merge eligible PRs before starting another feature.
+  After a parent merges, retarget the child and clean up the verified merged branch promptly; do not
+  accumulate a long stack of green PRs. Unchanged checks or a pending review are not reasons to add
+  further dependent work.
 - Run formatting, static analysis, and relevant tests before opening a code PR. Follow CONTRIBUTING
   for the actual tools; MoTrack does not currently require TaskSmack's pre-commit hooks or scripts.
 - Distinguish locally verified results from CI results. Report the tested commit and platform. A Windows

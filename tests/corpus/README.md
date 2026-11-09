@@ -1067,7 +1067,9 @@ the edited export in actual Tracker, compares all independent geometry/media/tim
 reopens in a fresh private JVM and reimports the resave in MoTrack. This edited application case passed
 at `b9ca22d593f961a5a1e0b996d1a573f00f34a04d`, Linux job 128866258456 in
 [run 42524910795](https://github.com/mgradwohl/MoTrack/actions/runs/42524910795), with all six required
-checks green and 95.83% combined C++ coverage. Later revisions still require current-head CI/review.
+checks green and 95.83% combined C++ coverage. Final reviewed revision d9a24c6 also passed this
+application case and all six checks in [run 42549945960](https://github.com/mgradwohl/MoTrack/actions/runs/42549945960)
+before #133 merged. Future revisions still require current-head CI/review.
 This case leaves MoTrack #65 open: it does not establish historical MOV/Open Recent reproduction or
 complete movie/view compatibility.
 
@@ -1096,15 +1098,18 @@ is never expanded to inspect excluded frames.
 
 All 84 Python corpus tests pass with this post-resave oracle. Negative regressions corrupt an excluded
 image, redirect its reference to another valid image, remove/reorder entries, and corrupt an excluded ZIP
-member. Actual Tracker acceptance of the new oracle still requires current-head Linux CI.
+member. At 898328a, all four new image-clip modes passed actual Tracker load/save/fresh-process
+reopen and native reimport in [Linux job 128943039408](https://github.com/mgradwohl/MoTrack/actions/runs/42549943932/job/128943039408).
+The oracle runs after both saved-file stages. All six checks and review passed before #134 merged;
+combined C++ line coverage was 95.71% (8864/9261).
 
 All four native exports/reimports and independent XML/media oracles pass locally. Windows validation
-passes all nine CTest groups (164.31 s), all 82 Python corpus tests, formatting and static analysis for
+initially passed all nine CTest groups (164.31 s), the then-82 Python corpus tests, formatting and static analysis for
 all six changed C++ translation units, with 95.65% production line coverage (8742/9140). The first
 full run hit the save-workflow group's 60-second timeout while static analysis was running; after
 analysis finished, the unchanged group passed in 21.02 seconds. Coverage retains four existing LLVM
 function-mismatch warnings. The Python suite
 rejects incorrect clip bounds/stride/count, raw or displayed time, calibration, pixels, source inventory
-and missing marks, even if all reported application stages agree on the wrong values. Linux CI must
-still pass actual Tracker load/save/fresh reopen and native reimport for all four new modes before
-these edited ranges are accepted as Tracker-compatible. MoTrack #65 remains open.
+and missing marks, even if all reported application stages agree on the wrong values. The final
+84-test Python suite and all four actual-Tracker modes passed in the merged revision above.
+This establishes those audited image ranges only; MoTrack #65 remains open.
