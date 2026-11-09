@@ -35,6 +35,133 @@
   },
   "cases": [
     {
+      "id": "archived-movie",
+      "tracker_version": "6.3.5",
+      "file": "archived-movie.trz",
+      "local_file": "fixtures/linked-movie/archived-movie.trz",
+      "sha256": "aaf84ffdd4e637c93490149d173a4c99d803531e8f239fb8ea736b40bab05b64",
+      "bytes": 15705,
+      "expected": "expected/linked-movie.json",
+      "provenance": "ArchiveMovieFixture packages the existing Tracker/OSP-authored linked movie and secondary image experiment with standard JDK 17 ZIP APIs. UTC and Pacific/Kiritimati generations are byte-identical; XML, media, entry comments and opaque supporting members are independently pinned.",
+      "assets": [
+        {
+          "file": "constant-rate.avi",
+          "local_file": "fixtures/linked-movie/constant-rate.avi",
+          "sha256": "f3a7e7c6091a0259012441ed5a3b2d60d0bcbd01837919ad6122a8af4c2c02fb",
+          "bytes": 9544
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "movie mass"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": true,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "movie mass",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": -250.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 125.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "native_archive_movie_roundtrip": true,
+      "project_member": "experiment.trk",
+      "session_archive": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "linked-movie"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ],
+      "features": [
+        "movie-archive-selected-member",
+        "mixed-media-experiment-tabs",
+        "opaque-supporting-members",
+        "zip-entry-and-archive-comments",
+        "unicode-archive-member"
+      ]
+    },
+    {
       "id": "multitab-images",
       "tracker_version": "6.3.5",
       "file": "multitab-images.trz",

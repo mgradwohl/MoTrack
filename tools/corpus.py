@@ -466,7 +466,7 @@ def private_display():
 
 
 def linked_media_roundtrip_expected(case):
-    if case["id"] not in {"linked-images", "archived-images", "multitab-images", "linked-movie"}:
+    if case["id"] not in {"linked-images", "archived-images", "multitab-images", "linked-movie", "archived-movie"}:
         raise ValueError("Linked-media edits require a pinned experiment")
     expected = json.loads(expected_path(case).read_text(encoding="utf-8"))["project"]
     expected["point_masses"][0]["mass"] = 5.0
@@ -475,7 +475,7 @@ def linked_media_roundtrip_expected(case):
 
 
 def linked_media_clip_expected(case, single=False):
-    if case["id"] not in {"linked-images", "archived-images", "linked-movie"}:
+    if case["id"] not in {"linked-images", "archived-images", "linked-movie", "archived-movie"}:
         raise ValueError("Media clip edits require a pinned image/movie case")
     expected = linked_media_roundtrip_expected(case)
     expected["clip"].update(first_frame=2 if single else 1, step_size=1 if single else 2, step_count=1 if single else 2)
@@ -510,7 +510,8 @@ def patch_expected_linked_media(document, relocate=True, packaged=False, movie=F
             scalar(prop(clip, name), value)
     video = elements(prop(clip, "video"), "object")[0]
     if movie:
-        scalar(prop(video, "path"), "média & movie/constant-rate.avi")
+        if relocate:
+            scalar(prop(video, "path"), "média & movie/constant-rate.avi")
     elif relocate or packaged:
         paths = prop(video, "paths")
         references = [f"images/frame-{index:06d}.png" if packaged else f"media é & frames/frame{index}.png" for index in range(4)]
@@ -607,7 +608,7 @@ def verify_saved_image_inventory(saved, assets):
     return inventory
 
 
-def verify_saved_movie_asset(saved, asset):
+def verify_saved_movie_asset(saved, asset, *, allow_archive=False):
     """Verify the complete pinned movie after Tracker saves, including excluded frames."""
     if saved.stat().st_size > MAX_XML_BYTES:
         raise ValueError("Saved movie experiment exceeds XML limit")
@@ -619,20 +620,36 @@ def verify_saved_movie_asset(saved, asset):
             or not paths[0].text or len(paths[0].text) > 4096):
         raise ValueError("Saved movie lost its local path")
     reference = paths[0].text.replace("\\", "/")
-    url = urllib.parse.urlsplit(reference)
+    if allow_archive and reference.startswith("jar:"):
+        reference = reference[4:]
+    container, separator, member = reference.partition("!/")
+    if separator and not allow_archive:
+        raise ValueError("Saved movie reference is not a standalone local file")
+    url = urllib.parse.urlsplit(container)
     if url.scheme == "file":
         if url.netloc not in {"", "localhost"} or url.query or url.fragment:
             raise ValueError("Saved movie reference is not a local file")
-        reference = urllib.request.url2pathname(url.path)
-    elif url.scheme and not re.match(r"^[A-Za-z]:/", reference):
+        container = urllib.request.url2pathname(url.path)
+    elif url.scheme and not re.match(r"^[A-Za-z]:/", container):
         raise ValueError("Saved movie reference is not a local file")
-    if reference.replace("\\", "/").startswith("//") or "!/" in reference:
-        raise ValueError("Saved movie reference is not a standalone local file")
-    path = Path(reference)
+    if container.replace("\\", "/").startswith("//"):
+        raise ValueError("Saved movie reference is not a local file")
+    path = Path(container)
     if not path.is_absolute():
         path = saved.parent / path
-    with path.open("rb") as source:
-        payload = source.read(asset["bytes"] + 1)
+    if separator:
+        if (not member or PurePosixPath(member).is_absolute() or ".." in PurePosixPath(member).parts
+                or "!/" in member or path.stat().st_size > 1024 * 1024):
+            raise ValueError("Saved movie archive reference exceeds fixture bounds")
+        with zipfile.ZipFile(path) as archive:
+            matches = [info for info in archive.infolist() if info.filename == member]
+            if len(matches) != 1 or matches[0].file_size != asset["bytes"] or matches[0].is_dir():
+                raise ValueError("Saved movie archive member is missing, ambiguous or changed")
+            with archive.open(matches[0]) as source:
+                payload = source.read(asset["bytes"] + 1)
+    else:
+        with path.open("rb") as source:
+            payload = source.read(asset["bytes"] + 1)
     digest = hashlib.sha256(payload).hexdigest()
     if len(payload) != asset["bytes"] or digest != asset["sha256"]:
         raise ValueError("Saved movie checksum changed")
@@ -668,7 +685,7 @@ def verify_image_package_export(original, exported, selected_xml, case, clip_mod
         selected_xml.write_bytes(xml)
 
 
-def verify_archive_image_export(original, exported, selected_xml, member_count=7, clip_mode=None):
+def verify_archive_media_export(original, exported, selected_xml, member_count=7, clip_mode=None, *, movie=False):
     """Independent ZIP reader: only the selected XML and its encoding metadata may change."""
     if max(original.stat().st_size, exported.stat().st_size) > 1024 * 1024:
         raise ValueError("Archive reference exceeds the small-fixture limit")
@@ -689,7 +706,7 @@ def verify_archive_image_export(original, exported, selected_xml, member_count=7
                 if b.compress_type != zipfile.ZIP_STORED or b.flag_bits != a.flag_bits & 0x0800:
                     raise ValueError("Unexpected edited-member encoding")
                 with minidom.parseString(before.read(a)) as expected, minidom.parseString(after.read(b)) as actual:
-                    patch_expected_linked_media(expected, relocate=False, clip_mode=clip_mode)
+                    patch_expected_linked_media(expected, relocate=False, movie=movie, clip_mode=clip_mode)
                     if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
                         raise ValueError("Archive export changed XML beyond the edited mass and mark")
                 selected_xml.write_bytes(after.read(b))
@@ -1848,12 +1865,15 @@ def verify_vector_export_xml(original, exported, expected_project):
         raise ValueError("Standard export changed content beyond the requested vector edits")
 
 
-def check_archive_tabs(case, manifest, cache, java, classes, jar, output, display, probe=None):
+def check_archive_tabs(case, manifest, cache, java, classes, jar, output, display, probe=None, mode="archive-images"):
     """Open the actual archive once, save every loaded tab, then reopen each in a fresh JVM."""
     by_id = {item["id"]: item for item in manifest["cases"]}
     tabs = case["session_archive_tabs"]
     members = [tab["member"] for tab in tabs]
-    templates = [by_id[tab["case"]] for tab in tabs]
+    templates = [copy.deepcopy(by_id[tab["case"]]) for tab in tabs]
+    movie = templates[0].get("session_media", {}).get("class") == "org.opensourcephysics.media.xuggle.XuggleVideo"
+    dependencies = sorted({name for template in [case, *templates] for name in template.get("reference_dependencies", [])})
+    classpath = java_classpath(manifest, cache, classes=classes, dependencies=dependencies)
     source = local_fixture_path(case) if "local_file" in case else cache / "fixtures" / case["file"]
     with zipfile.ZipFile(source) as archive:
         projects = [entry.filename for entry in archive.infolist() if entry.filename.lower().endswith(".trk")]
@@ -1865,9 +1885,14 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
     expected = [json.loads(expected_path(template).read_text(encoding="utf-8"))["project"] for template in templates]
     if probe:
         exported = output / "motrack-export.trz"
-        run([str(Path(probe).resolve()), "--export-multitab-archive-images", str(source), str(exported)])
-        verify_archive_image_export(source, exported, output / "exported-member.trk", member_count=8)
+        export_mode = mode if movie else "multitab-archive-images"
+        clip_mode = "single" if mode == "archive-movie-clip-single" else "stride" if mode == "archive-movie-clip" else None
+        run([str(Path(probe).resolve()), "--export-" + export_mode, str(source), str(exported)])
+        verify_archive_media_export(source, exported, output / "exported-member.trk", member_count=9 if movie else 8,
+                                    clip_mode=clip_mode, movie=movie)
         expected[0] = linked_media_roundtrip_expected(case)
+        if clip_mode:
+            expected[0], templates[0] = linked_media_clip_expected(templates[0], single=clip_mode == "single")
         source = exported
     metadata = output / "metadata"
     metadata.mkdir()
@@ -1882,7 +1907,7 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
         home.mkdir(parents=True)
         try:
             run([str(java), f"-Duser.home={home}", f"-Djava.io.tmpdir={home}", "-Duser.language=en", "-Duser.country=US", "-Xmx256m",
-                 "-cp", os.pathsep.join([str(classes), str(jar)]), "TrackerSessionReference",
+                 "-cp", classpath, "TrackerSessionReference",
                  str(input_file), str(destination), stage, *map(str, metadata_args)], display=display)
         except (ValueError, OSError, subprocess.TimeoutExpired) as error:
             raise ValueError(f"{case['id']}/{stage}: multi-tab reference failed: {error}") from error
@@ -1901,10 +1926,16 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
     reports = []
     for i, (member, template, desired, before) in enumerate(zip(members, templates, expected, saved["tabs"])):
         file = output / f"tracker-resaved-{i}.trk"
+        def inventory():
+            if template.get("session_media", {}).get("class") == "org.opensourcephysics.media.xuggle.XuggleVideo":
+                return verify_saved_movie_asset(file, template["assets"][0], allow_archive=True)
+            return verify_saved_image_inventory(file, template["assets"])
+        saved_inventory = inventory()
         reopened = execute(file, output / f"reopen-{i}", "reopen")
         report = {"reference_version": saved["reference_version"], "verification_level": "tracker_session_resave",
                   "view_preparation": saved["view_preparation"], "before": before["loaded"],
-                  "after_save": before["after_save"], "after": reopened["loaded"]}
+                  "after_save": before["after_save"], "after": reopened["loaded"],
+                  "saved_media_inventories": {"save": saved_inventory, "reopen": inventory()}}
         try:
             validate_session(template, report, manifest, desired, [[0, 1, 2]] if probe and i == 0 else None)
         except ValueError as error:
@@ -1917,9 +1948,10 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
             compare(desired, json.loads(native.read_text(encoding="utf-8")), manifest["tolerance"], member + ".reimport")
         reports.append({"member": member, "tracker_session": report, "expected": desired})
     level = "motrack_archive_tabs_roundtrip" if probe else "tracker_archive_tabs_resave"
-    (cache / "reports" / f"{case['id']}-{level}.json").write_text(
+    label = case["id"] + ("-" + mode if movie and probe else "")
+    (cache / "reports" / f"{label}-{level}.json").write_text(
         json.dumps({"verification_level": level, "tabs": reports}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"{case['id']}: passed ({level}; all loaded tabs saved and individually reopened)")
+    print(f"{label}: passed ({level}; all loaded tabs saved and individually reopened)")
 
 
 def check_sessions(manifest, cache, java, probe=None):
@@ -1928,6 +1960,10 @@ def check_sessions(manifest, cache, java, probe=None):
     modes = [("linked-movie", "native_linked_movie_roundtrip"),
              ("linked-movie-clip", "native_linked_movie_clip_roundtrip"),
              ("linked-movie-clip-single", "native_linked_movie_clip_roundtrip"),
+             ("archive-movie", "native_archive_movie_roundtrip"),
+             ("archive-movie-clip", "native_archive_movie_roundtrip"),
+             ("archive-movie-clip-single", "native_archive_movie_roundtrip"),
+             ("paired-archive-movie", "native_archive_movie_roundtrip"),
              ("archive-images", "native_archive_image_roundtrip"), ("linked-images", "native_linked_image_roundtrip"),
              ("linked-image-clip", "native_linked_image_clip_roundtrip"), ("linked-image-clip-single", "native_linked_image_clip_roundtrip"),
              ("archive-image-clip", "native_archive_image_clip_roundtrip"), ("packaged-image-clip", "native_linked_image_clip_roundtrip"),
@@ -1992,7 +2028,7 @@ def check_sessions(manifest, cache, java, probe=None):
             java_home = output / "java-home"
             java_home.mkdir(parents=True)
             if case.get("session_archive_tabs"):
-                check_archive_tabs(case, manifest, cache, java_path, classes, jar, output, display, probe)
+                check_archive_tabs(case, manifest, cache, java_path, classes, jar, output, display, probe, mode)
                 continue
             project = project_path(case, cache)
             archive_input = (local_fixture_path(case) if "local_file" in case else cache / "fixtures" / case["file"]) if case.get("session_archive") else None
@@ -2040,7 +2076,7 @@ def check_sessions(manifest, cache, java, probe=None):
                 exported = output / "motrack-export.trz"
                 run([str(Path(probe).resolve()), "--export-" + mode, str(archive_input), str(exported)])
                 project = output / "exported-member.trk"
-                verify_archive_image_export(archive_input, exported, project, clip_mode="stride" if mode == "archive-image-clip" else None)
+                verify_archive_media_export(archive_input, exported, project, clip_mode="stride" if mode == "archive-image-clip" else None)
                 expected = linked_media_roundtrip_expected(case)
                 if mode == "archive-image-clip":
                     expected, case = linked_media_clip_expected(case)

@@ -55,8 +55,13 @@ class CorpusTests(unittest.TestCase):
                 corpus.load_manifest(path)
 
     def test_multitab_sessions_open_the_archive_and_independently_check_every_tab(self):
+        for case_id in ["multitab-images", "archived-movie"]:
+            with self.subTest(case=case_id):
+                self.check_multitab_session_case(case_id)
+
+    def check_multitab_session_case(self, case_id):
         manifest = corpus.load_manifest()
-        case = next(c for c in manifest["cases"] if c["id"] == "multitab-images")
+        case = next(c for c in manifest["cases"] if c["id"] == case_id)
         templates = [next(c for c in manifest["cases"] if c["id"] == tab["case"])
                      for tab in case["session_archive_tabs"]]
         snapshots = []
@@ -72,9 +77,10 @@ class CorpusTests(unittest.TestCase):
                 "axes": copy.deepcopy(template["session_axes"]), "calibration": copy.deepcopy(template["session_calibration"]),
                 "time_samples": copy.deepcopy(template["session_time_samples"]),
                 "name_references": {"selected_track": mass["name"]}, **corpus.session_units(template, expected)})
-        (self.root / "reports").mkdir()
-        for mutation in [None, "missing", "duplicate", "non-object", "second-mass", "second-pixels", "second-origin"]:
-            output = self.root / (mutation or "valid")
+        (self.root / "reports").mkdir(exist_ok=True)
+        for mutation in [None, "missing", "duplicate", "non-object", "second-mass", "second-pixels", "second-origin",
+                         "first-bytes", "second-bytes"]:
+            output = self.root / (case_id + "-" + (mutation or "valid"))
             output.mkdir()
             calls, homes = [], []
             observed = copy.deepcopy(snapshots)
@@ -85,6 +91,9 @@ class CorpusTests(unittest.TestCase):
             def session(command, *, display=None):
                 self.assertEqual(display, ":77")
                 self.assertIn("-Xmx256m", command)
+                for template in templates:
+                    for dependency in template.get("reference_dependencies", []):
+                        self.assertIn(str(self.root / "runtime" / dependency), command[command.index("-cp") + 1])
                 args = command[command.index("TrackerSessionReference") + 1:]
                 source, destination, stage = Path(args[0]), Path(args[1]), args[2]
                 home = Path(next(arg.split("=", 1)[1] for arg in command if arg.startswith("-Duser.home=")))
@@ -101,6 +110,16 @@ class CorpusTests(unittest.TestCase):
                         data = corpus.local_fixture_path(template).read_bytes()
                         self.assertEqual(Path(args[3 + i]).read_bytes(), data)
                         (destination / f"tracker-resaved-{i}.trk").write_bytes(data)
+                        directory = destination / "images" if template["session_media"]["class"].endswith(".ImageVideo") else destination
+                        directory.mkdir(exist_ok=True)
+                        for asset in template["assets"]:
+                            payload = corpus.local_fixture_path(asset).read_bytes()
+                            (directory / asset["file"]).write_bytes(payload)
+                    if mutation in {"first-bytes", "second-bytes"}:
+                        damaged_template = templates[0 if mutation == "first-bytes" else 1]
+                        directory = destination / "images" if damaged_template["session_media"]["class"].endswith(".ImageVideo") else destination
+                        damaged = directory / damaged_template["assets"][0]["file"]
+                        damaged.write_bytes(damaged.read_bytes()[::-1])
                     report["tabs"] = [{"member": tab["member"], "loaded": observed[i], "after_save": observed[i]}
                                       for i, tab in enumerate(case["session_archive_tabs"])]
                     if mutation == "missing": report["tabs"].pop()
@@ -115,7 +134,7 @@ class CorpusTests(unittest.TestCase):
 
             with self.subTest(mutation=mutation), patch.object(corpus, "run", side_effect=session):
                 if mutation:
-                    with self.assertRaises(ValueError):
+                    with self.assertRaisesRegex(ValueError, "checksum" if mutation.endswith("-bytes") else "."):
                         corpus.check_archive_tabs(case, manifest, self.root, "java", self.root / "classes",
                                                   self.root / "reference.jar", output, ":77")
                 else:
@@ -123,8 +142,10 @@ class CorpusTests(unittest.TestCase):
                                               self.root / "reference.jar", output, ":77")
                     self.assertEqual([stage for _, stage in calls], ["save-tabs", "reopen", "reopen"])
                     self.assertEqual(len(set(homes)), 3)
-                    report = json.loads((self.root / "reports/multitab-images-tracker_archive_tabs_resave.json").read_text())
+                    report = json.loads((self.root / "reports" / f"{case_id}-tracker_archive_tabs_resave.json").read_text())
                     self.assertEqual([tab["member"] for tab in report["tabs"]], ["experiment.trk", "second.trk"])
+                    self.assertTrue(all(set(tab["tracker_session"]["saved_media_inventories"]) == {"save", "reopen"}
+                                        for tab in report["tabs"]))
 
     def test_multitab_session_refuses_an_omitted_or_changed_experiment(self):
         manifest = corpus.load_manifest()
@@ -211,12 +232,12 @@ class CorpusTests(unittest.TestCase):
 
         build(original, False)
         build(exported, True)
-        corpus.verify_archive_image_export(original, exported, selected)
+        corpus.verify_archive_media_export(original, exported, selected)
         self.assertTrue(selected.is_file())
         for mutation in ["comment", "entry-comment", "payload", "compression", "extra-member", "xml"]:
             build(exported, True, mutation)
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
-                corpus.verify_archive_image_export(original, exported, selected)
+                corpus.verify_archive_media_export(original, exported, selected)
 
     def test_image_package_oracle_checks_inventory_media_and_all_xml(self):
         case = next(c for c in corpus.load_manifest()["cases"] if c["id"] == "linked-images")
@@ -362,6 +383,61 @@ class CorpusTests(unittest.TestCase):
         movie.unlink()
         with self.assertRaises(OSError):
             corpus.verify_saved_movie_asset(saved, asset)
+
+    def test_saved_archived_movie_oracle_rejects_changed_missing_and_ambiguous_media(self):
+        case = next(c for c in corpus.load_manifest()["cases"] if c["id"] == "linked-movie")
+        asset = case["assets"][0]
+        payload = corpus.local_fixture_path(asset).read_bytes()
+        archive = self.root / "movie.trz"
+        saved = self.root / "saved.trk"
+        root = ET.parse(corpus.local_fixture_path(case)).getroot()
+        path = root.find(".//property[@name='path']")
+        with zipfile.ZipFile(archive, "w") as output:
+            output.writestr("constant-rate.avi", payload)
+        for reference in ["movie.trz!/constant-rate.avi", str(archive) + "!/constant-rate.avi",
+                          "jar:" + archive.as_uri() + "!/constant-rate.avi"]:
+            path.text = reference
+            ET.ElementTree(root).write(saved, encoding="utf-8")
+            observed = corpus.verify_saved_movie_asset(saved, asset, allow_archive=True)
+            self.assertEqual(observed["sha256"], asset["sha256"])
+            with self.assertRaises(ValueError):
+                corpus.verify_saved_movie_asset(saved, asset)
+        for reference in ["movie.trz!/../constant-rate.avi", "movie.trz!//constant-rate.avi", "movie.trz!/",
+                          "movie.trz!/nested.trz!/constant-rate.avi", "jar:https://example.invalid/movie.trz!/constant-rate.avi",
+                          "file://example.invalid/movie.trz!/constant-rate.avi"]:
+            path.text = reference
+            ET.ElementTree(root).write(saved, encoding="utf-8")
+            with self.subTest(reference=reference), self.assertRaises(ValueError):
+                corpus.verify_saved_movie_asset(saved, asset, allow_archive=True)
+        path.text = "movie.trz!/constant-rate.avi"
+        ET.ElementTree(root).write(saved, encoding="utf-8")
+        for mutation in ["changed", "size", "missing", "duplicate", "oversized"]:
+            with warnings.catch_warnings(), zipfile.ZipFile(archive, "w") as output:
+                warnings.simplefilter("ignore", UserWarning)
+                if mutation != "missing":
+                    output.writestr("constant-rate.avi", payload[::-1] if mutation == "changed" else
+                                    payload + b"extra" if mutation == "size" else payload)
+                if mutation == "duplicate": output.writestr("constant-rate.avi", payload)
+                if mutation == "oversized": output.writestr("padding.bin", b"x" * (1024 * 1024))
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                corpus.verify_saved_movie_asset(saved, asset, allow_archive=True)
+
+    def test_movie_archive_modes_all_use_the_independent_multitab_checker(self):
+        manifest = corpus.load_manifest()
+        manifest["cases"] = [c for c in manifest["cases"] if c["id"] in {"archived-movie", "linked-movie", "secondary-images"}]
+        for case in manifest["cases"]:
+            if case["id"] != "archived-movie":
+                for key in list(case):
+                    if key.startswith("native_"):
+                        del case[key]
+        with patch.object(corpus.sys, "platform", "linux"), \
+                patch.object(corpus, "private_display", return_value=nullcontext(":77")), \
+                patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "run"), \
+                patch.object(corpus, "check_archive_tabs") as check:
+            corpus.check_sessions(manifest, self.root, "java", "native-probe")
+        self.assertEqual([call.args[-1] for call in check.call_args_list],
+                         ["archive-movie", "archive-movie-clip", "archive-movie-clip-single", "paired-archive-movie"])
+        self.assertTrue(all(call.args[0]["id"] == "archived-movie" for call in check.call_args_list))
 
     def test_linked_image_export_oracle_checks_edited_geometry_all_xml_and_relocated_assets(self):
         manifest = corpus.load_manifest()

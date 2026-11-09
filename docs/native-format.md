@@ -467,9 +467,9 @@ after relocating all four images; its full-XML and byte oracles permit only the 
 and the actual Tracker application must preserve all decoded pixels/times and calibrated measurements
 through save and fresh reopen. This application acceptance remains required before merge.
 
-Movie engines, filters and archive members need their own audited path/timing contracts. Archive
-packaging will preserve untouched members and feed the paired-save transaction/recovery layer;
-standard Save UI follows that layer. This internal adapter is not full R03 completion.
+Movie engines, filters and archive members need their own audited path/timing contracts. The scoped
+movie/archive adapters below feed the paired-save transaction and desktop Save workflow. This does
+not establish full R03 completion.
 
 ### Selected-member Tracker archive output
 
@@ -478,14 +478,15 @@ native close/reopen, including after the original `.trz` is removed. It verifies
 XML still matches that member and that current media references resolve to the original embedded
 files. Each referenced extracted file must also match the SHA-256 digest captured while reading
 its original archive member; missing or same-path replaced files are rejected before destination
-replacement. Selected XML and images must also resolve within the physical extraction root captured
+replacement. Selected XML and media must also resolve within the physical extraction root captured
 at import; identical-byte external file/parent-directory aliases cannot redirect exported links.
 Prepared XML is resolved back through the original archive inventory and must name the same media
 members, so even an in-root rename/alias cannot produce links to files absent from the output ZIP.
 Digest checks use bounded blocks, honor cancellation and avoid rereading duplicate
 references. Native save/reopen recreates these digests from the owned archive bytes. An immutable
-copy prepares member-relative ImageVideo paths; external/replaced media,
-movies, filters and numeric timing edits remain refused. Supported image clip range/stride edits
+copy prepares member-relative ImageVideo or audited XuggleVideo paths; external/replaced media,
+filters and numeric timing edits remain refused. Movies require the complete constant-rate native
+index and retain the standalone movie adapter's edit restrictions. Supported clip range/stride edits
 retain the complete original media inventory and measurements. The source envelope and owned
 original archive bytes are unchanged. The [paired-save adapter](paired-saving.md) and desktop standard
 Save use this writer; their current-revision CI and review gates remain separate from archive acceptance.
@@ -653,8 +654,8 @@ The document writer accepts the explicitly audited `XuggleVideo`/`VideoClipContr
 its movie adapter. Existing point-mass values and image-coordinate marks, clip start/step/count and the
 linked media path may change. Original names, membership, calibration, unit labels, numeric clip timing
 and other parsed fields must remain unchanged. Filters, vectors, other track types except axes, display-orientation
-transforms and archived movies remain refused. The archive entry point rejects movie documents before
-clearing archive metadata for its internal snapshot; this also applies after indexing and native reopen.
+transforms remain refused. The selected-member archive writer uses the same audited movie adapter
+after verifying its immutable source, media members and completed native index.
 This opt-in schema does not enable movie renames or
 membership edits through the media-free writer.
 
@@ -697,8 +698,8 @@ After Tracker saves and freshly reopens, the saved movie reference must resolve 
 pinned byte count/SHA-256, including excluded frames. Initial Windows validation passes all nine CTest
 groups (124.80 seconds), 86 Python tests, both native export/oracle/reimport cases, formatting and
 static analysis for all four changed C++ source files, with 95.64% line coverage (8838/9241). Three
-existing LLVM function-profile mismatch warnings remain visible. Current-head three-platform CI,
-actual Tracker movie-range acceptance and review remain required before merging this extension.
+existing LLVM function-profile mismatch warnings remain visible. This initial local evidence is
+superseded by the merged acceptance below.
 
 
 A standard movie import initially infers a provisional source-frame bound from its saved clip endpoint.
@@ -721,5 +722,31 @@ outside the test's frame loop. With that guard, retained movie bounds and the me
 all ten Windows CTest groups pass in 129.56 seconds with 95.64% production line coverage (8844/9247).
 Desktop regressions reproduced both the shortened expansion bound and an unreadable native save
 after indexing shorter media, then passed with the corrections. All four related desktop cases, both affected source-file static
-analyses and formatting pass. Three existing LLVM profile-mismatch warnings remain visible. Actual
-Tracker and three-platform acceptance still require the final published revision's CI.
+analyses and formatting pass. Three existing LLVM profile-mismatch warnings remain visible.
+PR [#136](https://github.com/mgradwohl/MoTrack/pull/136) merged reviewed head `4cf2b0f` after all six checks
+passed in [run 42561178958](https://github.com/mgradwohl/MoTrack/actions/runs/42561178958), including both
+actual Tracker movie-range cases and **95.72% combined C++ line coverage (8874/9271)**.
+
+### Existing movie archive output
+
+An existing `.trz` containing an audited constant-rate movie can use the selected-member writer and
+paired desktop Save workflow. The original archive, other experiments, compressed media and opaque
+members retain their existing preservation contract. The selected XML may change only within the
+movie adapter's mass/mark/clip-range limits. Native close/reopen and removal of the original input do
+not break the owned archive or index. Both root and nested selected-member paths are covered.
+
+The desktop regression edits mass and clip settings, uses undo/redo and ordinary paired Save, removes
+the original input, reopens the native companion, saves again and opens the edited standard archive.
+It displays the original final movie frame and checks every untouched member. Missing/changed extracted
+movies, incomplete indexes and cancellation preserve the existing output.
+
+The [mixed movie/image archive corpus](../tests/corpus/README.md#existing-movie-archive-round-trips)
+adds full-range, strided, single-frame and interrupted/recovered paired cases. Each must pass actual
+Tracker loading of both tabs, resaving every tab, fresh-process reopen, native reimport and independent
+media-byte checks. All ten Windows CTest groups pass in 127.00 seconds with **95.74% production line
+coverage (8852/9246)**. All 88 Python corpus tests, 28 native imports and headless Java XML/coordinate
+checks, four native archive exports with independent ZIP/XML/media oracles, formatting and static
+analysis of all four changed C++ sources pass. Three existing LLVM profile-mismatch warnings remain
+visible. Current-head Linux application acceptance, three-platform CI and review remain required for
+this new slice. New portable movie packaging, filters,
+variable-rate timing and broader movie schemas remain unfinished.

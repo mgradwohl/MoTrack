@@ -1422,7 +1422,6 @@ void writeTrackerDocument(const QString& path, const WorkspaceDocument& document
 void writeTrackerArchiveDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled)
 {
     require(!cancelled || !cancelled->load());
-    require(!document.movie);
     if (!document.archivePayload || !document.archiveMember || !document.trackerSource)
         throw ProjectError("Tracker archive export requires its original archive and selected project.");
     require(document.archiveReference.empty());

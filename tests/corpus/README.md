@@ -1135,6 +1135,42 @@ remote or archive references; local relative/absolute/file-URL paths have positi
 native exports, full XML/movie hashes and native reimport pass locally. All nine Windows CTest groups
 pass in 124.80 seconds, with 95.64% line coverage (8838/9241); formatting and all four changed C++
 source-file static analyses pass. Three existing LLVM function-profile mismatch warnings remain visible.
-The new modes still require current-head Linux actual Tracker load/save/fresh reopen/native reimport
-and three-platform CI before merge. This does not close MoTrack #65 or reproduce the historical MOV/
+The final reviewed head `4cf2b0f` merged in [#136](https://github.com/mgradwohl/MoTrack/pull/136) after
+all six checks passed in [run 42561178958](https://github.com/mgradwohl/MoTrack/actions/runs/42561178958),
+including both actual-Tracker clip modes and 95.72% combined C++ line coverage (8874/9271).
+This does not close MoTrack #65 or reproduce the historical MOV/
 Open Recent report; the upstream issue and complete discussion were refreshed for this slice.
+
+## Existing movie archive round trips
+
+[ArchiveMovieFixture.java](../../tools/reference/ArchiveMovieFixture.java) packages the independently
+authored linked-movie experiment and secondary image experiment without modifying either XML file.
+The archive has nine entries: two experiments, the complete four-frame AVI, all four PNGs and two
+opaque supporting members. Entry/archive comments and a Unicode supporting filename are retained.
+Compile this generator with `javac -encoding UTF-8` and run it headlessly under the pinned JDK 17;
+its arguments are the linked-movie directory, linked-images directory and a fresh `.trz` output path.
+UTC and Pacific/Kiritimati generations are byte-identical: **15705 bytes**, SHA-256
+`aaf84ffdd4e637c93490149d173a4c99d803531e8f239fb8ea736b40bab05b64`.
+
+The `archived-movie` case declares both tabs independently: `experiment.trk` uses `linked-movie`,
+and `second.trk` uses `secondary-images`. The baseline opens the archive, saves every loaded tab and
+reopens each in a fresh JVM. The movie uses its explicitly pinned runtime dependencies; the shipped
+MoTrack application gains no Java dependency.
+
+Four native modes use that same complete-tab acceptance path: `archive-movie`, `archive-movie-clip`,
+`archive-movie-clip-single` and `paired-archive-movie`. The native probe builds the complete movie index,
+edits mass and mark 1 with undo/redo, optionally selects frames 1/3 or frame 2, saves/reopens a native
+copy and removes the original archive before standard export. The paired mode also interrupts after
+the standard commit and recovers both outputs, checking retained movie flags and timestamps.
+
+The independent ZIP/XML oracle permits only the selected experiment's requested edits; every other
+compressed record, payload and metadata remains unchanged. Independent numerical and pixel expectations
+are applied to both loaded tabs, including the untouched 3.5 kg image experiment. After Tracker saves
+and after fresh reopen, the complete saved movie and every saved image reference must retain the pinned
+byte count and SHA-256, including excluded frames. Bounded local archive references are allowed for
+this archive case; missing/duplicate members, changed bytes, path escapes and remote URLs fail.
+
+Local archive-writer and desktop regressions, all four native export/oracle/reimport modes and the
+Python negative oracles pass. Current-head actual Tracker acceptance, three-platform CI and review
+remain required before this slice can count as merged compatibility. New movie packaging, variable
+timing, filters, broader schemas and the historical MOV/Open Recent report remain separate work.

@@ -132,6 +132,119 @@ TEST(PairedWorkspace, SavesIndexedMovieEditsAndNativeCompanionAfterSourceRemoval
     EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(target).project.pointMasses.front().mass, 9);
 }
 
+TEST(PairedWorkspace, SavesArchivedMovieClipsAndBothCopiesAfterOriginalRemoval)
+{
+    QTemporaryDir temporary;
+    const auto fixturePath = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-movie/archived-movie.trz";
+    const auto source = temporary.filePath("original.trz");
+    const auto standard = temporary.filePath("saved.trz");
+    const auto native = temporary.filePath("saved.motrack");
+    ASSERT_TRUE(QFile::copy(fixturePath, source));
+    const auto original = motrack::TrackerArchive::open(fixturePath);
+    motrack::MainWindow window;
+    auto openArchive = [&](const QString& path)
+    {
+        bool selected = false;
+        QTimer watchdog;
+        watchdog.setSingleShot(true);
+        QObject::connect(&watchdog,
+                         &QTimer::timeout,
+                         &window,
+                         []
+                         {
+                             if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
+                                 dialog->reject();
+                         });
+        watchdog.start(2000);
+        QTimer::singleShot(0,
+                           &watchdog,
+                           [&selected]
+                           {
+                               if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget()))
+                               {
+                                   dialog->setTextValue("experiment.trk");
+                                   selected = true;
+                                   dialog->accept();
+                               }
+                           });
+        const bool opened = window.loadProject(path);
+        return opened && selected;
+    };
+    ASSERT_TRUE(openArchive(source));
+    auto* plot = window.findChild<QWidget*>("positionPlot");
+    auto* canvas = window.findChild<QWidget*>("videoCanvas");
+    auto* slider = window.findChild<QSlider*>("stepSlider");
+    auto* settings = window.findChild<QAction*>("clipSettings");
+    auto* save = window.findChild<QAction*>("saveProject");
+    auto* undo = window.findChild<QAction*>("undoEdit");
+    auto* redo = window.findChild<QAction*>("redoEdit");
+    ASSERT_TRUE(plot && canvas && slider && settings && save && undo && redo);
+    ASSERT_TRUE(QTest::qWaitFor([plot] { return plot->accessibleName().endsWith("Time (s)"); }));
+    ASSERT_TRUE(editMass(window, 7));
+    bool accepted = false;
+    QTimer::singleShot(0,
+                       &window,
+                       [&accepted]
+                       {
+                           if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
+                           {
+                               auto* first = dialog->findChild<QSpinBox*>("clipStart");
+                               auto* stride = dialog->findChild<QSpinBox*>("clipStride");
+                               if (!first || !stride)
+                               {
+                                   dialog->reject();
+                                   return;
+                               }
+                               first->setValue(1);
+                               stride->setValue(2);
+                               accepted = true;
+                               dialog->accept();
+                           }
+                       });
+    settings->trigger();
+    ASSERT_TRUE(accepted);
+    ASSERT_TRUE(window.saveTrackerProject(standard));
+    EXPECT_FALSE(window.isWindowModified());
+    ASSERT_TRUE(QFile::remove(source));
+    undo->trigger();
+    save->trigger();
+    EXPECT_FALSE(window.isWindowModified());
+    EXPECT_EQ(motrack::readWorkspaceDocument(native).project.clip.firstFrame, 0);
+    redo->trigger();
+    save->trigger();
+    EXPECT_FALSE(window.isWindowModified());
+    const auto companion = motrack::readWorkspaceDocument(native);
+    EXPECT_TRUE(companion.movie && companion.alignMovieToClip);
+    EXPECT_EQ(companion.movieFrameTimes, (std::vector<double>{0.0, 0.125, 0.25, 0.375}));
+    EXPECT_EQ(companion.project.clip.firstFrame, 1);
+    EXPECT_EQ(companion.project.clip.stepSize, 2);
+    EXPECT_EQ(companion.project.clip.stepCount, 2);
+    ASSERT_TRUE(companion.archivePayload);
+    EXPECT_EQ(bytes(companion.archivePayload->sourcePath()), bytes(fixturePath));
+    ASSERT_TRUE(window.loadProject(native));
+    ASSERT_TRUE(editMass(window, 9));
+    ASSERT_TRUE(window.saveTrackerProject(standard));
+    ASSERT_TRUE(openArchive(standard));
+    ASSERT_TRUE(QTest::qWaitFor([plot] { return plot->accessibleName().endsWith("Time (s)"); }));
+    slider->setValue(1);
+    ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 3"; }));
+    const auto exported = motrack::TrackerArchive::open(standard);
+    const auto project = motrack::importTrackerDocument(exported.projectPath("experiment.trk")).project;
+    EXPECT_DOUBLE_EQ(project.pointMasses.at(0).mass, 9);
+    EXPECT_EQ(project.clip.firstFrame, 1);
+    EXPECT_EQ(project.clip.stepSize, 2);
+    EXPECT_EQ(project.clip.stepCount, 2);
+    for (const auto& member : QStringList{"second.trk",
+                                          "constant-rate.avi",
+                                          "images/frame0.png",
+                                          "images/frame1.png",
+                                          "images/frame2.png",
+                                          "images/frame3.png",
+                                          QString::fromUtf8("support/notes é.txt"),
+                                          "support/opaque.bin"})
+        EXPECT_EQ(bytes(QDir(exported.root()).filePath(member)), bytes(QDir(original.root()).filePath(member)));
+}
+
 TEST(PairedWorkspace, ReopenedSingleFrameMovieCanExpandToTheCompleteIndexedSource)
 {
     QTemporaryDir temporary;
