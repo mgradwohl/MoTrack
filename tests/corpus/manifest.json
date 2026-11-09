@@ -160,6 +160,7 @@
         "constant-rate-mov"
       ],
       "movie_calibration_flags": 0,
+      "session_key_frames": [[0, 1, 2, 3]],
       "native_keyed_movie_roundtrip": true,
       "native_keyed_movie_package_roundtrip": true,
       "requirements": [
@@ -295,6 +296,7 @@
         "constant-rate-mov"
       ],
       "movie_calibration_flags": 0,
+      "session_key_frames": [[0, 1, 2, 3]],
       "requirements": [
         "R02",
         "R03",
@@ -441,6 +443,7 @@
         "constant-rate-mov"
       ],
       "movie_calibration_flags": 1,
+      "session_key_frames": [[0, 1, 2, 3]],
       "native_keyed_movie_roundtrip": true,
       "native_keyed_movie_package_roundtrip": true,
       "requirements": [
@@ -576,6 +579,7 @@
         "constant-rate-mov"
       ],
       "movie_calibration_flags": 1,
+      "session_key_frames": [[0, 1, 2, 3]],
       "requirements": [
         "R02",
         "R03",
@@ -722,6 +726,7 @@
         "constant-rate-mov"
       ],
       "movie_calibration_flags": 2,
+      "session_key_frames": [[0, 1, 2, 3]],
       "native_keyed_movie_roundtrip": true,
       "native_keyed_movie_package_roundtrip": true,
       "requirements": [
@@ -857,6 +862,7 @@
         "constant-rate-mov"
       ],
       "movie_calibration_flags": 2,
+      "session_key_frames": [[0, 1, 2, 3]],
       "requirements": [
         "R02",
         "R03",
@@ -1003,6 +1009,7 @@
         "constant-rate-mov"
       ],
       "movie_calibration_flags": 3,
+      "session_key_frames": [[0, 1, 2, 3]],
       "native_keyed_movie_roundtrip": true,
       "native_keyed_movie_package_roundtrip": true,
       "requirements": [
@@ -1138,6 +1145,7 @@
         "constant-rate-mov"
       ],
       "movie_calibration_flags": 3,
+      "session_key_frames": [[0, 1, 2, 3]],
       "requirements": [
         "R02",
         "R03",
@@ -1284,6 +1292,7 @@
         "constant-rate-mov"
       ],
       "movie_calibration_flags": 4,
+      "session_key_frames": [[0, 1, 2, 3]],
       "native_keyed_movie_roundtrip": true,
       "native_keyed_movie_package_roundtrip": true,
       "requirements": [
@@ -1419,6 +1428,7 @@
         "constant-rate-mov"
       ],
       "movie_calibration_flags": 4,
+      "session_key_frames": [[0, 1, 2, 3]],
       "requirements": [
         "R02",
         "R03",
@@ -1565,6 +1575,7 @@
         "constant-rate-mov"
       ],
       "movie_calibration_flags": 5,
+      "session_key_frames": [[0, 1, 2, 3]],
       "native_keyed_movie_roundtrip": true,
       "native_keyed_movie_package_roundtrip": true,
       "requirements": [
@@ -1700,6 +1711,7 @@
         "constant-rate-mov"
       ],
       "movie_calibration_flags": 5,
+      "session_key_frames": [[0, 1, 2, 3]],
       "requirements": [
         "R02",
         "R03",
@@ -1846,6 +1858,7 @@
         "constant-rate-mov"
       ],
       "movie_calibration_flags": 6,
+      "session_key_frames": [[0, 1, 2, 3]],
       "native_keyed_movie_roundtrip": true,
       "native_keyed_movie_package_roundtrip": true,
       "requirements": [
@@ -1981,6 +1994,7 @@
         "constant-rate-mov"
       ],
       "movie_calibration_flags": 6,
+      "session_key_frames": [[0, 1, 2, 3]],
       "requirements": [
         "R02",
         "R03",

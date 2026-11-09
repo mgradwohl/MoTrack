@@ -396,6 +396,8 @@ def validate_session(case, report, manifest, expected=None, key_frames=None, cal
         calibrated = [{"name": track["name"], "samples": track.get("calibrated_vector_samples")}
                       for track in before["tracks"] if track["class"] == "org.opensourcephysics.cabrillo.tracker.Vector"]
         compare(case["session_vector_data"], calibrated, tolerance, case["id"] + ".calibrated_vectors")
+    if key_frames is None:
+        key_frames = case.get("session_key_frames")
     if key_frames is not None:
         actual = [track["key_frames"] for track in before["tracks"]
                   if track["class"] == "org.opensourcephysics.cabrillo.tracker.PointMass"]
@@ -2072,7 +2074,7 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
                   "cache_policy": {"save": saved["cache_policy"], "reopen": reopened["cache_policy"]},
                   "saved_media_inventories": {"save": saved_inventory, "reopen": inventory()}}
         try:
-            keys = [[]] if "movie_calibration_flags" in template else [[0, 1, 2]]
+            keys = template.get("session_key_frames", [[0, 1, 2]])
             validate_session(template, report, manifest, desired, keys if probe and i == 0 else None)
         except ValueError as error:
             raise ValueError(f"{case['id']}/{member}: {error}\nTracker tab snapshots (bounded): {json.dumps(report)[:24000]}") from error
@@ -2385,7 +2387,7 @@ def check_sessions(manifest, cache, java, probe=None):
             if mode in {"create-mass", "create-empty-mass"}:
                 keys = [[0], [0], [] if mode == "create-empty-mass" else [1, 4, 8]]
             elif mode in {"linked-movie-keyed-calibration", "packaged-movie-keyed-calibration"}:
-                keys = [[]]
+                keys = case["session_key_frames"]
             elif mode in {"delete-mass", "delete-selected-mass"}:
                 keys = [[0]]
             elif mode == "delete-all-masses":

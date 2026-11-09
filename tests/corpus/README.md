@@ -1301,6 +1301,17 @@ normalizes them; full XML comparison uses explicit raw rows, while application s
 specified effective values. Changing an existing mark's position preserves the source's empty manual
 `keyFrames` array. It does not add a new frame or change that metadata.
 
+Raw XML and loaded manual keys are different expectations. The pinned PointMass loader populates an
+empty or absent key array from every non-null marked step. Its
+[source branch](https://github.com/OpenSourcePhysics/tracker/blob/dc064f922fd924826fb42030b9cd5f5bbc720c9f/src/org/opensourcephysics/cabrillo/tracker/PointMass.java#L2981)
+and actual JAR bytecode agree. A bounded headless JDK 17 load/reserialize/reload of all seven original
+fixtures independently confirms raw keys `[]` become `[0,1,2,3]` and remain so after reload.
+[Initial PR #143 CI](https://github.com/mgradwohl/MoTrack/actions/runs/42598798607/job/129097892583)
+confirmed that behavior in the real application and rejected the earlier empty-list session expectation.
+The manifest now explicitly requires `[0,1,2,3]` for all 14 baseline and edited application cases,
+while the full XML oracle still requires MoTrack to preserve the source's empty array. Negative tests
+reject missing, extra, reordered or empty loaded manual keys even if every application stage agrees.
+
 The XML oracle permits only the requested geometry, label, mass, mark and path edits. It retains the
 typed-null coordinate padding at frame 3, the point-mass array extent, fixed flags, timing, selections
 and all other content. Negative tests reject altered keys/flags/padding and consistently wrong positions

@@ -779,6 +779,23 @@ class CorpusTests(unittest.TestCase):
             with self.subTest(case=case_id):
                 self.check_media_session_oracle(case_id, calibrated=True)
 
+    def test_keyed_movie_manual_keys_distinguish_source_xml_from_loaded_tracker_state(self):
+        cases = [c for c in corpus.load_manifest()["cases"] if "movie_calibration_flags" in c]
+        self.assertEqual(len(cases), 14)
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                self.assertEqual(case["session_key_frames"], [[0, 1, 2, 3]])
+                if case.get("session_archive"):
+                    with zipfile.ZipFile(corpus.local_fixture_path(case)) as archive:
+                        xml = archive.read(case["project_member"])
+                else:
+                    xml = corpus.local_fixture_path(case).read_bytes()
+                mass = next(node for node in ET.fromstring(xml).iter("object")
+                            if node.get("class") == "org.opensourcephysics.cabrillo.tracker.PointMass")
+                raw_keys = mass.find("property[@name='keyFrames']")
+                self.assertIsNotNone(raw_keys)
+                self.assertEqual(list(raw_keys), [])
+
     def test_keyed_movie_sessions_reject_corrupted_keys_at_every_stage(self):
         for flags in range(7):
             for archived in [False, True]:
@@ -797,7 +814,7 @@ class CorpusTests(unittest.TestCase):
         keys = [[0, 1, 2]] if clip_mode is not None or calibrated else None
         if keyed:
             expected, case = corpus.keyed_movie_roundtrip_expected(case)
-            keys = [[]]
+            keys = case["session_key_frames"]
         mass = expected["point_masses"][0]
         before = {"tracks": [case["session_tracks"][0], {
             **case["session_tracks"][1], "mass": mass["mass"], "key_frames": keys[0] if keys else [],
@@ -811,12 +828,13 @@ class CorpusTests(unittest.TestCase):
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
                  "view_preparation": "expand_visit_custom_tables_restore_selection", "before": before,
                  "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
-        corpus.validate_session(case, valid, manifest, expected, keys)
+        corpus.validate_session(case, valid, manifest, expected, None if keyed else keys)
         for stages in [["after"], ["before", "after_save", "after"]]:
             mutations = ["missing", "pixels", "order", "time", "dimensions", "count", "origin", "scale", "axes_grid", "engine",
                          "clip-range", "missing-mark", "display-time", "angle", "world", "unit"]
             if keyed:
-                mutations += ["key-frame", "missing-key", "fixed_origin", "fixed_angle", "fixed_scale", "last-world"]
+                mutations += ["key-frame", "missing-key", "fixed_origin", "fixed_angle", "fixed_scale", "last-world",
+                              "manual-keys-empty", "manual-keys-missing", "manual-keys-extra", "manual-keys-order"]
             for mutation in mutations:
                 invalid = copy.deepcopy(valid)
                 for stage in stages:
@@ -849,6 +867,10 @@ class CorpusTests(unittest.TestCase):
                         invalid[stage]["calibration"]["keys"].pop(1)
                     elif mutation in {"fixed_origin", "fixed_angle", "fixed_scale"}:
                         invalid[stage]["calibration"][mutation] = not invalid[stage]["calibration"][mutation]
+                    elif mutation.startswith("manual-keys-"):
+                        invalid[stage]["tracks"][1]["key_frames"] = {
+                            "manual-keys-empty": [], "manual-keys-missing": [0, 1, 2],
+                            "manual-keys-extra": [0, 1, 2, 3, 4], "manual-keys-order": [0, 2, 1, 3]}[mutation]
                     elif mutation == "last-world":
                         invalid[stage]["tracks"][1]["samples"][-1]["world"][1] += 1.0
                     elif mutation == "axes_grid":
@@ -862,7 +884,7 @@ class CorpusTests(unittest.TestCase):
                     else:
                         media["frame_count"] = 3
                 with self.subTest(stages=stages, mutation=mutation), self.assertRaises(ValueError):
-                    corpus.validate_session(case, invalid, manifest, expected, keys)
+                    corpus.validate_session(case, invalid, manifest, expected, None if keyed else keys)
         unaudited = {key: value for key, value in case.items() if key != "session_media"}
         with self.assertRaisesRegex(ValueError, "independent pixel"):
             corpus.validate_session(unaudited, valid, manifest, expected, keys)
