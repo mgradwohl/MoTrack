@@ -66,6 +66,12 @@ Collection clears only its previous `motrack-*.profraw` profiles before running 
 
 CI builds and tests on all three OSes. New behavior needs tests through its normal entry points. Use exact comparisons where appropriate and explicit tolerances for scientific results. The combined production line coverage must stay at or above **90%**. Keep suppressions narrow, explain each in the code, and include known compatibility limits in the pull request.
 
+The Ubuntu contributor-setup job runs the full C++ formatting and static-analysis checks after its
+developer build. It enables and builds the benchmark target before running clang-tidy against
+`build/dev`, with at most two analysis processes. This runs alongside the platform build and Tracker
+acceptance jobs, giving each workload its own time budget as the reference corpus grows. The final
+coverage job waits for both the build and contributor-setup matrices to pass before combining reports.
+
 The workspace executable runs in five complementary CTest groups. General UI cases run in
 `workspace`; `workspace_saving` runs `PairedWorkspace.*` and `ImagePackageWorkspace.*`,
 `workspace_document` runs `WorkspaceDocument.*`, and the two session groups partition `DocumentSession.*`.

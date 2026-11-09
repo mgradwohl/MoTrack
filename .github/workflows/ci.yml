@@ -118,11 +118,6 @@ jobs:
           cmake --preset coverage -DMOTRACK_BUILD_BENCHMARKS=ON
           cmake --build --preset coverage
           ccache --show-stats
-      - name: Check C++ format and static analysis
-        if: runner.os == 'Linux'
-        run: |
-          git ls-files -z -- '*.cpp' '*.hpp' | xargs -0 clang-format --dry-run --Werror
-          git ls-files -z -- 'src/*.cpp' 'tests/*.cpp' 'benchmarks/*.cpp' | xargs -0 -n 1 -P 2 clang-tidy -p build/coverage
       - name: Check Windows setup scripts
         if: runner.os == 'Windows'
         shell: pwsh
@@ -180,7 +175,7 @@ jobs:
           if-no-files-found: error
   coverage:
     name: 90% line coverage
-    needs: build
+    needs: [build, setup]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -235,3 +230,11 @@ jobs:
         run: |
           tools/setup-dev.sh --dry-run --build
           tools/setup-dev.sh --build
+      - name: Check C++ format and static analysis
+        if: runner.os == 'Linux'
+        run: |
+          source tools/dev-env.sh
+          cmake --preset dev -DMOTRACK_BUILD_BENCHMARKS=ON
+          cmake --build --preset dev --parallel 2
+          git ls-files -z -- '*.cpp' '*.hpp' | xargs -0 clang-format --dry-run --Werror
+          git ls-files -z -- 'src/*.cpp' 'tests/*.cpp' 'benchmarks/*.cpp' | xargs -0 -n 1 -P 2 clang-tidy -p build/dev
