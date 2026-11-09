@@ -1472,7 +1472,9 @@ void writeTrackerDocument(const QString& path, const WorkspaceDocument& document
     writeXml(path, prepareTrackerDocument(path, document, mediaProjectPath));
 }
 
-void writeTrackerArchiveDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled)
+namespace
+{
+std::string prepareArchiveMember(const WorkspaceDocument& document, const std::atomic_bool* cancelled)
 {
     require(!cancelled || !cancelled->load());
     if (!document.archivePayload || !document.archiveMember || !document.trackerSource)
@@ -1509,7 +1511,61 @@ void writeTrackerArchiveDocument(const QString& path, const WorkspaceDocument& d
     auto exported = parseLegacyProject(xml);
     archive.resolveMedia(exported, member);
     require(exported.clip.mediaReferences == baseline.clip.mediaReferences);
-    writeTrackerArchive(path, archive, member, xml, cancelled);
+    return xml;
+}
+} // namespace
+
+void writeTrackerArchiveDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled)
+{
+    writeTrackerArchiveDocuments(path, std::span(&document, 1), cancelled);
+}
+
+void writeTrackerArchiveDocuments(const QString& path, std::span<const WorkspaceDocument> documents, const std::atomic_bool* cancelled)
+{
+    require(!cancelled || !cancelled->load());
+    require(!documents.empty() && documents.front().archivePayload);
+    const auto& source = *documents.front().archivePayload;
+    require(documents.size() <= static_cast<std::size_t>(source.projects().size()));
+    std::unordered_set<std::string> members;
+    const QFileInfo target(path);
+    const auto parent = QFileInfo(target.absolutePath()).canonicalFilePath();
+    require(!parent.isEmpty() && !target.isSymLink());
+    const auto destination = parent + '/' + target.fileName();
+    for (const auto& document : documents)
+    {
+        require(!cancelled || !cancelled->load());
+        require(document.archivePayload && document.archiveMember && document.archivePayload->sourceDigest() == source.sourceDigest() &&
+                members.insert(*document.archiveMember).second);
+        require(!QFileInfo(document.archivePayload->sourcePath()).isSymLink());
+        // Independently reopened companions own separate source/extraction trees. Protect every
+        // owner's paths, even though the common original bytes are read only from the first owner.
+        for (const auto& owned : {document.archivePayload->root(), QFileInfo(document.archivePayload->sourcePath()).absolutePath()})
+        {
+            const auto root = QFileInfo(owned).canonicalFilePath();
+            require(!root.isEmpty() && destination != root && !destination.startsWith(root + '/'));
+        }
+    }
+    std::vector<std::string> rendered;
+    rendered.reserve(documents.size());
+    qint64 remaining = MAX_TRACKER_EXTRACTED_BYTES;
+    for (const auto& document : documents)
+    {
+        auto xml = prepareArchiveMember(document, cancelled);
+        require(xml.size() <= MAX_TRACKER_XML_BYTES && std::cmp_less_equal(xml.size(), remaining));
+        remaining -= static_cast<qint64>(xml.size());
+        rendered.push_back(std::move(xml));
+    }
+    // Create borrowed views only once their owners can no longer move (including small strings).
+    std::vector<TrackerArchiveReplacement> replacements;
+    replacements.reserve(documents.size());
+    for (std::size_t i = 0; i < documents.size(); ++i)
+    {
+        const auto& member = documents[i].archiveMember;
+        if (!member)
+            throw ProjectError("Tracker archive export requires a selected project.");
+        replacements.push_back({.member = QString::fromStdString(*member), .xml = rendered[i]});
+    }
+    writeTrackerArchive(path, source, replacements, cancelled);
 }
 
 } // namespace motrack

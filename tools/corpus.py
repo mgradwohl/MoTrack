@@ -65,6 +65,9 @@ def load_manifest(path=CORPUS / "manifest.json"):
             raise ValueError("Archive sessions require an explicit project member and independent track expectations")
     by_id = {case["id"]: case for case in manifest["cases"]}
     for case in manifest["cases"]:
+        if case.get("native_archive_group_roundtrip") and (case["id"] not in {"multitab-images", "archived-movie"}
+                                                        or len(case.get("session_archive_tabs", [])) != 2):
+            raise ValueError("Grouped archive acceptance requires its two pinned experiments")
         if "session_archive_tabs" not in case:
             continue
         tabs = case["session_archive_tabs"]
@@ -585,6 +588,16 @@ def linked_media_roundtrip_expected(case):
     expected = json.loads(expected_path(case).read_text(encoding="utf-8"))["project"]
     expected["point_masses"][0]["mass"] = 5.0
     expected["point_masses"][0]["samples"].insert(1, {"frame": 1, "image": [8.0, 12.0], "world": [3.0, 2.0]})
+    return expected
+
+
+def secondary_archive_roundtrip_expected(case):
+    if case["id"] != "secondary-images":
+        raise ValueError("Grouped archive edits require the pinned independent secondary experiment")
+    expected = json.loads(expected_path(case).read_text(encoding="utf-8"))["project"]
+    expected["point_masses"][0]["mass"] = 7.0
+    # Independent fixed coordinates: X=(9-2)/2, Y=(20-11)/4.
+    expected["point_masses"][0]["samples"].insert(1, {"frame": 1, "image": [9.0, 11.0], "world": [3.5, 2.25]})
     return expected
 
 
@@ -1113,8 +1126,27 @@ def verify_media_package_export(original, exported, selected_xml, case, clip_mod
         raise ValueError("Media package ZIP integrity check failed") from error
 
 
-def verify_archive_media_export(original, exported, selected_xml, member_count=7, clip_mode=None, *, movie=False, calibrated=False, keyed_case=None, authoring=None, vector_scenario=None, vector_case=None):
-    """Independent ZIP reader: only the selected XML and its encoding metadata may change."""
+def patch_expected_secondary_archive_member(document):
+    """The second experiment has different mass/position edits and retains all other XML."""
+    patch_expected_linked_media(document, relocate=False)
+    mass = next(obj for obj in document.getElementsByTagName("object")
+                if obj.getAttribute("class") == "org.opensourcephysics.cabrillo.tracker.PointMass")
+    def property(parent, name):
+        return next(node for node in parent.childNodes if node.nodeType == node.ELEMENT_NODE
+                    and node.tagName == "property" and node.getAttribute("name") == name)
+    def scalar(parent, name, value):
+        node = property(parent, name)
+        for child in list(node.childNodes):
+            node.removeChild(child)
+        node.appendChild(document.createTextNode(value))
+    scalar(mass, "mass", "7")
+    frame = property(property(mass, "framedata"), "[1]").getElementsByTagName("object")[0]
+    scalar(frame, "x", "9")
+    scalar(frame, "y", "11")
+
+
+def verify_archive_media_export(original, exported, selected_xml, member_count=7, clip_mode=None, *, movie=False, calibrated=False, keyed_case=None, authoring=None, vector_scenario=None, vector_case=None, grouped=False):
+    """Independent ZIP reader: only requested XML and its encoding metadata may change."""
     if max(original.stat().st_size, exported.stat().st_size) > 1024 * 1024:
         raise ValueError("Archive reference exceeds the small-fixture limit")
     original_bytes, output_bytes = original.read_bytes(), exported.read_bytes()
@@ -1125,20 +1157,29 @@ def verify_archive_media_export(original, exported, selected_xml, member_count=7
             raise ValueError("Archive inventory, comment or member integrity changed")
         ordered_left = sorted(left, key=lambda entry: entry.header_offset)
         ordered_right = sorted(right, key=lambda entry: entry.header_offset)
+        if [entry.filename for entry in ordered_left] != [entry.filename for entry in ordered_right]:
+            raise ValueError("Archive physical record order changed")
+        changed = {"experiment.trk", "second.trk"} if grouped else {"experiment.trk"}
+        if not changed.issubset({entry.filename for entry in left}):
+            raise ValueError("Archive lacks a requested edited experiment")
         for a, b in zip(left, right):
             for field in ["filename", "date_time", "comment", "extra", "create_system", "create_version", "extract_version",
                           "internal_attr", "external_attr", "volume"]:
                 if getattr(a, field) != getattr(b, field):
                     raise ValueError(f"Archive member metadata changed: {a.filename}/{field}")
-            if a.filename == "experiment.trk":
+            if a.filename in changed:
                 if b.compress_type != zipfile.ZIP_STORED or b.flag_bits != a.flag_bits & 0x0800:
                     raise ValueError("Unexpected edited-member encoding")
                 with minidom.parseString(before.read(a)) as expected, minidom.parseString(after.read(b)) as actual:
-                    patch_expected_linked_media(expected, relocate=False, movie=movie, clip_mode=clip_mode, calibrated=calibrated,
-                                                keyed_case=keyed_case, authoring=authoring, vector_scenario=vector_scenario, vector_case=vector_case)
+                    if a.filename == "second.trk":
+                        patch_expected_secondary_archive_member(expected)
+                    else:
+                        patch_expected_linked_media(expected, relocate=False, movie=movie, clip_mode=clip_mode, calibrated=calibrated,
+                                                    keyed_case=keyed_case, authoring=authoring, vector_scenario=vector_scenario, vector_case=vector_case)
                     if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
                         raise ValueError("Archive export changed XML beyond the requested mass, mark, clip and calibration")
-                selected_xml.write_bytes(after.read(b))
+                if a.filename == "experiment.trk":
+                    selected_xml.write_bytes(after.read(b))
             else:
                 if before.read(a) != after.read(b):
                     raise ValueError("Untouched archive payload changed")
@@ -1155,7 +1196,7 @@ def verify_archive_media_export(original, exported, selected_xml, member_count=7
             old_record = bytearray(original_bytes[old_pos:old_pos + old_len])
             new_record = bytearray(output_bytes[new_pos:new_pos + new_len])
             old_record[42:46] = new_record[42:46]
-            if a.filename == "experiment.trk":
+            if a.filename in changed:
                 old_record[8:12] = new_record[8:12]
                 old_record[16:28] = new_record[16:28]
             if old_record != new_record:
@@ -2312,10 +2353,14 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
             if archive.getinfo(member).file_size > MAX_XML_BYTES or archive.read(member) != project_path(template, cache).read_bytes():
                 raise ValueError("Archive tab differs from its pinned independent source")
     expected = [json.loads(expected_path(template).read_text(encoding="utf-8"))["project"] for template in templates]
+    grouped = mode in {"archive-group-forward", "archive-group-reverse"}
+    if grouped and (case["id"] not in {"multitab-images", "archived-movie"} or len(templates) != 2
+                    or templates[1]["id"] != "secondary-images"):
+        raise ValueError("Grouped archive edits require both independent pinned experiments")
     if probe:
         exported = output / "motrack-export.trz"
         vector_scenario = mode.split("-", 4)[4] if mode.startswith("media-vectors-") else None
-        export_mode = mode if movie or vector_scenario else "multitab-archive-images"
+        export_mode = mode if movie or vector_scenario or grouped else "multitab-archive-images"
         calibrated = movie and mode.endswith("-movie-calibration")
         keyed = movie and mode.endswith("-movie-keyed-calibration")
         authoring = mode.split("-movie-tracks-", 1)[1] if "-movie-tracks-" in mode else None
@@ -2323,7 +2368,9 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
         run([str(Path(probe).resolve()), "--export-" + export_mode, str(source), str(exported)])
         verify_archive_media_export(source, exported, output / "exported-member.trk", member_count=9 if movie else 8,
                                     clip_mode=clip_mode, movie=movie, calibrated=calibrated, keyed_case=templates[0] if keyed else None,
-                                    authoring=authoring, vector_scenario=vector_scenario, vector_case=templates[0])
+                                    authoring=authoring, vector_scenario=vector_scenario, vector_case=templates[0], grouped=grouped)
+        if grouped:
+            expected[1] = secondary_archive_roundtrip_expected(templates[1])
         if vector_scenario:
             expected[0], templates[0] = media_vector_roundtrip_expected(templates[0], vector_scenario)
         elif authoring:
@@ -2391,7 +2438,7 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
                   "saved_media_inventories": {"save": saved_inventory, "reopen": inventory()}}
         try:
             keys = template.get("session_key_frames", [[0, 1, 2]])
-            validate_session(template, report, manifest, desired, keys if probe and i == 0 else None)
+            validate_session(template, report, manifest, desired, keys if probe and (i == 0 or grouped) else None)
         except ValueError as error:
             raise ValueError(f"{case['id']}/{member}: {error}\nTracker tab snapshots (bounded): {json.dumps(report)[:24000]}") from error
         if probe:
@@ -2402,7 +2449,7 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
             compare(desired, json.loads(native.read_text(encoding="utf-8")), manifest["tolerance"], member + ".reimport")
         reports.append({"member": member, "tracker_session": report, "expected": desired})
     level = "motrack_archive_tabs_roundtrip" if probe else "tracker_archive_tabs_resave"
-    label = case["id"] + ("-" + mode if probe and (movie or mode.startswith("media-vectors-")) else "")
+    label = case["id"] + ("-" + mode if probe and (movie or grouped or mode.startswith("media-vectors-")) else "")
     (cache / "reports" / f"{label}-{level}.json").write_text(
         json.dumps({"verification_level": level, "tabs": reports}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"{label}: passed ({level}; all loaded tabs saved and individually reopened)")
@@ -2412,6 +2459,8 @@ def check_sessions(manifest, cache, java, probe=None):
     if sys.platform != "linux":
         raise ValueError("Session checks currently require Linux with Xvfb")
     modes = [("linked-movie", "native_linked_movie_roundtrip"),
+             ("archive-group-forward", "native_archive_group_roundtrip"),
+             ("archive-group-reverse", "native_archive_group_roundtrip"),
              ("linked-movie-keyed-calibration", "native_keyed_movie_roundtrip"),
              ("linked-movie-calibration", "native_linked_movie_calibration_roundtrip"),
              ("linked-movie-clip", "native_linked_movie_clip_roundtrip"),

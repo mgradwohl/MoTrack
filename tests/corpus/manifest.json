@@ -3448,6 +3448,7 @@
     },
     {
       "id": "archived-movie",
+      "native_archive_group_roundtrip": true,
       "tracker_version": "6.3.5",
       "file": "archived-movie.trz",
       "local_file": "fixtures/linked-mov/archived-movie.trz",
@@ -3724,6 +3725,7 @@
     },
     {
       "id": "multitab-images",
+      "native_archive_group_roundtrip": true,
       "tracker_version": "6.3.5",
       "file": "multitab-images.trz",
       "local_file": "fixtures/linked-images/multitab-images.trz",

@@ -59,17 +59,27 @@ class CorpusTests(unittest.TestCase):
             with self.subTest(case=case_id):
                 self.check_multitab_session_case(case_id)
 
-    def check_multitab_session_case(self, case_id):
+    def test_grouped_sessions_check_both_edited_tabs_and_native_reimports(self):
+        for case_id in ["multitab-images", "archived-movie"]:
+            with self.subTest(case=case_id):
+                self.check_multitab_session_case(case_id, grouped=True)
+
+    def check_multitab_session_case(self, case_id, grouped=False):
         manifest = corpus.load_manifest()
         case = next(c for c in manifest["cases"] if c["id"] == case_id)
         templates = [next(c for c in manifest["cases"] if c["id"] == tab["case"])
                      for tab in case["session_archive_tabs"]]
-        snapshots = []
-        for template in templates:
+        snapshots, desired = [], []
+        for index, template in enumerate(templates):
             expected = json.loads(corpus.expected_path(template).read_text(encoding="utf-8"))["project"]
+            if grouped:
+                expected = (corpus.linked_media_roundtrip_expected(template) if index == 0
+                            else corpus.secondary_archive_roundtrip_expected(template))
+            desired.append(expected)
             mass = expected["point_masses"][0]
             snapshots.append({"tracks": [template["session_tracks"][0], {
                 **template["session_tracks"][1], "mass": mass["mass"],
+                **({"key_frames": [0, 1, 2]} if grouped else {}),
                 "samples": [{"frame": sample["frame"], "points": [sample["image"]], "world": sample["world"]}
                             for sample in mass["samples"]]}],
                 "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
@@ -80,7 +90,7 @@ class CorpusTests(unittest.TestCase):
         (self.root / "reports").mkdir(exist_ok=True)
         for mutation in [None, "missing", "duplicate", "non-object", "second-mass", "second-pixels", "second-origin",
                          "first-bytes", "second-bytes", "cache-policy"]:
-            output = self.root / (case_id + "-" + (mutation or "valid"))
+            output = self.root / (case_id + ("-group" if grouped else "") + "-" + (mutation or "valid"))
             output.mkdir()
             calls, homes = [], []
             observed = copy.deepcopy(snapshots)
@@ -89,6 +99,15 @@ class CorpusTests(unittest.TestCase):
             elif mutation == "second-origin": observed[1]["calibration"]["keys"][0]["origin"][0] += 1
 
             def session(command, *, display=None):
+                if grouped and Path(command[0]).name == "native-probe":
+                    self.assertIsNone(display)
+                    if command[1].startswith("--export-"):
+                        self.assertEqual(command[1], "--export-archive-group-forward")
+                        Path(command[3]).write_bytes(corpus.local_fixture_path(case).read_bytes())
+                    else:
+                        index = int(Path(command[1]).stem.rsplit("-", 1)[1])
+                        Path(command[2]).write_text(json.dumps(desired[index]), encoding="utf-8")
+                    return
                 self.assertEqual(display, ":77")
                 self.assertIn("-Xmx256m", command)
                 for template in templates:
@@ -105,8 +124,9 @@ class CorpusTests(unittest.TestCase):
                           "view_preparation": "expand_visit_custom_tables_restore_selection", "loader_callbacks": 2,
                           "cache_policy": "none" if mutation == "cache-policy" else "private_persistent_osp_cache"}
                 if stage == "save-tabs":
-                    self.assertEqual(source.parent, output / "input")
-                    self.assertEqual(list(source.parent.iterdir()), [source])
+                    self.assertEqual(source.parent, output if grouped else output / "input")
+                    if not grouped:
+                        self.assertEqual(list(source.parent.iterdir()), [source])
                     self.assertEqual(source.read_bytes(), corpus.local_fixture_path(case).read_bytes())
                     self.assertEqual([Path(arg).name for arg in args[3:]], ["experiment.trk", "second.trk"])
                     for i, template in enumerate(templates):
@@ -135,17 +155,21 @@ class CorpusTests(unittest.TestCase):
                     report["loaded"] = observed[index]
                 (destination / f"session-{stage}.json").write_text(json.dumps(report), encoding="utf-8")
 
-            with self.subTest(mutation=mutation), patch.object(corpus, "run", side_effect=session):
+            with self.subTest(mutation=mutation), patch.object(corpus, "run", side_effect=session), \
+                    (patch.object(corpus, "verify_archive_media_export") if grouped else nullcontext()):
+                arguments = {"probe": "native-probe", "mode": "archive-group-forward"} if grouped else {}
                 if mutation:
                     with self.assertRaisesRegex(ValueError, "checksum" if mutation.endswith("-bytes") else "."):
                         corpus.check_archive_tabs(case, manifest, self.root, "java", self.root / "classes",
-                                                  self.root / "reference.jar", output, ":77")
+                                                  self.root / "reference.jar", output, ":77", **arguments)
                 else:
                     corpus.check_archive_tabs(case, manifest, self.root, "java", self.root / "classes",
-                                              self.root / "reference.jar", output, ":77")
+                                              self.root / "reference.jar", output, ":77", **arguments)
                     self.assertEqual([stage for _, stage in calls], ["save-tabs", "reopen", "reopen"])
                     self.assertEqual(len(set(homes)), 3)
-                    report = json.loads((self.root / "reports" / f"{case_id}-tracker_archive_tabs_resave.json").read_text())
+                    label = (f"{case_id}-archive-group-forward-motrack_archive_tabs_roundtrip" if grouped
+                             else f"{case_id}-tracker_archive_tabs_resave")
+                    report = json.loads((self.root / "reports" / f"{label}.json").read_text())
                     self.assertEqual([tab["member"] for tab in report["tabs"]], ["experiment.trk", "second.trk"])
                     self.assertTrue(all(set(tab["tracker_session"]["saved_media_inventories"]) == {"save", "reopen"}
                                         for tab in report["tabs"]))
@@ -243,6 +267,48 @@ class CorpusTests(unittest.TestCase):
             build(exported, True, mutation)
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
                 corpus.verify_archive_media_export(original, exported, selected)
+
+    def test_grouped_archive_oracle_requires_distinct_edits_and_preserves_all_other_bytes(self):
+        case = next(c for c in corpus.load_manifest()["cases"] if c["id"] == "multitab-images")
+        original, exported, selected = (self.root / name for name in ["original.trz", "edited.trz", "selected.trk"])
+        # Normalize both fixture copies to stored entries so Python's independent ZIP writer
+        # preserves untouched local records exactly; native tests also use Java-deflated records.
+        def build(path, edited=False, mutation=None):
+            with zipfile.ZipFile(corpus.local_fixture_path(case)) as source, zipfile.ZipFile(path, "w") as output:
+                output.comment = source.comment
+                for entry in source.infolist():
+                    info, data = copy.copy(entry), source.read(entry)
+                    info.compress_type = zipfile.ZIP_STORED
+                    if edited and entry.filename in {"experiment.trk", "second.trk"}:
+                        with corpus.minidom.parseString(data) as document:
+                            if entry.filename == "experiment.trk":
+                                corpus.patch_expected_linked_media(document, relocate=False)
+                            elif mutation != "second-unedited":
+                                corpus.patch_expected_secondary_archive_member(document)
+                            if mutation == entry.filename:
+                                mass = next(obj for obj in document.getElementsByTagName("object")
+                                            if obj.getAttribute("class").endswith(".PointMass"))
+                                prop = next(node for node in mass.childNodes if node.nodeType == node.ELEMENT_NODE
+                                            and node.getAttribute("name") == "mass")
+                                prop.firstChild.data = "999"
+                            data = document.toxml(encoding="utf-8")
+                    if mutation == "opaque" and entry.filename == "support/opaque.bin":
+                        data += b"changed"
+                    output.writestr(info, data)
+        build(original)
+        build(exported, True)
+        corpus.verify_archive_media_export(original, exported, selected, member_count=8, grouped=True)
+        for mutation in ["experiment.trk", "second.trk", "second-unedited", "opaque"]:
+            build(exported, True, mutation)
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                corpus.verify_archive_media_export(original, exported, selected, member_count=8, grouped=True)
+        secondary = next(c for c in corpus.load_manifest()["cases"] if c["id"] == "secondary-images")
+        expected = corpus.secondary_archive_roundtrip_expected(secondary)
+        self.assertEqual(expected["point_masses"][0]["mass"], 7)
+        self.assertEqual(expected["point_masses"][0]["samples"][1],
+                         {"frame": 1, "image": [9, 11], "world": [3.5, 2.25]})
+        with self.assertRaises(ValueError):
+            corpus.secondary_archive_roundtrip_expected(case)
 
     def test_image_package_oracle_checks_inventory_media_and_all_xml(self):
         case = next(c for c in corpus.load_manifest()["cases"] if c["id"] == "linked-images")
@@ -534,7 +600,8 @@ class CorpusTests(unittest.TestCase):
                 patch.object(corpus, "check_archive_tabs") as check:
             corpus.check_sessions(manifest, self.root, "java", "native-probe")
         self.assertEqual([call.args[-1] for call in check.call_args_list],
-                         ["archive-movie", "archive-movie-clip", "archive-movie-clip-single", "paired-archive-movie",
+                         ["archive-group-forward", "archive-group-reverse",
+                          "archive-movie", "archive-movie-clip", "archive-movie-clip-single", "paired-archive-movie",
                           "archive-movie-calibration", "paired-archive-movie-calibration"])
         self.assertTrue(all(call.args[0]["id"] == "archived-movie" for call in check.call_args_list))
 

@@ -71,8 +71,12 @@ unchanged. Six image/MOV vector-authoring scenarios passed all 48 actual-Tracker
 [PR #145](https://github.com/mgradwohl/MoTrack/pull/145), with reviewed head `23b3a10` and all six checks
 passing in [CI 42620528465](https://github.com/mgradwohl/MoTrack/actions/runs/42620528465). The following
 varying-coordinate extension refreshes the same issue and Tracker #10 discussion; its 28 baseline
-sessions and 56 edited modes await actual-Tracker acceptance. This does not resolve the dependent-member loss or mixed-track
+sessions and 56 edited modes passed actual Tracker acceptance in [PR #147](https://github.com/mgradwohl/MoTrack/pull/147), reviewed at `dc8fed8`, with all six checks passing in [CI 42655960136](https://github.com/mgradwohl/MoTrack/actions/runs/42655960136). This does not resolve the dependent-member loss or mixed-track
 snapping model, and does not close #63 or the broader media persistence issue #65.
+
+For the multi-member archive foundation, Tracker #18 and its complete discussion were refreshed on **2026-11-09**. The report remains open: switching/closing another tab pauses AutoTracker and leaves inconsistent controls. Its maintainer linked the pause to video stepping. [MoTrack #69](https://github.com/mgradwohl/MoTrack/issues/69) remains open; the storage writer does not address job ownership or desktop tab switching. Separate workspace sessions must retain active tracking when another tab is selected or closed.
+
+The baseline tabset workflow is now tracked explicitly in [MoTrack #150](https://github.com/mgradwohl/MoTrack/issues/150); moving reference frames discovered in the real Diabolo archive are tracked in [MoTrack #148](https://github.com/mgradwohl/MoTrack/issues/148). Neither discovery is an accepted full round trip.
 
 ## Defects discovered by the reference harness
 

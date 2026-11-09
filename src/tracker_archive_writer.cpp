@@ -6,12 +6,14 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QSaveFile>
 #include <QtEndian>
 
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace motrack
@@ -74,7 +76,7 @@ struct Entry
     QByteArray selectedLocal;
     qint64 offset = 0;
     qint64 end = 0;
-    bool selected = false;
+    std::optional<std::size_t> replacement;
 };
 
 struct Directory
@@ -84,7 +86,7 @@ struct Directory
     qint64 offset = 0;
 };
 
-Directory readDirectory(QFile& input, const QString& member, const std::atomic_bool* cancelled)
+Directory readDirectory(QFile& input, const QHash<QString, std::size_t>& replacements, const std::atomic_bool* cancelled)
 {
     Directory result;
     const auto tailOffset = std::max(qint64{0}, input.size() - 65557);
@@ -109,7 +111,7 @@ Directory readDirectory(QFile& input, const QString& member, const std::atomic_b
     const auto directory = readAt(input, result.offset, size);
     result.entries.reserve(count);
     qsizetype position = 0;
-    unsigned selectedCount = 0;
+    std::vector<bool> seen(static_cast<std::size_t>(replacements.size()), false);
     for (unsigned i = 0; i < count; ++i)
     {
         checkCancelled(cancelled);
@@ -128,8 +130,15 @@ Directory readDirectory(QFile& input, const QString& member, const std::atomic_b
         require(number<quint16>(central, 6) <= 20 && (flags & ~0x080e) == 0 && (method == 0 || method == 8) &&
                 (method != 0 || (flags & 6) == 0) && nameSize > 0 && name.toUtf8() == nameBytes &&
                 ((flags & 0x0800) != 0 || std::ranges::all_of(nameBytes, [](char c) { return static_cast<unsigned char>(c) < 128; })));
-        const bool selected = name == member;
-        selectedCount += selected ? 1u : 0u;
+        const auto match = replacements.constFind(name);
+        const bool selected = match != replacements.cend();
+        std::optional<std::size_t> replacement;
+        if (selected)
+        {
+            replacement = *match;
+            require(!seen[*match]);
+            seen[*match] = true;
+        }
         checkExtra(central.mid(46 + nameSize, extraSize), selected);
         const auto offset = number<quint32>(central, 42);
         auto local = readAt(input, offset, 30);
@@ -146,7 +155,7 @@ Directory readDirectory(QFile& input, const QString& member, const std::atomic_b
         }
         const auto compressed = number<quint32>(central, 20);
         const auto uncompressed = number<quint32>(central, 24);
-        require(compressed <= MAX_TRACKER_ARCHIVE_BYTES && uncompressed <= qint64{512} * 1024 * 1024 &&
+        require(compressed <= MAX_TRACKER_ARCHIVE_BYTES && uncompressed <= MAX_TRACKER_EXTRACTED_BYTES &&
                 (method != 0 || compressed == uncompressed));
         auto entryEnd = offset + localSize + compressed;
         if ((flags & 8) != 0)
@@ -162,9 +171,9 @@ Directory readDirectory(QFile& input, const QString& member, const std::atomic_b
                                   .selectedLocal = selected ? std::move(local) : QByteArray{},
                                   .offset = offset,
                                   .end = entryEnd,
-                                  .selected = selected});
+                                  .replacement = replacement});
     }
-    require(position == directory.size() && selectedCount == 1);
+    require(position == directory.size() && std::ranges::all_of(seen, [](bool matched) { return matched; }));
     std::vector<std::pair<qint64, qint64>> ranges;
     ranges.reserve(result.entries.size());
     for (const auto& entry : result.entries)
@@ -180,7 +189,7 @@ Directory readDirectory(QFile& input, const QString& member, const std::atomic_b
     return result;
 }
 
-quint32 checksum(const std::string& bytes)
+quint32 checksum(std::string_view bytes)
 {
     static constexpr auto TABLE = []
     {
@@ -226,10 +235,32 @@ void writeBytes(QIODevice& output, const QByteArray& bytes)
 void writeTrackerArchive(
     const QString& path, const TrackerArchive& source, const QString& member, const std::string& xml, const std::atomic_bool* cancelled)
 {
+    const std::array replacements{TrackerArchiveReplacement{.member = member, .xml = xml}};
+    writeTrackerArchive(path, source, replacements, cancelled);
+}
+
+void writeTrackerArchive(const QString& path,
+                         const TrackerArchive& source,
+                         std::span<const TrackerArchiveReplacement> replacements,
+                         const std::atomic_bool* cancelled)
+{
     checkCancelled(cancelled);
-    require(path.endsWith(".trz", Qt::CaseInsensitive) && source.projects().contains(member) && !xml.empty() &&
-            xml.size() <= MAX_TRACKER_XML_BYTES);
-    static_cast<void>(parseLegacyProject(xml));
+    require(path.endsWith(".trz", Qt::CaseInsensitive) && !replacements.empty() &&
+            replacements.size() <= static_cast<std::size_t>(source.projects().size()));
+    QHash<QString, std::size_t> replacementIndexes;
+    qint64 remaining = MAX_TRACKER_EXTRACTED_BYTES;
+    for (std::size_t i = 0; i < replacements.size(); ++i)
+    {
+        checkCancelled(cancelled);
+        const auto& replacement = replacements[i];
+        require(source.projects().contains(replacement.member) && !replacementIndexes.contains(replacement.member) &&
+                !replacement.xml.empty() && replacement.xml.size() <= MAX_TRACKER_XML_BYTES);
+        const auto size = static_cast<qint64>(replacement.xml.size());
+        require(size <= remaining);
+        remaining -= size;
+        static_cast<void>(parseLegacyProject(replacement.xml));
+        replacementIndexes.insert(replacement.member, i);
+    }
     const QFileInfo target(path);
     require(!target.isSymLink(), "Tracker archive output cannot replace a file alias.");
     const auto parent = QFileInfo(target.absolutePath()).canonicalFilePath();
@@ -259,40 +290,67 @@ void writeTrackerArchive(
     input.close();
     original.close();
     require(input.open(QIODevice::ReadOnly), "Could not reopen the verified Tracker archive source.");
-    auto directory = readDirectory(input, member, cancelled);
-    const auto selected = std::ranges::find_if(directory.entries, [](const Entry& entry) { return entry.selected; });
-    require(selected != directory.entries.end());
-    auto local = selected->selectedLocal;
-    const auto crc = checksum(xml);
-    const auto size = static_cast<quint32>(xml.size());
-    setNumber<quint16>(local, 6, number<quint16>(local, 6) & 0x0800);
-    setNumber<quint16>(local, 8, 0);
-    setNumber<quint32>(local, 14, crc);
-    setNumber<quint32>(local, 18, size);
-    setNumber<quint32>(local, 22, size);
-    const qint64 delta = local.size() + static_cast<qint64>(xml.size()) - (selected->end - selected->offset);
-    require(input.size() + delta > 0 && input.size() + delta <= MAX_TRACKER_ARCHIVE_BYTES);
-    const auto stagedPath = temporary.filePath("validated.trz");
-    QFile staged(stagedPath);
-    require(staged.open(QIODevice::WriteOnly | QIODevice::NewOnly), "Could not create a staged Tracker archive.");
-    copyRange(input, staged, 0, selected->offset, cancelled);
-    writeBytes(staged, local);
-    require(staged.write(xml.data(), static_cast<qint64>(xml.size())) == static_cast<qint64>(xml.size()),
-            "Could not write the edited Tracker archive member.");
-    copyRange(input, staged, selected->end, directory.offset, cancelled);
-    for (auto& entry : directory.entries)
+    auto directory = readDirectory(input, replacementIndexes, cancelled);
+    // Local records and central-directory records need not use the same ordering.
+    // Compute all final offsets first, but leave the directory itself in its original order.
+    std::vector<std::size_t> physicalOrder;
+    physicalOrder.reserve(directory.entries.size());
+    for (std::size_t i = 0; i < directory.entries.size(); ++i)
+        physicalOrder.push_back(i);
+    std::ranges::sort(physicalOrder, {}, [&directory](std::size_t index) { return directory.entries[index].offset; });
+    qint64 delta = 0;
+    qint64 extractedSize = 0;
+    for (const auto index : physicalOrder)
     {
         checkCancelled(cancelled);
-        if (entry.offset > selected->offset)
-            setNumber<quint32>(entry.central, 42, static_cast<quint32>(entry.offset + delta));
-        if (entry.selected)
+        auto& entry = directory.entries[index];
+        const auto finalOffset = entry.offset + delta;
+        require(finalOffset >= 0 && finalOffset <= MAX_TRACKER_ARCHIVE_BYTES);
+        setNumber<quint32>(entry.central, 42, static_cast<quint32>(finalOffset));
+        if (entry.replacement)
         {
+            const auto xml = replacements[*entry.replacement].xml;
+            const auto crc = checksum(xml);
+            const auto size = static_cast<quint32>(xml.size());
+            auto& local = entry.selectedLocal;
+            setNumber<quint16>(local, 6, number<quint16>(local, 6) & 0x0800);
+            setNumber<quint16>(local, 8, 0);
+            setNumber<quint32>(local, 14, crc);
+            setNumber<quint32>(local, 18, size);
+            setNumber<quint32>(local, 22, size);
             setNumber<quint16>(entry.central, 8, number<quint16>(entry.central, 8) & 0x0800);
             setNumber<quint16>(entry.central, 10, 0);
             setNumber<quint32>(entry.central, 16, crc);
             setNumber<quint32>(entry.central, 20, size);
             setNumber<quint32>(entry.central, 24, size);
+            delta += local.size() + static_cast<qint64>(xml.size()) - (entry.end - entry.offset);
         }
+        extractedSize += number<quint32>(entry.central, 24);
+        require(extractedSize <= MAX_TRACKER_EXTRACTED_BYTES);
+    }
+    require(input.size() + delta > 0 && input.size() + delta <= MAX_TRACKER_ARCHIVE_BYTES);
+    const auto stagedPath = temporary.filePath("validated.trz");
+    QFile staged(stagedPath);
+    require(staged.open(QIODevice::WriteOnly | QIODevice::NewOnly), "Could not create a staged Tracker archive.");
+    for (const auto index : physicalOrder)
+    {
+        checkCancelled(cancelled);
+        const auto& entry = directory.entries[index];
+        require(staged.pos() == number<quint32>(entry.central, 42));
+        if (entry.replacement)
+        {
+            const auto xml = replacements[*entry.replacement].xml;
+            writeBytes(staged, entry.selectedLocal);
+            require(staged.write(xml.data(), static_cast<qint64>(xml.size())) == static_cast<qint64>(xml.size()),
+                    "Could not write an edited Tracker archive member.");
+        }
+        else
+            copyRange(input, staged, entry.offset, entry.end, cancelled);
+    }
+    require(staged.pos() == directory.offset + delta);
+    for (auto& entry : directory.entries)
+    {
+        checkCancelled(cancelled);
         writeBytes(staged, entry.central);
     }
     setNumber<quint32>(directory.endRecord, 16, static_cast<quint32>(directory.offset + delta));
@@ -302,9 +360,13 @@ void writeTrackerArchive(
     {
         const auto verified = TrackerArchive::open(stagedPath, cancelled);
         require(verified.projects() == source.projects());
-        QFile edited(verified.projectPath(member));
-        require(edited.open(QIODevice::ReadOnly) && edited.size() == static_cast<qint64>(xml.size()) &&
-                edited.readAll().toStdString() == xml);
+        for (const auto& replacement : replacements)
+        {
+            checkCancelled(cancelled);
+            QFile edited(verified.projectPath(replacement.member));
+            require(edited.open(QIODevice::ReadOnly) && edited.size() == static_cast<qint64>(replacement.xml.size()) &&
+                    edited.readAll().toStdString() == replacement.xml);
+        }
     }
     require(staged.open(QIODevice::ReadOnly), "Could not reopen the staged Tracker archive.");
     QSaveFile output(path);
