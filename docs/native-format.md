@@ -807,7 +807,11 @@ paired saving of the reopened package. Three independent corpus modes require ac
 application results, three-platform CI and review are still required; local/native checks alone are
 not accepted interoperability evidence. Broader movie formats and full export authoring remain unfinished.
 
-Local Windows validation for this package slice passes all ten CTest groups in **127.87 seconds** with
+Local Windows validation at `f18cecd` passes all ten CTest groups in **127.87 seconds** with
 **95.75% C++ line coverage (8897/9292)**, 90 Python corpus tests and all three native package
 export/oracle/reimport modes. All tracked C++ formatting and five changed-source static analyses pass.
 The three existing LLVM function-profile mismatch warnings remain visible.
+
+The subsequent review correction sends the shared image/MOV destination-refusal message through Qt
+translation and adds unfinished entries to all three catalogs. Its rebuilt package tests (12 cases),
+affected-source formatting/static analysis and catalog checks pass; package behavior is unchanged.

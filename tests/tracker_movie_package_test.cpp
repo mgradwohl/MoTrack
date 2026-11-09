@@ -12,6 +12,10 @@
 #include <QTemporaryDir>
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <memory>
+#include <vector>
+
 namespace
 {
 QString fixture(const QString& name = "linked-movie.trk")

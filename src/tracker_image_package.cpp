@@ -145,7 +145,7 @@ void writeTrackerImagePackageCopy(const QString& path,
                                   const std::atomic_bool* cancelled)
 {
     if (!path.endsWith(".trz", Qt::CaseInsensitive) || QFileInfo(path).isSymbolicLink())
-        throw ProjectError("Choose a regular Tracker archive filename.");
+        throw ProjectError(QCoreApplication::translate("TrackerImagePackage", "Choose a regular Tracker archive filename.").toStdString());
     withSaveDestinationLock(
         path, cancelled, [&](const auto& physical) { writeTrackerImagePackage(physical, document, mediaProjectPath, cancelled); });
 }
@@ -156,7 +156,7 @@ void writeTrackerMoviePackageCopy(const QString& path,
                                   const std::atomic_bool* cancelled)
 {
     if (!path.endsWith(".trz", Qt::CaseInsensitive) || QFileInfo(path).isSymbolicLink())
-        throw ProjectError("Choose a regular Tracker archive filename.");
+        throw ProjectError(QCoreApplication::translate("TrackerImagePackage", "Choose a regular Tracker archive filename.").toStdString());
     withSaveDestinationLock(
         path, cancelled, [&](const auto& physical) { writeTrackerMoviePackage(physical, document, mediaProjectPath, cancelled); });
 }
