@@ -121,6 +121,27 @@ A regression copies a live owner's lock identity to an aged claim without an OS 
 so timeout-based theft cannot be masked by native locking support. Both new writes and recovery
 must refuse that claim; the separate terminated-child regression still proves dead-owner recovery.
 
+Native writes, paired writes and recovery share a sibling `stem~` lock. Keeping the complete stem
+lets the filesystem determine case and Unicode aliases; the one-character suffix leaves room for
+Qt's `.rmlock` stale-owner cleanup suffix. Ordinary journals retain `.stem.motrack-save.json`.
+If that name exceeds 248 UTF-8 bytes, the journal uses `stem!`, leaving room for Qt's seven-character
+atomic-write suffix on filesystems with 255-byte filename components. These internal names do not
+change either project format. Both journal forms block new writes, and recovery refuses ambiguous
+simultaneous records. Their process-local identities remain separate even though they share a lock.
+Older lock names are also acquired when they leave the same cleanup margin; an existing oversized
+legacy claim is preserved and reported for attention instead of being ignored or removed unsafely.
+Lock creation errors are distinguished from a live competing writer.
+The Tracker XML reader uses Qt's Unicode and long-path file adapter too, so standard outputs beyond
+Windows' ordinary path-length limit can be reopened. It retains the 32 MiB pre-read bound and rejects
+read errors or a changed length instead of accepting a truncated input.
+
+Regression cases exercise 240-byte ASCII and Unicode stems through native, paired and desktop Save,
+interruption, dead-writer recovery and filesystem-specific case aliases. Existing journal and live-lock
+compatibility remain covered. Local Windows validation passes all eight CTest groups in 163.49 seconds,
+with **95.55% (8479/8874)** production line coverage. Formatting and static analysis pass for all seven
+changed/integrated C++ translation units; three existing LLVM function-mismatch warnings remain visible.
+The filename correction still requires current-revision three-platform CI and review.
+
 After the destination-status review fixes in `7d04cd4`, all six Windows suites and formatting/clang-tidy
 pass; coverage is 95.34% (7679/8054). Both output statuses are refreshed before reporting conflicts or
 read failures, so an early conflict cannot hide or falsely retain a companion commit. The inherited
@@ -364,4 +385,7 @@ failure cases pass locally on Windows at `9d08bd85`. The complete eight-group su
 C++ translation units pass static analysis. Three existing LLVM function-mismatch warnings remain
 visible. The new interval regression deterministically attempts competing writes from the post-commit
 observer before the outer result is stamped. It also checks that a later obsolete write invalidates
-the session's saved state. Current-head three-platform CI and review remain required before merge.
+the session's saved state. Final head `c9f0d30` passes all six required checks in
+[run 42540556261](https://github.com/mgradwohl/MoTrack/actions/runs/42540556261), with **95.47%
+(8204/8593)** combined coverage and both recovered paired-image modes passing actual Tracker
+load/save/fresh reopen and native reimport. Current-head review remains required before merge.
