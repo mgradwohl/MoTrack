@@ -67,8 +67,8 @@ TEST(ArchiveGroup, RetainsBothEditedMembersAfterRelocationAndStandardExport)
     const auto secondId = original.members[1].id;
     const auto& firstOriginalSource = original.members[0].document.trackerSource;
     const auto& secondOriginalSource = original.members[1].document.trackerSource;
-    ASSERT_TRUE(firstOriginalSource);
-    ASSERT_TRUE(secondOriginalSource);
+    if (!firstOriginalSource || !secondOriginalSource)
+        FAIL() << "Expected both original Tracker source envelopes";
     const auto firstSource = firstOriginalSource->xml;
     const auto secondSource = secondOriginalSource->xml;
     motrack::TrackEdits firstEdits;
@@ -92,8 +92,8 @@ TEST(ArchiveGroup, RetainsBothEditedMembersAfterRelocationAndStandardExport)
     EXPECT_EQ(readBytes(reopened.archive->sourcePath()), archiveBytes);
     const auto& firstReopenedSource = reopened.members[0].document.trackerSource;
     const auto& secondReopenedSource = reopened.members[1].document.trackerSource;
-    ASSERT_TRUE(firstReopenedSource);
-    ASSERT_TRUE(secondReopenedSource);
+    if (!firstReopenedSource || !secondReopenedSource)
+        FAIL() << "Expected both reopened Tracker source envelopes";
     EXPECT_EQ(firstReopenedSource->xml, firstSource);
     EXPECT_EQ(secondReopenedSource->xml, secondSource);
     EXPECT_DOUBLE_EQ(reopened.members[0].document.project.pointMasses.front().mass, 5);
@@ -241,7 +241,8 @@ TEST(ArchiveGroup, RejectsAlteredExtractedSourceEvenWhenMetadataMatchesIt)
     const auto originalXml = readBytes(sourcePath);
     const auto modifiedXml = originalXml + "\n<!-- changed extracted source -->\n";
     ASSERT_TRUE(writeBytes(sourcePath, modifiedXml));
-    ASSERT_TRUE(member.document.trackerSource);
+    if (!member.document.trackerSource)
+        FAIL() << "Expected the original Tracker source envelope";
     member.document.trackerSource->xml = modifiedXml.toStdString();
     EXPECT_THROW(motrack::writeArchiveGroup(path, snapshot), motrack::ProjectError);
     EXPECT_EQ(readBytes(path), before);
