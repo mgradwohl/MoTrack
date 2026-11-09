@@ -1070,3 +1070,41 @@ at `b9ca22d593f961a5a1e0b996d1a573f00f34a04d`, Linux job 128866258456 in
 checks green and 95.83% combined C++ coverage. Later revisions still require current-head CI/review.
 This case leaves MoTrack #65 open: it does not establish historical MOV/Open Recent reproduction or
 complete movie/view compatibility.
+
+### Image clip range and stride acceptance
+
+The linked-image fixture adds `linked-image-clip` (frames 1 through 3, stride 2),
+`linked-image-clip-single` (frame 2 only) and `packaged-image-clip` (a new portable archive containing
+the single-frame clip). The existing image archive adds `archive-image-clip` with the strided range.
+Each native mode changes the mass to 5 kg and adds the frame-1 mark at image (8,12), retains all
+original marks and all four source images, and exports after native reopen and original-source removal.
+Independent full-XML and image-byte checks cover even the images and marks outside the active clip.
+Archive/package checks also retain their complete inventory and untouched-member requirements.
+
+The independently expected displayed times are -250 ms at frame 1 and 0 ms at frame 3 for the strided
+clip, and -250 ms at frame 2 for the single-frame clip. These differ from raw media timestamps:
+125, 250 and 375 ms at source frames 1, 2 and 3. Calibration samples use the new clip endpoints.
+The reference inspects decoded frames only within the video's active start/end bounds because Tracker
+clamps seeks outside that interval; it requires each requested frame to be reached. Source frame count
+remains four. After Tracker saves, and again after the separate-process reopen, an independent XML
+oracle reads the complete ordered `ImageVideo.paths` array and resolves every local file or ZIP member.
+Each asset must match the pinned four-image byte count and SHA-256, including frames outside the clip.
+The archived fixture contains the exact same four pinned PNGs. Relative/absolute local paths, file URLs
+and local archive-member references are bounded; network references, missing/reordered entries and
+ambiguous members fail acceptance. Per-stage inventories are retained in the report. The live clip
+is never expanded to inspect excluded frames.
+
+All 84 Python corpus tests pass with this post-resave oracle. Negative regressions corrupt an excluded
+image, redirect its reference to another valid image, remove/reorder entries, and corrupt an excluded ZIP
+member. Actual Tracker acceptance of the new oracle still requires current-head Linux CI.
+
+All four native exports/reimports and independent XML/media oracles pass locally. Windows validation
+passes all nine CTest groups (164.31 s), all 82 Python corpus tests, formatting and static analysis for
+all six changed C++ translation units, with 95.65% production line coverage (8742/9140). The first
+full run hit the save-workflow group's 60-second timeout while static analysis was running; after
+analysis finished, the unchanged group passed in 21.02 seconds. Coverage retains four existing LLVM
+function-mismatch warnings. The Python suite
+rejects incorrect clip bounds/stride/count, raw or displayed time, calibration, pixels, source inventory
+and missing marks, even if all reported application stages agree on the wrong values. Linux CI must
+still pass actual Tracker load/save/fresh reopen and native reimport for all four new modes before
+these edited ranges are accepted as Tracker-compatible. MoTrack #65 remains open.

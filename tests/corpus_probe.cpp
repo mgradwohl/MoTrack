@@ -199,7 +199,7 @@ try
         throw motrack::ProjectError("Interruption probe did not reach the first commit: " + result.diagnostic.toStdString());
     }
     if (args.size() == 4 && (args[1] == "--export-archive-images" || args[1] == "--export-paired-archive-images" ||
-                             args[1] == "--export-multitab-archive-images"))
+                             args[1] == "--export-multitab-archive-images" || args[1] == "--export-archive-image-clip"))
     {
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trz");
@@ -220,6 +220,8 @@ try
             !edits.markPointMass(document.project, 0, {.frame = 1, .x = 8.0, .y = 12.0}) || !edits.undo(document.project) ||
             !edits.redo(document.project))
             throw motrack::ProjectError("Could not edit archived image reference.");
+        if (args[1] == "--export-archive-image-clip" && !edits.setClipRange(document.project, 1, 3, 2))
+            throw motrack::ProjectError("Could not edit the archived image clip.");
         motrack::writeWorkspaceDocument(native, document);
         document = {};
         payload.reset();
@@ -271,8 +273,9 @@ try
         motrack::writeTrackerDocument(args[3], document, native);
         return 0;
     }
-    if (args.size() == 4 &&
-        (args[1] == "--export-linked-images" || args[1] == "--export-paired-linked-images" || args[1] == "--export-packaged-images"))
+    if (args.size() == 4 && (args[1] == "--export-linked-images" || args[1] == "--export-paired-linked-images" ||
+                             args[1] == "--export-packaged-images" || args[1] == "--export-linked-image-clip" ||
+                             args[1] == "--export-linked-image-clip-single" || args[1] == "--export-packaged-image-clip"))
     {
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trk");
@@ -300,6 +303,14 @@ try
             !edits.markPointMass(document.project, 0, {.frame = 1, .x = 8.0, .y = 12.0}) || !edits.undo(document.project) ||
             !edits.redo(document.project))
             throw motrack::ProjectError("Could not edit linked-image reference.");
+        if (args[1] == "--export-linked-image-clip" || args[1] == "--export-linked-image-clip-single" ||
+            args[1] == "--export-packaged-image-clip")
+        {
+            const bool single = args[1] != "--export-linked-image-clip";
+            if (!edits.setClipRange(document.project, single ? 2 : 1, single ? 2 : 3, single ? 1 : 2) || !edits.undo(document.project) ||
+                !edits.redo(document.project))
+                throw motrack::ProjectError("Could not edit the linked-image clip range.");
+        }
         motrack::writeWorkspaceDocument(native, document);
         document = {};
         if (!QFile::remove(source))
@@ -307,7 +318,7 @@ try
         document = motrack::readWorkspaceDocument(native);
         if (args[1] == "--export-paired-linked-images")
             saveAndRecoverPair(args[3], document, native);
-        else if (args[1] == "--export-packaged-images")
+        else if (args[1] == "--export-packaged-images" || args[1] == "--export-packaged-image-clip")
         {
             motrack::writeTrackerImagePackage(args[3], document, native);
             for (int frame = 0; frame < 4; ++frame)

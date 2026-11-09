@@ -327,18 +327,153 @@ class CorpusTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Missing"):
             corpus.verify_linked_image_export_xml(original, output, case)
 
+    def test_image_clip_oracle_checks_range_all_marks_and_excluded_image_bytes(self):
+        manifest = corpus.load_manifest()
+        original_case = next(c for c in manifest["cases"] if c["id"] == "linked-images")
+        original = corpus.local_fixture_path(original_case)
+        media = self.root / "media é & frames"
+        media.mkdir()
+        for asset in original_case["assets"]:
+            (media / asset["file"]).write_bytes(corpus.local_fixture_path(asset).read_bytes())
+        output = self.root / "clip.trk"
+        for single in [False, True]:
+            mode = "single" if single else "stride"
+            expected, case = corpus.linked_image_clip_expected(original_case, single)
+            self.assertEqual(expected["clip"], {"first_frame": 2 if single else 1, "step_size": 1 if single else 2,
+                                               "step_count": 1 if single else 2, "start_ms": -250.0})
+            self.assertEqual([sample["frame"] for sample in expected["point_masses"][0]["samples"]], [0, 1, 2])
+            self.assertEqual(case["session_media"]["frame_count"], 4)
+            self.assertEqual([frame["frame"] for frame in case["session_media"]["frames"]], [2] if single else [1, 2, 3])
+            self.assertEqual(case["session_time_samples"], [{"frame": 2, "time_ms": -250.0}, {"frame": 2, "time_ms": -250.0}]
+                             if single else [{"frame": 1, "time_ms": -250.0}, {"frame": 3, "time_ms": 0.0}])
+            with corpus.minidom.parse(str(original)) as document:
+                corpus.patch_expected_linked_media(document, clip_mode=mode)
+                correct = document.toxml()
+            output.write_text(correct, encoding="utf-8")
+            corpus.verify_linked_image_export_xml(original, output, case, mode)
+            for name, value in [("startframe", "0"), ("stepsize", "3"), ("stepcount", "4"), ("starttime", "0")]:
+                with corpus.minidom.parseString(correct) as document:
+                    clip = next(node for node in document.getElementsByTagName("object")
+                                if node.getAttribute("class") == "org.opensourcephysics.media.core.VideoClip")
+                    field = next(node for node in clip.childNodes if node.nodeType == node.ELEMENT_NODE
+                                 and node.getAttribute("name") == name)
+                    field.firstChild.data = value
+                    output.write_text(document.toxml(), encoding="utf-8")
+                with self.subTest(mode=mode, field=name), self.assertRaisesRegex(ValueError, "beyond"):
+                    corpus.verify_linked_image_export_xml(original, output, case, mode)
+            output.write_text(correct, encoding="utf-8")
+            excluded = media / "frame0.png"
+            image = excluded.read_bytes()
+            excluded.write_bytes(image[:-1] + bytes([image[-1] ^ 1]))
+            with self.assertRaisesRegex(ValueError, "Checksum"):
+                corpus.verify_linked_image_export_xml(original, output, case, mode)
+            excluded.write_bytes(image)
+        self.assertEqual(original_case["session_media"]["frames"][0]["frame"], 0)
+        with self.assertRaisesRegex(ValueError, "pinned"):
+            corpus.linked_image_clip_expected({**original_case, "id": "unrelated"})
+        with corpus.minidom.parse(str(original)) as document, self.assertRaisesRegex(ValueError, "Unknown"):
+            corpus.patch_expected_linked_media(document, clip_mode="unreviewed")
+
+    def saved_image_inventory_fixture(self):
+        case = next(c for c in corpus.load_manifest()["cases"] if c["id"] == "linked-images")
+        media = self.root / "media é & frames"
+        media.mkdir()
+        for asset in case["assets"]:
+            (media / asset["file"]).write_bytes(corpus.local_fixture_path(asset).read_bytes())
+        output = self.root / "tracker-resaved.trk"
+        with corpus.minidom.parse(str(corpus.local_fixture_path(case))) as document:
+            corpus.patch_expected_linked_media(document, clip_mode="single")
+            output.write_text(document.toxml(), encoding="utf-8")
+        return case["assets"], output, media
+
+    def test_saved_image_inventory_rejects_changes_to_excluded_pixels_and_references(self):
+        assets, saved, media = self.saved_image_inventory_fixture()
+        valid = saved.read_bytes()
+        observed = corpus.verify_saved_image_inventory(saved, assets)
+        self.assertEqual([item["frame"] for item in observed], [0, 1, 2, 3])
+        self.assertEqual([item["sha256"] for item in observed], [asset["sha256"] for asset in assets])
+        excluded = media / "frame0.png"
+        original = excluded.read_bytes()
+        excluded.write_bytes(original[:-1] + bytes([original[-1] ^ 1]))
+        with self.assertRaisesRegex(ValueError, "checksum.*frame 0"):
+            corpus.verify_saved_image_inventory(saved, assets)
+        excluded.write_bytes(original)
+        for mutation in ["redirect", "missing", "reorder", "duplicate-index", "network", "network-file", "network-share", "wrong-array"]:
+            root = ET.fromstring(valid)
+            paths = root.find(".//property[@name='paths']")
+            if mutation == "redirect":
+                paths[0].text = paths[1].text
+            elif mutation == "missing":
+                paths.remove(paths[0])
+            elif mutation == "reorder":
+                paths[:] = [paths[1], paths[0], *list(paths)[2:]]
+            elif mutation == "duplicate-index":
+                paths[0].set("name", "[1]")
+            elif mutation == "network":
+                paths[0].text = "https://example.invalid/frame0.png"
+            elif mutation == "network-file":
+                paths[0].text = "file://example.invalid/share/frame0.png"
+            elif mutation == "network-share":
+                paths[0].text = "//example.invalid/share/frame0.png"
+            else:
+                paths.set("class", "wrong")
+            ET.ElementTree(root).write(saved, encoding="utf-8")
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                corpus.verify_saved_image_inventory(saved, assets)
+        saved.write_bytes(valid)
+        excluded.unlink()
+        with self.assertRaises(OSError):
+            corpus.verify_saved_image_inventory(saved, assets)
+
+    def test_saved_image_inventory_resolves_local_and_archive_references_after_resaving(self):
+        assets, saved, media = self.saved_image_inventory_fixture()
+        valid = saved.read_bytes()
+        package = self.root / "archive é & images.trz"
+        with zipfile.ZipFile(package, "w") as archive:
+            for asset in assets:
+                archive.writestr("images/" + asset["file"], (media / asset["file"]).read_bytes())
+        for kind in ["relative", "absolute", "file-url", "archive-relative", "archive-file-url"]:
+            root = ET.fromstring(valid)
+            paths = root.find(".//property[@name='paths']")
+            for entry, asset in zip(paths, assets, strict=True):
+                if kind == "absolute":
+                    entry.text = str(media / asset["file"])
+                elif kind == "file-url":
+                    entry.text = (media / asset["file"]).as_uri()
+                elif kind.startswith("archive"):
+                    entry.text = (package.name if kind == "archive-relative" else "jar:" + package.as_uri()) + "!/images/" + asset["file"]
+            ET.ElementTree(root).write(saved, encoding="utf-8")
+            with self.subTest(kind=kind):
+                actual = corpus.verify_saved_image_inventory(saved, assets)
+                self.assertEqual([item["sha256"] for item in actual], [asset["sha256"] for asset in assets])
+        # Frame zero is outside the single-frame clip. A valid archive with changed bytes must fail.
+        with zipfile.ZipFile(package, "w") as archive:
+            for index, asset in enumerate(assets):
+                payload = (media / asset["file"]).read_bytes()
+                archive.writestr("images/" + asset["file"], payload[::-1] if index == 0 else payload)
+        with self.assertRaisesRegex(ValueError, "checksum.*frame 0"):
+            corpus.verify_saved_image_inventory(saved, assets)
+
+    def test_image_clip_session_checks_strided_and_single_frame_bounds(self):
+        for mode in ["stride", "single"]:
+            with self.subTest(mode=mode):
+                self.check_media_session_oracle("linked-images", mode)
+
     def test_media_session_requires_independent_pixels_order_and_timing(self):
         for case_id in ["linked-images", "linked-movie"]:
             with self.subTest(case=case_id):
                 self.check_media_session_oracle(case_id)
 
-    def check_media_session_oracle(self, case_id):
+    def check_media_session_oracle(self, case_id, clip_mode=None):
         manifest = corpus.load_manifest()
         case = next(c for c in manifest["cases"] if c["id"] == case_id)
         expected = json.loads(corpus.expected_path(case).read_text())["project"]
+        if clip_mode is not None:
+            expected, case = corpus.linked_image_clip_expected(case, clip_mode == "single")
+        keys = [[0, 1, 2]] if clip_mode is not None else None
         mass = expected["point_masses"][0]
         before = {"tracks": [case["session_tracks"][0], {
-            **case["session_tracks"][1], "mass": mass["mass"],
+            **case["session_tracks"][1], "mass": mass["mass"], "key_frames": [0, 1, 2] if keys else [],
             "samples": [{"frame": sample["frame"], "points": [sample["image"]], "world": sample["world"]}
                         for sample in mass["samples"]]}],
             "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
@@ -349,9 +484,10 @@ class CorpusTests(unittest.TestCase):
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
                  "view_preparation": "expand_visit_custom_tables_restore_selection", "before": before,
                  "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
-        corpus.validate_session(case, valid, manifest)
+        corpus.validate_session(case, valid, manifest, expected, keys)
         for stages in [["after"], ["before", "after_save", "after"]]:
-            for mutation in ["missing", "pixels", "order", "time", "dimensions", "count", "origin", "scale", "axes_grid", "engine"]:
+            for mutation in ["missing", "pixels", "order", "time", "dimensions", "count", "origin", "scale", "axes_grid", "engine",
+                             "clip-range", "missing-mark", "display-time"]:
                 invalid = copy.deepcopy(valid)
                 for stage in stages:
                     media = invalid[stage]["media"]
@@ -362,9 +498,9 @@ class CorpusTests(unittest.TestCase):
                     elif mutation == "pixels":
                         media["frames"][0]["rgb_sha256"] = "0" * 64
                     elif mutation == "order":
-                        media["frames"][0], media["frames"][1] = media["frames"][1], media["frames"][0]
+                        media["frames"][0]["frame"] = -1
                     elif mutation == "time":
-                        media["frames"][2]["time_ms"] = 200.0
+                        media["frames"][0]["time_ms"] = 200.0
                     elif mutation == "dimensions":
                         media["frames"][0]["width"] = 31
                     elif mutation == "origin":
@@ -373,13 +509,19 @@ class CorpusTests(unittest.TestCase):
                         invalid[stage]["calibration"]["keys"][0]["scale"] = [1.0, 1.0]
                     elif mutation == "axes_grid":
                         invalid[stage]["axes"][0]["grid"]["visible"] = True
+                    elif mutation == "clip-range":
+                        invalid[stage]["clip"]["step_count"] += 1
+                    elif mutation == "missing-mark":
+                        invalid[stage]["tracks"][1]["samples"].pop(0)
+                    elif mutation == "display-time":
+                        invalid[stage]["time_samples"][0]["time_ms"] += 1.0
                     else:
                         media["frame_count"] = 3
                 with self.subTest(stages=stages, mutation=mutation), self.assertRaises(ValueError):
-                    corpus.validate_session(case, invalid, manifest)
+                    corpus.validate_session(case, invalid, manifest, expected, keys)
         unaudited = {key: value for key, value in case.items() if key != "session_media"}
         with self.assertRaisesRegex(ValueError, "independent pixel"):
-            corpus.validate_session(unaudited, valid, manifest)
+            corpus.validate_session(unaudited, valid, manifest, expected, keys)
 
     def test_reference_runtime_dependencies_are_pinned_bounded_and_selected_per_case(self):
         original = corpus.load_manifest()

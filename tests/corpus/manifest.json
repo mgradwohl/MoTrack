@@ -272,6 +272,7 @@
     },
     {
       "id": "archived-images",
+      "native_archive_image_clip_roundtrip": true,
       "tracker_version": "6.3.5",
       "file": "archived-images.trz",
       "local_file": "fixtures/linked-images/archived-images.trz",
@@ -352,6 +353,7 @@
     {
       "id": "linked-images",
       "native_linked_image_roundtrip": true,
+      "native_linked_image_clip_roundtrip": true,
       "native_paired_linked_roundtrip": true,
       "native_image_package_roundtrip": true,
       "tracker_version": "6.3.5",

@@ -129,10 +129,17 @@ void patchUnit(QDomDocument& xml, const QString& name, const std::string& unit)
     patchScalar(xml, xml.documentElement(), name, "string", label);
 }
 
-void patchClipRange(QDomDocument& xml, const Clip& clip)
+void patchClipRange(QDomDocument& xml, const Clip& clip, bool linkedImages)
 {
     if (clip.frameDurationMs)
-        require(validConstantClipTiming(clip));
+    {
+        auto timing = clip;
+        // Audited image sequences use the same constant interval arithmetic. This private
+        // numeric check does not change the saved source inventory or enable timing edits.
+        if (linkedImages)
+            timing.mediaReferences.clear();
+        require(validConstantClipTiming(timing));
+    }
     const auto count = clip.stepCount.value_or(0);
     require(clip.firstFrame >= 0 && clip.stepSize > 0 && count > 0);
     const auto end = static_cast<std::int64_t>(clip.firstFrame) + static_cast<std::int64_t>(count - 1) * clip.stepSize;
@@ -144,9 +151,16 @@ void patchClipRange(QDomDocument& xml, const Clip& clip)
     const auto object = property.firstChildElement("object");
     require(property.attribute("type") == "object" && object.attribute("class") == "org.opensourcephysics.media.core.VideoClip" &&
             object.nextSiblingElement().isNull());
-    // These legacy fields change the loader's frame mapping/bounds; audit them with media support.
-    require(uniqueProperty(object, "video").isNull() && uniqueProperty(object, "frameshift").isNull() &&
-            uniqueProperty(object, "video_framecount").isNull());
+    require(uniqueProperty(object, "frameshift").isNull());
+    if (linkedImages)
+    {
+        // The image schema, complete source-frame inventory and optional saved count were
+        // checked before patching. Trimming changes only the clip, never the image inventory.
+        require(uniqueProperty(object, "video").firstChildElement("object").attribute("class") ==
+                "org.opensourcephysics.media.core.ImageVideo");
+    }
+    else
+        require(uniqueProperty(object, "video").isNull() && uniqueProperty(object, "video_framecount").isNull());
     patchScalar(xml, object, "startframe", "int", QString::number(clip.firstFrame));
     patchScalar(xml, object, "stepsize", "int", QString::number(clip.stepSize));
     patchScalar(xml, object, "stepcount", "int", QString::number(count));
@@ -956,7 +970,10 @@ bool patchLinkedImagePaths(QDomDocument& xml, const LegacyProject& project, Lega
     require(count > 0 && count <= 10000 && count == baseline.clip.mediaReferences.size());
     auto expectedClip = project.clip;
     expectedClip.mediaReferences = baseline.clip.mediaReferences;
-    require(expectedClip == baseline.clip); // Timing and range changes need separate media acceptance.
+    expectedClip.firstFrame = baseline.clip.firstFrame;
+    expectedClip.stepSize = baseline.clip.stepSize;
+    expectedClip.stepCount = baseline.clip.stepCount;
+    require(expectedClip == baseline.clip); // Numeric timing changes need separate media acceptance.
     const auto& clip = project.clip;
     const auto steps = clip.stepCount.value_or(0);
     require(clip.firstFrame >= 0 && clip.stepSize > 0 && steps > 0 &&
@@ -1210,7 +1227,7 @@ std::string renderTrackerProjectImpl(const LegacyProject& project,
     if (expected.clip.firstFrame != baseline.project.clip.firstFrame || expected.clip.stepSize != baseline.project.clip.stepSize ||
         expected.clip.stepCount != baseline.project.clip.stepCount)
     {
-        patchClipRange(xml, expected.clip);
+        patchClipRange(xml, expected.clip, media == LinkedMedia::Images);
         baseline.project.clip.firstFrame = expected.clip.firstFrame;
         baseline.project.clip.stepSize = expected.clip.stepSize;
         baseline.project.clip.stepCount = expected.clip.stepCount;
