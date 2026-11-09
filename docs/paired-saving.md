@@ -1,15 +1,15 @@
 # Standard and native paired saving
 
-Status: the internal phase-3 paired writer, explicit recovery adapter and per-output session
-checkpoints are implemented. The paired-image adapter passed all six checks at `6ae83b6` in
-[run 42534998602](https://github.com/mgradwohl/MoTrack/actions/runs/42534998602), with 95.48%
-combined coverage and both recovered exports loaded, saved, freshly reopened in Tracker and
-reimported in MoTrack. The session slice passed all six checks at `c9f0d30` in
-[run 42540556261](https://github.com/mgradwohl/MoTrack/actions/runs/42540556261), with 95.47%
-combined coverage; subsequent fixes retain their own CI/review gates. Desktop standard Save
-actions and recovery choices are implemented; controller `d9651f9` passed all six checks in
-[run 42534998848](https://github.com/mgradwohl/MoTrack/actions/runs/42534998848), with 95.72%
-combined coverage. Subsequent fixes retain current-head CI and review gates.
+Status: the internal paired writer, explicit recovery adapter, per-output session checkpoints and
+desktop paired Save/recovery controls are merged. Final session revision 58540b7 passed all six
+checks and review in [PR #126](https://github.com/mgradwohl/MoTrack/pull/126),
+[run 42546971061](https://github.com/mgradwohl/MoTrack/actions/runs/42546971061). Final desktop
+revision 4c15c1e passed the same gates in [PR #127](https://github.com/mgradwohl/MoTrack/pull/127),
+[run 42544952030](https://github.com/mgradwohl/MoTrack/actions/runs/42544952030).
+Both recovered linked-image and archive-image exports passed actual Tracker load/save/fresh reopen
+and native reimport. This includes the long-filename, copied-journal and completion-order corrections
+described below. Earlier local validation records are historical; subsequent changes require new
+current-revision checks and review.
 The [full-port plan](migration-plan.md#implementation-order-and-exit-gates) and
 [format guide](native-format.md) remain the canonical status and supported-schema references.
 
@@ -140,7 +140,7 @@ interruption, dead-writer recovery and filesystem-specific case aliases. Existin
 compatibility remain covered. Local Windows validation passes all eight CTest groups in 163.49 seconds,
 with **95.55% (8479/8874)** production line coverage. Formatting and static analysis pass for all seven
 changed/integrated C++ translation units; three existing LLVM function-mismatch warnings remain visible.
-The filename correction still requires current-revision three-platform CI and review.
+The filename correction is included in the reviewed #126/#127 revisions and passing CI above.
 
 After the destination-status review fixes in `7d04cd4`, all six Windows suites and formatting/clang-tidy
 pass; coverage is 95.34% (7679/8054). Both output statuses are refreshed before reporting conflicts or
@@ -173,8 +173,7 @@ explicit recovery, including the ordinary Save and close/discard flow.
 The multiple-destination recovery correction passes all six Windows suites with 95.46% combined
 production line coverage (7780/8150). Checkpoint formatting/static checks pass. Its regression performs
 two interrupted saves, saves a third destination, recovers both earlier records and finally saves the
-current pair. Later inherited corrections still require combined current-revision CI; desktop integration
-remains separate.
+current pair. The later corrections and desktop integration are covered by the merged evidence above.
 
 Prepared-file fingerprints are fixed immediately after each validated write, before notifying progress
 observers. A changed stage is rejected before journaling or destination replacement. Linked media is
@@ -186,7 +185,7 @@ compares exact absolute paths rather than unconditionally folding their case.
 The combined review-corrected stack passed all six Windows suites with 95.54% line coverage
 (7803/8167); this includes immutable archive export, unsupported ZIP layouts imported before
 validation, multiple recovery destinations, case-folded media collisions and prepared-stage changes.
-Current-revision cross-platform CI remains required before merging.
+The merged revisions and cross-platform acceptance are recorded above.
 
 ## Desktop save and recovery controls
 
@@ -218,8 +217,8 @@ continue validating the same adapter; these UI tests do not independently establ
 Local Windows desktop validation: all thirteen paired-workspace tests and all six CTest suites pass.
 Combined production line coverage is 95.59% (8044/8415), above the unchanged 90% gate.
 The 76 Python corpus tests and native corpus checks also pass.
-Formatting and clang-tidy pass for the controller and desktop tests. Linux/macOS/current-head CI
-and code review remain required before this desktop slice can be merged.
+Formatting and clang-tidy pass for the controller and desktop tests. The final controller revision
+subsequently passed all six platform/coverage checks and review in #127, as recorded above.
 
 Every journal contains a persistent transaction UUID, returned by both paired writes and recovery.
 A new transaction at the same pathname receives a new identity. Session completion checks use this
@@ -419,8 +418,8 @@ corrections. All 30 session cases and the two deterministic storage-cancellation
 Local Windows validation of these review fixes passes all eight CTest groups in 141.23 seconds,
 with **95.40% (8190/8585)** production line coverage, formatting and all six changed C++ translation
 units passing static analysis. Three existing LLVM function-mismatch warnings remain visible.
-The earlier `c9f0d30` CI evidence does not cover these later fixes; their current-head CI/review gates
-remain required before merge.
+The later fixes, including long-name handling, subsequently passed all six checks and review at
+58540b7 in #126; the merged evidence is recorded at the top of this guide.
 
 The filename-limit correction is included in the session prerequisite as well as the desktop slice.
 Its three C++ files are identical to the already statically analyzed desktop correction. Independent
