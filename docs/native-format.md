@@ -157,6 +157,13 @@ snapshot because extraction and source storage use separate temporary directorie
 keeps both alive while an open/save worker or document uses them; the final owner removes the temporary files.
 Copying and extraction honor cancellation. Native reopen creates its own independent archive owner.
 
+Native archive saves resolve the destination and reject files inside either owned temporary directory,
+including existing attachments and new paths. Directory identity checks cover aliases and the actual
+filesystem's case rules. An external save cannot become a temporary attachment that disappears when
+the archive owner closes. The original source-file alias guard and payload digest check remain in place.
+This protection applies to both the document-storage API and the session save API; it does not change
+the version-5 file format. See [#153](https://github.com/mgradwohl/MoTrack/issues/153).
+
 Version-5 metadata requires `embeddedArchive` to agree with the actual container. `archiveMember` is
 the selected original `.trk` path or `null` when that association is unknown. A known member must exist,
 and any preserved source XML must exactly match that original member. Native media references are
