@@ -1,3 +1,4 @@
+#include "archive_group.hpp"
 #include "legacy_project.hpp"
 #include "measurements.hpp"
 #include "media_vectors.hpp"
@@ -30,6 +31,7 @@
 #include <filesystem>
 #include <limits>
 #include <memory>
+#include <optional>
 
 namespace
 {
@@ -337,6 +339,7 @@ try
         if (payload->projects() != members)
             throw motrack::ProjectError("Expected both independently pinned archive experiments.");
         std::vector<motrack::LegacyProject> expected;
+        std::optional<motrack::ArchiveGroup> nativeGroup;
         for (int i = 0; i < members.size(); ++i)
         {
             auto document = motrack::importTrackerDocument(payload->projectPath(members[i]));
@@ -361,11 +364,29 @@ try
                 !edits.redo(document.project))
                 throw motrack::ProjectError("Could not edit both archived experiments.");
             expected.push_back(document.project);
+            if (nativeGroup)
+                (void)motrack::appendArchiveGroupDocument(*nativeGroup, document);
+            else
+                nativeGroup = motrack::makeArchiveGroup(document);
             const auto native = temporary.filePath(QString("saved-%1.motrack").arg(i));
             motrack::writeWorkspaceDocument(native, document);
             if (!QFile::copy(native, QDir(relocated).filePath(QFileInfo(native).fileName())) || !QFile::remove(native))
                 throw motrack::ProjectError("Could not relocate the native archive companions.");
         }
+        if (!nativeGroup)
+            throw motrack::ProjectError("Expected a shared native archive group.");
+        const auto groupId = nativeGroup->id;
+        const auto originalDigest = nativeGroup->archive->sourceDigest();
+        std::vector<QUuid> documentIds;
+        documentIds.reserve(nativeGroup->members.size());
+        for (const auto& member : nativeGroup->members)
+            documentIds.push_back(member.id);
+        const auto originalGroupPath = temporary.filePath("saved-group.motrack");
+        const auto relocatedGroupPath = QDir(relocated).filePath("shared-group.motrack");
+        motrack::writeArchiveGroup(originalGroupPath, *nativeGroup);
+        if (!QFile::copy(originalGroupPath, relocatedGroupPath) || !QFile::remove(originalGroupPath))
+            throw motrack::ProjectError("Could not relocate the shared native archive group.");
+        nativeGroup.reset();
         payload.reset();
         if (!QFile::remove(source))
             throw motrack::ProjectError("Could not remove the original multi-member archive.");
@@ -380,6 +401,35 @@ try
         if (args[1].endsWith("-reverse"))
             std::ranges::reverse(documents);
         motrack::writeTrackerArchiveDocuments(args[3], documents);
+        QFile separateExport(args[3]);
+        if (!separateExport.open(QIODevice::ReadOnly) || separateExport.size() > motrack::MAX_TRACKER_ARCHIVE_BYTES)
+            throw motrack::ProjectError("Could not check the independent-companion export.");
+        const auto separateBytes = separateExport.readAll();
+        if (separateExport.error() != QFileDevice::NoError)
+            throw motrack::ProjectError("Could not read the independent-companion export.");
+        separateExport.close();
+        documents.clear();
+        for (std::size_t i = 0; i < expected.size(); ++i)
+            if (!QFile::remove(QDir(relocated).filePath(QString("saved-%1.motrack").arg(i))))
+                throw motrack::ProjectError("Could not remove the independent native companions.");
+        const auto reopened = motrack::readArchiveGroup(relocatedGroupPath);
+        if (reopened.id != groupId || reopened.archive->sourceDigest() != originalDigest || reopened.members.size() != expected.size())
+            throw motrack::ProjectError("Native group reopen changed its identity or immutable source.");
+        for (std::size_t i = 0; i < expected.size(); ++i)
+        {
+            const auto& member = reopened.members[i];
+            if (member.id != documentIds[i] || member.member != members[static_cast<qsizetype>(i)].toStdString() ||
+                member.document.project != expected[i] || member.document.archivePayload != reopened.archive)
+                throw motrack::ProjectError("Native group reopen changed an experiment or its shared ownership.");
+            documents.push_back(member.document);
+        }
+        if (args[1].endsWith("-reverse"))
+            std::ranges::reverse(documents);
+        motrack::writeTrackerArchiveDocuments(args[3], documents);
+        QFile groupedExport(args[3]);
+        if (!groupedExport.open(QIODevice::ReadOnly) || groupedExport.readAll() != separateBytes ||
+            groupedExport.error() != QFileDevice::NoError)
+            throw motrack::ProjectError("Shared native persistence changed the independently verified archive export.");
         return 0;
     }
     if (args.size() == 4 &&

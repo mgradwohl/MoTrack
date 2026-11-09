@@ -29,7 +29,7 @@ query cannot otherwise inspect. Canonicalization precedes the prefix so dot/pare
 not changed by Win32's extended-path rules. Long existing-media aliases and long missing-media names
 are covered alongside case and Unicode variants; both failure and success leave no probe artifacts.
 
-MoTrack saves bounded JSON metadata with `format: "MoTrack"`. The current writer emits version 5;
+MoTrack saves bounded JSON metadata with `format: "MoTrack"`. The standalone document writer emits version 5;
 the reader accepts versions 1 through 5 and rejects unknown versions. Archive-backed documents use
 the native ZIP container described below; other documents remain plain JSON. Existing measurement, calibration,
 clip, media-reference and movie-time fields retain their version-1 meanings.
@@ -943,5 +943,38 @@ This API always renders against the original archive. Its caller must supply the
 edits to retain, including previously saved members. It does not update session checkpoints, retain
 closed-tab edits by itself, or define a shared native workspace format. Archive-group persistence,
 save coordination and recovery precede the tab UI, as specified in the migration plan.
-Current-branch native tests pass; actual Tracker acceptance of both edited experiments, three-platform
-CI and review are pending. No new UI strings are introduced.
+Merged [PR #152](https://github.com/mgradwohl/MoTrack/pull/152) passes all six checks with 95.88% combined
+coverage at `e73ea6f`, including all four actual Tracker grouped modes. Both experiments load, save,
+freshly reopen and reimport with independent expectations. No new UI strings were introduced.
+
+## Shared archive-group snapshots
+
+The new `ArchiveGroup` persistence API uses a version-6 envelope with `kind: "archive-group"`.
+Standalone document writers remain at version 5; standalone readers accept versions 1–5 and reject
+group envelopes instead of selecting the first experiment. Desktop dispatch for groups is not yet wired.
+
+A group stores a canonical non-null UUID, the SHA-256 of its original archive, and ordered member
+records containing their own canonical UUID, exact original archive member key and complete version-5
+document metadata. The container still has exactly `project.json` and `tracker/source.trz`: every
+record shares one immutable archive owner. Unknown experiments, media and opaque members remain in
+that original payload. Member records are independent of visible tabs; undo histories and live
+session identities are not serialized.
+
+Promotion adopts a known-member native document's owner and current edits. Appending a document
+requires that exact owner, not only an equal digest. Independently opened copies remain distinct
+logical groups, even when their persistent IDs and source hashes match. A live controller must use
+separate runtime identities when coordinating saves; persisted UUIDs are not completion tokens.
+
+Reads and writes reject empty or duplicate members, duplicate/nil/malformed IDs, foreign member keys,
+inconsistent original-source bindings and missing/mismatched archive payloads. Writes authenticate
+each extracted source against its import-time hash, validate every encoded document by decoding it,
+and count compact metadata incrementally before appending it to the group array. Aggregate JSON stays
+within 128 MiB; the existing per-XML/archive/container limits and owned-directory/alias protections
+remain. Cancellation and errors preserve an existing destination through the shared atomic storage API.
+
+The new local regressions cover native relocation, original-input removal, two edited experiments,
+an untouched third experiment, opaque bytes, promotion/ownership isolation, undo/redo, malformed
+metadata and refused/cancelled writes. The corpus additionally compares independent-companion export
+with shared-group export byte-for-byte before actual Tracker acceptance. Full current-branch CI and
+review remain pending. Group save checkpoints, destination locking/recovery and desktop tab lifecycle
+remain the next layers; this low-level snapshot API does not mark live documents saved.
