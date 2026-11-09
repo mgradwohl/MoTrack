@@ -325,6 +325,63 @@ try
             motrack::writeTrackerDocument(args[3], document, native);
         return 0;
     }
+    if (args.size() == 4 && (args[1] == "--export-archive-group-forward" || args[1] == "--export-archive-group-reverse"))
+    {
+        QTemporaryDir temporary;
+        const auto source = temporary.filePath("original.trz");
+        const auto relocated = temporary.filePath(QString::fromUtf8("réouverture"));
+        if (!temporary.isValid() || !QDir().mkdir(relocated) || !QFile::copy(args[2], source))
+            throw motrack::ProjectError("Could not prepare the multi-member archive round trip.");
+        auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(source));
+        const QStringList members{"experiment.trk", "second.trk"};
+        if (payload->projects() != members)
+            throw motrack::ProjectError("Expected both independently pinned archive experiments.");
+        std::vector<motrack::LegacyProject> expected;
+        for (int i = 0; i < members.size(); ++i)
+        {
+            auto document = motrack::importTrackerDocument(payload->projectPath(members[i]));
+            payload->resolveMedia(document.project, members[i]);
+            document.archivePayload = payload;
+            document.archiveMember = members[i].toStdString();
+            if (document.project.clip.mediaReferences == std::vector<std::string>{"constant-rate.mov"})
+            {
+                const std::atomic_bool cancelled{false};
+                const auto index = motrack::buildMovieIndex(
+                    QDir(payload->root()).filePath("constant-rate.mov"), motrack::VideoOrientation::Encoded, cancelled);
+                if (index.frameCount != 4 || index.frameTimes != std::vector<double>{0.0, 0.125, 0.25, 0.375})
+                    throw motrack::ProjectError("Multi-member movie timing differs from the independent reference.");
+                document.movie = true;
+                document.alignMovieToClip = true;
+                document.movieFrameTimes = index.frameTimes;
+                document.project.clip.sourceFrameCount = index.frameCount;
+            }
+            motrack::TrackEdits edits;
+            if (!edits.setPointMassValue(document.project, 0, i == 0 ? 5.0 : 7.0) ||
+                !edits.markPointMass(document.project, 0, {.frame = 1, .x = 8.0 + i, .y = 12.0 - i}) || !edits.undo(document.project) ||
+                !edits.redo(document.project))
+                throw motrack::ProjectError("Could not edit both archived experiments.");
+            expected.push_back(document.project);
+            const auto native = temporary.filePath(QString("saved-%1.motrack").arg(i));
+            motrack::writeWorkspaceDocument(native, document);
+            if (!QFile::copy(native, QDir(relocated).filePath(QFileInfo(native).fileName())) || !QFile::remove(native))
+                throw motrack::ProjectError("Could not relocate the native archive companions.");
+        }
+        payload.reset();
+        if (!QFile::remove(source))
+            throw motrack::ProjectError("Could not remove the original multi-member archive.");
+        std::vector<motrack::WorkspaceDocument> documents;
+        for (std::size_t i = 0; i < expected.size(); ++i)
+        {
+            auto document = motrack::readWorkspaceDocument(QDir(relocated).filePath(QString("saved-%1.motrack").arg(i)));
+            if (document.project != expected[i])
+                throw motrack::ProjectError("Native reopen changed an edited archive experiment.");
+            documents.push_back(std::move(document));
+        }
+        if (args[1].endsWith("-reverse"))
+            std::ranges::reverse(documents);
+        motrack::writeTrackerArchiveDocuments(args[3], documents);
+        return 0;
+    }
     if (args.size() == 4 &&
         (args[1] == "--export-archive-images" || args[1] == "--export-paired-archive-images" ||
          args[1] == "--export-multitab-archive-images" || args[1] == "--export-archive-image-clip" || args[1] == "--export-archive-movie" ||

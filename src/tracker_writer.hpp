@@ -5,6 +5,7 @@
 #include <QString>
 
 #include <atomic>
+#include <span>
 
 namespace motrack
 {
@@ -28,6 +29,13 @@ void writeTrackerDocument(const QString& path, const WorkspaceDocument& document
 /// Requires the owned source payload; replacing embedded media or the selected source is refused.
 /// Audited image sequences and fully indexed constant-rate MOV files retain the standalone writer's edit limits.
 void writeTrackerArchiveDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled = nullptr);
+/// Export all supplied member snapshots in one atomic archive replacement. Every snapshot must
+/// retain the same original archive digest and a distinct member; separate native reopenings are allowed.
+/// Uses the same edit/media safeguards as the single-member writer. No session checkpoint changes.
+/// The caller must supply the complete set of edits to retain against the original archive baseline.
+void writeTrackerArchiveDocuments(const QString& path,
+                                  std::span<const WorkspaceDocument> documents,
+                                  const std::atomic_bool* cancelled = nullptr);
 /// Create a portable .trz from an audited linked-image document, copying each image without conversion.
 /// The document and its native/source bindings stay unchanged. Existing archives, movies and unsupported edits are refused.
 /// Stage and validate the bounded package before atomic replacement; cancellation leaves the destination unchanged.

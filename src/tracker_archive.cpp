@@ -26,7 +26,6 @@ namespace
 {
 
 constexpr std::size_t READ_BLOCK_BYTES = std::size_t{64} * 1024;
-constexpr qint64 MAX_EXTRACTED_BYTES = qint64{512} * 1024 * 1024;
 constexpr int MAX_MEMBERS = 4096;
 
 void require(bool valid)
@@ -119,7 +118,7 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
     const QDir destination(result.m_Directory.path());
     QSet<QString> seen;
     std::array<char, READ_BLOCK_BYTES> buffer{};
-    qint64 remaining = MAX_EXTRACTED_BYTES;
+    qint64 remaining = MAX_TRACKER_EXTRACTED_BYTES;
     int members = 0;
     archive_entry* entry = nullptr;
     for (auto status = archive_read_next_header(reader.get(), &entry); status != ARCHIVE_EOF;
@@ -212,11 +211,11 @@ bool TrackerArchive::memberMatchesSource(const QString& member, const std::atomi
     QFile input(m_Directory.filePath(member));
     const QFileInfo info(input);
     if (!info.isFile() || !info.canonicalFilePath().startsWith(m_CanonicalRoot + '/') || !input.open(QIODevice::ReadOnly) ||
-        input.size() > MAX_EXTRACTED_BYTES)
+        input.size() > MAX_TRACKER_EXTRACTED_BYTES)
         return false;
     QCryptographicHash digest(QCryptographicHash::Sha256);
     std::array<char, READ_BLOCK_BYTES> buffer{};
-    qint64 remaining = MAX_EXTRACTED_BYTES;
+    qint64 remaining = MAX_TRACKER_EXTRACTED_BYTES;
     for (;;)
     {
         require(!cancelled || !*cancelled);

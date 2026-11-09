@@ -1452,7 +1452,7 @@ the first and last clip times. The manifest now requires those two endpoints; al
 timestamps remain independently required in `session_media.frames`. No fixture, geometry, calibration,
 timing value or helper behavior changed. Regression checks pin that distinction and reject corrupted
 intermediate media timestamps. The captured first baseline retains every expected vector component
-and calibration value through load/save/reopen; complete current-revision acceptance is still pending.
+and calibration value through load/save/reopen; the final reviewed revision subsequently passed all acceptance cases, as recorded below.
 
 Source keys are frame 0: origin (2,20), angle 0, scale (2,4); frame 2: origin (10,18), angle 90,
 scale (4,8). Public fixed setters normalize the appropriate fields. Raw vectors remain exactly the
@@ -1484,6 +1484,27 @@ and require fixed origins to use the last loaded key.
 
 All 56 local native exports, independent XML/media oracles and native reimports pass. All 14
 headless reference imports match independent coordinate expectations. The 28 baseline application
-sessions and 56 edited application modes still require current-revision Linux Tracker acceptance;
-Windows/macOS/Linux CI and code review remain pending. This is independent-vector coordinate saving,
+sessions and 56 edited application modes passed actual Tracker load/draw/save/fresh-JVM reopen and native reimport at reviewed revision `dc8fed8` in [PR #147](https://github.com/mgradwohl/MoTrack/pull/147). All six checks passed with 95.86% combined C++ line coverage in [CI 42655960136](https://github.com/mgradwohl/MoTrack/actions/runs/42655960136). This is independent-vector coordinate saving,
 not fixed-flag editing, key deletion, linked vectors, mixed-track snapping or moving reference frames.
+
+### Saving both archive experiments
+
+The existing independent `multitab-images` and mixed MOV/image `archived-movie` fixtures now enable
+`archive-group-forward` and `archive-group-reverse`. No fixture bytes or original expectations change.
+The first experiment changes its mass to 5 kg and adds frame 1 at image (8,12), world (3,2).
+The second changes its independently authored mass to 7 kg and adds frame 1 at image (9,11),
+world (3.5,2.25). Both retain the fixed origin (2,20) and scales (2,4).
+
+The native probe uses ordinary edit commands with undo/redo, saves separate native companions,
+relocates them into a Unicode directory, removes the original archive and original companion paths,
+and reopens both companions. The reverse mode reverses the submitted document order. All edits
+are then written in one standard archive operation. This verifies the writer's handling of independent
+native reopenings, not shared group persistence/recovery.
+
+The independent Python ZIP oracle patches each experiment separately and compares complete XML,
+all media/opaque bytes, local compressed records, central metadata, physical order and archive comment.
+The real Tracker harness must load the resulting archive, save both loaded tabs, freshly reopen each
+saved experiment in a separate JVM, check its own expected mass/marks/world values/keyframes/media,
+and reimport both into MoTrack. Unit tests reject wrong edits in either member and a completely
+unedited second member. Current-branch local writer and 107 corpus-runner tests pass; actual-application
+acceptance of these four modes and current-head CI/review remain pending.

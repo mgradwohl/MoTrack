@@ -903,7 +903,7 @@ supports editing/adding keys, and includes every vector sample when bounding coo
 Fourteen Java-authored image/MOV coordinate variants cover all seven combinations of fixed and
 varying origin, angle and scale. Their linked/archive/package/recovered-pair cases combine coordinate
 edits with sample replacement, deletion and addition (56 modes). The corresponding 28 baseline sessions
-and 56 edited modes still require current-revision actual-Tracker acceptance and code review. Native
+and 56 edited modes passed actual Tracker load/draw/save/fresh reopen in [PR #147](https://github.com/mgradwohl/MoTrack/pull/147), reviewed at `dc8fed8`, with all six checks and 95.86% coverage in [CI 42655960136](https://github.com/mgradwohl/MoTrack/actions/runs/42655960136). Native
 and desktop tests cover history, source removal, native reopen, unchanged raw vectors on coordinate-only
 edits, and another frame's origin within or exactly on the snapping boundary. Fixed-flag toggles,
 key deletion and moving reference frames remain separate work.
@@ -913,3 +913,27 @@ These acceptance fixtures use a zero time origin. The original negative-origin f
 Their raw vectors and timing survive, but the live analysis omission is recorded as a non-accepted
 reference defect with independent correct expectations. Saving does not shift time to conceal it;
 negative-time native vector tables/plots/export and complete reference analysis parity remain open.
+
+### Multiple edited members in an existing archive
+
+The storage adapter now accepts a bounded nonempty set of document snapshots through
+`writeTrackerArchiveDocuments`. Each must name a distinct existing member, retain the same immutable
+original archive SHA-256, and pass the single-member writer's source, edit, calibration, media-byte
+and movie-index checks. Separately reopened native companions can participate without sharing a
+payload pointer. Their owned source and extraction directories are all protected from output writes.
+
+The low-level writer accepts borrowed XML views, retained by the caller for the synchronous call.
+Rendered XML is accumulated with an incremental 512 MiB aggregate bound and a 32 MiB per-member
+bound; final extracted size, including unchanged members, also stays within 512 MiB. Classic ZIP,
+4096-entry, 8 MiB directory and 544 MiB compressed-container limits remain unchanged. Every member
+must occur exactly once. Physical local-record order and central-directory order are preserved
+independently, including when they differ. Untouched compressed records/descriptors and comments
+remain exact; only necessary central offsets change. All edited members are re-read from the staged
+archive before atomic destination replacement.
+
+This API always renders against the original archive. Its caller must supply the complete set of
+edits to retain, including previously saved members. It does not update session checkpoints, retain
+closed-tab edits by itself, or define a shared native workspace format. Archive-group persistence,
+save coordination and recovery precede the tab UI, as specified in the migration plan.
+Current-branch native tests pass; actual Tracker acceptance of both edited experiments, three-platform
+CI and review are pending. No new UI strings are introduced.

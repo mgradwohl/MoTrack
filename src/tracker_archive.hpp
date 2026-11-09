@@ -13,6 +13,7 @@ namespace motrack
 {
 
 inline constexpr qint64 MAX_TRACKER_ARCHIVE_BYTES = qint64{544} * 1024 * 1024;
+inline constexpr qint64 MAX_TRACKER_EXTRACTED_BYTES = qint64{512} * 1024 * 1024;
 
 /// Owns a temporary, validated extraction of a Tracker experiment archive.
 class TrackerArchive

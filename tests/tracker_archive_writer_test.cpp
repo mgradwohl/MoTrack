@@ -14,6 +14,8 @@
 #include <QtEndian>
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
 #include <functional>
 
 namespace
@@ -38,6 +40,285 @@ bool writeBytes(const QString& path, const QByteArray& bytes)
 {
     QFile output(path);
     return output.open(QIODevice::WriteOnly) && output.write(bytes) == bytes.size();
+}
+
+struct ZipRecord
+{
+    QByteArray name;
+    QByteArray central;
+    QByteArray local;
+    quint32 offset;
+};
+
+// Independently inspect small test ZIPs, including compressed bytes and data descriptors.
+std::vector<ZipRecord> zipRecords(const QByteArray& bytes)
+{
+    const auto end = bytes.lastIndexOf(QByteArray::fromHex("504b0506"));
+    if (end < 0 || bytes.size() - end < 22)
+        throw std::runtime_error("Missing test ZIP directory.");
+    const auto directory = qFromLittleEndian<quint32>(bytes.constData() + end + 16);
+    const auto count = qFromLittleEndian<quint16>(bytes.constData() + end + 10);
+    qsizetype position = directory;
+    std::vector<ZipRecord> records;
+    for (unsigned i = 0; i < count; ++i)
+    {
+        if (position + 46 > end)
+            throw std::runtime_error("Truncated test ZIP directory.");
+        const auto nameSize = qFromLittleEndian<quint16>(bytes.constData() + position + 28);
+        const auto size = qsizetype{46} + nameSize + qFromLittleEndian<quint16>(bytes.constData() + position + 30) +
+                          qFromLittleEndian<quint16>(bytes.constData() + position + 32);
+        const auto offset = qFromLittleEndian<quint32>(bytes.constData() + position + 42);
+        if (position + size > end || offset >= directory)
+            throw std::runtime_error("Invalid test ZIP offsets.");
+        records.push_back(
+            {.name = bytes.mid(position + 46, nameSize), .central = bytes.mid(position, size), .local = {}, .offset = offset});
+        position += size;
+    }
+    for (auto& record : records)
+    {
+        auto next = directory;
+        for (const auto& other : records)
+            if (other.offset > record.offset)
+                next = std::min(next, other.offset);
+        record.local = bytes.mid(record.offset, next - record.offset);
+    }
+    return records;
+}
+
+void expectRetainedRecords(const QByteArray& original, const QByteArray& output, const QStringList& changed)
+{
+    const auto before = zipRecords(original);
+    const auto after = zipRecords(output);
+    ASSERT_EQ(after.size(), before.size());
+    for (std::size_t i = 0; i < before.size(); ++i)
+    {
+        SCOPED_TRACE(before[i].name.toStdString());
+        EXPECT_EQ(after[i].name, before[i].name);
+        if (changed.contains(QString::fromUtf8(before[i].name)))
+            continue;
+        EXPECT_EQ(after[i].local, before[i].local);
+        auto central = after[i].central;
+        qToLittleEndian<quint32>(before[i].offset, central.data() + 42);
+        EXPECT_EQ(central, before[i].central);
+    }
+}
+TEST(TrackerArchiveWriter, ReplacesMultipleMembersWithIndependentPhysicalAndDirectoryOrder)
+{
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("original.trz");
+    const auto destination = temporary.filePath("saved.trz");
+    ASSERT_TRUE(motrack::test::writeArchive(original,
+                                            {{.name = "first.trk", .bytes = originalXml()},
+                                             {.name = "unchanged.trk", .bytes = originalXml()},
+                                             {.name = "nested/second.trk", .bytes = originalXml()},
+                                             {.name = "support/data.bin", .bytes = QByteArray::fromHex("00ff017e")}}));
+    auto bytes = readBytes(original);
+    const auto records = zipRecords(bytes);
+    const auto directory = qFromLittleEndian<quint32>(bytes.constData() + bytes.size() - 6);
+    QByteArray reversed;
+    for (auto entry = records.rbegin(); entry != records.rend(); ++entry)
+        reversed += entry->central;
+    bytes.replace(directory, reversed.size(), reversed);
+    const auto comment = QByteArray::fromHex("4f706171756520636f6d6d656e7400ff");
+    qToLittleEndian<quint16>(static_cast<quint16>(comment.size()), bytes.data() + bytes.size() - 2);
+    bytes += comment;
+    ASSERT_TRUE(writeBytes(original, bytes));
+    const auto source = motrack::TrackerArchive::open(original);
+    const auto longer = originalXml().toStdString() + "<!--" + std::string(32000, 'x') + "-->";
+    const std::string shorter = "<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'/>";
+    std::array replacements{motrack::TrackerArchiveReplacement{.member = "nested/second.trk", .xml = shorter},
+                            motrack::TrackerArchiveReplacement{.member = "first.trk", .xml = longer}};
+    motrack::writeTrackerArchive(destination, source, replacements);
+    const auto first = readBytes(destination);
+    EXPECT_TRUE(first.endsWith(comment));
+    expectRetainedRecords(bytes, first, {"first.trk", "nested/second.trk"});
+    const auto reopened = motrack::TrackerArchive::open(destination);
+    EXPECT_EQ(readBytes(reopened.projectPath("first.trk")).toStdString(), longer);
+    EXPECT_EQ(readBytes(reopened.projectPath("nested/second.trk")).toStdString(), shorter);
+    EXPECT_EQ(readBytes(reopened.projectPath("unchanged.trk")), originalXml());
+    EXPECT_EQ(readBytes(source.sourcePath()), bytes);
+    std::ranges::reverse(replacements);
+    motrack::writeTrackerArchive(destination, source, replacements);
+    EXPECT_EQ(readBytes(destination), first);
+}
+
+TEST(TrackerArchiveWriter, MultiMemberExportRetainsUntouchedJavaCompressedRecordsExactly)
+{
+    const auto fixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images/multitab-images.trz";
+    const auto source = motrack::TrackerArchive::open(fixture);
+    const auto original = readBytes(source.sourcePath());
+    QTemporaryDir temporary;
+    const auto destination = temporary.filePath("saved.trz");
+    const auto first = originalXml().toStdString() + "<!--" + std::string(32000, 'y') + "-->";
+    const std::array replacements{motrack::TrackerArchiveReplacement{.member = "second.trk", .xml = EDITED_XML},
+                                  motrack::TrackerArchiveReplacement{.member = "experiment.trk", .xml = first}};
+    motrack::writeTrackerArchive(destination, source, replacements);
+    const auto output = readBytes(destination);
+    expectRetainedRecords(original, output, {"experiment.trk", "second.trk"});
+    const auto end = original.lastIndexOf(QByteArray::fromHex("504b0506"));
+    EXPECT_TRUE(output.endsWith(original.mid(end + 22)));
+    const auto reopened = motrack::TrackerArchive::open(destination);
+    EXPECT_EQ(readBytes(reopened.projectPath("experiment.trk")).toStdString(), first);
+    EXPECT_EQ(readBytes(reopened.projectPath("second.trk")).toStdString(), EDITED_XML);
+}
+
+TEST(TrackerArchiveWriter, InvalidSecondReplacementCannotPartiallyReplaceDestination)
+{
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("original.trz");
+    const auto destination = temporary.filePath("saved.trz");
+    ASSERT_TRUE(motrack::test::writeArchive(
+        original, {{.name = "first.trk", .bytes = originalXml()}, {.name = "second.trk", .bytes = originalXml()}}));
+    const auto source = motrack::TrackerArchive::open(original);
+    ASSERT_TRUE(writeBytes(destination, "Existing archive"));
+    const std::vector<std::vector<motrack::TrackerArchiveReplacement>> invalid{
+        {},
+        {{.member = "first.trk", .xml = EDITED_XML}, {.member = "first.trk", .xml = EDITED_XML}},
+        {{.member = "first.trk", .xml = EDITED_XML}, {.member = "missing.trk", .xml = EDITED_XML}},
+        {{.member = "first.trk", .xml = EDITED_XML}, {.member = "second.trk", .xml = "invalid XML"}},
+        {{.member = "first.trk", .xml = EDITED_XML}, {.member = "second.trk", .xml = ""}},
+        {{.member = "first.trk", .xml = EDITED_XML},
+         {.member = "second.trk", .xml = EDITED_XML},
+         {.member = "third.trk", .xml = EDITED_XML}}};
+    for (const auto& replacements : invalid)
+    {
+        EXPECT_THROW(motrack::writeTrackerArchive(destination, source, replacements), motrack::ProjectError);
+        EXPECT_EQ(readBytes(destination), "Existing archive");
+    }
+    const std::array valid{motrack::TrackerArchiveReplacement{.member = "first.trk", .xml = EDITED_XML},
+                           motrack::TrackerArchiveReplacement{.member = "second.trk", .xml = EDITED_XML}};
+    const std::atomic_bool cancelled{true};
+    EXPECT_THROW(motrack::writeTrackerArchive(destination, source, valid, &cancelled), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), "Existing archive");
+}
+
+TEST(TrackerArchiveWriter, SavesBothExperimentsAfterSeparateNativeReopenAndOriginalRemoval)
+{
+    const QDir fixtures(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures");
+    for (const bool movie : {false, true})
+    {
+        SCOPED_TRACE(movie);
+        QTemporaryDir temporary;
+        const auto source = temporary.filePath("original.trz");
+        const auto destination = temporary.filePath(QString::fromUtf8("résultat.trz"));
+        const auto fixture = fixtures.filePath(movie ? "linked-mov/archived-movie.trz" : "linked-images/multitab-images.trz");
+        ASSERT_TRUE(QFile::copy(fixture, source));
+        auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(source));
+        const auto original = readBytes(source);
+        const QStringList members{"experiment.trk", "second.trk"};
+        std::vector<motrack::WorkspaceDocument> documents;
+        documents.reserve(static_cast<std::size_t>(members.size()));
+        for (int i = 0; i < members.size(); ++i)
+        {
+            auto document = motrack::importTrackerDocument(payload->projectPath(members[i]));
+            payload->resolveMedia(document.project, members[i]);
+            document.archivePayload = payload;
+            document.archiveMember = members[i].toStdString();
+            if (movie && i == 0)
+            {
+                document.movie = true;
+                document.alignMovieToClip = true;
+                document.movieFrameTimes = {0.0, 0.125, 0.25, 0.375};
+                document.project.clip.sourceFrameCount = 4;
+            }
+            motrack::TrackEdits edits;
+            ASSERT_TRUE(edits.setPointMassValue(document.project, 0, i == 0 ? 5.0 : 7.0));
+            ASSERT_TRUE(edits.markPointMass(document.project, 0, {.frame = i + 1, .x = 8.0 + i, .y = 12.0 - i}));
+            ASSERT_TRUE(edits.undo(document.project));
+            ASSERT_TRUE(edits.redo(document.project));
+            motrack::writeWorkspaceDocument(temporary.filePath(QString("saved-%1.motrack").arg(i)), document);
+        }
+        payload.reset();
+        ASSERT_TRUE(QFile::remove(source));
+        for (int i = 0; i < members.size(); ++i)
+            documents.push_back(motrack::readWorkspaceDocument(temporary.filePath(QString("saved-%1.motrack").arg(i))));
+        ASSERT_NE(documents[0].archivePayload, documents[1].archivePayload);
+        ASSERT_EQ(documents[0].archivePayload->sourceDigest(), documents[1].archivePayload->sourceDigest());
+        motrack::writeTrackerArchiveDocuments(destination, documents);
+        const auto first = readBytes(destination);
+        expectRetainedRecords(original, first, members);
+        const auto reopened = motrack::TrackerArchive::open(destination);
+        for (std::size_t i = 0; i < documents.size(); ++i)
+        {
+            const auto loaded = motrack::importTrackerDocument(reopened.projectPath(members[static_cast<qsizetype>(i)]));
+            ASSERT_EQ(loaded.project.pointMasses.size(), 1);
+            EXPECT_DOUBLE_EQ(loaded.project.pointMasses.front().mass, i == 0 ? 5.0 : 7.0);
+            EXPECT_EQ(loaded.project.pointMasses.front().marks, documents[i].project.pointMasses.front().marks);
+            EXPECT_EQ(readBytes(documents[i].archivePayload->sourcePath()), original);
+        }
+        std::ranges::reverse(documents);
+        motrack::writeTrackerArchiveDocuments(destination, documents);
+        EXPECT_EQ(readBytes(destination), first);
+    }
+}
+
+TEST(TrackerArchiveWriter, RefusesAnInvalidSecondDocumentWithoutSavingTheFirst)
+{
+    QTemporaryDir temporary;
+    const auto fixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images/multitab-images.trz";
+    const auto destination = temporary.filePath("existing.trz");
+    std::vector<motrack::WorkspaceDocument> documents;
+    for (const auto* member : {"experiment.trk", "second.trk"})
+    {
+        auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(fixture));
+        auto document = motrack::importTrackerDocument(payload->projectPath(member));
+        payload->resolveMedia(document.project, member);
+        document.archivePayload = payload;
+        document.archiveMember = member;
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.setPointMassValue(document.project, 0, 6.0));
+        documents.push_back(std::move(document));
+    }
+    motrack::writeTrackerArchiveDocuments(destination, documents);
+    const auto originalOutput = readBytes(destination);
+    const auto foreignPath = temporary.filePath("foreign.trz");
+    ASSERT_TRUE(motrack::test::writeArchive(
+        foreignPath, {{.name = "experiment.trk", .bytes = originalXml()}, {.name = "second.trk", .bytes = originalXml()}}));
+    const auto foreign = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(foreignPath));
+    const std::vector<std::function<void(motrack::WorkspaceDocument&)>> mutations{
+        [](auto& document) { document.archivePayload.reset(); },
+        [](auto& document) { document.archiveMember.reset(); },
+        [](auto& document) { document.trackerSource.reset(); },
+        [](auto& document) { document.archiveMember = "experiment.trk"; },
+        [](auto& document) { document.archiveMember = "missing.trk"; },
+        [](auto& document)
+        {
+            if (!document.trackerSource)
+                throw std::runtime_error("Missing test source.");
+            document.trackerSource->xml += " ";
+        },
+        [](auto& document) { document.archiveReference = "stale.trz"; },
+        [](auto& document) { document.project.clip.mediaReferences.front() = "outside.png"; },
+        [foreign](auto& document)
+        {
+            document.archivePayload = foreign;
+        }};
+    for (std::size_t i = 0; i < mutations.size(); ++i)
+    {
+        SCOPED_TRACE(i);
+        auto invalid = documents;
+        mutations[i](invalid[1]);
+        EXPECT_THROW(motrack::writeTrackerArchiveDocuments(destination, invalid), motrack::ProjectError);
+        EXPECT_EQ(readBytes(destination), originalOutput);
+    }
+    EXPECT_THROW(motrack::writeTrackerArchiveDocuments(destination, {}), motrack::ProjectError);
+    const std::atomic_bool cancelled{true};
+    EXPECT_THROW(motrack::writeTrackerArchiveDocuments(destination, documents, &cancelled), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), originalOutput);
+    for (const auto& document : documents)
+    {
+        const auto owned = document.archivePayload->sourcePath();
+        const auto original = readBytes(owned);
+        EXPECT_THROW(motrack::writeTrackerArchiveDocuments(owned, documents), motrack::ProjectError);
+        EXPECT_EQ(readBytes(owned), original);
+        EXPECT_THROW(motrack::writeTrackerArchiveDocuments(QDir(document.archivePayload->root()).filePath("saved.trz"), documents),
+                     motrack::ProjectError);
+    }
+    const auto& second = documents[1];
+    const auto media = QDir(second.archivePayload->root()).filePath(QString::fromStdString(second.project.clip.mediaReferences.front()));
+    ASSERT_TRUE(writeBytes(media, "changed media"));
+    EXPECT_THROW(motrack::writeTrackerArchiveDocuments(destination, documents), motrack::ProjectError);
+    EXPECT_EQ(readBytes(destination), originalOutput);
 }
 
 TEST(TrackerArchiveWriter, ReplacesOnlyTheChosenMemberAndKeepsTheOwnedSource)
