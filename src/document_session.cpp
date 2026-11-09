@@ -196,7 +196,8 @@ SaveOutcome DocumentSession::completePairedSave(const SaveCheckpoint& checkpoint
         if (standard != m_StandardSavePath)
         {
             m_StandardSavePath = standard;
-            invalidateSaved(SaveTarget::Tracker);
+            if (!result.standardCurrent)
+                invalidateSaved(SaveTarget::Tracker);
         }
     }
     if (result.standardCurrent && !olderStandard)
@@ -233,10 +234,17 @@ SaveOutcome DocumentSession::completePairedRecovery(const SaveCheckpoint& checkp
 {
     if (checkpoint.identity != m_Identity)
         return SaveOutcome::Replaced;
-    if (result.recoveryIdentity)
-        m_RecoveryLocationIdentities.insert(*result.recoveryIdentity, result.recoveryIdentity);
     if (!checkpoint.recoveryTransactions.contains(requestedRecoveryPath))
         return m_RecoveryPaths.contains(requestedRecoveryPath) ? SaveOutcome::Stale : SaveOutcome::Replaced;
+    // UUIDs survive directory copies. Bind the callback to its observed slot before changing
+    // any pending records or watermarks; a successful recovery may have removed the file already.
+    const auto& observed = result.recoveryIdentity                  ? *result.recoveryIdentity
+                           : !result.observedRecoveryPath.isEmpty() ? result.observedRecoveryPath
+                                                                    : result.recoveryPath;
+    if (observed.isEmpty() || observed != requestedRecoveryPath)
+        return SaveOutcome::Stale;
+    if (result.recoveryIdentity)
+        m_RecoveryLocationIdentities.insert(*result.recoveryIdentity, result.recoveryIdentity);
     const auto transaction = checkpoint.recoveryTransactions.value(requestedRecoveryPath);
     // The accessor may have supplied a list-element reference that completion is about to remove.
     const auto completedPath = requestedRecoveryPath; // NOLINT(performance-unnecessary-copy-initialization)

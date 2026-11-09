@@ -1,9 +1,15 @@
 # Standard and native paired saving
 
-Status: internal phase-3 paired writer, explicit recovery adapter and per-output session checkpoints
-are implemented. Earlier three-platform and actual Tracker acceptance is recorded below; later review
-fixes require current-revision CI. Desktop standard Save and explicit recovery controls are implemented
-in the current slice; cross-platform acceptance of the desktop controller remains pending.
+Status: the internal phase-3 paired writer, explicit recovery adapter and per-output session
+checkpoints are implemented. The paired-image adapter passed all six checks at `6ae83b6` in
+[run 42534998602](https://github.com/mgradwohl/MoTrack/actions/runs/42534998602), with 95.48%
+combined coverage and both recovered exports loaded, saved, freshly reopened in Tracker and
+reimported in MoTrack. The session slice passed all six checks at `c9f0d30` in
+[run 42540556261](https://github.com/mgradwohl/MoTrack/actions/runs/42540556261), with 95.47%
+combined coverage; subsequent fixes retain their own CI/review gates. Desktop standard Save
+actions and recovery choices are implemented; controller `d9651f9` passed all six checks in
+[run 42534998848](https://github.com/mgradwohl/MoTrack/actions/runs/42534998848), with 95.72%
+combined coverage. Subsequent fixes retain current-head CI and review gates.
 The [full-port plan](migration-plan.md#implementation-order-and-exit-gates) and
 [format guide](native-format.md) remain the canonical status and supported-schema references.
 
@@ -115,10 +121,31 @@ A regression copies a live owner's lock identity to an aged claim without an OS 
 so timeout-based theft cannot be masked by native locking support. Both new writes and recovery
 must refuse that claim; the separate terminated-child regression still proves dead-owner recovery.
 
+Native writes, paired writes and recovery share a sibling `stem~` lock. Keeping the complete stem
+lets the filesystem determine case and Unicode aliases; the one-character suffix leaves room for
+Qt's `.rmlock` stale-owner cleanup suffix. Ordinary journals retain `.stem.motrack-save.json`.
+If that name exceeds 248 UTF-8 bytes, the journal uses `stem!`, leaving room for Qt's seven-character
+atomic-write suffix on filesystems with 255-byte filename components. These internal names do not
+change either project format. Both journal forms block new writes, and recovery refuses ambiguous
+simultaneous records. Their process-local identities remain separate even though they share a lock.
+Older lock names are also acquired when they leave the same cleanup margin; an existing oversized
+legacy claim is preserved and reported for attention instead of being ignored or removed unsafely.
+Lock creation errors are distinguished from a live competing writer.
+The Tracker XML reader uses Qt's Unicode and long-path file adapter too, so standard outputs beyond
+Windows' ordinary path-length limit can be reopened. It retains the 32 MiB pre-read bound and rejects
+read errors or a changed length instead of accepting a truncated input.
+
+Regression cases exercise 240-byte ASCII and Unicode stems through native, paired and desktop Save,
+interruption, dead-writer recovery and filesystem-specific case aliases. Existing journal and live-lock
+compatibility remain covered. Local Windows validation passes all eight CTest groups in 163.49 seconds,
+with **95.55% (8479/8874)** production line coverage. Formatting and static analysis pass for all seven
+changed/integrated C++ translation units; three existing LLVM function-mismatch warnings remain visible.
+The filename correction still requires current-revision three-platform CI and review.
+
 After the destination-status review fixes in `7d04cd4`, all six Windows suites and formatting/clang-tidy
 pass; coverage is 95.34% (7679/8054). Both output statuses are refreshed before reporting conflicts or
 read failures, so an early conflict cannot hide or falsely retain a companion commit. The inherited
-source-digest and standalone-media corrections require the next combined current-revision CI run.
+source-digest and standalone-media corrections subsequently passed the `6ae83b6` run recorded above.
 
 
 
@@ -327,8 +354,29 @@ delayed observation of the copy. Each output destination also retains its observ
 older successful callback cannot replace a newer selected destination or its saved checkpoint. Older
 pending journals are still registered and reconciled independently of destination selection.
 
-Native-only writes and paired writes share this process-local completion order. The native writer
-returns a `NativeSaveResult` containing its completion stamp and original-reference media bindings;
+Recovery completion also checks the result's observed filesystem-slot identity against the requested
+pending location before changing any session state. A successful, failed or absent result for the
+original cannot clear or invalidate a copied journal's entry, even when their UUIDs match. This uses
+the retained observation identity because successful recovery may already have deleted the journal.
+Two successful paired writes of the live revision can complete in either order without a destination
+switch alone invalidating their Tracker checkpoint. Stale revisions, recovery invalidation and newer
+on-disk observations retain their independent guards.
+
+Native-only writes and paired writes share this process-local completion order. The `writeNativeDocument`
+adapter holds the same physical per-stem destination lock across native replacement and observation
+stamping, and refuses pending recovery journals. It returns a `NativeSaveResult` containing its stamp
+and original-reference media bindings. Low-level `writeWorkspaceDocument` performs storage only and
+returns no completion token; desktop workers and real-file session callers use the locked adapter.
+The cancellation flag reaches native serialization and storage: it is checked before serialization,
+at archive-copy chunk boundaries and immediately before atomic replacement. Mid-copy and pre-commit
+cancellation preserve the previous plain or archive-backed native file. A bounded storage observer
+lets regressions cancel at those boundaries without relying on timing or large stress fixtures.
+Its worker observer reports `NativeSaved` between replacement and stamping. A regression attempts
+both an older native write and an older paired write in that interval: both are refused, the current
+file remains on disk and only its matching completion can make the session clean. A later old write,
+after lock release, receives a later stamp and leaves the session dirty. An exception from the
+post-commit progress observer cannot change the successful storage outcome: the adapter still returns
+the stamped completion so a written snapshot cannot become invisible to session bookkeeping. In all cases,
 the worker must retain that result through callback delivery, rather than constructing a new stamp
 on the GUI thread. A superseded native callback leaves the selected destination, saved checkpoint and
 bindings untouched. A newer standard-only partial save can supply the latest media bindings while
@@ -346,3 +394,22 @@ regressions pass on Windows with all eight CTest groups (including all 28 sessio
 Combined local production line coverage is 95.49% (8108/8491); formatting and all six changed C++
 translation-unit static analyses pass. Persistence and session cases now have separate CTest groups
 from the UI, retaining every case and each 60-second limit. Current-revision CI/review remain required.
+
+The replacement/stamp lock regression, native cancellation/recovery guards and post-commit observer
+failure cases pass locally on Windows at `9d08bd85`. The complete eight-group suite passes in
+174.96 seconds, with 95.40% production line coverage (8174/8568); formatting and all five changed
+C++ translation units pass static analysis. Three existing LLVM function-mismatch warnings remain
+visible. The new interval regression deterministically attempts competing writes from the post-commit
+observer before the outer result is stamped. It also checks that a later obsolete write invalidates
+the session's saved state. Final head `c9f0d30` passes all six required checks in
+[run 42540556261](https://github.com/mgradwohl/MoTrack/actions/runs/42540556261), with **95.47%
+(8204/8593)** combined coverage and both recovered paired-image modes passing actual Tracker
+load/save/fresh reopen and native reimport. Subsequent fixes retain their own current-head CI and review gates.
+
+The copied-journal callback and older-first successful-save defects were reproduced before their
+corrections. All 30 session cases and the two deterministic storage-cancellation cases then passed.
+Local Windows validation of these review fixes passes all eight CTest groups in 141.23 seconds,
+with **95.40% (8190/8585)** production line coverage, formatting and all six changed C++ translation
+units passing static analysis. Three existing LLVM function-mismatch warnings remain visible.
+The earlier `c9f0d30` CI evidence does not cover these later fixes; their current-head CI/review gates
+remain required before merge.
