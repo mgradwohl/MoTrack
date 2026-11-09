@@ -66,11 +66,14 @@ Collection clears only its previous `motrack-*.profraw` profiles before running 
 
 CI builds and tests on all three OSes. New behavior needs tests through its normal entry points. Use exact comparisons where appropriate and explicit tolerances for scientific results. The combined production line coverage must stay at or above **90%**. Keep suppressions narrow, explain each in the code, and include known compatibility limits in the pull request.
 
-The workspace executable runs in four complementary CTest groups. General UI cases run in
+The workspace executable runs in five complementary CTest groups. General UI cases run in
 `workspace`; `workspace_saving` runs `PairedWorkspace.*` and `ImagePackageWorkspace.*`,
-`workspace_document` runs `WorkspaceDocument.*`, and `document_session` runs `DocumentSession.*`.
-Each retains a 60-second timeout, and ordinary CTest/coverage collection runs all four groups.
-This separates the growing real-file and save/recovery matrices without omitting cases.
+`workspace_document` runs `WorkspaceDocument.*`, and the two session groups partition `DocumentSession.*`.
+`document_session_journals` includes names matching `*Journal*`; `document_session` uses the complementary
+negative filter. Every current or future session case therefore runs exactly once. Each group retains
+a 60-second timeout, and ordinary CTest/coverage collection runs all five groups. This separates the
+real-file journal matrices whose cumulative runtime caused the intermittent Windows timeout in
+[#137](https://github.com/mgradwohl/MoTrack/issues/137), without retries or omitted cases.
 
 CI uses [workflow concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
 to cancel superseded or duplicate runs for the same pull request. Separate PRs retain independent
