@@ -2061,7 +2061,7 @@ bool MainWindow::exportTrackerArchive(const QString& path)
                                             }
                                             catch (const SaveDestinationError& error)
                                             {
-                                                return ExportResult{.conflict = error.conflict()};
+                                                return ExportResult{.diagnostic = {}, .conflict = error.conflict()};
                                             }
                                             catch (const std::exception& error)
                                             {
