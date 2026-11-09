@@ -76,6 +76,9 @@ when the two histories have the same revision. Failed writes preserve the old ch
 paired workers share a completion order; an older callback cannot replace a newer destination, media
 bindings or saved checkpoint. The latest completed write of an outdated revision keeps its destination
 but invalidates the checkpoint until the latest state is saved.
+Native session saves use `writeNativeDocument`, which holds the shared paired-destination lock from
+replacement through completion stamping. The low-level `writeWorkspaceDocument` storage API returns
+no session token. This prevents a delayed stamp from making an older on-disk snapshot appear current.
 
 Workers receive an owned document snapshot, including shared archive ownership, rather than access
 to the live session. Replacing the session clears only its own history and data; a pending snapshot
@@ -460,7 +463,7 @@ Movie engines, filters and archive members need their own audited path/timing co
 packaging will preserve untouched members and feed the paired-save transaction/recovery layer;
 standard Save UI follows that layer. This internal adapter is not full R03 completion.
 
-### Selected-member Tracker archive output (application acceptance pending)
+### Selected-member Tracker archive output
 
 The internal archive document adapter exports supported edits to one original `.trk` member after
 native close/reopen, including after the original `.trz` is removed. It verifies that the source
@@ -475,8 +478,9 @@ Digest checks use bounded blocks, honor cancellation and avoid rereading duplica
 references. Native save/reopen recreates these digests from the owned archive bytes. An immutable
 copy prepares member-relative ImageVideo paths; external/replaced media,
 movies, filters and unsupported timing/range edits remain refused. The source envelope and owned
-original archive bytes are unchanged. The internal [paired-save adapter](paired-saving.md) now uses this writer; its acceptance gates
-are pending. Desktop standard Save integration remains unfinished.
+original archive bytes are unchanged. The internal [paired-save adapter](paired-saving.md) now uses
+this writer and has passing linked/archive-image recovery acceptance. Desktop standard Save
+uses the same adapter, with separate controller tests and current-head CI/review gates.
 
 The writer supports bounded, single-disk classic ZIP archives with stored or deflated members. It
 uses the [ZIP format specification](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT)
@@ -522,8 +526,9 @@ resave, fresh-process reopen and native reimport at `fec0e7a`, Linux job 1287330
 [run 42481133737](https://github.com/mgradwohl/MoTrack/actions/runs/42481133737), including every
 independent pixel/time/geometry expectation. The destination/member-alias guards also passed at `6e35268`, Linux job 128744838260 in
 [run 42484998884](https://github.com/mgradwohl/MoTrack/actions/runs/42484998884). The later immutable-source
-digest protection still requires its own current-revision CI. New-archive packaging, broader ZIP/media
-support and paired-save recovery remain unfinished.
+digest protection and paired recovery subsequently passed all six checks and actual Tracker acceptance
+at `6ae83b6` in [run 42534998602](https://github.com/mgradwohl/MoTrack/actions/runs/42534998602).
+New-archive packaging, broader ZIP/media support and desktop paired saving remain separate work.
 
 The additional two-experiment corpus case verifies that selected-member editing does not damage a
 second experiment sharing the same images. Its independent archive/XML oracle preserves that
@@ -550,10 +555,11 @@ The [desktop contract](paired-saving.md#desktop-save-and-recovery-controls) docu
 conflicts, session-local paired-save selection and current acceptance limits.
 
 Both recovered linked-image and archived-image modes passed actual Tracker load/save/fresh reopen
-and native reimport at `32c21d6`, Linux job 128747171486 in
-[run 42485770063](https://github.com/mgradwohl/MoTrack/actions/runs/42485770063). Later review fixes
-still require current-revision CI. The desktop controls have separate controller/lifecycle tests and
-require their own current-revision Windows/macOS/Linux checks before acceptance.
+and native reimport at `940a7bc`, Linux job 128904840707 in
+[run 42537466953](https://github.com/mgradwohl/MoTrack/actions/runs/42537466953), with all six checks
+green and 95.48% combined coverage before the adapter merged. The desktop controller passed all six
+checks at `d9651f9` in [run 42534998848](https://github.com/mgradwohl/MoTrack/actions/runs/42534998848),
+with 95.72% combined coverage. Subsequent fixes retain their own current-head CI and review gates.
 
 
 ## Creating a portable image archive
