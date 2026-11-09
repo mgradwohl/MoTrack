@@ -81,11 +81,15 @@ using PairedSaveObserver = std::function<void(PairedSaveProgress)>;
                                                     const QString& mediaProjectPath,
                                                     const std::atomic_bool* cancelled = nullptr,
                                                     const PairedSaveObserver& observer = {});
-/// Write a prepared/rebased native copy while holding its sibling paired-save lock.
-/// Refuses unresolved journals without changing any output; copies to other destinations remain available.
-/// The caller still validates/rebases media before invoking this worker-only adapter.
-/// The returned completion is stamped while the destination lock is held.
-NativeSaveResult writeNativeDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled = nullptr);
+/// Write a prepared/rebased native snapshot under the same destination lock as paired saving.
+/// Refuses pending recovery. Replacement and the returned observation are ordered under that lock.
+/// The worker-only observer receives NativeSaved after replacement, before stamping/releasing the lock.
+/// It must not access widgets or mutate the snapshot; no live session is changed by this adapter.
+/// Observer exceptions after replacement are ignored so the committed result still reaches its session.
+NativeSaveResult writeNativeDocument(const QString& path,
+                                     const WorkspaceDocument& document,
+                                     const std::atomic_bool* cancelled = nullptr,
+                                     const PairedSaveObserver& observer = {});
 
 /// Export a standalone image archive copy under the same per-stem destination lock as paired saving.
 /// Refuses pending journals and file aliases; no session checkpoints or companion files are changed.

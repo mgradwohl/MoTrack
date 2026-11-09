@@ -76,6 +76,9 @@ when the two histories have the same revision. Failed writes preserve the old ch
 paired workers share a completion order; an older callback cannot replace a newer destination, media
 bindings or saved checkpoint. The latest completed write of an outdated revision keeps its destination
 but invalidates the checkpoint until the latest state is saved.
+Native session saves use `writeNativeDocument`, which holds the shared paired-destination lock from
+replacement through completion stamping. The low-level `writeWorkspaceDocument` storage API returns
+no session token. This prevents a delayed stamp from making an older on-disk snapshot appear current.
 
 Workers receive an owned document snapshot, including shared archive ownership, rather than access
 to the live session. Replacing the session clears only its own history and data; a pending snapshot
@@ -563,10 +566,11 @@ The [desktop contract](paired-saving.md#desktop-save-and-recovery-controls) docu
 conflicts, session-local paired-save selection and current acceptance limits.
 
 Both recovered linked-image and archived-image modes passed actual Tracker load/save/fresh reopen
-and native reimport at `32c21d6`, Linux job 128747171486 in
-[run 42485770063](https://github.com/mgradwohl/MoTrack/actions/runs/42485770063). Later review fixes
-still require current-revision CI. The desktop controls have separate controller/lifecycle tests and
-require their own current-revision Windows/macOS/Linux checks before acceptance.
+and native reimport at `940a7bc`, Linux job 128904840707 in
+[run 42537466953](https://github.com/mgradwohl/MoTrack/actions/runs/42537466953), with all six checks
+green and 95.48% combined coverage before the adapter merged. The desktop controller passed all six
+checks at `d9651f9` in [run 42534998848](https://github.com/mgradwohl/MoTrack/actions/runs/42534998848),
+with 95.72% combined coverage. Subsequent fixes retain their own current-head CI and review gates.
 
 
 ## Creating a portable image archive

@@ -46,11 +46,6 @@ constexpr qint64 MAX_RECORD_BYTES = qint64{64} * 1024;
 constexpr qint64 MAX_NATIVE_BYTES = MAX_WORKSPACE_JSON_BYTES + MAX_TRACKER_ARCHIVE_BYTES + qint64{8} * 1024 * 1024;
 constexpr auto RECORD_SUFFIX = ".motrack-save.json";
 
-QString lockPath(const QString& recordPath)
-{
-    return recordPath.chopped(5) + ".lock";
-}
-
 struct Cancelled : std::exception
 {
     [[nodiscard]] const char* what() const noexcept override
@@ -106,6 +101,92 @@ bool safeName(const QString& name)
     return !name.isEmpty() && name.size() <= 512 && name != "." && name != ".." && !name.contains(forbidden) &&
            !name.contains(QChar::Null) && !name.endsWith('.') && !name.endsWith(' ');
 }
+
+QString legacyRecordName(const QString& stem)
+{
+    return '.' + stem + RECORD_SUFFIX;
+}
+
+bool compactRecord(const QString& name)
+{
+    return name.endsWith('!');
+}
+
+QString recordStem(const QString& name)
+{
+    if (compactRecord(name))
+        return name.chopped(1);
+    if (name.startsWith('.') && name.endsWith(RECORD_SUFFIX))
+        return name.sliced(1).chopped(QString::fromLatin1(RECORD_SUFFIX).size());
+    return {};
+}
+
+bool hasTemporaryNameRoom(const QString& name)
+{
+    // Leave room for Qt's seven-character .XXXXXX or .rmlock suffix on filesystems
+    // with a 255-byte component limit; UTF-8 also bounds UTF-16 component length.
+    return name.toUtf8().size() <= 248;
+}
+
+QString recordName(const QString& stem)
+{
+    const auto legacy = legacyRecordName(stem);
+    return hasTemporaryNameRoom(legacy) ? legacy : stem + '!';
+}
+
+QString lockPath(const QString& recordPath)
+{
+    const QFileInfo info(recordPath);
+    return info.absoluteDir().filePath(recordStem(info.fileName()) + '~');
+}
+
+bool present(const QString& path)
+{
+    return QFileInfo::exists(path) || QFileInfo(path).isSymLink();
+}
+
+QString otherRecordPath(const QString& path)
+{
+    const QFileInfo info(path);
+    const auto stem = recordStem(info.fileName());
+    return info.absoluteDir().filePath(compactRecord(info.fileName()) ? legacyRecordName(stem) : stem + '!');
+}
+
+class DestinationLock
+{
+  public:
+    explicit DestinationLock(const QString& recoveryPath) : m_Primary(lockPath(recoveryPath))
+    {
+        acquire(m_Primary);
+        const QFileInfo info(recoveryPath);
+        const auto legacy = '.' + recordStem(info.fileName()) + ".motrack-save.lock";
+        const auto legacyPath = info.absoluteDir().filePath(legacy);
+        if (hasTemporaryNameRoom(legacy))
+        {
+            // Cooperate with older writers as well as the shared compact lock.
+            m_Legacy = std::make_unique<QLockFile>(legacyPath);
+            acquire(*m_Legacy);
+        }
+        else
+            require(!present(legacyPath), "An older save lock requires attention before this destination can be replaced.");
+    }
+
+  private:
+    static void acquire(QLockFile& lock)
+    {
+        lock.setStaleLockTime(0);
+        if (lock.tryLock(0))
+            return;
+        if (lock.error() == QLockFile::LockFailedError)
+            throw SaveDestinationError(SaveDestinationConflict::Busy);
+        throw ProjectError("Could not create the project save lock in the destination directory.");
+    }
+
+    // The whole stem preserves the directory's own case/Unicode alias rules.
+    // One extra character leaves Qt's stale-lock suffix within a native name's length.
+    QLockFile m_Primary;
+    std::unique_ptr<QLockFile> m_Legacy;
+};
 
 qint64 fileLimit(const QString& name)
 {
@@ -175,7 +256,7 @@ void validateRecord(const Record& record)
     require(standard.name.endsWith(".trk", Qt::CaseInsensitive) || standard.name.endsWith(".trz", Qt::CaseInsensitive),
             "Paired saving requires a Tracker standard filename.");
     const auto stem = QFileInfo(standard.name).completeBaseName();
-    require(!stem.isEmpty() && native.name == stem + ".motrack" && record.name == '.' + stem + RECORD_SUFFIX,
+    require(!stem.isEmpty() && native.name == stem + ".motrack" && (record.name == legacyRecordName(stem) || record.name == stem + '!'),
             "Paired-save filenames do not describe one sibling pair.");
     QSet<QString> names;
     for (const auto& name : {record.name, standard.name, native.name, standard.stage, native.stage})
@@ -244,7 +325,8 @@ Record readRecord(const QString& path, const QString& directory)
         if (!item.value("before").isNull())
             output.before = parseFingerprint(item.value("before"), limit);
     }
-    result.name = '.' + QFileInfo(result.outputs[0].name).completeBaseName() + RECORD_SUFFIX;
+    const auto stem = QFileInfo(result.outputs[0].name).completeBaseName();
+    result.name = compactRecord(info.fileName()) ? stem + '!' : legacyRecordName(stem);
     validateRecord(result);
     const auto declaredPath = QDir(directory).filePath(result.name);
     // Both spellings must use the lock already held by this caller. File identity alone would
@@ -460,7 +542,9 @@ std::shared_ptr<const QString> observeRecoveryIdentity(const QString& path)
     const std::scoped_lock guard(mutex);
     std::erase_if(observed, [](const auto& identity) { return identity.expired(); });
     for (const auto& candidate : observed)
-        if (auto identity = candidate.lock(); identity && sameLocalFile(lockPath(*identity), lockPath(path)))
+        if (auto identity = candidate.lock(); identity &&
+                                              compactRecord(QFileInfo(*identity).fileName()) == compactRecord(QFileInfo(path).fileName()) &&
+                                              sameLocalFile(lockPath(*identity), lockPath(path)))
             return identity;
     auto identity = std::make_shared<const QString>(path);
     observed.emplace_back(identity);
@@ -482,12 +566,10 @@ void withSaveDestinationLock(const QString& path, const std::atomic_bool* cancel
     const QFileInfo target(physical);
     const auto parent = QFileInfo(target.absolutePath()).canonicalFilePath();
     require(!parent.isEmpty(), "The destination directory must exist.");
-    const auto recovery = QDir(parent).filePath('.' + target.completeBaseName() + RECORD_SUFFIX);
-    QLockFile lock(lockPath(recovery));
-    lock.setStaleLockTime(0);
-    if (!lock.tryLock(0))
-        throw SaveDestinationError(SaveDestinationConflict::Busy);
-    if (QFileInfo::exists(recovery) || QFileInfo(recovery).isSymLink())
+    require(!target.completeBaseName().isEmpty() && safeName(target.fileName()), "Invalid project filename.");
+    const auto recovery = QDir(parent).filePath(recordName(target.completeBaseName()));
+    const DestinationLock lock(recovery);
+    if (present(recovery) || present(otherRecordPath(recovery)))
         throw SaveDestinationError(SaveDestinationConflict::PendingRecovery);
     checkCancelled(cancelled);
     write(physical);
@@ -512,7 +594,7 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
         const QDir directory(parent);
         const auto stem = target.completeBaseName();
         Record record{.directory = parent,
-                      .name = '.' + stem + RECORD_SUFFIX,
+                      .name = recordName(stem),
                       .transactionId = QUuid::createUuid().toString(QUuid::WithoutBraces),
                       .outputs = {}};
         record.outputs[0].name = target.fileName();
@@ -522,14 +604,14 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
         require((target.suffix().compare("trk", Qt::CaseInsensitive) == 0 || target.suffix().compare("trz", Qt::CaseInsensitive) == 0) &&
                     !stem.isEmpty() && safeName(record.name) && safeName(record.outputs[0].name) && safeName(record.outputs[1].name),
                 "Paired saving requires a standard Tracker filename and a same-stem native companion.");
-        const auto recoveryPath = directory.filePath(record.name);
-        QLockFile lock(lockPath(recoveryPath));
-        lock.setStaleLockTime(0);
-        require(lock.tryLock(0), "Another save for this project is already in progress.");
+        auto recoveryPath = directory.filePath(record.name);
+        const DestinationLock lock(recoveryPath);
         const auto observation = qScopeGuard([&result] { stampObservation(result); });
+        if (!present(recoveryPath) && present(otherRecordPath(recoveryPath)))
+            recoveryPath = otherRecordPath(recoveryPath);
         result.observedRecoveryPath = recoveryPath;
         result.recoveryIdentity = observeRecoveryIdentity(recoveryPath);
-        if (QFileInfo::exists(recoveryPath) || QFileInfo(recoveryPath).isSymLink())
+        if (present(recoveryPath))
         {
             result.recoveryPath = recoveryPath;
             result.transactionId = readRecord(recoveryPath, parent).transactionId;
@@ -589,7 +671,7 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
         checkCancelled(cancelled);
         writeRecord(record);
         retainStages = true;
-        result.recoveryPath = recoveryPath;
+        result.recoveryPath = std::move(recoveryPath);
         result.transactionId = record.transactionId;
         notify(observer, PairedSaveProgress::RecoveryRecorded);
         commitPair(record, result, cancelled, observer);
@@ -611,11 +693,36 @@ SaveDestinationError::SaveDestinationError(SaveDestinationConflict conflict)
       m_Conflict(conflict)
 {}
 
-NativeSaveResult writeNativeDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled)
+NativeSaveResult writeNativeDocument(const QString& path,
+                                     const WorkspaceDocument& document,
+                                     const std::atomic_bool* cancelled,
+                                     const PairedSaveObserver& observer)
 {
+    checkCancelled(cancelled);
     require(path.endsWith(".motrack", Qt::CaseInsensitive), "Choose a native project filename.");
-    NativeSaveResult result;
-    withSaveDestinationLock(path, cancelled, [&](const auto& physical) { result = writeWorkspaceDocument(physical, document, cancelled); });
+    NativeSaveResult result{.mediaLocations = document.mediaLocations};
+    withSaveDestinationLock(path,
+                            cancelled,
+                            [&](const auto& physical)
+                            {
+                                writeWorkspaceDocument(physical, document, cancelled);
+                                const auto completed = [&result]
+                                {
+                                    result.saved = true;
+                                    result.observation = nextSaveObservation();
+                                };
+                                try
+                                {
+                                    notify(observer, PairedSaveProgress::NativeSaved);
+                                }
+                                catch (...)
+                                {
+                                    // Report the committed replacement even if its progress observer fails.
+                                    completed();
+                                    return;
+                                }
+                                completed(); // Stamp before withSaveDestinationLock releases the shared lock.
+                            });
     return result;
 }
 
@@ -641,12 +748,10 @@ PairedSaveResult recoverPairedDocuments(const QString& recoveryPath,
         checkCancelled(cancelled);
         const QFileInfo info(recoveryPath);
         const auto parent = QFileInfo(info.absolutePath()).canonicalFilePath();
-        require(!parent.isEmpty() && info.fileName().startsWith('.') && info.fileName().endsWith(RECORD_SUFFIX),
+        require(!parent.isEmpty() && safeName(info.fileName()) && !recordStem(info.fileName()).isEmpty(),
                 "Invalid paired-save recovery filename.");
         result.recoveryPath = QDir(parent).filePath(info.fileName());
-        QLockFile lock(lockPath(result.recoveryPath));
-        lock.setStaleLockTime(0);
-        require(lock.tryLock(0), "Another save for this project is already in progress.");
+        const DestinationLock lock(result.recoveryPath);
         const auto observation = qScopeGuard([&result] { stampObservation(result); });
         result.observedRecoveryPath = result.recoveryPath;
         result.recoveryIdentity = observeRecoveryIdentity(result.recoveryPath);
@@ -667,6 +772,7 @@ PairedSaveResult recoverPairedDocuments(const QString& recoveryPath,
         result.nativePath = QDir(parent).filePath(record.outputs[1].name);
         require(!expectedTransaction || *expectedTransaction == record.transactionId,
                 "The pending save changed in another instance. Confirm recovery of the new transaction before continuing.");
+        require(!present(otherRecordPath(result.recoveryPath)), "Two recovery records claim this project; no output was replaced.");
         commitPair(record, result, cancelled, observer);
     }
     catch (const Cancelled& error)

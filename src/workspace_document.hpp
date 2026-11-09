@@ -53,9 +53,8 @@ void refreshWorkspaceMediaLocations(WorkspaceDocument& document, const QString& 
 /// Uses physical project directories and verifies every generated local reference; throws before writing on failure.
 void rebaseWorkspaceMedia(WorkspaceDocument& document, const QString& sourcePath, const QString& destinationPath);
 /// Writes atomically. The caller supplies media paths relative to the destination.
-/// Returns an observed completion for live-session adoption; exceptions leave no successful result.
+/// Low-level storage only: live-session saves use writeNativeDocument to serialize replacement and observation.
 /// Cancellation is checked before serialization, while streaming archive data and before replacement.
-NativeSaveResult
-writeWorkspaceDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled = nullptr);
+void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled = nullptr);
 
 } // namespace motrack

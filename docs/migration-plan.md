@@ -36,8 +36,8 @@ scope decisions. Record deliberate behavior changes, including corrections to re
 
 ## Current implementation and evidence
 
-Snapshot: **2026-11-08**, merged `main` at
-[`dc93e0a`](https://github.com/mgradwohl/MoTrack/commit/dc93e0a0e0cf456306a7e3d09b7de67ae5f7fe43).
+Snapshot: **2026-11-09**, merged `main` at
+[`8c01dbc`](https://github.com/mgradwohl/MoTrack/commit/8c01dbc3097addfb8a0843221090276575fcbf27).
 [PR #34](https://github.com/mgradwohl/MoTrack/pull/34) added independent vector editing,
 [PR #36](https://github.com/mgradwohl/MoTrack/pull/36) the reference corpus,
 [PR #38](https://github.com/mgradwohl/MoTrack/pull/38) actual Java application resave checks,
@@ -75,20 +75,16 @@ line coverage **95.16% (7149/7513)**, including actual Tracker edited-file save/
 The keyed-calibration and mass-unit writer PRs also passed actual
 Tracker edited-file load/save/reopen and native reimport before merging. This verifies the implemented slice, not full Tracker equivalence.
 
-[PR #121](https://github.com/mgradwohl/MoTrack/pull/121) adds selected-member archive editing and
-[PR #124](https://github.com/mgradwohl/MoTrack/pull/124) verifies every experiment in multi-tab archives.
-Both are merged after current-head passing review and all six checks, including actual Tracker
-load/save/fresh reopen. Their runs
-[42534429062](https://github.com/mgradwohl/MoTrack/actions/runs/42534429062) and
-[42534428777](https://github.com/mgradwohl/MoTrack/actions/runs/42534428777) each report 95.26%
-combined coverage (7477/7849).
-
-Paired recovery/checkpoints, desktop paired saving, portable image packages and movie
-acceptance/export remain in the dependent
-[PR #125](https://github.com/mgradwohl/MoTrack/pull/125) through
-[PR #133](https://github.com/mgradwohl/MoTrack/pull/133) sequence. Their scoped implementation and
-evidence below do not imply that every change in that sequence is merged. Each updated head still
-requires its own CI and passing review; R03 and the full-port completion contract remain open.
+Recent merged work adds audited linked-image saving in
+[PR #120](https://github.com/mgradwohl/MoTrack/pull/120), selected archive-member saving in
+[PR #121](https://github.com/mgradwohl/MoTrack/pull/121), all-experiment archive acceptance in
+[PR #124](https://github.com/mgradwohl/MoTrack/pull/124), and internal paired-save recovery in
+[PR #125](https://github.com/mgradwohl/MoTrack/pull/125). The last passed all six checks at `940a7bc`
+in [run 42537466953](https://github.com/mgradwohl/MoTrack/actions/runs/42537466953), including both
+recovered image exports loaded, saved and freshly reopened in Tracker, with **95.48% (7946/8322)**
+combined coverage. Per-output session completion, desktop paired Save, portable image packaging,
+movie export and image clip-range saving remain in the dependent PR sequence; implementation below
+does not imply every change is merged. Each current revision retains its own CI and review gates.
 
 Implemented and tested workflows include local movie/image opening, playback and indexed stepping,
 clip limits, a reusable background decoder with a bounded cache, cancellation of superseded opens,
@@ -336,7 +332,7 @@ or standard-file compatibility gates.
 | OS and CPU support | CI currently uses Windows 2025, macOS 15 and Ubuntu 24.04 runners. These are test environments, not declared minimum end-user OS versions. Specify release minimums and Intel/Arm coverage explicitly. | 1, finalized before 12 |
 | Codec coverage and export | FFmpeg import works for tested fixtures; pin a format/codec/container test matrix and identify any licensing or platform limitations. Do not label untested formats supported because FFmpeg recognizes their names. | 1, 6 and 10 |
 | Native preservation representation | Version 5 retains bounded original XML, document-scoped IDs, a non-reusing counter and original-object bindings, plus a streamed ZIP with native metadata and the exact original `.trz` payload. Versions 1–4 migrate without inventing lost source, bindings or selected archive tabs. See [native format](native-format.md). | 2 |
-| Pair-save recovery | [Internal contract and adapter](paired-saving.md) implement sibling staging, bounded journals, explicit recovery and per-output results. CI/application acceptance and user-visible partial-success integration remain; two independent replacements are not one atomic write. | 3 |
+| Pair-save recovery | [Internal contract and adapter](paired-saving.md) implement sibling staging, bounded journals, explicit recovery and per-output results. Three-platform CI and both linked/archive-image recovery application cases passed at `6ae83b6` in [run 42534998602](https://github.com/mgradwohl/MoTrack/actions/runs/42534998602). Per-output session checkpoints now share locked native/paired completion ordering; desktop controls are implemented with their own current-head CI/review gates. Two independent replacements are not one atomic write. | 3 |
 | Numerical equivalence | Freeze quantity-specific tolerances, derivative/solver choices, units and gap semantics from actual reference results, including boundary and near-zero values. | 1, extended per feature |
 | External-model exchange and supporting documents | Verify the reference's data protocols and choose native adapters/viewers without silently excluding those workflows or executing arbitrary document content. | 9–11 |
 

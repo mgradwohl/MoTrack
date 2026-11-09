@@ -241,12 +241,42 @@ TEST(PairedWorkspace, SavesImageClipSettingsAndReopensTheSameSourceFramesThrough
     EXPECT_EQ(slider->maximum(), 1);
     const auto reopened = motrack::readWorkspaceDocument(native);
     const auto sequence = motrack::ImageSequence::open(native, reopened.project.clip);
-    ASSERT_TRUE(sequence);
+    if (!sequence)
+        FAIL() << "The saved clip lost its image sequence.";
     for (int step = 0; step < 2; ++step)
     {
         const auto frame = sequence->readStep(step);
-        ASSERT_TRUE(frame);
+        if (!frame)
+            FAIL() << "The saved clip lost a source frame.";
         EXPECT_EQ(frame->image, QImage(fixture("images/frame" + QString::number(1 + step * 2) + ".png")));
+    }
+}
+
+TEST(PairedWorkspace, SavesLongNativeAndPairedNamesThroughDesktopActions)
+{
+    for (const auto& stem : {QString(240, 'a'), QString::fromUtf8("é").repeated(120)})
+    {
+        SCOPED_TRACE(stem.toStdString());
+        QTemporaryDir temporary;
+        motrack::MainWindow window;
+        ASSERT_TRUE(window.loadProject(fixture()));
+        ASSERT_TRUE(editMass(window, 5));
+        const auto target = temporary.filePath(stem + ".trk");
+        const auto native = temporary.filePath(stem + ".motrack");
+        ASSERT_TRUE(window.saveWorkspace(native));
+        ASSERT_TRUE(window.saveTrackerProject(target));
+        EXPECT_FALSE(window.isWindowModified());
+        ASSERT_TRUE(editMass(window, 7));
+        auto* save = window.findChild<QAction*>("saveProject");
+        ASSERT_NE(save, nullptr);
+        save->trigger();
+        EXPECT_FALSE(window.isWindowModified());
+        EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(target).project.pointMasses.at(0).mass, 7);
+        EXPECT_DOUBLE_EQ(motrack::readWorkspaceDocument(native).project.pointMasses.at(0).mass, 7);
+        ASSERT_TRUE(window.loadProject(native));
+        auto* canvas = window.findChild<QWidget*>("videoCanvas");
+        ASSERT_NE(canvas, nullptr);
+        EXPECT_EQ(canvas->accessibleName(), "Frame 0");
     }
 }
 
