@@ -316,6 +316,44 @@ TEST(TrackerWriter, VectorOnlyEditsBoundCoordinateWorkIncludingRetainedPadding)
     EXPECT_THROW(motrack::writeTrackerProject(output, changed, imported.source), motrack::ProjectError);
     EXPECT_EQ(readBytes(output), saved);
 
+    // Removing every vector must not remove the budget for the surviving clip/calibration.
+    const auto removedOutput = temporary.filePath("removed.trk");
+    changed.vectors.clear();
+    changed.clip.stepCount = 333333;
+    ASSERT_NO_THROW(motrack::writeTrackerProject(removedOutput, changed, imported.source));
+    const auto removed = readBytes(removedOutput);
+    EXPECT_TRUE(motrack::parseLegacyProject(removed).vectors.empty());
+    EXPECT_EQ(motrack::parseLegacyProject(removed).clip, changed.clip);
+    changed.clip.stepCount = 333334;
+    EXPECT_THROW(motrack::writeTrackerProject(removedOutput, changed, imported.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(removedOutput), removed);
+
+    // The budget must describe final arrays, excluding a real sample removed by the same edit.
+    auto longSource = source.cloneNode(true).toDocument();
+    const auto longProperties = longSource.elementsByTagName("property");
+    bool moved = false;
+    for (int index = 0; index < longProperties.size() && !moved; ++index)
+    {
+        auto property = longProperties.at(index).toElement();
+        if (property.attribute("name") != "[5]")
+            continue;
+        property.setAttribute("name", "[400000]");
+        property.parentNode().appendChild(property); // Keep the sparse XML array in increasing frame order.
+        moved = true;
+    }
+    ASSERT_TRUE(moved);
+    const auto longImported = motrack::parseTrackerProject(longSource.toByteArray(-1).toStdString());
+    auto shortened = longImported.project;
+    ASSERT_EQ(shortened.vectors.front().samples.back().frame, 400000);
+    shortened.vectors.front().samples.pop_back();
+    if (!shortened.calibration)
+        FAIL() << "Missing calibration for the combined removal edit.";
+    shortened.calibration->keyframes.back().angleDegrees = 1;
+    const auto shortenedOutput = temporary.filePath("shortened.trk");
+    EXPECT_NO_THROW(motrack::writeTrackerProject(shortenedOutput, shortened, longImported.source));
+    if (QFile::exists(shortenedOutput))
+        EXPECT_EQ(motrack::parseLegacyProject(readBytes(shortenedOutput)), shortened);
+
     for (const auto* arrayClass :
          {"[Lorg.opensourcephysics.media.core.ImageCoordSystem$FrameData;", "[Lorg.opensourcephysics.cabrillo.tracker.Vector$FrameData;"})
     {
@@ -4692,6 +4730,10 @@ TEST(TrackerWriter, RejectsMixedCalibrationFlagChangesAndExcessiveGlobalUpdatesA
     {
         FAIL() << "Missing source calibration.";
     }
+    auto massOnly = imported.project;
+    massOnly.pointMasses.front().mass += 1;
+    EXPECT_THROW(motrack::writeTrackerProject(output, massOnly, imported.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(output), xml);
     imported.project.calibration->keyframes.back().originX += 1;
     // Relative key-to-end ranges total 900003, but fixed-origin setters touch 1200003 frames.
     EXPECT_THROW(motrack::writeTrackerProject(output, imported.project, imported.source), motrack::ProjectError);

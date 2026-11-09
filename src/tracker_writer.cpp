@@ -846,7 +846,6 @@ void patchCalibration(QDomDocument& xml, const Calibration& original, const Cali
     const auto locked = uniqueProperty(object, "locked");
     require(locked.isNull() ||
             (locked.attribute("type") == "boolean" && locked.firstChildElement().isNull() && locked.text().trimmed() == "false"));
-    requireBoundedCoordinateUpdates(xml, current, project);
     patchFrameData(xml,
                    object,
                    original.keyframes,
@@ -1358,7 +1357,9 @@ std::string renderTrackerProjectImpl(const LegacyProject& project,
     require(std::ranges::find(expected.unsupportedTrackTypes, "org.opensourcephysics.cabrillo.tracker.VectorSum") ==
             expected.unsupportedTrackTypes.end());
     requireStableVectors(expected, objects);
-    if (!expected.vectors.empty() && expected.calibration)
+    // Count the emitted state after all removals/patches. Calibration still loads when the last
+    // vector is deleted, and an unchanged calibration cannot exempt another edit from its budget.
+    if (expected.calibration)
         requireBoundedCoordinateUpdates(xml, *expected.calibration, expected);
     requireBoundedMassFrames(xml);
     if (auditFinalSchema)
