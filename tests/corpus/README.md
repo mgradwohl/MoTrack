@@ -1178,6 +1178,14 @@ and `second.trk` uses `secondary-images`. Baseline loading copies the archive al
 so neighboring fixture files cannot satisfy the media load. Tracker must save every loaded tab and reopen
 each in a fresh JVM. The movie uses explicitly pinned runtime dependencies; MoTrack gains no Java dependency.
 
+The bare `TFrame` harness initializes the normal `ResourceLoader.setOSPCache` preference under each
+subprocess's private home. Otherwise the pinned loader marks extracted MOV files for deletion on exit:
+run 42567671197 opened/saved the MOV archive but its complete-media check failed after the JVM exited.
+An independent headless resource check reproduced deletion without cache setup and exact-byte retention
+with it. The all-tab reports require and record `private_persistent_osp_cache` for save and reopen;
+every movie/image checksum and fresh-process reopen remains mandatory. No media copying or loader patch
+is used, and the unsupported AVI archive remains excluded from accepted application compatibility.
+
 Four native modes use that complete-tab path: `archive-movie`, `archive-movie-clip`,
 `archive-movie-clip-single` and `paired-archive-movie`. The native probe builds the complete movie index,
 edits mass and mark 1 with undo/redo, optionally selects frames 1/3 or frame 2, saves/reopens a native

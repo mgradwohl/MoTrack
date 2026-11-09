@@ -79,7 +79,7 @@ class CorpusTests(unittest.TestCase):
                 "name_references": {"selected_track": mass["name"]}, **corpus.session_units(template, expected)})
         (self.root / "reports").mkdir(exist_ok=True)
         for mutation in [None, "missing", "duplicate", "non-object", "second-mass", "second-pixels", "second-origin",
-                         "first-bytes", "second-bytes"]:
+                         "first-bytes", "second-bytes", "cache-policy"]:
             output = self.root / (case_id + "-" + (mutation or "valid"))
             output.mkdir()
             calls, homes = [], []
@@ -102,7 +102,8 @@ class CorpusTests(unittest.TestCase):
                 homes.append(home)
                 calls.append((source, stage))
                 report = {"reference_version": "6.3.5", "verification_level": "tracker_session_" + stage,
-                          "view_preparation": "expand_visit_custom_tables_restore_selection", "loader_callbacks": 2}
+                          "view_preparation": "expand_visit_custom_tables_restore_selection", "loader_callbacks": 2,
+                          "cache_policy": "none" if mutation == "cache-policy" else "private_persistent_osp_cache"}
                 if stage == "save-tabs":
                     self.assertEqual(source.parent, output / "input")
                     self.assertEqual(list(source.parent.iterdir()), [source])
@@ -147,6 +148,8 @@ class CorpusTests(unittest.TestCase):
                     report = json.loads((self.root / "reports" / f"{case_id}-tracker_archive_tabs_resave.json").read_text())
                     self.assertEqual([tab["member"] for tab in report["tabs"]], ["experiment.trk", "second.trk"])
                     self.assertTrue(all(set(tab["tracker_session"]["saved_media_inventories"]) == {"save", "reopen"}
+                                        for tab in report["tabs"]))
+                    self.assertTrue(all(set(tab["tracker_session"]["cache_policy"].values()) == {"private_persistent_osp_cache"}
                                         for tab in report["tabs"]))
 
     def test_multitab_session_refuses_an_omitted_or_changed_experiment(self):

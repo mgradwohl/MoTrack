@@ -48,6 +48,7 @@ import org.opensourcephysics.media.core.TPoint;
 import org.opensourcephysics.media.core.Video;
 import org.opensourcephysics.media.core.VideoClip;
 import org.opensourcephysics.media.xuggle.XuggleVideo;
+import org.opensourcephysics.tools.ResourceLoader;
 
 /** Exercises the normal asynchronous application loader and saver under an isolated virtual display.
  * This establishes Java's own resave baseline; it does not claim MoTrack export compatibility.
@@ -78,6 +79,7 @@ public final class TrackerSessionReference {
             Path directory = Path.of(args[1]).toAbsolutePath();
             boolean save = args[2].equals("save");
             Files.createDirectories(directory);
+            initializeReferenceCache(Path.of(System.getProperty("user.home")));
             Path saved = directory.resolve("tracker-resaved.trk");
             if (save && Files.exists(saved)) throw new IllegalArgumentException("Output must be a fresh test directory");
             // Archive metadata is inspected separately, but the application must open the
@@ -127,6 +129,7 @@ public final class TrackerSessionReference {
             if (FAILURE.get() != null) throw new IllegalStateException("Tracker session failed", FAILURE.get());
             if (REPORT.get() == null) throw new IllegalStateException("Tracker produced no session report");
             REPORT.get().put("loader_callbacks", LOADER_CALLBACKS.get());
+            REPORT.get().put("cache_policy", "private_persistent_osp_cache");
             Files.writeString(directory.resolve("session-" + args[2] + ".json"), TrackerReference.json(REPORT.get()) + "\n", StandardCharsets.UTF_8);
             status = 0;
         } catch (Throwable error) {
@@ -137,6 +140,17 @@ public final class TrackerSessionReference {
         }
         // Tracker owns background services and AWT windows. Exit only this isolated reference process.
         System.exit(status);
+    }
+
+    static Path initializeReferenceCache(Path home) throws java.io.IOException {
+        // Normal Tracker preferences call setOSPCache. A bare TFrame harness otherwise leaves
+        // ospCache null, causing ResourceLoader to delete extracted movies when its JVM exits.
+        // Use the same public setting under this subprocess's already isolated home.
+        Path cache = Files.createDirectories(home.resolve("osp-cache")).toRealPath();
+        ResourceLoader.setOSPCache(cache.toFile());
+        if (ResourceLoader.getOSPCache() == null || !ResourceLoader.getOSPCache().toPath().toRealPath().equals(cache))
+            throw new IllegalStateException("Tracker reference cache was not initialized");
+        return cache;
     }
 
     private static String bounded(String text, int limit) {

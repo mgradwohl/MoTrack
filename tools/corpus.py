@@ -1923,6 +1923,7 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
         if (report.get("reference_version") != manifest["reference"]["version"]
                 or report.get("verification_level") != "tracker_session_" + stage
                 or report.get("view_preparation") != "expand_visit_custom_tables_restore_selection"
+                or report.get("cache_policy") != "private_persistent_osp_cache"
                 or type(report.get("loader_callbacks")) is not int or report["loader_callbacks"] < 1):
             raise ValueError("Unexpected multi-tab Tracker session stage")
         return report
@@ -1943,6 +1944,7 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
         report = {"reference_version": saved["reference_version"], "verification_level": "tracker_session_resave",
                   "view_preparation": saved["view_preparation"], "before": before["loaded"],
                   "after_save": before["after_save"], "after": reopened["loaded"],
+                  "cache_policy": {"save": saved["cache_policy"], "reopen": reopened["cache_policy"]},
                   "saved_media_inventories": {"save": saved_inventory, "reopen": inventory()}}
         try:
             validate_session(template, report, manifest, desired, [[0, 1, 2]] if probe and i == 0 else None)
@@ -2212,7 +2214,7 @@ def check_sessions(manifest, cache, java, probe=None):
                     # Both cases use the independently pinned four-image fixture, including excluded frames.
                     assets = next(item["assets"] for item in manifest["cases"] if item["id"] == "linked-images")
                     image_inventories[stage] = verify_saved_image_inventory(output / "tracker-resaved.trk", assets)
-                elif case["id"] == "linked-movie":
+                elif case["id"] in {"linked-movie", "linked-mov"}:
                     movie_inventories[stage] = verify_saved_movie_asset(output / "tracker-resaved.trk", case["assets"][0])
             report = {"reference_version": stages["save"]["reference_version"], "verification_level": "tracker_session_resave",
                       "view_preparation": stages["save"]["view_preparation"],

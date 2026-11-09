@@ -761,5 +761,12 @@ passes all ten CTest groups in **123.28 seconds** with **95.74% line coverage (8
 tests, all 30 native/headless Java import cases and all four native archive export/oracle/reimport modes.
 Formatting and static analysis of all five changed C++ sources pass; three existing LLVM profile-mismatch
 warnings remain visible. Actual-Tracker and three-platform CI/review remain pending for this correction.
+The next Linux attempt (`4efb381`, run 42567671197) loaded the MOV archive but exposed missing cache
+initialization in the bare-`TFrame` reference harness: with `ResourceLoader.ospCache` unset, extracted
+movies are marked for deletion on JVM exit. The harness now uses Tracker's public `setOSPCache`
+preference API under each subprocess's private home, records that policy and verifies it in all-tab
+reports. A bounded headless resource experiment reproduced deletion without the setting and exact-byte
+retention with it; the ordinary AVI extraction omission remains. This sets up the standard cache policy;
+it does not copy media or change the application loader, saver, expected data or fresh-process gate.
 New portable movie packaging, broader archived containers, filters, variable-rate timing and broader
 movie schemas remain unfinished.
