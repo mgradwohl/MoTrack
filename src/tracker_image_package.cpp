@@ -73,7 +73,7 @@ qint64 copyFile(const QString& source, QIODevice& output, qint64 maximum, const 
     QFile input(source);
     requireReadable(QFileInfo(source).isFile() && input.open(QIODevice::ReadOnly), source);
     const auto size = input.size();
-    require(size > 0 && size <= maximum);
+    requireReadable(size > 0 && size <= maximum, source);
     std::array<char, BLOCK_BYTES> buffer{};
     qint64 copied = 0;
     for (;;)
