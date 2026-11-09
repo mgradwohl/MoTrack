@@ -19,7 +19,16 @@ inline void editMediaVectors(motrack::LegacyProject& project, motrack::TrackEdit
             throw motrack::ProjectError("Could not edit media vector.");
         ++count;
     };
-    if (mode == "samples")
+    if (mode == "keyed-calibration")
+    {
+        apply(edits.calibrateDistance(project, {.frame = 2, .imageDeltaX = 8, .imageDeltaY = 0, .knownLength = 1, .unit = "cm"}));
+        apply(edits.setCoordinateAxes(project, {.frame = 2, .originX = 12, .originY = 16, .positiveX = 20, .positiveY = 16}));
+        apply(edits.setCoordinateAxes(project, {.frame = 1, .originX = 6, .originY = 14, .positiveX = 6, .positiveY = 22}));
+        apply(edits.markVector(project, 0, {.frame = 0, .tailX = 0, .tailY = 0, .componentX = 4, .componentY = 4}));
+        apply(edits.removeVectorSample(project, 0, 2));
+        apply(edits.markVector(project, 0, {.frame = 3, .tailX = 32, .tailY = 0, .componentX = -2, .componentY = -4}));
+    }
+    else if (mode == "samples")
     {
         apply(edits.markVector(project, 0, {.frame = 0, .tailX = 0, .tailY = 0, .componentX = 4, .componentY = 4}));
         apply(edits.removeVectorSample(project, 0, 2));

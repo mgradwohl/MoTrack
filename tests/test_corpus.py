@@ -798,9 +798,9 @@ class CorpusTests(unittest.TestCase):
 
     def test_media_vector_sessions_reject_consistent_geometry_physics_and_identity_loss(self):
         manifest = corpus.load_manifest()
-        for kind in ["images", "movie"]:
-            source = next(case for case in manifest["cases"] if case["id"] == "vector-" + kind)
-            for scenario in corpus.MEDIA_VECTOR_SCENARIOS:
+        for source in [case for case in manifest["cases"] if case.get("native_media_vector_roundtrip")]:
+            kind = source["media_vector_kind"]
+            for scenario in corpus.media_vector_scenarios(source):
                 expected, case = corpus.media_vector_roundtrip_expected(source, scenario)
                 tracks = [copy.deepcopy(case["session_tracks"][0])]
                 for vector, data in zip(expected["vectors"], case["session_vector_data"], strict=True):
@@ -819,7 +819,11 @@ class CorpusTests(unittest.TestCase):
                              lambda row: row["media"].update(frame_count=3),
                              lambda row: row["media"]["frames"][0].update(rgb_sha256="0" * 64),
                              lambda row: row["tracks"].append(copy.deepcopy(row["tracks"][0])),
-                             lambda row: row["clip"].update(step_count=3)]
+                             lambda row: row["clip"].update(step_count=3),
+                             lambda row: row["calibration"]["keys"][-1].update(scale=[999, 999]),
+                             lambda row: row["calibration"]["keys"][-1].update(origin=[999, 999]),
+                             lambda row: row["calibration"].update(fixed_origin=not row["calibration"]["fixed_origin"]),
+                             lambda row: row["time_samples"][0].update(time_ms=999)]
                 if expected["vectors"]:
                     mutations.append(lambda row: row["tracks"][1].update(name="wrong identity"))
                 if scenario not in {"empty", "delete-all"}:
@@ -846,9 +850,31 @@ class CorpusTests(unittest.TestCase):
                 patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "run"), \
                 patch.object(corpus, "check_archive_tabs") as check:
             corpus.check_sessions(manifest, self.root, "java", "native-probe")
-        self.assertEqual([call.args[-1] for call in check.call_args_list],
-                         [f"media-vectors-{kind}-{route}-{scenario}" for kind in ["movie", "images"]
-                          for route in ["archive", "paired"] for scenario in corpus.MEDIA_VECTOR_SCENARIOS])
+        expected = [(f"archived-vector-{kind}", f"media-vectors-{kind}-{route}-{scenario}") for kind in ["movie", "images"]
+                    for route in ["archive", "paired"] for scenario in corpus.MEDIA_VECTOR_SCENARIOS]
+        expected += [(f"archived-keyed-vector-{kind}-{flags}", f"media-vectors-{kind}-{route}-keyed-calibration")
+                     for kind in ["images", "movie"] for flags in range(7) for route in ["archive", "paired"]]
+        self.assertEqual([(call.args[0]["id"], call.args[-1]) for call in check.call_args_list], expected)
+
+    def test_keyed_vectors_match_independent_components_and_reject_invalid_fixture_selection(self):
+        components = [[[2, -1], [-0.25, 0.25], [0, -1.5]], [[2, -1], [-0.25, 0.25], [0, -1.5]],
+                      [[1, 2], [-0.25, -0.25], [0, -1.5]], [[1, 2], [-0.25, -0.25], [0, -1.5]],
+                      [[0.5, -0.25], [-0.25, 0.25], [0, -0.375]], [[0.5, -0.25], [-0.25, 0.25], [0, -0.375]],
+                      [[0.25, 0.5], [-0.25, -0.25], [0, -0.375]]]
+        cases = [case for case in corpus.load_manifest()["cases"] if "vector_calibration_flags" in case]
+        self.assertEqual(len(cases), 28)
+        for case in cases:
+            expected, edited = corpus.media_vector_roundtrip_expected(case, "keyed-calibration")
+            samples = edited["session_vector_data"][0]["samples"] + edited["session_vector_data"][1]["samples"]
+            self.assertEqual([sample["components"] for sample in samples], components[case["vector_calibration_flags"]] + [[0, 0]])
+            self.assertEqual([sample["frame"] for sample in samples], [0, 3, 1, 3])
+            self.assertEqual([key["frame"] for key in edited["session_calibration"]["keys"]],
+                             [0, 2] if case["vector_calibration_flags"] == 3 else [0, 1, 2])
+            self.assertEqual(expected["vectors"][0]["samples"][1]["tail"], [32, 0])
+            for changes in [{"vector_calibration_flags": flag} for flag in [True, None, -1, 7]] + [
+                    {"id": "wrong"}, {"media_vector_kind": "unknown"}]:
+                with self.subTest(case=case["id"], changes=changes), self.assertRaises(ValueError):
+                    corpus.keyed_vector_calibration({**case, **changes})
 
     def test_negative_time_vector_defect_is_retained_and_never_accepted(self):
         manifest = corpus.load_manifest()
@@ -907,18 +933,18 @@ class CorpusTests(unittest.TestCase):
                 corpus.validate_known_session_issue(case, defect, {**manifest, "reference": {"version": "6.3.6"}}, corpus.local_fixture_path(case))
 
     def test_media_vector_xml_oracle_rejects_unrequested_edits(self):
-        for kind in ["images", "movie"]:
-            case = next(c for c in corpus.load_manifest()["cases"] if c["id"] == "vector-" + kind)
+        for case in [c for c in corpus.load_manifest()["cases"] if c.get("native_media_vector_roundtrip")]:
+            kind = case["media_vector_kind"]
             original = corpus.local_fixture_path(case)
-            directory = self.root / kind
+            directory = self.root / case["id"]
             media = directory / "media é & vectors"
             media.mkdir(parents=True)
             for asset in case["assets"]:
                 (media / asset["file"]).write_bytes(corpus.local_fixture_path(asset).read_bytes())
             output = directory / "edited.trk"
-            for scenario in corpus.MEDIA_VECTOR_SCENARIOS:
+            for scenario in corpus.media_vector_scenarios(case):
                 with corpus.minidom.parse(str(original)) as document:
-                    corpus.patch_expected_linked_media(document, movie=kind == "movie", vector_scenario=scenario)
+                    corpus.patch_expected_linked_media(document, movie=kind == "movie", vector_scenario=scenario, vector_case=case)
                     valid = document.toxml()
                 output.write_text(valid, encoding="utf-8")
                 corpus.verify_linked_vector_export_xml(original, output, case, scenario)
@@ -931,6 +957,17 @@ class CorpusTests(unittest.TestCase):
                         output.write_text(valid.replace(before, after), encoding="utf-8")
                         with self.assertRaises(ValueError):
                             corpus.verify_linked_vector_export_xml(original, output, case, scenario)
+                if scenario == "keyed-calibration":
+                    for mutation in ["fixedorigin", "fixedangle", "fixedscale", "xorigin", "yscale", "padding"]:
+                        with self.subTest(case=case["id"], mutation=mutation), corpus.minidom.parseString(valid) as document:
+                            coords = next(n for n in document.getElementsByTagName("object")
+                                          if n.getAttribute("class") == "org.opensourcephysics.media.core.ImageCoordSystem")
+                            name = "[3]" if mutation == "padding" else mutation
+                            prop = next(n for n in coords.getElementsByTagName("property") if n.getAttribute("name") == name)
+                            prop.firstChild.data = "wrong"
+                            output.write_text(document.toxml(), encoding="utf-8")
+                            with self.assertRaises(ValueError):
+                                corpus.verify_linked_vector_export_xml(original, output, case, scenario)
 
     def test_movie_authoring_sessions_reject_consistent_data_identity_and_media_loss(self):
         manifest = corpus.load_manifest()

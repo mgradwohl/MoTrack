@@ -67,8 +67,11 @@ This preventive coverage does not establish reproduction or resolution of the 4.
 
 The independent media-vector extension refreshed [MoTrack #63](https://github.com/mgradwohl/MoTrack/issues/63)
 and its discussion on **2026-11-09**. Its vector-sum reproduction and strict export refusal remain
-unchanged. Six image/MOV vector-authoring scenarios now cover four save routes locally; actual
-Tracker acceptance is pending. This does not resolve the dependent-member loss or mixed-track
+unchanged. Six image/MOV vector-authoring scenarios passed all 48 actual-Tracker save routes in
+[PR #145](https://github.com/mgradwohl/MoTrack/pull/145), with reviewed head `23b3a10` and all six checks
+passing in [CI 42620528465](https://github.com/mgradwohl/MoTrack/actions/runs/42620528465). The following
+varying-coordinate extension refreshes the same issue and Tracker #10 discussion; its 28 baseline
+sessions and 56 edited modes await actual-Tracker acceptance. This does not resolve the dependent-member loss or mixed-track
 snapping model, and does not close #63 or the broader media persistence issue #65.
 
 ## Defects discovered by the reference harness

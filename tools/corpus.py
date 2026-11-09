@@ -626,6 +626,19 @@ def keyed_movie_calibration(case, edited=False, *, normalized=True):
     if (type(flags) is not int or flags not in range(7)
             or case["id"] not in {f"keyed-movie-{flags}", f"archived-keyed-movie-{flags}"}):
         raise ValueError("Expected a pinned keyed movie calibration fixture")
+    return keyed_media_calibration(flags, edited, normalized=normalized)
+
+
+def keyed_vector_calibration(case, edited=False, *, normalized=True):
+    flags = case.get("vector_calibration_flags")
+    kind = case.get("media_vector_kind")
+    if (type(flags) is not int or flags not in range(7) or kind not in {"images", "movie"}
+            or case["id"] not in {f"keyed-vector-{kind}-{flags}", f"archived-keyed-vector-{kind}-{flags}"}):
+        raise ValueError("Expected a pinned keyed vector calibration fixture")
+    return keyed_media_calibration(flags, edited, normalized=normalized)
+
+
+def keyed_media_calibration(flags, edited=False, *, normalized=True):
     # Outcomes of distance at frame 2, axes at frame 2, then axes at frame 1. These rows
     # are specified independently of the native writer; fixed origin/angle normalize on Java load.
     edited_rows = {
@@ -672,7 +685,8 @@ def patch_expected_movie_calibration(document, case):
               if node.getAttribute("class") == "org.opensourcephysics.media.core.ImageCoordSystem$FrameData"}
     if sorted(frames) != [0, 2]:
         raise ValueError("Expected pinned movie calibration keys 0/2")
-    for key in keyed_movie_calibration(case, True, normalized=False)["keys"]:
+    calibration = keyed_vector_calibration if "vector_calibration_flags" in case else keyed_movie_calibration
+    for key in calibration(case, True, normalized=False)["keys"]:
         number = key["frame"]
         added_key = number not in frames
         if added_key:
@@ -692,8 +706,12 @@ def patch_expected_movie_calibration(document, case):
 MEDIA_VECTOR_SCENARIOS = ("samples", "geometry", "empty", "authoring", "replace", "delete-all")
 
 
+def media_vector_scenarios(case):
+    return ("keyed-calibration",) if "vector_calibration_flags" in case else MEDIA_VECTOR_SCENARIOS
+
+
 def media_vector_roundtrip_expected(case, scenario):
-    if case.get("media_vector_kind") not in {"images", "movie"} or scenario not in MEDIA_VECTOR_SCENARIOS:
+    if case.get("media_vector_kind") not in {"images", "movie"} or scenario not in media_vector_scenarios(case):
         raise ValueError("Expected a pinned media vector scenario")
     expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
     case = copy.deepcopy(case)
@@ -702,7 +720,24 @@ def media_vector_roundtrip_expected(case, scenario):
     created = []
     new_sample = {"frame": 2, "tail": [32.0, 0.0], "components": [-2.0, -4.0]}
     new_data = {"frame": 2, "components": [-1.0, 1.0], "magnitude": math.sqrt(2.0)}
-    if scenario == "samples":
+    if scenario == "keyed-calibration":
+        expected["length_unit"] = "cm"
+        calibration = keyed_vector_calibration(case, True)
+        case["session_calibration"] = calibration
+        vectors[0]["samples"] = [{"frame": 0, "tail": [0.0, 0.0], "components": [4.0, 4.0]},
+                                  {"frame": 3, "tail": [32.0, 0.0], "components": [-2.0, -4.0]}]
+        for sample in expected["coordinate_samples"]:
+            key = next(key for key in reversed(calibration["keys"]) if key["frame"] <= sample["frame"])
+            u, v = [(value - origin) / scale for value, origin, scale in zip(sample["image"], key["origin"], key["scale"])]
+            sample["world"] = {0.0: [u, -v], 90.0: [-v, -u], -90.0: [v, u]}[key["angle"]]
+        for vector, measured in zip(vectors, data, strict=True):
+            measured["samples"] = []
+            for sample in vector["samples"]:
+                key = next(key for key in reversed(calibration["keys"]) if key["frame"] <= sample["frame"])
+                u, v = [value / scale for value, scale in zip(sample["components"], key["scale"])]
+                components = {0.0: [u, -v], 90.0: [-v, -u], -90.0: [v, u]}[key["angle"]]
+                measured["samples"].append({"frame": sample["frame"], "components": components, "magnitude": math.hypot(*components)})
+    elif scenario == "samples":
         vectors[0]["samples"] = [{"frame": 0, "tail": [0.0, 0.0], "components": [4.0, 4.0]},
                                   {"frame": 3, "tail": [0.0, 12.0], "components": [4.0, 4.0]}]
         data[0]["samples"] = [{"frame": frame, "components": [2.0, -1.0], "magnitude": math.sqrt(5.0)} for frame in [0, 3]]
@@ -749,7 +784,7 @@ def media_vector_roundtrip_expected(case, scenario):
     return expected, case
 
 
-def patch_expected_media_vectors(document, scenario):
+def patch_expected_media_vectors(document, scenario, case=None):
     """Independent explicit XML edit oracle; preserve source null padding and untouched fields."""
     def elements(node, tag):
         return [child for child in node.childNodes if child.nodeType == child.ELEMENT_NODE and child.tagName == tag]
@@ -774,7 +809,7 @@ def patch_expected_media_vectors(document, scenario):
     tracks = prop(root, "tracks")
     vectors = [obj for item in elements(tracks, "property") for obj in elements(item, "object")
                if obj.getAttribute("class") == "org.opensourcephysics.cabrillo.tracker.Vector"]
-    if len(vectors) != 3 or scenario not in MEDIA_VECTOR_SCENARIOS:
+    if len(vectors) != 3 or scenario not in (*MEDIA_VECTOR_SCENARIOS, "keyed-calibration"):
         raise ValueError("Expected three pinned media vectors")
     def add(name, frame=None):
         data = ('' if frame is None else '<property name="framedata" type="array" class="[Lorg.opensourcephysics.cabrillo.tracker.Vector$FrameData;">'
@@ -787,7 +822,19 @@ def patch_expected_media_vectors(document, scenario):
                    '<property name="red" type="int">255</property><property name="green" type="int">0</property>'
                    '<property name="blue" type="int">255</property><property name="alpha" type="int">255</property></object></property>'
                    + data + '</object></property>')
-    if scenario == "samples":
+    if scenario == "keyed-calibration":
+        if case is None:
+            raise ValueError("Missing keyed vector calibration case")
+        keyed_vector_calibration(case)  # Validate provenance before applying the shared key-row oracle.
+        patch_expected_movie_calibration(document, case)
+        scalar(prop(root, "length_unit"), "cm")
+        first = prop(vectors[0], "framedata")
+        frame = elements(prop(first, "[0]"), "object")[0]
+        for name, value in zip(["xtail", "ytail", "xcomponent", "ycomponent"], [0, 0, 4, 4], strict=True):
+            scalar(prop(frame, name), value)
+        first.removeChild(prop(first, "[2]"))
+        append_xml(first, frame_xml(3, [32, 0, -2, -4]), prop(first, "[9]"))
+    elif scenario == "samples":
         first, empty = prop(vectors[0], "framedata"), prop(vectors[2], "framedata")
         frame = elements(prop(first, "[0]"), "object")[0]
         for name, value in zip(["xtail", "ytail", "xcomponent", "ycomponent"], [0, 0, 4, 4], strict=True):
@@ -822,14 +869,14 @@ def patch_expected_media_vectors(document, scenario):
 
 def verify_linked_vector_export_xml(original, exported, case, scenario):
     with minidom.parse(str(original)) as expected, minidom.parse(str(exported)) as actual:
-        patch_expected_linked_media(expected, movie=case["media_vector_kind"] == "movie", vector_scenario=scenario)
+        patch_expected_linked_media(expected, movie=case["media_vector_kind"] == "movie", vector_scenario=scenario, vector_case=case)
         if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
             raise ValueError("Linked vector export changed unrequested XML content")
     for asset in case["assets"]:
         verify_file(exported.parent / "media é & vectors" / asset["file"], asset)
 
 
-def patch_expected_linked_media(document, relocate=True, packaged=False, movie=False, clip_mode=None, calibrated=False, keyed_case=None, authoring=None, vector_scenario=None):
+def patch_expected_linked_media(document, relocate=True, packaged=False, movie=False, clip_mode=None, calibrated=False, keyed_case=None, authoring=None, vector_scenario=None, vector_case=None):
     if vector_scenario == "geometry":
         clip_mode, calibrated = "stride", True
     if clip_mode not in {None, "stride", "single"}:
@@ -879,7 +926,7 @@ def patch_expected_linked_media(document, relocate=True, packaged=False, movie=F
             scalar(prop(paths, f"[{index}]"), references[index])
         scalar(prop(video, "path"), references[0])
     if vector_scenario:
-        patch_expected_media_vectors(document, vector_scenario)
+        patch_expected_media_vectors(document, vector_scenario, vector_case)
         return
     mass = next(obj for item in elements(prop(root, "tracks"), "property") for obj in elements(item, "object")
                 if obj.getAttribute("class") == "org.opensourcephysics.cabrillo.tracker.PointMass")
@@ -1058,7 +1105,7 @@ def verify_media_package_export(original, exported, selected_xml, case, clip_mod
             xml = package.read("experiment.trk")
             with minidom.parse(str(original)) as expected, minidom.parseString(xml) as actual:
                 patch_expected_linked_media(expected, packaged=True, clip_mode=clip_mode, movie=movie, calibrated=calibrated,
-                                            keyed_case=case if keyed else None, authoring=authoring, vector_scenario=vector_scenario)
+                                            keyed_case=case if keyed else None, authoring=authoring, vector_scenario=vector_scenario, vector_case=case)
                 if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
                     raise ValueError("Media package changed XML beyond the requested paths, mass, mark, clip and calibration")
             selected_xml.write_bytes(xml)
@@ -1066,7 +1113,7 @@ def verify_media_package_export(original, exported, selected_xml, case, clip_mod
         raise ValueError("Media package ZIP integrity check failed") from error
 
 
-def verify_archive_media_export(original, exported, selected_xml, member_count=7, clip_mode=None, *, movie=False, calibrated=False, keyed_case=None, authoring=None, vector_scenario=None):
+def verify_archive_media_export(original, exported, selected_xml, member_count=7, clip_mode=None, *, movie=False, calibrated=False, keyed_case=None, authoring=None, vector_scenario=None, vector_case=None):
     """Independent ZIP reader: only the selected XML and its encoding metadata may change."""
     if max(original.stat().st_size, exported.stat().st_size) > 1024 * 1024:
         raise ValueError("Archive reference exceeds the small-fixture limit")
@@ -1088,7 +1135,7 @@ def verify_archive_media_export(original, exported, selected_xml, member_count=7
                     raise ValueError("Unexpected edited-member encoding")
                 with minidom.parseString(before.read(a)) as expected, minidom.parseString(after.read(b)) as actual:
                     patch_expected_linked_media(expected, relocate=False, movie=movie, clip_mode=clip_mode, calibrated=calibrated,
-                                                keyed_case=keyed_case, authoring=authoring, vector_scenario=vector_scenario)
+                                                keyed_case=keyed_case, authoring=authoring, vector_scenario=vector_scenario, vector_case=vector_case)
                     if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
                         raise ValueError("Archive export changed XML beyond the requested mass, mark, clip and calibration")
                 selected_xml.write_bytes(after.read(b))
@@ -2276,7 +2323,7 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
         run([str(Path(probe).resolve()), "--export-" + export_mode, str(source), str(exported)])
         verify_archive_media_export(source, exported, output / "exported-member.trk", member_count=9 if movie else 8,
                                     clip_mode=clip_mode, movie=movie, calibrated=calibrated, keyed_case=templates[0] if keyed else None,
-                                    authoring=authoring, vector_scenario=vector_scenario)
+                                    authoring=authoring, vector_scenario=vector_scenario, vector_case=templates[0])
         if vector_scenario:
             expected[0], templates[0] = media_vector_roundtrip_expected(templates[0], vector_scenario)
         elif authoring:
@@ -2427,7 +2474,7 @@ def check_sessions(manifest, cache, java, probe=None):
         cases.extend((case, f"media-vectors-{case['media_vector_kind']}-{route}-{scenario}")
                      for case in manifest["cases"] if case.get("native_media_vector_roundtrip") or case.get("native_media_vector_archive_roundtrip")
                      for route in (["archive", "paired"] if case.get("native_media_vector_archive_roundtrip") else ["linked", "packaged"])
-                     for scenario in MEDIA_VECTOR_SCENARIOS)
+                     for scenario in media_vector_scenarios(case))
     if not cases:
         raise ValueError("No applicable Tracker session cases")
     for path, artifact in artifacts(manifest, cache):

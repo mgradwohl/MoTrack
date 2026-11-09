@@ -125,6 +125,138 @@ TEST(TrackerWriter, SavesMediaVectorsThroughHistoryNativeReopenReorderingAndStan
     }
 }
 
+TEST(TrackerWriter, SavesVaryingVectorCalibrationWithHistoryNativeReopenAndIndependentComponents)
+{
+    // Columns are A0, A3 and B1; components use orthogonal rotations after nonuniform scaling.
+    const std::array<std::array<std::array<double, 2>, 3>, 7> components{{
+        {{{2, -1}, {-0.25, 0.25}, {0, -1.5}}},
+        {{{2, -1}, {-0.25, 0.25}, {0, -1.5}}},
+        {{{1, 2}, {-0.25, -0.25}, {0, -1.5}}},
+        {{{1, 2}, {-0.25, -0.25}, {0, -1.5}}},
+        {{{0.5, -0.25}, {-0.25, 0.25}, {0, -0.375}}},
+        {{{0.5, -0.25}, {-0.25, 0.25}, {0, -0.375}}},
+        {{{0.25, 0.5}, {-0.25, -0.25}, {0, -0.375}}},
+    }};
+    for (const bool movie : {false, true})
+    {
+        for (std::size_t flags = 0; flags < components.size(); ++flags)
+        {
+            SCOPED_TRACE(movie);
+            SCOPED_TRACE(flags);
+            QTemporaryDir temporary;
+            const auto kind = movie ? "movie" : "images";
+            const auto source = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/keyed-vector-" + kind + "-" +
+                                QString::number(flags) + "/linked-" + kind + ".trk";
+            const auto input = temporary.filePath("input.trk");
+            ASSERT_TRUE(QFile::copy(source, input));
+            auto document = movie ? indexedMovieDocument(input) : motrack::importTrackerDocument(input);
+            motrack::retainWorkspaceMediaLocations(document, source);
+            motrack::TrackEdits edits;
+            ASSERT_NO_THROW(editMediaVectors(document.project, edits, "keyed-calibration"));
+            const auto native = temporary.filePath("saved.motrack");
+            motrack::rebaseWorkspaceMedia(document, source, native);
+            const auto expected = document.project;
+            motrack::writeWorkspaceDocument(native, document);
+            document = {};
+            ASSERT_TRUE(QFile::remove(input));
+            document = motrack::readWorkspaceDocument(native);
+            EXPECT_EQ(document.project, expected);
+            const auto target = temporary.filePath("saved.trk");
+            ASSERT_NO_THROW(motrack::writeTrackerDocument(target, document, native));
+            const auto reopened = motrack::importTrackerDocument(target).project;
+            EXPECT_EQ(reopened.vectors, expected.vectors);
+            EXPECT_EQ(reopened.calibration, expected.calibration);
+            ASSERT_TRUE(reopened.calibration);
+            const auto& first = reopened.vectors[0].samples;
+            const std::array samples{first[0], first[1], reopened.vectors[1].samples[0]};
+            for (std::size_t index = 0; index < samples.size(); ++index)
+            {
+                const auto& sample = samples[index];
+                const auto tail =
+                    motrack::worldPosition(*reopened.calibration, {.frame = sample.frame, .x = sample.tailX, .y = sample.tailY});
+                const auto tip = motrack::worldPosition(
+                    *reopened.calibration,
+                    {.frame = sample.frame, .x = sample.tailX + sample.componentX, .y = sample.tailY + sample.componentY});
+                ASSERT_TRUE(tail && tip);
+                EXPECT_NEAR(tip->x - tail->x, components[flags][index][0], 1e-12);
+                EXPECT_NEAR(tip->y - tail->y, components[flags][index][1], 1e-12);
+            }
+            ASSERT_TRUE(edits.setClipRange(document.project, 1, 3, 2));
+            ASSERT_NO_THROW(motrack::writeTrackerDocument(target, document, native));
+            EXPECT_EQ(motrack::importTrackerDocument(target).project.vectors, expected.vectors);
+            EXPECT_EQ(document.project.vectors, expected.vectors);
+        }
+    }
+}
+
+TEST(TrackerWriter, VaryingVectorsRejectOtherFramesSnapOriginsBeforeReplacingOutput)
+{
+    for (const bool movie : {false, true})
+    {
+        QTemporaryDir temporary;
+        const auto kind = movie ? "movie" : "images";
+        const auto source = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/keyed-vector-" + kind + "-0/linked-" + kind + ".trk";
+        const auto original = movie ? indexedMovieDocument(source) : motrack::importTrackerDocument(source);
+        const auto target = temporary.filePath("existing.trk");
+        QFile file(target);
+        ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+        ASSERT_EQ(file.write("existing"), 8);
+        file.close();
+        for (const double distance : {0.0, 8.0})
+        {
+            auto document = original;
+            motrack::TrackEdits edits;
+            ASSERT_TRUE(edits.removeVectorSample(document.project, 0, 2));
+            // A0 stays far from its own frame's origin but can first draw as a trail at frame 2.
+            ASSERT_TRUE(edits.setCoordinateAxes(document.project,
+                                                {.frame = 2, .originX = 20 - distance, .originY = 4, .positiveX = 28, .positiveY = 4}));
+            ASSERT_TRUE(edits.setClipRange(document.project, 1, 3, 1));
+            EXPECT_THROW(motrack::writeTrackerDocument(target, document, source), motrack::ProjectError);
+            EXPECT_EQ(readBytes(target), "existing");
+        }
+        const std::vector<std::function<void(motrack::WorkspaceDocument&)>> invalid{
+            [](auto& doc) { doc.project.calibration->keyframes.back().frame = 4; },
+            [](auto& doc) { doc.project.calibration->keyframes.pop_back(); },
+            [](auto& doc) { doc.project.calibration->fixedAngle = true; },
+            [](auto& doc) { doc.project.calibration->keyframes.back().scaleX = 0; },
+            [](auto& doc) { doc.project.vectors[0].samples[0].tailX = 1e100; },
+        };
+        for (const auto& change : invalid)
+        {
+            auto document = original;
+            change(document);
+            EXPECT_THROW(motrack::writeTrackerDocument(target, document, source), motrack::ProjectError);
+            EXPECT_EQ(readBytes(target), "existing");
+        }
+        auto document = original;
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.removeVectorSample(document.project, 0, 2));
+        ASSERT_TRUE(
+            edits.setCoordinateAxes(document.project, {.frame = 2, .originX = 11.99, .originY = 4, .positiveX = 28, .positiveY = 4}));
+        ASSERT_NO_THROW(motrack::writeTrackerDocument(target, document, source));
+        EXPECT_EQ(motrack::importTrackerDocument(target).project.vectors, document.project.vectors);
+    }
+}
+
+TEST(TrackerWriter, FixedVectorOriginUsesLastLoadedKeyForSnapping)
+{
+    QTemporaryDir temporary;
+    const auto source = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/keyed-vector-images-1/linked-images.trk";
+    auto document = motrack::importTrackerDocument(source);
+    ASSERT_TRUE(document.project.calibration);
+    const auto target = temporary.filePath("saved.trk");
+    // A raw earlier key lies on A0, but a fixed origin takes its value from the last key.
+    auto& keys = document.project.calibration->keyframes;
+    keys.front().originX = 20;
+    keys.front().originY = 4;
+    ASSERT_NO_THROW(motrack::writeTrackerDocument(target, document, source));
+    const auto before = readBytes(target);
+    keys.back().originX = 20;
+    keys.back().originY = 4;
+    EXPECT_THROW(motrack::writeTrackerDocument(target, document, source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(target), before);
+}
+
 TEST(TrackerWriter, MediaVectorsRetainSnappingPrecisionIdentityFrameAndAtomicSaveGuards)
 {
     const std::vector<std::function<void(motrack::WorkspaceDocument&)>> mutations{

@@ -765,9 +765,8 @@ void patchCalibration(QDomDocument& xml, const Calibration& original, const Cali
                        original.keyframes.front().frame == 0 && current.keyframes.front().frame == 0;
     const bool keyed = !(original.fixedOrigin && original.fixedAngle && original.fixedScale) &&
                        original.fixedOrigin == current.fixedOrigin && original.fixedAngle == current.fixedAngle &&
-                       original.fixedScale == current.fixedScale && !original.keyframes.empty() && original.keyframes.front().frame == 0 &&
-                       project.vectors.empty();
-    require(fixed || keyed); // Changing fixed flags and varying vector coordinates need separate reference cases.
+                       original.fixedScale == current.fixedScale && !original.keyframes.empty() && original.keyframes.front().frame == 0;
+    require(fixed || keyed); // Changing fixed flags needs its own reversible command and reference cases.
     requireTrackerCoordinates(project, current);
     // Existing commands add or edit calibration keys. Key removal needs its own reversible command/oracle.
     for (const auto& key : original.keyframes)
@@ -803,6 +802,14 @@ void patchCalibration(QDomDocument& xml, const Calibration& original, const Cali
             {
                 require(mark.frame <= 500000);
                 lastFrame = std::max(lastFrame, mark.frame);
+            }
+        }
+        for (const auto& vector : project.vectors)
+        {
+            for (const auto& sample : vector.samples)
+            {
+                require(sample.frame >= 0 && sample.frame <= 500000);
+                lastFrame = std::max(lastFrame, sample.frame);
             }
         }
         // OSP updates the remaining dense transform range for each loaded key. A bound on
@@ -883,26 +890,36 @@ void requireStableVectors(const LegacyProject& project, const std::unordered_map
         return;
     }
     // Until dependencies and display scaling are modeled, only audit ordinary independent arrows
-    // with a fixed origin and no other tracks that could supply visible vector snap targets.
+    // with no other tracks that could supply visible vector snap targets.
     require(project.pointMasses.empty() &&
             std::ranges::all_of(project.unsupportedTrackTypes,
                                 [](const auto& type) { return type == "org.opensourcephysics.cabrillo.tracker.CoordAxes"; }));
-    if (!project.calibration || !project.calibration->fixedOrigin || project.calibration->keyframes.empty())
+    if (!project.calibration || project.calibration->keyframes.empty())
     {
         require(false);
         return;
     }
-    require(project.calibration->fixedAngle && project.calibration->fixedScale && project.calibration->keyframes.size() == 1 &&
-            project.calibration->keyframes.front().frame == 0);
-    const auto& origin = project.calibration->keyframes.front();
-    require(std::isfinite(origin.originX) && std::isfinite(origin.originY));
+    requireTrackerCoordinates(project, *project.calibration);
+    // Bound sample/origin comparisons as well as the all-visible-tip comparisons. Fixed origin
+    // uses the last loaded key; varying origins are piecewise constant between source keys.
+    std::vector<CalibrationKey> origins;
+    if (project.calibration->fixedOrigin)
+        origins.push_back(project.calibration->keyframes.back());
+    else
+    {
+        require(project.calibration->keyframes.size() <= 1000000 / samples.size());
+        origins = project.calibration->keyframes;
+    }
     for (const auto* sample : samples)
     {
         require(std::isfinite(sample->tailX) && std::isfinite(sample->tailY) && std::isfinite(sample->componentX) &&
                 std::isfinite(sample->componentY) && retainsVectorComponent(sample->tailX, sample->componentX) &&
                 retainsVectorComponent(sample->tailY, sample->componentY));
-        // Tracker 6.3.5 snaps brand-new steps on first draw. Trails can expose steps from other frames.
-        require(std::hypot(sample->tailX - origin.originX, sample->tailY - origin.originY) > 8);
+        // Tracker 6.3.5 snaps brand-new steps on first draw. A trail step can first draw at
+        // another playhead, whose origin is the shared snap point. Checking its own frame's
+        // origin alone would allow that draw to alter the stored tail and subsequent resave.
+        for (const auto& origin : origins)
+            require(std::hypot(sample->tailX - origin.originX, sample->tailY - origin.originY) > 8);
         for (const auto* target : samples)
         {
             if (target != sample)
@@ -912,9 +929,6 @@ void requireStableVectors(const LegacyProject& project, const std::unordered_map
             }
         }
     }
-    // Also validate edits made under an existing calibration: image-pixel tolerance alone can
-    // hide reconstruction errors that a small scale amplifies in calibrated vector components.
-    requireTrackerCoordinates(project, *project.calibration);
 }
 
 QDomElement appendNewTrack(QDomDocument& xml, QDomElement tracks, TrackKind kind, const std::string& name)
