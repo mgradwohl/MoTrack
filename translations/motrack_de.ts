@@ -3,6 +3,34 @@
 <TS version="2.1" language="de">
   <context>
     <name>MainWindow</name>
+    <message><source>An interrupted paired save needs recovery. Use Save Tracker project for this destination, or save a copy elsewhere.</source><translation type="unfinished"></translation></message>
+    <message><source>Another save is using this destination. Wait for it to finish and retry, or save a copy elsewhere.</source><translation type="unfinished"></translation></message>
+    <message><source>An interrupted save needs recovery before continuing.</source><translation type="unfinished"></translation></message>
+    <message><source>Both files were saved. Recovery cleanup remains.</source><translation type="unfinished"></translation></message>
+    <message><source>Cancel</source><translation type="unfinished"></translation></message>
+    <message><source>Canceling save…</source><translation type="unfinished"></translation></message>
+    <message><source>Choose a %1 filename for an imported Tracker project.</source><translation type="unfinished"></translation></message>
+    <message><source>Could not finish the interrupted save: %1</source><translation type="unfinished"></translation></message>
+    <message><source>Could not save the Tracker project: %1</source><translation type="unfinished"></translation></message>
+    <message><source>Finish interrupted save?</source><translation type="unfinished"></translation></message>
+    <message><source>Finish the interrupted save before saving this project again.</source><translation type="unfinished"></translation></message>
+    <message><source>MoTrack copy saved. Save the Tracker project to keep both files current.</source><translation type="unfinished"></translation></message>
+    <message><source>Recover the saved files, then save your current edits to both project files?</source><translation type="unfinished"></translation></message>
+    <message><source>Replace MoTrack companion?</source><translation type="unfinished"></translation></message>
+    <message><source>Save &amp;Tracker project…</source><translation type="unfinished"></translation></message>
+    <message><source>Save MoTrack copy &amp;as…</source><translation type="unfinished"></translation></message>
+    <message><source>Save Tracker project and MoTrack companion</source><translation type="unfinished"></translation></message>
+    <message><source>Save a Tracker file and a MoTrack companion.</source><translation type="unfinished"></translation></message>
+    <message><source>Save canceled. Existing files were kept.</source><translation type="unfinished"></translation></message>
+    <message><source>Interrupted save recovered. Saving the current edits was canceled.</source><translation type="unfinished"></translation></message>
+    <message><source>Saving project files</source><translation type="unfinished"></translation></message>
+    <message><source>Saving the Tracker file and MoTrack companion…</source><translation type="unfinished"></translation></message>
+    <message><source>This also replaces the existing MoTrack file:
+%1</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker archives (*.trz)</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker file saved. The MoTrack companion needs recovery.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker project and MoTrack companion saved.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker projects (*.trk)</source><translation type="unfinished"></translation></message>
     <message><source>Saving project…</source><translation>Projekt wird gespeichert…</translation></message>
     <message><source>Project changed while saving. Save again to keep the latest edits.</source><translation>Das Projekt wurde während des Speicherns geändert. Speichern Sie erneut, um die neuesten Änderungen zu behalten.</translation></message>
     <message><source>New &amp;vector</source><translation>Neuer &amp;Vektor</translation></message>

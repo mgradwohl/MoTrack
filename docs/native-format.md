@@ -72,8 +72,10 @@ replacement. Native files retain project data and IDs, not a serialized undo log
 and the current native save target. It has no widget or decoder dependency. Each replacement gets a
 fresh identity object; save checkpoints retain that identity and the history revision. A completion
 from another session or a replaced document cannot change the current target or mark it clean, even
-when the two histories have the same revision. Failed writes preserve the old checkpoint. A successful
-stale write keeps its destination but invalidates the checkpoint until the latest state is saved.
+when the two histories have the same revision. Failed writes preserve the old checkpoint. Native and
+paired workers share a completion order; an older callback cannot replace a newer destination, media
+bindings or saved checkpoint. The latest completed write of an outdated revision keeps its destination
+but invalidates the checkpoint until the latest state is saved.
 Native session saves use `writeNativeDocument`, which holds the shared paired-destination lock from
 replacement through completion stamping. The low-level `writeWorkspaceDocument` storage API returns
 no session token. This prevents a delayed stamp from making an older on-disk snapshot appear current.
@@ -478,7 +480,7 @@ copy prepares member-relative ImageVideo paths; external/replaced media,
 movies, filters and unsupported timing/range edits remain refused. The source envelope and owned
 original archive bytes are unchanged. The internal [paired-save adapter](paired-saving.md) now uses
 this writer and has passing linked/archive-image recovery acceptance. Desktop standard Save
-integration remains a separate slice.
+uses the same adapter, with separate controller tests and current-head CI/review gates.
 
 The writer supports bounded, single-disk classic ZIP archives with stored or deflated members. It
 uses the [ZIP format specification](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT)
@@ -547,14 +549,14 @@ The [paired-saving contract](paired-saving.md) defines sibling `.trk`/`.trz` plu
 separate atomic replacements, bounded journaling, explicit conflict-safe recovery and per-output
 results. The adapter stages and validates both files, commits standard first, and retains recovery
 data after interruption. It reuses the supported standard writers and does not broaden their schemas.
-Native desktop Save shares its physical media-path rebasing helper and destination lock with this
-adapter. Per-output session history checkpoints are implemented. Desktop standard actions and
-translated recovery prompts remain the next slice.
+Native desktop Save now shares its physical media-path rebasing helper with this adapter. Desktop
+standard actions, per-output history checkpoints and explicit recovery prompts now use the adapter.
+The [desktop contract](paired-saving.md#desktop-save-and-recovery-controls) documents cancellation,
+conflicts, session-local paired-save selection and current acceptance limits.
 
 Both recovered linked-image and archived-image modes passed actual Tracker load/save/fresh reopen
-and native reimport at `32c21d6`, Linux job 128747171486 in
-[run 42485770063](https://github.com/mgradwohl/MoTrack/actions/runs/42485770063). The subsequent guards
-passed all six checks at `6ae83b6` in
-[run 42534998602](https://github.com/mgradwohl/MoTrack/actions/runs/42534998602), including both recovered
-application modes and 95.48% combined C++ line coverage. Desktop paired Save remains a separate
-implementation slice; future revisions retain their own CI/review gates.
+and native reimport at `940a7bc`, Linux job 128904840707 in
+[run 42537466953](https://github.com/mgradwohl/MoTrack/actions/runs/42537466953), with all six checks
+green and 95.48% combined coverage before the adapter merged. The desktop controller passed all six
+checks at `d9651f9` in [run 42534998848](https://github.com/mgradwohl/MoTrack/actions/runs/42534998848),
+with 95.72% combined coverage. Subsequent fixes retain their own current-head CI and review gates.

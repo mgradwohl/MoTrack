@@ -7,7 +7,9 @@ combined coverage and both recovered exports loaded, saved, freshly reopened in 
 reimported in MoTrack. The session slice passed all six checks at `c9f0d30` in
 [run 42540556261](https://github.com/mgradwohl/MoTrack/actions/runs/42540556261), with 95.47%
 combined coverage; subsequent fixes retain their own CI/review gates. Desktop standard Save
-actions and recovery choices remain the next slice.
+actions and recovery choices are implemented; controller `d9651f9` passed all six checks in
+[run 42534998848](https://github.com/mgradwohl/MoTrack/actions/runs/42534998848), with 95.72%
+combined coverage. Subsequent fixes retain current-head CI and review gates.
 The [full-port plan](migration-plan.md#implementation-order-and-exit-gates) and
 [format guide](native-format.md) remain the canonical status and supported-schema references.
 
@@ -51,6 +53,8 @@ explicit original state, not a wildcard authorizing overwrite.
 
 The initial API is an internal adapter operating on an immutable snapshot in a worker. It reports
 saved, canceled, failed-before-commit and recovery-required outcomes, with individual output status.
+For a known transaction, an absent journal observed under its lock is reported separately as
+recovery-not-needed; this does not claim either destination is current.
 Cancellation is checked before preparation and at bounded copy/commit boundaries.
 Cancellation reported by nested archive/native adapters is classified consistently before commitment. Progress callbacks
 must never touch widgets directly. Session identity/revision checks remain necessary when applying
@@ -61,7 +65,7 @@ against arbitrary power loss, hostile local filesystem races or hardware failure
 uses sibling files; different-directory companions and general multi-file/media transactions need
 separate contracts. Recovery records from imported archives are data, never automatically executed.
 
-## Required evidence before desktop integration
+## Adapter and compatibility evidence
 
 - Standalone and existing-archive pairs reopen independently; edits, unknown source XML, all archive
   members and media associations remain correct after native close/reopen and source-input removal.
@@ -145,7 +149,7 @@ source-digest and standalone-media corrections subsequently passed the `6ae83b6`
 
 
 
-## Per-output session checkpoints (internal model; desktop integration pending)
+## Per-output session checkpoints
 
 The edit history keeps separate native and Tracker save points. Undo/redo can return either output
 to its saved state independently; a new branch of edits invalidates save points in discarded history.
@@ -163,9 +167,8 @@ Replacement of the document invalidates all earlier completion tokens.
 `completePairedRecovery` deliberately does not mark the live document saved: the record can refer
 to an older snapshot or predate this session. Successful recovery clears the pending record and
 requires a fresh paired save to establish both output checkpoints for the current live snapshot.
-This preserves new edits made after interruption. The desktop controller must use these session
-queries and completion methods when standard Save/recovery actions are connected; those actions
-are still pending.
+This preserves new edits made after interruption. The desktop controller uses these session queries and completion methods for standard Save and
+explicit recovery, including the ordinary Save and close/discard flow.
 
 The multiple-destination recovery correction passes all six Windows suites with 95.46% combined
 production line coverage (7780/8150). Checkpoint formatting/static checks pass. Its regression performs
@@ -184,6 +187,39 @@ The combined review-corrected stack passed all six Windows suites with 95.54% li
 (7803/8167); this includes immutable archive export, unsupported ZIP layouts imported before
 validation, multiple recovery destinations, case-folded media collisions and prepared-stage changes.
 Current-revision cross-platform CI remains required before merging.
+
+## Desktop save and recovery controls
+
+File → Save Tracker project chooses the standard destination and confirms replacement of an unrelated
+existing companion. The current adapter always writes a same-stem `.motrack` alongside it. Ordinary
+Save uses the pair after that choice; Save MoTrack copy as keeps a separate native-only path available.
+The paired preference is currently session-local: reopening starts with the default native save behavior
+until a standard destination is chosen again. Persisting this choice is separate from interchange data.
+
+A one-worker save pool receives an owned snapshot and cancellation token. A modal progress window
+keeps the event loop responsive and supports cancellation, while ordinary document input is blocked.
+Programmatic edits still advance the revision; prepared project/movie opens wait until save bookkeeping
+finishes. Canceled open requests are rejected, and replaced documents never accept old completions.
+Window destruction cancels the worker without permitting it to access widgets.
+
+A pending record is recovered only after explicit confirmation. Recovery is followed by a fresh write
+of the current snapshot. Conflicts keep the record and live edits available; a native-only save cannot
+clear outstanding standard edits. Status distinguishes failure before commit, cancellation, partial output,
+recovery cleanup, stale snapshots and successful paired saving. New UI strings are marked unfinished
+in the three non-English catalogs and fall back to English until translated.
+
+Desktop regressions exercise edited linked/archive pairs and ordinary Save, recovery of older data with
+newer edits, conflicting recovery, cancellation and overlapping save/close requests, stale and replaced
+completions, queued/canceled project and movie opens, unsupported exports, companion replacement
+confirmation, and window destruction during a queued save. Current Windows validation and required
+cross-platform CI are reported with the desktop PR. The established actual-Tracker paired corpus gates
+continue validating the same adapter; these UI tests do not independently establish broader export parity.
+
+Local Windows desktop validation: all thirteen paired-workspace tests and all six CTest suites pass.
+Combined production line coverage is 95.59% (8044/8415), above the unchanged 90% gate.
+The 76 Python corpus tests and native corpus checks also pass.
+Formatting and clang-tidy pass for the controller and desktop tests. Linux/macOS/current-head CI
+and code review remain required before this desktop slice can be merged.
 
 Every journal contains a persistent transaction UUID, returned by both paired writes and recovery.
 A new transaction at the same pathname receives a new identity. Session completion checks use this
@@ -204,6 +240,27 @@ requires the recorded transaction still to match both the checkpoint and result.
 at the same path therefore remains pending. Recovery also preserves an existing native Save As
 target, including one selected while recovery was running; only an unset native target is adopted.
 
+Save dialogs capture their originating session before entering a nested event loop. A prepared open
+that replaces the document cancels the old chooser, companion confirmation or recovery confirmation.
+Recovery confirmation also copies the destination and checks the pending transaction identities.
+Desktop regressions accept those dialogs after asynchronous replacement and verify both projects,
+companions and recovery records remain unchanged. The progress dialog is parent-owned; its own
+connection contexts bound cancellation callbacks, and the window lifetime guard prevents access
+after destruction.
+
+The recovery worker receives the transaction identity captured for confirmation and validates it
+under the same per-stem lock used to commit. If another instance replaced the journal, recovery
+changes no files, reports the newly observed identity, and requires another explicit confirmation.
+If that instance already removed the known journal, the session clears only that obsolete pending
+entry and a fresh paired write is still required. Delayed blocked retries cannot restore a cleared
+identity or overwrite a newer pending transaction. Direct accessor arguments are copied before list
+mutation, so clearing the first pending entry cannot invalidate the path used for identity cleanup.
+
+Native and paired media-overwrite checks compare actual filesystem identity. Distinct case or Unicode
+spellings remain usable where the filesystem distinguishes them; true aliases stay protected. The
+Tracker filename chooser is destroyed before companion/recovery/progress dialogs begin, including
+when the window is destroyed during an action-triggered save.
+
 Each output also has a session invalidation generation. A write captured before stale disk content or
 recovery invalidates that output cannot later mark it clean just because its edit revision matches.
 A fresh write must follow that invalidation. The desktop recovery-and-save sequence must apply recovery
@@ -223,6 +280,17 @@ UUID, an unidentified request returns its identity without replacing either outp
 obtain fresh confirmation. An absent journal can be reconciled without writing. Only an adapter call
 that omits the expectation entirely requests unrestricted explicit recovery.
 
+
+Filename, companion, recovery and save/discard prompts are parent-owned heap dialogs guarded across
+their nested event loops. Closing the owning window during any prompt cannot delete a stack widget
+or resume a save through a destroyed controller. Prepared project/movie opens also check lifetime
+before updating status after a discarded prompt. These cases have direct menu/open/close regressions.
+
+Native-only saves share the owned cancellation token used by paired saves. Window destruction cancels
+a queued save before it starts; native storage checks cancellation while copying embedded archives and
+immediately before atomic replacement. Destruction tests preserve an existing destination through both
+the direct and menu save entry points, with worker release ordered after cancellation.
+
 Completed paired writes carry the snapshot's refreshed media bindings back to their live session.
 Only a result that actually updated an output may adopt them; blocked retries and replaced-document
 completions leave the current bindings unchanged. Recovery alone has no live-snapshot bindings to adopt.
@@ -233,10 +301,35 @@ reconciles pending records by observation order without requiring a transaction 
 recovery writes still require the expected UUID. Regressions remove the original alias and older media
 before saving again, and reconcile externally completed journals through the default recovery API.
 
+Storage progress callbacks expose archive chunks and the final pre-commit boundary on the writing
+thread. Deterministic cancellation regressions stop during source-archive streaming and immediately
+before plain/ZIP commit, preserving every original destination byte. Successful paired saves also
+refresh the active image reader, preserving navigation after a temporary media alias is removed.
+
 Successful paired writes retain their lock-observed journal pathname even after deleting the record.
 Session completion reconciles older observations at that path, so an unreported external recovery
 followed by a fresh successful write cannot leave a deleted journal pending. Newer observations at
 the same path and unresolved records at other destinations remain pending in either callback order.
+
+Desktop native saves hold the destination's sibling paired-save lock through replacement. An active
+writer or an unresolved journal blocks replacement of that companion, including a file alias to it;
+saving a native copy at another destination remains available. The worker checks the filesystem even
+when this session has not yet observed the journal. Normal paired saving requires explicit recovery
+before that companion can change, preserving its recorded fingerprints and staged recovery data.
+
+The filename and confirmation helpers guard their parent-owned dialog borrows with synchronous
+GUI-thread destruction notifications. A local QObject disconnects those callbacks before their flags
+leave scope. This retains the existing parent-destruction behavior while avoiding a Linux Clang 18
+weak-pointer cleanup diagnostic in the portable-export chooser; the existing destruction regressions
+cover both helpers through native, paired and image-package menu actions.
+
+Native-save conflicts carry structured reasons to the desktop: pending recovery explains how to use
+Save Tracker project or choose another destination, while an active sibling save explains retry/copy
+options. Both messages use the translation catalogs; failed saves keep existing files and dirty state.
+
+Prepared project/movie opens use the same synchronous destruction guard while asking whether to save
+the previous document. A dead window cannot receive the prepared result; the local connection context
+disconnects before the guard flag leaves scope. No Qt weak-pointer control block spans these nested calls.
 
 Journal observations also retain a process-local filesystem-slot identity. While the destination lock
 exists, the worker compares it with live prior lock spellings using actual filesystem identity; it
@@ -304,7 +397,10 @@ failure cases pass locally on Windows at `9d08bd85`. The complete eight-group su
 C++ translation units pass static analysis. Three existing LLVM function-mismatch warnings remain
 visible. The new interval regression deterministically attempts competing writes from the post-commit
 observer before the outer result is stamped. It also checks that a later obsolete write invalidates
-the session's saved state. Current-head three-platform CI and review remain required before merge.
+the session's saved state. Final head `c9f0d30` passes all six required checks in
+[run 42540556261](https://github.com/mgradwohl/MoTrack/actions/runs/42540556261), with **95.47%
+(8204/8593)** combined coverage and both recovered paired-image modes passing actual Tracker
+load/save/fresh reopen and native reimport. Subsequent fixes retain their own current-head CI and review gates.
 
 The copied-journal callback and older-first successful-save defects were reproduced before their
 corrections. All 30 session cases and the two deterministic storage-cancellation cases then passed.

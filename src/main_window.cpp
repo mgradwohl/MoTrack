@@ -33,6 +33,7 @@
 #include <QLocale>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QSaveFile>
 #include <QSignalBlocker>
 #include <QSlider>
@@ -53,6 +54,7 @@
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <utility>
 
 namespace motrack
@@ -65,6 +67,50 @@ QString physicalSourcePath(const QString& path)
     const QFileInfo info(path);
     const auto physical = info.canonicalFilePath();
     return physical.isEmpty() ? info.absoluteFilePath() : physical;
+}
+
+// Dialogs may lose their parent inside the nested event loop. Qt owns these heap children;
+// guarded cleanup also finishes before the caller starts another dialog or a worker.
+// Synchronous destroyed signals guard the GUI-thread borrows; the local context disconnects
+// before either flag leaves scope. This avoids nested weak-control-block cleanup on the dead-parent path.
+std::optional<QString>
+chooseSaveFile(QWidget* parent, const QString& title, const QString& initial, const QString& filter, const QString& suffix)
+{
+    bool ownerAlive = true;
+    bool dialogAlive = true;
+    QObject lifetime;
+    QObject::connect(parent, &QObject::destroyed, &lifetime, [&ownerAlive] { ownerAlive = false; });
+    auto* dialog = new QFileDialog(parent, title, initial, filter);
+    QObject::connect(dialog, &QObject::destroyed, &lifetime, [&dialogAlive] { dialogAlive = false; });
+    dialog->setAcceptMode(QFileDialog::AcceptSave);
+    dialog->setDefaultSuffix(suffix);
+    const auto result = dialog->exec();
+    std::optional<QString> path;
+    if (ownerAlive && dialogAlive && result == QDialog::Accepted)
+        path = dialog->selectedFiles().value(0);
+    if (dialogAlive)
+        delete dialog;
+    return ownerAlive ? path : std::nullopt;
+}
+
+QMessageBox::StandardButton askSaveQuestion(QWidget* parent,
+                                            const QString& title,
+                                            const QString& text,
+                                            QMessageBox::StandardButtons buttons,
+                                            QMessageBox::StandardButton defaultButton)
+{
+    bool ownerAlive = true;
+    bool dialogAlive = true;
+    QObject lifetime;
+    QObject::connect(parent, &QObject::destroyed, &lifetime, [&ownerAlive] { ownerAlive = false; });
+    auto* dialog = new QMessageBox(QMessageBox::Question, title, text, buttons, parent);
+    QObject::connect(dialog, &QObject::destroyed, &lifetime, [&dialogAlive] { dialogAlive = false; });
+    dialog->setDefaultButton(defaultButton);
+    static_cast<void>(dialog->exec());
+    const auto result = ownerAlive && dialogAlive ? dialog->standardButton(dialog->clickedButton()) : QMessageBox::Cancel;
+    if (dialogAlive)
+        delete dialog;
+    return ownerAlive ? result : QMessageBox::Cancel;
 }
 } // namespace
 
@@ -96,10 +142,14 @@ MainWindow::MainWindow()
     m_Save->setObjectName("saveProject");
     m_Save->setShortcut(QKeySequence::Save);
     m_Save->setEnabled(false);
-    m_SaveAs = fileMenu->addAction(tr("Save project &as…"));
+    m_SaveAs = fileMenu->addAction(tr("Save MoTrack copy &as…"));
     m_SaveAs->setObjectName("saveWorkspace");
     m_SaveAs->setShortcut(QKeySequence::SaveAs);
     m_SaveAs->setEnabled(false);
+    m_SaveTracker = fileMenu->addAction(tr("Save &Tracker project…"));
+    m_SaveTracker->setObjectName("saveTrackerProject");
+    m_SaveTracker->setToolTip(tr("Save a Tracker file and a MoTrack companion."));
+    m_SaveTracker->setEnabled(false);
     m_Export = new QAction(tr("&Export measurements…"), this);
     m_Export->setObjectName("exportMeasurements");
     m_Export->setEnabled(false);
@@ -375,6 +425,7 @@ MainWindow::MainWindow()
                 }
             });
     connect(m_SaveAs, &QAction::triggered, this, &MainWindow::chooseWorkspacePath);
+    connect(m_SaveTracker, &QAction::triggered, this, &MainWindow::chooseTrackerPath);
     connect(m_Save, &QAction::triggered, this, &MainWindow::saveCurrentWorkspace);
     connect(m_Export,
             &QAction::triggered,
@@ -564,6 +615,8 @@ MainWindow::MainWindow()
 
 MainWindow::~MainWindow()
 {
+    if (m_SaveCancelled)
+        *m_SaveCancelled = true;
     cancelProjectOpen();
     cancelMovieOpen();
     ++m_RequestGeneration;
@@ -722,7 +775,13 @@ bool MainWindow::applyProject(const QString& path, PreparedProject prepared, con
         {
             return false;
         }
-        if (!confirmDiscard())
+        bool ownerAlive = true;
+        QObject lifetime;
+        connect(this, &QObject::destroyed, &lifetime, [&ownerAlive] { ownerAlive = false; });
+        const auto discard = confirmDiscard();
+        if (!ownerAlive)
+            return false;
+        if (!discard)
         {
             statusBar()->clearMessage();
             return false;
@@ -894,7 +953,13 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
                             statusBar()->showMessage(tr("Could not open this video."));
                             return;
                         }
-                        if (!confirmDiscard() || *cancelled)
+                        bool ownerAlive = true;
+                        QObject lifetime;
+                        connect(this, &QObject::destroyed, &lifetime, [&ownerAlive] { ownerAlive = false; });
+                        const auto discard = confirmDiscard();
+                        if (!ownerAlive)
+                            return;
+                        if (!discard || *cancelled)
                         {
                             statusBar()->clearMessage();
                             return;
@@ -951,6 +1016,7 @@ void MainWindow::activateProject(const QString& path)
     m_NewVector->setEnabled(true);
     m_SaveAs->setEnabled(true);
     m_Save->setEnabled(true);
+    m_SaveTracker->setEnabled(m_Session.document.trackerSource.has_value());
     refreshEditViews(0);
     syncClipControls();
     setWindowTitle(tr("%1[*] — MoTrack").arg(QFileInfo(path).fileName()));
@@ -1073,15 +1139,15 @@ bool MainWindow::confirmDiscard()
     {
         return false;
     }
-    if (!m_Session.history.isModified())
+    if (!m_Session.isModified())
     {
         return true;
     }
-    const auto choice = QMessageBox::question(this,
-                                              tr("Save tracking edits?"),
-                                              tr("Save your project to keep your tracking edits."),
-                                              QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel,
-                                              QMessageBox::Save);
+    const auto choice = askSaveQuestion(this,
+                                        tr("Save tracking edits?"),
+                                        tr("Save your project to keep your tracking edits."),
+                                        QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel,
+                                        QMessageBox::Save);
     return choice == QMessageBox::Discard || (choice == QMessageBox::Save && saveCurrentWorkspace());
 }
 
@@ -1117,7 +1183,7 @@ void MainWindow::refreshEditViews(int track)
     m_TrackPicker->setCurrentIndex(std::min(std::max(0, track), m_TrackPicker->count() - 1));
     m_Undo->setEnabled(m_Session.history.canUndo());
     m_Redo->setEnabled(m_Session.history.canRedo());
-    setWindowModified(m_Session.history.isModified());
+    setWindowModified(m_Session.isModified());
     displayMarks();
     refreshPlot();
     m_Export->setEnabled(m_Marks->rowCount() > 0);
@@ -1619,14 +1685,19 @@ void MainWindow::pickCalibrationPoint(const QPointF& position)
 
 bool MainWindow::chooseWorkspacePath()
 {
-    QFileDialog dialog(this, tr("Save MoTrack project"), {}, tr("MoTrack projects (*.motrack)"));
-    dialog.setAcceptMode(QFileDialog::AcceptSave);
-    dialog.setDefaultSuffix("motrack");
-    return dialog.exec() == QDialog::Accepted && saveWorkspace(dialog.selectedFiles().value(0));
+    if (m_Saving)
+        return false;
+    const auto checkpoint = m_Session.saveCheckpoint();
+    const auto path = chooseSaveFile(this, tr("Save MoTrack project"), {}, tr("MoTrack projects (*.motrack)"), "motrack");
+    if (!path || checkpoint.identity != m_Session.saveCheckpoint().identity)
+        return false;
+    return saveWorkspace(*path);
 }
 
 bool MainWindow::saveCurrentWorkspace()
 {
+    if (m_Session.requiresPairedSave())
+        return saveTrackerWithRecoveryPrompt(m_Session.standardSavePath());
     return m_Session.nativeSavePath().isEmpty() ? chooseWorkspacePath() : saveWorkspace(m_Session.nativeSavePath());
 }
 
@@ -1649,18 +1720,31 @@ bool MainWindow::saveWorkspace(const QString& path)
     QEventLoop loop;
     connect(this, &QObject::destroyed, &loop, [&alive] { alive = false; });
     m_Saving = true;
+    m_SaveCancelled = std::make_shared<std::atomic_bool>(false);
+    const auto cancelled = m_SaveCancelled;
     statusBar()->showMessage(tr("Saving project…"));
-    QFutureWatcher<NativeSaveResult> watcher;
-    connect(&watcher, &QFutureWatcher<NativeSaveResult>::finished, &loop, &QEventLoop::quit);
+    struct SaveResult
+    {
+        NativeSaveResult save = {};
+        std::optional<SaveDestinationConflict> conflict = std::nullopt;
+    };
+    QFutureWatcher<SaveResult> watcher;
+    connect(&watcher, &QFutureWatcher<SaveResult>::finished, &loop, &QEventLoop::quit);
     watcher.setFuture(
         QtConcurrent::run(m_SavePool,
-                          [path, sourcePath = m_MediaProjectPath, document = std::move(document)]() mutable -> NativeSaveResult
+                          [path, cancelled, sourcePath = m_MediaProjectPath, document = std::move(document)]() mutable -> SaveResult
                           {
                               try
                               {
+                                  if (*cancelled)
+                                      return {};
                                   refreshWorkspaceMediaLocations(document, sourcePath);
                                   rebaseWorkspaceMedia(document, sourcePath, path);
-                                  return writeNativeDocument(path, document);
+                                  return {.save = writeNativeDocument(path, document, cancelled.get())};
+                              }
+                              catch (const SaveDestinationError& error)
+                              {
+                                  return {.conflict = error.conflict()};
                               }
                               catch (const std::exception&)
                               {
@@ -1672,22 +1756,21 @@ bool MainWindow::saveWorkspace(const QString& path)
     {
         return false;
     }
-    m_Saving = false;
-    for (auto& completion : std::exchange(m_AfterSave, {}))
-    {
-        // Finish save bookkeeping and its caller (including close) before applying prepared opens.
-        // Another save may start first, so check the guard again when the queued callback runs.
-        QTimer::singleShot(0, this, [this, completion = std::move(completion)]() mutable { completeAfterSave(std::move(completion)); });
-    }
+    finishSaving();
     const auto result = watcher.result();
-    const auto outcome = m_Session.completeSave(checkpoint, path, result);
+    const auto outcome = m_Session.completeSave(checkpoint, path, result.save);
     if (outcome == SaveOutcome::Replaced)
     {
         return false;
     }
     if (outcome == SaveOutcome::Failed)
     {
-        statusBar()->showMessage(tr("Could not save this project."));
+        statusBar()->showMessage(
+            result.conflict == SaveDestinationConflict::PendingRecovery
+                ? tr("An interrupted paired save needs recovery. Use Save Tracker project for this destination, or save a copy elsewhere.")
+            : result.conflict == SaveDestinationConflict::Busy
+                ? tr("Another save is using this destination. Wait for it to finish and retry, or save a copy elsewhere.")
+                : tr("Could not save this project."));
         return false;
     }
     if (outcome == SaveOutcome::Superseded)
@@ -1705,8 +1788,199 @@ bool MainWindow::saveWorkspace(const QString& path)
         statusBar()->showMessage(tr("Project changed while saving. Save again to keep the latest edits."));
         return false;
     }
-    setWindowModified(false);
-    statusBar()->showMessage(tr("Project saved."));
+    setWindowModified(m_Session.isModified());
+    statusBar()->showMessage(m_Session.isModified() ? tr("MoTrack copy saved. Save the Tracker project to keep both files current.")
+                                                    : tr("Project saved."));
+    return true;
+}
+
+void MainWindow::finishSaving()
+{
+    m_SaveCancelled.reset();
+    m_Saving = false;
+    for (auto& completion : std::exchange(m_AfterSave, {}))
+    {
+        // Finish save bookkeeping and its caller (including close) before applying prepared opens.
+        // Another save may start first, so check the guard again when the queued callback runs.
+        QTimer::singleShot(0, this, [this, completion = std::move(completion)]() mutable { completeAfterSave(std::move(completion)); });
+    }
+}
+
+bool MainWindow::chooseTrackerPath()
+{
+    if (m_Saving)
+        return false;
+    const auto checkpoint = m_Session.saveCheckpoint();
+    const bool archive = static_cast<bool>(m_Session.document.archivePayload);
+    const auto suffix = archive ? QStringLiteral("trz") : QStringLiteral("trk");
+    const auto path = chooseSaveFile(this,
+                                     tr("Save Tracker project and MoTrack companion"),
+                                     m_Session.standardSavePath(),
+                                     archive ? tr("Tracker archives (*.trz)") : tr("Tracker projects (*.trk)"),
+                                     suffix);
+    if (!path || checkpoint.identity != m_Session.saveCheckpoint().identity)
+        return false;
+    const QFileInfo target(*path);
+    const auto companion = target.absoluteDir().filePath(target.completeBaseName() + ".motrack");
+    if (QFileInfo::exists(companion) && companion != m_Session.nativeSavePath() &&
+        askSaveQuestion(this,
+                        tr("Replace MoTrack companion?"),
+                        tr("This also replaces the existing MoTrack file:\n%1").arg(companion),
+                        QMessageBox::Yes | QMessageBox::Cancel,
+                        QMessageBox::Cancel) != QMessageBox::Yes)
+        return false;
+    if (checkpoint.identity != m_Session.saveCheckpoint().identity)
+        return false;
+    return saveTrackerWithRecoveryPrompt(*path);
+}
+
+bool MainWindow::saveTrackerWithRecoveryPrompt(const QString& path)
+{
+    if (m_Saving)
+        return false;
+    // Ordinary Save passes a session member; the dialog's event loop can replace that session.
+    const auto destination = path; // NOLINT(performance-unnecessary-copy-initialization)
+    const auto checkpoint = m_Session.saveCheckpoint();
+    const bool recovery = !m_Session.recoveryPath().isEmpty();
+    if (recovery && askSaveQuestion(this,
+                                    tr("Finish interrupted save?"),
+                                    tr("Recover the saved files, then save your current edits to both project files?"),
+                                    QMessageBox::Yes | QMessageBox::Cancel,
+                                    QMessageBox::Yes) != QMessageBox::Yes)
+        return false;
+    const auto current = m_Session.saveCheckpoint();
+    if (checkpoint.identity != current.identity || checkpoint.recoveryTransactions != current.recoveryTransactions)
+        return false;
+    return saveTrackerProject(destination, recovery);
+}
+
+bool MainWindow::saveTrackerProject(const QString& path, bool recoverPending)
+{
+    if (m_Saving)
+        return false;
+    const auto suffix = m_Session.document.archivePayload ? QStringLiteral(".trz") : QStringLiteral(".trk");
+    if (m_Session.sourcePath().isEmpty() || !m_Session.document.trackerSource || !path.endsWith(suffix, Qt::CaseInsensitive))
+    {
+        statusBar()->showMessage(tr("Choose a %1 filename for an imported Tracker project.").arg(suffix));
+        return false;
+    }
+    const auto pending = m_Session.recoveryPath();
+    if (!pending.isEmpty() && !recoverPending)
+    {
+        statusBar()->showMessage(tr("Finish the interrupted save before saving this project again."));
+        return false;
+    }
+    struct WorkResult
+    {
+        std::optional<PairedSaveResult> recovery;
+        std::optional<PairedSaveResult> saved;
+    };
+    auto checkpoint = m_Session.saveCheckpoint();
+    m_SaveCancelled = std::make_shared<std::atomic_bool>(false);
+    const auto cancelled = m_SaveCancelled;
+    bool alive = true;
+    QEventLoop loop;
+    connect(this, &QObject::destroyed, &loop, [&alive] { alive = false; });
+    m_Saving = true;
+    auto* progress = new QDialog(this);
+    progress->setObjectName("pairedSaveProgress");
+    progress->setWindowTitle(tr("Saving project files"));
+    progress->setWindowModality(Qt::WindowModal);
+    auto* layout = new QVBoxLayout(progress);
+    auto* label = new QLabel(tr("Saving the Tracker file and MoTrack companion…"), progress);
+    auto* cancel = new QPushButton(tr("Cancel"), progress);
+    cancel->setObjectName("cancelPairedSave");
+    layout->addWidget(label);
+    layout->addWidget(cancel);
+    const auto cancelSave = [progress, cancelled, label, cancel]
+    {
+        *cancelled = true;
+        label->setText(tr("Canceling save…"));
+        cancel->setEnabled(false);
+        progress->show();
+    };
+    // The dialog owns both connections; its parent owns the dialog. No callback outlives its widgets.
+    connect(cancel, &QPushButton::clicked, progress, cancelSave);
+    connect(progress, &QDialog::rejected, progress, cancelSave);
+    progress->show();
+    QFutureWatcher<WorkResult> watcher;
+    connect(&watcher, &QFutureWatcher<WorkResult>::finished, &loop, &QEventLoop::quit);
+    watcher.setFuture(QtConcurrent::run(m_SavePool,
+                                        [path,
+                                         pending,
+                                         cancelled,
+                                         expectedTransaction = checkpoint.recoveryTransactions.value(pending),
+                                         sourcePath = m_MediaProjectPath,
+                                         document = m_Session.document]
+                                        {
+                                            WorkResult result;
+                                            if (!pending.isEmpty())
+                                            {
+                                                result.recovery = recoverPairedDocuments(pending, cancelled.get(), {}, expectedTransaction);
+                                                if (result.recovery->status != PairedSaveStatus::Saved &&
+                                                    result.recovery->status != PairedSaveStatus::RecoveryNotNeeded)
+                                                    return result;
+                                            }
+                                            result.saved = writePairedDocuments(path, document, sourcePath, cancelled.get());
+                                            return result;
+                                        }));
+    // The modal progress window permits cancellation while ordinary document input stays blocked.
+    // Programmatic edits and prepared opens still obey revision checks and the save completion queue.
+    loop.exec();
+    if (!alive)
+        return false;
+    delete progress;
+    finishSaving();
+    const auto result = watcher.result();
+    if (result.recovery)
+    {
+        const auto beforeRecovery = m_Session.saveCheckpoint();
+        const auto outcome = m_Session.completePairedRecovery(checkpoint, pending, *result.recovery);
+        if (outcome == SaveOutcome::Replaced)
+            return false;
+        if (outcome != SaveOutcome::Recovered)
+        {
+            setWindowModified(m_Session.isModified());
+            statusBar()->showMessage(tr("Could not finish the interrupted save: %1").arg(result.recovery->diagnostic));
+            return false;
+        }
+        // This one serialized worker saved its snapshot after recovery. Carry only this recovery's
+        // invalidation forward; preserve its original edit revision and any earlier invalidations.
+        const auto afterRecovery = m_Session.saveCheckpoint();
+        checkpoint.nativeInvalidation += afterRecovery.nativeInvalidation - beforeRecovery.nativeInvalidation;
+        checkpoint.trackerInvalidation += afterRecovery.trackerInvalidation - beforeRecovery.trackerInvalidation;
+    }
+    if (!result.saved)
+        return false;
+    const auto& saved = *result.saved;
+    const auto outcome = m_Session.completePairedSave(checkpoint, saved);
+    if (outcome == SaveOutcome::Replaced)
+        return false;
+    refreshImageMediaLocations();
+    setWindowModified(m_Session.isModified());
+    if (outcome == SaveOutcome::Partial)
+    {
+        statusBar()->showMessage(saved.standardCurrent && saved.nativeCurrent ? tr("Both files were saved. Recovery cleanup remains.")
+                                 : saved.standardCurrent ? tr("Tracker file saved. The MoTrack companion needs recovery.")
+                                                         : tr("An interrupted save needs recovery before continuing."));
+        return false;
+    }
+    if (outcome == SaveOutcome::Failed)
+    {
+        statusBar()->showMessage(saved.status == PairedSaveStatus::Cancelled
+                                     ? (result.recovery && result.recovery->status == PairedSaveStatus::Saved
+                                            ? tr("Interrupted save recovered. Saving the current edits was canceled.")
+                                            : tr("Save canceled. Existing files were kept."))
+                                     : tr("Could not save the Tracker project: %1").arg(saved.diagnostic));
+        return false;
+    }
+    setWindowTitle(tr("%1[*] — MoTrack").arg(QFileInfo(saved.standardPath).fileName()));
+    if (outcome == SaveOutcome::Stale)
+    {
+        statusBar()->showMessage(tr("Project changed while saving. Save again to keep the latest edits."));
+        return false;
+    }
+    statusBar()->showMessage(tr("Tracker project and MoTrack companion saved."));
     return true;
 }
 
