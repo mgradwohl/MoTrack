@@ -694,7 +694,7 @@ The movie-range extension adds strided and single-frame native export/reopen cas
 Settings/undo/redo/paired-save checks and two actual-Tracker acceptance modes. Independent whole-XML
 expectations permit only the requested range, mass, mark and path; every mark outside the clip remains.
 After Tracker saves and freshly reopens, the saved movie reference must resolve locally to the complete
-pinned byte count/SHA-256, including excluded frames. Local Windows validation passes all nine CTest
+pinned byte count/SHA-256, including excluded frames. Initial Windows validation passes all nine CTest
 groups (124.80 seconds), 86 Python tests, both native export/oracle/reimport cases, formatting and
 static analysis for all four changed C++ source files, with 95.64% line coverage (8838/9241). Three
 existing LLVM function-profile mismatch warnings remain visible. Current-head three-platform CI,
@@ -707,3 +707,9 @@ count. Otherwise a reopened single-frame clip could not expand to retained frame
 A desktop regression reproduced that failure, then verified single-frame export, standard-file reopen,
 index completion, expansion to all four frames, paired resave and display of the retained final frame.
 Index completion does not mark the document modified or remove measurements.
+
+After the reopen-bound correction, all nine Windows CTest groups pass in 132.22 seconds with 95.64%
+production line coverage (8839/9242). The new desktop regression first failed at the shortened bound
+and then passed with the correction; all three related desktop cases, both affected source-file static
+analyses and formatting pass. Three existing LLVM profile-mismatch warnings remain visible. Actual
+Tracker and three-platform acceptance still require the final published revision's CI.
