@@ -558,6 +558,8 @@ void failed(PairedSaveResult& result, const std::exception& error, bool cancelle
                     : cancelled                    ? PairedSaveStatus::Cancelled
                                                    : PairedSaveStatus::Failed;
 }
+} // namespace
+
 void withSaveDestinationLock(const QString& path, const std::atomic_bool* cancelled, const std::function<void(const QString&)>& write)
 {
     checkCancelled(cancelled);
@@ -574,8 +576,6 @@ void withSaveDestinationLock(const QString& path, const std::atomic_bool* cancel
     checkCancelled(cancelled);
     write(physical);
 }
-
-} // namespace
 
 PairedSaveResult writePairedDocuments(const QString& standardPath,
                                       const WorkspaceDocument& document,
@@ -724,16 +724,6 @@ NativeSaveResult writeNativeDocument(const QString& path,
                                 completed(); // Stamp before withSaveDestinationLock releases the shared lock.
                             });
     return result;
-}
-
-void writeTrackerImagePackageCopy(const QString& path,
-                                  const WorkspaceDocument& document,
-                                  const QString& mediaProjectPath,
-                                  const std::atomic_bool* cancelled)
-{
-    require(path.endsWith(".trz", Qt::CaseInsensitive) && !QFileInfo(path).isSymbolicLink(), "Choose a regular Tracker archive filename.");
-    withSaveDestinationLock(
-        path, cancelled, [&](const auto& physical) { writeTrackerImagePackage(physical, document, mediaProjectPath, cancelled); });
 }
 
 PairedSaveResult recoverPairedDocuments(const QString& recoveryPath,

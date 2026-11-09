@@ -624,6 +624,13 @@ missing inputs, cancellation, overlapping saves, queued project opens, stale fil
 destruction during both filename selection and worker progress. The four-PNG actual-Tracker acceptance
 above verifies the underlying format; new desktop-controller revisions require their own platform checks.
 
+The locked export wrapper lives in the image-package adapter and calls the project library's synchronous
+destination-lock operation. This keeps the dependency one-way: project persistence never calls image
+decoders. Linux's static linker exposed the previous wrapper placement as an unresolved package symbol;
+the correction passes the ten desktop-export cases, eight package cases and native replacement/stamp-lock
+regression locally on Windows, plus formatting and both changed source-file static analyses. Fresh Linux,
+macOS and Windows CI remains required; local linking alone cannot establish Linux acceptance.
+
 ### Linked constant-rate movie edits
 
 The document writer accepts the explicitly audited `XuggleVideo`/`VideoClipControl` schema only through
