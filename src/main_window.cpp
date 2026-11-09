@@ -955,6 +955,14 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
                             if (!index.frameTimes.empty())
                             {
                                 m_Session.document.movieFrameTimes = std::move(index.frameTimes);
+                                auto& clip = m_Session.document.project.clip;
+                                const auto steps = clip.stepCount.value_or(0);
+                                const auto last =
+                                    static_cast<std::int64_t>(clip.firstFrame) + static_cast<std::int64_t>(steps - 1) * clip.stepSize;
+                                // Extend the provisional bound only if the movie contains the saved
+                                // clip. Retain known bounds for earlier ranges and their undo history.
+                                if (steps == 0 || last < index.frameCount)
+                                    clip.sourceFrameCount = std::max(clip.sourceFrameCount.value_or(0), index.frameCount);
                             }
                             refreshPlot();
                             return;

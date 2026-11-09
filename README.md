@@ -71,14 +71,15 @@ then write your current edits. Changes made by another program are preserved and
 conflict. Recovery never marks newer edits saved without writing them to both files.
 
 This workflow currently covers audited media-free and local-image experiments, plus selected-member
-updates to existing image archives. The first linked-movie writer supports mass and mark edits in
+updates to existing image archives. The linked-movie writer supports mass, mark and clip-range edits in
 audited constant-rate imports after timestamp indexing; its edited-file Tracker save/reopen acceptance
 has passed for the pinned four-frame AVI case. Later revisions still require their own CI and review.
 Movie timing/calibration/track-identity edits, movie packaging, filters and broader settings remain unfinished. An unsupported export is refused; save a MoTrack copy to retain work.
 Image experiments can retain Clip Settings changes to the starting frame, ending frame and frame
 interval in linked `.trk` files, existing image archives and portable image exports. All source images
 and marks remain available, including those outside the selected clip; image timing stays unchanged.
-The new range-edit cases still require actual Tracker application acceptance before merge.
+Audited linked movies also retain Clip Settings range and interval edits after indexing. The complete
+movie and all measurements stay available; source frame numbers and numeric timing are unchanged.
 The [format guide](docs/native-format.md) records the exact supported edits and compatibility evidence.
 
 ### Export a portable image experiment

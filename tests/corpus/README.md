@@ -1113,3 +1113,28 @@ rejects incorrect clip bounds/stride/count, raw or displayed time, calibration, 
 and missing marks, even if all reported application stages agree on the wrong values. The final
 84-test Python suite and all four actual-Tracker modes passed in the merged revision above.
 This establishes those audited image ranges only; MoTrack #65 remains open.
+
+
+### Linked-movie clip range and stride acceptance
+
+The constant-rate movie fixture adds linked-movie-clip (frames 1 through 3, stride 2) and
+linked-movie-clip-single (frame 2 only). Each mode uses the native decoder's complete four-frame
+index, edits mass and mark 1, changes the clip with undo/redo, saves/reopens the native companion,
+removes its original project directory and exports a standard .trk.
+
+The independent expectations retain original marks 0/1/2 and the complete movie. Displayed times are
+-250 ms at frame 1 and 0 ms at frame 3 for the strided clip, or -250 ms at frame 2 for the single-frame
+clip. Raw movie timestamps remain 0/125/250/375 ms. Active-bound pixel checks do not extend the live
+clip. After Tracker saves and again after a fresh process reopens it, a bounded XML/path/hash check
+requires the complete saved movie reference to resolve to the pinned original AVI. Its per-stage
+reference, byte count and SHA-256 are recorded as saved_movie_assets. The baseline and ordinary
+movie-edit modes use the same post-resave verification.
+
+The 86 Python tests reject changed range/timing/marks, missing or changed movie bytes and malformed,
+remote or archive references; local relative/absolute/file-URL paths have positive coverage. Both
+native exports, full XML/movie hashes and native reimport pass locally. All nine Windows CTest groups
+pass in 124.80 seconds, with 95.64% line coverage (8838/9241); formatting and all four changed C++
+source-file static analyses pass. Three existing LLVM function-profile mismatch warnings remain visible.
+The new modes still require current-head Linux actual Tracker load/save/fresh reopen/native reimport
+and three-platform CI before merge. This does not close MoTrack #65 or reproduce the historical MOV/
+Open Recent report; the upstream issue and complete discussion were refreshed for this slice.

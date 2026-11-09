@@ -650,9 +650,9 @@ Windows/macOS and actual Tracker package acceptance, with 95.72% combined C++ li
 ### Linked constant-rate movie edits
 
 The document writer accepts the explicitly audited `XuggleVideo`/`VideoClipControl` schema only through
-its movie adapter. Existing point-mass values and image-coordinate marks, plus the linked media path,
-may change. Original names, membership, calibration, unit labels, clip timing/range and other parsed
-fields must remain unchanged. Filters, vectors, other track types except axes, display-orientation
+its movie adapter. Existing point-mass values and image-coordinate marks, clip start/step/count and the
+linked media path may change. Original names, membership, calibration, unit labels, numeric clip timing
+and other parsed fields must remain unchanged. Filters, vectors, other track types except axes, display-orientation
 transforms and archived movies remain refused. The archive entry point rejects movie documents before
 clearing archive metadata for its internal snapshot; this also applies after indexing and native reopen.
 This opt-in schema does not enable movie renames or
@@ -667,7 +667,9 @@ index limit. Clip endpoints and marks must fit that index. The native runtime fr
 the complete index or the clip endpoint inferred on import; it is removed from the export snapshot,
 not written as a standard-file edit. Existing saved `video_framecount`, when present, must match the
 index. Decoded timestamps stay in seconds; preserved XML clip time origin and interval use milliseconds.
-Native movie analysis remains aligned to the imported clip's time origin.
+Native movie analysis remains aligned to the imported clip's time origin. Range edits retain every
+original-frame mark and the full movie index; no frames are renumbered or movie bytes rewritten. The
+shared clip writer retains its 500000 last-frame bound and checks Tracker's temporary Java-int count.
 
 Movie links use the same physical-directory, retained-location and atomic-write checks as images.
 Preflight verifies current readability and identity, not general codec compatibility or protection
@@ -686,3 +688,38 @@ and review at d9a24c6 in [PR #133](https://github.com/mgradwohl/MoTrack/pull/133
 [run 42549945960](https://github.com/mgradwohl/MoTrack/actions/runs/42549945960), including the edited
 Tracker movie case and 95.71% combined coverage. This scoped acceptance does not establish full
 movie interchange or resolve #65.
+
+
+The movie-range extension adds strided and single-frame native export/reopen cases, desktop Clip
+Settings/undo/redo/paired-save checks and two actual-Tracker acceptance modes. Independent whole-XML
+expectations permit only the requested range, mass, mark and path; every mark outside the clip remains.
+After Tracker saves and freshly reopens, the saved movie reference must resolve locally to the complete
+pinned byte count/SHA-256, including excluded frames. Initial Windows validation passes all nine CTest
+groups (124.80 seconds), 86 Python tests, both native export/oracle/reimport cases, formatting and
+static analysis for all four changed C++ source files, with 95.64% line coverage (8838/9241). Three
+existing LLVM function-profile mismatch warnings remain visible. Current-head three-platform CI,
+actual Tracker movie-range acceptance and review remain required before merging this extension.
+
+
+A standard movie import initially infers a provisional source-frame bound from its saved clip endpoint.
+When the linked movie's full index completes and contains the saved clip, the desktop extends that
+bound to the decoded source count without reducing a previously known bound. Otherwise a reopened
+single-frame clip could not expand to retained frames beyond its endpoint.
+A desktop regression reproduced that failure, then verified single-frame export, standard-file reopen,
+index completion, expansion to all four frames, paired resave and display of the retained final frame.
+Index completion does not mark the document modified or remove measurements.
+
+If a replacement movie is shorter than the recorded clip, indexing retains the original bound rather
+than producing an invalid native document. A regression records a five-frame clip and a mark on frame
+4 with an available four-frame movie: native save/reopen retains the range, mark and available index.
+An already trimmed native copy also retains its larger known bound, so indexing cannot invalidate an
+earlier range that can be restored through undo.
+Standard export still rejects this incomplete media/index match and preserves the existing destination.
+
+After the reopen-bound correction, Linux static analysis required a checked image-sequence reference
+outside the test's frame loop. With that guard, retained movie bounds and the merged journal-group split,
+all ten Windows CTest groups pass in 129.56 seconds with 95.64% production line coverage (8844/9247).
+Desktop regressions reproduced both the shortened expansion bound and an unreadable native save
+after indexing shorter media, then passed with the corrections. All four related desktop cases, both affected source-file static
+analyses and formatting pass. Three existing LLVM profile-mismatch warnings remain visible. Actual
+Tracker and three-platform acceptance still require the final published revision's CI.

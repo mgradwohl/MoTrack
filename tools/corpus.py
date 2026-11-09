@@ -474,9 +474,9 @@ def linked_media_roundtrip_expected(case):
     return expected
 
 
-def linked_image_clip_expected(case, single=False):
-    if case["id"] not in {"linked-images", "archived-images"}:
-        raise ValueError("Image clip edits require a pinned linked/archived-images case")
+def linked_media_clip_expected(case, single=False):
+    if case["id"] not in {"linked-images", "archived-images", "linked-movie"}:
+        raise ValueError("Media clip edits require a pinned image/movie case")
     expected = linked_media_roundtrip_expected(case)
     expected["clip"].update(first_frame=2 if single else 1, step_size=1 if single else 2, step_count=1 if single else 2)
     for sample, frame in zip(expected["coordinate_samples"], [2, 2] if single else [1, 3]):
@@ -492,7 +492,7 @@ def linked_image_clip_expected(case, single=False):
 
 def patch_expected_linked_media(document, relocate=True, packaged=False, movie=False, clip_mode=None):
     if clip_mode not in {None, "stride", "single"}:
-        raise ValueError("Unknown linked-image clip mode")
+        raise ValueError("Unknown linked-media clip mode")
     def elements(node, tag):
         return [child for child in node.childNodes if child.nodeType == child.ELEMENT_NODE and child.tagName == tag]
     def prop(node, name):
@@ -607,11 +607,43 @@ def verify_saved_image_inventory(saved, assets):
     return inventory
 
 
-def verify_linked_movie_export_xml(original, exported, case):
+def verify_saved_movie_asset(saved, asset):
+    """Verify the complete pinned movie after Tracker saves, including excluded frames."""
+    if saved.stat().st_size > MAX_XML_BYTES:
+        raise ValueError("Saved movie experiment exceeds XML limit")
+    videos = ET.parse(saved).getroot().findall("property[@name='videoclip']/object/property[@name='video']/object")
+    if len(videos) != 1 or videos[0].get("class") != "org.opensourcephysics.media.xuggle.XuggleVideo":
+        raise ValueError("Saved movie requires exactly one XuggleVideo")
+    paths = videos[0].findall("property[@name='path']")
+    if (len(paths) != 1 or paths[0].get("type") != "string" or len(paths[0])
+            or not paths[0].text or len(paths[0].text) > 4096):
+        raise ValueError("Saved movie lost its local path")
+    reference = paths[0].text.replace("\\", "/")
+    url = urllib.parse.urlsplit(reference)
+    if url.scheme == "file":
+        if url.netloc not in {"", "localhost"} or url.query or url.fragment:
+            raise ValueError("Saved movie reference is not a local file")
+        reference = urllib.request.url2pathname(url.path)
+    elif url.scheme and not re.match(r"^[A-Za-z]:/", reference):
+        raise ValueError("Saved movie reference is not a local file")
+    if reference.replace("\\", "/").startswith("//") or "!/" in reference:
+        raise ValueError("Saved movie reference is not a standalone local file")
+    path = Path(reference)
+    if not path.is_absolute():
+        path = saved.parent / path
+    with path.open("rb") as source:
+        payload = source.read(asset["bytes"] + 1)
+    digest = hashlib.sha256(payload).hexdigest()
+    if len(payload) != asset["bytes"] or digest != asset["sha256"]:
+        raise ValueError("Saved movie checksum changed")
+    return {"reference": paths[0].text, "bytes": len(payload), "sha256": digest}
+
+
+def verify_linked_movie_export_xml(original, exported, case, clip_mode=None):
     with minidom.parse(str(original)) as expected, minidom.parse(str(exported)) as actual:
-        patch_expected_linked_media(expected, movie=True)
+        patch_expected_linked_media(expected, movie=True, clip_mode=clip_mode)
         if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
-            raise ValueError("Linked-movie export changed content beyond the requested path, mass and mark")
+            raise ValueError("Linked-movie export changed content beyond the requested path, mass, mark and clip range")
     verify_file(exported.parent / "média & movie" / "constant-rate.avi", case["assets"][0])
 
 
@@ -1893,7 +1925,10 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
 def check_sessions(manifest, cache, java, probe=None):
     if sys.platform != "linux":
         raise ValueError("Session checks currently require Linux with Xvfb")
-    modes = [("linked-movie", "native_linked_movie_roundtrip"), ("archive-images", "native_archive_image_roundtrip"), ("linked-images", "native_linked_image_roundtrip"),
+    modes = [("linked-movie", "native_linked_movie_roundtrip"),
+             ("linked-movie-clip", "native_linked_movie_clip_roundtrip"),
+             ("linked-movie-clip-single", "native_linked_movie_clip_roundtrip"),
+             ("archive-images", "native_archive_image_roundtrip"), ("linked-images", "native_linked_image_roundtrip"),
              ("linked-image-clip", "native_linked_image_clip_roundtrip"), ("linked-image-clip-single", "native_linked_image_clip_roundtrip"),
              ("archive-image-clip", "native_archive_image_clip_roundtrip"), ("packaged-image-clip", "native_linked_image_clip_roundtrip"),
              ("packaged-images", "native_image_package_roundtrip"),
@@ -1996,7 +2031,7 @@ def check_sessions(manifest, cache, java, probe=None):
                 project = selected
                 expected = linked_media_roundtrip_expected(case)
                 if mode == "packaged-image-clip":
-                    expected, case = linked_image_clip_expected(case, single=True)
+                    expected, case = linked_media_clip_expected(case, single=True)
                 native_report = output / "native-export.json"
                 run([str(Path(probe).resolve()), str(project), str(native_report)])
                 compare(expected, json.loads(native_report.read_text(encoding="utf-8")), manifest["tolerance"], case["id"] + ".export")
@@ -2008,7 +2043,7 @@ def check_sessions(manifest, cache, java, probe=None):
                 verify_archive_image_export(archive_input, exported, project, clip_mode="stride" if mode == "archive-image-clip" else None)
                 expected = linked_media_roundtrip_expected(case)
                 if mode == "archive-image-clip":
-                    expected, case = linked_image_clip_expected(case)
+                    expected, case = linked_media_clip_expected(case)
                 native_report = output / "native-export.json"
                 run([str(Path(probe).resolve()), str(project), str(native_report)])
                 compare(expected, json.loads(native_report.read_text(encoding="utf-8")), manifest["tolerance"], case["id"] + ".export")
@@ -2030,13 +2065,17 @@ def check_sessions(manifest, cache, java, probe=None):
                 if mode == "linked-movie":
                     verify_linked_movie_export_xml(project, exported, case)
                     expected = linked_media_roundtrip_expected(case)
+                elif mode in {"linked-movie-clip", "linked-movie-clip-single"}:
+                    single = mode == "linked-movie-clip-single"
+                    verify_linked_movie_export_xml(project, exported, case, "single" if single else "stride")
+                    expected, case = linked_media_clip_expected(case, single)
                 elif mode in {"linked-images", "paired-linked-images"}:
                     verify_linked_image_export_xml(project, exported, case)
                     expected = linked_media_roundtrip_expected(case)
                 elif mode in {"linked-image-clip", "linked-image-clip-single"}:
                     single = mode == "linked-image-clip-single"
                     verify_linked_image_export_xml(project, exported, case, "single" if single else "stride")
-                    expected, case = linked_image_clip_expected(case, single)
+                    expected, case = linked_media_clip_expected(case, single)
                 elif mode == "mass":
                     verify_mass_export_xml(project, exported)
                     expected = mass_roundtrip_expected(case)
@@ -2097,6 +2136,7 @@ def check_sessions(manifest, cache, java, probe=None):
                 project = exported
             stages = {}
             image_inventories = {}
+            movie_inventories = {}
             # Tracker has static per-panel drawing state but allocates IDs separately in each TFrame.
             # A fresh JVM prevents two windows' vector snapping registries from sharing the same IDs.
             for stage in ["save", "reopen"]:
@@ -2128,13 +2168,15 @@ def check_sessions(manifest, cache, java, probe=None):
                     # Both cases use the independently pinned four-image fixture, including excluded frames.
                     assets = next(item["assets"] for item in manifest["cases"] if item["id"] == "linked-images")
                     image_inventories[stage] = verify_saved_image_inventory(output / "tracker-resaved.trk", assets)
+                elif case["id"] == "linked-movie":
+                    movie_inventories[stage] = verify_saved_movie_asset(output / "tracker-resaved.trk", case["assets"][0])
             report = {"reference_version": stages["save"]["reference_version"], "verification_level": "tracker_session_resave",
                       "view_preparation": stages["save"]["view_preparation"],
                       "loader_callbacks": {stage: stages[stage]["loader_callbacks"] for stage in stages},
                       "before": stages["save"]["loaded"], "after_save": stages["save"]["after_save"],
-                      "after": stages["reopen"]["loaded"], "saved_image_inventories": image_inventories}
+                      "after": stages["reopen"]["loaded"], "saved_image_inventories": image_inventories, "saved_movie_assets": movie_inventories}
             keys = {"marks": [[0, 3], [7]], "empty-marks": [[], [0]], "first-mark": [[4], [0]]}.get(mode)
-            if mode in {"linked-movie", "linked-images", "linked-image-clip", "linked-image-clip-single", "archive-images",
+            if mode in {"linked-movie", "linked-movie-clip", "linked-movie-clip-single", "linked-images", "linked-image-clip", "linked-image-clip-single", "archive-images",
                         "paired-linked-images", "paired-archive-images", "packaged-images", "archive-image-clip", "packaged-image-clip"}:
                 keys = [[0, 1, 2]]
             if mode in {"create-mass", "create-empty-mass"}:
