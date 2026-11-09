@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <functional>
+#include <ranges>
 
 namespace
 {
@@ -116,8 +117,8 @@ TEST(TrackerArchiveWriter, ReplacesMultipleMembersWithIndependentPhysicalAndDire
     const auto records = zipRecords(bytes);
     const auto directory = qFromLittleEndian<quint32>(bytes.constData() + bytes.size() - 6);
     QByteArray reversed;
-    for (auto entry = records.rbegin(); entry != records.rend(); ++entry)
-        reversed += entry->central;
+    for (const auto& entry : std::views::reverse(records))
+        reversed += entry.central;
     bytes.replace(directory, reversed.size(), reversed);
     const auto comment = QByteArray::fromHex("4f706171756520636f6d6d656e7400ff");
     qToLittleEndian<quint16>(static_cast<quint16>(comment.size()), bytes.data() + bytes.size() - 2);
