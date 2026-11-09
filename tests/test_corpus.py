@@ -818,6 +818,7 @@ class CorpusTests(unittest.TestCase):
                 mutations = [lambda row: row["name_references"].update(selected_track="wrong target"),
                              lambda row: row["media"].update(frame_count=3),
                              lambda row: row["media"]["frames"][0].update(rgb_sha256="0" * 64),
+                             lambda row: row["media"]["frames"][1].update(time_ms=999),
                              lambda row: row["tracks"].append(copy.deepcopy(row["tracks"][0])),
                              lambda row: row["clip"].update(step_count=3),
                              lambda row: row["calibration"]["keys"][-1].update(scale=[999, 999]),
@@ -864,6 +865,10 @@ class CorpusTests(unittest.TestCase):
         cases = [case for case in corpus.load_manifest()["cases"] if "vector_calibration_flags" in case]
         self.assertEqual(len(cases), 28)
         for case in cases:
+            # TrackerSessionReference.snapshot samples experiment time at the two clip endpoints.
+            # Intermediate source timestamps are independently checked in the complete media inventory.
+            self.assertEqual(case["session_time_samples"], [{"frame": 0, "time_ms": 0.0}, {"frame": 3, "time_ms": 375.0}])
+            self.assertEqual([row["time_ms"] for row in case["session_media"]["frames"]], [0.0, 125.0, 250.0, 375.0])
             expected, edited = corpus.media_vector_roundtrip_expected(case, "keyed-calibration")
             samples = edited["session_vector_data"][0]["samples"] + edited["session_vector_data"][1]["samples"]
             self.assertEqual([sample["components"] for sample in samples], components[case["vector_calibration_flags"]] + [[0, 0]])

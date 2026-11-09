@@ -1446,6 +1446,14 @@ the unchanged secondary image experiment and opaque support records. All 63 gene
 byte-identical under UTC and Pacific/Kiritimati. No MoTrack output supplies expected values.
 These 28 cases bring the corpus to **80 pinned cases**, preserving the original 52 cases and metadata.
 
+The initial PR #147 application run at `c7c18da` caught a harness-contract mismatch: the new manifest
+listed four experiment-time observations, but `TrackerSessionReference.snapshot` deliberately returns
+the first and last clip times. The manifest now requires those two endpoints; all four source-media
+timestamps remain independently required in `session_media.frames`. No fixture, geometry, calibration,
+timing value or helper behavior changed. Regression checks pin that distinction and reject corrupted
+intermediate media timestamps. The captured first baseline retains every expected vector component
+and calibration value through load/save/reopen; complete current-revision acceptance is still pending.
+
 Source keys are frame 0: origin (2,20), angle 0, scale (2,4); frame 2: origin (10,18), angle 90,
 scale (4,8). Public fixed setters normalize the appropriate fields. Raw vectors remain exactly the
 original three tracks. Independent expected components use dx/scaleX and dy/scaleY followed by
