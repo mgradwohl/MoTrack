@@ -104,7 +104,9 @@ class CorpusTests(unittest.TestCase):
                 report = {"reference_version": "6.3.5", "verification_level": "tracker_session_" + stage,
                           "view_preparation": "expand_visit_custom_tables_restore_selection", "loader_callbacks": 2}
                 if stage == "save-tabs":
-                    self.assertEqual(source, corpus.local_fixture_path(case))
+                    self.assertEqual(source.parent, output / "input")
+                    self.assertEqual(list(source.parent.iterdir()), [source])
+                    self.assertEqual(source.read_bytes(), corpus.local_fixture_path(case).read_bytes())
                     self.assertEqual([Path(arg).name for arg in args[3:]], ["experiment.trk", "second.trk"])
                     for i, template in enumerate(templates):
                         data = corpus.local_fixture_path(template).read_bytes()
@@ -424,7 +426,7 @@ class CorpusTests(unittest.TestCase):
 
     def test_movie_archive_modes_all_use_the_independent_multitab_checker(self):
         manifest = corpus.load_manifest()
-        manifest["cases"] = [c for c in manifest["cases"] if c["id"] in {"archived-movie", "linked-movie", "secondary-images"}]
+        manifest["cases"] = [c for c in manifest["cases"] if c["id"] in {"archived-movie", "linked-mov", "secondary-images"}]
         for case in manifest["cases"]:
             if case["id"] != "archived-movie":
                 for key in list(case):
@@ -760,6 +762,20 @@ class CorpusTests(unittest.TestCase):
             path = self.root / "media-manifest.json"
             path.write_text(json.dumps(invalid), encoding="utf-8")
             with self.subTest(assets=str(assets)[:80]), self.assertRaises(ValueError):
+                corpus.load_manifest(path)
+
+    def test_unsupported_avi_archive_stays_pinned_outside_application_acceptance(self):
+        manifest = corpus.load_manifest()
+        case = next(c for c in manifest["cases"] if c["id"] == "archived-avi")
+        corpus.verify_file(corpus.local_fixture_path(case), case)
+        self.assertEqual(case["sha256"], "aaf84ffdd4e637c93490149d173a4c99d803531e8f239fb8ea736b40bab05b64")
+        self.assertEqual(case["session_exclusion"]["issue"], "https://github.com/mgradwohl/MoTrack/issues/140")
+        for field, value in [("session_tracks", []), ("native_archive_movie_roundtrip", True)]:
+            invalid = copy.deepcopy(manifest)
+            next(c for c in invalid["cases"] if c["id"] == "archived-avi")[field] = value
+            path = self.root / "excluded-avi.json"
+            path.write_text(json.dumps(invalid), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "archived-avi: session_exclusion conflicts"):
                 corpus.load_manifest(path)
 
     def test_known_null_table_subset_remains_pinned_and_excluded_from_acceptance(self):

@@ -41,37 +41,41 @@ TEST(VideoReader, DecodesMovieInPresentationOrderWithVariableTiming)
 
 TEST(VideoReader, DecodesLinkedTrackerMovieWithExactPixelsAndTiming)
 {
-    const auto path = fixturePath("../corpus/fixtures/linked-movie/constant-rate.avi");
-    motrack::VideoReader reader(path);
-    QImage first;
-    for (int number = 0; number < 4; ++number)
+    for (const auto* relative : {"../corpus/fixtures/linked-movie/constant-rate.avi", "../corpus/fixtures/linked-mov/constant-rate.mov"})
     {
-        SCOPED_TRACE(number);
-        const auto frame = reader.readNext();
-        if (!frame || !frame->presentationTime)
-            FAIL() << "Missing reference movie frame or timestamp.";
-        EXPECT_EQ(frame->ordinal, static_cast<std::uint64_t>(number));
-        EXPECT_EQ(*frame->presentationTime, number * 125ms);
-        ASSERT_EQ(frame->image.size(), QSize(32, 24));
-        for (int y = 0; y < 24; ++y)
-            for (int x = 0; x < 32; ++x)
-                EXPECT_EQ(frame->image.pixelColor(x, y), QColor(x + 16 * number, y, 32 * number));
-        if (number == 0)
-            first = frame->image;
+        const auto path = fixturePath(relative);
+        SCOPED_TRACE(relative);
+        motrack::VideoReader reader(path);
+        QImage first;
+        for (int number = 0; number < 4; ++number)
+        {
+            SCOPED_TRACE(number);
+            const auto frame = reader.readNext();
+            if (!frame || !frame->presentationTime)
+                FAIL() << "Missing reference movie frame or timestamp.";
+            EXPECT_EQ(frame->ordinal, static_cast<std::uint64_t>(number));
+            EXPECT_EQ(*frame->presentationTime, number * 125ms);
+            ASSERT_EQ(frame->image.size(), QSize(32, 24));
+            for (int y = 0; y < 24; ++y)
+                for (int x = 0; x < 32; ++x)
+                    EXPECT_EQ(frame->image.pixelColor(x, y), QColor(x + 16 * number, y, 32 * number));
+            if (number == 0)
+                first = frame->image;
+        }
+        EXPECT_FALSE(reader.readNext());
+        ASSERT_TRUE(reader.seekTo(0ms));
+        const auto restarted = reader.readNext();
+        if (!restarted || !restarted->presentationTime)
+            FAIL() << "Could not seek back to the reference movie's first frame.";
+        EXPECT_EQ(*restarted->presentationTime, 0ms);
+        EXPECT_EQ(restarted->image, first);
+        const std::atomic_bool cancelled{false};
+        const auto index = motrack::buildMovieIndex(path, motrack::VideoOrientation::Encoded, cancelled);
+        EXPECT_EQ(index.frameCount, 4);
+        ASSERT_EQ(index.frameTimes.size(), 4u);
+        for (std::size_t frame = 0; frame < index.frameTimes.size(); ++frame)
+            EXPECT_DOUBLE_EQ(index.frameTimes.at(frame), static_cast<double>(frame) * 0.125);
     }
-    EXPECT_FALSE(reader.readNext());
-    ASSERT_TRUE(reader.seekTo(0ms));
-    const auto restarted = reader.readNext();
-    if (!restarted || !restarted->presentationTime)
-        FAIL() << "Could not seek back to the reference movie's first frame.";
-    EXPECT_EQ(*restarted->presentationTime, 0ms);
-    EXPECT_EQ(restarted->image, first);
-    const std::atomic_bool cancelled{false};
-    const auto index = motrack::buildMovieIndex(path, motrack::VideoOrientation::Encoded, cancelled);
-    EXPECT_EQ(index.frameCount, 4);
-    ASSERT_EQ(index.frameTimes.size(), 4u);
-    for (std::size_t frame = 0; frame < index.frameTimes.size(); ++frame)
-        EXPECT_DOUBLE_EQ(index.frameTimes.at(frame), static_cast<double>(frame) * 0.125);
 }
 
 TEST(VideoReader, SeeksBackwardAfterDraining)

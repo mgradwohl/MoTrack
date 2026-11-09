@@ -1143,21 +1143,42 @@ Open Recent report; the upstream issue and complete discussion were refreshed fo
 
 ## Existing movie archive round trips
 
-[ArchiveMovieFixture.java](../../tools/reference/ArchiveMovieFixture.java) packages the independently
-authored linked-movie experiment and secondary image experiment without modifying either XML file.
-The archive has nine entries: two experiments, the complete four-frame AVI, all four PNGs and two
-opaque supporting members. Entry/archive comments and a Unicode supporting filename are retained.
-Compile this generator with `javac -encoding UTF-8` and run it headlessly under the pinned JDK 17;
-its arguments are the linked-movie directory, linked-images directory and a fresh `.trz` output path.
-UTC and Pacific/Kiritimati generations are byte-identical: **15705 bytes**, SHA-256
-`aaf84ffdd4e637c93490149d173a4c99d803531e8f239fb8ea736b40bab05b64`.
+The initial AVI archive remains pinned as `archived-avi`: **15705 bytes**, SHA-256
+`aaf84ffdd4e637c93490149d173a4c99d803531e8f239fb8ea736b40bab05b64`. The first Linux run at `bb373ea`
+[failed before any MoTrack edits](https://github.com/mgradwohl/MoTrack/actions/runs/42565821290/job/128991986521):
+Tracker 6.3.5 does not register AVI for automatic archive extraction and its Xuggle loader cannot open
+the resulting jar URL. [#140](https://github.com/mgradwohl/MoTrack/issues/140) records the pinned bytecode,
+matching source-candidate registration and native restriction. This case remains in native/headless
+import validation with an explicit session exclusion. No reference-loader patch or relaxed expectation
+converts this failure into accepted compatibility. Non-MOV movie archive output is refused without
+replacing a destination, including after native reopen.
 
-The `archived-movie` case declares both tabs independently: `experiment.trk` uses `linked-movie`,
-and `second.trk` uses `secondary-images`. The baseline opens the archive, saves every loaded tab and
-reopens each in a fresh JVM. The movie uses its explicitly pinned runtime dependencies; the shipped
-MoTrack application gains no Java dependency.
+[LinkedMovieFixture.java](../../tools/reference/LinkedMovieFixture.java) accepts a second `mov` argument
+to author a genuine QuickTime raw RGB24 movie and OSP controls. Its fixed movie/track/media headers and
+sample tables follow Apple's [QuickTime format](https://developer.apple.com/documentation/quicktime-file-format/video_sample_description).
+Four 32×24 frames at 8 fps use the independent formula R=x+16f, G=y, B=32f, the original timestamps
+0/125/250/375 ms, and the same separately pinned calibration/measurement expectations as the AVI case.
+Both native FFmpeg and headless pinned Xuggle decoding check every pixel and timestamp. The original AVI
+generator remains available; `mov` selects a different container, not a renamed AVI.
 
-Four native modes use that same complete-tab acceptance path: `archive-movie`, `archive-movie-clip`,
+The `linked-mov` fixture's `constant-rate.mov` is **9799 bytes**, SHA-256
+`0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832`; its `linked-movie.trk` is **5246 bytes**,
+SHA-256 `1e6570d63d0dfd646c1ff527da32598f5cfa6e18d27f8d2d7aa9824ef6ffc5e8`.
+[ArchiveMovieFixture.java](../../tools/reference/ArchiveMovieFixture.java) packages that experiment and
+the secondary image experiment without modifying their XML. The archive has nine entries: two experiments,
+the complete MOV, four PNGs and two opaque supporting members, with entry/archive comments and a Unicode filename.
+Compile the archive generator with `javac -encoding UTF-8`; arguments are the linked-MOV directory,
+linked-images directory, fresh output path and `mov`. Omitting `mov` reproduces the retained AVI case.
+The movie/XML/archive were independently generated under headless pinned JDK 17 in UTC and
+Pacific/Kiritimati with identical bytes. The MOV archive is **15793 bytes**, SHA-256
+`521fef2518062773be4e3f7296ed9137aa31ddbf47f0b1f0d04769672fbb0259`.
+
+The positive `archived-movie` case declares both tabs independently: `experiment.trk` uses `linked-mov`,
+and `second.trk` uses `secondary-images`. Baseline loading copies the archive alone into a fresh directory,
+so neighboring fixture files cannot satisfy the media load. Tracker must save every loaded tab and reopen
+each in a fresh JVM. The movie uses explicitly pinned runtime dependencies; MoTrack gains no Java dependency.
+
+Four native modes use that complete-tab path: `archive-movie`, `archive-movie-clip`,
 `archive-movie-clip-single` and `paired-archive-movie`. The native probe builds the complete movie index,
 edits mass and mark 1 with undo/redo, optionally selects frames 1/3 or frame 2, saves/reopens a native
 copy and removes the original archive before standard export. The paired mode also interrupts after
@@ -1165,12 +1186,9 @@ the standard commit and recovers both outputs, checking retained movie flags and
 
 The independent ZIP/XML oracle permits only the selected experiment's requested edits; every other
 compressed record, payload and metadata remains unchanged. Independent numerical and pixel expectations
-are applied to both loaded tabs, including the untouched 3.5 kg image experiment. After Tracker saves
-and after fresh reopen, the complete saved movie and every saved image reference must retain the pinned
-byte count and SHA-256, including excluded frames. Bounded local archive references are allowed for
-this archive case; missing/duplicate members, changed bytes, path escapes and remote URLs fail.
-
-Local archive-writer and desktop regressions, all four native export/oracle/reimport modes and the
-Python negative oracles pass. Current-head actual Tracker acceptance, three-platform CI and review
-remain required before this slice can count as merged compatibility. New movie packaging, variable
+apply to both loaded tabs, including the untouched 3.5 kg image experiment. After Tracker saves and
+freshly reopens, the complete saved movie and every image reference must retain the pinned byte count
+and SHA-256, including excluded frames. Bounded local archive references are allowed; missing/duplicate
+members, changed bytes, path escapes and remote URLs fail. Current-head actual Tracker acceptance,
+three-platform CI and review remain required. New movie packaging, broader archive containers, variable
 timing, filters, broader schemas and the historical MOV/Open Recent report remain separate work.

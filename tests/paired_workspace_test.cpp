@@ -135,7 +135,7 @@ TEST(PairedWorkspace, SavesIndexedMovieEditsAndNativeCompanionAfterSourceRemoval
 TEST(PairedWorkspace, SavesArchivedMovieClipsAndBothCopiesAfterOriginalRemoval)
 {
     QTemporaryDir temporary;
-    const auto fixturePath = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-movie/archived-movie.trz";
+    const auto fixturePath = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-mov/archived-movie.trz";
     const auto source = temporary.filePath("original.trz");
     const auto standard = temporary.filePath("saved.trz");
     const auto native = temporary.filePath("saved.motrack");
@@ -235,7 +235,7 @@ TEST(PairedWorkspace, SavesArchivedMovieClipsAndBothCopiesAfterOriginalRemoval)
     EXPECT_EQ(project.clip.stepSize, 2);
     EXPECT_EQ(project.clip.stepCount, 2);
     for (const auto& member : QStringList{"second.trk",
-                                          "constant-rate.avi",
+                                          "constant-rate.mov",
                                           "images/frame0.png",
                                           "images/frame1.png",
                                           "images/frame2.png",

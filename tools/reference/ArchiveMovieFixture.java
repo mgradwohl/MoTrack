@@ -20,14 +20,15 @@ public final class ArchiveMovieFixture {
     }
 
     public static void main(String[] args) throws Exception {
-        if (args.length != 3)
-            throw new IllegalArgumentException("Usage: ArchiveMovieFixture linked-movie-directory linked-image-directory fresh-output.trz");
+        if ((args.length != 3 && args.length != 4) || (args.length == 4 && !args[3].equals("mov")))
+            throw new IllegalArgumentException("Usage: ArchiveMovieFixture linked-movie-directory linked-image-directory fresh-output.trz [mov]");
         Path movies = Path.of(args[0]);
         Path images = Path.of(args[1]);
         List<Member> members = new ArrayList<>();
         members.add(read(movies, "linked-movie.trk", "experiment.trk"));
         members.add(read(images, "secondary-images.trk", "second.trk"));
-        members.add(read(movies, "constant-rate.avi", "constant-rate.avi"));
+        String movieName = args.length == 4 ? "constant-rate.mov" : "constant-rate.avi";
+        members.add(read(movies, movieName, movieName));
         for (int i = 0; i < 4; i++) members.add(read(images, "images/frame" + i + ".png", "images/frame" + i + ".png"));
         members.add(new Member("support/notes é.txt", "Untouched movie and image experiments: α, β.\n".getBytes(StandardCharsets.UTF_8)));
         members.add(new Member("support/opaque.bin", new byte[] {0, 1, 2, 127, (byte) 128, (byte) 255}));

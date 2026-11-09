@@ -127,10 +127,41 @@ TEST(TrackerArchiveWriter, RefusesAValidReplacementOfTheOwnedSourceInBothFormats
     EXPECT_NO_THROW(motrack::writeWorkspaceDocument(native, document));
 }
 
+TEST(TrackerArchiveWriter, RefusesArchivedAviThatPinnedTrackerCannotExtractAfterNativeReopen)
+{
+    QTemporaryDir temporary;
+    const auto source = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-movie/archived-movie.trz";
+    const auto destination = temporary.filePath("existing.trz");
+    const auto native = temporary.filePath("saved.motrack");
+    auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(source));
+    auto document = motrack::importTrackerDocument(payload->projectPath("experiment.trk"));
+    payload->resolveMedia(document.project, "experiment.trk");
+    document.archivePayload = payload;
+    document.archiveMember = "experiment.trk";
+    document.movie = true;
+    document.alignMovieToClip = true;
+    document.movieFrameTimes = {0.0, 0.125, 0.25, 0.375};
+    document.project.clip.sourceFrameCount = 4;
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.setPointMassValue(document.project, 0, 5));
+    for (const bool reopen : {false, true})
+    {
+        SCOPED_TRACE(reopen);
+        if (reopen)
+        {
+            motrack::writeWorkspaceDocument(native, document);
+            document = motrack::readWorkspaceDocument(native);
+        }
+        ASSERT_TRUE(writeBytes(destination, "existing archive"));
+        EXPECT_THROW(motrack::writeTrackerArchiveDocument(destination, document), motrack::ProjectError);
+        EXPECT_EQ(readBytes(destination), "existing archive");
+    }
+}
+
 TEST(TrackerArchiveWriter, SavesIndexedMovieEditsAfterNativeReopenWithoutChangingOtherMembers)
 {
-    const QDir fixtures(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-movie");
-    const auto movie = readBytes(fixtures.filePath("constant-rate.avi"));
+    const QDir fixtures(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-mov");
+    const auto movie = readBytes(fixtures.filePath("constant-rate.mov"));
     const auto originalXml = readBytes(fixtures.filePath("linked-movie.trk"));
     for (const auto* selected : {"selected.trk", "nested/selected.trk"})
     {
@@ -141,11 +172,11 @@ TEST(TrackerArchiveWriter, SavesIndexedMovieEditsAfterNativeReopenWithoutChangin
         const auto native = temporary.filePath("movie.motrack");
         auto selectedXml = originalXml;
         if (QString::fromUtf8(selected).startsWith("nested/"))
-            selectedXml.replace(">constant-rate.avi<", ">../constant-rate.avi<");
+            selectedXml.replace(">constant-rate.mov<", ">../constant-rate.mov<");
         ASSERT_TRUE(motrack::test::writeArchive(source,
                                                 {{.name = selected, .bytes = selectedXml},
                                                  {.name = "other.trk", .bytes = originalXml},
-                                                 {.name = "constant-rate.avi", .bytes = movie},
+                                                 {.name = "constant-rate.mov", .bytes = movie},
                                                  {.name = "support/opaque.bin", .bytes = QByteArray::fromHex("00ff0180")}}));
         auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(source));
         auto document = motrack::importTrackerDocument(payload->projectPath(selected));
@@ -182,7 +213,7 @@ TEST(TrackerArchiveWriter, SavesIndexedMovieEditsAfterNativeReopenWithoutChangin
             EXPECT_EQ(exported.project.clip.stepSize, 2);
             EXPECT_EQ(exported.project.clip.stepCount, 2);
             EXPECT_EQ(readBytes(output.projectPath("other.trk")), originalXml);
-            EXPECT_EQ(readBytes(QDir(output.root()).filePath("constant-rate.avi")), movie);
+            EXPECT_EQ(readBytes(QDir(output.root()).filePath("constant-rate.mov")), movie);
             EXPECT_EQ(readBytes(QDir(output.root()).filePath("support/opaque.bin")), QByteArray::fromHex("00ff0180"));
             ASSERT_TRUE(document.archivePayload);
             EXPECT_EQ(readBytes(document.archivePayload->sourcePath()), original);
@@ -197,7 +228,7 @@ TEST(TrackerArchiveWriter, SavesIndexedMovieEditsAfterNativeReopenWithoutChangin
         const std::atomic_bool cancelled{true};
         EXPECT_THROW(motrack::writeTrackerArchiveDocument(destination, document, &cancelled), motrack::ProjectError);
         ASSERT_TRUE(document.archivePayload);
-        const auto extractedMovie = QDir(document.archivePayload->root()).filePath("constant-rate.avi");
+        const auto extractedMovie = QDir(document.archivePayload->root()).filePath("constant-rate.mov");
         ASSERT_TRUE(writeBytes(extractedMovie, "replacement movie"));
         EXPECT_THROW(motrack::writeTrackerArchiveDocument(destination, document), motrack::ProjectError);
         EXPECT_EQ(readBytes(destination), savedBytes);

@@ -26,7 +26,7 @@ void writeTrackerProject(const QString& path, const LegacyProject& project, cons
 void writeTrackerDocument(const QString& path, const WorkspaceDocument& document, const QString& mediaProjectPath);
 /// Export the selected original archive member, retaining all other members and embedded media.
 /// Requires the owned source payload; replacing embedded media or the selected source is refused.
-/// Audited image sequences and fully indexed constant-rate movies retain the standalone writer's edit limits.
+/// Audited image sequences and fully indexed constant-rate MOV files retain the standalone writer's edit limits.
 void writeTrackerArchiveDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled = nullptr);
 /// Create a portable .trz from an audited linked-image document, copying each image without conversion.
 /// The document and its native/source bindings stay unchanged. Existing archives, movies and unsupported edits are refused.

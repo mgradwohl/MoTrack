@@ -485,7 +485,7 @@ members, so even an in-root rename/alias cannot produce links to files absent fr
 Digest checks use bounded blocks, honor cancellation and avoid rereading duplicate
 references. Native save/reopen recreates these digests from the owned archive bytes. An immutable
 copy prepares member-relative ImageVideo or audited XuggleVideo paths; external/replaced media,
-filters and numeric timing edits remain refused. Movies require the complete constant-rate native
+filters and numeric timing edits remain refused. Archived movies currently require a `.mov` member and the complete constant-rate native
 index and retain the standalone movie adapter's edit restrictions. Supported clip range/stride edits
 retain the complete original media inventory and measurements. The source envelope and owned
 original archive bytes are unchanged. The [paired-save adapter](paired-saving.md) and desktop standard
@@ -729,7 +729,7 @@ actual Tracker movie-range cases and **95.72% combined C++ line coverage (8874/9
 
 ### Existing movie archive output
 
-An existing `.trz` containing an audited constant-rate movie can use the selected-member writer and
+An existing `.trz` containing an audited constant-rate MOV file can use the selected-member writer and
 paired desktop Save workflow. The original archive, other experiments, compressed media and opaque
 members retain their existing preservation contract. The selected XML may change only within the
 movie adapter's mass/mark/clip-range limits. Native close/reopen and removal of the original input do
@@ -743,10 +743,23 @@ movies, incomplete indexes and cancellation preserve the existing output.
 The [mixed movie/image archive corpus](../tests/corpus/README.md#existing-movie-archive-round-trips)
 adds full-range, strided, single-frame and interrupted/recovered paired cases. Each must pass actual
 Tracker loading of both tabs, resaving every tab, fresh-process reopen, native reimport and independent
-media-byte checks. All ten Windows CTest groups pass in 127.00 seconds with **95.74% production line
-coverage (8852/9246)**. All 88 Python corpus tests, 28 native imports and headless Java XML/coordinate
-checks, four native archive exports with independent ZIP/XML/media oracles, formatting and static
-analysis of all four changed C++ sources pass. Three existing LLVM profile-mismatch warnings remain
-visible. Current-head Linux application acceptance, three-platform CI and review remain required for
-this new slice. New portable movie packaging, filters,
-variable-rate timing and broader movie schemas remain unfinished.
+media-byte checks. Initial Windows validation at `bb373ea` passed all ten CTest groups in 127.00 seconds
+with 95.74% line coverage (8852/9246), but [the first Linux reference run](https://github.com/mgradwohl/MoTrack/actions/runs/42565821290)
+rejected the original unedited AVI archive. Tracker 6.3.5 omits AVI from its automatic movie-extraction
+extensions, then tries to pass the archive URL to Xuggle. This is tracked separately in
+[#140](https://github.com/mgradwohl/MoTrack/issues/140); that fixture stays pinned as `archived-avi`, with
+native/headless import checks and an explicit application-acceptance exclusion. It is not counted as a
+successful round trip. Standard archive output now refuses non-MOV movie members before replacing a
+destination, including after native reopen. MoTrack can still open that AVI archive and save a native copy.
+
+The positive reference now uses a genuine QuickTime raw RGB MOV generated from independently specified
+pixels/timing. Native and pinned headless Xuggle decoders verify every pixel and timestamp. Both movie
+and archive generators are byte-identical across UTC and Pacific/Kiritimati. Baseline archive loading
+uses a fresh directory containing only the archive, so adjacent fixture media cannot stand in for extraction;
+Tracker's extraction writes are also isolated from the committed fixtures. Corrected Windows validation
+passes all ten CTest groups in **123.28 seconds** with **95.74% line coverage (8857/9251)**, all 89 Python
+tests, all 30 native/headless Java import cases and all four native archive export/oracle/reimport modes.
+Formatting and static analysis of all five changed C++ sources pass; three existing LLVM profile-mismatch
+warnings remain visible. Actual-Tracker and three-platform CI/review remain pending for this correction.
+New portable movie packaging, broader archived containers, filters, variable-rate timing and broader
+movie schemas remain unfinished.

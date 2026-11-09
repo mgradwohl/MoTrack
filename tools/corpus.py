@@ -466,7 +466,7 @@ def private_display():
 
 
 def linked_media_roundtrip_expected(case):
-    if case["id"] not in {"linked-images", "archived-images", "multitab-images", "linked-movie", "archived-movie"}:
+    if case["id"] not in {"linked-images", "archived-images", "multitab-images", "linked-movie", "linked-mov", "archived-movie"}:
         raise ValueError("Linked-media edits require a pinned experiment")
     expected = json.loads(expected_path(case).read_text(encoding="utf-8"))["project"]
     expected["point_masses"][0]["mass"] = 5.0
@@ -475,7 +475,7 @@ def linked_media_roundtrip_expected(case):
 
 
 def linked_media_clip_expected(case, single=False):
-    if case["id"] not in {"linked-images", "archived-images", "linked-movie", "archived-movie"}:
+    if case["id"] not in {"linked-images", "archived-images", "linked-movie", "linked-mov", "archived-movie"}:
         raise ValueError("Media clip edits require a pinned image/movie case")
     expected = linked_media_roundtrip_expected(case)
     expected["clip"].update(first_frame=2 if single else 1, step_size=1 if single else 2, step_count=1 if single else 2)
@@ -1894,6 +1894,14 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
         if clip_mode:
             expected[0], templates[0] = linked_media_clip_expected(templates[0], single=clip_mode == "single")
         source = exported
+    else:
+        # A fixture's neighboring movie must not stand in for extraction from the archive.
+        # Tracker may extract supported movies beside their container; keep that write isolated.
+        isolated = output / "input" / source.name
+        isolated.parent.mkdir()
+        shutil.copyfile(source, isolated)
+        verify_file(isolated, case)
+        source = isolated
     metadata = output / "metadata"
     metadata.mkdir()
     with zipfile.ZipFile(source) as archive:

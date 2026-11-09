@@ -222,11 +222,11 @@ try
         document.archiveMember = "experiment.trk";
         if (movie)
         {
-            if (document.project.clip.mediaReferences != std::vector<std::string>{"constant-rate.avi"})
+            if (document.project.clip.mediaReferences != std::vector<std::string>{"constant-rate.mov"})
                 throw motrack::ProjectError("Expected the pinned archived movie.");
             const std::atomic_bool cancelled{false};
             const auto index = motrack::buildMovieIndex(
-                QDir(payload->root()).filePath("constant-rate.avi"), motrack::VideoOrientation::Encoded, cancelled);
+                QDir(payload->root()).filePath("constant-rate.mov"), motrack::VideoOrientation::Encoded, cancelled);
             if (index.frameCount != 4 || index.frameTimes != std::vector<double>{0.0, 0.125, 0.25, 0.375})
                 throw motrack::ProjectError("The archived movie index differs from the independent timing values.");
             document.movie = true;
