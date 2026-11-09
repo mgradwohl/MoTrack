@@ -69,10 +69,18 @@ QString physicalSourcePath(const QString& path)
     const auto physical = info.canonicalFilePath();
     return physical.isEmpty() ? info.absoluteFilePath() : physical;
 }
-bool isLinkedImageDocument(const WorkspaceDocument& document)
+bool isLinkedMediaDocument(const WorkspaceDocument& document)
 {
-    return document.trackerSource && !document.archivePayload && !document.archiveMember && document.archiveReference.empty() &&
-           !document.movie && document.movieFrameTimes.empty() && !document.project.clip.mediaReferences.empty();
+    if (!document.trackerSource || document.archivePayload || document.archiveMember || !document.archiveReference.empty() ||
+        document.useDisplayOrientation || document.project.clip.mediaReferences.empty())
+        return false;
+    if (!document.movie)
+        return document.movieFrameTimes.empty();
+    return document.alignMovieToClip && !document.movieFrameTimes.empty() &&
+           std::cmp_equal(document.project.clip.sourceFrameCount.value_or(0), document.movieFrameTimes.size()) &&
+           document.project.clip.mediaReferences.size() == 1 &&
+           QFileInfo(QString::fromStdString(document.project.clip.mediaReferences.front())).suffix().compare("mov", Qt::CaseInsensitive) ==
+               0;
 }
 
 // Dialogs may lose their parent inside the nested event loop. Qt owns these heap children;
@@ -156,9 +164,9 @@ MainWindow::MainWindow()
     m_SaveTracker->setObjectName("saveTrackerProject");
     m_SaveTracker->setToolTip(tr("Save a Tracker file and a MoTrack companion."));
     m_SaveTracker->setEnabled(false);
-    m_ExportArchive = fileMenu->addAction(tr("Export portable image &archive…"));
+    m_ExportArchive = fileMenu->addAction(tr("Export portable &archive…"));
     m_ExportArchive->setObjectName("exportTrackerArchive");
-    m_ExportArchive->setToolTip(tr("Copy this experiment and its images into one portable Tracker archive."));
+    m_ExportArchive->setToolTip(tr("Copy this experiment and its media into one portable Tracker archive."));
     m_ExportArchive->setEnabled(false);
     m_Export = new QAction(tr("&Export measurements…"), this);
     m_Export->setObjectName("exportMeasurements");
@@ -436,7 +444,7 @@ MainWindow::MainWindow()
             });
     connect(m_SaveAs, &QAction::triggered, this, &MainWindow::chooseWorkspacePath);
     connect(m_SaveTracker, &QAction::triggered, this, &MainWindow::chooseTrackerPath);
-    connect(m_ExportArchive, &QAction::triggered, this, &MainWindow::chooseImageArchivePath);
+    connect(m_ExportArchive, &QAction::triggered, this, &MainWindow::chooseArchivePath);
     connect(m_Save, &QAction::triggered, this, &MainWindow::saveCurrentWorkspace);
     connect(m_Export,
             &QAction::triggered,
@@ -964,6 +972,7 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
                                 if (steps == 0 || last < index.frameCount)
                                     clip.sourceFrameCount = std::max(clip.sourceFrameCount.value_or(0), index.frameCount);
                             }
+                            m_ExportArchive->setEnabled(isLinkedMediaDocument(m_Session.document));
                             refreshPlot();
                             return;
                         }
@@ -1036,7 +1045,7 @@ void MainWindow::activateProject(const QString& path)
     m_SaveAs->setEnabled(true);
     m_Save->setEnabled(true);
     m_SaveTracker->setEnabled(m_Session.document.trackerSource.has_value());
-    m_ExportArchive->setEnabled(isLinkedImageDocument(m_Session.document));
+    m_ExportArchive->setEnabled(isLinkedMediaDocument(m_Session.document));
     refreshEditViews(0);
     syncClipControls();
     setWindowTitle(tr("%1[*] — MoTrack").arg(QFileInfo(path).fileName()));
@@ -2004,12 +2013,12 @@ bool MainWindow::saveTrackerProject(const QString& path, bool recoverPending)
     return true;
 }
 
-bool MainWindow::chooseImageArchivePath()
+bool MainWindow::chooseArchivePath()
 {
     if (m_Saving)
         return false;
     const auto checkpoint = m_Session.saveCheckpoint();
-    const auto path = chooseSaveFile(this, tr("Export portable image archive"), {}, tr("Tracker archives (*.trz)"), "trz");
+    const auto path = chooseSaveFile(this, tr("Export portable archive"), {}, tr("Tracker archives (*.trz)"), "trz");
     if (!path || checkpoint.identity != m_Session.saveCheckpoint().identity)
         return false;
     return exportTrackerArchive(*path);
@@ -2019,9 +2028,9 @@ bool MainWindow::exportTrackerArchive(const QString& path)
 {
     if (m_Saving)
         return false;
-    if (!isLinkedImageDocument(m_Session.document) || !path.endsWith(".trz", Qt::CaseInsensitive))
+    if (!isLinkedMediaDocument(m_Session.document) || !path.endsWith(".trz", Qt::CaseInsensitive))
     {
-        statusBar()->showMessage(tr("Choose a .trz filename for an imported image project."));
+        statusBar()->showMessage(tr("Choose a .trz filename for an imported image or indexed MOV project."));
         return false;
     }
     struct ExportResult
@@ -2039,10 +2048,10 @@ bool MainWindow::exportTrackerArchive(const QString& path)
     m_Saving = true;
     auto* progress = new QDialog(this);
     progress->setObjectName("imageArchiveProgress");
-    progress->setWindowTitle(tr("Exporting portable image archive"));
+    progress->setWindowTitle(tr("Exporting portable archive"));
     progress->setWindowModality(Qt::WindowModal);
     auto* layout = new QVBoxLayout(progress);
-    auto* label = new QLabel(tr("Copying the experiment and its images…"), progress);
+    auto* label = new QLabel(tr("Copying the experiment and its media…"), progress);
     auto* cancel = new QPushButton(tr("Cancel"), progress);
     cancel->setObjectName("cancelImageArchiveExport");
     layout->addWidget(label);
@@ -2064,7 +2073,10 @@ bool MainWindow::exportTrackerArchive(const QString& path)
                                         {
                                             try
                                             {
-                                                writeTrackerImagePackageCopy(path, document, source, cancelled.get());
+                                                if (document.movie)
+                                                    writeTrackerMoviePackageCopy(path, document, source, cancelled.get());
+                                                else
+                                                    writeTrackerImagePackageCopy(path, document, source, cancelled.get());
                                                 return ExportResult{.saved = true, .diagnostic = {}};
                                             }
                                             catch (const SaveDestinationError& error)

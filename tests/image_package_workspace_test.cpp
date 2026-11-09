@@ -17,6 +17,7 @@
 #include <QLockFile>
 #include <QPushButton>
 #include <QSemaphore>
+#include <QSlider>
 #include <QStatusBar>
 #include <QTemporaryDir>
 #include <QTest>
@@ -80,6 +81,112 @@ bool editMass(motrack::MainWindow& window, double value)
                        });
     action->trigger();
     return accepted;
+}
+
+TEST(ImagePackageWorkspace, ExportsIndexedMovWithoutChangingSaveStateAndReopensWithoutOriginalMedia)
+{
+    QTemporaryDir temporary;
+    const auto movieRoot = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-mov/";
+    const auto source = temporary.filePath("input.trk");
+    const auto movie = temporary.filePath("constant-rate.mov");
+    const auto native = temporary.filePath("saved.motrack");
+    const auto target = temporary.filePath(QString::fromUtf8("portable é & movie.trz"));
+    ASSERT_TRUE(QFile::copy(movieRoot + "linked-movie.trk", source));
+    ASSERT_TRUE(QFile::copy(movieRoot + "constant-rate.mov", movie));
+    {
+        motrack::MainWindow window;
+        ASSERT_TRUE(window.loadProject(source));
+        auto* action = window.findChild<QAction*>("exportTrackerArchive");
+        ASSERT_NE(action, nullptr);
+        ASSERT_TRUE(QTest::qWaitFor([action] { return action->isEnabled(); }));
+        ASSERT_TRUE(window.saveWorkspace(native));
+        const auto saved = bytes(native);
+        const auto title = window.windowTitle();
+        ASSERT_TRUE(QFile::remove(source));
+        ASSERT_TRUE(editMass(window, 5));
+        ASSERT_TRUE(window.exportTrackerArchive(target));
+        EXPECT_TRUE(window.isWindowModified());
+        EXPECT_EQ(window.windowTitle(), title);
+        EXPECT_EQ(bytes(native), saved);
+        ASSERT_NE(window.findChild<QAction*>("undoEdit"), nullptr);
+        ASSERT_NE(window.findChild<QAction*>("redoEdit"), nullptr);
+        ASSERT_NE(window.findChild<QAction*>("saveProject"), nullptr);
+        window.findChild<QAction*>("undoEdit")->trigger();
+        window.findChild<QAction*>("saveProject")->trigger();
+        EXPECT_FALSE(window.isWindowModified());
+        EXPECT_DOUBLE_EQ(motrack::readWorkspaceDocument(native).project.pointMasses.at(0).mass, 2);
+        window.findChild<QAction*>("redoEdit")->trigger();
+        ASSERT_TRUE(window.exportTrackerArchive(target));
+        EXPECT_TRUE(window.isWindowModified());
+    }
+    ASSERT_TRUE(QFile::remove(movie));
+    ASSERT_TRUE(QFile::remove(native));
+    ASSERT_TRUE(QDir(temporary.path()).mkdir("moved"));
+    const auto moved = temporary.filePath("moved/portable.trz");
+    ASSERT_TRUE(QFile::rename(target, moved));
+    const auto archive = motrack::TrackerArchive::open(moved);
+    EXPECT_EQ(bytes(QDir(archive.root()).filePath("media/movie.mov")), bytes(movieRoot + "constant-rate.mov"));
+    EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(archive.projectPath("experiment.trk")).project.pointMasses.at(0).mass, 5);
+    motrack::MainWindow reopened;
+    ASSERT_TRUE(reopened.loadProject(moved));
+    auto* canvas = reopened.findChild<QWidget*>("videoCanvas");
+    auto* slider = reopened.findChild<QSlider*>("stepSlider");
+    auto* action = reopened.findChild<QAction*>("exportTrackerArchive");
+    ASSERT_TRUE(canvas && slider && action);
+    EXPECT_FALSE(action->isEnabled()); // Existing archives use paired Save, not new-package export.
+    slider->setValue(3);
+    ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 3"; }));
+    ASSERT_TRUE(editMass(reopened, 7));
+    ASSERT_TRUE(reopened.saveTrackerProject(moved));
+    EXPECT_DOUBLE_EQ(motrack::readWorkspaceDocument(temporary.filePath("moved/portable.motrack")).project.pointMasses.at(0).mass, 7);
+}
+
+TEST(ImagePackageWorkspace, MovieExportCancellationAndUnsupportedContainersPreserveTheDestination)
+{
+    QTemporaryDir temporary;
+    const auto movieRoot = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/";
+    const auto target = temporary.filePath("portable.trz");
+    put(target, "existing archive");
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(movieRoot + "linked-movie/linked-movie.trk"));
+    auto* action = window.findChild<QAction*>("exportTrackerArchive");
+    auto* plot = window.findChild<QWidget*>("positionPlot");
+    ASSERT_TRUE(action && plot);
+    ASSERT_TRUE(QTest::qWaitFor([plot] { return plot->accessibleName().endsWith("Time (s)"); }));
+    EXPECT_FALSE(action->isEnabled());
+    EXPECT_FALSE(window.exportTrackerArchive(target));
+    ASSERT_TRUE(window.loadProject(movieRoot + "linked-mov/linked-movie.trk"));
+    ASSERT_TRUE(QTest::qWaitFor([action] { return action->isEnabled(); }));
+    ASSERT_TRUE(editMass(window, 5));
+    auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+    ASSERT_NE(pool, nullptr);
+    QSemaphore entered;
+    QSemaphore release;
+    pool->start(
+        [&]
+        {
+            entered.release();
+            static_cast<void>(release.tryAcquire(1, 5000));
+        });
+    ASSERT_TRUE(entered.tryAcquire(1, 5000));
+    bool canceled = false;
+    QTimer::singleShot(0,
+                       &window,
+                       [&]
+                       {
+                           if (auto* cancel = window.findChild<QPushButton*>("cancelImageArchiveExport"))
+                           {
+                               cancel->click();
+                               canceled = true;
+                           }
+                           release.release();
+                       });
+    EXPECT_FALSE(window.exportTrackerArchive(target));
+    EXPECT_TRUE(canceled);
+    EXPECT_EQ(bytes(target), "existing archive");
+    EXPECT_TRUE(window.isWindowModified());
+    EXPECT_FALSE(QFileInfo::exists(temporary.filePath("portable.motrack")));
+    ASSERT_TRUE(pool->waitForDone(5000));
 }
 
 TEST(ImagePackageWorkspace, PreservesPendingPairedArchiveAndCompanionUntilExplicitRecovery)

@@ -73,10 +73,10 @@ conflict. Recovery never marks newer edits saved without writing them to both fi
 This workflow currently covers audited media-free and local-image experiments, plus selected-member
 updates to existing image/MOV archives. The movie writer supports mass, mark and clip-range edits in
 audited constant-rate imports after timestamp indexing; its edited-file Tracker save/reopen acceptance
-has passed for the pinned linked four-frame AVI case. Archive acceptance and later revisions require
+has passed for the pinned linked four-frame AVI and mixed-tab MOV archive cases. Later revisions require
 their own CI and review. Archived AVI output is refused because pinned Tracker cannot reopen it;
 the original case and compatibility restriction are tracked in [#140](https://github.com/mgradwohl/MoTrack/issues/140).
-Movie timing/calibration/track-identity edits, movie packaging, filters and broader settings remain unfinished. An unsupported export is refused; save a MoTrack copy to retain work.
+Movie timing/calibration/track-identity edits, broader movie containers, filters and broader settings remain unfinished. An unsupported export is refused; save a MoTrack copy to retain work.
 Image experiments can retain Clip Settings changes to the starting frame, ending frame and frame
 interval in linked `.trk` files, existing image archives and portable image exports. All source images
 and marks remain available, including those outside the selected clip; image timing stays unchanged.
@@ -84,17 +84,19 @@ Audited linked movies and archived MOV files also retain Clip Settings range and
 movie and all measurements stay available; source frame numbers and numeric timing are unchanged.
 The [format guide](docs/native-format.md) records the exact supported edits and compatibility evidence.
 
-### Export a portable image experiment
+### Export a portable experiment
 
-For a supported imported image experiment, choose **File → Export portable image archive…** and save
-as `.trz`. MoTrack copies the experiment and its linked images into one file that can be moved and
-opened in Tracker. The current project keeps its original save destinations, unsaved edits and undo
+For a supported imported image or indexed constant-rate MOV experiment, choose **File → Export portable archive…**
+and save as `.trz`. MoTrack copies the experiment and its complete linked media without conversion into
+one file that can be moved and opened in Tracker. The current project keeps its original save destinations, unsaved edits and undo
 history; exporting a copy does not replace ordinary Save or create a companion automatically.
 
-Export runs in the background with a Cancel button. Missing images are named in the error message,
+Export runs in the background with a Cancel button. Missing media files are named in the error message,
 and failures or cancellation before replacement keep an existing archive intact. This command currently
-supports the audited local-image schemas described in the [format guide](docs/native-format.md#creating-a-portable-image-archive).
-Movie packaging, arbitrary supporting documents and newly created standalone image projects remain unfinished.
+supports audited local-image schemas and linked MOV mass/mark/clip-range edits described in the
+[format guide](docs/native-format.md#creating-a-portable-movie-archive). The entire movie is retained, including
+frames outside the selected clip. Other movie containers, arbitrary supporting documents and newly created
+standalone media projects remain unfinished.
 
 ### Analyze motion
 

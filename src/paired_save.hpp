@@ -99,6 +99,13 @@ void writeTrackerImagePackageCopy(const QString& path,
                                   const QString& mediaProjectPath,
                                   const std::atomic_bool* cancelled = nullptr);
 
+/// Export an audited linked MOV archive copy under the same destination lock and recovery rules.
+/// Implemented by the media-package adapter; no companion or session save checkpoints are changed.
+void writeTrackerMoviePackageCopy(const QString& path,
+                                  const WorkspaceDocument& document,
+                                  const QString& mediaProjectPath,
+                                  const std::atomic_bool* cancelled = nullptr);
+
 /// Invoke a writer synchronously with its canonical physical destination while holding the sibling save lock.
 /// Refuses pending recovery records. The callback must finish its write before returning and must not
 /// re-enter this destination's save operations; it cannot retain the borrowed path or change session state.

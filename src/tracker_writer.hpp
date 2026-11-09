@@ -38,4 +38,14 @@ void writeTrackerImagePackage(const QString& path,
                               const QString& mediaProjectPath,
                               const std::atomic_bool* cancelled = nullptr);
 
+/// Create a portable .trz from an audited, fully indexed constant-rate linked MOV document.
+/// Copies the complete movie without transcoding; retains the standalone movie writer's edit limits.
+/// Re-indexes staged media before replacement. Existing archives, other containers and unsupported edits are refused.
+/// The shared media adapter owns decoding; the project model has no decoder dependency.
+/// Document/source bindings and save checkpoints stay unchanged; cancellation preserves the destination.
+void writeTrackerMoviePackage(const QString& path,
+                              const WorkspaceDocument& document,
+                              const QString& mediaProjectPath,
+                              const std::atomic_bool* cancelled = nullptr);
+
 } // namespace motrack

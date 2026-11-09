@@ -2,6 +2,7 @@
 #include "paired_save.hpp"
 #include "tracker_archive.hpp"
 #include "tracker_writer.hpp"
+#include "video_reader.hpp"
 #include "workspace_document.hpp"
 
 #include <QCoreApplication>
@@ -31,7 +32,8 @@ constexpr qint64 MAX_IMAGE_PIXELS = qint64{32} * 1024 * 1024;
 void require(bool valid)
 {
     if (!valid)
-        throw ProjectError("Cannot package this linked-image experiment safely.");
+        throw ProjectError(
+            QCoreApplication::translate("TrackerImagePackage", "Cannot package this linked-media experiment safely.").toStdString());
 }
 
 void requireReadable(bool valid, const QString& source)
@@ -45,7 +47,7 @@ void requireReadable(bool valid, const QString& source)
 void checkCancelled(const std::atomic_bool* cancelled)
 {
     if (cancelled && *cancelled)
-        throw ProjectError("Tracker image packaging was canceled.");
+        throw ProjectError(QCoreApplication::translate("TrackerImagePackage", "Tracker media packaging was canceled.").toStdString());
 }
 
 void validateImage(const QString& stagedPath, const QString& source, const std::atomic_bool* cancelled)
@@ -148,22 +150,35 @@ void writeTrackerImagePackageCopy(const QString& path,
         path, cancelled, [&](const auto& physical) { writeTrackerImagePackage(physical, document, mediaProjectPath, cancelled); });
 }
 
-void writeTrackerImagePackage(const QString& path,
-                              const WorkspaceDocument& document,
-                              const QString& mediaProjectPath,
-                              const std::atomic_bool* cancelled)
+void writeTrackerMoviePackageCopy(const QString& path,
+                                  const WorkspaceDocument& document,
+                                  const QString& mediaProjectPath,
+                                  const std::atomic_bool* cancelled)
+{
+    if (!path.endsWith(".trz", Qt::CaseInsensitive) || QFileInfo(path).isSymbolicLink())
+        throw ProjectError("Choose a regular Tracker archive filename.");
+    withSaveDestinationLock(
+        path, cancelled, [&](const auto& physical) { writeTrackerMoviePackage(physical, document, mediaProjectPath, cancelled); });
+}
+
+namespace
+{
+void writeTrackerMediaPackage(
+    const QString& path, const WorkspaceDocument& document, const QString& mediaProjectPath, bool movie, const std::atomic_bool* cancelled)
 {
     checkCancelled(cancelled);
     require(path.endsWith(".trz", Qt::CaseInsensitive) && !QFileInfo(path).isSymbolicLink());
     require(document.trackerSource && !document.archivePayload && !document.archiveMember && document.archiveReference.empty() &&
-            !document.movie && document.movieFrameTimes.empty() && !document.useDisplayOrientation);
+            document.movie == movie && !document.useDisplayOrientation);
+    require(movie ? document.alignMovieToClip && !document.movieFrameTimes.empty() && document.project.clip.mediaReferences.size() == 1
+                  : document.movieFrameTimes.empty());
     require(!document.project.clip.mediaReferences.empty() && document.project.clip.mediaReferences.size() <= MAX_IMAGES &&
             QFileInfo(mediaProjectPath).isAbsolute());
     const auto directory = localProjectDirectory(path);
     require(!directory.isEmpty());
     const auto destination = QDir(directory).filePath(QFileInfo(path).fileName());
     QTemporaryDir temporary;
-    require(temporary.isValid() && QDir(temporary.path()).mkdir("images"));
+    require(temporary.isValid() && QDir(temporary.path()).mkdir(movie ? "media" : "images"));
     auto snapshot = document;
     QStringList members;
     qint64 remaining = MAX_EXTRACTED_BYTES;
@@ -180,7 +195,10 @@ void writeTrackerImagePackage(const QString& path,
             require((character >= QLatin1Char('a') && character <= QLatin1Char('z')) ||
                     (character >= QLatin1Char('A') && character <= QLatin1Char('Z')) ||
                     (character >= QLatin1Char('0') && character <= QLatin1Char('9')));
-        const auto member = QStringLiteral("images/frame-%1.%2").arg(members.size(), 6, 10, QLatin1Char('0')).arg(suffix);
+        // Only MOV has actual Tracker archive extraction acceptance; never disguise other containers.
+        require(!movie || suffix.compare("mov", Qt::CaseInsensitive) == 0);
+        const auto member = movie ? QStringLiteral("media/movie.mov")
+                                  : QStringLiteral("images/frame-%1.%2").arg(members.size(), 6, 10, QLatin1Char('0')).arg(suffix);
         QFile image(temporary.filePath(member));
         require(image.open(QIODevice::WriteOnly | QIODevice::NewOnly));
         remaining -= copyFile(source, image, remaining, cancelled);
@@ -216,10 +234,24 @@ void writeTrackerImagePackage(const QString& path,
     auto reopened = importTrackerDocument(verified.projectPath(projectMember));
     verified.resolveMedia(reopened.project, projectMember);
     require(reopened.project.clip.mediaReferences == snapshot.project.clip.mediaReferences);
-    for (std::size_t index = 0; index < snapshot.project.clip.mediaReferences.size(); ++index)
-        validateImage(QDir(verified.root()).filePath(QString::fromStdString(snapshot.project.clip.mediaReferences[index])),
-                      workspaceMediaPath(document, mediaProjectPath, document.project.clip.mediaReferences[index]),
-                      cancelled);
+    if (movie)
+    {
+        // Decode/index the immutable staged copy, including frames excluded from the clip.
+        // A stale document index or truncated/replaced source must not produce a portable archive.
+        const std::atomic_bool running{false};
+        const auto index =
+            buildMovieIndex(QDir(verified.root()).filePath(members.back()), VideoOrientation::Encoded, cancelled ? *cancelled : running);
+        requireReadable(index.frameCount > 0 && document.project.clip.sourceFrameCount == index.frameCount &&
+                            index.frameTimes == document.movieFrameTimes,
+                        workspaceMediaPath(document, mediaProjectPath, document.project.clip.mediaReferences.front()));
+    }
+    else
+    {
+        for (std::size_t index = 0; index < snapshot.project.clip.mediaReferences.size(); ++index)
+            validateImage(QDir(verified.root()).filePath(QString::fromStdString(snapshot.project.clip.mediaReferences[index])),
+                          workspaceMediaPath(document, mediaProjectPath, document.project.clip.mediaReferences[index]),
+                          cancelled);
+    }
     checkCancelled(cancelled);
     require(!QFileInfo(destination).isSymbolicLink());
     QSaveFile finalOutput(destination);
@@ -227,5 +259,22 @@ void writeTrackerImagePackage(const QString& path,
     static_cast<void>(copyFile(staged, finalOutput, MAX_TRACKER_ARCHIVE_BYTES, cancelled));
     checkCancelled(cancelled);
     require(finalOutput.commit());
+}
+} // namespace
+
+void writeTrackerImagePackage(const QString& path,
+                              const WorkspaceDocument& document,
+                              const QString& mediaProjectPath,
+                              const std::atomic_bool* cancelled)
+{
+    writeTrackerMediaPackage(path, document, mediaProjectPath, false, cancelled);
+}
+
+void writeTrackerMoviePackage(const QString& path,
+                              const WorkspaceDocument& document,
+                              const QString& mediaProjectPath,
+                              const std::atomic_bool* cancelled)
+{
+    writeTrackerMediaPackage(path, document, mediaProjectPath, true, cancelled);
 }
 } // namespace motrack

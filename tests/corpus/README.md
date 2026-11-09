@@ -1197,6 +1197,24 @@ compressed record, payload and metadata remains unchanged. Independent numerical
 apply to both loaded tabs, including the untouched 3.5 kg image experiment. After Tracker saves and
 freshly reopens, the complete saved movie and every image reference must retain the pinned byte count
 and SHA-256, including excluded frames. Bounded local archive references are allowed; missing/duplicate
-members, changed bytes, path escapes and remote URLs fail. Current-head actual Tracker acceptance,
-three-platform CI and review remain required. New movie packaging, broader archive containers, variable
-timing, filters, broader schemas and the historical MOV/Open Recent report remain separate work.
+members, changed bytes, path escapes and remote URLs fail. PR #139 at `f166ba9` passed all six checks in
+[run 42568545597](https://github.com/mgradwohl/MoTrack/actions/runs/42568545597), including the isolated baseline
+and all four edited all-tab modes, with 95.82% combined C++ line coverage. Broader archive containers,
+variable timing, filters, broader schemas and the historical MOV/Open Recent report remain separate work.
+
+
+### New portable MOV package acceptance
+
+The independently authored `linked-mov` fixture also drives `packaged-movie`, `packaged-movie-clip`
+and `packaged-movie-clip-single`. The native probe edits mass and mark 1, uses undo/redo, optionally
+selects original frames 1/3 or frame 2, saves/reopens a native copy, and removes the original project.
+It packages the complete MOV and then removes the external movie directory before returning.
+
+The independent Python ZIP/XML/hash oracle requires exactly `experiment.trk` and `media/movie.mov`,
+Java-compatible deflated entries, unchanged complete movie bytes and only the requested XML edits.
+Tracker opens the actual `.trz`, saves through its normal application saver and reopens in a separate
+process/private home. The normal persistent cache policy is required in both reports. Every source
+movie byte must remain available after saving and again after fresh reopen, including excluded frames;
+independent pixels, frame ordinals, timestamps, geometry, mass and untouched content remain checked.
+Native reimport of Tracker's resave closes the loop. These new modes still require their current-head
+Linux application run and three-platform CI/review; native or mocked oracle checks are not that evidence.

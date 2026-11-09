@@ -84,7 +84,7 @@ class MainWindow final : public QMainWindow
     void releaseArchive();
     bool chooseWorkspacePath();
     bool chooseTrackerPath();
-    bool chooseImageArchivePath();
+    bool chooseArchivePath();
     bool saveTrackerWithRecoveryPrompt(const QString& path);
     void finishSaving();
     bool saveCurrentWorkspace();
