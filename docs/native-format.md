@@ -887,3 +887,9 @@ all media bytes, independent image/calibrated components, selection, created-tra
 native reimport are checked. The desktop regression creates, renames and draws a vector, deletes it,
 undoes/redoes, saves both files and opens the native companion again. These local checks pass;
 actual Tracker first-draw/load/save/fresh-JVM reopen acceptance and current-revision CI/review remain pending.
+
+These acceptance fixtures use a zero time origin. The original negative-origin fixtures exposed
+[Tracker's missing negative-time vector analysis rows](https://github.com/mgradwohl/MoTrack/issues/146).
+Their raw vectors and timing survive, but the live analysis omission is recorded as a non-accepted
+reference defect with independent correct expectations. Saving does not shift time to conceal it;
+negative-time native vector tables/plots/export and complete reference analysis parity remain open.

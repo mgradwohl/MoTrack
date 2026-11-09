@@ -14,9 +14,10 @@ import org.opensourcephysics.display.OSPRuntime;
 public final class MediaVectorsFixture {
     public static void main(String[] args) {
         try {
-            if (args.length != 3 || !OSPRuntime.VERSION.equals("6.3.5")
-                    || !List.of("images", "movie").contains(args[2]))
-                throw new IllegalArgumentException("Expected Tracker 6.3.5, source directory, fresh output directory, images|movie");
+            if ((args.length != 3 && args.length != 4) || !OSPRuntime.VERSION.equals("6.3.5")
+                    || !List.of("images", "movie").contains(args[2])
+                    || (args.length == 4 && !args[3].equals("negative-time")))
+                throw new IllegalArgumentException("Expected Tracker 6.3.5, source directory, fresh output directory, images|movie [negative-time]");
             Path source = Path.of(args[0]).toAbsolutePath();
             Path output = Path.of(args[1]).toAbsolutePath();
             Files.createDirectory(output);
@@ -34,6 +35,9 @@ public final class MediaVectorsFixture {
             String project = args[2].equals("movie") ? "linked-movie.trk" : "linked-images.trk";
             XMLControlElement root = new XMLControlElement(source.resolve(project).toString());
             if (root.failedToRead()) throw new IllegalStateException("Could not read pinned media controls");
+            // Keep the original negative-time variant as an explicit reference-defect fixture.
+            // Ordinary acceptance starts at zero so every in-clip vector has a live analysis row.
+            if (args.length == 3) root.getChildControl("videoclip").setValue("starttime", 0.0);
             root.setValue("tracks", new ArrayList<TTrack>(List.of(new CoordAxes(), first, second, empty)));
             root.setValue("selectedtrack", first.getName());
             root.setValue("description", "vector A and vector B are words in this note.");

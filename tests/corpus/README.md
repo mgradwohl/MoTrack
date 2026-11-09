@@ -1380,7 +1380,9 @@ the pinned JDK 17 (`javac -encoding UTF-8 -cp tracker-6.3.5.jar`). Run with `-Dj
 `-Xmx256m`, a private home/temp directory and a 45-second deadline. Generator arguments are the source
 fixture directory, a fresh output directory and `images` or `movie`. Package the unchanged secondary
 image experiment using the existing archive generators. UTC and Pacific/Kiritimati generations match
-byte-for-byte. The four new cases bring the corpus to **50 pinned cases**; all previous cases are unchanged.
+byte-for-byte. The four acceptance cases start at **0 ms**; the optional final `negative-time` generator
+argument retains the original **-250 ms** variant for explicit defect diagnostics. These six new cases
+bring the corpus to **52 pinned cases**; all previous 46 cases are unchanged.
 
 | Track | Original frames | Image tails | Image components | Calibrated components |
 | --- | --- | --- | --- | --- |
@@ -1398,7 +1400,7 @@ interrupted/recovered paired TRZ and new portable packages (48 modes):
   tail (0,12), components (4,4); add the empty track's first sample at frame 2, tail (32,0), components (-2,-4).
 - `geometry`: move the origin to (10,18), rotate 90 degrees, use nonuniform scales (4,8) and label cm;
   trim to frames 1/3 with stride 2. Original image geometry remains. Live analysis includes only B at
-  frames 1/3, with components (0,0.75)/(0,0) and magnitudes 0.75/0; A frames 0/2 stay saved outside the clip.
+  frames 1/3 at 0/250 ms, with components (0,0.75)/(0,0) and magnitudes 0.75/0; A frames 0/2 stay saved outside the clip.
 - `empty`: remove all samples while retaining all three tracks and source null-array padding.
 - `authoring`: rename selected A to `élève β & <B>`, delete B, create `nouvelle β & <C>` with frame-3
   tail (32,0)/components (-2,-4), and create `new empty vector`. New tracks are visible, unlocked,
@@ -1416,3 +1418,16 @@ visit and separately reopen both tabs. Negative oracle tests reject wrong values
 application snapshots agree with each other. Existing snap, precision, frame, identity, schema and
 atomic-replacement guards remain covered. All 48 local exports and native reimports pass; actual
 Tracker application acceptance and current-revision CI/review are pending.
+
+The first application run at `a1a9ee3` exposed [#146](https://github.com/mgradwohl/MoTrack/issues/146):
+Tracker 6.3.5's live vector datasets omit negative experiment times. The original image/MOV TRKs are
+retained byte-for-byte as `negative-linked-images.trk` and `negative-linked-movie.trk`, with the original
+correct expectations. A frame 0 at -250 ms should have components (1.5,-1), magnitude sqrt(3.25), and
+B frame 1 at -125 ms should have components (-1.5,0), magnitude 1.5. Tracker omits both analysis rows;
+A frame 2 at zero and B frame 3 at 125 ms remain. Raw samples survive load/save/reopen. The exact
+negative-time rejection in `Vector.refreshData` was verified in the pinned JAR's bytecode, as well
+as the recorded source candidate. The diagnostic requires this precise loss and all unaffected data,
+labels its report `compatibility_accepted: false`, and is excluded from native-export acceptance.
+The ordinary validator still rejects those missing rows. No helper filters or fabricates live data,
+and no time origin is changed during a tested save. Full negative-time vector analysis parity remains
+open in #146; the 48 acceptance modes use the separately generated zero-origin fixtures.

@@ -6,7 +6,7 @@
         <property name="startframe" type="int">0</property>
         <property name="stepsize" type="int">1</property>
         <property name="stepcount" type="int">4</property>
-        <property name="starttime" type="double">-250.0</property>
+        <property name="starttime" type="double">0.0</property>
         <property name="playallsteps" type="boolean">true</property>
         <property name="video" type="object">
         <object class="org.opensourcephysics.media.core.ImageVideo">

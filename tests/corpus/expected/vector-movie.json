@@ -10,7 +10,7 @@
       "first_frame": 0,
       "step_size": 1,
       "step_count": 4,
-      "start_ms": -250.0
+      "start_ms": 0.0
     },
     "point_masses": [],
     "vectors": [

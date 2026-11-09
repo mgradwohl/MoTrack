@@ -411,6 +411,21 @@ def validate_session(case, report, manifest, expected=None, key_frames=None, cal
 
 def validate_known_session_issue(case, report, manifest, saved):
     """Reproduce one exact upstream defect; never count it as round-trip acceptance."""
+    if case.get("session_known_issue") == "tracker-6.3.5-vector-negative-time":
+        if (case["id"] not in {"vector-movie-negative-time", "vector-images-negative-time"}
+                or manifest["reference"]["version"] != "6.3.5"):
+            raise ValueError("Unknown Tracker session defect")
+        # Independent correct expectations stay in the manifest. The ordinary validator must
+        # reject this report; only this exact, non-accepted diagnostic permits omitted rows.
+        observed = [{"name": "vector A", "samples": [
+                        {"frame": 2, "components": [-2.0, 0.5], "magnitude": math.sqrt(4.25)}]},
+                    {"name": "vector B", "samples": [
+                        {"frame": 3, "components": [0.0, 0.0], "magnitude": 0.0}]},
+                    {"name": "empty vector", "samples": []}]
+        validate_session({**case, "session_vector_data": observed}, report, manifest)
+        return {"verification_level": "tracker_session_known_issue", "compatibility_accepted": False,
+                "known_issue": case["session_known_issue"],
+                "expected_vector_data": copy.deepcopy(case["session_vector_data"]), "tracker_session": report}
     issue = "tracker-6.3.5-vector-sum-members"
     if (case["id"] != "vector-sum" or case.get("session_known_issue") != issue
             or manifest["reference"]["version"] != "6.3.5"):
@@ -699,7 +714,7 @@ def media_vector_roundtrip_expected(case, scenario):
         expected["coordinate_samples"] = [{"frame": frame, "image": [13.5, 17.25], "world": [0.09375, -0.875]} for frame in [1, 3]]
         case["session_calibration"] = {"fixed_origin": True, "fixed_angle": True, "fixed_scale": True,
                                        "keys": [{"frame": 0, "origin": [10.0, 18.0], "angle": 90.0, "scale": [4.0, 8.0]}]}
-        case["session_time_samples"] = [{"frame": 1, "time_ms": -250.0}, {"frame": 3, "time_ms": 0.0}]
+        case["session_time_samples"] = [{"frame": 1, "time_ms": 0.0}, {"frame": 3, "time_ms": 250.0}]
         case["session_media"]["frames"] = case["session_media"]["frames"][1:]
         # Tracker's live analysis includes only clip steps 1 and 3. Raw A samples at 0/2 remain saved.
         data[0]["samples"] = []
@@ -2723,7 +2738,7 @@ def check_sessions(manifest, cache, java, probe=None):
                     print(f"{case['id']}/{mode}: passed (MoTrack edit/native reopen/{standard} export; {pair}Tracker load/save/reopen; native reimport)")
             elif known_report is not None:
                 saved_report, suffix = known_report, "-known-issue.json"
-                print(f"{case['id']}: KNOWN TRACKER DEFECT reproduced (members and samples lost; round trip NOT accepted)")
+                print(f"{case['id']}: KNOWN TRACKER DEFECT reproduced ({known_report['known_issue']}; round trip NOT accepted)")
             else:
                 saved_report, suffix = report, "-session.json"
                 print(f"{case['id']}: passed (Tracker application load/save/reopen; MoTrack export untested)")

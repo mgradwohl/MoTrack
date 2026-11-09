@@ -39,10 +39,10 @@
       "tracker_version": "6.3.5",
       "file": "vector-movie.trk",
       "local_file": "fixtures/vector-movie/linked-movie.trk",
-      "sha256": "26bb1b3e411575a313dfab66d9942b66dd495aca7ecbf73b1af096b3047491b7",
-      "bytes": 8625,
+      "sha256": "7ddac0476f37abe432a7a2d9279ab6107e4761f81759a3f062e1e5d266e83c19",
+      "bytes": 8622,
       "expected": "expected/vector-movie.json",
-      "provenance": "MediaVectorsFixture uses public Tracker 6.3.5 Vector APIs and frozen media controls. Independent geometry uses X=(x-2)/2, Y=(20-y)/4; components use dx/2,-dy/4. UTC and Pacific/Kiritimati generations match byte-for-byte; no MoTrack output used.",
+      "provenance": "MediaVectorsFixture uses public Tracker 6.3.5 Vector APIs and frozen media controls. Independent geometry uses X=(x-2)/2, Y=(20-y)/4; components use dx/2,-dy/4. UTC and Pacific/Kiritimati generations match byte-for-byte; no MoTrack output used. Acceptance variant starts at 0 ms; the original negative-time vector defect is independently retained in issue #146 fixtures.",
       "assets": [
         {
           "file": "constant-rate.mov",
@@ -103,11 +103,11 @@
       "session_time_samples": [
         {
           "frame": 0,
-          "time_ms": -250.0
+          "time_ms": 0.0
         },
         {
           "frame": 3,
-          "time_ms": 125.0
+          "time_ms": 375.0
         }
       ],
       "session_media": {
@@ -220,10 +220,10 @@
       "tracker_version": "6.3.5",
       "file": "archived-vector-movie.trz",
       "local_file": "fixtures/vector-movie/archived-vectors.trz",
-      "sha256": "2ebd37a7fb3d02b47704d1a44ba71e9f151eaed492a95f80e85df44db6f3f6a3",
-      "bytes": 15907,
+      "sha256": "79cc5886ce60e81012029407809b49b3a54cbc34a71f84aab9f266944c95f5ac",
+      "bytes": 15904,
       "expected": "expected/vector-movie.json",
-      "provenance": "MediaVectorsFixture uses public Tracker 6.3.5 Vector APIs and frozen media controls. Independent geometry uses X=(x-2)/2, Y=(20-y)/4; components use dx/2,-dy/4. UTC and Pacific/Kiritimati generations match byte-for-byte; no MoTrack output used. Existing Java archive generator retains the unchanged secondary image experiment and opaque support records.",
+      "provenance": "MediaVectorsFixture uses public Tracker 6.3.5 Vector APIs and frozen media controls. Independent geometry uses X=(x-2)/2, Y=(20-y)/4; components use dx/2,-dy/4. UTC and Pacific/Kiritimati generations match byte-for-byte; no MoTrack output used. Existing Java archive generator retains the unchanged secondary image experiment and opaque support records. Acceptance variant starts at 0 ms; the original negative-time vector defect is independently retained in issue #146 fixtures.",
       "assets": [
         {
           "file": "constant-rate.mov",
@@ -284,11 +284,11 @@
       "session_time_samples": [
         {
           "frame": 0,
-          "time_ms": -250.0
+          "time_ms": 0.0
         },
         {
           "frame": 3,
-          "time_ms": 125.0
+          "time_ms": 375.0
         }
       ],
       "session_media": {
@@ -409,14 +409,193 @@
       "project_member": "experiment.trk"
     },
     {
+      "id": "vector-movie-negative-time",
+      "tracker_version": "6.3.5",
+      "file": "negative-linked-movie.trk",
+      "local_file": "fixtures/vector-movie/negative-linked-movie.trk",
+      "sha256": "26bb1b3e411575a313dfab66d9942b66dd495aca7ecbf73b1af096b3047491b7",
+      "bytes": 8625,
+      "expected": "expected/vector-movie-negative-time.json",
+      "provenance": "MediaVectorsFixture uses public Tracker 6.3.5 Vector APIs and frozen media controls. Independent geometry uses X=(x-2)/2, Y=(20-y)/4; components use dx/2,-dy/4. UTC and Pacific/Kiritimati generations match byte-for-byte; no MoTrack output used. Original -250 ms variant retained byte-for-byte from failed CI a1a9ee3; correct expected rows are not replaced by Tracker omissions. MoTrack issue #146.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/vector-movie/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": true,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": -250.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 125.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing"
+      ],
+      "media_vector_kind": "movie",
+      "requirements": [
+        "R02",
+        "R07",
+        "R16"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                1.5,
+                -1
+              ],
+              "magnitude": 1.8027756377319946
+            },
+            {
+              "frame": 2,
+              "components": [
+                -2,
+                0.5
+              ],
+              "magnitude": 2.0615528128088303
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -1.5,
+                0
+              ],
+              "magnitude": 1.5
+            },
+            {
+              "frame": 3,
+              "components": [
+                0,
+                0
+              ],
+              "magnitude": 0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "session_known_issue": "tracker-6.3.5-vector-negative-time"
+    },
+    {
       "id": "vector-images",
       "tracker_version": "6.3.5",
       "file": "vector-images.trk",
       "local_file": "fixtures/vector-images/linked-images.trk",
-      "sha256": "0d8475c45e472e0322d9abb5921b6757b4fafe87cbdec9c1a0af39d50faaf6e2",
-      "bytes": 9113,
+      "sha256": "cd18f2863771390eef60494ad361da14336ddf51538fa3f75ee9de460e818d1f",
+      "bytes": 9110,
       "expected": "expected/vector-images.json",
-      "provenance": "MediaVectorsFixture uses public Tracker 6.3.5 Vector APIs and frozen media controls. Independent geometry uses X=(x-2)/2, Y=(20-y)/4; components use dx/2,-dy/4. UTC and Pacific/Kiritimati generations match byte-for-byte; no MoTrack output used.",
+      "provenance": "MediaVectorsFixture uses public Tracker 6.3.5 Vector APIs and frozen media controls. Independent geometry uses X=(x-2)/2, Y=(20-y)/4; components use dx/2,-dy/4. UTC and Pacific/Kiritimati generations match byte-for-byte; no MoTrack output used. Acceptance variant starts at 0 ms; the original negative-time vector defect is independently retained in issue #146 fixtures.",
       "assets": [
         {
           "file": "frame0.png",
@@ -495,11 +674,11 @@
       "session_time_samples": [
         {
           "frame": 0,
-          "time_ms": -250.0
+          "time_ms": 0.0
         },
         {
           "frame": 3,
-          "time_ms": 125.0
+          "time_ms": 375.0
         }
       ],
       "session_media": {
@@ -608,10 +787,10 @@
       "tracker_version": "6.3.5",
       "file": "archived-vector-images.trz",
       "local_file": "fixtures/vector-images/archived-vectors.trz",
-      "sha256": "29722bab75256ee10f4e1a3bf40e069ef32cc7c46d95c7b6a4404e6bd3572546",
-      "bytes": 9085,
+      "sha256": "a7be7ac88cd14b429a205cf40ea0a04576d66e953da801a08b4a2d666fce5931",
+      "bytes": 9082,
       "expected": "expected/vector-images.json",
-      "provenance": "MediaVectorsFixture uses public Tracker 6.3.5 Vector APIs and frozen media controls. Independent geometry uses X=(x-2)/2, Y=(20-y)/4; components use dx/2,-dy/4. UTC and Pacific/Kiritimati generations match byte-for-byte; no MoTrack output used. Existing Java archive generator retains the unchanged secondary image experiment and opaque support records.",
+      "provenance": "MediaVectorsFixture uses public Tracker 6.3.5 Vector APIs and frozen media controls. Independent geometry uses X=(x-2)/2, Y=(20-y)/4; components use dx/2,-dy/4. UTC and Pacific/Kiritimati generations match byte-for-byte; no MoTrack output used. Existing Java archive generator retains the unchanged secondary image experiment and opaque support records. Acceptance variant starts at 0 ms; the original negative-time vector defect is independently retained in issue #146 fixtures.",
       "assets": [
         {
           "file": "frame0.png",
@@ -690,11 +869,11 @@
       "session_time_samples": [
         {
           "frame": 0,
-          "time_ms": -250.0
+          "time_ms": 0.0
         },
         {
           "frame": 3,
-          "time_ms": 125.0
+          "time_ms": 375.0
         }
       ],
       "session_media": {
@@ -809,6 +988,199 @@
       "native_media_vector_archive_roundtrip": true,
       "session_archive": true,
       "project_member": "experiment.trk"
+    },
+    {
+      "id": "vector-images-negative-time",
+      "tracker_version": "6.3.5",
+      "file": "negative-linked-images.trk",
+      "local_file": "fixtures/vector-images/negative-linked-images.trk",
+      "sha256": "0d8475c45e472e0322d9abb5921b6757b4fafe87cbdec9c1a0af39d50faaf6e2",
+      "bytes": 9113,
+      "expected": "expected/vector-images-negative-time.json",
+      "provenance": "MediaVectorsFixture uses public Tracker 6.3.5 Vector APIs and frozen media controls. Independent geometry uses X=(x-2)/2, Y=(20-y)/4; components use dx/2,-dy/4. UTC and Pacific/Kiritimati generations match byte-for-byte; no MoTrack output used. Original -250 ms variant retained byte-for-byte from failed CI a1a9ee3; correct expected rows are not replaced by Tracker omissions. MoTrack issue #146.",
+      "assets": [
+        {
+          "file": "frame0.png",
+          "local_file": "fixtures/vector-images/images/frame0.png",
+          "sha256": "92109968bf1bb896af9283616e0615470bf1d0446a6de30f5b97fed8075dd764",
+          "bytes": 1345
+        },
+        {
+          "file": "frame1.png",
+          "local_file": "fixtures/vector-images/images/frame1.png",
+          "sha256": "b04d3a4a2cc7383f43ffb0e3402909ed258f8e4da49e8d0f42b6ea74a7ce52d1",
+          "bytes": 1427
+        },
+        {
+          "file": "frame2.png",
+          "local_file": "fixtures/vector-images/images/frame2.png",
+          "sha256": "bf33ac1122acf24cacedac9a1043fa004e85fa3de46028f01023a87e2f52868c",
+          "bytes": 1498
+        },
+        {
+          "file": "frame3.png",
+          "local_file": "fixtures/vector-images/images/frame3.png",
+          "sha256": "1e4d3e4489b7f53b8f60b5fd9f582df93c89d0223f69463a558d3a6d91093337",
+          "bytes": 1499
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector A"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "vector B"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+          "name": "empty vector"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": true,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "vector A",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": -250.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 125.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.core.ImageVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "media_vector_kind": "images",
+      "features": [
+        "independent-vectors",
+        "sparse-frames",
+        "zero-vector",
+        "empty-vector",
+        "nonuniform-calibration",
+        "media-bearing"
+      ],
+      "requirements": [
+        "R02",
+        "R07",
+        "R16"
+      ],
+      "session_key_frames": [],
+      "session_vector_data": [
+        {
+          "name": "vector A",
+          "samples": [
+            {
+              "frame": 0,
+              "components": [
+                1.5,
+                -1
+              ],
+              "magnitude": 1.8027756377319946
+            },
+            {
+              "frame": 2,
+              "components": [
+                -2,
+                0.5
+              ],
+              "magnitude": 2.0615528128088303
+            }
+          ]
+        },
+        {
+          "name": "vector B",
+          "samples": [
+            {
+              "frame": 1,
+              "components": [
+                -1.5,
+                0
+              ],
+              "magnitude": 1.5
+            },
+            {
+              "frame": 3,
+              "components": [
+                0,
+                0
+              ],
+              "magnitude": 0
+            }
+          ]
+        },
+        {
+          "name": "empty vector",
+          "samples": []
+        }
+      ],
+      "session_known_issue": "tracker-6.3.5-vector-negative-time"
     },
     {
       "id": "movie-tracks",

@@ -850,6 +850,62 @@ class CorpusTests(unittest.TestCase):
                          [f"media-vectors-{kind}-{route}-{scenario}" for kind in ["movie", "images"]
                           for route in ["archive", "paired"] for scenario in corpus.MEDIA_VECTOR_SCENARIOS])
 
+    def test_negative_time_vector_defect_is_retained_and_never_accepted(self):
+        manifest = corpus.load_manifest()
+        for kind in ["images", "movie"]:
+            case = next(c for c in manifest["cases"] if c["id"] == "vector-" + kind + "-negative-time")
+            expected = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
+            self.assertEqual(expected["clip"]["start_ms"], -250.0)
+            self.assertFalse(any(key.startswith("native_") for key in case))
+            corpus.verify_file(corpus.local_fixture_path(case), case)
+            tracks = [copy.deepcopy(case["session_tracks"][0])]
+            for vector, data in zip(expected["vectors"], case["session_vector_data"], strict=True):
+                tracks.append({"class": "org.opensourcephysics.cabrillo.tracker.Vector", "name": vector["name"],
+                               "vector_samples": copy.deepcopy(vector["samples"]),
+                               "calibrated_vector_samples": copy.deepcopy(data["samples"])})
+            before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                      "media": case["session_media"], "frame_duration_ms": 125.0, "axes": case["session_axes"],
+                      "calibration": case["session_calibration"], "time_samples": case["session_time_samples"],
+                      "name_references": {"selected_track": case["session_selected_track"]}, **corpus.session_units(case, expected)}
+            valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                     "view_preparation": "expand_visit_custom_tables_restore_selection",
+                     **{stage: copy.deepcopy(before) for stage in ["before", "after_save", "after"]}}
+            corpus.validate_session(case, valid, manifest)
+            defect = copy.deepcopy(valid)
+            for stage in ["before", "after_save", "after"]:
+                for index in [1, 2]:
+                    del defect[stage]["tracks"][index]["calibrated_vector_samples"][0]
+            with self.assertRaisesRegex(ValueError, "calibrated_vectors"):
+                corpus.validate_session(case, defect, manifest)
+            result = corpus.validate_known_session_issue(case, defect, manifest, corpus.local_fixture_path(case))
+            self.assertFalse(result["compatibility_accepted"])
+            self.assertEqual(result["expected_vector_data"], case["session_vector_data"])
+            self.assertEqual(result["verification_level"], "tracker_session_known_issue")
+            # A fixed Tracker, additional missing rows, wrong raw data or wrong times must fail
+            # this narrow diagnosis, including identical corruption at every snapshot stage.
+            mutations = [lambda row: row["tracks"][1].update(calibrated_vector_samples=case["session_vector_data"][0]["samples"]),
+                         lambda row: row["tracks"][1].update(calibrated_vector_samples=[]),
+                         lambda row: row["tracks"][2]["calibrated_vector_samples"][0].update(frame=1),
+                         lambda row: row["tracks"][1]["calibrated_vector_samples"][0].update(components=[0.0, 0.0]),
+                         lambda row: row["tracks"][1]["vector_samples"].pop(0),
+                         lambda row: row["tracks"][1]["vector_samples"][0].update(tail=[0.0, 0.0]),
+                         lambda row: row["time_samples"][0].update(time_ms=0.0),
+                         lambda row: row["clip"].update(start_ms=0.0),
+                         lambda row: row["media"].update(frame_count=3)]
+            for index, mutate in enumerate(mutations):
+                for stages in [["after"], ["before", "after_save", "after"]]:
+                    with self.subTest(kind=kind, mutation=index, stages=stages):
+                        invalid = copy.deepcopy(defect)
+                        for stage in stages:
+                            mutate(invalid[stage])
+                        with self.assertRaises(ValueError):
+                            corpus.validate_known_session_issue(case, invalid, manifest, corpus.local_fixture_path(case))
+            for invalid_case in [{**case, "id": "vector-" + kind}, {**case, "session_known_issue": "other"}]:
+                with self.assertRaises(ValueError):
+                    corpus.validate_known_session_issue(invalid_case, defect, manifest, corpus.local_fixture_path(case))
+            with self.assertRaises(ValueError):
+                corpus.validate_known_session_issue(case, defect, {**manifest, "reference": {"version": "6.3.6"}}, corpus.local_fixture_path(case))
+
     def test_media_vector_xml_oracle_rejects_unrequested_edits(self):
         for kind in ["images", "movie"]:
             case = next(c for c in corpus.load_manifest()["cases"] if c["id"] == "vector-" + kind)
