@@ -1,5 +1,6 @@
 #include "legacy_project.hpp"
 #include "measurements.hpp"
+#include "movie_authoring.hpp"
 #include "paired_save.hpp"
 #include "track_edits.hpp"
 #include "tracker_archive.hpp"
@@ -238,7 +239,8 @@ try
          args[1] == "--export-archive-movie-clip" || args[1] == "--export-archive-movie-clip-single" ||
          args[1] == "--export-paired-archive-movie" || args[1] == "--export-archive-movie-calibration" ||
          args[1] == "--export-paired-archive-movie-calibration" || args[1] == "--export-archive-movie-keyed-calibration" ||
-         args[1] == "--export-paired-archive-movie-keyed-calibration"))
+         args[1] == "--export-paired-archive-movie-keyed-calibration" || args[1].startsWith("--export-archive-movie-tracks-") ||
+         args[1].startsWith("--export-paired-archive-movie-tracks-")))
     {
         const bool movie = args[1].contains("movie");
         QTemporaryDir temporary;
@@ -278,6 +280,8 @@ try
             editMovieCalibration(document, edits);
         if (args[1].endsWith("-movie-keyed-calibration"))
             editKeyedMovieCalibration(document, edits);
+        if (args[1].contains("-movie-tracks-"))
+            editMovieTracks(document.project, edits, args[1].section("-movie-tracks-", 1, 1));
         if (args[1] == "--export-archive-image-clip" || args[1] == "--export-archive-movie-clip" ||
             args[1] == "--export-archive-movie-clip-single")
         {
@@ -303,7 +307,8 @@ try
          args[1] == "--export-packaged-movie" || args[1] == "--export-packaged-movie-clip" ||
          args[1] == "--export-packaged-movie-clip-single" || args[1] == "--export-linked-movie-calibration" ||
          args[1] == "--export-packaged-movie-calibration" || args[1] == "--export-linked-movie-keyed-calibration" ||
-         args[1] == "--export-packaged-movie-keyed-calibration"))
+         args[1] == "--export-packaged-movie-keyed-calibration" || args[1].startsWith("--export-linked-movie-tracks-") ||
+         args[1].startsWith("--export-packaged-movie-tracks-")))
     {
         const bool packaged = args[1].startsWith("--export-packaged-movie");
         QTemporaryDir temporary;
@@ -314,7 +319,8 @@ try
         const QDir destinationDirectory(QFileInfo(args[3]).absolutePath());
         const auto mediaDirectory = destinationDirectory.absoluteFilePath(QString::fromUtf8("média & movie"));
         const bool keyed = args[1].endsWith("-movie-keyed-calibration");
-        const auto name = packaged || keyed ? QStringLiteral("constant-rate.mov") : QStringLiteral("constant-rate.avi");
+        const bool authoring = args[1].contains("-movie-tracks-");
+        const auto name = packaged || keyed || authoring ? QStringLiteral("constant-rate.mov") : QStringLiteral("constant-rate.avi");
         const auto movie = mediaDirectory + '/' + name;
         if (!temporary.isValid() || !QDir().mkdir(inputDirectory) || !QDir().mkdir(mediaDirectory) || !QFile::copy(args[2], source) ||
             !QFile::copy(originalDirectory.filePath(name), movie))
@@ -340,6 +346,8 @@ try
             editMovieCalibration(document, edits);
         if (keyed)
             editKeyedMovieCalibration(document, edits);
+        if (authoring)
+            editMovieTracks(document.project, edits, args[1].section("-movie-tracks-", 1, 1));
         if (args[1].contains("-clip"))
         {
             const bool single = args[1].endsWith("-single");

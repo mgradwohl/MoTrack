@@ -163,7 +163,7 @@ TEST(TrackerMoviePackage, RefusesUnsupportedOrUnindexedInputsWithoutReplacingDes
             document.project.clip.frameDurationMs = 250;
             break;
         case 10:
-            document.project.pointMasses.front().name = "unsupported rename";
+            document.project.pointMasses.front().name = "invalid,name";
             break;
         default:
             break;

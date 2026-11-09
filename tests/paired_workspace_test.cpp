@@ -184,6 +184,71 @@ TEST(PairedWorkspace, SavesIndexedMovieEditsAndNativeCompanionAfterSourceRemoval
     EXPECT_EQ(motrack::importTrackerDocument(target).project.calibration, motrack::readWorkspaceDocument(native).project.calibration);
 }
 
+TEST(PairedWorkspace, SavesMovieTrackCreationRenameAndDeletionThroughDesktopHistory)
+{
+    QTemporaryDir temporary;
+    const auto directory = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/movie-tracks/";
+    const auto input = temporary.filePath("input.trk");
+    ASSERT_TRUE(QFile::copy(directory + "linked-movie.trk", input));
+    ASSERT_TRUE(QFile::copy(directory + "constant-rate.mov", temporary.filePath("constant-rate.mov")));
+    const auto target = temporary.filePath("saved.trk");
+    const auto native = temporary.filePath("saved.motrack");
+    {
+        motrack::MainWindow window;
+        ASSERT_TRUE(window.loadProject(input));
+        auto* plot = window.findChild<QWidget*>("positionPlot");
+        auto* canvas = dynamic_cast<motrack::VideoCanvas*>(window.findChild<QWidget*>("videoCanvas"));
+        auto* create = window.findChild<QAction*>("newPointMass");
+        auto* rename = window.findChild<QAction*>("renamePointMass");
+        auto* remove = window.findChild<QAction*>("removePointMass");
+        auto* undo = window.findChild<QAction*>("undoEdit");
+        auto* redo = window.findChild<QAction*>("redoEdit");
+        ASSERT_TRUE(plot && canvas && create && rename && remove && undo && redo);
+        ASSERT_TRUE(QTest::qWaitFor([plot] { return plot->accessibleName().endsWith("Time (s)"); }));
+        create->trigger();
+        bool named = false;
+        QTimer::singleShot(0,
+                           &window,
+                           [&]
+                           {
+                               if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget()))
+                               {
+                                   dialog->setTextValue(QString::fromUtf8("new movie β"));
+                                   named = true;
+                                   dialog->accept();
+                               }
+                           });
+        rename->trigger();
+        ASSERT_TRUE(named);
+        ASSERT_TRUE(editMass(window, 4));
+        ASSERT_TRUE(canvas->pick({8, 4}, true));
+        remove->trigger();
+        undo->trigger();
+        ASSERT_TRUE(QFile::remove(input));
+        ASSERT_TRUE(window.saveTrackerProject(target));
+        const auto saved = motrack::importTrackerDocument(target).project;
+        ASSERT_EQ(saved.pointMasses.size(), 3);
+        EXPECT_EQ(saved.pointMasses.back().name, QString::fromUtf8("new movie β").toStdString());
+        EXPECT_EQ(saved.pointMasses.back().mass, 4);
+        EXPECT_EQ(saved.pointMasses.back().marks, (std::vector<motrack::Mark>{{.frame = 0, .x = 8, .y = 4}}));
+        EXPECT_EQ(motrack::readWorkspaceDocument(native).project.pointMasses.back(), saved.pointMasses.back());
+        redo->trigger();
+        ASSERT_TRUE(window.saveTrackerProject(target));
+        EXPECT_EQ(motrack::importTrackerDocument(target).project.pointMasses.size(), 2);
+        undo->trigger();
+        ASSERT_TRUE(window.saveTrackerProject(target));
+        EXPECT_FALSE(window.isWindowModified());
+    }
+    motrack::MainWindow reopened;
+    ASSERT_TRUE(reopened.loadProject(native));
+    auto* plot = reopened.findChild<QWidget*>("positionPlot");
+    ASSERT_NE(plot, nullptr);
+    ASSERT_TRUE(QTest::qWaitFor([plot] { return plot->accessibleName().endsWith("Time (s)"); }));
+    ASSERT_TRUE(reopened.saveTrackerProject(target));
+    EXPECT_EQ(motrack::importTrackerDocument(target).project.pointMasses.size(), 3);
+    EXPECT_EQ(bytes(temporary.filePath("constant-rate.mov")), bytes(directory + "constant-rate.mov"));
+}
+
 TEST(PairedWorkspace, SavesMovingMovieCalibrationAtOriginalFramesWithUndoRedo)
 {
     QTemporaryDir temporary;

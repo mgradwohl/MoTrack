@@ -1245,7 +1245,7 @@ calibration acceptance, timing edits, filters or broader movie containers, and d
 
 ### Varying and partly fixed movie calibration
 
-The corpus now has **44 pinned cases**. Seven `keyed-movie-0` through `keyed-movie-6` projects and
+This extension brought the corpus to **44 pinned cases**. Seven `keyed-movie-0` through `keyed-movie-6` projects and
 seven corresponding `archived-keyed-movie-*` experiments extend the original 30 cases without changing
 their fixture bytes or expectations. Flag bits 1, 2 and 4 mean fixed origin, angle and scale respectively;
 zero is fully varying and the remaining six cases cover every partly fixed combination. All-fixed
@@ -1324,7 +1324,47 @@ all seven calibrations with a strided clip without losing excluded marks. The de
 original frames 2 and 1, places axes and distance endpoints, saves after undo, redoes and saves again,
 then reopens the native companion and saves the same calibration back to Tracker format.
 
-Actual Tracker baseline and edited load/save/fresh-process reopen acceptance for these new cases is
-still pending current-revision Linux CI and review. Both archive experiments and every media byte must
+All 14 new baselines and 28 edited modes passed actual Tracker load/save/fresh-process reopen
+and native reimport in [PR #143](https://github.com/mgradwohl/MoTrack/pull/143), reviewed at `7e7ace4`.
+[CI 42602902771](https://github.com/mgradwohl/MoTrack/actions/runs/42602902771) passed all six checks
+with **95.83% combined C++ line coverage (8940/9329)**. Both archive experiments and every media byte must
 survive, including the untouched image tab. These cases do not enable fixed-state toggles, key deletion,
 moving reference frames, filters, numeric movie timing changes or broader movie containers.
+
+
+### Movie track creation, naming and deletion
+
+`MovieTracksFixture.java` adds a second independent mass to the pinned constant-rate MOV controls
+using public Tracker 6.3.5 APIs. It runs headlessly, with a 256 MB heap and 45-second deadline;
+UTC and Pacific/Kiritimati outputs are byte-identical. `movie-tracks` and `archived-movie-tracks`
+bring the corpus to **46 pinned cases**, preserving all previous fixture bytes and expectations.
+The archive contains the unmodified secondary image experiment and all nine original-style members.
+
+The original selected `movie mass` is 2 kg with marks at frames 0 and 2. `other mass` is 3 kg with
+frame-1 image (6,8), world (2,3), and frame-3 image (10,12), world (4,2). Expectations follow
+X=(x-2)/2, Y=(20-y)/4. Empty raw manual-key arrays load as [0,2] and [1,3], respectively.
+A description contains both names as ordinary prose and must survive every edit unchanged.
+
+Every scenario first changes the first mass to 5 kg and adds frame-1 image (8,12), world (3,2).
+Seven subsequent scenarios run through linked TRK, existing mixed-tab TRZ, interrupted/recovered
+paired TRZ, and a new portable MOV package (28 modes):
+
+- Rename either the selected or unselected source mass to `élève β & <B>`.
+- Create a 4 kg mass `nouvelle β & <C>` at frames 0 and 3, image (8,4)/(16,8), world (3,4)/(7,3),
+  plus an empty 1 kg mass. Independently checked defaults are red, visible, unlocked Diamond with trail.
+- Delete the selected mass, unselected mass, or both; preserve the original identities of survivors.
+- Replace the selected source mass with a new 7 kg track of the same name at frame 3, image (14,0),
+  world (6,5). The deleted selection is cleared and cannot attach itself to the new identity.
+
+The native probe undoes/redoes every authoring operation, saves/reopens a native companion, removes
+the original project, then exports. Archive modes verify both experiments; paired mode recovers after
+standard output commits; package mode removes all external movie copies. Whole-XML expectations
+permit only the stated edits, complete movie hashes and untouched ZIP records are checked, and native
+reimport must match independent values. Session checks require exact identities, manual keys,
+selection, appearance, measurements, calibration, every movie frame/timestamp and fresh-JVM resave.
+Negative oracle tests reject consistently wrong data at all three stages as well as individual losses.
+
+All 28 local export/oracle/reimport cases pass. Actual Tracker acceptance for these new modes is
+pending current-revision Linux CI and review. This is scoped phase-3 coverage for
+[MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65), not reproduction of Tracker #10's
+historical file/Open Recent problem, broader view preservation or full movie interchange.

@@ -368,6 +368,11 @@ def validate_session(case, report, manifest, expected=None, key_frames=None, cal
         compare(case["session_media"], before.get("media"), tolerance, case["id"] + ".media")
     elif before.get("media") is not None:
         raise ValueError("Media sessions require independent pixel and timing expectations")
+    for name, appearance in case.get("session_track_appearances", {}).items():
+        matches = [track for track in before["tracks"] if track["name"] == name]
+        if len(matches) != 1:
+            raise ValueError("Created movie track appearance target missing or ambiguous")
+        compare(appearance, matches[0].get("appearance"), tolerance, case["id"] + ".appearance." + name)
     if "session_created_mass_appearance" in case:
         compare(case["session_created_mass_appearance"], before["tracks"][-1].get("appearance"),
                 tolerance, case["id"] + ".created_mass_appearance")
@@ -467,8 +472,100 @@ def private_display():
                 server.wait(timeout=5)
 
 
+MOVIE_TRACK_SCENARIOS = ("selected-name", "unselected-name", "create", "delete-selected", "delete-unselected", "delete-all", "replace")
+
+
+def movie_tracks_roundtrip_expected(case, scenario):
+    if case["id"] not in {"movie-tracks", "archived-movie-tracks"} or scenario not in MOVIE_TRACK_SCENARIOS:
+        raise ValueError("Movie authoring requires the pinned two-mass fixture and a known edit")
+    expected = linked_media_roundtrip_expected(case)
+    case = copy.deepcopy(case)
+    masses = expected["point_masses"]
+    keys = [[0, 1, 2], [1, 3]]
+    if scenario in {"selected-name", "unselected-name"}:
+        masses[0 if scenario == "selected-name" else 1]["name"] = RENAME_LABEL
+        if scenario == "selected-name":
+            case["session_selected_track"] = RENAME_LABEL
+    elif scenario == "create":
+        # Fixed origin (2,20), scales (2,4), y up. No values are read from the native export.
+        masses.extend([{"name": CREATED_MASS_NAME, "mass": 4.0, "samples": [
+            {"frame": 0, "image": [8.0, 4.0], "world": [3.0, 4.0]},
+            {"frame": 3, "image": [16.0, 8.0], "world": [7.0, 3.0]}]},
+            {"name": "empty movie track", "mass": 1.0, "samples": []}])
+        keys.extend([[0, 3], []])
+        case["session_track_appearances"] = {name: copy.deepcopy(CREATED_MASS_APPEARANCE)
+                                             for name in [CREATED_MASS_NAME, "empty movie track"]}
+    else:
+        removed = {0, 1} if scenario == "delete-all" else {1} if scenario == "delete-unselected" else {0}
+        expected["point_masses"] = [mass for i, mass in enumerate(masses) if i not in removed]
+        keys = [value for i, value in enumerate(keys) if i not in removed]
+        if 0 in removed:
+            case["session_selected_track"] = None
+        if scenario == "replace":
+            expected["point_masses"].append({"name": "movie mass", "mass": 7.0, "samples": [
+                {"frame": 3, "image": [14.0, 0.0], "world": [6.0, 5.0]}]})
+            keys.append([3])
+            case["session_track_appearances"] = {"movie mass": copy.deepcopy(CREATED_MASS_APPEARANCE)}
+    case["session_tracks"] = [case["session_tracks"][0]] + [
+        {"class": "org.opensourcephysics.cabrillo.tracker.PointMass", "name": mass["name"]}
+        for mass in expected["point_masses"]]
+    case["session_key_frames"] = keys
+    return expected, case
+
+
+def patch_expected_movie_tracks(document, scenario):
+    """Independent XML changes to the frozen two-mass fixture, after the common mass/mark edit."""
+    if scenario not in MOVIE_TRACK_SCENARIOS:
+        raise ValueError("Unknown movie authoring scenario")
+    def children(node, tag):
+        return [child for child in node.childNodes if child.nodeType == child.ELEMENT_NODE and child.tagName == tag]
+    def prop(node, name):
+        values = [child for child in children(node, "property") if child.getAttribute("name") == name]
+        if len(values) != 1:
+            raise ValueError("Expected unique pinned movie property: " + name)
+        return values[0]
+    def scalar(node, text):
+        for child in list(node.childNodes):
+            node.removeChild(child)
+        node.appendChild(document.createTextNode(text))
+    root = document.documentElement
+    tracks = prop(root, "tracks")
+    items = [item for item in children(tracks, "property") if children(item, "object")[0].getAttribute("class")
+             == "org.opensourcephysics.cabrillo.tracker.PointMass"]
+    if len(items) != 2:
+        raise ValueError("Expected two original movie masses")
+    if scenario in {"selected-name", "unselected-name"}:
+        scalar(prop(children(items[0 if scenario == "selected-name" else 1], "object")[0], "name"), RENAME_LABEL)
+        if scenario == "selected-name":
+            scalar(prop(root, "selectedtrack"), RENAME_LABEL)
+    elif scenario != "create":
+        for index in ({0, 1} if scenario == "delete-all" else {1} if scenario == "delete-unselected" else {0}):
+            tracks.removeChild(items[index])
+        if scenario != "delete-unselected":
+            root.removeChild(prop(root, "selectedtrack"))
+    additions = ([(CREATED_MASS_NAME, 4, [(0, 8, 4), (3, 16, 8)]), ("empty movie track", 1, [])] if scenario == "create"
+                 else [("movie mass", 7, [(3, 14, 0)])] if scenario == "replace" else [])
+    for name, mass, samples in additions:
+        framedata = ''
+        if samples:
+            framedata = ('<property name="framedata" type="array" class="[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;">'
+                + ''.join(f'<property name="[{frame}]" type="object"><object class="org.opensourcephysics.cabrillo.tracker.PointMass$FrameData">'
+                          f'<property name="x" type="double">{x}</property><property name="y" type="double">{y}</property></object></property>'
+                          for frame, x, y in samples) + '</property><property name="keyFrames" type="array" class="[I">'
+                '<property name="array" type="string">{' + ','.join(str(row[0]) for row in samples) + '}</property></property>')
+        with minidom.parseString('<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">'
+                f'<property name="name" type="string"><![CDATA[{name}]]></property><property name="mass" type="double">{mass}</property>'
+                '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
+                '<property name="locked" type="boolean">false</property><property name="footprint" type="string">Footprint.Diamond</property>'
+                '<property name="color" type="object"><object class="java.awt.Color"><property name="red" type="int">255</property>'
+                '<property name="green" type="int">0</property><property name="blue" type="int">0</property>'
+                '<property name="alpha" type="int">255</property></object></property>' + framedata + '</object></property>') as added:
+            tracks.appendChild(document.importNode(added.documentElement, True))
+
+
 def linked_media_roundtrip_expected(case):
-    if case["id"] not in {"linked-images", "archived-images", "multitab-images", "linked-movie", "linked-mov", "archived-movie"}:
+    if case["id"] not in {"linked-images", "archived-images", "multitab-images", "linked-movie", "linked-mov", "archived-movie",
+                          "movie-tracks", "archived-movie-tracks"}:
         raise ValueError("Linked-media edits require a pinned experiment")
     expected = json.loads(expected_path(case).read_text(encoding="utf-8"))["project"]
     expected["point_masses"][0]["mass"] = 5.0
@@ -577,7 +674,7 @@ def patch_expected_movie_calibration(document, case):
                 node.data = format(value, ".17g")
 
 
-def patch_expected_linked_media(document, relocate=True, packaged=False, movie=False, clip_mode=None, calibrated=False, keyed_case=None):
+def patch_expected_linked_media(document, relocate=True, packaged=False, movie=False, clip_mode=None, calibrated=False, keyed_case=None, authoring=None):
     if clip_mode not in {None, "stride", "single"}:
         raise ValueError("Unknown linked-media clip mode")
     if (calibrated or keyed_case is not None) and not movie:
@@ -614,7 +711,7 @@ def patch_expected_linked_media(document, relocate=True, packaged=False, movie=F
         if packaged:
             scalar(prop(video, "path"), "media/movie.mov")
         elif relocate:
-            scalar(prop(video, "path"), "média & movie/constant-rate." + ("mov" if keyed_case is not None else "avi"))
+            scalar(prop(video, "path"), "média & movie/constant-rate." + ("mov" if keyed_case is not None or authoring else "avi"))
     elif relocate or packaged:
         paths = prop(video, "paths")
         references = [f"images/frame-{index:06d}.png" if packaged else f"media é & frames/frame{index}.png" for index in range(4)]
@@ -653,6 +750,8 @@ def patch_expected_linked_media(document, relocate=True, packaged=False, movie=F
     values.setAttribute("type", "string")
     values.appendChild(document.createTextNode("{0,1,2}"))
     keys.appendChild(values)
+    if authoring:
+        patch_expected_movie_tracks(document, authoring)
 
 
 def verify_linked_image_export_xml(original, exported, case, clip_mode=None):
@@ -766,15 +865,15 @@ def verify_saved_movie_asset(saved, asset, *, allow_archive=False):
     return {"reference": paths[0].text, "bytes": len(payload), "sha256": digest}
 
 
-def verify_linked_movie_export_xml(original, exported, case, clip_mode=None, *, calibrated=False, keyed=False):
+def verify_linked_movie_export_xml(original, exported, case, clip_mode=None, *, calibrated=False, keyed=False, authoring=None):
     with minidom.parse(str(original)) as expected, minidom.parse(str(exported)) as actual:
-        patch_expected_linked_media(expected, movie=True, clip_mode=clip_mode, calibrated=calibrated, keyed_case=case if keyed else None)
+        patch_expected_linked_media(expected, movie=True, clip_mode=clip_mode, calibrated=calibrated, keyed_case=case if keyed else None, authoring=authoring)
         if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
             raise ValueError("Linked-movie export changed content beyond the requested path, mass, mark, clip range and calibration")
     verify_file(exported.parent / "média & movie" / case["assets"][0]["file"], case["assets"][0])
 
 
-def verify_media_package_export(original, exported, selected_xml, case, clip_mode=None, *, movie=False, calibrated=False, keyed=False):
+def verify_media_package_export(original, exported, selected_xml, case, clip_mode=None, *, movie=False, calibrated=False, keyed=False, authoring=None):
     """Independent ZIP/XML/hash oracle for a new package; no external media paths may survive."""
     if exported.stat().st_size > 1024 * 1024:
         raise ValueError("Media package reference exceeds the small-fixture limit")
@@ -796,7 +895,7 @@ def verify_media_package_export(original, exported, selected_xml, case, clip_mod
             xml = package.read("experiment.trk")
             with minidom.parse(str(original)) as expected, minidom.parseString(xml) as actual:
                 patch_expected_linked_media(expected, packaged=True, clip_mode=clip_mode, movie=movie, calibrated=calibrated,
-                                            keyed_case=case if keyed else None)
+                                            keyed_case=case if keyed else None, authoring=authoring)
                 if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
                     raise ValueError("Media package changed XML beyond the requested paths, mass, mark, clip and calibration")
             selected_xml.write_bytes(xml)
@@ -804,7 +903,7 @@ def verify_media_package_export(original, exported, selected_xml, case, clip_mod
         raise ValueError("Media package ZIP integrity check failed") from error
 
 
-def verify_archive_media_export(original, exported, selected_xml, member_count=7, clip_mode=None, *, movie=False, calibrated=False, keyed_case=None):
+def verify_archive_media_export(original, exported, selected_xml, member_count=7, clip_mode=None, *, movie=False, calibrated=False, keyed_case=None, authoring=None):
     """Independent ZIP reader: only the selected XML and its encoding metadata may change."""
     if max(original.stat().st_size, exported.stat().st_size) > 1024 * 1024:
         raise ValueError("Archive reference exceeds the small-fixture limit")
@@ -826,7 +925,7 @@ def verify_archive_media_export(original, exported, selected_xml, member_count=7
                     raise ValueError("Unexpected edited-member encoding")
                 with minidom.parseString(before.read(a)) as expected, minidom.parseString(after.read(b)) as actual:
                     patch_expected_linked_media(expected, relocate=False, movie=movie, clip_mode=clip_mode, calibrated=calibrated,
-                                                keyed_case=keyed_case)
+                                                keyed_case=keyed_case, authoring=authoring)
                     if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
                         raise ValueError("Archive export changed XML beyond the requested mass, mark, clip and calibration")
                 selected_xml.write_bytes(after.read(b))
@@ -2008,11 +2107,14 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
         export_mode = mode if movie else "multitab-archive-images"
         calibrated = movie and mode.endswith("-movie-calibration")
         keyed = movie and mode.endswith("-movie-keyed-calibration")
+        authoring = mode.split("-movie-tracks-", 1)[1] if "-movie-tracks-" in mode else None
         clip_mode = "single" if mode == "archive-movie-clip-single" else "stride" if mode == "archive-movie-clip" else None
         run([str(Path(probe).resolve()), "--export-" + export_mode, str(source), str(exported)])
         verify_archive_media_export(source, exported, output / "exported-member.trk", member_count=9 if movie else 8,
-                                    clip_mode=clip_mode, movie=movie, calibrated=calibrated, keyed_case=templates[0] if keyed else None)
-        if keyed:
+                                    clip_mode=clip_mode, movie=movie, calibrated=calibrated, keyed_case=templates[0] if keyed else None, authoring=authoring)
+        if authoring:
+            expected[0], templates[0] = movie_tracks_roundtrip_expected(templates[0], authoring)
+        elif keyed:
             expected[0], templates[0] = keyed_movie_roundtrip_expected(templates[0])
         else:
             expected[0] = linked_media_roundtrip_expected(case)
@@ -2145,6 +2247,13 @@ def check_sessions(manifest, cache, java, probe=None):
              ("attachment-first-name", "native_attachment_name_roundtrip"),
              ("attachment-last-name", "native_attachment_name_roundtrip"),
              ("model-booster-name", "native_model_name_roundtrip")] if probe else [("session", "session_tracks")]
+    if probe:
+        modes.extend((prefix + "-movie-tracks-" + scenario, flag)
+                     for prefix, flag in [("linked", "native_movie_tracks_roundtrip"),
+                                          ("packaged", "native_movie_tracks_package_roundtrip"),
+                                          ("archive", "native_movie_tracks_archive_roundtrip"),
+                                          ("paired-archive", "native_movie_tracks_archive_roundtrip")]
+                     for scenario in MOVIE_TRACK_SCENARIOS)
     cases = [(case, mode) for case in manifest["cases"] if "session_tracks" in case
              for mode, flag in modes if case.get(flag)]
     if not cases:
@@ -2206,8 +2315,9 @@ def check_sessions(manifest, cache, java, probe=None):
                 case = {**case, "session_tracks": [track for track in case["session_tracks"]
                                                    if track["class"] == "org.opensourcephysics.cabrillo.tracker.CoordAxes"]}
             expected = None
+            authoring = mode.split("-movie-tracks-", 1)[1] if "-movie-tracks-" in mode else None
             if mode in {"packaged-images", "packaged-image-clip", "packaged-movie", "packaged-movie-clip", "packaged-movie-clip-single",
-                        "packaged-movie-calibration", "packaged-movie-keyed-calibration"}:
+                        "packaged-movie-calibration", "packaged-movie-keyed-calibration"} or mode.startswith("packaged-movie-tracks-"):
                 packaged_movie = mode.startswith("packaged-movie")
                 clip_mode = ("single" if mode in {"packaged-image-clip", "packaged-movie-clip-single"}
                              else "stride" if mode == "packaged-movie-clip" else None)
@@ -2215,11 +2325,13 @@ def check_sessions(manifest, cache, java, probe=None):
                 run([str(Path(probe).resolve()), "--export-" + mode, str(project), str(exported)])
                 selected = output / "exported-member.trk"
                 verify_media_package_export(project, exported, selected, case, clip_mode, movie=packaged_movie,
-                                            calibrated=mode == "packaged-movie-calibration", keyed=mode == "packaged-movie-keyed-calibration")
+                                            calibrated=mode == "packaged-movie-calibration", keyed=mode == "packaged-movie-keyed-calibration", authoring=authoring)
                 if (output / ("média & movie" if packaged_movie else "media é & frames")).exists():
                     raise ValueError("Media package probe retained original external media")
                 project = selected
-                if mode == "packaged-movie-keyed-calibration":
+                if authoring:
+                    expected, case = movie_tracks_roundtrip_expected(case, authoring)
+                elif mode == "packaged-movie-keyed-calibration":
                     expected, case = keyed_movie_roundtrip_expected(case)
                 else:
                     expected = linked_media_roundtrip_expected(case)
@@ -2257,7 +2369,10 @@ def check_sessions(manifest, cache, java, probe=None):
             elif probe:
                 exported = output / "motrack-export.trk"
                 run([str(Path(probe).resolve()), "--export-" + mode, str(project), str(exported)])
-                if mode == "linked-movie":
+                if mode.startswith("linked-movie-tracks-"):
+                    verify_linked_movie_export_xml(project, exported, case, authoring=authoring)
+                    expected, case = movie_tracks_roundtrip_expected(case, authoring)
+                elif mode == "linked-movie":
                     verify_linked_movie_export_xml(project, exported, case)
                     expected = linked_media_roundtrip_expected(case)
                 elif mode == "linked-movie-calibration":
@@ -2370,7 +2485,7 @@ def check_sessions(manifest, cache, java, probe=None):
                     # Both cases use the independently pinned four-image fixture, including excluded frames.
                     assets = next(item["assets"] for item in manifest["cases"] if item["id"] == "linked-images")
                     image_inventories[stage] = verify_saved_image_inventory(output / "tracker-resaved.trk", assets)
-                elif case["id"] in {"linked-movie", "linked-mov"} or "movie_calibration_flags" in case:
+                elif case["id"] in {"linked-movie", "linked-mov", "movie-tracks"} or "movie_calibration_flags" in case:
                     movie_inventories[stage] = verify_saved_movie_asset(output / "tracker-resaved.trk", case["assets"][0],
                                                                        allow_archive=mode.startswith("packaged-movie"))
             report = {"reference_version": stages["save"]["reference_version"], "verification_level": "tracker_session_resave",
@@ -2425,7 +2540,7 @@ def check_sessions(manifest, cache, java, probe=None):
                     standard = "TRZ" if mode in {"archive-images", "paired-archive-images", "packaged-images",
                                                 "archive-image-clip", "packaged-image-clip",
                                                 "packaged-movie", "packaged-movie-clip", "packaged-movie-clip-single",
-                                                "packaged-movie-calibration", "packaged-movie-keyed-calibration"} else "TRK"
+                                                "packaged-movie-calibration", "packaged-movie-keyed-calibration"} or mode.startswith("packaged-movie-tracks-") else "TRK"
                     pair = "interrupted paired save/recovery; " if mode.startswith("paired-") else ""
                     print(f"{case['id']}/{mode}: passed (MoTrack edit/native reopen/{standard} export; {pair}Tracker load/save/reopen; native reimport)")
             elif known_report is not None:

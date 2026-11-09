@@ -35,6 +35,289 @@
   },
   "cases": [
     {
+      "id": "movie-tracks",
+      "tracker_version": "6.3.5",
+      "file": "movie-tracks.trk",
+      "local_file": "fixtures/movie-tracks/linked-movie.trk",
+      "sha256": "cb29e3391ff83395a770cdf2d85e701d3d07a2cc1ae8efcab93843705d5d1a65",
+      "bytes": 7200,
+      "expected": "expected/movie-tracks.json",
+      "provenance": "MovieTracksFixture uses public Tracker 6.3.5 point-mass APIs and the pinned linked MOV controls. Independent second-mass values use X=(x-2)/2 and Y=(20-y)/4. Two timezone generations are byte-identical.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/movie-tracks/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "movie mass"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "other mass"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": true,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "movie mass",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": -250.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 125.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "constant-rate-mov",
+        "independent-point-masses",
+        "selected-track",
+        "non-reference-name-text",
+        "movie-track-authoring"
+      ],
+      "session_key_frames": [
+        [
+          0,
+          2
+        ],
+        [
+          1,
+          3
+        ]
+      ],
+      "native_movie_tracks_roundtrip": true,
+      "native_movie_tracks_package_roundtrip": true,
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R06"
+      ]
+    },
+    {
+      "id": "archived-movie-tracks",
+      "tracker_version": "6.3.5",
+      "file": "archived-movie-tracks.trz",
+      "local_file": "fixtures/movie-tracks/archived-movie-tracks.trz",
+      "sha256": "f7dc69e0dd886ade15363be4d7e0160c296243d6cc06c35590a7a97e23c24c05",
+      "bytes": 15891,
+      "expected": "expected/movie-tracks.json",
+      "provenance": "MovieTracksFixture uses public Tracker 6.3.5 point-mass APIs and the pinned linked MOV controls. Independent second-mass values use X=(x-2)/2 and Y=(20-y)/4. Two timezone generations are byte-identical. ArchiveMovieFixture packages the unchanged secondary image experiment, media and opaque support files; all member metadata is frozen.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/movie-tracks/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "movie mass"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "other mass"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": true,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "movie mass",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": -250.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 125.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "constant-rate-mov",
+        "independent-point-masses",
+        "selected-track",
+        "non-reference-name-text",
+        "movie-track-authoring"
+      ],
+      "session_key_frames": [
+        [
+          0,
+          2
+        ],
+        [
+          1,
+          3
+        ]
+      ],
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R06"
+      ],
+      "project_member": "experiment.trk",
+      "session_archive": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "movie-tracks"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ],
+      "native_movie_tracks_archive_roundtrip": true
+    },
+    {
       "id": "keyed-movie-0",
       "tracker_version": "6.3.5",
       "file": "linked-movie.trk",

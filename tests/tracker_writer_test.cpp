@@ -2,6 +2,7 @@
 
 #include "local_media_path.hpp"
 #include "measurements.hpp"
+#include "movie_authoring.hpp"
 #include "track_edits.hpp"
 #include "tracker_references.hpp"
 #include "workspace_document.hpp"
@@ -126,6 +127,96 @@ TEST(TrackerWriter, SavesLinkedMovieEditsAfterNativeReopenSourceRemovalAndReloca
     EXPECT_EQ(readBytes(output), stable);
     ASSERT_TRUE(QFile::copy(fixture + "constant-rate.avi", movie));
     EXPECT_NO_THROW(motrack::writeTrackerDocument(output, reopened, output));
+}
+
+TEST(TrackerWriter, SavesMovieTrackAuthoringAfterHistoryNativeReopenAndSourceRemoval)
+{
+    for (const auto* scenario :
+         {"selected-name", "unselected-name", "create", "delete-selected", "delete-unselected", "delete-all", "replace"})
+    {
+        SCOPED_TRACE(scenario);
+        QTemporaryDir temporary;
+        const auto fixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/movie-tracks/";
+        const auto input = temporary.filePath("input.trk");
+        ASSERT_TRUE(QFile::copy(fixture + "linked-movie.trk", input));
+        ASSERT_TRUE(QFile::copy(fixture + "constant-rate.mov", temporary.filePath("constant-rate.mov")));
+        auto document = indexedMovieDocument(input);
+        const auto source = retainedSource(document).xml;
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.setPointMassValue(document.project, 0, 5));
+        ASSERT_TRUE(edits.markPointMass(document.project, 0, {.frame = 1, .x = 8, .y = 12}));
+        ASSERT_NO_THROW(editMovieTracks(document.project, edits, scenario));
+        const auto edited = document.project;
+        // Native IDs are retained, even when XML reimport later compacts surviving identities.
+        std::ranges::reverse(document.project.pointMasses);
+        const auto native = temporary.filePath("saved.motrack");
+        motrack::writeWorkspaceDocument(native, document);
+        document = {};
+        ASSERT_TRUE(QFile::remove(input));
+        document = motrack::readWorkspaceDocument(native);
+        std::ranges::reverse(document.project.pointMasses);
+        EXPECT_EQ(document.project, edited);
+        const auto target = temporary.filePath("saved.trk");
+        ASSERT_NO_THROW(motrack::writeTrackerDocument(target, document, native));
+        const auto bytes = readBytes(target);
+        auto expected = edited;
+        expected.clip.sourceFrameCount.reset();
+        expected.nextTrackId = 1;
+        for (auto& track : expected.pointMasses)
+            track.id = expected.nextTrackId++;
+        EXPECT_EQ(motrack::parseLegacyProject(bytes), expected);
+        EXPECT_EQ(retainedSource(document).xml, source);
+        EXPECT_EQ(document.project, edited);
+        EXPECT_NE(bytes.find("movie mass and other mass are words in this note."), std::string::npos);
+        ASSERT_NO_THROW(motrack::writeTrackerDocument(target, document, native));
+        EXPECT_EQ(readBytes(target), bytes);
+        auto reopened = indexedMovieDocument(target);
+        ASSERT_TRUE(edits.createPointMass(reopened.project, "after standard reopen"));
+        ASSERT_NO_THROW(motrack::writeTrackerDocument(target, reopened, target));
+        EXPECT_EQ(motrack::parseLegacyProject(readBytes(target)).pointMasses.back().name, "after standard reopen");
+        EXPECT_EQ(readBytes(temporary.filePath("constant-rate.mov")), readBytes(fixture + "constant-rate.mov"));
+    }
+}
+
+TEST(TrackerWriter, MovieAuthoringRetainsIdentitySchemaFrameAndAtomicSaveGuards)
+{
+    const auto source = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/movie-tracks/linked-movie.trk";
+    const auto original = indexedMovieDocument(source);
+    QTemporaryDir temporary;
+    const auto target = temporary.filePath("existing.trk");
+    QFile file(target);
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+    ASSERT_EQ(file.write("existing"), 8);
+    file.close();
+    const std::vector<std::function<void(motrack::WorkspaceDocument&)>> mutations{
+        [](auto& doc) { doc.project.pointMasses.back().name = "movie mass"; },
+        [](auto& doc) { doc.project.pointMasses.back().id = doc.project.pointMasses.front().id; },
+        [](auto& doc) { doc.project.nextTrackId = 1; },
+        [](auto& doc) { doc.project.pointMasses.back().marks.push_back({.frame = 4, .x = 1, .y = 2}); },
+        [](auto& doc) { doc.project.pointMasses.back().name = "null"; },
+        [](auto& doc)
+        {
+            auto& xml = retainedSource(doc).xml;
+            xml.insert(xml.rfind("</object>"),
+                       "<property name='selected_track_views' type='string'>missing,null;null,null;null,null;null,null</property>\n");
+        },
+        [](auto& doc)
+        {
+            auto& xml = retainedSource(doc).xml;
+            xml.insert(xml.rfind("</object>"), "<property name='unknown_target' type='string'>movie mass</property>\n");
+        },
+        [](auto& doc) { doc.project.vectors.push_back({.name = "vector", .samples = {}, .id = doc.project.nextTrackId++}); },
+    };
+    for (std::size_t i = 0; i < mutations.size(); ++i)
+    {
+        SCOPED_TRACE(i);
+        auto document = original;
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.createPointMass(document.project, "created"));
+        mutations[i](document);
+        EXPECT_THROW(motrack::writeTrackerDocument(target, document, source), motrack::ProjectError);
+        EXPECT_EQ(readBytes(target), "existing");
+    }
 }
 
 TEST(TrackerWriter, SavesFixedMovieCalibrationAndUnitsThroughHistoryNativeReopenAndClipSaving)
@@ -427,9 +518,8 @@ TEST(TrackerWriter, RejectsUnsupportedMovieStateBeforeReplacingExistingOutput)
         [](auto& doc) { doc.project.clip.stepSize = 0; },
         [](auto& doc) { doc.project.clip.firstFrame = 4; },
         [](auto& doc) { doc.project.clip.stepCount = 0; },
-        [](auto& doc) { doc.project.pointMasses.front().name = "renamed"; },
+        [](auto& doc) { doc.project.pointMasses.front().name = "bad,name"; },
         [](auto& doc) { doc.project.pointMasses.front().marks.front().frame = 4; },
-        [](auto& doc) { doc.project.pointMasses.clear(); },
         [](auto& doc) { doc.project.massUnit = "g"; },
         [](auto& doc) { doc.project.lengthUnit = "bad\nunit"; },
         [](auto& doc) { doc.project.calibration.reset(); },
