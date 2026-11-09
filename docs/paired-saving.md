@@ -117,6 +117,27 @@ A regression copies a live owner's lock identity to an aged claim without an OS 
 so timeout-based theft cannot be masked by native locking support. Both new writes and recovery
 must refuse that claim; the separate terminated-child regression still proves dead-owner recovery.
 
+Native writes, paired writes and recovery share a sibling `stem~` lock. Keeping the complete stem
+lets the filesystem determine case and Unicode aliases; the one-character suffix leaves room for
+Qt's `.rmlock` stale-owner cleanup suffix. Ordinary journals retain `.stem.motrack-save.json`.
+If that name exceeds 248 UTF-8 bytes, the journal uses `stem!`, leaving room for Qt's seven-character
+atomic-write suffix on filesystems with 255-byte filename components. These internal names do not
+change either project format. Both journal forms block new writes, and recovery refuses ambiguous
+simultaneous records. Their process-local identities remain separate even though they share a lock.
+Older lock names are also acquired when they leave the same cleanup margin; an existing oversized
+legacy claim is preserved and reported for attention instead of being ignored or removed unsafely.
+Lock creation errors are distinguished from a live competing writer.
+The Tracker XML reader uses Qt's Unicode and long-path file adapter too, so standard outputs beyond
+Windows' ordinary path-length limit can be reopened. It retains the 32 MiB pre-read bound and rejects
+read errors or a changed length instead of accepting a truncated input.
+
+Regression cases exercise 240-byte ASCII and Unicode stems through native, paired and desktop Save,
+interruption, dead-writer recovery and filesystem-specific case aliases. Existing journal and live-lock
+compatibility remain covered. Local Windows validation passes all eight CTest groups in 163.49 seconds,
+with **95.55% (8479/8874)** production line coverage. Formatting and static analysis pass for all seven
+changed/integrated C++ translation units; three existing LLVM function-mismatch warnings remain visible.
+The filename correction still requires current-revision three-platform CI and review.
+
 After the destination-status review fixes in `7d04cd4`, all six Windows suites and formatting/clang-tidy
 pass; coverage is 95.34% (7679/8054). Both output statuses are refreshed before reporting conflicts or
 read failures, so an early conflict cannot hide or falsely retain a companion commit. The inherited
@@ -292,3 +313,11 @@ with **95.40% (8190/8585)** production line coverage, formatting and all six cha
 units passing static analysis. Three existing LLVM function-mismatch warnings remain visible.
 The earlier `c9f0d30` CI evidence does not cover these later fixes; their current-head CI/review gates
 remain required before merge.
+
+The filename-limit correction is included in the session prerequisite as well as the desktop slice.
+Its three C++ files are identical to the already statically analyzed desktop correction. Independent
+Windows validation of the prerequisite passes all eight CTest groups in 127.91 seconds with **95.41%
+(8239/8635)** production line coverage, including long ASCII/Unicode names, stale-owner recovery,
+legacy lock preservation and both journal forms. All tracked C++ formatting passes; three existing
+LLVM function-mismatch warnings remain visible. This local result does not replace current-head CI
+and code review.
