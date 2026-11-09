@@ -1,7 +1,6 @@
 #include "workspace_document.hpp"
 
 #include "local_media_path.hpp"
-#include "save_observation.hpp"
 #include "track_identity.hpp"
 #include "tracker_archive.hpp"
 #include "workspace_storage.hpp"
@@ -543,7 +542,7 @@ void rebaseWorkspaceMedia(WorkspaceDocument& document, const QString& sourcePath
     }
 }
 
-NativeSaveResult writeWorkspaceDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled)
+void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled)
 {
     if (cancelled && *cancelled)
         throw ProjectError("Project save canceled.");
@@ -587,7 +586,6 @@ NativeSaveResult writeWorkspaceDocument(const QString& path, const WorkspaceDocu
         {"clip", clipObject}};
     const auto bytes = QJsonDocument(output).toJson(QJsonDocument::Compact);
     writeWorkspaceStorage(path, bytes, document.archivePayload, cancelled);
-    return {.saved = true, .observation = nextSaveObservation(), .mediaLocations = document.mediaLocations};
 }
 
 } // namespace motrack
