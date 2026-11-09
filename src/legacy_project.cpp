@@ -4,10 +4,10 @@
 
 #include <QByteArray>
 #include <QDomDocument>
+#include <QFile>
 
 #include <algorithm>
 #include <cmath>
-#include <fstream>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -309,23 +309,23 @@ LegacyProject readLegacyProject(const std::filesystem::path& path)
 
 ImportedTrackerProject readTrackerProject(const std::filesystem::path& path)
 {
-    std::ifstream file(path, std::ios::binary | std::ios::ate);
-    const std::streamoff length = file.tellg();
-    if (length < 0)
+    // Use the same Unicode/long-path capable filesystem adapter as desktop saving.
+    QFile file(QString::fromStdU16String(path.u16string()));
+    if (!file.open(QIODevice::ReadOnly) || file.isSequential())
     {
         throw ProjectError("Could not open the Tracker project.");
     }
-    if (std::cmp_greater(length, MAX_TRACKER_XML_BYTES))
+    const auto length = file.size();
+    if (length < 0 || std::cmp_greater(length, MAX_TRACKER_XML_BYTES))
     {
         throw ProjectError("Tracker project is too large.");
     }
-    std::string xml(static_cast<std::size_t>(length), '\0');
-    file.seekg(0);
-    if (!file.read(xml.data(), static_cast<std::streamsize>(length)))
+    const auto xml = file.read(length + 1);
+    if (file.error() != QFileDevice::NoError || xml.size() != length || !file.atEnd())
     {
         throw ProjectError("Could not read the Tracker project.");
     }
-    return parseTrackerProject(std::move(xml));
+    return parseTrackerProject(xml.toStdString());
 }
 
 ImportedTrackerProject parseTrackerProject(std::string xml)

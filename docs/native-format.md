@@ -74,6 +74,9 @@ fresh identity object; save checkpoints retain that identity and the history rev
 from another session or a replaced document cannot change the current target or mark it clean, even
 when the two histories have the same revision. Failed writes preserve the old checkpoint. A successful
 stale write keeps its destination but invalidates the checkpoint until the latest state is saved.
+Native session saves use `writeNativeDocument`, which holds the shared paired-destination lock from
+replacement through completion stamping. The low-level `writeWorkspaceDocument` storage API returns
+no session token. This prevents a delayed stamp from making an older on-disk snapshot appear current.
 
 Workers receive an owned document snapshot, including shared archive ownership, rather than access
 to the live session. Replacing the session clears only its own history and data; a pending snapshot
@@ -544,8 +547,9 @@ The [paired-saving contract](paired-saving.md) defines sibling `.trk`/`.trz` plu
 separate atomic replacements, bounded journaling, explicit conflict-safe recovery and per-output
 results. The adapter stages and validates both files, commits standard first, and retains recovery
 data after interruption. It reuses the supported standard writers and does not broaden their schemas.
-Native desktop Save now shares its physical media-path rebasing helper with this adapter. Desktop
-standard actions, per-output history checkpoints and recovery prompts remain to be implemented.
+Native desktop Save shares its physical media-path rebasing helper and destination lock with this
+adapter. Per-output session history checkpoints are implemented. Desktop standard actions and
+translated recovery prompts remain the next slice.
 
 Both recovered linked-image and archived-image modes passed actual Tracker load/save/fresh reopen
 and native reimport at `32c21d6`, Linux job 128747171486 in

@@ -1,12 +1,13 @@
 # Standard and native paired saving
 
-Status: the internal phase-3 paired writer and explicit recovery adapter have passed three-platform
-CI and actual Tracker acceptance for linked-image and archived-image recovery. At `6ae83b6`, all six
-checks passed in [run 42534998602](https://github.com/mgradwohl/MoTrack/actions/runs/42534998602),
-with 95.48% combined production coverage (7946/8322); Linux job 128897229295 includes both recovered
-exports loaded, saved, freshly reopened in Tracker and reimported in MoTrack.
-The desktop still saves only native documents in this slice. Per-output
-session checkpoints, standard Save actions and translated recovery choices remain separate work.
+Status: the internal phase-3 paired writer, explicit recovery adapter and per-output session
+checkpoints are implemented. The paired-image adapter passed all six checks at `6ae83b6` in
+[run 42534998602](https://github.com/mgradwohl/MoTrack/actions/runs/42534998602), with 95.48%
+combined coverage and both recovered exports loaded, saved, freshly reopened in Tracker and
+reimported in MoTrack. The session slice passed all six checks at `c9f0d30` in
+[run 42540556261](https://github.com/mgradwohl/MoTrack/actions/runs/42540556261), with 95.47%
+combined coverage; subsequent fixes retain their own CI/review gates. Desktop standard Save
+actions and recovery choices remain the next slice.
 The [full-port plan](migration-plan.md#implementation-order-and-exit-gates) and
 [format guide](native-format.md) remain the canonical status and supported-schema references.
 
@@ -116,10 +117,61 @@ A regression copies a live owner's lock identity to an aged claim without an OS 
 so timeout-based theft cannot be masked by native locking support. Both new writes and recovery
 must refuse that claim; the separate terminated-child regression still proves dead-owner recovery.
 
+Native writes, paired writes and recovery share a sibling `stem~` lock. Keeping the complete stem
+lets the filesystem determine case and Unicode aliases; the one-character suffix leaves room for
+Qt's `.rmlock` stale-owner cleanup suffix. Ordinary journals retain `.stem.motrack-save.json`.
+If that name exceeds 248 UTF-8 bytes, the journal uses `stem!`, leaving room for Qt's seven-character
+atomic-write suffix on filesystems with 255-byte filename components. These internal names do not
+change either project format. Both journal forms block new writes, and recovery refuses ambiguous
+simultaneous records. Their process-local identities remain separate even though they share a lock.
+Older lock names are also acquired when they leave the same cleanup margin; an existing oversized
+legacy claim is preserved and reported for attention instead of being ignored or removed unsafely.
+Lock creation errors are distinguished from a live competing writer.
+The Tracker XML reader uses Qt's Unicode and long-path file adapter too, so standard outputs beyond
+Windows' ordinary path-length limit can be reopened. It retains the 32 MiB pre-read bound and rejects
+read errors or a changed length instead of accepting a truncated input.
+
+Regression cases exercise 240-byte ASCII and Unicode stems through native, paired and desktop Save,
+interruption, dead-writer recovery and filesystem-specific case aliases. Existing journal and live-lock
+compatibility remain covered. Local Windows validation passes all eight CTest groups in 163.49 seconds,
+with **95.55% (8479/8874)** production line coverage. Formatting and static analysis pass for all seven
+changed/integrated C++ translation units; three existing LLVM function-mismatch warnings remain visible.
+The filename correction still requires current-revision three-platform CI and review.
+
 After the destination-status review fixes in `7d04cd4`, all six Windows suites and formatting/clang-tidy
 pass; coverage is 95.34% (7679/8054). Both output statuses are refreshed before reporting conflicts or
 read failures, so an early conflict cannot hide or falsely retain a companion commit. The inherited
 source-digest and standalone-media corrections subsequently passed the `6ae83b6` run recorded above.
+
+
+
+## Per-output session checkpoints (internal model; desktop integration pending)
+
+The edit history keeps separate native and Tracker save points. Undo/redo can return either output
+to its saved state independently; a new branch of edits invalidates save points in discarded history.
+Consumed track IDs remain persistent changes even after undoing creation, so both save points are
+invalidated. A failed write changes neither save point; a stale completion cannot clear newer edits.
+
+`DocumentSession::completePairedSave` applies only confirmed per-output results and retains pending
+recovery records for every interrupted destination. Saving another pair cannot discard an earlier
+record or report the session clean while it remains. Recovery removes only its own record and cannot
+redirect the current save target to an older destination. Once a pair is required, a native-only save
+cannot clear outstanding Tracker edits.
+A partial pair remains modified even when both replacements finished but recovery cleanup failed.
+Replacement of the document invalidates all earlier completion tokens.
+
+`completePairedRecovery` deliberately does not mark the live document saved: the record can refer
+to an older snapshot or predate this session. Successful recovery clears the pending record and
+requires a fresh paired save to establish both output checkpoints for the current live snapshot.
+This preserves new edits made after interruption. The desktop controller must use these session
+queries and completion methods when standard Save/recovery actions are connected; those actions
+are still pending.
+
+The multiple-destination recovery correction passes all six Windows suites with 95.46% combined
+production line coverage (7780/8150). Checkpoint formatting/static checks pass. Its regression performs
+two interrupted saves, saves a third destination, recovers both earlier records and finally saves the
+current pair. Later inherited corrections still require combined current-revision CI; desktop integration
+remains separate.
 
 Prepared-file fingerprints are fixed immediately after each validated write, before notifying progress
 observers. A changed stage is rejected before journaling or destination replacement. Linked media is
@@ -128,13 +180,144 @@ case or Unicode spellings remain usable when the filesystem distinguishes them; 
 project-like filename extension still cannot be overwritten. When identity is unavailable, the fallback
 compares exact absolute paths rather than unconditionally folding their case.
 
+The combined review-corrected stack passed all six Windows suites with 95.54% line coverage
+(7803/8167); this includes immutable archive export, unsupported ZIP layouts imported before
+validation, multiple recovery destinations, case-folded media collisions and prepared-stage changes.
+Current-revision cross-platform CI remains required before merging.
+
 Every journal contains a persistent transaction UUID, returned by both paired writes and recovery.
 A new transaction at the same pathname receives a new identity. Session completion checks use this
 identity so a delayed result cannot clear a newer pending transaction. Missing/invalid identities are
 refused before recovery modifies either output. This is part of the initial, unmerged journal format.
+
+The session retains every known pending transaction identity, including multiple successive identities
+at one journal pathname when worker completions arrive out of order. A recovery checkpoint selects
+the first pending identity at each path; applying its result removes only that identity, leaving newer
+ones pending. Each core result carries a process-local observation sequence assigned under its journal
+lock. A confirmed absent or recovered journal supersedes only older observations at that path, including
+unreadable records whose UUID was unavailable. Delayed callbacks cannot resurrect those records, while
+a genuinely newer unreadable or restored journal remains pending. These sequences are never persisted
+or compared across processes. A successful save elsewhere cannot hide pending entries.
+
+Recovery checkpoints capture the selected pending path-to-transaction identities. Applying a delayed success
+requires the recorded transaction still to match both the checkpoint and result. A newer transaction
+at the same path therefore remains pending. Recovery also preserves an existing native Save As
+target, including one selected while recovery was running; only an unset native target is adopted.
+
+Each output also has a session invalidation generation. A write captured before stale disk content or
+recovery invalidates that output cannot later mark it clean just because its edit revision matches.
+A fresh write must follow that invalidation. The desktop recovery-and-save sequence must apply recovery
+before capturing the fresh write checkpoint, or explicitly carry forward only that operation’s recovery
+invalidation while retaining the original snapshot revision. Real-file regressions cover writes committed
+in one order and reported in another, unknown journals completed externally, and newer/restored records.
+
+Failed recovery attempts also retain their lock-observed journal state, including an unreadable UUID
+or a restored record with the same UUID. A delayed earlier success cannot clear that newer failure;
+the pending journal continues to keep the session modified even after a successful save elsewhere.
+This holds in either callback delivery order: a newer failed observation restores the pending entry
+even if the older successful callback already removed it.
 
 A recovery request may carry a known UUID or an explicitly unidentified expectation from an unreadable
 journal. The adapter checks that expectation under the journal lock. If the journal now has a valid
 UUID, an unidentified request returns its identity without replacing either output; the caller must
 obtain fresh confirmation. An absent journal can be reconciled without writing. Only an adapter call
 that omits the expectation entirely requests unrestricted explicit recovery.
+
+Completed paired writes carry the snapshot's refreshed media bindings back to their live session.
+Only a result that actually updated an output may adopt them; blocked retries and replaced-document
+completions leave the current bindings unchanged. Recovery alone has no live-snapshot bindings to adopt.
+
+Media bindings use the same process-local observation order: an older completed write cannot replace
+locations from a later write, even if callbacks arrive in reverse order. Confirmed journal absence
+reconciles pending records by observation order without requiring a transaction UUID; successful
+recovery writes still require the expected UUID. Regressions remove the original alias and older media
+before saving again, and reconcile externally completed journals through the default recovery API.
+
+Successful paired writes retain their lock-observed journal pathname even after deleting the record.
+Session completion reconciles older observations at that path, so an unreported external recovery
+followed by a fresh successful write cannot leave a deleted journal pending. Newer observations at
+the same path and unresolved records at other destinations remain pending in either callback order.
+
+Journal observations also retain a process-local filesystem-slot identity. While the destination lock
+exists, the worker compares it with live prior lock spellings using actual filesystem identity; it
+never assumes a platform-wide case policy or folds Unicode names. A weak registry retains no abandoned
+session/result ownership. Sessions keep the identities while their observation watermarks are live,
+so delayed callbacks and externally recovered/deleted outputs cannot reintroduce a case-variant record.
+These identities and observations are never serialized and are not needed across process restarts.
+Recovery accepts the recorded sibling spelling only when its journal and lock resolve to the same
+files as the requested spelling, after the existing regular-file/alias checks. A journal copied or
+hard-linked under a different stem cannot authorize writes to an unlocked sibling pair.
+Case-variant and Unicode regressions run both callback orders and with both outputs removed, and retain
+distinct destinations on volumes where the names differ.
+
+Completed transaction watermarks are scoped to the journal's filesystem identity as well as its UUID.
+Copying an interrupted save and its journal to another directory therefore creates an independently
+pending location, even when the copied UUID is unchanged. Recovering the original cannot suppress a
+delayed observation of the copy. Each output destination also retains its observation order, so an
+older successful callback cannot replace a newer selected destination or its saved checkpoint. Older
+pending journals are still registered and reconciled independently of destination selection.
+
+Recovery completion also checks the result's observed filesystem-slot identity against the requested
+pending location before changing any session state. A successful, failed or absent result for the
+original cannot clear or invalidate a copied journal's entry, even when their UUIDs match. This uses
+the retained observation identity because successful recovery may already have deleted the journal.
+Two successful paired writes of the live revision can complete in either order without a destination
+switch alone invalidating their Tracker checkpoint. Stale revisions, recovery invalidation and newer
+on-disk observations retain their independent guards.
+
+Native-only writes and paired writes share this process-local completion order. The `writeNativeDocument`
+adapter holds the same physical per-stem destination lock across native replacement and observation
+stamping, and refuses pending recovery journals. It returns a `NativeSaveResult` containing its stamp
+and original-reference media bindings. Low-level `writeWorkspaceDocument` performs storage only and
+returns no completion token; desktop workers and real-file session callers use the locked adapter.
+The cancellation flag reaches native serialization and storage: it is checked before serialization,
+at archive-copy chunk boundaries and immediately before atomic replacement. Mid-copy and pre-commit
+cancellation preserve the previous plain or archive-backed native file. A bounded storage observer
+lets regressions cancel at those boundaries without relying on timing or large stress fixtures.
+Its worker observer reports `NativeSaved` between replacement and stamping. A regression attempts
+both an older native write and an older paired write in that interval: both are refused, the current
+file remains on disk and only its matching completion can make the session clean. A later old write,
+after lock release, receives a later stamp and leaves the session dirty. An exception from the
+post-commit progress observer cannot change the successful storage outcome: the adapter still returns
+the stamped completion so a written snapshot cannot become invisible to session bookkeeping. In all cases,
+the worker must retain that result through callback delivery, rather than constructing a new stamp
+on the GUI thread. A superseded native callback leaves the selected destination, saved checkpoint and
+bindings untouched. A newer standard-only partial save can supply the latest media bindings while
+an older native write still supplies the native destination. Pending journals remain independent of
+these choices. Regression cases reverse both API and callback orders, remove the older media and save
+again, and cover the interrupted standard-only case.
+
+A lock-confirmed absent journal reconciles all older observations at that location, including when
+the recovery checkpoint captured an unreadable UUID that a later known observation superseded. Newer
+observations remain pending. Successful recovery writes still require the checkpoint's transaction to
+match; confirmed absence does not authorize a write or mark the live document clean.
+
+The location-scoped completion, mixed native/paired destination order and superseded-unidentified-checkpoint
+regressions pass on Windows with all eight CTest groups (including all 28 session and 23 paired-save cases).
+Combined local production line coverage is 95.49% (8108/8491); formatting and all six changed C++
+translation-unit static analyses pass. Persistence and session cases now have separate CTest groups
+from the UI, retaining every case and each 60-second limit. Current-revision CI/review remain required.
+
+The replacement/stamp lock regression, native cancellation/recovery guards and post-commit observer
+failure cases pass locally on Windows at `9d08bd85`. The complete eight-group suite passes in
+174.96 seconds, with 95.40% production line coverage (8174/8568); formatting and all five changed
+C++ translation units pass static analysis. Three existing LLVM function-mismatch warnings remain
+visible. The new interval regression deterministically attempts competing writes from the post-commit
+observer before the outer result is stamped. It also checks that a later obsolete write invalidates
+the session's saved state. Current-head three-platform CI and review remain required before merge.
+
+The copied-journal callback and older-first successful-save defects were reproduced before their
+corrections. All 30 session cases and the two deterministic storage-cancellation cases then passed.
+Local Windows validation of these review fixes passes all eight CTest groups in 141.23 seconds,
+with **95.40% (8190/8585)** production line coverage, formatting and all six changed C++ translation
+units passing static analysis. Three existing LLVM function-mismatch warnings remain visible.
+The earlier `c9f0d30` CI evidence does not cover these later fixes; their current-head CI/review gates
+remain required before merge.
+
+The filename-limit correction is included in the session prerequisite as well as the desktop slice.
+Its three C++ files are identical to the already statically analyzed desktop correction. Independent
+Windows validation of the prerequisite passes all eight CTest groups in 127.91 seconds with **95.41%
+(8239/8635)** production line coverage, including long ASCII/Unicode names, stale-owner recovery,
+legacy lock preservation and both journal forms. All tracked C++ formatting passes; three existing
+LLVM function-mismatch warnings remain visible. This local result does not replace current-head CI
+and code review.

@@ -2,6 +2,7 @@
 
 #include <QFileInfo>
 
+#include <algorithm>
 #include <utility>
 
 namespace motrack
@@ -16,6 +17,21 @@ void DocumentSession::replace(WorkspaceDocument incoming, const QString& source,
     m_Identity = std::move(identity);
     m_SourcePath = path;
     m_NativeSavePath = native;
+    m_StandardSavePath = kind == DocumentSourceKind::Project &&
+                                 (source.endsWith(".trk", Qt::CaseInsensitive) || source.endsWith(".trz", Qt::CaseInsensitive))
+                             ? path
+                             : QString{};
+    m_RecoveryPaths.clear();
+    m_RecoveryTransactions.clear();
+    m_CompletedRecoveryTransactions.clear();
+    m_ClearedRecoveryObservations.clear();
+    m_RecoveryLocationIdentities.clear();
+    m_NativeInvalidation = 0;
+    m_TrackerInvalidation = 0;
+    m_PairedSaving = false;
+    m_MediaObservation = 0;
+    m_NativeDestinationObservation = 0;
+    m_StandardDestinationObservation = 0;
     history.clear();
 }
 
@@ -29,29 +45,256 @@ const QString& DocumentSession::nativeSavePath() const
     return m_NativeSavePath;
 }
 
-DocumentSession::SaveCheckpoint DocumentSession::saveCheckpoint() const
+const QString& DocumentSession::standardSavePath() const
 {
-    return {.identity = m_Identity, .revision = history.revision()};
+    return m_StandardSavePath;
 }
 
-SaveOutcome DocumentSession::completeSave(const SaveCheckpoint& checkpoint, const QString& destination, bool success)
+const QString& DocumentSession::recoveryPath() const
+{
+    static const QString empty;
+    return m_RecoveryPaths.isEmpty() ? empty : m_RecoveryPaths.front();
+}
+
+bool DocumentSession::requiresPairedSave() const
+{
+    return m_PairedSaving;
+}
+
+bool DocumentSession::isModified() const
+{
+    return history.isModified() || (m_PairedSaving && (history.isModified(SaveTarget::Tracker) || !m_RecoveryPaths.isEmpty()));
+}
+
+DocumentSession::SaveCheckpoint DocumentSession::saveCheckpoint() const
+{
+    QHash<QString, QString> firstTransactions;
+    for (auto entry = m_RecoveryTransactions.cbegin(); entry != m_RecoveryTransactions.cend(); ++entry)
+        if (!entry.value().isEmpty())
+            firstTransactions.insert(entry.key(), entry.value().front().transaction);
+    return {.identity = m_Identity,
+            .revision = history.revision(),
+            .recoveryTransactions = std::move(firstTransactions),
+            .nativeInvalidation = m_NativeInvalidation,
+            .trackerInvalidation = m_TrackerInvalidation};
+}
+
+void DocumentSession::invalidateSaved(SaveTarget target)
+{
+    ++(target == SaveTarget::Native ? m_NativeInvalidation : m_TrackerInvalidation);
+    history.invalidateSaved(target);
+}
+
+void DocumentSession::rememberRecovery(const QString& path, const QString& transaction, std::uint64_t observation)
+{
+    auto& transactions = m_RecoveryTransactions[path];
+    if (transaction.isEmpty() &&
+        std::ranges::any_of(transactions,
+                            [&](const auto& pending)
+                            { return !pending.transaction.isEmpty() && (observation == 0 || pending.observation >= observation); }))
+        return; // Later known identities supersede earlier unreadable observations.
+    if (!transaction.isEmpty())
+        transactions.removeIf([observation](const auto& pending)
+                              { return pending.transaction.isEmpty() && pending.observation <= observation; });
+    const auto existing = std::ranges::find(transactions, transaction, &RecoveryObservation::transaction);
+    if (existing == transactions.end())
+        transactions.append({.transaction = transaction, .observation = observation});
+    else
+        existing->observation = std::max(existing->observation, observation);
+    if (!m_RecoveryPaths.contains(path))
+        m_RecoveryPaths.append(path);
+}
+
+void DocumentSession::forgetRecovery(const QString& path, const QString& transaction, std::uint64_t observation, bool cleared)
+{
+    if (cleared)
+        m_ClearedRecoveryObservations[path] = std::max(m_ClearedRecoveryObservations.value(path), observation);
+    if (!transaction.isEmpty())
+        m_CompletedRecoveryTransactions[path][transaction] =
+            std::max(m_CompletedRecoveryTransactions.value(path).value(transaction), observation);
+    auto entry = m_RecoveryTransactions.find(path);
+    if (entry == m_RecoveryTransactions.end())
+        return;
+    entry.value().removeIf(
+        [&](const auto& pending)
+        {
+            const bool obsolete = cleared && observation != 0
+                                      ? pending.observation <= observation
+                                      : pending.transaction == transaction && (observation == 0 || pending.observation <= observation);
+            if (obsolete && !pending.transaction.isEmpty())
+                m_CompletedRecoveryTransactions[path][pending.transaction] =
+                    std::max(m_CompletedRecoveryTransactions.value(path).value(pending.transaction), observation);
+            return obsolete;
+        });
+    if (entry.value().isEmpty())
+    {
+        m_RecoveryTransactions.erase(entry);
+        m_RecoveryPaths.removeAll(path);
+    }
+}
+
+SaveOutcome DocumentSession::completeSave(const SaveCheckpoint& checkpoint, const QString& destination, const NativeSaveResult& result)
 {
     if (checkpoint.identity != m_Identity)
     {
         return SaveOutcome::Replaced;
     }
-    if (!success)
+    if (!result.saved || result.observation == 0)
     {
         return SaveOutcome::Failed;
     }
+    if (result.observation < m_NativeDestinationObservation)
+        return SaveOutcome::Superseded;
     m_NativeSavePath = QFileInfo(destination).absoluteFilePath();
-    if (checkpoint.revision != history.revision())
+    m_NativeDestinationObservation = result.observation;
+    if (result.observation >= m_MediaObservation)
     {
-        history.invalidateSaved();
+        document.mediaLocations = result.mediaLocations;
+        m_MediaObservation = result.observation;
+    }
+    if (checkpoint.revision != history.revision() || checkpoint.nativeInvalidation != m_NativeInvalidation)
+    {
+        invalidateSaved();
         return SaveOutcome::Stale;
     }
     history.markSaved();
     return SaveOutcome::Saved;
+}
+
+SaveOutcome DocumentSession::completePairedSave(const SaveCheckpoint& checkpoint, const PairedSaveResult& result)
+{
+    if (checkpoint.identity != m_Identity)
+        return SaveOutcome::Replaced;
+    if (result.recoveryIdentity)
+        m_RecoveryLocationIdentities.insert(*result.recoveryIdentity, result.recoveryIdentity);
+    const auto recovery = result.recoveryIdentity ? *result.recoveryIdentity : result.recoveryPath;
+    const auto observed = result.recoveryIdentity ? *result.recoveryIdentity : result.observedRecoveryPath;
+    const auto completed = m_CompletedRecoveryTransactions.value(observed.isEmpty() ? recovery : observed);
+    if ((!result.transactionId.isEmpty() && completed.contains(result.transactionId) &&
+         result.observation <= completed.value(result.transactionId)) ||
+        (!result.recoveryPath.isEmpty() && result.observation != 0 && result.observation <= m_ClearedRecoveryObservations.value(recovery)))
+        return SaveOutcome::Stale;
+    if (!result.standardCurrent && !result.nativeCurrent && result.status != PairedSaveStatus::RecoveryRequired)
+        return SaveOutcome::Failed;
+    if ((result.standardCurrent || result.nativeCurrent) && result.observation >= m_MediaObservation)
+    {
+        document.mediaLocations = result.mediaLocations;
+        m_MediaObservation = result.observation;
+    }
+    // A blocked retry only reports an existing journal; it must not restore an older destination.
+    const bool olderStandard = result.observation < m_StandardDestinationObservation;
+    const bool olderNative = result.observation < m_NativeDestinationObservation;
+    const bool adoptStandard = !olderStandard && (!m_PairedSaving || m_StandardSavePath.isEmpty() || result.standardCurrent);
+    m_PairedSaving = true;
+    const bool changedRevision = checkpoint.revision != history.revision();
+    const bool nativeStale = changedRevision || checkpoint.nativeInvalidation != m_NativeInvalidation;
+    const bool trackerStale = changedRevision || checkpoint.trackerInvalidation != m_TrackerInvalidation;
+    const auto standard = QFileInfo(result.standardPath).absoluteFilePath();
+    if (adoptStandard && !result.standardPath.isEmpty())
+    {
+        m_StandardDestinationObservation = result.observation;
+        if (standard != m_StandardSavePath)
+        {
+            m_StandardSavePath = standard;
+            if (!result.standardCurrent)
+                invalidateSaved(SaveTarget::Tracker);
+        }
+    }
+    if (result.standardCurrent && !olderStandard)
+    {
+        if (trackerStale)
+            invalidateSaved(SaveTarget::Tracker);
+        else
+            history.markSaved(SaveTarget::Tracker);
+    }
+    if (result.nativeCurrent && !olderNative)
+    {
+        m_NativeSavePath = QFileInfo(result.nativePath).absoluteFilePath();
+        m_NativeDestinationObservation = result.observation;
+        if (nativeStale)
+            invalidateSaved();
+        else
+            history.markSaved();
+    }
+    if (result.status == PairedSaveStatus::Saved && result.standardCurrent && result.nativeCurrent &&
+        !result.observedRecoveryPath.isEmpty() && result.observation != 0)
+        forgetRecovery(observed, result.transactionId, result.observation, true);
+    if (!result.recoveryPath.isEmpty())
+        rememberRecovery(recovery, result.transactionId, result.observation);
+    if (result.status == PairedSaveStatus::RecoveryRequired || !m_RecoveryPaths.isEmpty())
+        return SaveOutcome::Partial;
+    if (result.status != PairedSaveStatus::Saved || !result.standardCurrent || !result.nativeCurrent)
+        return SaveOutcome::Failed;
+    return nativeStale || trackerStale || olderStandard || olderNative ? SaveOutcome::Stale : SaveOutcome::Saved;
+}
+
+SaveOutcome DocumentSession::completePairedRecovery(const SaveCheckpoint& checkpoint,
+                                                    const QString& requestedRecoveryPath,
+                                                    const PairedSaveResult& result)
+{
+    if (checkpoint.identity != m_Identity)
+        return SaveOutcome::Replaced;
+    if (!checkpoint.recoveryTransactions.contains(requestedRecoveryPath))
+        return m_RecoveryPaths.contains(requestedRecoveryPath) ? SaveOutcome::Stale : SaveOutcome::Replaced;
+    // UUIDs survive directory copies. Bind the callback to its observed slot before changing
+    // any pending records or watermarks; a successful recovery may have removed the file already.
+    const auto& observed = result.recoveryIdentity                  ? *result.recoveryIdentity
+                           : !result.observedRecoveryPath.isEmpty() ? result.observedRecoveryPath
+                                                                    : result.recoveryPath;
+    if (observed.isEmpty() || observed != requestedRecoveryPath)
+        return SaveOutcome::Stale;
+    if (result.recoveryIdentity)
+        m_RecoveryLocationIdentities.insert(*result.recoveryIdentity, result.recoveryIdentity);
+    const auto transaction = checkpoint.recoveryTransactions.value(requestedRecoveryPath);
+    // The accessor may have supplied a list-element reference that completion is about to remove.
+    const auto completedPath = requestedRecoveryPath; // NOLINT(performance-unnecessary-copy-initialization)
+    if (result.status == PairedSaveStatus::RecoveryRequired && result.observation != 0)
+    {
+        if (result.observation <= m_ClearedRecoveryObservations.value(completedPath))
+            return SaveOutcome::Stale;
+        // An older success may already have removed the pending entry. A newer failed observation
+        // must restore it even when the journal's UUID is unchanged or could not be read.
+        if (!result.transactionId.isEmpty() && result.transactionId != transaction)
+            forgetRecovery(completedPath, transaction, result.observation, false);
+        rememberRecovery(completedPath, result.transactionId, result.observation);
+        invalidateSaved();
+        invalidateSaved(SaveTarget::Tracker);
+        return SaveOutcome::Partial;
+    }
+    if (!m_RecoveryPaths.contains(completedPath))
+        return SaveOutcome::Replaced;
+    const auto& transactions = m_RecoveryTransactions[completedPath];
+    const auto pending = std::ranges::find(transactions, transaction, &RecoveryObservation::transaction);
+    const bool absent = result.status == PairedSaveStatus::RecoveryNotNeeded;
+    // Lock-confirmed absence is about the whole journal slot, even when an unreadable
+    // checkpoint has since been superseded by a known transaction at that location.
+    if (pending == transactions.end() && !(absent && result.observation != 0))
+        return SaveOutcome::Stale;
+    const bool newerObservation =
+        result.observation != 0 &&
+        (absent ? std::ranges::any_of(transactions, [&](const auto& entry) { return entry.observation > result.observation; })
+                : pending->observation > result.observation);
+    if (!absent && (result.status != PairedSaveStatus::Saved || !result.standardCurrent || !result.nativeCurrent))
+        return SaveOutcome::Partial;
+    if (!absent && !transaction.isEmpty() && result.transactionId != transaction)
+        return SaveOutcome::Stale;
+    if (!absent && !newerObservation)
+    {
+        const auto recoveredStandard = QFileInfo(result.standardPath).absoluteFilePath();
+        if (m_StandardSavePath.isEmpty())
+            m_StandardSavePath = recoveredStandard;
+        if (m_NativeSavePath.isEmpty() && m_StandardSavePath == recoveredStandard)
+            m_NativeSavePath = QFileInfo(result.nativePath).absoluteFilePath();
+    }
+    forgetRecovery(completedPath, transaction, result.observation, true);
+    if (!result.transactionId.isEmpty())
+        m_CompletedRecoveryTransactions[completedPath][result.transactionId] =
+            std::max(m_CompletedRecoveryTransactions.value(completedPath).value(result.transactionId), result.observation);
+    // Recovery never establishes that its snapshot equals the live document. Previously dispatched
+    // writes cannot clear this invalidation merely because their edit revision happens to match.
+    invalidateSaved();
+    invalidateSaved(SaveTarget::Tracker);
+    return newerObservation ? SaveOutcome::Stale : SaveOutcome::Recovered;
 }
 
 } // namespace motrack

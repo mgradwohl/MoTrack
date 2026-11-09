@@ -1,7 +1,11 @@
 #pragma once
 
+#include "paired_save.hpp"
 #include "track_edits.hpp"
 #include "workspace_document.hpp"
+
+#include <QHash>
+#include <QStringList>
 
 #include <cstdint>
 #include <memory>
@@ -20,10 +24,13 @@ enum class SaveOutcome : std::uint8_t
     Saved,
     Failed,
     Stale,
-    Replaced
+    Replaced,
+    Partial,
+    Recovered,
+    Superseded // A newer native write already owns the destination and bindings.
 };
 
-/// One live document, its undo history and native save checkpoint. GUI-thread owned; workers receive copies of document.
+/// One live document, its undo history and per-output save checkpoints. GUI-thread owned; workers receive copies.
 class DocumentSession
 {
     struct Identity
@@ -34,6 +41,9 @@ class DocumentSession
     {
         std::shared_ptr<const Identity> identity;
         std::uint64_t revision;
+        QHash<QString, QString> recoveryTransactions;
+        std::uint64_t nativeInvalidation = 0;
+        std::uint64_t trackerInvalidation = 0;
     };
 
     WorkspaceDocument document;
@@ -43,9 +53,21 @@ class DocumentSession
     void replace(WorkspaceDocument incoming, const QString& source, DocumentSourceKind kind = DocumentSourceKind::Project);
     [[nodiscard]] const QString& sourcePath() const;
     [[nodiscard]] const QString& nativeSavePath() const;
+    [[nodiscard]] const QString& standardSavePath() const;
+    /// First unresolved record; later destinations never discard earlier interrupted saves.
+    [[nodiscard]] const QString& recoveryPath() const;
+    [[nodiscard]] bool requiresPairedSave() const;
+    [[nodiscard]] bool isModified() const;
     [[nodiscard]] SaveCheckpoint saveCheckpoint() const;
-    /// Failed/replaced writes leave this session untouched. A successful stale write keeps its destination but stays dirty.
-    [[nodiscard]] SaveOutcome completeSave(const SaveCheckpoint& checkpoint, const QString& destination, bool success);
+    /// Failed/replaced/superseded writes leave this session untouched. A current stale write stays dirty.
+    [[nodiscard]] SaveOutcome completeSave(const SaveCheckpoint& checkpoint, const QString& destination, const NativeSaveResult& result);
+    /// Apply a new paired-write result, marking only outputs confirmed current for this revision.
+    [[nodiscard]] SaveOutcome completePairedSave(const SaveCheckpoint& checkpoint, const PairedSaveResult& result);
+    /// Capture a fresh checkpoint before starting recovery; it identifies the pending transaction.
+    /// Recovery may belong to an older snapshot, even after restart. Never marks the live document clean.
+    /// Successful recovery clears the pending record but requires a fresh save of the current snapshot.
+    [[nodiscard]] SaveOutcome
+    completePairedRecovery(const SaveCheckpoint& checkpoint, const QString& requestedRecoveryPath, const PairedSaveResult& result);
 
     DocumentSession() = default;
     DocumentSession(const DocumentSession&) = delete;
@@ -55,10 +77,30 @@ class DocumentSession
     ~DocumentSession() = default;
 
   private:
+    struct RecoveryObservation
+    {
+        QString transaction;
+        std::uint64_t observation;
+    };
+    void invalidateSaved(SaveTarget target = SaveTarget::Native);
+    void rememberRecovery(const QString& path, const QString& transaction, std::uint64_t observation);
+    void forgetRecovery(const QString& path, const QString& transaction, std::uint64_t observation, bool cleared);
     // Tokens retain the identity object, preventing reuse after replacement or destruction, even across sessions.
     std::shared_ptr<const Identity> m_Identity = std::make_shared<const Identity>();
     QString m_SourcePath;
     QString m_NativeSavePath;
+    QString m_StandardSavePath;
+    QStringList m_RecoveryPaths;
+    QHash<QString, QList<RecoveryObservation>> m_RecoveryTransactions;
+    QHash<QString, QHash<QString, std::uint64_t>> m_CompletedRecoveryTransactions;
+    QHash<QString, std::uint64_t> m_ClearedRecoveryObservations;
+    QHash<QString, std::shared_ptr<const QString>> m_RecoveryLocationIdentities;
+    std::uint64_t m_NativeInvalidation = 0;
+    std::uint64_t m_TrackerInvalidation = 0;
+    std::uint64_t m_MediaObservation = 0;
+    std::uint64_t m_NativeDestinationObservation = 0;
+    std::uint64_t m_StandardDestinationObservation = 0;
+    bool m_PairedSaving = false;
 };
 
 } // namespace motrack

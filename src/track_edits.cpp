@@ -87,22 +87,22 @@ void TrackEdits::clear()
     m_Commands.clear();
     m_Head = 0;
     ++m_Revision;
-    markSaved();
+    m_SavedHeads.fill(0);
 }
 
-void TrackEdits::markSaved()
+void TrackEdits::markSaved(SaveTarget target)
 {
-    m_SavedHead = m_Head;
+    m_SavedHeads.at(static_cast<std::size_t>(target)) = m_Head;
 }
 
-void TrackEdits::invalidateSaved()
+void TrackEdits::invalidateSaved(SaveTarget target)
 {
-    m_SavedHead.reset();
+    m_SavedHeads.at(static_cast<std::size_t>(target)).reset();
 }
 
-bool TrackEdits::isModified() const
+bool TrackEdits::isModified(SaveTarget target) const
 {
-    return m_SavedHead != m_Head;
+    return m_SavedHeads.at(static_cast<std::size_t>(target)) != m_Head;
 }
 
 std::uint64_t TrackEdits::revision() const
@@ -123,6 +123,7 @@ bool TrackEdits::createPointMass(LegacyProject& project, std::string name)
     ++project.nextTrackId; // Commit allocation only after the command succeeds.
     // Undo removes the track, but the advanced allocation counter must still be saved.
     invalidateSaved();
+    invalidateSaved(SaveTarget::Tracker);
     return true;
 }
 
@@ -231,6 +232,7 @@ bool TrackEdits::createVector(LegacyProject& project, std::string name)
     }
     ++project.nextTrackId;
     invalidateSaved();
+    invalidateSaved(SaveTarget::Tracker);
     return true;
 }
 
@@ -631,9 +633,10 @@ bool TrackEdits::append(LegacyProject& project, Edit edit)
     {
         return false;
     }
-    if (m_SavedHead > m_Head)
+    for (auto& saved : m_SavedHeads)
     {
-        m_SavedHead.reset();
+        if (saved > m_Head)
+            saved.reset();
     }
     m_Commands.resize(m_Head);
     m_Commands.push_back(std::move(edit));

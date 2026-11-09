@@ -36,7 +36,7 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS Widgets Xml LinguistTools Concurrent)
 include(cmake/MoTrackFFmpeg.cmake)
 include(cmake/MoTrackArchive.cmake)
 
-add_library(motrack_project STATIC src/document_session.cpp src/legacy_project.cpp src/local_media_path.cpp src/paired_save.cpp src/measurements.cpp src/track_edits.cpp src/track_identity.cpp
+add_library(motrack_project STATIC src/document_session.cpp src/legacy_project.cpp src/local_media_path.cpp src/paired_save.cpp src/save_observation.cpp src/measurements.cpp src/track_edits.cpp src/track_identity.cpp
     src/tracker_archive.cpp src/tracker_archive_writer.cpp src/tracker_references.cpp src/tracker_rename.cpp src/tracker_writer.cpp src/workspace_document.cpp src/workspace_storage.cpp)
 target_include_directories(motrack_project PUBLIC src)
 target_link_libraries(motrack_project PUBLIC Qt6::Core PRIVATE Qt6::Xml motrack_archive)
@@ -158,8 +158,10 @@ if(BUILD_TESTING)
     target_compile_definitions(motrack_workspace_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
         MOTRACK_TRANSLATIONS="${CMAKE_CURRENT_BINARY_DIR}")
-    add_test(NAME workspace COMMAND motrack_workspace_tests)
-    set_tests_properties(workspace PROPERTIES TIMEOUT 60)
+    add_test(NAME workspace COMMAND motrack_workspace_tests --gtest_filter=-DocumentSession.*:WorkspaceDocument.*)
+    add_test(NAME workspace_document COMMAND motrack_workspace_tests --gtest_filter=WorkspaceDocument.*)
+    add_test(NAME document_session COMMAND motrack_workspace_tests --gtest_filter=DocumentSession.*)
+    set_tests_properties(workspace workspace_document document_session PROPERTIES TIMEOUT 60)
     add_executable(motrack_media_tests tests/template_tracker_test.cpp tests/video_reader_test.cpp)
     target_link_libraries(motrack_media_tests PRIVATE motrack_media GTest::gtest_main)
     target_compile_definitions(motrack_media_tests PRIVATE
@@ -169,7 +171,7 @@ if(BUILD_TESTING)
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/point-mass.trk")
     add_test(NAME desktop_invalid_project COMMAND motrack --smoke-test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/missing.trk")
-    set_tests_properties(workspace desktop_smoke desktop_invalid_project PROPERTIES
+    set_tests_properties(workspace workspace_document document_session desktop_smoke desktop_invalid_project PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     set_tests_properties(desktop_invalid_project PROPERTIES WILL_FAIL TRUE)
     if(MOTRACK_BUILD_BENCHMARKS)

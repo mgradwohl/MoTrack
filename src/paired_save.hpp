@@ -8,10 +8,31 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 
 namespace motrack
 {
+
+enum class SaveDestinationConflict : std::uint8_t
+{
+    Busy,
+    PendingRecovery
+};
+
+/// Structured adapter failure so desktop callers can provide translated recovery/retry guidance.
+class SaveDestinationError final : public ProjectError
+{
+  public:
+    explicit SaveDestinationError(SaveDestinationConflict conflict);
+    [[nodiscard]] SaveDestinationConflict conflict() const noexcept
+    {
+        return m_Conflict;
+    }
+
+  private:
+    SaveDestinationConflict m_Conflict;
+};
 
 enum class PairedSaveStatus : std::uint8_t
 {
@@ -37,11 +58,13 @@ struct PairedSaveResult
     QString standardPath;
     QString nativePath;
     QString recoveryPath;
-    QString transactionId; // Persistent UUID identifies this journal instance, independent of its reusable path.
+    QString observedRecoveryPath;                    // Journal path observed under the lock, retained even after successful cleanup.
+    std::shared_ptr<const QString> recoveryIdentity; // Process-local filesystem slot identity; never serialized.
+    QString transactionId;                           // Persistent UUID identifies this journal instance, independent of its reusable path.
     QString diagnostic;
     bool standardCurrent = false;
     bool nativeCurrent = false;
-    // Process-local observation order, assigned before releasing the journal lock; never persisted.
+    // Process-local order shared with native writes, assigned before releasing the journal lock; never persisted.
     std::uint64_t observation = 0;
     // Resolved original-reference bindings from this write's snapshot, for successful live-session adoption.
     // Runtime-only: never serialized in the recovery record or used to reconstruct a recovered snapshot.
@@ -58,6 +81,16 @@ using PairedSaveObserver = std::function<void(PairedSaveProgress)>;
                                                     const QString& mediaProjectPath,
                                                     const std::atomic_bool* cancelled = nullptr,
                                                     const PairedSaveObserver& observer = {});
+/// Write a prepared/rebased native snapshot under the same destination lock as paired saving.
+/// Refuses pending recovery. Replacement and the returned observation are ordered under that lock.
+/// The worker-only observer receives NativeSaved after replacement, before stamping/releasing the lock.
+/// It must not access widgets or mutate the snapshot; no live session is changed by this adapter.
+/// Observer exceptions after replacement are ignored so the committed result still reaches its session.
+NativeSaveResult writeNativeDocument(const QString& path,
+                                     const WorkspaceDocument& document,
+                                     const std::atomic_bool* cancelled = nullptr,
+                                     const PairedSaveObserver& observer = {});
+
 /// Explicitly resume a locally initiated pair. Refuses altered destinations, stages, aliases and escaping paths.
 /// Recovery is never implicitly triggered by opening imported project/archive content.
 /// When expectedTransaction is supplied, check it while holding the journal lock, before any output changes.
