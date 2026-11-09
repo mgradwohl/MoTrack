@@ -23,6 +23,7 @@
 #include <map>
 #include <numbers>
 #include <set>
+#include <span>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -567,7 +568,7 @@ void requireBoundedMassFrames(const QDomDocument& xml)
     }
 }
 
-void requireStableTableColumns(const QDomDocument& xml, const LegacyProject& project)
+void requireStableTableColumns(const QDomDocument& xml, const LegacyProject& project, bool movie)
 {
     std::unordered_set<std::string> massNames;
     for (const auto& mass : project.pointMasses)
@@ -581,7 +582,10 @@ void requireStableTableColumns(const QDomDocument& xml, const LegacyProject& pro
         {
             // This newly supported metadata requires the audited format grammar even for a
             // mass-only edit, which otherwise permits opaque source content to pass through.
-            validateTrackerEditSchema(xml);
+            if (movie)
+                validateTrackerMovieEditSchema(xml);
+            else
+                validateTrackerEditSchema(xml);
             break;
         }
     }
@@ -985,9 +989,68 @@ bool patchLinkedImagePaths(QDomDocument& xml, const LegacyProject& project, Lega
     return true;
 }
 
-std::string renderTrackerProjectImpl(const LegacyProject& project, const TrackerSource& source, bool linkedImages)
+enum class LinkedMedia : std::uint8_t
 {
-    require(linkedImages || project.clip.mediaReferences.empty());
+    None,
+    Images,
+    Movie
+};
+
+bool patchLinkedMoviePath(QDomDocument& xml, const LegacyProject& project, LegacyProject& baseline, std::span<const double> frameTimes)
+{
+    validateTrackerMovieEditSchema(xml);
+    require(project.clip.mediaReferences.size() == 1 && baseline.clip.mediaReferences.size() == 1 && project.vectors.empty() &&
+            std::ranges::all_of(project.unsupportedTrackTypes,
+                                [](const auto& type) { return type == "org.opensourcephysics.cabrillo.tracker.CoordAxes"; }));
+    // The first movie slice changes only existing mass values, marks and the linked path.
+    auto unchanged = project;
+    unchanged.clip.mediaReferences = baseline.clip.mediaReferences;
+    require(unchanged.pointMasses.size() == baseline.pointMasses.size());
+    for (std::size_t index = 0; index < unchanged.pointMasses.size(); ++index)
+    {
+        unchanged.pointMasses[index].mass = baseline.pointMasses[index].mass;
+        unchanged.pointMasses[index].marks = baseline.pointMasses[index].marks;
+    }
+    require(unchanged == baseline);
+    const auto clip = uniqueProperty(xml.documentElement(), "videoclip").firstChildElement("object");
+    const auto video = uniqueProperty(clip, "video").firstChildElement("object");
+    const auto control = uniqueProperty(xml.documentElement(), "clipcontrol").firstChildElement("object");
+    require(video.attribute("class") == "org.opensourcephysics.media.xuggle.XuggleVideo" &&
+            control.attribute("class") == "org.opensourcephysics.media.core.VideoClipControl" &&
+            uniqueProperty(video, "path").text().toStdString() == baseline.clip.mediaReferences.front());
+    bool valid = false;
+    const auto duration = uniqueProperty(control, "delta_t").text().toDouble(&valid);
+    require(valid && std::isfinite(duration) && duration > 0.0 && !frameTimes.empty() && frameTimes.size() <= 2000000);
+    for (std::size_t frame = 0; frame < frameTimes.size(); ++frame)
+    {
+        const auto expected = static_cast<double>(frame) * duration / 1000.0;
+        require(std::isfinite(expected) && std::isfinite(frameTimes[frame]) && std::abs(frameTimes[frame] - expected) <= 1e-6);
+    }
+    const auto count = uniqueProperty(clip, "video_framecount");
+    if (!count.isNull())
+    {
+        const auto saved = count.text().toUInt(&valid);
+        require(valid && saved == frameTimes.size());
+    }
+    const auto steps = project.clip.stepCount.value_or(0);
+    const auto last = static_cast<std::int64_t>(project.clip.firstFrame) + (static_cast<std::int64_t>(steps) - 1) * project.clip.stepSize;
+    require(project.clip.firstFrame >= 0 && project.clip.stepSize > 0 && steps > 0 && last >= 0 && std::cmp_less(last, frameTimes.size()));
+    for (const auto& mass : project.pointMasses)
+        for (const auto& mark : mass.marks)
+            require(mark.frame >= 0 && std::cmp_less(mark.frame, frameTimes.size()));
+    if (project.clip.mediaReferences == baseline.clip.mediaReferences)
+        return false;
+    patchScalar(xml, video, "path", "string", QString::fromStdString(project.clip.mediaReferences.front()));
+    baseline.clip.mediaReferences = project.clip.mediaReferences;
+    return true;
+}
+
+std::string renderTrackerProjectImpl(const LegacyProject& project,
+                                     const TrackerSource& source,
+                                     LinkedMedia media,
+                                     std::span<const double> frameTimes = {})
+{
+    require(media != LinkedMedia::None || project.clip.mediaReferences.empty());
     validateTrackerSource(source, project);
     auto baseline = parseTrackerProject(source.xml);
     if (!source.bindings || !baseline.source.bindings)
@@ -1033,8 +1096,10 @@ std::string renderTrackerProjectImpl(const LegacyProject& project, const Tracker
                 mapping.emplace(nextParsedId++, found->second);
         }
     }
-    bool changed = linkedImages && patchLinkedImagePaths(xml, expected, baseline.project);
-    bool auditFinalSchema = linkedImages;
+    bool changed = media == LinkedMedia::Images  ? patchLinkedImagePaths(xml, expected, baseline.project)
+                   : media == LinkedMedia::Movie ? patchLinkedMoviePath(xml, expected, baseline.project, frameTimes)
+                                                 : false;
+    bool auditFinalSchema = media != LinkedMedia::None;
     bool massCoordinatesChecked = false;
     if (membershipChanged)
     {
@@ -1216,7 +1281,7 @@ std::string renderTrackerProjectImpl(const LegacyProject& project, const Tracker
     {
         return source.xml;
     }
-    requireStableTableColumns(xml, expected);
+    requireStableTableColumns(xml, expected, media == LinkedMedia::Movie);
     // Pinned Tracker 6.3.5 never initializes saved VectorSum members and loses their names on resave.
     // Do not let clearing all independent samples bypass the nonempty-vector safeguards below.
     require(std::ranges::find(expected.unsupportedTrackTypes, "org.opensourcephysics.cabrillo.tracker.VectorSum") ==
@@ -1224,7 +1289,13 @@ std::string renderTrackerProjectImpl(const LegacyProject& project, const Tracker
     requireStableVectors(expected, objects);
     requireBoundedMassFrames(xml);
     if (auditFinalSchema)
-        validateTrackerEditSchema(xml); // Include appended metadata and patched samples in the reimport/edit budget.
+    {
+        // Include appended metadata and patched samples in the reimport/edit budget.
+        if (media == LinkedMedia::Movie)
+            validateTrackerMovieEditSchema(xml);
+        else
+            validateTrackerEditSchema(xml);
+    }
     // QDom emits UTF-8 bytes; do not retain an input declaration for a different encoding.
     for (auto node = xml.firstChild(); !node.isNull(); node = node.nextSibling())
     {
@@ -1266,7 +1337,7 @@ void requireLocalReference(const std::string& reference)
 
 std::string renderTrackerProject(const LegacyProject& project, const TrackerSource& source)
 {
-    return renderTrackerProjectImpl(project, source, false);
+    return renderTrackerProjectImpl(project, source, LinkedMedia::None);
 }
 
 void writeTrackerProject(const QString& path, const LegacyProject& project, const TrackerSource& source)
@@ -1281,11 +1352,11 @@ std::string prepareTrackerDocument(const QString& path, const WorkspaceDocument&
     if (!document.trackerSource)
         throw ProjectError("Tracker export requires its original source.");
     const auto& source = *document.trackerSource;
-    require(!document.movie && document.movieFrameTimes.empty() && !document.useDisplayOrientation && !document.archivePayload &&
-            !document.archiveMember && document.archiveReference.empty());
+    require(!document.useDisplayOrientation && !document.archivePayload && !document.archiveMember && document.archiveReference.empty());
+    require(document.movie ? document.alignMovieToClip && !document.movieFrameTimes.empty() : document.movieFrameTimes.empty());
     auto project = document.project;
-    const bool linkedImages = !project.clip.mediaReferences.empty();
-    if (linkedImages)
+    const auto media = document.movie ? LinkedMedia::Movie : project.clip.mediaReferences.empty() ? LinkedMedia::None : LinkedMedia::Images;
+    if (media != LinkedMedia::None)
     {
         require(project.clip.mediaReferences.size() <= 10000 && !mediaProjectPath.isEmpty() && QFileInfo(mediaProjectPath).isAbsolute());
         // A file symlink can be opened under two different project directories. Require a
@@ -1306,15 +1377,19 @@ std::string prepareTrackerDocument(const QString& path, const WorkspaceDocument&
             requireLocalReference(reference); // Rebasing can introduce a forbidden marker from a parent directory.
             require(resolveLocalMediaPath(path, reference) == resolved);
         }
-        // A native decoded-frame count is redundant with the complete image list, not a standard edit.
+        // Native frame bounds are runtime metadata, not an edit to the preserved standard clip.
         if (project.clip.sourceFrameCount)
         {
-            require(*project.clip.sourceFrameCount > 0 &&
-                    static_cast<std::size_t>(*project.clip.sourceFrameCount) == project.clip.mediaReferences.size());
+            const auto count = *project.clip.sourceFrameCount;
+            const auto clipEnd = static_cast<std::int64_t>(project.clip.firstFrame) +
+                                 (static_cast<std::int64_t>(project.clip.stepCount.value_or(0)) - 1) * project.clip.stepSize + 1;
+            require(count > 0 &&
+                    (media == LinkedMedia::Images ? std::cmp_equal(count, project.clip.mediaReferences.size())
+                                                  : std::cmp_equal(count, document.movieFrameTimes.size()) || count == clipEnd));
             project.clip.sourceFrameCount.reset();
         }
     }
-    return renderTrackerProjectImpl(project, source, linkedImages);
+    return renderTrackerProjectImpl(project, source, media, document.movieFrameTimes);
 }
 } // namespace
 
@@ -1326,6 +1401,7 @@ void writeTrackerDocument(const QString& path, const WorkspaceDocument& document
 void writeTrackerArchiveDocument(const QString& path, const WorkspaceDocument& document, const std::atomic_bool* cancelled)
 {
     require(!cancelled || !cancelled->load());
+    require(!document.movie);
     if (!document.archivePayload || !document.archiveMember || !document.trackerSource)
         throw ProjectError("Tracker archive export requires its original archive and selected project.");
     require(document.archiveReference.empty());

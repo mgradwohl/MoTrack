@@ -910,10 +910,10 @@ reopen case passed at `ce9122a`, Linux job 128842318578 in
 [run 42517071494](https://github.com/mgradwohl/MoTrack/actions/runs/42517071494). Both save and reopen
 observed two loader callbacks but executed the reference action once. That run failed later in a
 separate desktop-dialog static-analysis check; it is not whole-PR CI acceptance. Subsequent revisions
-still require their own checks. This case enables no MoTrack movie standard export and does not close
+still require their own checks. This baseline alone does not establish edited movie export and does not close
 [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65) or claim to reproduce Tracker's historical
-MOV/Open Recent report. Variable-rate movies, other codecs, missing/relocated media, edited standard
-exports and the broader movie/view-preservation matrix remain separate acceptance work.
+MOV/Open Recent report. Variable-rate movies, other codecs and the broader movie/view-preservation
+matrix remain separate acceptance work. The edited constant-rate case below requires its own application gate.
 
 The reference manifest additionally pins two development-only dependencies from the recorded
 [Tracker source candidate's libraries](https://github.com/OpenSourcePhysics/tracker/tree/dc064f922fd924826fb42030b9cd5f5bbc720c9f/libraries):
@@ -1051,3 +1051,22 @@ it, embed it in a native document, remove the package, reopen again and save ano
 The packager copies image bytes without converting formats. The desktop portable-image export command
 uses this adapter and preserves ordinary-save destinations and unsaved edits. Movie/clip export,
 arbitrary auxiliary-resource collection and general multi-tab authoring remain unfinished.
+
+### Edited linked-movie acceptance
+
+`linked-movie` also declares `native_linked_movie_roundtrip`. The probe copies the pinned AVI into a
+Unicode/ampersand output directory, obtains the native decoder's four-frame timestamp index, changes
+mass to 5 and adds mark 1 at image (8,12), exercises undo/redo, writes/reopens a native document and
+removes its original source project/directory before standard export. The independent expected mark
+is world (3,2); original marks, calibration, units, timing, selected track and all movie pixels remain.
+A full-XML oracle permits only the requested path, mass and mark/key changes, and SHA-256 verifies the
+unchanged movie. Negative tests alter mass, position, timing, calibration, path and movie bytes.
+
+The local native export/oracle/reimport and desktop paired-movie save tests pass. Linux CI loads
+the edited export in actual Tracker, compares all independent geometry/media/time expectations, saves,
+reopens in a fresh private JVM and reimports the resave in MoTrack. This edited application case passed
+at `b9ca22d593f961a5a1e0b996d1a573f00f34a04d`, Linux job 128866258456 in
+[run 42524910795](https://github.com/mgradwohl/MoTrack/actions/runs/42524910795), with all six required
+checks green and 95.83% combined C++ coverage. Later revisions still require current-head CI/review.
+This case leaves MoTrack #65 open: it does not establish historical MOV/Open Recent reproduction or
+complete movie/view compatibility.

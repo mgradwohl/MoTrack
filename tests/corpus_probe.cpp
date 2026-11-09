@@ -5,6 +5,7 @@
 #include "tracker_archive.hpp"
 #include "tracker_references.hpp"
 #include "tracker_writer.hpp"
+#include "video_reader.hpp"
 #include "workspace_document.hpp"
 
 #include <QCoreApplication>
@@ -229,6 +230,45 @@ try
             saveAndRecoverPair(args[3], document, native);
         else
             motrack::writeTrackerArchiveDocument(args[3], document);
+        return 0;
+    }
+    if (args.size() == 4 && args[1] == "--export-linked-movie")
+    {
+        QTemporaryDir temporary;
+        const auto inputDirectory = temporary.filePath("source");
+        const auto source = inputDirectory + "/input.trk";
+        const auto native = temporary.filePath("saved.motrack");
+        const QDir originalDirectory(QFileInfo(args[2]).absolutePath());
+        const QDir destinationDirectory(QFileInfo(args[3]).absolutePath());
+        const auto mediaDirectory = destinationDirectory.absoluteFilePath(QString::fromUtf8("média & movie"));
+        const auto movie = mediaDirectory + "/constant-rate.avi";
+        if (!temporary.isValid() || !QDir().mkdir(inputDirectory) || !QDir().mkdir(mediaDirectory) || !QFile::copy(args[2], source) ||
+            !QFile::copy(originalDirectory.filePath("constant-rate.avi"), movie))
+            throw motrack::ProjectError("Could not prepare linked-movie round trip.");
+        auto document = motrack::importTrackerDocument(source);
+        if (document.project.clip.mediaReferences != std::vector<std::string>{"constant-rate.avi"})
+            throw motrack::ProjectError("Expected the pinned movie reference.");
+        const std::atomic_bool cancelled{false};
+        const auto index = motrack::buildMovieIndex(movie, motrack::VideoOrientation::Encoded, cancelled);
+        if (index.frameCount != 4 || index.frameTimes != std::vector<double>{0.0, 0.125, 0.25, 0.375})
+            throw motrack::ProjectError("The native movie index differs from the independent timing values.");
+        document.movie = true;
+        document.alignMovieToClip = true;
+        document.movieFrameTimes = index.frameTimes;
+        document.project.clip.sourceFrameCount = index.frameCount;
+        document.project.clip.mediaReferences.front() = QDir(inputDirectory).relativeFilePath(movie).toStdString();
+        motrack::TrackEdits edits;
+        if (!edits.setPointMassValue(document.project, 0, 5.0) ||
+            !edits.markPointMass(document.project, 0, {.frame = 1, .x = 8.0, .y = 12.0}) || !edits.undo(document.project) ||
+            !edits.redo(document.project))
+            throw motrack::ProjectError("Could not edit linked-movie reference.");
+        motrack::rebaseWorkspaceMedia(document, source, native);
+        motrack::writeWorkspaceDocument(native, document);
+        document = {};
+        if (!QFile::remove(source) || !QDir().rmdir(inputDirectory))
+            throw motrack::ProjectError("Could not remove the original movie project directory.");
+        document = motrack::readWorkspaceDocument(native);
+        motrack::writeTrackerDocument(args[3], document, native);
         return 0;
     }
     if (args.size() == 4 &&

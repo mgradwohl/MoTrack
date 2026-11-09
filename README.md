@@ -55,7 +55,7 @@ New Tracker imports also keep their original XML inside the saved `.motrack` fil
 
 ### Save a Tracker project and its MoTrack companion
 
-For a supported imported experiment, choose **File → Save Tracker project…**. Save a local-image or
+For a supported imported experiment, choose **File → Save Tracker project…**. Save a supported linked-movie, local-image or
 media-free project as `.trk`, or an imported image archive as `.trz`. MoTrack also writes a sibling
 `.motrack` file with the same name. Tracker opens the standard file directly. Existing archives retain
 other experiments and supporting files; the desktop edits only the selected experiment.
@@ -71,8 +71,10 @@ then write your current edits. Changes made by another program are preserved and
 conflict. Recovery never marks newer edits saved without writing them to both files.
 
 This workflow currently covers audited media-free and local-image experiments, plus selected-member
-updates to existing image archives. Movie export, filters and broader Tracker
-settings are still being ported. An unsupported export is refused; save a MoTrack copy to retain work.
+updates to existing image archives. The first linked-movie writer supports mass and mark edits in
+audited constant-rate imports after timestamp indexing; its edited-file Tracker save/reopen acceptance
+has passed for the pinned four-frame AVI case. Later revisions still require their own CI and review.
+Movie timing/calibration/track-identity edits, movie packaging, filters and broader settings remain unfinished. An unsupported export is refused; save a MoTrack copy to retain work.
 The [format guide](docs/native-format.md) records the exact supported edits and compatibility evidence.
 
 ### Export a portable image experiment

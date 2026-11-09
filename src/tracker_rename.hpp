@@ -8,6 +8,8 @@ namespace motrack
 {
 /// Validate the bounded schema used for audited identity edits, including the final emitted document.
 void validateTrackerEditSchema(const QDomDocument& xml);
+/// Explicit movie adapter audit. Does not authorize movie rename or membership edits.
+void validateTrackerMovieEditSchema(const QDomDocument& xml);
 /// Internal conservative mass/vector rename patcher. Updates baseline names only after validating every source relationship.
 [[nodiscard]] bool patchTrackerNames(QDomDocument& xml, const LegacyProject& project, LegacyProject& baseline, const TrackerSource& source);
 /// Audit independent-track membership edits; deleted tracks may have selection, plot or table-column/format references.

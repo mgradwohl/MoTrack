@@ -84,6 +84,53 @@ bool editMass(motrack::MainWindow& window, double value)
     return accepted;
 }
 
+TEST(PairedWorkspace, SavesIndexedMovieEditsAndNativeCompanionAfterSourceRemoval)
+{
+    QTemporaryDir temporary;
+    const auto movieFixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-movie/";
+    const auto inputDirectory = temporary.filePath("source");
+    const auto mediaDirectory = temporary.filePath("media");
+    ASSERT_TRUE(QDir().mkpath(inputDirectory));
+    ASSERT_TRUE(QDir().mkpath(mediaDirectory));
+    const auto source = inputDirectory + "/input.trk";
+    auto xml = bytes(movieFixture + "linked-movie.trk");
+    xml.replace(">constant-rate.avi<", ">../media/constant-rate.avi<");
+    put(source, xml);
+    ASSERT_TRUE(QFile::copy(movieFixture + "constant-rate.avi", mediaDirectory + "/constant-rate.avi"));
+    const auto target = temporary.filePath("saved.trk");
+    const auto native = temporary.filePath("saved.motrack");
+    {
+        motrack::MainWindow window;
+        ASSERT_TRUE(window.loadProject(source));
+        auto* plot = window.findChild<QWidget*>("positionPlot");
+        auto* canvas = window.findChild<QWidget*>("videoCanvas");
+        auto* slider = window.findChild<QSlider*>("stepSlider");
+        ASSERT_TRUE(plot && canvas && slider);
+        ASSERT_TRUE(QTest::qWaitFor([plot] { return plot->accessibleName().endsWith("Time (s)"); }));
+        ASSERT_TRUE(editMass(window, 7));
+        ASSERT_TRUE(QFile::remove(source));
+        ASSERT_TRUE(QDir().rmdir(inputDirectory));
+        ASSERT_TRUE(window.saveTrackerProject(target));
+        EXPECT_FALSE(window.isWindowModified());
+        const auto companion = motrack::readWorkspaceDocument(native);
+        EXPECT_TRUE(companion.movie && companion.alignMovieToClip);
+        EXPECT_EQ(companion.movieFrameTimes, (std::vector<double>{0.0, 0.125, 0.25, 0.375}));
+        EXPECT_DOUBLE_EQ(companion.project.pointMasses.front().mass, 7);
+        EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(target).project.pointMasses.front().mass, 7);
+        slider->setValue(2);
+        ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 2"; }));
+    }
+    motrack::MainWindow reopened;
+    ASSERT_TRUE(reopened.loadProject(native));
+    auto* canvas = reopened.findChild<QWidget*>("videoCanvas");
+    ASSERT_NE(canvas, nullptr);
+    ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 0"; }));
+    ASSERT_TRUE(editMass(reopened, 9));
+    ASSERT_TRUE(reopened.saveTrackerProject(target));
+    EXPECT_DOUBLE_EQ(motrack::readWorkspaceDocument(native).project.pointMasses.front().mass, 9);
+    EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(target).project.pointMasses.front().mass, 9);
+}
+
 TEST(PairedWorkspace, SavesEditedLinkedAndArchivedProjectsAndUsesThePairForOrdinarySave)
 {
     for (const bool archive : {false, true})

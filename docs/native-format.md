@@ -630,3 +630,40 @@ decoders. Linux's static linker exposed the previous wrapper placement as an unr
 the correction passes the ten desktop-export cases, eight package cases and native replacement/stamp-lock
 regression locally on Windows, plus formatting and both changed source-file static analyses. Fresh Linux,
 macOS and Windows CI remains required; local linking alone cannot establish Linux acceptance.
+
+### Linked constant-rate movie edits
+
+The document writer accepts the explicitly audited `XuggleVideo`/`VideoClipControl` schema only through
+its movie adapter. Existing point-mass values and image-coordinate marks, plus the linked media path,
+may change. Original names, membership, calibration, unit labels, clip timing/range and other parsed
+fields must remain unchanged. Filters, vectors, other track types except axes, display-orientation
+transforms and archived movies remain refused. The archive entry point rejects movie documents before
+clearing archive metadata for its internal snapshot; this also applies after indexing and native reopen.
+This opt-in schema does not enable movie renames or
+membership edits through the media-free writer.
+
+Default point-mass number formats use the same movie-aware schema audit and remain in the exported
+XML after native reopen. Custom formats remain refused under the existing #64 fidelity guard.
+
+A completed native timestamp index must start at zero and agree with the preserved positive Tracker
+frame interval within one microsecond for every decoded frame, up to the existing two-million-frame
+index limit. Clip endpoints and marks must fit that index. The native runtime frame bound must match
+the complete index or the clip endpoint inferred on import; it is removed from the export snapshot,
+not written as a standard-file edit. Existing saved `video_framecount`, when present, must match the
+index. Decoded timestamps stay in seconds; preserved XML clip time origin and interval use milliseconds.
+Native movie analysis remains aligned to the imported clip's time origin.
+
+Movie links use the same physical-directory, retained-location and atomic-write checks as images.
+Preflight verifies current readability and identity, not general codec compatibility or protection
+from subsequent external media replacement. The original movie bytes are never rewritten. Missing
+media, an incomplete/nonconstant index or unsupported edits preserve an existing destination.
+
+Local tests edit, undo/redo, native save/reopen, remove the original project/directory, relocate media,
+export, reimport and edit again. The desktop test uses the real background indexer and paired save,
+then reopens the native companion and saves another mass edit. The corpus probe also uses the real
+native decoder; independent XML and movie-byte oracles allow only the requested mass, mark and path.
+The edited linked-movie case passed actual Tracker load/save/fresh reopen and native reimport at
+`b9ca22d593f961a5a1e0b996d1a573f00f34a04d`, Linux job 128866258456 in
+[run 42524910795](https://github.com/mgradwohl/MoTrack/actions/runs/42524910795), with all six CI checks
+green and 95.83% combined C++ coverage. Subsequent format/review fixes require their own current-head
+CI; this scoped acceptance does not establish full movie interchange or resolve #65.
