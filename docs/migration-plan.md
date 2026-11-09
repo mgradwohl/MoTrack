@@ -208,7 +208,9 @@ small steps; this is a target architecture, not a description of layers already 
 The shipped application must run without Java or Swift installed. Native C/C++ and operating-system
 libraries are allowed. Java is confined to development/reference tests, never the import/export runtime.
 The current [CMake targets](../CMakeLists.txt) are `motrack_project`, `motrack_media`,
-`motrack_workspace`, and the application. `DocumentSession` in `motrack_project` owns editable document
+`motrack_image_package`, `motrack_workspace`, and the application. The image-package adapter links
+Qt image decoding privately to validate staged images; `motrack_project` remains independent of GUI
+and decoder APIs. `DocumentSession` in `motrack_project` owns editable document
 data, source/archive preservation, history and native save bookkeeping, with identity-bound completion
 tokens. `MainWindow` still owns open/save orchestration, decoders, playback and view/tool state;
 the generic model is still named `LegacyProject`. GUI selections currently use list positions, but

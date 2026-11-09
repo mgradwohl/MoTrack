@@ -30,6 +30,8 @@ void writeTrackerArchiveDocument(const QString& path, const WorkspaceDocument& d
 /// Create a portable .trz from an audited linked-image document, copying each image without conversion.
 /// The document and its native/source bindings stay unchanged. Existing archives, movies and unsupported edits are refused.
 /// Stage and validate the bounded package before atomic replacement; cancellation leaves the destination unchanged.
+/// PNG, JPEG and BMP frames are decoded before replacement, limited to 32 Mi pixels each. Other formats are refused.
+/// Implemented by the motrack_image_package media adapter; the project model does not link image decoders.
 void writeTrackerImagePackage(const QString& path,
                               const WorkspaceDocument& document,
                               const QString& mediaProjectPath,
