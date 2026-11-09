@@ -442,7 +442,7 @@ def linked_images_roundtrip_expected(case):
     return expected
 
 
-def patch_expected_linked_images(document, relocate=True):
+def patch_expected_linked_images(document, relocate=True, packaged=False):
     def elements(node, tag):
         return [child for child in node.childNodes if child.nodeType == child.ELEMENT_NODE and child.tagName == tag]
     def prop(node, name):
@@ -455,10 +455,11 @@ def patch_expected_linked_images(document, relocate=True):
     clip = elements(prop(root, "videoclip"), "object")[0]
     video = elements(prop(clip, "video"), "object")[0]
     paths = prop(video, "paths")
-    if relocate:
+    if relocate or packaged:
+        references = [f"images/frame-{index:06d}.png" if packaged else f"media é & frames/frame{index}.png" for index in range(4)]
         for index in range(4):
-            scalar(prop(paths, f"[{index}]"), f"media é & frames/frame{index}.png")
-        scalar(prop(video, "path"), "media é & frames/frame0.png")
+            scalar(prop(paths, f"[{index}]"), references[index])
+        scalar(prop(video, "path"), references[0])
     mass = next(obj for item in elements(prop(root, "tracks"), "property") for obj in elements(item, "object")
                 if obj.getAttribute("class") == "org.opensourcephysics.cabrillo.tracker.PointMass")
     scalar(prop(mass, "mass"), "5")
@@ -493,6 +494,27 @@ def verify_linked_image_export_xml(original, exported, case):
             raise ValueError("Linked-image export changed content beyond the requested paths, mass and mark")
     for asset in case["assets"]:
         verify_file(exported.parent / "media é & frames" / asset["file"], asset)
+
+
+def verify_image_package_export(original, exported, selected_xml, case):
+    """Independent ZIP/XML/hash oracle for a new package; no external image paths may survive."""
+    if exported.stat().st_size > 1024 * 1024:
+        raise ValueError("Image package reference exceeds the small-fixture limit")
+    images = [f"images/frame-{index:06d}.png" for index in range(4)]
+    with zipfile.ZipFile(exported) as package:
+        if (package.namelist() != ["experiment.trk", *images] or package.comment or package.testzip() is not None
+                or any(entry.compress_type != zipfile.ZIP_DEFLATED or entry.extract_version > 20 for entry in package.infolist())):
+            raise ValueError("Unexpected image package inventory or encoding")
+        for member, asset in zip(images, case["assets"], strict=True):
+            payload = package.read(member)
+            if len(payload) != asset["bytes"] or hashlib.sha256(payload).hexdigest() != asset["sha256"]:
+                raise ValueError("Packaged image bytes changed")
+        xml = package.read("experiment.trk")
+        with minidom.parse(str(original)) as expected, minidom.parseString(xml) as actual:
+            patch_expected_linked_images(expected, packaged=True)
+            if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
+                raise ValueError("Image package changed XML beyond the requested paths, mass and mark")
+        selected_xml.write_bytes(xml)
 
 
 def verify_archive_image_export(original, exported, selected_xml, member_count=7):
@@ -1753,6 +1775,7 @@ def check_sessions(manifest, cache, java, probe=None):
     if sys.platform != "linux":
         raise ValueError("Session checks currently require Linux with Xvfb")
     modes = [("archive-images", "native_archive_image_roundtrip"), ("linked-images", "native_linked_image_roundtrip"),
+             ("packaged-images", "native_image_package_roundtrip"),
              ("paired-archive-images", "native_paired_archive_roundtrip"), ("paired-linked-images", "native_paired_linked_roundtrip"),
              ("mass", "native_mass_roundtrip"), ("marks", "native_mark_roundtrip"),
              ("empty-marks", "native_mark_roundtrip"), ("first-mark", "native_mark_roundtrip"),
@@ -1840,7 +1863,20 @@ def check_sessions(manifest, cache, java, probe=None):
                 case = {**case, "session_tracks": [track for track in case["session_tracks"]
                                                    if track["class"] == "org.opensourcephysics.cabrillo.tracker.CoordAxes"]}
             expected = None
-            if mode in {"archive-images", "paired-archive-images"}:
+            if mode == "packaged-images":
+                exported = output / "motrack-export.trz"
+                run([str(Path(probe).resolve()), "--export-packaged-images", str(project), str(exported)])
+                selected = output / "exported-member.trk"
+                verify_image_package_export(project, exported, selected, case)
+                if (output / "media é & frames").exists():
+                    raise ValueError("Image package probe retained original external media")
+                project = selected
+                expected = linked_images_roundtrip_expected(case)
+                native_report = output / "native-export.json"
+                run([str(Path(probe).resolve()), str(project), str(native_report)])
+                compare(expected, json.loads(native_report.read_text(encoding="utf-8")), manifest["tolerance"], case["id"] + ".export")
+                archive_input = exported
+            elif mode in {"archive-images", "paired-archive-images"}:
                 exported = output / "motrack-export.trz"
                 run([str(Path(probe).resolve()), "--export-" + mode, str(archive_input), str(exported)])
                 project = output / "exported-member.trk"
@@ -1959,7 +1995,7 @@ def check_sessions(manifest, cache, java, probe=None):
                       "before": stages["save"]["loaded"], "after_save": stages["save"]["after_save"],
                       "after": stages["reopen"]["loaded"]}
             keys = {"marks": [[0, 3], [7]], "empty-marks": [[], [0]], "first-mark": [[4], [0]]}.get(mode)
-            if mode in {"linked-images", "archive-images", "paired-linked-images", "paired-archive-images"}:
+            if mode in {"linked-images", "archive-images", "paired-linked-images", "paired-archive-images", "packaged-images"}:
                 keys = [[0, 1, 2]]
             if mode in {"create-mass", "create-empty-mass"}:
                 keys = [[0], [0], [] if mode == "create-empty-mass" else [1, 4, 8]]
@@ -1997,7 +2033,7 @@ def check_sessions(manifest, cache, java, probe=None):
                     saved_report["verification_level"] = "motrack_rejected_" + mode
                     print(f"{case['id']}/{mode}: passed (MoTrack rejected unsafe export; actual Tracker snapping confirmed; resave/reimport)")
                 else:
-                    standard = "TRZ" if mode in {"archive-images", "paired-archive-images"} else "TRK"
+                    standard = "TRZ" if mode in {"archive-images", "paired-archive-images", "packaged-images"} else "TRK"
                     pair = "interrupted paired save/recovery; " if mode.startswith("paired-") else ""
                     print(f"{case['id']}/{mode}: passed (MoTrack edit/native reopen/{standard} export; {pair}Tracker load/save/reopen; native reimport)")
             elif known_report is not None:

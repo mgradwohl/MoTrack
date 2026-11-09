@@ -231,7 +231,8 @@ try
             motrack::writeTrackerArchiveDocument(args[3], document);
         return 0;
     }
-    if (args.size() == 4 && (args[1] == "--export-linked-images" || args[1] == "--export-paired-linked-images"))
+    if (args.size() == 4 &&
+        (args[1] == "--export-linked-images" || args[1] == "--export-paired-linked-images" || args[1] == "--export-packaged-images"))
     {
         QTemporaryDir temporary;
         const auto source = temporary.filePath("input.trk");
@@ -266,6 +267,15 @@ try
         document = motrack::readWorkspaceDocument(native);
         if (args[1] == "--export-paired-linked-images")
             saveAndRecoverPair(args[3], document, native);
+        else if (args[1] == "--export-packaged-images")
+        {
+            motrack::writeTrackerImagePackage(args[3], document, native);
+            for (int frame = 0; frame < 4; ++frame)
+                if (!QFile::remove(mediaDirectory + "/frame" + QString::number(frame) + ".png"))
+                    throw motrack::ProjectError("Could not remove original packaged media.");
+            if (!QDir().rmdir(mediaDirectory))
+                throw motrack::ProjectError("Could not remove original packaged-media directory.");
+        }
         else
             motrack::writeTrackerDocument(args[3], document, native);
         return 0;

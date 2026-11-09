@@ -978,3 +978,24 @@ launches a bounded child probe that exits without destructors and recovers its s
 Both paired modes passed at `32c21d6`, Linux job 128747171486 in
 [run 42485770063](https://github.com/mgradwohl/MoTrack/actions/runs/42485770063). Later revisions
 must continue passing these complete application checks, including independent expected values.
+
+
+### New portable image package acceptance
+
+The linked-image case also declares `packaged-images`. After mass/mark edits, undo/redo and native
+save/reopen, the native probe creates a new `.trz` with `experiment.trk` and four copied PNGs under
+portable generated member names. It deletes its original external media before returning. An
+independent Python ZIP/XML/SHA-256 oracle checks the exact five-member inventory, all four original
+image payloads, and every untouched XML value. Negative oracle tests reject missing/extra members,
+changed pixels, changed paths and unrelated calibration edits.
+
+Linux CI then opens the new archive in Tracker, checks independent pixels, frame order, timestamps,
+calibration and edited mass/marks, saves through TrackerIO, reopens in a fresh private JVM, and
+reimports that resave in MoTrack. This full packaged-images case passed at `f8ea95f` in Linux job
+128802309844 of [run 42503907010](https://github.com/mgradwohl/MoTrack/actions/runs/42503907010),
+with all six platform/coverage checks green. Later revisions still require their own current-head CI
+and review; the historical result does not replace those gates. Local native tests separately delete
+the original media, move the package, reopen
+it, embed it in a native document, remove the package, reopen again and save another standard edit.
+The internal packager copies image bytes without converting formats. It does not yet provide a
+packaging dialog, movie/clip export, arbitrary auxiliary-resource collection or general multi-tab authoring.

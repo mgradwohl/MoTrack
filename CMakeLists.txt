@@ -41,6 +41,11 @@ add_library(motrack_project STATIC src/document_session.cpp src/legacy_project.c
 target_include_directories(motrack_project PUBLIC src)
 target_link_libraries(motrack_project PUBLIC Qt6::Core PRIVATE Qt6::Xml motrack_archive)
 
+# Image-package validation decodes staged media without adding image codecs to the project model.
+add_library(motrack_image_package STATIC src/tracker_image_package.cpp)
+target_include_directories(motrack_image_package PUBLIC src)
+target_link_libraries(motrack_image_package PUBLIC motrack_project PRIVATE Qt6::Gui motrack_archive)
+
 qt_add_executable(motrack src/main.cpp)
 add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp src/movie_worker.cpp src/position_plot.cpp
     src/video_canvas.cpp)
@@ -48,11 +53,11 @@ set_target_properties(motrack_workspace PROPERTIES AUTOMOC ON)
 add_library(motrack_media STATIC src/template_tracker.cpp src/video_reader.cpp)
 target_include_directories(motrack_media PUBLIC src)
 target_link_libraries(motrack_media PUBLIC Qt6::Gui PRIVATE motrack_ffmpeg)
-target_link_libraries(motrack_workspace PUBLIC motrack_project Qt6::Widgets PRIVATE motrack_media Qt6::Concurrent)
+target_link_libraries(motrack_workspace PUBLIC motrack_project Qt6::Widgets PRIVATE motrack_media motrack_image_package Qt6::Concurrent)
 target_link_libraries(motrack PRIVATE motrack_workspace)
 qt_add_translations(motrack
     TS_FILES translations/motrack_de.ts translations/motrack_es.ts translations/motrack_fr.ts
-    SOURCES src/main_window.cpp src/position_plot.cpp
+    SOURCES src/main_window.cpp src/position_plot.cpp src/tracker_image_package.cpp
     RESOURCE_PREFIX "/i18n"
 )
 
@@ -94,7 +99,7 @@ if(MOTRACK_STAGE_DESKTOP)
     install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/motrack)
 endif()
 
-set(motrack_targets motrack_project motrack_media motrack_workspace motrack)
+set(motrack_targets motrack_project motrack_image_package motrack_media motrack_workspace motrack)
 if(MOTRACK_BUILD_BENCHMARKS)
     add_executable(motrack_import_benchmark benchmarks/import_benchmark.cpp)
     target_link_libraries(motrack_import_benchmark PRIVATE motrack_project)
@@ -143,15 +148,15 @@ if(BUILD_TESTING)
     FetchContent_MakeAvailable(googletest)
 
     add_executable(motrack_tests tests/paired_save_test.cpp tests/legacy_project_test.cpp tests/measurements_test.cpp tests/track_edits_test.cpp
-        tests/tracker_archive_test.cpp tests/tracker_archive_writer_test.cpp tests/tracker_references_test.cpp tests/tracker_writer_test.cpp)
-    target_link_libraries(motrack_tests PRIVATE motrack_project GTest::gtest_main motrack_archive Qt6::Xml)
+        tests/tracker_archive_test.cpp tests/tracker_archive_writer_test.cpp tests/tracker_image_package_test.cpp tests/tracker_references_test.cpp tests/tracker_writer_test.cpp)
+    target_link_libraries(motrack_tests PRIVATE motrack_project motrack_image_package GTest::gtest_main motrack_archive Qt6::Xml Qt6::Gui)
     target_compile_definitions(motrack_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
     add_test(NAME legacy_project COMMAND motrack_tests)
     add_executable(motrack_corpus_probe tests/corpus_probe.cpp)
     add_dependencies(motrack_tests motrack_corpus_probe)
     target_compile_definitions(motrack_tests PRIVATE MOTRACK_CORPUS_PROBE="$<TARGET_FILE:motrack_corpus_probe>")
-    target_link_libraries(motrack_corpus_probe PRIVATE motrack_project)
+    target_link_libraries(motrack_corpus_probe PRIVATE motrack_project motrack_image_package)
     add_executable(motrack_workspace_tests tests/paired_workspace_test.cpp tests/workspace_test.cpp tests/workspace_document_test.cpp tests/document_session_test.cpp)
     target_link_libraries(motrack_workspace_tests PRIVATE motrack_workspace GTest::gtest Qt6::Test motrack_archive)
     add_dependencies(motrack_workspace_tests motrack)
