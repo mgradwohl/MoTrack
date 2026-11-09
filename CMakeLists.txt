@@ -174,8 +174,11 @@ if(BUILD_TESTING)
     add_test(NAME workspace_saving COMMAND motrack_workspace_tests
         "--gtest_filter=PairedWorkspace.*:ImagePackageWorkspace.*")
     add_test(NAME workspace_document COMMAND motrack_workspace_tests --gtest_filter=WorkspaceDocument.*)
-    add_test(NAME document_session COMMAND motrack_workspace_tests --gtest_filter=DocumentSession.*)
-    set_tests_properties(workspace workspace_saving workspace_document document_session PROPERTIES TIMEOUT 60)
+    # Complementary filters retain every session case once, including future additions.
+    # Real-file journal matrices can exhaust a shared 60-second budget on slower CI storage (#137).
+    add_test(NAME document_session COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*-DocumentSession.*Journal*")
+    add_test(NAME document_session_journals COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*Journal*")
+    set_tests_properties(workspace workspace_saving workspace_document document_session document_session_journals PROPERTIES TIMEOUT 60)
     add_executable(motrack_media_tests tests/template_tracker_test.cpp tests/video_reader_test.cpp)
     target_link_libraries(motrack_media_tests PRIVATE motrack_media GTest::gtest_main)
     target_compile_definitions(motrack_media_tests PRIVATE
