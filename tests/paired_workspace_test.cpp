@@ -190,6 +190,56 @@ TEST(PairedWorkspace, ReopenedSingleFrameMovieCanExpandToTheCompleteIndexedSourc
     EXPECT_EQ(motrack::importTrackerDocument(target).project.clip.stepCount, 4);
 }
 
+TEST(PairedWorkspace, ShorterLinkedMovieKeepsSavedClipAndMeasurementsReadable)
+{
+    QTemporaryDir temporary;
+    const auto movieFixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-movie/";
+    const auto source = temporary.filePath("longer-clip.trk");
+    const auto native = temporary.filePath("retained.motrack");
+    // The recorded clip spans five frames, but the available replacement movie has only four.
+    auto xml = bytes(movieFixture + "linked-movie.trk");
+    xml.replace(R"(name="stepcount" type="int">4<)", R"(name="stepcount" type="int">5<)");
+    xml.replace(R"(name="[2]" type="object")", R"(name="[4]" type="object")");
+    put(source, xml);
+    ASSERT_TRUE(QFile::copy(movieFixture + "constant-rate.avi", temporary.filePath("constant-rate.avi")));
+    const auto original = motrack::importTrackerDocument(source).project;
+    ASSERT_EQ(original.clip.stepCount, 5);
+    ASSERT_EQ(original.pointMasses.at(0).marks.back().frame, 4);
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(source));
+    auto* plot = window.findChild<QWidget*>("positionPlot");
+    auto* slider = window.findChild<QSlider*>("stepSlider");
+    ASSERT_TRUE(plot && slider);
+    ASSERT_TRUE(QTest::qWaitFor([plot] { return plot->accessibleName().endsWith("Time (s)"); }));
+    EXPECT_FALSE(window.isWindowModified());
+    ASSERT_TRUE(window.saveWorkspace(native));
+    const auto saved = motrack::readWorkspaceDocument(native);
+    EXPECT_EQ(saved.project.clip.sourceFrameCount, 5);
+    EXPECT_EQ(saved.project.clip.firstFrame, 0);
+    EXPECT_EQ(saved.project.clip.stepSize, 1);
+    EXPECT_EQ(saved.project.clip.stepCount, 5);
+    EXPECT_EQ(saved.project.pointMasses, original.pointMasses);
+    EXPECT_EQ(saved.movieFrameTimes, (std::vector<double>{0.0, 0.125, 0.25, 0.375}));
+    const auto standard = temporary.filePath("unchanged.trk");
+    put(standard, "existing output");
+    EXPECT_FALSE(window.saveTrackerProject(standard));
+    EXPECT_EQ(bytes(standard), "existing output");
+    ASSERT_TRUE(window.loadProject(native));
+    EXPECT_EQ(slider->maximum(), 4);
+    EXPECT_FALSE(window.isWindowModified());
+    auto trimmed = saved;
+    trimmed.project.clip.stepCount = 3;
+    trimmed.movieFrameTimes.clear();
+    const auto trimmedPath = temporary.filePath("trimmed.motrack");
+    motrack::writeWorkspaceDocument(trimmedPath, trimmed);
+    ASSERT_TRUE(window.loadProject(trimmedPath));
+    ASSERT_TRUE(QTest::qWaitFor([plot] { return plot->accessibleName().endsWith("Time (s)"); }));
+    ASSERT_TRUE(window.saveWorkspace(trimmedPath));
+    const auto retrimmed = motrack::readWorkspaceDocument(trimmedPath);
+    EXPECT_EQ(retrimmed.project.clip.sourceFrameCount, 5);
+    EXPECT_EQ(retrimmed.project.pointMasses, original.pointMasses);
+}
+
 TEST(PairedWorkspace, SavesEditedLinkedAndArchivedProjectsAndUsesThePairForOrdinarySave)
 {
     for (const bool archive : {false, true})

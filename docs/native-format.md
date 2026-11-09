@@ -702,16 +702,24 @@ actual Tracker movie-range acceptance and review remain required before merging 
 
 
 A standard movie import initially infers a provisional source-frame bound from its saved clip endpoint.
-When the linked movie's full index completes, the desktop replaces that bound with the decoded source
-count. Otherwise a reopened single-frame clip could not expand to retained frames beyond its endpoint.
+When the linked movie's full index completes and contains the saved clip, the desktop extends that
+bound to the decoded source count without reducing a previously known bound. Otherwise a reopened
+single-frame clip could not expand to retained frames beyond its endpoint.
 A desktop regression reproduced that failure, then verified single-frame export, standard-file reopen,
 index completion, expansion to all four frames, paired resave and display of the retained final frame.
 Index completion does not mark the document modified or remove measurements.
 
+If a replacement movie is shorter than the recorded clip, indexing retains the original bound rather
+than producing an invalid native document. A regression records a five-frame clip and a mark on frame
+4 with an available four-frame movie: native save/reopen retains the range, mark and available index.
+An already trimmed native copy also retains its larger known bound, so indexing cannot invalidate an
+earlier range that can be restored through undo.
+Standard export still rejects this incomplete media/index match and preserves the existing destination.
+
 After the reopen-bound correction, Linux static analysis required a checked image-sequence reference
-outside the test's frame loop. With that guard and the merged journal-group split, all ten Windows
-CTest groups pass in 150.73 seconds with 95.65% production line coverage (8840/9242).
-The new desktop regression first failed at the shortened bound
-and then passed with the correction; all three related desktop cases, both affected source-file static
+outside the test's frame loop. With that guard, retained movie bounds and the merged journal-group split,
+all ten Windows CTest groups pass in 129.56 seconds with 95.64% production line coverage (8844/9247).
+Desktop regressions reproduced both the shortened expansion bound and an unreadable native save
+after indexing shorter media, then passed with the corrections. All four related desktop cases, both affected source-file static
 analyses and formatting pass. Three existing LLVM profile-mismatch warnings remain visible. Actual
 Tracker and three-platform acceptance still require the final published revision's CI.
