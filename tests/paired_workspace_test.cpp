@@ -461,7 +461,8 @@ TEST(PairedWorkspace, SavesMovingVectorAxesThroughDesktopHistoryAndNativeReopen)
             undo->trigger();
             ASSERT_TRUE(window.saveTrackerProject(target));
             const auto undone = motrack::readWorkspaceDocument(native);
-            ASSERT_TRUE(undone.project.calibration);
+            if (!undone.project.calibration)
+                FAIL() << "Undo save lost vector calibration.";
             EXPECT_EQ(undone.project.calibration->keyframes.size(), 2);
             ASSERT_TRUE(redo->isEnabled());
             redo->trigger();
@@ -469,7 +470,8 @@ TEST(PairedWorkspace, SavesMovingVectorAxesThroughDesktopHistoryAndNativeReopen)
             EXPECT_FALSE(window.isWindowModified());
         }
         const auto saved = motrack::readWorkspaceDocument(native);
-        ASSERT_TRUE(saved.project.calibration);
+        if (!saved.project.calibration)
+            FAIL() << "Moving vector calibration was not saved.";
         ASSERT_EQ(saved.project.calibration->keyframes.size(), 3);
         const auto& keys = saved.project.calibration->keyframes;
         EXPECT_EQ(keys[1].frame, 1);

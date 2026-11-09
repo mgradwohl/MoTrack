@@ -166,7 +166,11 @@ TEST(TrackerWriter, SavesVaryingVectorCalibrationWithHistoryNativeReopenAndIndep
             const auto reopened = motrack::importTrackerDocument(target).project;
             EXPECT_EQ(reopened.vectors, expected.vectors);
             EXPECT_EQ(reopened.calibration, expected.calibration);
-            ASSERT_TRUE(reopened.calibration);
+            if (!reopened.calibration)
+                FAIL() << "Saved vectors lost their calibration.";
+            ASSERT_GE(reopened.vectors.size(), 2);
+            ASSERT_EQ(reopened.vectors[0].samples.size(), 2);
+            ASSERT_FALSE(reopened.vectors[1].samples.empty());
             const auto& first = reopened.vectors[0].samples;
             const std::array samples{first[0], first[1], reopened.vectors[1].samples[0]};
             for (std::size_t index = 0; index < samples.size(); ++index)
@@ -177,7 +181,8 @@ TEST(TrackerWriter, SavesVaryingVectorCalibrationWithHistoryNativeReopenAndIndep
                 const auto tip = motrack::worldPosition(
                     *reopened.calibration,
                     {.frame = sample.frame, .x = sample.tailX + sample.componentX, .y = sample.tailY + sample.componentY});
-                ASSERT_TRUE(tail && tip);
+                if (!tail || !tip)
+                    FAIL() << "Saved vector endpoints have no world positions.";
                 EXPECT_NEAR(tip->x - tail->x, components[flags][index][0], 1e-12);
                 EXPECT_NEAR(tip->y - tail->y, components[flags][index][1], 1e-12);
             }
@@ -243,7 +248,8 @@ TEST(TrackerWriter, FixedVectorOriginUsesLastLoadedKeyForSnapping)
     QTemporaryDir temporary;
     const auto source = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/keyed-vector-images-1/linked-images.trk";
     auto document = motrack::importTrackerDocument(source);
-    ASSERT_TRUE(document.project.calibration);
+    if (!document.project.calibration)
+        FAIL() << "Vector fixture has no calibration.";
     const auto target = temporary.filePath("saved.trk");
     // A raw earlier key lies on A0, but a fixed origin takes its value from the last key.
     auto& keys = document.project.calibration->keyframes;
