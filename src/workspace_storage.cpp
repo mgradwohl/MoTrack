@@ -48,7 +48,8 @@ QString externalArchiveDestination(const QString& path, const TrackerArchive& so
         // an owner-managed temporary directory appear to be a permanent save location.
         for (auto ancestor = parent;;)
         {
-            require(!sameLocalFile(ancestor, root));
+            if (sameLocalFile(ancestor, root))
+                throw ProjectError("Choose a save location outside the imported archive's temporary directories.");
             const auto next = QFileInfo(ancestor).absolutePath();
             if (next == ancestor)
                 break;

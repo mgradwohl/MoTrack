@@ -489,7 +489,15 @@ TEST(WorkspaceDocument, RefusesNativeWritesInsideOwnedArchiveDirectories)
                             : target == 1 ? attachment
                             : target == 2 ? QDir(QFileInfo(payload->sourcePath()).absolutePath()).filePath("saved.motrack")
                                           : QDir(payload->root()).filePath("support/new.motrack");
-        EXPECT_THROW(motrack::writeWorkspaceDocument(inside, document), motrack::ProjectError);
+        try
+        {
+            motrack::writeWorkspaceDocument(inside, document);
+            FAIL() << "Native saving accepted an owned archive destination.";
+        }
+        catch (const motrack::ProjectError& error)
+        {
+            EXPECT_STREQ(error.what(), "Choose a save location outside the imported archive's temporary directories.");
+        }
         if (target != 0)
             EXPECT_THROW(static_cast<void>(motrack::writeNativeDocument(inside, document)), motrack::ProjectError);
         EXPECT_EQ(readBytes(payload->sourcePath()), originalBytes);
