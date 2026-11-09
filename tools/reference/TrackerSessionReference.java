@@ -45,7 +45,9 @@ import org.opensourcephysics.display.DatasetManager;
 import org.opensourcephysics.media.core.ImageCoordSystem;
 import org.opensourcephysics.media.core.ImageVideo;
 import org.opensourcephysics.media.core.TPoint;
+import org.opensourcephysics.media.core.Video;
 import org.opensourcephysics.media.core.VideoClip;
+import org.opensourcephysics.media.xuggle.XuggleVideo;
 
 /** Exercises the normal asynchronous application loader and saver under an isolated virtual display.
  * This establishes Java's own resave baseline; it does not claim MoTrack export compatibility.
@@ -196,8 +198,8 @@ public final class TrackerSessionReference {
         if (frame.getTabCount() != 1) throw new IllegalStateException("Expected exactly one fully loaded tab");
         TrackerPanel panel = frame.getTrackerPanelForTab(0);
         if (panel == null || panel.getTracks().isEmpty()) throw new IllegalStateException("Loaded tab has no tracks");
-        if (panel.getVideo() != null && !(panel.getVideo() instanceof ImageVideo))
-            throw new IllegalStateException("Only image-sequence media sessions are audited");
+        if (panel.getVideo() != null && !(panel.getVideo() instanceof ImageVideo) && !(panel.getVideo() instanceof XuggleVideo))
+            throw new IllegalStateException("Only pinned image-sequence and movie media sessions are audited");
         return panel;
     }
 
@@ -638,7 +640,7 @@ public final class TrackerSessionReference {
             "length_unit", panel.getLengthUnit(), "mass_unit", panel.getMassUnit(),
             "time_unit", panel.getTimeUnit(), "time_samples", times,
             "frame_duration_ms", panel.getPlayer().getClipControl().getMeanFrameDuration(),
-            "name_references", nameReferences(panel), "media", imageMedia(panel),
+            "name_references", nameReferences(panel), "media", decodedMedia(panel),
             "saved_views", savedViews(panel),
             "centers_of_mass", centers,
             "vector_sums", sums,
@@ -649,12 +651,13 @@ public final class TrackerSessionReference {
             "tracks", tracks, "coordinate_samples", coordinates);
     }
 
-    private static Map<String, Object> imageMedia(TrackerPanel panel) {
-        if (panel.getVideo() == null) return null;
-        if (!(panel.getVideo() instanceof ImageVideo video) || !video.getFilterStack().isEmpty())
-            throw new IllegalStateException("Expected an unfiltered image sequence");
+    private static Map<String, Object> decodedMedia(TrackerPanel panel) {
+        Video video = panel.getVideo();
+        if (video == null) return null;
+        if ((!(video instanceof ImageVideo) && !(video instanceof XuggleVideo)) || !video.getFilterStack().isEmpty())
+            throw new IllegalStateException("Expected unfiltered pinned reference media");
         int count = video.getFrameCount();
-        if (count < 1 || count > 100) throw new IllegalStateException("Image reference frame limit exceeded");
+        if (count < 1 || count > 100) throw new IllegalStateException("Reference media frame limit exceeded");
         List<Object> frames = new ArrayList<>();
         int original = video.getFrameNumber();
         try {

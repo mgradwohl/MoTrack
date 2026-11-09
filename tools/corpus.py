@@ -30,8 +30,25 @@ def load_manifest(path=CORPUS / "manifest.json"):
     manifest = json.loads(path.read_text(encoding="utf-8"))
     if manifest["schema_version"] != 1:
         raise ValueError("Unsupported corpus manifest version")
+    dependencies = manifest["reference"].get("runtime_dependencies", [])
+    if not isinstance(dependencies, list) or len(dependencies) > 8:
+        raise ValueError("Invalid reference runtime dependency list")
+    dependency_names = set()
+    for dependency in dependencies:
+        if (not isinstance(dependency, dict) or "local_file" in dependency
+                or not {"file", "url", "sha256", "bytes"}.issubset(dependency)
+                or not all(isinstance(dependency[key], str) for key in ["file", "url", "sha256"])
+                or type(dependency["bytes"]) is not int or not dependency["file"].endswith(".jar")
+                or dependency["file"] in dependency_names or dependency["file"] == manifest["reference"]["file"]):
+            raise ValueError("Invalid or duplicate reference runtime dependency")
+        dependency_names.add(dependency["file"])
     seen = set()
     for case in manifest["cases"]:
+        required = case.get("reference_dependencies", [])
+        if (not isinstance(required, list) or len(required) > 8
+                or any(not isinstance(name, str) or name not in dependency_names for name in required)
+                or len(set(required)) != len(required)):
+            raise ValueError("Invalid or unknown case reference dependency")
         if not re.fullmatch(r"[a-z0-9-]+", case["id"]) or case["id"] in seen:
             raise ValueError("Invalid or duplicate corpus case ID")
         seen.add(case["id"])
@@ -74,7 +91,7 @@ def load_manifest(path=CORPUS / "manifest.json"):
             if not isinstance(asset, dict) or "local_file" not in asset:
                 raise ValueError("Corpus media assets must be pinned local fixtures")
         assets.extend(values)
-    for artifact in [manifest["reference"], *manifest["cases"], *assets]:
+    for artifact in [manifest["reference"], *dependencies, *manifest["cases"], *assets]:
         local = "local_file" in artifact
         if (not re.fullmatch(r"[A-Za-z0-9_.-]+", artifact["file"])
                 or artifact["file"] in {".", ".."}
@@ -144,10 +161,22 @@ def fetch_file(path, artifact):
 
 def artifacts(manifest, cache):
     yield cache / manifest["reference"]["file"], manifest["reference"]
+    for dependency in manifest["reference"].get("runtime_dependencies", []):
+        yield cache / "runtime" / dependency["file"], dependency
     for case in manifest["cases"]:
         yield local_fixture_path(case) if "local_file" in case else cache / "fixtures" / case["file"], case
         for asset in case.get("assets", []):
             yield local_fixture_path(asset), asset
+
+
+def java_classpath(manifest, cache, *, classes=None, dependencies=()):
+    """Use only the pinned runtime jars explicitly selected for this reference case."""
+    available = {item["file"] for item in manifest["reference"].get("runtime_dependencies", [])}
+    if any(name not in available for name in dependencies):
+        raise ValueError("Unknown reference runtime dependency")
+    paths = ([classes] if classes is not None else []) + [cache / manifest["reference"]["file"]]
+    paths.extend(cache / "runtime" / name for name in dependencies)
+    return os.pathsep.join(map(str, paths))
 
 
 def project_path(case, cache):
@@ -259,8 +288,10 @@ def check_cases(manifest, cache, *, java=None, probe=None, record=False):
         output = reports / (case["id"] + ("-java.json" if java else "-native.json"))
         output.unlink(missing_ok=True)
         if java:
-            run([java, "-Djava.awt.headless=true", f"-Duser.home={reference_home}", "-Xmx256m", "--class-path",
-                 str(cache / manifest["reference"]["file"]), str(ROOT / "tools/reference/TrackerReference.java"),
+            run([java, "-Djava.awt.headless=true", f"-Duser.home={reference_home}", f"-Djava.io.tmpdir={reference_home}",
+                 "-Xmx256m", "--class-path",
+                 java_classpath(manifest, cache, dependencies=case.get("reference_dependencies", [])),
+                 str(ROOT / "tools/reference/TrackerReference.java"),
                  str(project), str(output)])
         else:
             run([str(Path(probe).resolve()), str(project), str(output)])
@@ -1730,7 +1761,7 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
         home = destination / "private-home"
         home.mkdir(parents=True)
         try:
-            run([str(java), f"-Duser.home={home}", "-Duser.language=en", "-Duser.country=US", "-Xmx256m",
+            run([str(java), f"-Duser.home={home}", f"-Djava.io.tmpdir={home}", "-Duser.language=en", "-Duser.country=US", "-Xmx256m",
                  "-cp", os.pathsep.join([str(classes), str(jar)]), "TrackerSessionReference",
                  str(input_file), str(destination), stage, *map(str, metadata_args)], display=display)
         except (ValueError, OSError, subprocess.TimeoutExpired) as error:
@@ -1819,15 +1850,17 @@ def check_sessions(manifest, cache, java, probe=None):
         classes = root / "classes"
         classes.mkdir()
         jar = cache / manifest["reference"]["file"]
-        run([str(javac), "-cp", str(jar), "-d", str(classes),
+        run([str(javac), "-cp", java_classpath(manifest, cache, dependencies=[
+                 item["file"] for item in manifest["reference"].get("runtime_dependencies", [])]), "-d", str(classes),
              str(ROOT / "tools/reference/TrackerReference.java"),
              str(ROOT / "tools/reference/TrackerSessionReference.java"), str(ROOT / "tools/reference/VectorFixture.java"),
              str(ROOT / "tools/reference/TrackerSessionDiagnosticsTest.java")])
         diagnostic_home = root / "diagnostic-home"
         diagnostic_home.mkdir()
         run([str(java_path), "-Djava.awt.headless=true", f"-Duser.home={diagnostic_home}", "-Xmx256m",
-             "-cp", os.pathsep.join([str(classes), str(jar)]), "TrackerSessionDiagnosticsTest"])
+             "-cp", java_classpath(manifest, cache, classes=classes), "TrackerSessionDiagnosticsTest"])
         for case, mode in cases:
+            case_classpath = java_classpath(manifest, cache, classes=classes, dependencies=case.get("reference_dependencies", []))
             if probe and case.get("session_known_issue"):
                 raise ValueError("Known Tracker defects cannot be used as native export acceptance")
             output = root / (case["id"] + ("-" + mode if probe else ""))
@@ -1859,7 +1892,7 @@ def check_sessions(manifest, cache, java, probe=None):
             elif mode == "clip-boundary":
                 project = output / "java-boundary-source.trk"
                 run([str(java_path), "-Djava.awt.headless=true", f"-Duser.home={java_home}", "-Xmx256m",
-                     "-cp", os.pathsep.join([str(classes), str(jar)]), "VectorFixture", str(project), mode])
+                     "-cp", case_classpath, "VectorFixture", str(project), mode])
                 case = {**case, "session_tracks": [track for track in case["session_tracks"]
                                                    if track["class"] == "org.opensourcephysics.cabrillo.tracker.CoordAxes"]}
             expected = None
@@ -1895,7 +1928,7 @@ def check_sessions(manifest, cache, java, probe=None):
                     raise ValueError("Rejected snapping export changed the destination")
                 project = output / "java-snapping-source.trk"
                 run([str(java_path), "-Djava.awt.headless=true", f"-Duser.home={java_home}", "-Xmx256m",
-                     "-cp", os.pathsep.join([str(classes), str(jar)]), "VectorFixture", str(project), mode])
+                     "-cp", case_classpath, "VectorFixture", str(project), mode])
                 expected = snapping_roundtrip_expected(case, mode)
             elif probe:
                 exported = output / "motrack-export.trk"
@@ -1970,8 +2003,8 @@ def check_sessions(manifest, cache, java, probe=None):
                 source = (archive_input or project) if stage == "save" else output / "tracker-resaved.trk"
                 metadata_args = [str(project)] if stage == "save" and archive_input else []
                 try:
-                    run([str(java_path), f"-Duser.home={home}", "-Duser.language=en", "-Duser.country=US",
-                         "-Xmx256m", "-cp", os.pathsep.join([str(classes), str(jar)]), "TrackerSessionReference",
+                    run([str(java_path), f"-Duser.home={home}", f"-Djava.io.tmpdir={home}", "-Duser.language=en", "-Duser.country=US",
+                         "-Xmx256m", "-cp", case_classpath, "TrackerSessionReference",
                          str(source), str(output), stage, *metadata_args], display=display)
                 except (ValueError, OSError, subprocess.TimeoutExpired) as error:
                     diagnostic = format_session_file_diagnostic(source)

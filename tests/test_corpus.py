@@ -5,6 +5,7 @@ import copy
 from contextlib import nullcontext
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -296,8 +297,13 @@ class CorpusTests(unittest.TestCase):
             corpus.verify_linked_image_export_xml(original, output, case)
 
     def test_media_session_requires_independent_pixels_order_and_timing(self):
+        for case_id in ["linked-images", "linked-movie"]:
+            with self.subTest(case=case_id):
+                self.check_media_session_oracle(case_id)
+
+    def check_media_session_oracle(self, case_id):
         manifest = corpus.load_manifest()
-        case = next(c for c in manifest["cases"] if c["id"] == "linked-images")
+        case = next(c for c in manifest["cases"] if c["id"] == case_id)
         expected = json.loads(corpus.expected_path(case).read_text())["project"]
         mass = expected["point_masses"][0]
         before = {"tracks": [case["session_tracks"][0], {
@@ -308,18 +314,20 @@ class CorpusTests(unittest.TestCase):
             "media": copy.deepcopy(case["session_media"]), "frame_duration_ms": 125.0,
             "axes": copy.deepcopy(case["session_axes"]), "calibration": copy.deepcopy(case["session_calibration"]),
             "time_samples": copy.deepcopy(case["session_time_samples"]),
-            "name_references": {"selected_track": "image mass"}, **corpus.session_units(case, expected)}
+            "name_references": {"selected_track": mass["name"]}, **corpus.session_units(case, expected)}
         valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
                  "view_preparation": "expand_visit_custom_tables_restore_selection", "before": before,
                  "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest)
         for stages in [["after"], ["before", "after_save", "after"]]:
-            for mutation in ["missing", "pixels", "order", "time", "dimensions", "count", "origin", "scale", "axes_grid"]:
+            for mutation in ["missing", "pixels", "order", "time", "dimensions", "count", "origin", "scale", "axes_grid", "engine"]:
                 invalid = copy.deepcopy(valid)
                 for stage in stages:
                     media = invalid[stage]["media"]
                     if mutation == "missing":
                         invalid[stage]["media"] = None
+                    elif mutation == "engine":
+                        media["class"] = "UnreviewedVideoEngine"
                     elif mutation == "pixels":
                         media["frames"][0]["rgb_sha256"] = "0" * 64
                     elif mutation == "order":
@@ -341,6 +349,71 @@ class CorpusTests(unittest.TestCase):
         unaudited = {key: value for key, value in case.items() if key != "session_media"}
         with self.assertRaisesRegex(ValueError, "independent pixel"):
             corpus.validate_session(unaudited, valid, manifest)
+
+    def test_reference_runtime_dependencies_are_pinned_bounded_and_selected_per_case(self):
+        original = corpus.load_manifest()
+        dependencies = original["reference"]["runtime_dependencies"]
+        movie = next(case for case in original["cases"] if case["id"] == "linked-movie")
+        self.assertEqual(len(dependencies), 2)
+        entries = list(corpus.artifacts(original, self.root))
+        for dependency in dependencies:
+            self.assertIn((self.root / "runtime" / dependency["file"], dependency), entries)
+        base = str(self.root / original["reference"]["file"])
+        self.assertEqual(corpus.java_classpath(original, self.root), base)
+        self.assertEqual(corpus.java_classpath(original, self.root, classes=self.root / "classes",
+                                               dependencies=movie["reference_dependencies"]),
+                         os.pathsep.join([str(self.root / "classes"), base,
+                                          *(str(self.root / "runtime" / item["file"]) for item in dependencies)]))
+        with self.assertRaisesRegex(ValueError, "Unknown"):
+            corpus.java_classpath(original, self.root, dependencies=["../unknown.jar"])
+        for mutation in ["not-list", "too-many", "non-object", "duplicate", "reference-name", "local", "not-jar",
+                         "escape", "http", "hash", "size", "size-type", "missing-pin"]:
+            manifest = copy.deepcopy(original)
+            items = manifest["reference"]["runtime_dependencies"]
+            if mutation == "not-list": manifest["reference"]["runtime_dependencies"] = {}
+            elif mutation == "too-many": manifest["reference"]["runtime_dependencies"] = items * 5
+            elif mutation == "non-object": items[0] = None
+            elif mutation == "duplicate": items.append(copy.deepcopy(items[0]))
+            elif mutation == "reference-name": items[0]["file"] = manifest["reference"]["file"]
+            elif mutation == "local": items[0]["local_file"] = "fixtures/runtime.jar"
+            elif mutation == "not-jar": items[0]["file"] = "runtime.exe"
+            elif mutation == "escape": items[0]["file"] = "../runtime.jar"
+            elif mutation == "http": items[0]["url"] = "http://example.org/runtime.jar"
+            elif mutation == "hash": items[0]["sha256"] = "bad"
+            elif mutation == "size": items[0]["bytes"] = 129 * 1024 * 1024
+            elif mutation == "size-type": items[0]["bytes"] = "46328130"
+            elif mutation == "missing-pin": del items[0]["sha256"]
+            path = self.root / "runtime-manifest.json"
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                corpus.load_manifest(path)
+        for required in ["runtime.jar", ["unknown.jar"], [movie["reference_dependencies"][0]] * 2, [None], [[]]]:
+            manifest = copy.deepcopy(original)
+            manifest["cases"][0]["reference_dependencies"] = required
+            path = self.root / "runtime-case.json"
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.subTest(required=required), self.assertRaises(ValueError):
+                corpus.load_manifest(path)
+
+    def test_reference_commands_only_load_the_cases_selected_movie_dependencies(self):
+        manifest = corpus.load_manifest()
+        manifest["cases"] = [case for case in manifest["cases"] if case["id"] in {"linked-images", "linked-movie"}]
+        commands = []
+
+        def reference(command):
+            case = next(case for case in manifest["cases"] if corpus.project_path(case, self.root) == Path(command[-2]))
+            Path(command[-1]).write_text(corpus.expected_path(case).read_text(encoding="utf-8"), encoding="utf-8")
+            commands.append(command)
+            self.assertIn("-Djava.awt.headless=true", command)
+            self.assertIn(f"-Djava.io.tmpdir={self.root / 'java-home'}", command)
+            classpath = command[command.index("--class-path") + 1].split(os.pathsep)
+            expected = [str(self.root / manifest["reference"]["file"])]
+            expected.extend(str(self.root / "runtime" / name) for name in case.get("reference_dependencies", []))
+            self.assertEqual(classpath, expected)
+
+        with patch.object(corpus, "verify_file"), patch.object(corpus, "run", side_effect=reference):
+            corpus.check_cases(manifest, self.root, java="java")
+        self.assertEqual(len(commands), 2)
 
     def test_media_assets_are_pinned_bounded_and_cannot_escape_fixture_root(self):
         manifest = corpus.load_manifest()

@@ -5,7 +5,8 @@ It compares MoTrack's importer and coordinate calculations with snapshots produc
 XML loader and `ImageCoordSystem` implementation bundled in the official **Tracker 6.3.5** JAR.
 
 The original report names its verification level `xml_and_coordinate_api`. A separate session probe
-uses Tracker's actual application/async-loader lifecycle to open the media-free experiments and an audited image sequence,
+uses Tracker's actual application/async-loader lifecycle to open the media-free experiments, an audited image sequence,
+and an audited constant-rate movie baseline,
 save through Tracker's normal saver and reopen in a fresh Java process. Its report is labeled
 `tracker_session_resave`. It checks loaded track classes/names, mass values, step points, clip bounds,
 units and coordinate probes before/after Java's own resave, and compares available point-mass/coordinate
@@ -881,6 +882,56 @@ manual keys through save/fresh reopen and native reimport. This edited case pass
 `c050b19fdbf6e9e103e5cef62d78f52cdf6cb3e8`, Linux job 128706751494 in run 42471577055.
 That run failed later on the separate all-table-owner deletion case. Subsequent physical-path
 resolution fixes still require current-revision application and cross-platform checks before merge.
+
+## Linked constant-rate movie baseline
+
+[LinkedMovieFixture.java](../../tools/reference/LinkedMovieFixture.java) authors a four-frame, 32×24,
+8 fps uncompressed BGR AVI and a linked Tracker experiment with OSP's public XML controls. The
+movie has no audio or external dependencies. Every pixel is specified independently by
+`R = x + 16 * frame`, `G = y`, `B = 32 * frame`; frame timestamps are 0, 125, 250 and 375 ms.
+The experiment uses the same independently specified geometry as the image baseline: origin (2,20),
+scales (2,4), a 2 kg point mass at image (4,16) and (12,4) on frames 0 and 2, and a −250 ms clip
+origin. Those marks must remain world (1,1) and (5,4). Expected RGB hashes come directly from the
+pixel formula, and the manifest checks the loaded video engine as well as pixels, order and timing.
+
+Two headless JDK 17 generations produced identical bytes. `constant-rate.avi` is 9544 bytes with
+SHA-256 `f3a7e7c6091a0259012441ed5a3b2d60d0bcbd01837919ad6122a8af4c2c02fb`;
+`linked-movie.trk` is 5246 bytes with SHA-256
+`57da7df15a0ce7d1feeb3dec70d98af6b99ca923c282a394fa1fe792aa4d5e6b`.
+MoTrack's ordinary video reader checks every decoded pixel, all timestamps, frame count, index
+and a backward seek. The pinned Java XML/coordinate API and native importer match the independent
+experiment geometry. A bounded headless Xuggle decoder probe also read every pixel and timestamp
+exactly on Windows. These are decoder/parser checks, **not actual Tracker application acceptance**.
+
+The new session case uses the normal Tracker application loader, saver and fresh-process reopen
+under Linux Xvfb. It retains the existing 100-frame/256×256 sampling bounds, private homes,
+256 MB heap, deadlines and independent negative oracles. The `linked-movie` application load/save/fresh
+reopen case passed at `ce9122a`, Linux job 128842318578 in
+[run 42517071494](https://github.com/mgradwohl/MoTrack/actions/runs/42517071494). Both save and reopen
+observed two loader callbacks but executed the reference action once. That run failed later in a
+separate desktop-dialog static-analysis check; it is not whole-PR CI acceptance. Subsequent revisions
+still require their own checks. This case enables no MoTrack movie standard export and does not close
+[MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65) or claim to reproduce Tracker's historical
+MOV/Open Recent report. Variable-rate movies, other codecs, missing/relocated media, edited standard
+exports and the broader movie/view-preservation matrix remain separate acceptance work.
+
+The reference manifest additionally pins two development-only dependencies from the recorded
+[Tracker source candidate's libraries](https://github.com/OpenSourcePhysics/tracker/tree/dc064f922fd924826fb42030b9cd5f5bbc720c9f/libraries):
+`xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar` (46328130 bytes) and
+`slf4j-api-1.7.30.jar` (41472 bytes). Their SHA-256 values are in the manifest. `corpus.py fetch`
+verifies them in the ignored `runtime/` reference cache. Only cases explicitly selecting those jars
+receive them at runtime; image-only cases keep their existing minimal classpath. Java temporary
+files stay in each reference home. No Java/Xuggle/SLF4J dependency is added to MoTrack's build or
+shipped application. The Tracker JAR/source-candidate mapping remains unverified as recorded above.
+
+To regenerate into a fresh directory on Linux/macOS after fetching the pinned reference:
+
+```sh
+java -Djava.awt.headless=true -Xmx256m --class-path '.dev-tools/tracker-reference/tracker-6.3.5.jar:.dev-tools/tracker-reference/runtime/*' tools/reference/LinkedMovieFixture.java /temporary/new-movie-fixture
+```
+
+On Windows, use `;` as the classpath separator and keep headless mode enabled. The actual Java
+application acceptance remains Linux-only.
 
 ## Selected archive-member export
 
