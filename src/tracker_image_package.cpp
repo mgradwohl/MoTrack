@@ -241,9 +241,13 @@ void writeTrackerMediaPackage(
         const std::atomic_bool running{false};
         const auto index =
             buildMovieIndex(QDir(verified.root()).filePath(members.back()), VideoOrientation::Encoded, cancelled ? *cancelled : running);
-        requireReadable(index.frameCount > 0 && document.project.clip.sourceFrameCount == index.frameCount &&
-                            index.frameTimes == document.movieFrameTimes,
+        checkCancelled(cancelled);
+        requireReadable(index.frameCount > 0,
                         workspaceMediaPath(document, mediaProjectPath, document.project.clip.mediaReferences.front()));
+        if (document.project.clip.sourceFrameCount != index.frameCount || index.frameTimes != document.movieFrameTimes)
+            throw ProjectError(
+                QCoreApplication::translate("TrackerImagePackage", "The movie's frame count or timing no longer matches this document.")
+                    .toStdString());
     }
     else
     {

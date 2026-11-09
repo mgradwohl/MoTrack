@@ -671,24 +671,28 @@ def verify_media_package_export(original, exported, selected_xml, case, clip_mod
     if exported.stat().st_size > 1024 * 1024:
         raise ValueError("Media package reference exceeds the small-fixture limit")
     media = ["media/movie.mov"] if movie else [f"images/frame-{index:06d}.png" for index in range(4)]
-    with zipfile.ZipFile(exported) as package:
-        if (package.namelist() != ["experiment.trk", *media] or package.comment
-                or any(entry.compress_type != zipfile.ZIP_DEFLATED or entry.extract_version > 20 for entry in package.infolist())):
-            raise ValueError("Unexpected media package inventory or encoding")
-        for member, asset in zip(media, case["assets"], strict=True):
-            if package.getinfo(member).file_size != asset["bytes"]:
-                raise ValueError("Packaged media size changed")
-            payload = package.read(member)
-            if len(payload) != asset["bytes"] or hashlib.sha256(payload).hexdigest() != asset["sha256"]:
-                raise ValueError("Packaged media bytes changed")
-        if package.getinfo("experiment.trk").file_size > MAX_XML_BYTES:
-            raise ValueError("Packaged XML exceeds fixture bounds")
-        xml = package.read("experiment.trk")
-        with minidom.parse(str(original)) as expected, minidom.parseString(xml) as actual:
-            patch_expected_linked_media(expected, packaged=True, clip_mode=clip_mode, movie=movie)
-            if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
-                raise ValueError("Media package changed XML beyond the requested paths, mass, mark and clip")
-        selected_xml.write_bytes(xml)
+    try:
+        with zipfile.ZipFile(exported) as package:
+            if (package.namelist() != ["experiment.trk", *media] or package.comment
+                    or any(entry.compress_type != zipfile.ZIP_DEFLATED or entry.extract_version > 20 for entry in package.infolist())):
+                raise ValueError("Unexpected media package inventory or encoding")
+            # Reading every bounded member checks its CRC without an unbounded testzip() pass.
+            for member, asset in zip(media, case["assets"], strict=True):
+                if package.getinfo(member).file_size != asset["bytes"]:
+                    raise ValueError("Packaged media size changed")
+                payload = package.read(member)
+                if len(payload) != asset["bytes"] or hashlib.sha256(payload).hexdigest() != asset["sha256"]:
+                    raise ValueError("Packaged media bytes changed")
+            if package.getinfo("experiment.trk").file_size > MAX_XML_BYTES:
+                raise ValueError("Packaged XML exceeds fixture bounds")
+            xml = package.read("experiment.trk")
+            with minidom.parse(str(original)) as expected, minidom.parseString(xml) as actual:
+                patch_expected_linked_media(expected, packaged=True, clip_mode=clip_mode, movie=movie)
+                if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
+                    raise ValueError("Media package changed XML beyond the requested paths, mass, mark and clip")
+            selected_xml.write_bytes(xml)
+    except zipfile.BadZipFile as error:
+        raise ValueError("Media package ZIP integrity check failed") from error
 
 
 def verify_archive_media_export(original, exported, selected_xml, member_count=7, clip_mode=None, *, movie=False):

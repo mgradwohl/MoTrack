@@ -293,7 +293,7 @@ class CorpusTests(unittest.TestCase):
             with corpus.minidom.parse(str(original)) as document:
                 corpus.patch_expected_linked_media(document, movie=True, relocate=False, clip_mode=clip_mode)
                 xml = document.toxml().replace("constant-rate.mov", "media/movie.mov")
-            for mutation in [None, "xml", "path", "movie", "missing", "extra", "stored"]:
+            for mutation in [None, "xml", "path", "movie", "missing", "extra", "stored", "crc-xml", "crc-movie", "not-zip"]:
                 with self.subTest(clip_mode=clip_mode, mutation=mutation):
                     with zipfile.ZipFile(exported, "w", compression=(zipfile.ZIP_STORED if mutation == "stored"
                                                                   else zipfile.ZIP_DEFLATED)) as package:
@@ -307,9 +307,24 @@ class CorpusTests(unittest.TestCase):
                             package.writestr("media/movie.mov", payload[:-1] + bytes([payload[-1] ^ 1]) if mutation == "movie" else payload)
                         if mutation == "extra":
                             package.writestr("unexpected.txt", "unexpected")
+                    if mutation in {"crc-xml", "crc-movie"}:
+                        damaged = bytearray(exported.read_bytes())
+                        with zipfile.ZipFile(exported) as package:
+                            central = package.start_dir
+                            if mutation == "crc-movie":
+                                first = package.infolist()[0]
+                                central += 46 + len(first.filename.encode("utf-8")) + len(first.extra) + len(first.comment)
+                        self.assertEqual(damaged[central:central + 4], b"PK\x01\x02")
+                        damaged[central + 16] ^= 1  # Central-directory CRC, leaving decoded bytes unchanged.
+                        exported.write_bytes(damaged)
+                    elif mutation == "not-zip":
+                        exported.write_bytes(b"not a ZIP archive")
                     if mutation:
-                        with self.assertRaises(ValueError):
+                        previous = selected.read_bytes()
+                        message = "ZIP integrity" if mutation in {"crc-xml", "crc-movie", "not-zip"} else ".*"
+                        with self.assertRaisesRegex(ValueError, message):
                             corpus.verify_media_package_export(original, exported, selected, case, clip_mode, movie=True)
+                        self.assertEqual(selected.read_bytes(), previous)
                     else:
                         corpus.verify_media_package_export(original, exported, selected, case, clip_mode, movie=True)
                         self.assertEqual(selected.read_text(encoding="utf-8"), xml)

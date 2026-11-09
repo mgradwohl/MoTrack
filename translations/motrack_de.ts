@@ -198,6 +198,7 @@
   </context>
   <context>
     <name>TrackerImagePackage</name>
+    <message><source>The movie's frame count or timing no longer matches this document.</source><translation type="unfinished"></translation></message>
     <message><source>Choose a regular Tracker archive filename.</source><translation type="unfinished"></translation></message>
     <message><source>Cannot package this linked-media experiment safely.</source><translation type="unfinished"></translation></message>
     <message><source>Tracker media packaging was canceled.</source><translation type="unfinished"></translation></message>

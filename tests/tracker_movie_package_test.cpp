@@ -14,6 +14,7 @@
 
 #include <atomic>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace
@@ -202,7 +203,15 @@ TEST(TrackerMoviePackage, RejectsCorruptAndChangedTimingInTheStagedMovie)
         document.mediaLocations.insert("constant-rate.mov", source);
         const auto target = temporary.filePath("existing.trz");
         put(target, "original archive");
-        EXPECT_THROW(motrack::writeTrackerMoviePackage(target, document, fixture()), motrack::ProjectError);
+        try
+        {
+            motrack::writeTrackerMoviePackage(target, document, fixture());
+            FAIL() << "Changed media must not replace the destination.";
+        }
+        catch (const motrack::ProjectError& error)
+        {
+            EXPECT_NE(std::string{error.what()}.find(changedTiming ? "frame count or timing" : "Could not read"), std::string::npos);
+        }
         EXPECT_EQ(bytes(target), "original archive");
     }
 }

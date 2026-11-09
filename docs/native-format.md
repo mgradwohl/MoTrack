@@ -619,7 +619,7 @@ existing destination bytes and source bindings. PNG/JPEG/BMP success cases retai
 The project-only import benchmark still links Qt Core/Xml without Qt Gui. Three existing LLVM
 function-profile mismatch warnings remain visible. Current-head CI and review remain required.
 
-### Desktop portable-image export
+### Desktop portable archive export
 
 `File → Export portable archive…` chooses a `.trz` destination and runs the adapter on the
 session's bounded save worker with an immutable document snapshot. The filename chooser is guarded
