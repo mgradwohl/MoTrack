@@ -129,14 +129,21 @@ void patchUnit(QDomDocument& xml, const QString& name, const std::string& unit)
     patchScalar(xml, xml.documentElement(), name, "string", label);
 }
 
-void patchClipRange(QDomDocument& xml, const Clip& clip, bool linkedImages)
+enum class LinkedMedia : std::uint8_t
+{
+    None,
+    Images,
+    Movie
+};
+
+void patchClipRange(QDomDocument& xml, const Clip& clip, LinkedMedia media)
 {
     if (clip.frameDurationMs)
     {
         auto timing = clip;
-        // Audited image sequences use the same constant interval arithmetic. This private
+        // Audited media use the same constant interval arithmetic. This private
         // numeric check does not change the saved source inventory or enable timing edits.
-        if (linkedImages)
+        if (media != LinkedMedia::None)
             timing.mediaReferences.clear();
         require(validConstantClipTiming(timing));
     }
@@ -152,12 +159,13 @@ void patchClipRange(QDomDocument& xml, const Clip& clip, bool linkedImages)
     require(property.attribute("type") == "object" && object.attribute("class") == "org.opensourcephysics.media.core.VideoClip" &&
             object.nextSiblingElement().isNull());
     require(uniqueProperty(object, "frameshift").isNull());
-    if (linkedImages)
+    if (media != LinkedMedia::None)
     {
-        // The image schema, complete source-frame inventory and optional saved count were
-        // checked before patching. Trimming changes only the clip, never the image inventory.
+        // The media schema, complete frame inventory/index and optional saved count were
+        // checked before patching. Trimming changes only the clip, never the source media.
         require(uniqueProperty(object, "video").firstChildElement("object").attribute("class") ==
-                "org.opensourcephysics.media.core.ImageVideo");
+                (media == LinkedMedia::Images ? "org.opensourcephysics.media.core.ImageVideo"
+                                              : "org.opensourcephysics.media.xuggle.XuggleVideo"));
     }
     else
         require(uniqueProperty(object, "video").isNull() && uniqueProperty(object, "video_framecount").isNull());
@@ -1006,22 +1014,18 @@ bool patchLinkedImagePaths(QDomDocument& xml, const LegacyProject& project, Lega
     return true;
 }
 
-enum class LinkedMedia : std::uint8_t
-{
-    None,
-    Images,
-    Movie
-};
-
 bool patchLinkedMoviePath(QDomDocument& xml, const LegacyProject& project, LegacyProject& baseline, std::span<const double> frameTimes)
 {
     validateTrackerMovieEditSchema(xml);
     require(project.clip.mediaReferences.size() == 1 && baseline.clip.mediaReferences.size() == 1 && project.vectors.empty() &&
             std::ranges::all_of(project.unsupportedTrackTypes,
                                 [](const auto& type) { return type == "org.opensourcephysics.cabrillo.tracker.CoordAxes"; }));
-    // The first movie slice changes only existing mass values, marks and the linked path.
+    // Movie edits retain original timing, geometry and identity. Clip ranges keep source frame numbers.
     auto unchanged = project;
     unchanged.clip.mediaReferences = baseline.clip.mediaReferences;
+    unchanged.clip.firstFrame = baseline.clip.firstFrame;
+    unchanged.clip.stepSize = baseline.clip.stepSize;
+    unchanged.clip.stepCount = baseline.clip.stepCount;
     require(unchanged.pointMasses.size() == baseline.pointMasses.size());
     for (std::size_t index = 0; index < unchanged.pointMasses.size(); ++index)
     {
@@ -1227,7 +1231,7 @@ std::string renderTrackerProjectImpl(const LegacyProject& project,
     if (expected.clip.firstFrame != baseline.project.clip.firstFrame || expected.clip.stepSize != baseline.project.clip.stepSize ||
         expected.clip.stepCount != baseline.project.clip.stepCount)
     {
-        patchClipRange(xml, expected.clip, media == LinkedMedia::Images);
+        patchClipRange(xml, expected.clip, media);
         baseline.project.clip.firstFrame = expected.clip.firstFrame;
         baseline.project.clip.stepSize = expected.clip.stepSize;
         baseline.project.clip.stepCount = expected.clip.stepCount;

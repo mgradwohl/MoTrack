@@ -234,7 +234,8 @@ try
             motrack::writeTrackerArchiveDocument(args[3], document);
         return 0;
     }
-    if (args.size() == 4 && args[1] == "--export-linked-movie")
+    if (args.size() == 4 &&
+        (args[1] == "--export-linked-movie" || args[1] == "--export-linked-movie-clip" || args[1] == "--export-linked-movie-clip-single"))
     {
         QTemporaryDir temporary;
         const auto inputDirectory = temporary.filePath("source");
@@ -264,6 +265,13 @@ try
             !edits.markPointMass(document.project, 0, {.frame = 1, .x = 8.0, .y = 12.0}) || !edits.undo(document.project) ||
             !edits.redo(document.project))
             throw motrack::ProjectError("Could not edit linked-movie reference.");
+        if (args[1] != "--export-linked-movie")
+        {
+            const bool single = args[1] == "--export-linked-movie-clip-single";
+            if (!edits.setClipRange(document.project, single ? 2 : 1, single ? 2 : 3, single ? 1 : 2) || !edits.undo(document.project) ||
+                !edits.redo(document.project))
+                throw motrack::ProjectError("Could not edit the movie clip range.");
+        }
         motrack::rebaseWorkspaceMedia(document, source, native);
         motrack::writeWorkspaceDocument(native, document);
         document = {};

@@ -1427,6 +1427,7 @@
     {
       "id": "linked-movie",
       "native_linked_movie_roundtrip": true,
+      "native_linked_movie_clip_roundtrip": true,
       "tracker_version": "6.3.5",
       "file": "linked-movie.trk",
       "local_file": "fixtures/linked-movie/linked-movie.trk",

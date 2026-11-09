@@ -126,6 +126,50 @@ TEST(TrackerWriter, SavesLinkedMovieEditsAfterNativeReopenSourceRemovalAndReloca
     EXPECT_NO_THROW(motrack::writeTrackerDocument(output, reopened, output));
 }
 
+TEST(TrackerWriter, SavesStridedAndSingleFrameMovieClipsAfterNativeReopenWithoutDroppingMarks)
+{
+    for (const bool single : {false, true})
+    {
+        SCOPED_TRACE(single);
+        QTemporaryDir temporary;
+        const auto source = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-movie/linked-movie.trk";
+        auto document = indexedMovieDocument(source);
+        const auto sourceBytes = retainedSource(document).xml;
+        const auto movie = QFileInfo(source).absolutePath() + "/constant-rate.avi";
+        const auto movieBytes = readBytes(movie);
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.markPointMass(document.project, 0, {.frame = 1, .x = 8.0, .y = 12.0}));
+        const auto before = document.project;
+        ASSERT_TRUE(edits.setClipRange(document.project, single ? 2 : 1, single ? 2 : 3, single ? 1 : 2));
+        const auto clipped = document.project;
+        ASSERT_TRUE(edits.undo(document.project));
+        EXPECT_EQ(document.project, before);
+        ASSERT_TRUE(edits.redo(document.project));
+        EXPECT_EQ(document.project, clipped);
+        const auto native = temporary.filePath("clip.motrack");
+        motrack::rebaseWorkspaceMedia(document, source, native);
+        motrack::writeWorkspaceDocument(native, document);
+        document = motrack::readWorkspaceDocument(native);
+        const auto target = temporary.filePath("clip.trk");
+        ASSERT_NO_THROW(motrack::writeTrackerDocument(target, document, native));
+        const auto reopened = motrack::importTrackerDocument(target).project;
+        EXPECT_EQ(reopened.clip.firstFrame, single ? 2 : 1);
+        EXPECT_EQ(reopened.clip.stepSize, single ? 1 : 2);
+        EXPECT_EQ(reopened.clip.stepCount, single ? 1 : 2);
+        EXPECT_EQ(reopened.pointMasses, before.pointMasses);
+        EXPECT_DOUBLE_EQ(reopened.clip.startTimeMs, -250.0);
+        EXPECT_EQ(document.movieFrameTimes, (std::vector<double>{0.0, 0.125, 0.25, 0.375}));
+        EXPECT_EQ(document.project.clip.sourceFrameCount, 4);
+        EXPECT_EQ(retainedSource(document).xml, sourceBytes);
+        EXPECT_EQ(readBytes(movie), movieBytes);
+        auto expanded = indexedMovieDocument(target);
+        ASSERT_TRUE(edits.setClipRange(expanded.project, 0, 3, 1));
+        ASSERT_NO_THROW(motrack::writeTrackerDocument(target, expanded, target));
+        EXPECT_EQ(motrack::importTrackerDocument(target).project.pointMasses, before.pointMasses);
+        EXPECT_EQ(motrack::importTrackerDocument(target).project.clip.stepCount, 4);
+    }
+}
+
 TEST(TrackerWriter, SavesMovieDefaultNumberFormatsAndRejectsCustomFormatsAfterNativeReopen)
 {
     for (const bool custom : {false, true})
@@ -204,7 +248,10 @@ TEST(TrackerWriter, RejectsUnsupportedMovieStateBeforeReplacingExistingOutput)
         [](auto& doc) { doc.project.clip.sourceFrameCount = 3; },
         [](auto& doc) { doc.project.clip.startTimeMs = 0.0; },
         [](auto& doc) { doc.project.clip.frameDurationMs = 125.0; },
-        [](auto& doc) { doc.project.clip.stepCount = 3; },
+        [](auto& doc) { doc.project.clip.stepCount = 5; },
+        [](auto& doc) { doc.project.clip.stepSize = 0; },
+        [](auto& doc) { doc.project.clip.firstFrame = 4; },
+        [](auto& doc) { doc.project.clip.stepCount = 0; },
         [](auto& doc) { doc.project.pointMasses.front().name = "renamed"; },
         [](auto& doc) { doc.project.pointMasses.front().marks.front().frame = 4; },
         [](auto& doc) { doc.project.pointMasses.clear(); },

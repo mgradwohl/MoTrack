@@ -287,6 +287,82 @@ class CorpusTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             corpus.verify_linked_movie_export_xml(original, exported, case)
 
+    def test_movie_clip_oracle_preserves_excluded_marks_timing_and_complete_movie(self):
+        case = next(c for c in corpus.load_manifest()["cases"] if c["id"] == "linked-movie")
+        original = corpus.local_fixture_path(case)
+        media = self.root / "média & movie" / "constant-rate.avi"
+        media.parent.mkdir()
+        payload = corpus.local_fixture_path(case["assets"][0]).read_bytes()
+        media.write_bytes(payload)
+        output = self.root / "clip.trk"
+        for single in [False, True]:
+            mode = "single" if single else "stride"
+            expected, clip_case = corpus.linked_media_clip_expected(case, single)
+            self.assertEqual([sample["frame"] for sample in expected["point_masses"][0]["samples"]], [0, 1, 2])
+            self.assertEqual(expected["clip"]["first_frame"], 2 if single else 1)
+            self.assertEqual(clip_case["session_media"]["frame_count"], 4)
+            with corpus.minidom.parse(str(original)) as document:
+                corpus.patch_expected_linked_media(document, movie=True, clip_mode=mode)
+                correct = document.toxml()
+            output.write_text(correct, encoding="utf-8")
+            corpus.verify_linked_movie_export_xml(original, output, case, mode)
+            for name, value in [("startframe", "0"), ("stepsize", "3"), ("stepcount", "4"), ("starttime", "0")]:
+                root = ET.fromstring(correct)
+                root.find(f"property[@name='videoclip']/object/property[@name='{name}']").text = value
+                ET.ElementTree(root).write(output, encoding="utf-8")
+                with self.subTest(mode=mode, field=name), self.assertRaises(ValueError):
+                    corpus.verify_linked_movie_export_xml(original, output, case, mode)
+            output.write_text(correct.replace("{0,1,2}", "{1,2}"), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                corpus.verify_linked_movie_export_xml(original, output, case, mode)
+            output.write_text(correct, encoding="utf-8")
+            media.write_bytes(payload[::-1])
+            with self.assertRaises(ValueError):
+                corpus.verify_linked_movie_export_xml(original, output, case, mode)
+            media.write_bytes(payload)
+
+    def test_saved_movie_oracle_checks_reference_and_all_bytes_after_clipped_resave(self):
+        case = next(c for c in corpus.load_manifest()["cases"] if c["id"] == "linked-movie")
+        asset = case["assets"][0]
+        movie = self.root / "média & movie" / "constant-rate.avi"
+        movie.parent.mkdir()
+        payload = corpus.local_fixture_path(asset).read_bytes()
+        movie.write_bytes(payload)
+        saved = self.root / "tracker-resaved.trk"
+        with corpus.minidom.parse(str(corpus.local_fixture_path(case))) as document:
+            corpus.patch_expected_linked_media(document, movie=True, clip_mode="single")
+            valid = document.toxml()
+        for reference in ["média & movie/constant-rate.avi", str(movie), movie.as_uri()]:
+            root = ET.fromstring(valid)
+            root.find(".//property[@name='path']").text = reference
+            ET.ElementTree(root).write(saved, encoding="utf-8")
+            observed = corpus.verify_saved_movie_asset(saved, asset)
+            self.assertEqual(observed, {"reference": reference, "bytes": asset["bytes"], "sha256": asset["sha256"]})
+        for mutation in ["network", "network-file", "network-share", "archive", "missing", "duplicate", "type", "class", "nested"]:
+            root = ET.fromstring(valid)
+            video = root.find("property[@name='videoclip']/object/property[@name='video']/object")
+            path = video.find("property[@name='path']")
+            if mutation == "network": path.text = "https://example.invalid/movie.avi"
+            elif mutation == "network-file": path.text = "file://example.invalid/movie.avi"
+            elif mutation == "network-share": path.text = "//example.invalid/movie.avi"
+            elif mutation == "archive": path.text = "archive.trz!/movie.avi"
+            elif mutation == "missing": video.remove(path)
+            elif mutation == "duplicate": video.append(copy.deepcopy(path))
+            elif mutation == "type": path.set("type", "object")
+            elif mutation == "class": video.set("class", "UnknownVideo")
+            else: ET.SubElement(path, "object")
+            ET.ElementTree(root).write(saved, encoding="utf-8")
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                corpus.verify_saved_movie_asset(saved, asset)
+        saved.write_text(valid, encoding="utf-8")
+        for corrupted in [payload[:-1], payload[::-1], payload + b"extra"]:
+            movie.write_bytes(corrupted)
+            with self.assertRaisesRegex(ValueError, "checksum"):
+                corpus.verify_saved_movie_asset(saved, asset)
+        movie.unlink()
+        with self.assertRaises(OSError):
+            corpus.verify_saved_movie_asset(saved, asset)
+
     def test_linked_image_export_oracle_checks_edited_geometry_all_xml_and_relocated_assets(self):
         manifest = corpus.load_manifest()
         case = next(c for c in manifest["cases"] if c["id"] == "linked-images")
@@ -338,7 +414,7 @@ class CorpusTests(unittest.TestCase):
         output = self.root / "clip.trk"
         for single in [False, True]:
             mode = "single" if single else "stride"
-            expected, case = corpus.linked_image_clip_expected(original_case, single)
+            expected, case = corpus.linked_media_clip_expected(original_case, single)
             self.assertEqual(expected["clip"], {"first_frame": 2 if single else 1, "step_size": 1 if single else 2,
                                                "step_count": 1 if single else 2, "start_ms": -250.0})
             self.assertEqual([sample["frame"] for sample in expected["point_masses"][0]["samples"]], [0, 1, 2])
@@ -370,7 +446,7 @@ class CorpusTests(unittest.TestCase):
             excluded.write_bytes(image)
         self.assertEqual(original_case["session_media"]["frames"][0]["frame"], 0)
         with self.assertRaisesRegex(ValueError, "pinned"):
-            corpus.linked_image_clip_expected({**original_case, "id": "unrelated"})
+            corpus.linked_media_clip_expected({**original_case, "id": "unrelated"})
         with corpus.minidom.parse(str(original)) as document, self.assertRaisesRegex(ValueError, "Unknown"):
             corpus.patch_expected_linked_media(document, clip_mode="unreviewed")
 
@@ -454,10 +530,11 @@ class CorpusTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "checksum.*frame 0"):
             corpus.verify_saved_image_inventory(saved, assets)
 
-    def test_image_clip_session_checks_strided_and_single_frame_bounds(self):
-        for mode in ["stride", "single"]:
-            with self.subTest(mode=mode):
-                self.check_media_session_oracle("linked-images", mode)
+    def test_media_clip_session_checks_strided_and_single_frame_bounds(self):
+        for case_id in ["linked-images", "linked-movie"]:
+            for mode in ["stride", "single"]:
+                with self.subTest(case_id=case_id, mode=mode):
+                    self.check_media_session_oracle(case_id, mode)
 
     def test_media_session_requires_independent_pixels_order_and_timing(self):
         for case_id in ["linked-images", "linked-movie"]:
@@ -469,7 +546,7 @@ class CorpusTests(unittest.TestCase):
         case = next(c for c in manifest["cases"] if c["id"] == case_id)
         expected = json.loads(corpus.expected_path(case).read_text())["project"]
         if clip_mode is not None:
-            expected, case = corpus.linked_image_clip_expected(case, clip_mode == "single")
+            expected, case = corpus.linked_media_clip_expected(case, clip_mode == "single")
         keys = [[0, 1, 2]] if clip_mode is not None else None
         mass = expected["point_masses"][0]
         before = {"tracks": [case["session_tracks"][0], {
