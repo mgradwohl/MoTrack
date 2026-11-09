@@ -184,6 +184,72 @@ TEST(PairedWorkspace, SavesIndexedMovieEditsAndNativeCompanionAfterSourceRemoval
     EXPECT_EQ(motrack::importTrackerDocument(target).project.calibration, motrack::readWorkspaceDocument(native).project.calibration);
 }
 
+TEST(PairedWorkspace, SavesImageAndMovieVectorAuthoringThroughDesktopHistory)
+{
+    for (const bool movie : {false, true})
+    {
+        SCOPED_TRACE(movie);
+        QTemporaryDir temporary;
+        const auto directory = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/vector-" + (movie ? "movie/" : "images/");
+        const auto input = directory + (movie ? "linked-movie.trk" : "linked-images.trk");
+        const auto target = temporary.filePath("saved.trk");
+        const auto native = temporary.filePath("saved.motrack");
+        {
+            motrack::MainWindow window;
+            ASSERT_TRUE(window.loadProject(input));
+            auto* canvas = dynamic_cast<motrack::VideoCanvas*>(window.findChild<QWidget*>("videoCanvas"));
+            auto* create = window.findChild<QAction*>("newVector");
+            auto* rename = window.findChild<QAction*>("renamePointMass");
+            auto* remove = window.findChild<QAction*>("removePointMass");
+            auto* undo = window.findChild<QAction*>("undoEdit");
+            auto* redo = window.findChild<QAction*>("redoEdit");
+            auto* exportArchive = window.findChild<QAction*>("exportTrackerArchive");
+            ASSERT_TRUE(canvas && create && rename && remove && undo && redo && exportArchive);
+            ASSERT_TRUE(
+                QTest::qWaitFor([canvas, exportArchive] { return canvas->accessibleName() == "Frame 0" && exportArchive->isEnabled(); }));
+            create->trigger();
+            bool named = false;
+            QTimer::singleShot(0,
+                               &window,
+                               [&]
+                               {
+                                   if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget()))
+                                   {
+                                       dialog->setTextValue(QString::fromUtf8("media vector β"));
+                                       named = true;
+                                       dialog->accept();
+                                   }
+                               });
+            rename->trigger();
+            ASSERT_TRUE(named);
+            ASSERT_TRUE(canvas->pick({0, 0}, true));
+            ASSERT_TRUE(canvas->pick({4, 4}, true));
+            remove->trigger();
+            undo->trigger();
+            ASSERT_TRUE(window.saveTrackerProject(target));
+            const auto saved = motrack::importTrackerDocument(target).project;
+            ASSERT_EQ(saved.vectors.size(), 4);
+            EXPECT_EQ(saved.vectors.back().name, QString::fromUtf8("media vector β").toStdString());
+            EXPECT_EQ(saved.vectors.back().samples,
+                      (std::vector<motrack::VectorSample>{{.frame = 0, .tailX = 0, .tailY = 0, .componentX = 4, .componentY = 4}}));
+            EXPECT_EQ(motrack::readWorkspaceDocument(native).project.vectors, saved.vectors);
+            redo->trigger();
+            ASSERT_TRUE(window.saveTrackerProject(target));
+            EXPECT_EQ(motrack::importTrackerDocument(target).project.vectors.size(), 3);
+            undo->trigger();
+            ASSERT_TRUE(window.saveTrackerProject(target));
+            EXPECT_FALSE(window.isWindowModified());
+        }
+        motrack::MainWindow reopened;
+        ASSERT_TRUE(reopened.loadProject(native));
+        auto* exportArchive = reopened.findChild<QAction*>("exportTrackerArchive");
+        ASSERT_NE(exportArchive, nullptr);
+        ASSERT_TRUE(QTest::qWaitFor([exportArchive] { return exportArchive->isEnabled(); }));
+        ASSERT_TRUE(reopened.saveTrackerProject(target));
+        EXPECT_EQ(motrack::importTrackerDocument(target).project.vectors.size(), 4);
+    }
+}
+
 TEST(PairedWorkspace, SavesMovieTrackCreationRenameAndDeletionThroughDesktopHistory)
 {
     QTemporaryDir temporary;

@@ -2,6 +2,7 @@
 
 #include "local_media_path.hpp"
 #include "measurements.hpp"
+#include "media_vectors.hpp"
 #include "movie_authoring.hpp"
 #include "track_edits.hpp"
 #include "tracker_references.hpp"
@@ -70,6 +71,110 @@ motrack::WorkspaceDocument indexedMovieDocument(const QString& source)
     document.movieFrameTimes = {0.0, 0.125, 0.25, 0.375};
     document.project.clip.sourceFrameCount = 4;
     return document;
+}
+
+TEST(TrackerWriter, SavesMediaVectorsThroughHistoryNativeReopenReorderingAndStandardReimport)
+{
+    for (const bool movie : {false, true})
+    {
+        for (const auto* scenario : {"samples", "geometry", "empty", "authoring", "replace", "delete-all"})
+        {
+            SCOPED_TRACE(movie);
+            SCOPED_TRACE(scenario);
+            QTemporaryDir temporary;
+            const auto fixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/vector-" + (movie ? "movie/" : "images/");
+            const auto source = fixture + (movie ? "linked-movie.trk" : "linked-images.trk");
+            const auto input = temporary.filePath("input.trk");
+            ASSERT_TRUE(QFile::copy(source, input));
+            auto document = movie ? indexedMovieDocument(input) : motrack::importTrackerDocument(input);
+            // Media stay in the fixture directory; only the copied original project is disposable.
+            motrack::retainWorkspaceMediaLocations(document, source);
+            motrack::TrackEdits edits;
+            ASSERT_NO_THROW(editMediaVectors(document.project, edits, scenario));
+            const auto originalXml = retainedSource(document).xml;
+            std::ranges::reverse(document.project.vectors);
+            const auto native = temporary.filePath("saved.motrack");
+            motrack::rebaseWorkspaceMedia(document, source, native);
+            motrack::writeWorkspaceDocument(native, document);
+            const auto before = document.project;
+            document = {};
+            ASSERT_TRUE(QFile::remove(input));
+            document = motrack::readWorkspaceDocument(native);
+            EXPECT_EQ(document.project, before);
+            const auto target = temporary.filePath("saved.trk");
+            ASSERT_NO_THROW(motrack::writeTrackerDocument(target, document, native));
+            const auto xml = readBytes(target);
+            auto expected = before;
+            std::ranges::sort(expected.vectors, {}, &motrack::VectorTrack::id);
+            expected.nextTrackId = 1;
+            for (auto& vector : expected.vectors)
+                vector.id = expected.nextTrackId++;
+            expected.clip.sourceFrameCount.reset();
+            EXPECT_EQ(motrack::parseLegacyProject(xml), expected);
+            EXPECT_EQ(document.project, before);
+            EXPECT_EQ(retainedSource(document).xml, originalXml);
+            EXPECT_NE(xml.find("vector A and vector B are words in this note."), std::string::npos);
+            ASSERT_NO_THROW(motrack::writeTrackerDocument(target, document, native));
+            EXPECT_EQ(readBytes(target), xml);
+            auto reopened = movie ? indexedMovieDocument(target) : motrack::importTrackerDocument(target);
+            edits.clear();
+            ASSERT_TRUE(edits.createVector(reopened.project, "after standard reopen"));
+            ASSERT_NO_THROW(motrack::writeTrackerDocument(target, reopened, target));
+            EXPECT_EQ(motrack::parseLegacyProject(readBytes(target)).vectors.back().name, "after standard reopen");
+        }
+    }
+}
+
+TEST(TrackerWriter, MediaVectorsRetainSnappingPrecisionIdentityFrameAndAtomicSaveGuards)
+{
+    const std::vector<std::function<void(motrack::WorkspaceDocument&)>> mutations{
+        [](auto& doc) { doc.project.vectors[0].samples[0].frame = 4; },
+        [](auto& doc)
+        {
+            doc.project.vectors[0].samples[0].tailX = 2;
+            doc.project.vectors[0].samples[0].tailY = 20;
+        },
+        [](auto& doc)
+        {
+            doc.project.vectors[0].samples[0].tailX = 17;
+            doc.project.vectors[0].samples[0].tailY = 20;
+        },
+        [](auto& doc) { doc.project.vectors[0].samples[0].tailX = 1e100; },
+        [](auto& doc) { doc.project.vectors[0].samples[0].componentX = std::numeric_limits<double>::infinity(); },
+        [](auto& doc) { doc.project.vectors[1].id = doc.project.vectors[0].id; },
+        [](auto& doc) { doc.project.vectors[1].name = doc.project.vectors[0].name; },
+        [](auto& doc) { doc.project.nextTrackId = 1; },
+        [](auto& doc) { doc.project.calibration->fixedOrigin = false; },
+        [](auto& doc) { doc.project.pointMasses.push_back({.name = "mass", .marks = {}, .id = doc.project.nextTrackId++}); },
+        [](auto& doc)
+        {
+            auto& xml = retainedSource(doc).xml;
+            xml.insert(xml.rfind("</object>"), "<property name='unknown_target' type='string'>vector A</property>\n");
+        },
+    };
+    for (const bool movie : {false, true})
+    {
+        const auto source = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/vector-" +
+                            (movie ? "movie/linked-movie.trk" : "images/linked-images.trk");
+        const auto original = movie ? indexedMovieDocument(source) : motrack::importTrackerDocument(source);
+        QTemporaryDir temporary;
+        const auto target = temporary.filePath("existing.trk");
+        QFile file(target);
+        ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+        ASSERT_EQ(file.write("existing"), 8);
+        file.close();
+        for (std::size_t i = 0; i < mutations.size(); ++i)
+        {
+            SCOPED_TRACE(movie);
+            SCOPED_TRACE(i);
+            auto document = original;
+            motrack::TrackEdits edits;
+            ASSERT_NO_THROW(editMediaVectors(document.project, edits, "samples"));
+            mutations[i](document);
+            EXPECT_THROW(motrack::writeTrackerDocument(target, document, source), motrack::ProjectError);
+            EXPECT_EQ(readBytes(target), "existing");
+        }
+    }
 }
 
 TEST(TrackerWriter, SavesLinkedMovieEditsAfterNativeReopenSourceRemovalAndRelocation)

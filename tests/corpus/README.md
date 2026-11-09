@@ -1364,7 +1364,70 @@ reimport must match independent values. Session checks require exact identities,
 selection, appearance, measurements, calibration, every movie frame/timestamp and fresh-JVM resave.
 Negative oracle tests reject consistently wrong data at all three stages as well as individual losses.
 
-All 28 local export/oracle/reimport cases pass. Actual Tracker acceptance for these new modes is
-pending current-revision Linux CI and review. This is scoped phase-3 coverage for
+All 28 export/oracle/reimport cases passed actual Tracker acceptance in
+[PR #144](https://github.com/mgradwohl/MoTrack/pull/144) at reviewed head `951d92a`, with all six jobs
+and 95.83% combined line coverage passing in [CI 42610128356](https://github.com/mgradwohl/MoTrack/actions/runs/42610128356). This is scoped phase-3 coverage for
 [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65), not reproduction of Tracker #10's
 historical file/Open Recent problem, broader view preservation or full movie interchange.
+
+
+### Media-backed independent vectors
+
+`MediaVectorsFixture.java` authors three independent tracks through public Tracker 6.3.5 APIs over
+frozen `linked-images`/`linked-mov` controls. It never opens Java video or a GUI on the authoring host.
+Compile it and the existing `ArchiveImagesFixture`, `ArchiveMovieFixture` and `TrackerReference` with
+the pinned JDK 17 (`javac -encoding UTF-8 -cp tracker-6.3.5.jar`). Run with `-Djava.awt.headless=true`,
+`-Xmx256m`, a private home/temp directory and a 45-second deadline. Generator arguments are the source
+fixture directory, a fresh output directory and `images` or `movie`. Package the unchanged secondary
+image experiment using the existing archive generators. UTC and Pacific/Kiritimati generations match
+byte-for-byte. The four acceptance cases start at **0 ms**; the optional final `negative-time` generator
+argument retains the original **-250 ms** variant for explicit defect diagnostics. These six new cases
+bring the corpus to **52 pinned cases**; all previous 46 cases are unchanged.
+
+| Track | Original frames | Image tails | Image components | Calibrated components |
+| --- | --- | --- | --- | --- |
+| vector A | 0, 2 | (20,4), (16,4) | (3,4), (-4,-2) | (1.5,-1), (-2,0.5) |
+| vector B | 1, 3 | (20,20), (30,20) | (-3,0), (0,0) | (-1.5,0), (0,0) |
+| empty vector | none | none | none | none |
+
+Expected geometry follows X=(x-2)/2, Y=(20-y)/4; translation-free components are (dx/2,-dy/4).
+Each project retains the selected `vector A` and a description containing both names as ordinary text.
+Each archive includes the untouched second image experiment, complete media and opaque support records.
+Six independent scenarios exercise both media kinds through linked TRK, existing mixed-tab TRZ,
+interrupted/recovered paired TRZ and new portable packages (48 modes):
+
+- `samples`: replace A frame 0 with tail (0,0), components (4,4); delete its frame 2; add frame 3 with
+  tail (0,12), components (4,4); add the empty track's first sample at frame 2, tail (32,0), components (-2,-4).
+- `geometry`: move the origin to (10,18), rotate 90 degrees, use nonuniform scales (4,8) and label cm;
+  trim to frames 1/3 with stride 2. Original image geometry remains. Live analysis includes only B at
+  frames 1/3 at 0/250 ms, with components (0,0.75)/(0,0) and magnitudes 0.75/0; A frames 0/2 stay saved outside the clip.
+- `empty`: remove all samples while retaining all three tracks and source null-array padding.
+- `authoring`: rename selected A to `élève β & <B>`, delete B, create `nouvelle β & <C>` with frame-3
+  tail (32,0)/components (-2,-4), and create `new empty vector`. New tracks are visible, unlocked,
+  magenta BoldArrow with trails; original appearance remains unchanged.
+- `replace`: rename unselected B, delete selected A, then create a new identity named `vector A` with
+  frame-2 tail (32,0)/components (-2,-4). The deleted selection must stay cleared.
+- `delete-all`: remove all three vectors while preserving axes, coordinates, media, timing and notes.
+
+Every operation is undone/redone before native saving; the source project is removed before native
+reopen/export. Complete XML expectations, untouched ZIP records and all media hashes are checked.
+Portable exports remove original external copies. Session checks require normal first drawing,
+independent image/calibrated components and magnitudes, identities/selection/appearance, all original
+media frames/times, actual Tracker save/fresh-process reopen and native reimport. Archive sessions
+visit and separately reopen both tabs. Negative oracle tests reject wrong values even when all three
+application snapshots agree with each other. Existing snap, precision, frame, identity, schema and
+atomic-replacement guards remain covered. All 48 local exports and native reimports pass; actual
+Tracker application acceptance and current-revision CI/review are pending.
+
+The first application run at `a1a9ee3` exposed [#146](https://github.com/mgradwohl/MoTrack/issues/146):
+Tracker 6.3.5's live vector datasets omit negative experiment times. The original image/MOV TRKs are
+retained byte-for-byte as `negative-linked-images.trk` and `negative-linked-movie.trk`, with the original
+correct expectations. A frame 0 at -250 ms should have components (1.5,-1), magnitude sqrt(3.25), and
+B frame 1 at -125 ms should have components (-1.5,0), magnitude 1.5. Tracker omits both analysis rows;
+A frame 2 at zero and B frame 3 at 125 ms remain. Raw samples survive load/save/reopen. The exact
+negative-time rejection in `Vector.refreshData` was verified in the pinned JAR's bytecode, as well
+as the recorded source candidate. The diagnostic requires this precise loss and all unaffected data,
+labels its report `compatibility_accepted: false`, and is excluded from native-export acceptance.
+The ordinary validator still rejects those missing rows. No helper filters or fabricates live data,
+and no time origin is changed during a tested save. Full negative-time vector analysis parity remains
+open in #146; the 48 acceptance modes use the separately generated zero-origin fixtures.

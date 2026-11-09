@@ -971,8 +971,7 @@ void remapIds(LegacyProject& project, const std::unordered_map<TrackId, TrackId>
 bool patchLinkedImagePaths(QDomDocument& xml, const LegacyProject& project, LegacyProject& baseline)
 {
     validateTrackerEditSchema(xml);
-    require(project.vectors.empty() && baseline.vectors.empty() &&
-            std::ranges::all_of(project.unsupportedTrackTypes,
+    require(std::ranges::all_of(project.unsupportedTrackTypes,
                                 [](const auto& type) { return type == "org.opensourcephysics.cabrillo.tracker.CoordAxes"; }));
     const auto count = project.clip.mediaReferences.size();
     require(count > 0 && count <= 10000 && count == baseline.clip.mediaReferences.size());
@@ -990,6 +989,9 @@ bool patchLinkedImagePaths(QDomDocument& xml, const LegacyProject& project, Lega
     for (const auto& mass : project.pointMasses)
         for (const auto& mark : mass.marks)
             require(mark.frame >= 0 && std::cmp_less(mark.frame, count));
+    for (const auto& vector : project.vectors)
+        for (const auto& sample : vector.samples)
+            require(sample.frame >= 0 && std::cmp_less(sample.frame, count));
     const auto clipObject = uniqueProperty(xml.documentElement(), "videoclip").firstChildElement("object");
     const auto video = uniqueProperty(clipObject, "video").firstChildElement("object");
     require(video.attribute("class") == "org.opensourcephysics.media.core.ImageVideo");
@@ -1017,7 +1019,7 @@ bool patchLinkedImagePaths(QDomDocument& xml, const LegacyProject& project, Lega
 bool patchLinkedMoviePath(QDomDocument& xml, const LegacyProject& project, LegacyProject& baseline, std::span<const double> frameTimes)
 {
     validateTrackerMovieEditSchema(xml);
-    require(project.clip.mediaReferences.size() == 1 && baseline.clip.mediaReferences.size() == 1 && project.vectors.empty() &&
+    require(project.clip.mediaReferences.size() == 1 && baseline.clip.mediaReferences.size() == 1 &&
             std::ranges::all_of(project.unsupportedTrackTypes,
                                 [](const auto& type) { return type == "org.opensourcephysics.cabrillo.tracker.CoordAxes"; }));
     // Movie edits retain original timing. Clip ranges and marks keep source frame numbers.
@@ -1038,6 +1040,7 @@ bool patchLinkedMoviePath(QDomDocument& xml, const LegacyProject& project, Legac
     // The shared identity/membership writers below audit source bindings, names, relationships,
     // new-track defaults and deletion cleanup before the final full-project equality check.
     unchanged.pointMasses = baseline.pointMasses;
+    unchanged.vectors = baseline.vectors;
     require(unchanged == baseline);
     const auto clip = uniqueProperty(xml.documentElement(), "videoclip").firstChildElement("object");
     const auto video = uniqueProperty(clip, "video").firstChildElement("object");
@@ -1065,6 +1068,9 @@ bool patchLinkedMoviePath(QDomDocument& xml, const LegacyProject& project, Legac
     for (const auto& mass : project.pointMasses)
         for (const auto& mark : mass.marks)
             require(mark.frame >= 0 && std::cmp_less(mark.frame, frameTimes.size()));
+    for (const auto& vector : project.vectors)
+        for (const auto& sample : vector.samples)
+            require(sample.frame >= 0 && std::cmp_less(sample.frame, frameTimes.size()));
     if (project.clip.mediaReferences == baseline.clip.mediaReferences)
         return false;
     patchScalar(xml, video, "path", "string", QString::fromStdString(project.clip.mediaReferences.front()));

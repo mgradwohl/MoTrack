@@ -59,15 +59,24 @@ selection/dragging, zoom/DPI and cancellation acceptance. The original reported 
 Tracker #10 and its complete discussion were refreshed on **2026-11-09** for movie track authoring.
 The report remains open with no attached sample; the 2022 comment reports success through Open Recent.
 The new two-mass fixture covers creation, naming, deletion and same-name replacement through four
-standard save routes. Its local native/oracle checks pass; actual Tracker acceptance is pending.
+standard save routes. All 28 cases passed actual Tracker acceptance in
+[PR #144](https://github.com/mgradwohl/MoTrack/pull/144), reviewed at `951d92a` with
+[CI 42610128356](https://github.com/mgradwohl/MoTrack/actions/runs/42610128356) passing all six checks.
 [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65) remains open for the broader workflow.
 This preventive coverage does not establish reproduction or resolution of the 4.97/Windows 7 report.
+
+The independent media-vector extension refreshed [MoTrack #63](https://github.com/mgradwohl/MoTrack/issues/63)
+and its discussion on **2026-11-09**. Its vector-sum reproduction and strict export refusal remain
+unchanged. Six image/MOV vector-authoring scenarios now cover four save routes locally; actual
+Tracker acceptance is pending. This does not resolve the dependent-member loss or mixed-track
+snapping model, and does not close #63 or the broader media persistence issue #65.
 
 ## Defects discovered by the reference harness
 
 | Observation | Evidence and current limit | MoTrack tracking |
 | --- | --- | --- |
 | Tracker 6.3.5 loses vector-sum members and computed samples on normal load/resave | [PR #61](https://github.com/mgradwohl/MoTrack/pull/61) reproduces the defect with pinned Java and independent expected sums. [PR #62](https://github.com/mgradwohl/MoTrack/pull/62) preserves source links and refuses affected edited standard exports. These are mitigation and diagnosis, not accepted dependent-vector round trips. | [MoTrack #63](https://github.com/mgradwohl/MoTrack/issues/63) |
+| Tracker 6.3.5 omits negative-time independent-vector analysis rows | PR #145's initial actual-application check reproduced the omission before/after save and fresh reopen, with all raw samples preserved. The pinned binary's `Vector.refreshData` explicitly rejects negative times. Original image/MOV fixtures and correct expectations remain as non-accepted defect diagnostics; zero-origin fixtures separately test ordinary saving. Searches on 2026-11-09 found no matching upstream filing. Native vector tables/plots/export must retain negative-time rows. | [MoTrack #146](https://github.com/mgradwohl/MoTrack/issues/146) |
 | Immediate resave of an unvisited custom table can lose columns | [PR #59](https://github.com/mgradwohl/MoTrack/pull/59) deliberately visits custom tables and restores selection before its reference resave. That accepted case does not prove unvisited-view fidelity. | [MoTrack #64](https://github.com/mgradwohl/MoTrack/issues/64) |
 | Tracker 6.3.5 cannot extract the pinned AVI movie from an original archive | [PR #139 initial CI](https://github.com/mgradwohl/MoTrack/actions/runs/42565821290/job/128991986521) fails before native edits. Pinned bytecode omits AVI from extraction registration. The original case stays outside accepted application round trips; the native writer merged in [PR #139](https://github.com/mgradwohl/MoTrack/pull/139) restricts movie archives to audited MOV files. Its independent MOV baseline and all four edited mixed-tab modes passed [CI](https://github.com/mgradwohl/MoTrack/actions/runs/42568545597); broader containers remain open. Observed 2026-11-09, after the initial audit. | [MoTrack #140](https://github.com/mgradwohl/MoTrack/issues/140) |
 

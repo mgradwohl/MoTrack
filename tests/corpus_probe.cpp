@@ -1,5 +1,6 @@
 #include "legacy_project.hpp"
 #include "measurements.hpp"
+#include "media_vectors.hpp"
 #include "movie_authoring.hpp"
 #include "paired_save.hpp"
 #include "track_edits.hpp"
@@ -232,6 +233,97 @@ try
                                                                   std::_Exit(0);
                                                           });
         throw motrack::ProjectError("Interruption probe did not reach the first commit: " + result.diagnostic.toStdString());
+    }
+    if (args.size() == 4 && args[1].startsWith("--export-media-vectors-"))
+    {
+        const auto mode = args[1].sliced(QStringLiteral("--export-media-vectors-").size());
+        const auto kind = mode.section('-', 0, 0);
+        const auto route = mode.section('-', 1, 1);
+        const auto scenario = mode.section('-', 2);
+        const bool movie = kind == "movie";
+        const bool archive = route == "archive" || route == "paired";
+        const bool packaged = route == "packaged";
+        if ((kind != "movie" && kind != "images") || (route != "linked" && !archive && !packaged))
+            throw motrack::ProjectError("Unknown media vector route.");
+        QTemporaryDir temporary;
+        const auto source = temporary.filePath(archive ? "input.trz" : "input.trk");
+        const auto native = temporary.filePath("saved.motrack");
+        const QDir originalDirectory(QFileInfo(args[2]).absolutePath());
+        const auto mediaDirectory = QDir(QFileInfo(args[3]).absolutePath()).filePath(QString::fromUtf8("media é & vectors"));
+        if (!temporary.isValid() || !QFile::copy(args[2], source))
+            throw motrack::ProjectError("Could not prepare media vector round trip.");
+        motrack::WorkspaceDocument document;
+        std::shared_ptr<motrack::TrackerArchive> payload;
+        QString moviePath;
+        QStringList copiedMedia;
+        if (archive)
+        {
+            payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(source));
+            if (payload->projects() != QStringList{"experiment.trk", "second.trk"})
+                throw motrack::ProjectError("Expected both vector archive experiments.");
+            document = motrack::importTrackerDocument(payload->projectPath("experiment.trk"));
+            payload->resolveMedia(document.project, "experiment.trk");
+            document.archivePayload = payload;
+            document.archiveMember = "experiment.trk";
+            moviePath = QDir(payload->root()).filePath("constant-rate.mov");
+        }
+        else
+        {
+            document = motrack::importTrackerDocument(source);
+            if (!QDir().mkdir(mediaDirectory))
+                throw motrack::ProjectError("Could not prepare vector media relocation.");
+            for (auto& reference : document.project.clip.mediaReferences)
+            {
+                const auto original = originalDirectory.filePath(QString::fromStdString(reference));
+                const auto copy = QDir(mediaDirectory).filePath(QFileInfo(original).fileName());
+                if (!QFile::copy(original, copy))
+                    throw motrack::ProjectError("Could not relocate vector media.");
+                copiedMedia.append(copy);
+                reference = QDir(temporary.path()).relativeFilePath(copy).toStdString();
+            }
+            moviePath = QDir(mediaDirectory).filePath("constant-rate.mov");
+        }
+        if (movie)
+        {
+            const std::atomic_bool cancelled{false};
+            const auto index = motrack::buildMovieIndex(moviePath, motrack::VideoOrientation::Encoded, cancelled);
+            if (index.frameCount != 4 || index.frameTimes != std::vector<double>{0.0, 0.125, 0.25, 0.375})
+                throw motrack::ProjectError("Media vector movie timing differs from the independent reference.");
+            document.movie = true;
+            document.alignMovieToClip = true;
+            document.movieFrameTimes = index.frameTimes;
+            document.project.clip.sourceFrameCount = index.frameCount;
+        }
+        motrack::TrackEdits edits;
+        editMediaVectors(document.project, edits, scenario);
+        motrack::writeWorkspaceDocument(native, document);
+        const auto expectedProject = document.project;
+        document = {};
+        payload.reset();
+        if (!QFile::remove(source))
+            throw motrack::ProjectError("Could not remove original media vector project.");
+        document = motrack::readWorkspaceDocument(native);
+        if (document.project != expectedProject)
+            throw motrack::ProjectError("Native reopen changed the edited media vectors.");
+        if (route == "paired")
+            saveAndRecoverPair(args[3], document, native);
+        else if (archive)
+            motrack::writeTrackerArchiveDocument(args[3], document);
+        else if (packaged)
+        {
+            if (movie)
+                motrack::writeTrackerMoviePackage(args[3], document, native);
+            else
+                motrack::writeTrackerImagePackage(args[3], document, native);
+            for (const auto& path : copiedMedia)
+                if (!QFile::remove(path))
+                    throw motrack::ProjectError("Could not remove external packaged vector media.");
+            if (!QDir().rmdir(mediaDirectory))
+                throw motrack::ProjectError("Could not remove vector media directory.");
+        }
+        else
+            motrack::writeTrackerDocument(args[3], document, native);
+        return 0;
     }
     if (args.size() == 4 &&
         (args[1] == "--export-archive-images" || args[1] == "--export-paired-archive-images" ||

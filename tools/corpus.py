@@ -411,6 +411,21 @@ def validate_session(case, report, manifest, expected=None, key_frames=None, cal
 
 def validate_known_session_issue(case, report, manifest, saved):
     """Reproduce one exact upstream defect; never count it as round-trip acceptance."""
+    if case.get("session_known_issue") == "tracker-6.3.5-vector-negative-time":
+        if (case["id"] not in {"vector-movie-negative-time", "vector-images-negative-time"}
+                or manifest["reference"]["version"] != "6.3.5"):
+            raise ValueError("Unknown Tracker session defect")
+        # Independent correct expectations stay in the manifest. The ordinary validator must
+        # reject this report; only this exact, non-accepted diagnostic permits omitted rows.
+        observed = [{"name": "vector A", "samples": [
+                        {"frame": 2, "components": [-2.0, 0.5], "magnitude": math.sqrt(4.25)}]},
+                    {"name": "vector B", "samples": [
+                        {"frame": 3, "components": [0.0, 0.0], "magnitude": 0.0}]},
+                    {"name": "empty vector", "samples": []}]
+        validate_session({**case, "session_vector_data": observed}, report, manifest)
+        return {"verification_level": "tracker_session_known_issue", "compatibility_accepted": False,
+                "known_issue": case["session_known_issue"],
+                "expected_vector_data": copy.deepcopy(case["session_vector_data"]), "tracker_session": report}
     issue = "tracker-6.3.5-vector-sum-members"
     if (case["id"] != "vector-sum" or case.get("session_known_issue") != issue
             or manifest["reference"]["version"] != "6.3.5"):
@@ -674,10 +689,152 @@ def patch_expected_movie_calibration(document, case):
                 node.data = format(value, ".17g")
 
 
-def patch_expected_linked_media(document, relocate=True, packaged=False, movie=False, clip_mode=None, calibrated=False, keyed_case=None, authoring=None):
+MEDIA_VECTOR_SCENARIOS = ("samples", "geometry", "empty", "authoring", "replace", "delete-all")
+
+
+def media_vector_roundtrip_expected(case, scenario):
+    if case.get("media_vector_kind") not in {"images", "movie"} or scenario not in MEDIA_VECTOR_SCENARIOS:
+        raise ValueError("Expected a pinned media vector scenario")
+    expected = copy.deepcopy(json.loads(expected_path(case).read_text(encoding="utf-8"))["project"])
+    case = copy.deepcopy(case)
+    vectors = expected["vectors"]
+    data = case["session_vector_data"]
+    created = []
+    new_sample = {"frame": 2, "tail": [32.0, 0.0], "components": [-2.0, -4.0]}
+    new_data = {"frame": 2, "components": [-1.0, 1.0], "magnitude": math.sqrt(2.0)}
+    if scenario == "samples":
+        vectors[0]["samples"] = [{"frame": 0, "tail": [0.0, 0.0], "components": [4.0, 4.0]},
+                                  {"frame": 3, "tail": [0.0, 12.0], "components": [4.0, 4.0]}]
+        data[0]["samples"] = [{"frame": frame, "components": [2.0, -1.0], "magnitude": math.sqrt(5.0)} for frame in [0, 3]]
+        vectors[2]["samples"] = [new_sample]
+        data[2]["samples"] = [new_data]
+    elif scenario == "geometry":
+        expected["length_unit"] = "cm"
+        expected["clip"].update(first_frame=1, step_size=2, step_count=2)
+        expected["coordinate_samples"] = [{"frame": frame, "image": [13.5, 17.25], "world": [0.09375, -0.875]} for frame in [1, 3]]
+        case["session_calibration"] = {"fixed_origin": True, "fixed_angle": True, "fixed_scale": True,
+                                       "keys": [{"frame": 0, "origin": [10.0, 18.0], "angle": 90.0, "scale": [4.0, 8.0]}]}
+        case["session_time_samples"] = [{"frame": 1, "time_ms": 0.0}, {"frame": 3, "time_ms": 250.0}]
+        case["session_media"]["frames"] = case["session_media"]["frames"][1:]
+        # Tracker's live analysis includes only clip steps 1 and 3. Raw A samples at 0/2 remain saved.
+        data[0]["samples"] = []
+        data[1]["samples"] = [{"frame": 1, "components": [0.0, 0.75], "magnitude": 0.75},
+                               {"frame": 3, "components": [0.0, 0.0], "magnitude": 0.0}]
+    elif scenario == "empty":
+        for track in vectors + data:
+            track["samples"] = []
+    elif scenario == "authoring":
+        vectors[0]["name"] = data[0]["name"] = case["session_selected_track"] = RENAME_LABEL
+        del vectors[1]
+        del data[1]
+        new_sample["frame"] = new_data["frame"] = 3
+        created = ["nouvelle β & <C>", "new empty vector"]
+        vectors.extend([{"name": created[0], "samples": [new_sample]}, {"name": created[1], "samples": []}])
+        data.extend([{"name": created[0], "samples": [new_data]}, {"name": created[1], "samples": []}])
+    elif scenario == "replace":
+        vectors[1]["name"] = data[1]["name"] = RENAME_LABEL
+        del vectors[0]
+        del data[0]
+        created = ["vector A"]
+        vectors.append({"name": "vector A", "samples": [new_sample]})
+        data.append({"name": "vector A", "samples": [new_data]})
+        case["session_selected_track"] = None
+    else:
+        vectors.clear()
+        data.clear()
+        case["session_selected_track"] = None
+    case["session_tracks"] = [{"class": "org.opensourcephysics.cabrillo.tracker.CoordAxes", "name": "axes"}] + [
+        {"class": "org.opensourcephysics.cabrillo.tracker.Vector", "name": vector["name"]} for vector in vectors]
+    case["session_track_appearances"] = {name: copy.deepcopy(CREATED_VECTOR_APPEARANCE) for name in created}
+    return expected, case
+
+
+def patch_expected_media_vectors(document, scenario):
+    """Independent explicit XML edit oracle; preserve source null padding and untouched fields."""
+    def elements(node, tag):
+        return [child for child in node.childNodes if child.nodeType == child.ELEMENT_NODE and child.tagName == tag]
+    def prop(node, name):
+        found = [child for child in elements(node, "property") if child.getAttribute("name") == name]
+        if len(found) != 1:
+            raise ValueError("Unexpected pinned media vector property: " + name)
+        return found[0]
+    def scalar(node, value):
+        for child in list(node.childNodes):
+            node.removeChild(child)
+        node.appendChild(document.createTextNode(str(value)))
+    def frame_xml(frame, values):
+        fields = "".join(f'<property name="{name}" type="double">{value}</property>' for name, value in zip(
+            ["xtail", "ytail", "xcomponent", "ycomponent"], values, strict=True))
+        return (f'<property name="[{frame}]" type="object"><object class="org.opensourcephysics.cabrillo.tracker.Vector$FrameData">'
+                + fields + '</object></property>')
+    def append_xml(parent, xml, before=None):
+        with minidom.parseString(xml) as fragment:
+            parent.insertBefore(document.importNode(fragment.documentElement, True), before)
+    root = document.documentElement
+    tracks = prop(root, "tracks")
+    vectors = [obj for item in elements(tracks, "property") for obj in elements(item, "object")
+               if obj.getAttribute("class") == "org.opensourcephysics.cabrillo.tracker.Vector"]
+    if len(vectors) != 3 or scenario not in MEDIA_VECTOR_SCENARIOS:
+        raise ValueError("Expected three pinned media vectors")
+    def add(name, frame=None):
+        data = ('' if frame is None else '<property name="framedata" type="array" class="[Lorg.opensourcephysics.cabrillo.tracker.Vector$FrameData;">'
+                + frame_xml(frame, [32, 0, -2, -4]) + '</property>')
+        append_xml(tracks, '<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.Vector">'
+                   '<property name="name" type="string"><![CDATA[' + name + ']]></property>'
+                   '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
+                   '<property name="locked" type="boolean">false</property><property name="footprint" type="string">Footprint.BoldArrow</property>'
+                   '<property name="color" type="object"><object class="java.awt.Color">'
+                   '<property name="red" type="int">255</property><property name="green" type="int">0</property>'
+                   '<property name="blue" type="int">255</property><property name="alpha" type="int">255</property></object></property>'
+                   + data + '</object></property>')
+    if scenario == "samples":
+        first, empty = prop(vectors[0], "framedata"), prop(vectors[2], "framedata")
+        frame = elements(prop(first, "[0]"), "object")[0]
+        for name, value in zip(["xtail", "ytail", "xcomponent", "ycomponent"], [0, 0, 4, 4], strict=True):
+            scalar(prop(frame, name), value)
+        first.removeChild(prop(first, "[2]"))
+        append_xml(first, frame_xml(3, [0, 12, 4, 4]), prop(first, "[9]"))
+        append_xml(empty, frame_xml(2, [32, 0, -2, -4]), prop(empty, "[9]"))
+    elif scenario == "geometry":
+        pass  # Coordinates and clip fields are handled by the independent media oracle.
+    elif scenario == "empty":
+        for vector in vectors:
+            data = prop(vector, "framedata")
+            for entry in elements(data, "property"):
+                if elements(entry, "object"):
+                    data.removeChild(entry)
+    elif scenario == "authoring":
+        scalar(prop(vectors[0], "name"), RENAME_LABEL)
+        scalar(prop(root, "selectedtrack"), RENAME_LABEL)
+        tracks.removeChild(vectors[1].parentNode)
+        add("nouvelle β & <C>", 3)
+        add("new empty vector")
+    elif scenario == "replace":
+        scalar(prop(vectors[1], "name"), RENAME_LABEL)
+        tracks.removeChild(vectors[0].parentNode)
+        root.removeChild(prop(root, "selectedtrack"))
+        add("vector A", 2)
+    else:
+        for vector in vectors:
+            tracks.removeChild(vector.parentNode)
+        root.removeChild(prop(root, "selectedtrack"))
+
+
+def verify_linked_vector_export_xml(original, exported, case, scenario):
+    with minidom.parse(str(original)) as expected, minidom.parse(str(exported)) as actual:
+        patch_expected_linked_media(expected, movie=case["media_vector_kind"] == "movie", vector_scenario=scenario)
+        if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
+            raise ValueError("Linked vector export changed unrequested XML content")
+    for asset in case["assets"]:
+        verify_file(exported.parent / "media é & vectors" / asset["file"], asset)
+
+
+def patch_expected_linked_media(document, relocate=True, packaged=False, movie=False, clip_mode=None, calibrated=False, keyed_case=None, authoring=None, vector_scenario=None):
+    if vector_scenario == "geometry":
+        clip_mode, calibrated = "stride", True
     if clip_mode not in {None, "stride", "single"}:
         raise ValueError("Unknown linked-media clip mode")
-    if (calibrated or keyed_case is not None) and not movie:
+    if (calibrated or keyed_case is not None) and not movie and vector_scenario != "geometry":
         raise ValueError("This calibration oracle requires movie media")
     if calibrated and keyed_case is not None:
         raise ValueError("Choose one movie calibration oracle")
@@ -710,14 +867,20 @@ def patch_expected_linked_media(document, relocate=True, packaged=False, movie=F
     if movie:
         if packaged:
             scalar(prop(video, "path"), "media/movie.mov")
+        elif relocate and vector_scenario:
+            scalar(prop(video, "path"), "media é & vectors/constant-rate.mov")
         elif relocate:
             scalar(prop(video, "path"), "média & movie/constant-rate." + ("mov" if keyed_case is not None or authoring else "avi"))
     elif relocate or packaged:
         paths = prop(video, "paths")
-        references = [f"images/frame-{index:06d}.png" if packaged else f"media é & frames/frame{index}.png" for index in range(4)]
+        directory = "media é & vectors" if vector_scenario else "media é & frames"
+        references = [f"images/frame-{index:06d}.png" if packaged else f"{directory}/frame{index}.png" for index in range(4)]
         for index in range(4):
             scalar(prop(paths, f"[{index}]"), references[index])
         scalar(prop(video, "path"), references[0])
+    if vector_scenario:
+        patch_expected_media_vectors(document, vector_scenario)
+        return
     mass = next(obj for item in elements(prop(root, "tracks"), "property") for obj in elements(item, "object")
                 if obj.getAttribute("class") == "org.opensourcephysics.cabrillo.tracker.PointMass")
     scalar(prop(mass, "mass"), "5")
@@ -873,7 +1036,7 @@ def verify_linked_movie_export_xml(original, exported, case, clip_mode=None, *, 
     verify_file(exported.parent / "média & movie" / case["assets"][0]["file"], case["assets"][0])
 
 
-def verify_media_package_export(original, exported, selected_xml, case, clip_mode=None, *, movie=False, calibrated=False, keyed=False, authoring=None):
+def verify_media_package_export(original, exported, selected_xml, case, clip_mode=None, *, movie=False, calibrated=False, keyed=False, authoring=None, vector_scenario=None):
     """Independent ZIP/XML/hash oracle for a new package; no external media paths may survive."""
     if exported.stat().st_size > 1024 * 1024:
         raise ValueError("Media package reference exceeds the small-fixture limit")
@@ -895,7 +1058,7 @@ def verify_media_package_export(original, exported, selected_xml, case, clip_mod
             xml = package.read("experiment.trk")
             with minidom.parse(str(original)) as expected, minidom.parseString(xml) as actual:
                 patch_expected_linked_media(expected, packaged=True, clip_mode=clip_mode, movie=movie, calibrated=calibrated,
-                                            keyed_case=case if keyed else None, authoring=authoring)
+                                            keyed_case=case if keyed else None, authoring=authoring, vector_scenario=vector_scenario)
                 if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
                     raise ValueError("Media package changed XML beyond the requested paths, mass, mark, clip and calibration")
             selected_xml.write_bytes(xml)
@@ -903,7 +1066,7 @@ def verify_media_package_export(original, exported, selected_xml, case, clip_mod
         raise ValueError("Media package ZIP integrity check failed") from error
 
 
-def verify_archive_media_export(original, exported, selected_xml, member_count=7, clip_mode=None, *, movie=False, calibrated=False, keyed_case=None, authoring=None):
+def verify_archive_media_export(original, exported, selected_xml, member_count=7, clip_mode=None, *, movie=False, calibrated=False, keyed_case=None, authoring=None, vector_scenario=None):
     """Independent ZIP reader: only the selected XML and its encoding metadata may change."""
     if max(original.stat().st_size, exported.stat().st_size) > 1024 * 1024:
         raise ValueError("Archive reference exceeds the small-fixture limit")
@@ -925,7 +1088,7 @@ def verify_archive_media_export(original, exported, selected_xml, member_count=7
                     raise ValueError("Unexpected edited-member encoding")
                 with minidom.parseString(before.read(a)) as expected, minidom.parseString(after.read(b)) as actual:
                     patch_expected_linked_media(expected, relocate=False, movie=movie, clip_mode=clip_mode, calibrated=calibrated,
-                                                keyed_case=keyed_case, authoring=authoring)
+                                                keyed_case=keyed_case, authoring=authoring, vector_scenario=vector_scenario)
                     if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
                         raise ValueError("Archive export changed XML beyond the requested mass, mark, clip and calibration")
                 selected_xml.write_bytes(after.read(b))
@@ -2104,15 +2267,19 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
     expected = [json.loads(expected_path(template).read_text(encoding="utf-8"))["project"] for template in templates]
     if probe:
         exported = output / "motrack-export.trz"
-        export_mode = mode if movie else "multitab-archive-images"
+        vector_scenario = mode.split("-", 4)[4] if mode.startswith("media-vectors-") else None
+        export_mode = mode if movie or vector_scenario else "multitab-archive-images"
         calibrated = movie and mode.endswith("-movie-calibration")
         keyed = movie and mode.endswith("-movie-keyed-calibration")
         authoring = mode.split("-movie-tracks-", 1)[1] if "-movie-tracks-" in mode else None
         clip_mode = "single" if mode == "archive-movie-clip-single" else "stride" if mode == "archive-movie-clip" else None
         run([str(Path(probe).resolve()), "--export-" + export_mode, str(source), str(exported)])
         verify_archive_media_export(source, exported, output / "exported-member.trk", member_count=9 if movie else 8,
-                                    clip_mode=clip_mode, movie=movie, calibrated=calibrated, keyed_case=templates[0] if keyed else None, authoring=authoring)
-        if authoring:
+                                    clip_mode=clip_mode, movie=movie, calibrated=calibrated, keyed_case=templates[0] if keyed else None,
+                                    authoring=authoring, vector_scenario=vector_scenario)
+        if vector_scenario:
+            expected[0], templates[0] = media_vector_roundtrip_expected(templates[0], vector_scenario)
+        elif authoring:
             expected[0], templates[0] = movie_tracks_roundtrip_expected(templates[0], authoring)
         elif keyed:
             expected[0], templates[0] = keyed_movie_roundtrip_expected(templates[0])
@@ -2188,7 +2355,7 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
             compare(desired, json.loads(native.read_text(encoding="utf-8")), manifest["tolerance"], member + ".reimport")
         reports.append({"member": member, "tracker_session": report, "expected": desired})
     level = "motrack_archive_tabs_roundtrip" if probe else "tracker_archive_tabs_resave"
-    label = case["id"] + ("-" + mode if movie and probe else "")
+    label = case["id"] + ("-" + mode if probe and (movie or mode.startswith("media-vectors-")) else "")
     (cache / "reports" / f"{label}-{level}.json").write_text(
         json.dumps({"verification_level": level, "tabs": reports}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"{label}: passed ({level}; all loaded tabs saved and individually reopened)")
@@ -2256,6 +2423,11 @@ def check_sessions(manifest, cache, java, probe=None):
                      for scenario in MOVIE_TRACK_SCENARIOS)
     cases = [(case, mode) for case in manifest["cases"] if "session_tracks" in case
              for mode, flag in modes if case.get(flag)]
+    if probe:
+        cases.extend((case, f"media-vectors-{case['media_vector_kind']}-{route}-{scenario}")
+                     for case in manifest["cases"] if case.get("native_media_vector_roundtrip") or case.get("native_media_vector_archive_roundtrip")
+                     for route in (["archive", "paired"] if case.get("native_media_vector_archive_roundtrip") else ["linked", "packaged"])
+                     for scenario in MEDIA_VECTOR_SCENARIOS)
     if not cases:
         raise ValueError("No applicable Tracker session cases")
     for path, artifact in artifacts(manifest, cache):
@@ -2316,7 +2488,26 @@ def check_sessions(manifest, cache, java, probe=None):
                                                    if track["class"] == "org.opensourcephysics.cabrillo.tracker.CoordAxes"]}
             expected = None
             authoring = mode.split("-movie-tracks-", 1)[1] if "-movie-tracks-" in mode else None
-            if mode in {"packaged-images", "packaged-image-clip", "packaged-movie", "packaged-movie-clip", "packaged-movie-clip-single",
+            vector_scenario = mode.split("-", 4)[4] if mode.startswith("media-vectors-") else None
+            vector_package = bool(vector_scenario and mode.split("-")[3] == "packaged")
+            if vector_scenario:
+                exported = output / ("motrack-export.trz" if vector_package else "motrack-export.trk")
+                run([str(Path(probe).resolve()), "--export-" + mode, str(project), str(exported)])
+                if vector_package:
+                    selected = output / "exported-member.trk"
+                    verify_media_package_export(project, exported, selected, case,
+                                                movie=case["media_vector_kind"] == "movie", vector_scenario=vector_scenario)
+                    if (output / "media é & vectors").exists():
+                        raise ValueError("Vector package retained original external media")
+                    archive_input, project = exported, selected
+                else:
+                    verify_linked_vector_export_xml(project, exported, case, vector_scenario)
+                    project = exported
+                expected, case = media_vector_roundtrip_expected(case, vector_scenario)
+                native_report = output / "native-export.json"
+                run([str(Path(probe).resolve()), str(project), str(native_report)])
+                compare(expected, json.loads(native_report.read_text(encoding="utf-8")), manifest["tolerance"], case["id"] + ".export")
+            elif mode in {"packaged-images", "packaged-image-clip", "packaged-movie", "packaged-movie-clip", "packaged-movie-clip-single",
                         "packaged-movie-calibration", "packaged-movie-keyed-calibration"} or mode.startswith("packaged-movie-tracks-"):
                 packaged_movie = mode.startswith("packaged-movie")
                 clip_mode = ("single" if mode in {"packaged-image-clip", "packaged-movie-clip-single"}
@@ -2474,20 +2665,22 @@ def check_sessions(manifest, cache, java, probe=None):
                 if (stages[stage]["reference_version"] != manifest["reference"]["version"]
                         or stages[stage]["verification_level"] != "tracker_session_" + stage
                         or stages[stage].get("view_preparation") != "expand_visit_custom_tables_restore_selection"
-                        or (mode.startswith("packaged-movie") and stages[stage].get("cache_policy") != "private_persistent_osp_cache")):
+                        or ((mode.startswith("packaged-movie") or vector_package) and stages[stage].get("cache_policy") != "private_persistent_osp_cache")):
                     raise ValueError("Unexpected Tracker session stage")
                 callbacks = stages[stage].get("loader_callbacks")
                 if type(callbacks) is not int or callbacks < 1:
                     raise ValueError("Missing Tracker loader callback evidence")
                 if callbacks > 1:
                     print(f"{case['id']}/{mode}/{stage}: observed {callbacks} loader callbacks; reference action ran once")
-                if case["id"] in {"linked-images", "archived-images"}:
+                if case.get("media_vector_kind") == "images":
+                    image_inventories[stage] = verify_saved_image_inventory(output / "tracker-resaved.trk", case["assets"])
+                elif case["id"] in {"linked-images", "archived-images"}:
                     # Both cases use the independently pinned four-image fixture, including excluded frames.
                     assets = next(item["assets"] for item in manifest["cases"] if item["id"] == "linked-images")
                     image_inventories[stage] = verify_saved_image_inventory(output / "tracker-resaved.trk", assets)
-                elif case["id"] in {"linked-movie", "linked-mov", "movie-tracks"} or "movie_calibration_flags" in case:
+                elif case["id"] in {"linked-movie", "linked-mov", "movie-tracks"} or "movie_calibration_flags" in case or case.get("media_vector_kind") == "movie":
                     movie_inventories[stage] = verify_saved_movie_asset(output / "tracker-resaved.trk", case["assets"][0],
-                                                                       allow_archive=mode.startswith("packaged-movie"))
+                                                                       allow_archive=mode.startswith("packaged-movie") or vector_package)
             report = {"reference_version": stages["save"]["reference_version"], "verification_level": "tracker_session_resave",
                       "view_preparation": stages["save"]["view_preparation"],
                       "loader_callbacks": {stage: stages[stage]["loader_callbacks"] for stage in stages},
@@ -2540,12 +2733,12 @@ def check_sessions(manifest, cache, java, probe=None):
                     standard = "TRZ" if mode in {"archive-images", "paired-archive-images", "packaged-images",
                                                 "archive-image-clip", "packaged-image-clip",
                                                 "packaged-movie", "packaged-movie-clip", "packaged-movie-clip-single",
-                                                "packaged-movie-calibration", "packaged-movie-keyed-calibration"} or mode.startswith("packaged-movie-tracks-") else "TRK"
+                                                "packaged-movie-calibration", "packaged-movie-keyed-calibration"} or mode.startswith("packaged-movie-tracks-") or vector_package else "TRK"
                     pair = "interrupted paired save/recovery; " if mode.startswith("paired-") else ""
                     print(f"{case['id']}/{mode}: passed (MoTrack edit/native reopen/{standard} export; {pair}Tracker load/save/reopen; native reimport)")
             elif known_report is not None:
                 saved_report, suffix = known_report, "-known-issue.json"
-                print(f"{case['id']}: KNOWN TRACKER DEFECT reproduced (members and samples lost; round trip NOT accepted)")
+                print(f"{case['id']}: KNOWN TRACKER DEFECT reproduced ({known_report['known_issue']}; round trip NOT accepted)")
             else:
                 saved_report, suffix = report, "-session.json"
                 print(f"{case['id']}: passed (Tracker application load/save/reopen; MoTrack export untested)")

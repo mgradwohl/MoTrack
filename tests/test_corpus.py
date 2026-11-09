@@ -796,6 +796,142 @@ class CorpusTests(unittest.TestCase):
                 self.assertIsNotNone(raw_keys)
                 self.assertEqual(list(raw_keys), [])
 
+    def test_media_vector_sessions_reject_consistent_geometry_physics_and_identity_loss(self):
+        manifest = corpus.load_manifest()
+        for kind in ["images", "movie"]:
+            source = next(case for case in manifest["cases"] if case["id"] == "vector-" + kind)
+            for scenario in corpus.MEDIA_VECTOR_SCENARIOS:
+                expected, case = corpus.media_vector_roundtrip_expected(source, scenario)
+                tracks = [copy.deepcopy(case["session_tracks"][0])]
+                for vector, data in zip(expected["vectors"], case["session_vector_data"], strict=True):
+                    tracks.append({"class": "org.opensourcephysics.cabrillo.tracker.Vector", "name": vector["name"],
+                                   "vector_samples": vector["samples"], "calibrated_vector_samples": data["samples"],
+                                   "appearance": case.get("session_track_appearances", {}).get(vector["name"], {})})
+                before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                          "media": case["session_media"], "frame_duration_ms": 125.0, "axes": case["session_axes"],
+                          "calibration": case["session_calibration"], "time_samples": case["session_time_samples"],
+                          "name_references": {"selected_track": case["session_selected_track"]}, **corpus.session_units(case, expected)}
+                valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                         "view_preparation": "expand_visit_custom_tables_restore_selection",
+                         **{stage: copy.deepcopy(before) for stage in ["before", "after_save", "after"]}}
+                corpus.validate_session(case, valid, manifest, expected)
+                mutations = [lambda row: row["name_references"].update(selected_track="wrong target"),
+                             lambda row: row["media"].update(frame_count=3),
+                             lambda row: row["media"]["frames"][0].update(rgb_sha256="0" * 64),
+                             lambda row: row["tracks"].append(copy.deepcopy(row["tracks"][0])),
+                             lambda row: row["clip"].update(step_count=3)]
+                if expected["vectors"]:
+                    mutations.append(lambda row: row["tracks"][1].update(name="wrong identity"))
+                if scenario not in {"empty", "delete-all"}:
+                    mutations.extend([lambda row: row["tracks"][1]["vector_samples"][0].update(tail=[999, 999]),
+                                      lambda row: row["tracks"][1]["vector_samples"][0].update(components=[999, 999]),
+                                      lambda row: next(track["calibrated_vector_samples"] for track in row["tracks"]
+                                                       if track.get("calibrated_vector_samples"))[0].update(magnitude=999)])
+                if case.get("session_track_appearances"):
+                    mutations.append(lambda row: row["tracks"][-1].update(appearance={}))
+                for i, mutate in enumerate(mutations):
+                    for stages in [["after"], ["before", "after_save", "after"]]:
+                        with self.subTest(kind=kind, scenario=scenario, mutation=i, stages=stages):
+                            bad = copy.deepcopy(valid)
+                            for stage in stages:
+                                mutate(bad[stage])
+                            with self.assertRaises(ValueError):
+                                corpus.validate_session(case, bad, manifest, expected)
+
+    def test_media_vector_archive_modes_visit_both_experiments(self):
+        manifest = corpus.load_manifest()
+        manifest["cases"] = [c for c in manifest["cases"] if c.get("native_media_vector_archive_roundtrip")]
+        with patch.object(corpus.sys, "platform", "linux"), \
+                patch.object(corpus, "private_display", return_value=nullcontext(":77")), \
+                patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "run"), \
+                patch.object(corpus, "check_archive_tabs") as check:
+            corpus.check_sessions(manifest, self.root, "java", "native-probe")
+        self.assertEqual([call.args[-1] for call in check.call_args_list],
+                         [f"media-vectors-{kind}-{route}-{scenario}" for kind in ["movie", "images"]
+                          for route in ["archive", "paired"] for scenario in corpus.MEDIA_VECTOR_SCENARIOS])
+
+    def test_negative_time_vector_defect_is_retained_and_never_accepted(self):
+        manifest = corpus.load_manifest()
+        for kind in ["images", "movie"]:
+            case = next(c for c in manifest["cases"] if c["id"] == "vector-" + kind + "-negative-time")
+            expected = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
+            self.assertEqual(expected["clip"]["start_ms"], -250.0)
+            self.assertFalse(any(key.startswith("native_") for key in case))
+            corpus.verify_file(corpus.local_fixture_path(case), case)
+            tracks = [copy.deepcopy(case["session_tracks"][0])]
+            for vector, data in zip(expected["vectors"], case["session_vector_data"], strict=True):
+                tracks.append({"class": "org.opensourcephysics.cabrillo.tracker.Vector", "name": vector["name"],
+                               "vector_samples": copy.deepcopy(vector["samples"]),
+                               "calibrated_vector_samples": copy.deepcopy(data["samples"])})
+            before = {"tracks": tracks, "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
+                      "media": case["session_media"], "frame_duration_ms": 125.0, "axes": case["session_axes"],
+                      "calibration": case["session_calibration"], "time_samples": case["session_time_samples"],
+                      "name_references": {"selected_track": case["session_selected_track"]}, **corpus.session_units(case, expected)}
+            valid = {"reference_version": "6.3.5", "verification_level": "tracker_session_resave",
+                     "view_preparation": "expand_visit_custom_tables_restore_selection",
+                     **{stage: copy.deepcopy(before) for stage in ["before", "after_save", "after"]}}
+            corpus.validate_session(case, valid, manifest)
+            defect = copy.deepcopy(valid)
+            for stage in ["before", "after_save", "after"]:
+                for index in [1, 2]:
+                    del defect[stage]["tracks"][index]["calibrated_vector_samples"][0]
+            with self.assertRaisesRegex(ValueError, "calibrated_vectors"):
+                corpus.validate_session(case, defect, manifest)
+            result = corpus.validate_known_session_issue(case, defect, manifest, corpus.local_fixture_path(case))
+            self.assertFalse(result["compatibility_accepted"])
+            self.assertEqual(result["expected_vector_data"], case["session_vector_data"])
+            self.assertEqual(result["verification_level"], "tracker_session_known_issue")
+            # A fixed Tracker, additional missing rows, wrong raw data or wrong times must fail
+            # this narrow diagnosis, including identical corruption at every snapshot stage.
+            mutations = [lambda row: row["tracks"][1].update(calibrated_vector_samples=case["session_vector_data"][0]["samples"]),
+                         lambda row: row["tracks"][1].update(calibrated_vector_samples=[]),
+                         lambda row: row["tracks"][2]["calibrated_vector_samples"][0].update(frame=1),
+                         lambda row: row["tracks"][1]["calibrated_vector_samples"][0].update(components=[0.0, 0.0]),
+                         lambda row: row["tracks"][1]["vector_samples"].pop(0),
+                         lambda row: row["tracks"][1]["vector_samples"][0].update(tail=[0.0, 0.0]),
+                         lambda row: row["time_samples"][0].update(time_ms=0.0),
+                         lambda row: row["clip"].update(start_ms=0.0),
+                         lambda row: row["media"].update(frame_count=3)]
+            for index, mutate in enumerate(mutations):
+                for stages in [["after"], ["before", "after_save", "after"]]:
+                    with self.subTest(kind=kind, mutation=index, stages=stages):
+                        invalid = copy.deepcopy(defect)
+                        for stage in stages:
+                            mutate(invalid[stage])
+                        with self.assertRaises(ValueError):
+                            corpus.validate_known_session_issue(case, invalid, manifest, corpus.local_fixture_path(case))
+            for invalid_case in [{**case, "id": "vector-" + kind}, {**case, "session_known_issue": "other"}]:
+                with self.assertRaises(ValueError):
+                    corpus.validate_known_session_issue(invalid_case, defect, manifest, corpus.local_fixture_path(case))
+            with self.assertRaises(ValueError):
+                corpus.validate_known_session_issue(case, defect, {**manifest, "reference": {"version": "6.3.6"}}, corpus.local_fixture_path(case))
+
+    def test_media_vector_xml_oracle_rejects_unrequested_edits(self):
+        for kind in ["images", "movie"]:
+            case = next(c for c in corpus.load_manifest()["cases"] if c["id"] == "vector-" + kind)
+            original = corpus.local_fixture_path(case)
+            directory = self.root / kind
+            media = directory / "media é & vectors"
+            media.mkdir(parents=True)
+            for asset in case["assets"]:
+                (media / asset["file"]).write_bytes(corpus.local_fixture_path(asset).read_bytes())
+            output = directory / "edited.trk"
+            for scenario in corpus.MEDIA_VECTOR_SCENARIOS:
+                with corpus.minidom.parse(str(original)) as document:
+                    corpus.patch_expected_linked_media(document, movie=kind == "movie", vector_scenario=scenario)
+                    valid = document.toxml()
+                output.write_text(valid, encoding="utf-8")
+                corpus.verify_linked_vector_export_xml(original, output, case, scenario)
+                step_count = 2 if scenario == "geometry" else 4
+                for before, after in [('vector A and vector B are words', 'renamed words'),
+                                      ('<property name="mass_unit" type="string">kg', '<property name="mass_unit" type="string">g'),
+                                      (f'<property name="stepcount" type="int">{step_count}', '<property name="stepcount" type="int">3')]:
+                    with self.subTest(kind=kind, scenario=scenario, mutation=before):
+                        self.assertIn(before, valid)
+                        output.write_text(valid.replace(before, after), encoding="utf-8")
+                        with self.assertRaises(ValueError):
+                            corpus.verify_linked_vector_export_xml(original, output, case, scenario)
+
     def test_movie_authoring_sessions_reject_consistent_data_identity_and_media_loss(self):
         manifest = corpus.load_manifest()
         source = next(case for case in manifest["cases"] if case["id"] == "movie-tracks")

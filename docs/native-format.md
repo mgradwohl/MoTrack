@@ -422,7 +422,8 @@ file is therefore unnecessary once the native document has been reopened.
 The first supported media schema is a standalone, unfiltered ImageVideo containing independent point
 masses and coordinate axes. Clip start, step size and step count can change within the original image
 inventory, including a single-frame clip. Source frame count/order, interval and time origin must be
-retained; numeric timing edits, vectors, movie state, archives and unaudited fields are refused. A native
+retained; numeric timing edits, movie state and unaudited fields are refused by this image adapter.
+Independent vectors use the additional audit described below; archives use the separate archive adapter. A native
 decoded-frame count is accepted only when it equals the complete image list and is treated as derived
 metadata. An optional saved video_framecount must also match. Source path and paths fields must agree.
 
@@ -654,7 +655,8 @@ The document writer accepts the explicitly audited `XuggleVideo`/`VideoClipContr
 its movie adapter. Existing point-mass values and image-coordinate marks, clip start/step/count, existing
 fixed, fully varying or partly fixed calibration, length-unit labels and the linked media path may change.
 Audited independent point-mass names and membership can also change through the movie adapter.
-Mass/time-unit labels, numeric clip timing and other parsed fields must remain unchanged. Filters, vectors, other track types except axes, display-orientation
+Mass/time-unit labels, numeric clip timing and other parsed fields must remain unchanged. Independent
+vectors now use the shared stability audit described below. Filters, other track types except axes, display-orientation
 transforms remain refused. The selected-member archive writer uses the same audited movie adapter
 after verifying its immutable source, media members and completed native index.
 This opt-in schema does not enable movie renames or
@@ -852,9 +854,42 @@ mass deletion and same-name replacement retain stable native IDs through history
 Deletion clears the original selected-track reference; a new track with the same name does not inherit
 that deleted identity. Known source relationships still require unambiguous resolution, and unknown
 fields, dangling links, duplicate/reserved names and out-of-movie marks refuse output atomically.
-Movie vectors, broader dependencies, numeric timing edits and mass/time-label edits remain refused.
+Broader dependencies, numeric timing edits and mass/time-label edits remain refused. Media-backed
+independent vectors are described in the following section.
 
 The two-mass MOV fixture and unchanged image experiment provide 28 linked/archive/paired-recovery/
 portable-package reference modes. All pass local whole-XML/media/numeric oracles; the desktop paired-save
-regression exercises create, rename, mark, delete, undo/redo and native reopen. These new authoring
-modes still await actual Tracker application acceptance and current-revision cross-platform CI/review.
+regression exercises create, rename, mark, delete, undo/redo and native reopen. All 28 authoring modes
+passed actual Tracker application acceptance in [PR #144](https://github.com/mgradwohl/MoTrack/pull/144),
+reviewed at `951d92a` with all six checks passing and 95.83% combined line coverage in
+[CI 42610128356](https://github.com/mgradwohl/MoTrack/actions/runs/42610128356).
+
+
+### Independent vectors on image and movie media
+
+The image and constant-rate movie adapters now pass independent vectors through the shared
+source-binding, identity, membership and geometry audits. Sample tail/component edits, additions,
+removals, the first sample of an empty track, Unicode naming, empty/sampled creation, deletion and
+same-name replacement use ordinary reversible commands. All samples must stay within the complete
+image inventory or indexed movie, even when outside the selected clip. Native close/reopen and
+reordered native lists retain IDs; standard reimport reconstructs bindings in emitted object order.
+
+The original snapping and numerical guards remain: one fixed frame-0 calibration, ordinary
+Arrow/BoldArrow footprints, finite reconstructable components, bounded dense arrays, no point-mass
+snap providers for sampled vectors, and tails more than eight image pixels from every other visible
+tip and the origin. Mixed/dependent vectors, vector sums, varying vector calibration and full display
+scaling/attachment semantics remain unfinished. This extension does not change numeric media timing.
+
+Four independent Java-authored fixtures cover linked image and MOV projects and corresponding
+mixed-tab archives. Six scenarios run through linked TRK, existing TRZ, interrupted/recovered paired
+TRZ and portable TRZ for each media kind (48 modes). Full XML, untouched compressed ZIP records,
+all media bytes, independent image/calibrated components, selection, created-track appearance and
+native reimport are checked. The desktop regression creates, renames and draws a vector, deletes it,
+undoes/redoes, saves both files and opens the native companion again. These local checks pass;
+actual Tracker first-draw/load/save/fresh-JVM reopen acceptance and current-revision CI/review remain pending.
+
+These acceptance fixtures use a zero time origin. The original negative-origin fixtures exposed
+[Tracker's missing negative-time vector analysis rows](https://github.com/mgradwohl/MoTrack/issues/146).
+Their raw vectors and timing survive, but the live analysis omission is recorded as a non-accepted
+reference defect with independent correct expectations. Saving does not shift time to conceal it;
+negative-time native vector tables/plots/export and complete reference analysis parity remain open.
