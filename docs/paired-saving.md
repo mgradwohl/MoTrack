@@ -4,8 +4,8 @@ Status: the internal phase-3 paired writer, explicit recovery adapter and per-ou
 checkpoints are implemented. The paired-image adapter passed all six checks at `6ae83b6` in
 [run 42534998602](https://github.com/mgradwohl/MoTrack/actions/runs/42534998602), with 95.48%
 combined coverage and both recovered exports loaded, saved, freshly reopened in Tracker and
-reimported in MoTrack. The session slice passed all six checks at `d4449c6` in
-[run 42534997479](https://github.com/mgradwohl/MoTrack/actions/runs/42534997479), with 95.56%
+reimported in MoTrack. The session slice passed all six checks at `c9f0d30` in
+[run 42540556261](https://github.com/mgradwohl/MoTrack/actions/runs/42540556261), with 95.47%
 combined coverage; subsequent fixes retain their own CI/review gates. Desktop standard Save
 actions and recovery choices are implemented; controller `d9651f9` passed all six checks in
 [run 42534998848](https://github.com/mgradwohl/MoTrack/actions/runs/42534998848), with 95.72%
@@ -350,11 +350,23 @@ delayed observation of the copy. Each output destination also retains its observ
 older successful callback cannot replace a newer selected destination or its saved checkpoint. Older
 pending journals are still registered and reconciled independently of destination selection.
 
+Recovery completion also checks the result's observed filesystem-slot identity against the requested
+pending location before changing any session state. A successful, failed or absent result for the
+original cannot clear or invalidate a copied journal's entry, even when their UUIDs match. This uses
+the retained observation identity because successful recovery may already have deleted the journal.
+Two successful paired writes of the live revision can complete in either order without a destination
+switch alone invalidating their Tracker checkpoint. Stale revisions, recovery invalidation and newer
+on-disk observations retain their independent guards.
+
 Native-only writes and paired writes share this process-local completion order. The `writeNativeDocument`
 adapter holds the same physical per-stem destination lock across native replacement and observation
 stamping, and refuses pending recovery journals. It returns a `NativeSaveResult` containing its stamp
 and original-reference media bindings. Low-level `writeWorkspaceDocument` performs storage only and
 returns no completion token; desktop workers and real-file session callers use the locked adapter.
+The cancellation flag reaches native serialization and storage: it is checked before serialization,
+at archive-copy chunk boundaries and immediately before atomic replacement. Mid-copy and pre-commit
+cancellation preserve the previous plain or archive-backed native file. A bounded storage observer
+lets regressions cancel at those boundaries without relying on timing or large stress fixtures.
 Its worker observer reports `NativeSaved` between replacement and stamping. A regression attempts
 both an older native write and an older paired write in that interval: both are refused, the current
 file remains on disk and only its matching completion can make the session clean. A later old write,
@@ -388,4 +400,12 @@ observer before the outer result is stamped. It also checks that a later obsolet
 the session's saved state. Final head `c9f0d30` passes all six required checks in
 [run 42540556261](https://github.com/mgradwohl/MoTrack/actions/runs/42540556261), with **95.47%
 (8204/8593)** combined coverage and both recovered paired-image modes passing actual Tracker
-load/save/fresh reopen and native reimport. Current-head review remains required before merge.
+load/save/fresh reopen and native reimport. Subsequent fixes retain their own current-head CI and review gates.
+
+The copied-journal callback and older-first successful-save defects were reproduced before their
+corrections. All 30 session cases and the two deterministic storage-cancellation cases then passed.
+Local Windows validation of these review fixes passes all eight CTest groups in 141.23 seconds,
+with **95.40% (8190/8585)** production line coverage, formatting and all six changed C++ translation
+units passing static analysis. Three existing LLVM function-mismatch warnings remain visible.
+The earlier `c9f0d30` CI evidence does not cover these later fixes; their current-head CI/review gates
+remain required before merge.
