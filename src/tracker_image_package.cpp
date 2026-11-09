@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QImageReader>
 #include <QSaveFile>
 #include <QTemporaryDir>
 
@@ -24,6 +25,7 @@ namespace
 constexpr qint64 MAX_EXTRACTED_BYTES = qint64{512} * 1024 * 1024;
 constexpr std::size_t MAX_IMAGES = 4095; // One additional ZIP member holds the experiment.
 constexpr std::size_t BLOCK_BYTES = std::size_t{64} * 1024;
+constexpr qint64 MAX_IMAGE_PIXELS = qint64{32} * 1024 * 1024;
 
 void require(bool valid)
 {
@@ -43,6 +45,27 @@ void checkCancelled(const std::atomic_bool* cancelled)
 {
     if (cancelled && *cancelled)
         throw ProjectError("Tracker image packaging was canceled.");
+}
+
+void validateImage(const QString& stagedPath, const QString& source, const std::atomic_bool* cancelled)
+{
+    checkCancelled(cancelled);
+    auto format = QFileInfo(stagedPath).suffix().toLatin1().toLower();
+    if (format == "jpg")
+        format = "jpeg";
+    requireReadable(format == "png" || format == "jpeg" || format == "bmp", source);
+    QImageReader reader(stagedPath, format);
+    reader.setAutoDetectImageFormat(false);
+    const auto size = reader.size();
+    requireReadable(reader.canRead() && size.width() > 0 && size.height() > 0 &&
+                        static_cast<qint64>(size.width()) * size.height() <= MAX_IMAGE_PIXELS,
+                    source);
+    // Decode one staged frame at a time. Header checks alone accept truncated/corrupt pixels.
+    // The pixel bound and explicit raster handlers bound decoded storage without changing Qt's
+    // process-wide allocation limit, which other workers may be using.
+    const auto decoded = reader.read();
+    requireReadable(!decoded.isNull() && decoded.size() == size, source);
+    checkCancelled(cancelled);
 }
 
 qint64 copyFile(const QString& source, QIODevice& output, qint64 maximum, const std::atomic_bool* cancelled)
@@ -181,6 +204,10 @@ void writeTrackerImagePackage(const QString& path,
     auto reopened = importTrackerDocument(verified.projectPath(projectMember));
     verified.resolveMedia(reopened.project, projectMember);
     require(reopened.project.clip.mediaReferences == snapshot.project.clip.mediaReferences);
+    for (std::size_t index = 0; index < snapshot.project.clip.mediaReferences.size(); ++index)
+        validateImage(QDir(verified.root()).filePath(QString::fromStdString(snapshot.project.clip.mediaReferences[index])),
+                      workspaceMediaPath(document, mediaProjectPath, document.project.clip.mediaReferences[index]),
+                      cancelled);
     checkCancelled(cancelled);
     require(!QFileInfo(destination).isSymbolicLink());
     QSaveFile finalOutput(destination);

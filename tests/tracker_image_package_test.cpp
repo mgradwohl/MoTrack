@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QImage>
 #include <QTemporaryDir>
 #include <gtest/gtest.h>
 
@@ -212,6 +213,72 @@ TEST(TrackerImagePackage, NamesMissingOrNonFileSourcesWithoutReplacingOutput)
     }
 }
 
+TEST(TrackerImagePackage, RejectsCorruptAndOversizedImagesBeforeReplacingTheArchive)
+{
+    for (int kind = 0; kind < 3; ++kind)
+    {
+        SCOPED_TRACE(kind);
+        QTemporaryDir temporary;
+        const auto source = temporary.filePath(kind == 2 ? "oversized.bmp" : "corrupt.png");
+        if (kind == 0)
+            put(source, "not an image");
+        else if (kind == 1)
+            put(source, bytes(fixture("images/frame0.png")).first(40));
+        else
+        {
+            const QImage small(fixture("images/frame0.png"));
+            ASSERT_TRUE(small.save(source, "BMP"));
+            auto oversized = bytes(source);
+            ASSERT_GE(oversized.size(), 26);
+            // A tiny BMP advertises dimensions far beyond the decoder's pixel budget.
+            oversized.replace(18, 8, QByteArray::fromHex("ffffff7fffffff7f"));
+            put(source, oversized);
+        }
+        auto document = motrack::importTrackerDocument(fixture());
+        document.project.clip.mediaReferences.back() = QFileInfo(source).fileName().toStdString();
+        document.mediaLocations.insert(QString::fromStdString(document.project.clip.mediaReferences.back()), source);
+        const auto before = document.project;
+        const auto bindings = document.mediaLocations;
+        const auto target = temporary.filePath("existing.trz");
+        put(target, "original archive");
+        try
+        {
+            motrack::writeTrackerImagePackage(target, document, fixture());
+            ADD_FAILURE() << "Packaging invalid image data must preserve the destination.";
+        }
+        catch (const motrack::ProjectError& error)
+        {
+            EXPECT_TRUE(QDir::fromNativeSeparators(QString::fromUtf8(error.what())).contains(source));
+        }
+        EXPECT_EQ(bytes(target), "original archive");
+        EXPECT_EQ(document.project, before);
+        EXPECT_EQ(document.mediaLocations, bindings);
+    }
+}
+
+TEST(TrackerImagePackage, DecodesSupportedRasterFormatsAndRetainsTheirExactBytes)
+{
+    const QImage image(fixture("images/frame0.png"));
+    ASSERT_FALSE(image.isNull());
+    for (const auto* extension : {"PNG", "JPG", "jpeg", "BMP"})
+    {
+        SCOPED_TRACE(extension);
+        QTemporaryDir temporary;
+        const auto source = temporary.filePath(QStringLiteral("image.") + extension);
+        ASSERT_TRUE(image.save(source));
+        auto document = motrack::importTrackerDocument(fixture());
+        document.project.clip.mediaReferences.back() = source.toStdString();
+        const auto target = temporary.filePath("saved.trz");
+        motrack::writeTrackerImagePackage(target, document, fixture());
+        const auto archive = motrack::TrackerArchive::open(target);
+        const auto member = QDir(archive.root()).filePath(QStringLiteral("images/frame-000003.") + extension);
+        EXPECT_EQ(bytes(member), bytes(source));
+        const QImage reopened(member);
+        EXPECT_FALSE(reopened.isNull());
+        EXPECT_EQ(reopened.size(), image.size());
+    }
+}
+
 TEST(TrackerImagePackage, CannotReplaceLinkedMediaEvenWithAnArchiveSuffix)
 {
     QTemporaryDir temporary;
@@ -227,7 +294,7 @@ TEST(TrackerImagePackage, CannotReplaceLinkedMediaEvenWithAnArchiveSuffix)
 TEST(TrackerImagePackage, RejectsImageNamesWithoutAPortableExtension)
 {
     QTemporaryDir temporary;
-    for (const auto* name : {"image", "image.tooLongExtension", "image.bad-ext"})
+    for (const auto* name : {"image", "image.tooLongExtension", "image.bad-ext", "image.gif"})
     {
         const auto input = temporary.filePath(name);
         ASSERT_TRUE(QFile::copy(fixture("images/frame0.png"), input));

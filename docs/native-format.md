@@ -588,10 +588,14 @@ Preparation uses a private temporary directory, at most 4095 images plus one exp
 extracted content and 544 MiB ZIP bytes, with 64 KiB copy buffers and cancellation checks. The generated
 ZIP uses DEFLATE with streaming data descriptors and has no trailing block padding. Java’s streaming
 ZIP reader rejects descriptors on stored entries, so uncompressed streaming entries are not compatible.
-The normal archive reader validates the package before the destination is
-atomically replaced. Output-file aliases, linked-media overwrites, missing images, movies, existing
-archive inputs, unsupported edits and nonportable image extensions are refused. Image formats are
-preserved, not transcoded; the initial application acceptance fixture consists of four PNGs.
+The normal archive reader validates the package, then the image-package adapter decodes every staged
+PNG, JPEG or BMP before the destination is atomically replaced. Each header must describe positive
+dimensions of at most 32 Mi pixels; one image is decoded at a time and Qt's process-wide allocation
+limit remains unchanged. Other formats, corrupt pixels, oversized headers, output-file aliases,
+linked-media overwrites, missing images, movies, existing archive inputs, unsupported edits and
+nonportable image extensions are refused. The source path appears in image failure diagnostics.
+Image bytes are retained without transcoding; native tests cover PNG/JPEG/BMP, while the actual Tracker
+application acceptance fixture consists of four PNGs. Broader image-format acceptance remains pending.
 
 Native tests cover native close/reopen, removal of the original files, relocation, embedded native
 archive reopen and subsequent standard editing. Independent corpus checks cover exact inventory,
@@ -605,6 +609,14 @@ Paired native snapshot adoption, movies and arbitrary supporting-resource collec
 Local Windows validation for this slice passes all six CTest suites, formatting, clang-tidy,
 77 Python corpus tests and the native corpus checks, with 95.65% production line coverage
 (8173/8545). Current-revision Windows/macOS/Linux CI and code review remain required before merge.
+
+The corrupt-image overwrite was reproduced before adding staged decoding. The correction passes all
+eight local Windows CTest groups in 171.33 seconds, with 95.62% production C++ line coverage (8642/9038),
+all tracked formatting and both changed translation-unit static analyses. Regression inputs include
+non-image PNG data, a truncated PNG and a tiny BMP declaring oversized dimensions; each preserves
+existing destination bytes and source bindings. PNG/JPEG/BMP success cases retain exact image bytes.
+The project-only import benchmark still links Qt Core/Xml without Qt Gui. Three existing LLVM
+function-profile mismatch warnings remain visible. Current-head CI and review remain required.
 
 ### Desktop portable-image export
 
