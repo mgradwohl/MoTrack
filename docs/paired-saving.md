@@ -266,8 +266,9 @@ translation-unit static analyses pass. Persistence and session cases now have se
 from the UI, retaining every case and each 60-second limit. Current-revision CI/review remain required.
 
 The replacement/stamp lock regression, native cancellation/recovery guards and post-commit observer
-failure cases pass locally on Windows. The complete eight-group suite passes in 246.03 seconds,
-with 95.39% production line coverage (8168/8563); three existing LLVM function-mismatch warnings remain
+failure cases pass locally on Windows at `9d08bd85`. The complete eight-group suite passes in
+174.96 seconds, with 95.40% production line coverage (8174/8568); formatting and all five changed
+C++ translation units pass static analysis. Three existing LLVM function-mismatch warnings remain
 visible. The new interval regression deterministically attempts competing writes from the post-commit
 observer before the outer result is stamped. It also checks that a later obsolete write invalidates
 the session's saved state. Current-head three-platform CI and review remain required before merge.
