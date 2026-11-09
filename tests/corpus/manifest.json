@@ -35,6 +35,1973 @@
   },
   "cases": [
     {
+      "id": "keyed-movie-0",
+      "tracker_version": "6.3.5",
+      "file": "linked-movie.trk",
+      "local_file": "fixtures/keyed-movie-0/linked-movie.trk",
+      "sha256": "c4083705dc7ea3c38f225a06ed71b32232c50c4154b0230c0c52b6344cbdf783",
+      "bytes": 6514,
+      "expected": "expected/keyed-movie-0.json",
+      "provenance": "KeyedMovieCalibrationFixture uses pinned Tracker 6.3.5 public setters/serializers over the independent four-frame MOV fixture. Two headless JDK 17 authoring runs in UTC and Pacific/Kiritimati are byte-identical; every baseline world coordinate is independently checked by quadrant arithmetic.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-movie-0/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "movie mass"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": false,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "movie mass",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": -250.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 125.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "keyed-movie-calibration",
+        "fully-varying-calibration",
+        "nonuniform-scale",
+        "every-source-frame-marked",
+        "constant-rate-mov"
+      ],
+      "movie_calibration_flags": 0,
+      "native_keyed_movie_roundtrip": true,
+      "native_keyed_movie_package_roundtrip": true,
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R09"
+      ]
+    },
+    {
+      "id": "archived-keyed-movie-0",
+      "tracker_version": "6.3.5",
+      "file": "archived-keyed-movie-0.trz",
+      "local_file": "fixtures/keyed-movie-0/archived-keyed-movie-0.trz",
+      "sha256": "e2c236eb550e8cd740b235f4d156903b17f91e742990e273a2a4ef13a9eee010",
+      "bytes": 15839,
+      "expected": "expected/keyed-movie-0.json",
+      "provenance": "KeyedMovieCalibrationFixture uses pinned Tracker 6.3.5 public setters/serializers over the independent four-frame MOV fixture. Two headless JDK 17 authoring runs in UTC and Pacific/Kiritimati are byte-identical; every baseline world coordinate is independently checked by quadrant arithmetic. ArchiveMovieFixture packages the exact keyed MOV and untouched image experiment; independent UTC/Kiritimati archives are byte-identical.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-movie-0/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "movie mass"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": false,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "movie mass",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": -250.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 125.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "keyed-movie-calibration",
+        "fully-varying-calibration",
+        "nonuniform-scale",
+        "every-source-frame-marked",
+        "constant-rate-mov"
+      ],
+      "movie_calibration_flags": 0,
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R09"
+      ],
+      "project_member": "experiment.trk",
+      "session_archive": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "keyed-movie-0"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ],
+      "native_keyed_movie_archive_roundtrip": true
+    },
+    {
+      "id": "keyed-movie-1",
+      "tracker_version": "6.3.5",
+      "file": "linked-movie.trk",
+      "local_file": "fixtures/keyed-movie-1/linked-movie.trk",
+      "sha256": "47c4d767f2c773bc93ce511f8801075bd96760b45304039eb6ba8dca9cede6c9",
+      "bytes": 6514,
+      "expected": "expected/keyed-movie-1.json",
+      "provenance": "KeyedMovieCalibrationFixture uses pinned Tracker 6.3.5 public setters/serializers over the independent four-frame MOV fixture. Two headless JDK 17 authoring runs in UTC and Pacific/Kiritimati are byte-identical; every baseline world coordinate is independently checked by quadrant arithmetic.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-movie-1/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "movie mass"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": false,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "movie mass",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": -250.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 125.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "keyed-movie-calibration",
+        "partly-fixed-calibration",
+        "nonuniform-scale",
+        "every-source-frame-marked",
+        "constant-rate-mov"
+      ],
+      "movie_calibration_flags": 1,
+      "native_keyed_movie_roundtrip": true,
+      "native_keyed_movie_package_roundtrip": true,
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R09"
+      ]
+    },
+    {
+      "id": "archived-keyed-movie-1",
+      "tracker_version": "6.3.5",
+      "file": "archived-keyed-movie-1.trz",
+      "local_file": "fixtures/keyed-movie-1/archived-keyed-movie-1.trz",
+      "sha256": "be83c7449faa71b6cd4dee100e26ea0a44f0a2762cfe0ea1d87620f64a35f783",
+      "bytes": 15831,
+      "expected": "expected/keyed-movie-1.json",
+      "provenance": "KeyedMovieCalibrationFixture uses pinned Tracker 6.3.5 public setters/serializers over the independent four-frame MOV fixture. Two headless JDK 17 authoring runs in UTC and Pacific/Kiritimati are byte-identical; every baseline world coordinate is independently checked by quadrant arithmetic. ArchiveMovieFixture packages the exact keyed MOV and untouched image experiment; independent UTC/Kiritimati archives are byte-identical.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-movie-1/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "movie mass"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": false,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "movie mass",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": -250.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 125.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "keyed-movie-calibration",
+        "partly-fixed-calibration",
+        "nonuniform-scale",
+        "every-source-frame-marked",
+        "constant-rate-mov"
+      ],
+      "movie_calibration_flags": 1,
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R09"
+      ],
+      "project_member": "experiment.trk",
+      "session_archive": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "keyed-movie-1"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ],
+      "native_keyed_movie_archive_roundtrip": true
+    },
+    {
+      "id": "keyed-movie-2",
+      "tracker_version": "6.3.5",
+      "file": "linked-movie.trk",
+      "local_file": "fixtures/keyed-movie-2/linked-movie.trk",
+      "sha256": "a7ebb7d542fe074cd86a69e4744215710f24881c024a9cc0696d2329a1c823e4",
+      "bytes": 6514,
+      "expected": "expected/keyed-movie-2.json",
+      "provenance": "KeyedMovieCalibrationFixture uses pinned Tracker 6.3.5 public setters/serializers over the independent four-frame MOV fixture. Two headless JDK 17 authoring runs in UTC and Pacific/Kiritimati are byte-identical; every baseline world coordinate is independently checked by quadrant arithmetic.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-movie-2/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "movie mass"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": true,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "movie mass",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": -250.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 125.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "keyed-movie-calibration",
+        "partly-fixed-calibration",
+        "nonuniform-scale",
+        "every-source-frame-marked",
+        "constant-rate-mov"
+      ],
+      "movie_calibration_flags": 2,
+      "native_keyed_movie_roundtrip": true,
+      "native_keyed_movie_package_roundtrip": true,
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R09"
+      ]
+    },
+    {
+      "id": "archived-keyed-movie-2",
+      "tracker_version": "6.3.5",
+      "file": "archived-keyed-movie-2.trz",
+      "local_file": "fixtures/keyed-movie-2/archived-keyed-movie-2.trz",
+      "sha256": "2502c02ec043500550134f0c728f61aab8b8fb244e52bcaa625f39aa9d0d8708",
+      "bytes": 15838,
+      "expected": "expected/keyed-movie-2.json",
+      "provenance": "KeyedMovieCalibrationFixture uses pinned Tracker 6.3.5 public setters/serializers over the independent four-frame MOV fixture. Two headless JDK 17 authoring runs in UTC and Pacific/Kiritimati are byte-identical; every baseline world coordinate is independently checked by quadrant arithmetic. ArchiveMovieFixture packages the exact keyed MOV and untouched image experiment; independent UTC/Kiritimati archives are byte-identical.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-movie-2/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "movie mass"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": true,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "movie mass",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": -250.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 125.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "keyed-movie-calibration",
+        "partly-fixed-calibration",
+        "nonuniform-scale",
+        "every-source-frame-marked",
+        "constant-rate-mov"
+      ],
+      "movie_calibration_flags": 2,
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R09"
+      ],
+      "project_member": "experiment.trk",
+      "session_archive": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "keyed-movie-2"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ],
+      "native_keyed_movie_archive_roundtrip": true
+    },
+    {
+      "id": "keyed-movie-3",
+      "tracker_version": "6.3.5",
+      "file": "linked-movie.trk",
+      "local_file": "fixtures/keyed-movie-3/linked-movie.trk",
+      "sha256": "23194180b0592f24c75c9b600cfbf79951dda2d7dd8c7ce023c83431d13f2dd3",
+      "bytes": 6514,
+      "expected": "expected/keyed-movie-3.json",
+      "provenance": "KeyedMovieCalibrationFixture uses pinned Tracker 6.3.5 public setters/serializers over the independent four-frame MOV fixture. Two headless JDK 17 authoring runs in UTC and Pacific/Kiritimati are byte-identical; every baseline world coordinate is independently checked by quadrant arithmetic.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-movie-3/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "movie mass"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": true,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "movie mass",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": -250.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 125.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "keyed-movie-calibration",
+        "partly-fixed-calibration",
+        "nonuniform-scale",
+        "every-source-frame-marked",
+        "constant-rate-mov"
+      ],
+      "movie_calibration_flags": 3,
+      "native_keyed_movie_roundtrip": true,
+      "native_keyed_movie_package_roundtrip": true,
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R09"
+      ]
+    },
+    {
+      "id": "archived-keyed-movie-3",
+      "tracker_version": "6.3.5",
+      "file": "archived-keyed-movie-3.trz",
+      "local_file": "fixtures/keyed-movie-3/archived-keyed-movie-3.trz",
+      "sha256": "35ad9fc4e672b464387900fa7b4917ad68ff902fc3bbec7816129d9cde137ff3",
+      "bytes": 15826,
+      "expected": "expected/keyed-movie-3.json",
+      "provenance": "KeyedMovieCalibrationFixture uses pinned Tracker 6.3.5 public setters/serializers over the independent four-frame MOV fixture. Two headless JDK 17 authoring runs in UTC and Pacific/Kiritimati are byte-identical; every baseline world coordinate is independently checked by quadrant arithmetic. ArchiveMovieFixture packages the exact keyed MOV and untouched image experiment; independent UTC/Kiritimati archives are byte-identical.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-movie-3/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "movie mass"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": true,
+        "fixed_scale": false,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              2.0,
+              4.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "movie mass",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": -250.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 125.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "keyed-movie-calibration",
+        "partly-fixed-calibration",
+        "nonuniform-scale",
+        "every-source-frame-marked",
+        "constant-rate-mov"
+      ],
+      "movie_calibration_flags": 3,
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R09"
+      ],
+      "project_member": "experiment.trk",
+      "session_archive": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "keyed-movie-3"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ],
+      "native_keyed_movie_archive_roundtrip": true
+    },
+    {
+      "id": "keyed-movie-4",
+      "tracker_version": "6.3.5",
+      "file": "linked-movie.trk",
+      "local_file": "fixtures/keyed-movie-4/linked-movie.trk",
+      "sha256": "bbef9d826a7655b9201f6c9b6496835980ef700307388988f2edbff86b5870a2",
+      "bytes": 6513,
+      "expected": "expected/keyed-movie-4.json",
+      "provenance": "KeyedMovieCalibrationFixture uses pinned Tracker 6.3.5 public setters/serializers over the independent four-frame MOV fixture. Two headless JDK 17 authoring runs in UTC and Pacific/Kiritimati are byte-identical; every baseline world coordinate is independently checked by quadrant arithmetic.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-movie-4/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "movie mass"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": false,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "movie mass",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": -250.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 125.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "keyed-movie-calibration",
+        "partly-fixed-calibration",
+        "nonuniform-scale",
+        "every-source-frame-marked",
+        "constant-rate-mov"
+      ],
+      "movie_calibration_flags": 4,
+      "native_keyed_movie_roundtrip": true,
+      "native_keyed_movie_package_roundtrip": true,
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R09"
+      ]
+    },
+    {
+      "id": "archived-keyed-movie-4",
+      "tracker_version": "6.3.5",
+      "file": "archived-keyed-movie-4.trz",
+      "local_file": "fixtures/keyed-movie-4/archived-keyed-movie-4.trz",
+      "sha256": "0d3d6020d9e33dd86477e8200151d8068113e48c4867dca125c109fda831d2c5",
+      "bytes": 15833,
+      "expected": "expected/keyed-movie-4.json",
+      "provenance": "KeyedMovieCalibrationFixture uses pinned Tracker 6.3.5 public setters/serializers over the independent four-frame MOV fixture. Two headless JDK 17 authoring runs in UTC and Pacific/Kiritimati are byte-identical; every baseline world coordinate is independently checked by quadrant arithmetic. ArchiveMovieFixture packages the exact keyed MOV and untouched image experiment; independent UTC/Kiritimati archives are byte-identical.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-movie-4/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "movie mass"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": false,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "movie mass",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": -250.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 125.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "keyed-movie-calibration",
+        "partly-fixed-calibration",
+        "nonuniform-scale",
+        "every-source-frame-marked",
+        "constant-rate-mov"
+      ],
+      "movie_calibration_flags": 4,
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R09"
+      ],
+      "project_member": "experiment.trk",
+      "session_archive": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "keyed-movie-4"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ],
+      "native_keyed_movie_archive_roundtrip": true
+    },
+    {
+      "id": "keyed-movie-5",
+      "tracker_version": "6.3.5",
+      "file": "linked-movie.trk",
+      "local_file": "fixtures/keyed-movie-5/linked-movie.trk",
+      "sha256": "840feeaf341e1d3f970a283cad3ea836801d35357d6252a94601fc1d57880dbe",
+      "bytes": 6513,
+      "expected": "expected/keyed-movie-5.json",
+      "provenance": "KeyedMovieCalibrationFixture uses pinned Tracker 6.3.5 public setters/serializers over the independent four-frame MOV fixture. Two headless JDK 17 authoring runs in UTC and Pacific/Kiritimati are byte-identical; every baseline world coordinate is independently checked by quadrant arithmetic.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-movie-5/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "movie mass"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": false,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "movie mass",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": -250.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 125.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "keyed-movie-calibration",
+        "partly-fixed-calibration",
+        "nonuniform-scale",
+        "every-source-frame-marked",
+        "constant-rate-mov"
+      ],
+      "movie_calibration_flags": 5,
+      "native_keyed_movie_roundtrip": true,
+      "native_keyed_movie_package_roundtrip": true,
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R09"
+      ]
+    },
+    {
+      "id": "archived-keyed-movie-5",
+      "tracker_version": "6.3.5",
+      "file": "archived-keyed-movie-5.trz",
+      "local_file": "fixtures/keyed-movie-5/archived-keyed-movie-5.trz",
+      "sha256": "c7bc1aacd54c63cecdcc244d697a62bf230594527875831aa289d44be2a82618",
+      "bytes": 15824,
+      "expected": "expected/keyed-movie-5.json",
+      "provenance": "KeyedMovieCalibrationFixture uses pinned Tracker 6.3.5 public setters/serializers over the independent four-frame MOV fixture. Two headless JDK 17 authoring runs in UTC and Pacific/Kiritimati are byte-identical; every baseline world coordinate is independently checked by quadrant arithmetic. ArchiveMovieFixture packages the exact keyed MOV and untouched image experiment; independent UTC/Kiritimati archives are byte-identical.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-movie-5/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "movie mass"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": true,
+        "fixed_angle": false,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 0.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "movie mass",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": -250.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 125.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "keyed-movie-calibration",
+        "partly-fixed-calibration",
+        "nonuniform-scale",
+        "every-source-frame-marked",
+        "constant-rate-mov"
+      ],
+      "movie_calibration_flags": 5,
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R09"
+      ],
+      "project_member": "experiment.trk",
+      "session_archive": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "keyed-movie-5"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ],
+      "native_keyed_movie_archive_roundtrip": true
+    },
+    {
+      "id": "keyed-movie-6",
+      "tracker_version": "6.3.5",
+      "file": "linked-movie.trk",
+      "local_file": "fixtures/keyed-movie-6/linked-movie.trk",
+      "sha256": "8d437aa1857db9dbd9ebf13a123bd8eaccbd70f8aa95d296360d82fe0b65a2d0",
+      "bytes": 6513,
+      "expected": "expected/keyed-movie-6.json",
+      "provenance": "KeyedMovieCalibrationFixture uses pinned Tracker 6.3.5 public setters/serializers over the independent four-frame MOV fixture. Two headless JDK 17 authoring runs in UTC and Pacific/Kiritimati are byte-identical; every baseline world coordinate is independently checked by quadrant arithmetic.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-movie-6/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "movie mass"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": true,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "movie mass",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": -250.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 125.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "keyed-movie-calibration",
+        "partly-fixed-calibration",
+        "nonuniform-scale",
+        "every-source-frame-marked",
+        "constant-rate-mov"
+      ],
+      "movie_calibration_flags": 6,
+      "native_keyed_movie_roundtrip": true,
+      "native_keyed_movie_package_roundtrip": true,
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R09"
+      ]
+    },
+    {
+      "id": "archived-keyed-movie-6",
+      "tracker_version": "6.3.5",
+      "file": "archived-keyed-movie-6.trz",
+      "local_file": "fixtures/keyed-movie-6/archived-keyed-movie-6.trz",
+      "sha256": "10864adec826d6146640f27ae149c3fd1e4453c9bb55683ad795ebccbdb3e42c",
+      "bytes": 15832,
+      "expected": "expected/keyed-movie-6.json",
+      "provenance": "KeyedMovieCalibrationFixture uses pinned Tracker 6.3.5 public setters/serializers over the independent four-frame MOV fixture. Two headless JDK 17 authoring runs in UTC and Pacific/Kiritimati are byte-identical; every baseline world coordinate is independently checked by quadrant arithmetic. ArchiveMovieFixture packages the exact keyed MOV and untouched image experiment; independent UTC/Kiritimati archives are byte-identical.",
+      "assets": [
+        {
+          "file": "constant-rate.mov",
+          "local_file": "fixtures/keyed-movie-6/constant-rate.mov",
+          "sha256": "0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832",
+          "bytes": 9799
+        }
+      ],
+      "session_tracks": [
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+          "name": "axes"
+        },
+        {
+          "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+          "name": "movie mass"
+        }
+      ],
+      "session_axes": [
+        {
+          "name": "axes",
+          "grid": {
+            "visible": false,
+            "alpha": null,
+            "argb": null
+          }
+        }
+      ],
+      "session_calibration": {
+        "fixed_origin": false,
+        "fixed_angle": true,
+        "fixed_scale": true,
+        "keys": [
+          {
+            "frame": 0,
+            "origin": [
+              2.0,
+              20.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          },
+          {
+            "frame": 2,
+            "origin": [
+              10.0,
+              18.0
+            ],
+            "angle": 90.0,
+            "scale": [
+              4.0,
+              8.0
+            ]
+          }
+        ]
+      },
+      "session_selected_track": "movie mass",
+      "session_frame_duration_ms": 125.0,
+      "session_time_samples": [
+        {
+          "frame": 0,
+          "time_ms": -250.0
+        },
+        {
+          "frame": 3,
+          "time_ms": 125.0
+        }
+      ],
+      "session_media": {
+        "class": "org.opensourcephysics.media.xuggle.XuggleVideo",
+        "frame_count": 4,
+        "frames": [
+          {
+            "frame": 0,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "c557740494a23c2958b2346fd75dd9e6670154d90d6dfa4bb980524655e15bd5",
+            "time_ms": 0.0
+          },
+          {
+            "frame": 1,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "d792697f2c78ba7c40fd0f6fd8975a9cc9d64d9e01dcdd204d4a6c33bdd3836a",
+            "time_ms": 125.0
+          },
+          {
+            "frame": 2,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "82e5513f8e453337996e88be307622f95c3fc821c3826bd1b4aacccef5044e50",
+            "time_ms": 250.0
+          },
+          {
+            "frame": 3,
+            "width": 32,
+            "height": 24,
+            "rgb_sha256": "37889a9e8e3d22467bdee8f414c93b9d7f2137239bc8ebd5421a9c4480bcfa01",
+            "time_ms": 375.0
+          }
+        ]
+      },
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ],
+      "features": [
+        "keyed-movie-calibration",
+        "partly-fixed-calibration",
+        "nonuniform-scale",
+        "every-source-frame-marked",
+        "constant-rate-mov"
+      ],
+      "movie_calibration_flags": 6,
+      "requirements": [
+        "R02",
+        "R03",
+        "R05",
+        "R09"
+      ],
+      "project_member": "experiment.trk",
+      "session_archive": true,
+      "session_archive_tabs": [
+        {
+          "member": "experiment.trk",
+          "case": "keyed-movie-6"
+        },
+        {
+          "member": "second.trk",
+          "case": "secondary-images"
+        }
+      ],
+      "native_keyed_movie_archive_roundtrip": true
+    },
+    {
       "id": "archived-movie",
       "tracker_version": "6.3.5",
       "file": "archived-movie.trz",

@@ -538,6 +538,64 @@ class CorpusTests(unittest.TestCase):
                           "archive-movie-calibration", "paired-archive-movie-calibration"])
         self.assertTrue(all(call.args[0]["id"] == "archived-movie" for call in check.call_args_list))
 
+    def test_all_keyed_movie_archive_variants_use_the_multitab_checker(self):
+        manifest = corpus.load_manifest()
+        manifest["cases"] = [c for c in manifest["cases"] if c.get("native_keyed_movie_archive_roundtrip")]
+        self.assertEqual([c["movie_calibration_flags"] for c in manifest["cases"]], list(range(7)))
+        with patch.object(corpus.sys, "platform", "linux"), \
+                patch.object(corpus, "private_display", return_value=nullcontext(":77")), \
+                patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "run"), \
+                patch.object(corpus, "check_archive_tabs") as check:
+            corpus.check_sessions(manifest, self.root, "java", "native-probe")
+        expected = [(f"archived-keyed-movie-{flags}", mode) for flags in range(7)
+                    for mode in ["archive-movie-keyed-calibration", "paired-archive-movie-keyed-calibration"]]
+        self.assertEqual([(call.args[0]["id"], call.args[-1]) for call in check.call_args_list], expected)
+
+    def test_keyed_movie_coordinates_match_independent_boundary_values(self):
+        worlds = [
+            [[1, 1], [-0.5, 1], [-1, 0], [-1, 0]],
+            [[-1, -0.5], [-0.5, 1], [-0.25, -0.125], [-0.25, -0.125]],
+            [[-1, 1], [-0.5, 1], [0, -1], [0, -1]],
+            [[0.5, -1], [-0.5, 1], [0.125, -0.25], [0.125, -0.25]],
+            [[0.25, 0.25], [-0.125, 0.25], [-1, 0], [-1, 0]],
+            [[-0.25, -0.125], [-0.125, 0.25], [-0.25, -0.125], [-0.25, -0.125]],
+            [[-0.25, 0.25], [-0.125, 0.25], [0, -1], [0, -1]]]
+        manifest = corpus.load_manifest()
+        for flags, desired in enumerate(worlds):
+            case = next(c for c in manifest["cases"] if c["id"] == f"keyed-movie-{flags}")
+            expected, edited = corpus.keyed_movie_roundtrip_expected(case)
+            with self.subTest(flags=flags):
+                self.assertEqual([s["world"] for s in expected["point_masses"][0]["samples"]], desired)
+                self.assertEqual([k["frame"] for k in edited["session_calibration"]["keys"]], [0, 2] if flags == 3 else [0, 1, 2])
+                self.assertEqual(expected["length_unit"], "cm")
+
+    def test_keyed_movie_xml_rejects_wrong_keys_flags_padding_and_untouched_fields(self):
+        manifest = corpus.load_manifest()
+        media = self.root / "média & movie"
+        media.mkdir()
+        for flags in range(7):
+            case = next(c for c in manifest["cases"] if c["id"] == f"keyed-movie-{flags}")
+            original = corpus.local_fixture_path(case)
+            (media / "constant-rate.mov").write_bytes(corpus.local_fixture_path(case["assets"][0]).read_bytes())
+            with corpus.minidom.parse(str(original)) as document:
+                corpus.patch_expected_linked_media(document, movie=True, keyed_case=case)
+                xml = document.toxml()
+            exported = self.root / "mutated.trk"
+            for mutation in ["key-frame", "fixedorigin", "padding", "length_unit", "starttime", "mass"]:
+                with self.subTest(flags=flags, mutation=mutation), corpus.minidom.parseString(xml) as document:
+                    if mutation == "key-frame":
+                        frame = next(n for n in document.getElementsByTagName("object")
+                                     if n.getAttribute("class") == "org.opensourcephysics.media.core.ImageCoordSystem$FrameData"
+                                     and n.parentNode.getAttribute("name") == "[2]")
+                        frame.parentNode.setAttribute("name", "[3]")
+                    else:
+                        name = "[3]" if mutation == "padding" else mutation
+                        prop = next(n for n in document.getElementsByTagName("property") if n.getAttribute("name") == name)
+                        prop.firstChild.data = ("false" if flags & 1 else "true") if mutation == "fixedorigin" else "wrong"
+                    exported.write_text(document.toxml(), encoding="utf-8")
+                    with self.assertRaises(ValueError):
+                        corpus.verify_linked_movie_export_xml(original, exported, case, keyed=True)
+
     def test_linked_image_export_oracle_checks_edited_geometry_all_xml_and_relocated_assets(self):
         manifest = corpus.load_manifest()
         case = next(c for c in manifest["cases"] if c["id"] == "linked-images")
@@ -721,7 +779,14 @@ class CorpusTests(unittest.TestCase):
             with self.subTest(case=case_id):
                 self.check_media_session_oracle(case_id, calibrated=True)
 
-    def check_media_session_oracle(self, case_id, clip_mode=None, *, calibrated=False):
+    def test_keyed_movie_sessions_reject_corrupted_keys_at_every_stage(self):
+        for flags in range(7):
+            for archived in [False, True]:
+                case_id = ("archived-" if archived else "") + f"keyed-movie-{flags}"
+                with self.subTest(case=case_id):
+                    self.check_media_session_oracle(case_id, keyed=True)
+
+    def check_media_session_oracle(self, case_id, clip_mode=None, *, calibrated=False, keyed=False):
         manifest = corpus.load_manifest()
         case = next(c for c in manifest["cases"] if c["id"] == case_id)
         expected = json.loads(corpus.expected_path(case).read_text())["project"]
@@ -730,9 +795,12 @@ class CorpusTests(unittest.TestCase):
         if calibrated:
             expected, case = corpus.linked_movie_calibration_expected(case)
         keys = [[0, 1, 2]] if clip_mode is not None or calibrated else None
+        if keyed:
+            expected, case = corpus.keyed_movie_roundtrip_expected(case)
+            keys = [[]]
         mass = expected["point_masses"][0]
         before = {"tracks": [case["session_tracks"][0], {
-            **case["session_tracks"][1], "mass": mass["mass"], "key_frames": [0, 1, 2] if keys else [],
+            **case["session_tracks"][1], "mass": mass["mass"], "key_frames": keys[0] if keys else [],
             "samples": [{"frame": sample["frame"], "points": [sample["image"]], "world": sample["world"]}
                         for sample in mass["samples"]]}],
             "clip": expected["clip"], "coordinate_samples": expected["coordinate_samples"],
@@ -745,8 +813,11 @@ class CorpusTests(unittest.TestCase):
                  "after_save": copy.deepcopy(before), "after": copy.deepcopy(before)}
         corpus.validate_session(case, valid, manifest, expected, keys)
         for stages in [["after"], ["before", "after_save", "after"]]:
-            for mutation in ["missing", "pixels", "order", "time", "dimensions", "count", "origin", "scale", "axes_grid", "engine",
-                             "clip-range", "missing-mark", "display-time", "angle", "world", "unit"]:
+            mutations = ["missing", "pixels", "order", "time", "dimensions", "count", "origin", "scale", "axes_grid", "engine",
+                         "clip-range", "missing-mark", "display-time", "angle", "world", "unit"]
+            if keyed:
+                mutations += ["key-frame", "missing-key", "fixed_origin", "fixed_angle", "fixed_scale", "last-world"]
+            for mutation in mutations:
                 invalid = copy.deepcopy(valid)
                 for stage in stages:
                     media = invalid[stage]["media"]
@@ -772,6 +843,14 @@ class CorpusTests(unittest.TestCase):
                         invalid[stage]["tracks"][1]["samples"][0]["world"][0] += 1.0
                     elif mutation == "unit":
                         invalid[stage]["length_unit"] = "wrong"
+                    elif mutation == "key-frame":
+                        invalid[stage]["calibration"]["keys"][1]["frame"] += 1
+                    elif mutation == "missing-key":
+                        invalid[stage]["calibration"]["keys"].pop(1)
+                    elif mutation in {"fixed_origin", "fixed_angle", "fixed_scale"}:
+                        invalid[stage]["calibration"][mutation] = not invalid[stage]["calibration"][mutation]
+                    elif mutation == "last-world":
+                        invalid[stage]["tracks"][1]["samples"][-1]["world"][1] += 1.0
                     elif mutation == "axes_grid":
                         invalid[stage]["axes"][0]["grid"]["visible"] = True
                     elif mutation == "clip-range":
