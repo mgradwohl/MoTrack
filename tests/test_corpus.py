@@ -398,7 +398,7 @@ class CorpusTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "checksum.*frame 0"):
             corpus.verify_saved_image_inventory(saved, assets)
         excluded.write_bytes(original)
-        for mutation in ["redirect", "missing", "reorder", "duplicate-index", "network", "wrong-array"]:
+        for mutation in ["redirect", "missing", "reorder", "duplicate-index", "network", "network-file", "network-share", "wrong-array"]:
             root = ET.fromstring(valid)
             paths = root.find(".//property[@name='paths']")
             if mutation == "redirect":
@@ -411,6 +411,10 @@ class CorpusTests(unittest.TestCase):
                 paths[0].set("name", "[1]")
             elif mutation == "network":
                 paths[0].text = "https://example.invalid/frame0.png"
+            elif mutation == "network-file":
+                paths[0].text = "file://example.invalid/share/frame0.png"
+            elif mutation == "network-share":
+                paths[0].text = "//example.invalid/share/frame0.png"
             else:
                 paths.set("class", "wrong")
             ET.ElementTree(root).write(saved, encoding="utf-8")

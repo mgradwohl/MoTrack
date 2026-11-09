@@ -582,6 +582,8 @@ def verify_saved_image_inventory(saved, assets):
             container = urllib.request.url2pathname(url.path)
         elif url.scheme and not re.match(r"^[A-Za-z]:/", container):
             raise ValueError("Saved image reference is not a local file")
+        if container.replace("\\", "/").startswith("//"):
+            raise ValueError("Saved image reference is not a local file")
         path = Path(container)
         if not path.is_absolute():
             path = saved.parent / path
