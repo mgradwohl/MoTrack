@@ -920,7 +920,8 @@ The storage adapter now accepts a bounded nonempty set of document snapshots thr
 `writeTrackerArchiveDocuments`. Each must name a distinct existing member, retain the same immutable
 original archive SHA-256, and pass the single-member writer's source, edit, calibration, media-byte
 and movie-index checks. Separately reopened native companions can participate without sharing a
-payload pointer. Their owned source and extraction directories are all protected from output writes.
+payload pointer. Their owned source and extraction directories are all protected from output writes;
+every payload's source-file aliases are rejected, including a later owner's link to the output.
 
 The low-level writer accepts borrowed XML views, retained by the caller for the synchronous call.
 Rendered XML is accumulated with an incremental 512 MiB aggregate bound and a 32 MiB per-member

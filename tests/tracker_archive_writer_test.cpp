@@ -734,6 +734,51 @@ TEST(TrackerArchiveWriter, ExportsAnEditedImageDocumentAfterNativeReopenAndOrigi
 }
 
 #ifndef Q_OS_WIN
+TEST(TrackerArchiveWriter, RejectsSourceFileAliasesInEverySuppliedDocument)
+{
+    const auto fixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images/multitab-images.trz";
+    for (const std::size_t aliased : {0u, 1u})
+    {
+        SCOPED_TRACE(aliased);
+        QTemporaryDir temporary;
+        const auto destination = temporary.filePath("existing.trz");
+        std::vector<motrack::WorkspaceDocument> documents;
+        for (const auto* member : {"experiment.trk", "second.trk"})
+        {
+            auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(fixture));
+            auto document = motrack::importTrackerDocument(payload->projectPath(member));
+            payload->resolveMedia(document.project, member);
+            document.archivePayload = payload;
+            document.archiveMember = member;
+            motrack::TrackEdits edits;
+            ASSERT_TRUE(edits.setPointMassValue(document.project, 0, documents.empty() ? 6.0 : 7.0));
+            documents.push_back(std::move(document));
+        }
+        const auto original = readBytes(documents[aliased].archivePayload->sourcePath());
+        ASSERT_TRUE(writeBytes(destination, original));
+        const auto owned = documents[aliased].archivePayload->sourcePath();
+        ASSERT_TRUE(QFile::remove(owned));
+        ASSERT_TRUE(QFile::link(destination, owned));
+        ASSERT_TRUE(QFileInfo(owned).isSymLink());
+        // The exported archive must not become the second owner's "original" through a link.
+        EXPECT_THROW(motrack::writeTrackerArchiveDocuments(destination, documents), motrack::ProjectError);
+        EXPECT_EQ(readBytes(destination), original);
+        for (const auto& document : documents)
+            EXPECT_EQ(readBytes(document.archivePayload->sourcePath()), original);
+        ASSERT_TRUE(QFile::remove(destination));
+        EXPECT_THROW(motrack::writeTrackerArchiveDocuments(destination, documents), motrack::ProjectError);
+        EXPECT_FALSE(QFileInfo::exists(destination));
+        ASSERT_TRUE(QFile::remove(owned));
+        ASSERT_TRUE(writeBytes(owned, original));
+        motrack::writeTrackerArchiveDocuments(destination, documents);
+        const auto reopened = motrack::TrackerArchive::open(destination);
+        EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(reopened.projectPath("experiment.trk")).project.pointMasses.front().mass, 6.0);
+        EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(reopened.projectPath("second.trk")).project.pointMasses.front().mass, 7.0);
+        for (const auto& document : documents)
+            EXPECT_EQ(readBytes(document.archivePayload->sourcePath()), original);
+    }
+}
+
 TEST(TrackerArchiveWriter, RejectsOwnedSourceFileAliasesBeforeStandardOrNativeReplacement)
 {
     QTemporaryDir temporary;
