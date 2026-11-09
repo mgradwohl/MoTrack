@@ -145,7 +145,7 @@ TEST(DocumentSession, AnOwnedSaveSnapshotOutlivesReplacementAndRetainsArchiveAnd
     EXPECT_FALSE(session.document.archiveMember);
     ASSERT_TRUE(QFileInfo::exists(ownedPath));
     const auto destination = temporary.filePath("snapshot.motrack");
-    const auto saved = motrack::writeWorkspaceDocument(destination, snapshot);
+    const auto saved = motrack::writeNativeDocument(destination, snapshot);
     EXPECT_EQ(session.completeSave(checkpoint, destination, saved), motrack::SaveOutcome::Replaced);
     EXPECT_TRUE(session.nativeSavePath().isEmpty());
     snapshot = {};
@@ -336,7 +336,7 @@ TEST(DocumentSession, RecoveryPreservesANativeOnlySaveAsTarget)
     ASSERT_EQ(recovered.status, motrack::PairedSaveStatus::Saved);
     ASSERT_TRUE(session.history.setPointMassValue(session.document.project, 0, 7));
     const auto copy = temporary.filePath("copy.motrack");
-    const auto saved = motrack::writeWorkspaceDocument(copy, session.document);
+    const auto saved = motrack::writeNativeDocument(copy, session.document);
     ASSERT_EQ(session.completeSave(session.saveCheckpoint(), copy, saved), motrack::SaveOutcome::Saved);
     EXPECT_EQ(session.completePairedRecovery(recoveryCheckpoint, partial.recoveryPath, recovered), motrack::SaveOutcome::Recovered);
     EXPECT_EQ(session.nativeSavePath(), copy);
@@ -743,7 +743,7 @@ TEST(DocumentSession, MixedNativeAndPairedCallbacksKeepTheLatestNativeDestinatio
             const auto writeNative = [&](motrack::WorkspaceDocument snapshot)
             {
                 motrack::rebaseWorkspaceMedia(snapshot, source, native);
-                return motrack::writeWorkspaceDocument(native, snapshot);
+                return motrack::writeNativeDocument(native, snapshot);
             };
             motrack::PairedSaveResult paired;
             motrack::NativeSaveResult nativeResult;
@@ -797,7 +797,7 @@ TEST(DocumentSession, NewerStandardOnlyCompletionRetainsItsMediaWhenAdoptingAnOl
         const auto native = temporary.filePath("first.motrack");
         auto snapshot = session.document;
         motrack::rebaseWorkspaceMedia(snapshot, source, native);
-        const auto nativeResult = motrack::writeWorkspaceDocument(native, snapshot);
+        const auto nativeResult = motrack::writeNativeDocument(native, snapshot);
         ASSERT_TRUE(QDir(temporary.path()).mkpath("new-images"));
         snapshot = session.document;
         for (const auto& reference : snapshot.project.clip.mediaReferences)
@@ -1004,6 +1004,73 @@ TEST(DocumentSession, RecoveryOfAnOlderRecordedSnapshotCannotClearNewEdits)
     EXPECT_DOUBLE_EQ(motrack::readWorkspaceDocument(current.nativePath).project.pointMasses.at(0).mass, 7);
 }
 
+TEST(DocumentSession, NativeCommitHoldsTheDestinationLockUntilItsObservationIsStamped)
+{
+    for (const bool paired : {false, true})
+    {
+        SCOPED_TRACE(paired);
+        QTemporaryDir temporary;
+        const auto source = fixturePath("../corpus/fixtures/linked-images/linked-images.trk");
+        const auto target = temporary.filePath("ordered.trk");
+        const auto native = temporary.filePath("ordered.motrack");
+        motrack::DocumentSession session;
+        session.replace(motrack::importTrackerDocument(source), source);
+        ASSERT_TRUE(session.history.setPointMassValue(session.document.project, 0, 5));
+        const auto oldCheckpoint = session.saveCheckpoint();
+        auto oldSnapshot = session.document;
+        motrack::rebaseWorkspaceMedia(oldSnapshot, source, native);
+        ASSERT_TRUE(session.history.setPointMassValue(session.document.project, 0, 7));
+        const auto currentCheckpoint = session.saveCheckpoint();
+        auto snapshot = session.document;
+        motrack::rebaseWorkspaceMedia(snapshot, source, native);
+        bool observed = false;
+        const auto current = motrack::writeNativeDocument(
+            native,
+            snapshot,
+            nullptr,
+            [&](auto progress)
+            {
+                EXPECT_EQ(progress, motrack::PairedSaveProgress::NativeSaved);
+                observed = true;
+                // Force the competing old write precisely after replacement, before stamping.
+                EXPECT_DOUBLE_EQ(motrack::readWorkspaceDocument(native).project.pointMasses.at(0).mass, 7);
+                if (paired)
+                {
+                    const auto blocked = motrack::writePairedDocuments(target, oldSnapshot, native);
+                    EXPECT_EQ(blocked.status, motrack::PairedSaveStatus::Failed);
+                    EXPECT_EQ(blocked.observation, 0);
+                    EXPECT_FALSE(blocked.nativeCurrent);
+                    EXPECT_EQ(session.completePairedSave(oldCheckpoint, blocked), motrack::SaveOutcome::Failed);
+                }
+                else
+                {
+                    try
+                    {
+                        motrack::writeNativeDocument(native, oldSnapshot);
+                        ADD_FAILURE() << "Native replacement escaped the destination lock";
+                    }
+                    catch (const motrack::SaveDestinationError& error)
+                    {
+                        EXPECT_EQ(error.conflict(), motrack::SaveDestinationConflict::Busy);
+                    }
+                }
+                EXPECT_EQ(motrack::readWorkspaceDocument(native).project, snapshot.project);
+            });
+        ASSERT_TRUE(observed);
+        ASSERT_TRUE(current.saved);
+        EXPECT_GT(current.observation, 0);
+        EXPECT_EQ(session.completeSave(currentCheckpoint, native, current), motrack::SaveOutcome::Saved);
+        EXPECT_FALSE(session.isModified());
+        EXPECT_EQ(motrack::readWorkspaceDocument(native).project, snapshot.project);
+
+        const auto old = motrack::writeNativeDocument(native, oldSnapshot);
+        EXPECT_GT(old.observation, current.observation);
+        EXPECT_EQ(session.completeSave(oldCheckpoint, native, old), motrack::SaveOutcome::Stale);
+        EXPECT_TRUE(session.isModified());
+        EXPECT_EQ(motrack::readWorkspaceDocument(native).project, oldSnapshot.project);
+    }
+}
+
 TEST(DocumentSession, ReorderedSuccessfulWritesCannotClearAStaleDiskSnapshot)
 {
     for (const bool paired : {false, true})
@@ -1033,8 +1100,8 @@ TEST(DocumentSession, ReorderedSuccessfulWritesCannotClearAStaleDiskSnapshot)
         }
         else
         {
-            const auto current = motrack::writeWorkspaceDocument(native, session.document);
-            const auto old = motrack::writeWorkspaceDocument(native, oldSnapshot);
+            const auto current = motrack::writeNativeDocument(native, session.document);
+            const auto old = motrack::writeNativeDocument(native, oldSnapshot);
             EXPECT_EQ(session.completeSave(oldCheckpoint, native, old), motrack::SaveOutcome::Stale);
             EXPECT_EQ(session.completeSave(currentCheckpoint, native, current), motrack::SaveOutcome::Superseded);
         }
@@ -1048,7 +1115,7 @@ TEST(DocumentSession, ReorderedSuccessfulWritesCannotClearAStaleDiskSnapshot)
         }
         else
         {
-            const auto fresh = motrack::writeWorkspaceDocument(native, session.document);
+            const auto fresh = motrack::writeNativeDocument(native, session.document);
             EXPECT_EQ(session.completeSave(freshCheckpoint, native, fresh), motrack::SaveOutcome::Saved);
         }
         EXPECT_FALSE(session.isModified());

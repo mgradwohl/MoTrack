@@ -586,6 +586,52 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
     return result;
 }
 
+SaveDestinationError::SaveDestinationError(SaveDestinationConflict conflict)
+    : ProjectError(conflict == SaveDestinationConflict::Busy ? "Another save for this project is already in progress."
+                                                             : "An interrupted paired save requires recovery before replacement."),
+      m_Conflict(conflict)
+{}
+
+NativeSaveResult writeNativeDocument(const QString& path,
+                                     const WorkspaceDocument& document,
+                                     const std::atomic_bool* cancelled,
+                                     const PairedSaveObserver& observer)
+{
+    checkCancelled(cancelled);
+    require(path.endsWith(".motrack", Qt::CaseInsensitive), "Choose a native project filename.");
+    const auto physical = physicalLocalFilePath(path);
+    require(!physical.isEmpty(), "Could not resolve the native project destination.");
+    const QFileInfo target(physical);
+    const auto parent = QFileInfo(target.absolutePath()).canonicalFilePath();
+    require(!parent.isEmpty(), "The native destination directory must exist.");
+    const auto recovery = QDir(parent).filePath('.' + target.completeBaseName() + RECORD_SUFFIX);
+    QLockFile lock(lockPath(recovery));
+    lock.setStaleLockTime(0);
+    if (!lock.tryLock(0))
+        throw SaveDestinationError(SaveDestinationConflict::Busy);
+    if (QFileInfo::exists(recovery) || QFileInfo(recovery).isSymLink())
+        throw SaveDestinationError(SaveDestinationConflict::PendingRecovery);
+    checkCancelled(cancelled);
+    NativeSaveResult result{.mediaLocations = document.mediaLocations};
+    writeWorkspaceDocument(physical, document);
+    const auto completed = [&result]
+    {
+        result.saved = true;
+        result.observation = nextSaveObservation();
+        return std::move(result);
+    };
+    try
+    {
+        notify(observer, PairedSaveProgress::NativeSaved);
+    }
+    catch (...)
+    {
+        // Progress cannot undo a committed replacement or hide its completion from the session.
+        return completed();
+    }
+    return completed();
+}
+
 PairedSaveResult recoverPairedDocuments(const QString& recoveryPath,
                                         const std::atomic_bool* cancelled,
                                         const PairedSaveObserver& observer,

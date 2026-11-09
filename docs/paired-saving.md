@@ -236,8 +236,17 @@ delayed observation of the copy. Each output destination also retains its observ
 older successful callback cannot replace a newer selected destination or its saved checkpoint. Older
 pending journals are still registered and reconciled independently of destination selection.
 
-Native-only writes and paired writes share this process-local completion order. The native writer
-returns a `NativeSaveResult` containing its completion stamp and original-reference media bindings;
+Native-only writes and paired writes share this process-local completion order. The `writeNativeDocument`
+adapter holds the same physical per-stem destination lock across native replacement and observation
+stamping, and refuses pending recovery journals. It returns a `NativeSaveResult` containing its stamp
+and original-reference media bindings. Low-level `writeWorkspaceDocument` performs storage only and
+returns no completion token; desktop workers and real-file session callers use the locked adapter.
+Its worker observer reports `NativeSaved` between replacement and stamping. A regression attempts
+both an older native write and an older paired write in that interval: both are refused, the current
+file remains on disk and only its matching completion can make the session clean. A later old write,
+after lock release, receives a later stamp and leaves the session dirty. An exception from the
+post-commit progress observer cannot change the successful storage outcome: the adapter still returns
+the stamped completion so a written snapshot cannot become invisible to session bookkeeping. In all cases,
 the worker must retain that result through callback delivery, rather than constructing a new stamp
 on the GUI thread. A superseded native callback leaves the selected destination, saved checkpoint and
 bindings untouched. A newer standard-only partial save can supply the latest media bindings while
@@ -255,3 +264,10 @@ regressions pass on Windows with all eight CTest groups (including all 28 sessio
 Combined local production line coverage is 95.49% (8108/8491); formatting and all six changed C++
 translation-unit static analyses pass. Persistence and session cases now have separate CTest groups
 from the UI, retaining every case and each 60-second limit. Current-revision CI/review remain required.
+
+The replacement/stamp lock regression, native cancellation/recovery guards and post-commit observer
+failure cases pass locally on Windows. The complete eight-group suite passes in 246.03 seconds,
+with 95.39% production line coverage (8168/8563); three existing LLVM function-mismatch warnings remain
+visible. The new interval regression deterministically attempts competing writes from the post-commit
+observer before the outer result is stamped. It also checks that a later obsolete write invalidates
+the session's saved state. Current-head three-platform CI and review remain required before merge.

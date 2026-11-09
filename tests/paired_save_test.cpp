@@ -17,8 +17,11 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cstdint>
+#include <exception>
 #include <filesystem>
 #include <functional>
+#include <new>
 #include <stdexcept>
 
 namespace
@@ -66,6 +69,74 @@ QString stage(const QString& recovery, int index)
 {
     const auto name = record(recovery).value("outputs").toArray().at(index).toObject().value("stage").toString();
     return QFileInfo(recovery).absoluteDir().filePath(name);
+}
+
+TEST(PairedSave, NativeCopiesPreserveDestinationsOnCancellationAndPendingRecovery)
+{
+    QTemporaryDir temporary;
+    const auto target = temporary.filePath("saved.trk");
+    const auto native = temporary.filePath("saved.motrack");
+    const auto document = editedDocument();
+    auto snapshot = document;
+    motrack::rebaseWorkspaceMedia(snapshot, fixture(), native);
+    put(native, "previous native");
+    const auto original = bytes(native);
+    std::atomic_bool cancelled{true};
+    EXPECT_THROW(motrack::writeNativeDocument(native, snapshot, &cancelled), std::exception);
+    EXPECT_EQ(bytes(native), original);
+    EXPECT_THROW(motrack::writeNativeDocument(temporary.filePath("wrong.txt"), snapshot), motrack::ProjectError);
+    EXPECT_THROW(motrack::writeNativeDocument(temporary.filePath("missing/saved.motrack"), snapshot), motrack::ProjectError);
+    cancelled = false;
+    const auto partial =
+        motrack::writePairedDocuments(target,
+                                      document,
+                                      fixture(),
+                                      &cancelled,
+                                      [&](auto progress) { cancelled = progress == motrack::PairedSaveProgress::StandardSaved; });
+    ASSERT_EQ(partial.status, motrack::PairedSaveStatus::RecoveryRequired);
+    EXPECT_EQ(bytes(native), original);
+    try
+    {
+        motrack::writeNativeDocument(native, snapshot);
+        ADD_FAILURE() << "Native copy overwrote a pending paired save";
+    }
+    catch (const motrack::SaveDestinationError& error)
+    {
+        EXPECT_EQ(error.conflict(), motrack::SaveDestinationConflict::PendingRecovery);
+    }
+    EXPECT_EQ(bytes(native), original);
+    ASSERT_EQ(motrack::recoverPairedDocuments(partial.recoveryPath).status, motrack::PairedSaveStatus::Saved);
+    const auto saved = motrack::writeNativeDocument(native, snapshot);
+    EXPECT_TRUE(saved.saved);
+    EXPECT_GT(saved.observation, 0);
+    EXPECT_EQ(motrack::readWorkspaceDocument(native).project, snapshot.project);
+}
+
+TEST(PairedSave, PostCommitObserverFailuresStillReturnTheWrittenNativeResult)
+{
+    QTemporaryDir temporary;
+    const auto native = temporary.filePath("observed.motrack");
+    auto snapshot = editedDocument();
+    motrack::rebaseWorkspaceMedia(snapshot, fixture(), native);
+    std::uint64_t previous = 0;
+    for (const bool allocationFailure : {false, true})
+    {
+        motrack::NativeSaveResult saved;
+        EXPECT_NO_THROW(saved = motrack::writeNativeDocument(native,
+                                                             snapshot,
+                                                             nullptr,
+                                                             [&](auto)
+                                                             {
+                                                                 if (allocationFailure)
+                                                                     throw std::bad_alloc{};
+                                                                 throw std::runtime_error("Progress observer failed");
+                                                             }));
+        EXPECT_TRUE(saved.saved);
+        EXPECT_GT(saved.observation, previous);
+        EXPECT_EQ(saved.mediaLocations, snapshot.mediaLocations);
+        EXPECT_EQ(motrack::readWorkspaceDocument(native).project, snapshot.project);
+        previous = saved.observation;
+    }
 }
 
 TEST(PairedSave, SavesBothLinkedDocumentsAndKeepsTheInputSnapshot)
