@@ -21,8 +21,10 @@
 #include <functional>
 #include <limits>
 #include <map>
+#include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 
 namespace
 {
@@ -124,6 +126,64 @@ TEST(TrackerWriter, SavesLinkedMovieEditsAfterNativeReopenSourceRemovalAndReloca
     EXPECT_EQ(readBytes(output), stable);
     ASSERT_TRUE(QFile::copy(fixture + "constant-rate.avi", movie));
     EXPECT_NO_THROW(motrack::writeTrackerDocument(output, reopened, output));
+}
+
+TEST(TrackerWriter, SavesFixedMovieCalibrationAndUnitsThroughHistoryNativeReopenAndClipSaving)
+{
+    for (const bool mov : {false, true})
+    {
+        SCOPED_TRACE(mov);
+        QTemporaryDir temporary;
+        const auto fixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/" + (mov ? "linked-mov/" : "linked-movie/");
+        const auto mediaName = mov ? QStringLiteral("constant-rate.mov") : QStringLiteral("constant-rate.avi");
+        const auto input = temporary.filePath("input.trk");
+        const auto movie = temporary.filePath(mediaName);
+        ASSERT_TRUE(QFile::copy(fixture + "linked-movie.trk", input));
+        ASSERT_TRUE(QFile::copy(fixture + mediaName, movie));
+        auto document = indexedMovieDocument(input);
+        const auto sourceBytes = retainedSource(document).xml;
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.setPointMassValue(document.project, 0, 5));
+        ASSERT_TRUE(edits.markPointMass(document.project, 0, {.frame = 1, .x = 8, .y = 12}));
+        ASSERT_TRUE(edits.setClipRange(document.project, 1, 3, 2));
+        const auto before = document.project;
+        ASSERT_TRUE(
+            edits.setCoordinateAxes(document.project, {.frame = 1, .originX = 10, .originY = 18, .positiveX = 10, .positiveY = 10}));
+        ASSERT_TRUE(
+            edits.calibrateDistance(document.project, {.frame = 2, .imageDeltaX = 8, .imageDeltaY = 0, .knownLength = 2, .unit = "cm"}));
+        auto expected = document.project;
+        ASSERT_TRUE(edits.undo(document.project));
+        ASSERT_TRUE(edits.undo(document.project));
+        EXPECT_EQ(document.project, before);
+        ASSERT_TRUE(edits.redo(document.project));
+        ASSERT_TRUE(edits.redo(document.project));
+        EXPECT_EQ(document.project, expected);
+        const auto native = temporary.filePath("saved.motrack");
+        motrack::rebaseWorkspaceMedia(document, input, native);
+        motrack::writeWorkspaceDocument(native, document);
+        document = {};
+        ASSERT_TRUE(QFile::remove(input));
+        document = motrack::readWorkspaceDocument(native);
+        const auto target = temporary.filePath("saved.trk");
+        ASSERT_NO_THROW(motrack::writeTrackerDocument(target, document, native));
+        const auto reopened = motrack::importTrackerDocument(target).project;
+        expected.clip.sourceFrameCount.reset();
+        EXPECT_EQ(reopened, expected);
+        EXPECT_EQ(retainedSource(document).xml, sourceBytes);
+        EXPECT_EQ(readBytes(movie), readBytes(fixture + mediaName));
+        if (!reopened.calibration)
+            FAIL() << "Saved movie lost its calibration.";
+        const std::array<std::array<double, 2>, 3> world{{{0.25, 1.5}, {0.75, 0.5}, {1.75, -0.5}}};
+        ASSERT_EQ(reopened.pointMasses.front().marks.size(), world.size());
+        for (std::size_t index = 0; index < world.size(); ++index)
+        {
+            const auto position = motrack::worldPosition(*reopened.calibration, reopened.pointMasses.front().marks[index]);
+            if (!position)
+                FAIL() << "Saved movie has no world position.";
+            EXPECT_NEAR(position->x, world[index][0], 1e-12);
+            EXPECT_NEAR(position->y, world[index][1], 1e-12);
+        }
+    }
 }
 
 TEST(TrackerWriter, SavesStridedAndSingleFrameMovieClipsAfterNativeReopenWithoutDroppingMarks)
@@ -255,7 +315,24 @@ TEST(TrackerWriter, RejectsUnsupportedMovieStateBeforeReplacingExistingOutput)
         [](auto& doc) { doc.project.pointMasses.front().name = "renamed"; },
         [](auto& doc) { doc.project.pointMasses.front().marks.front().frame = 4; },
         [](auto& doc) { doc.project.pointMasses.clear(); },
-        [](auto& doc) { doc.project.lengthUnit = "cm"; },
+        [](auto& doc) { doc.project.massUnit = "g"; },
+        [](auto& doc) { doc.project.lengthUnit = "bad\nunit"; },
+        [](auto& doc) { doc.project.calibration.reset(); },
+        [](auto& doc) { doc.project.calibration = motrack::Calibration{}; },
+        [](auto& doc)
+        {
+            auto xml = retainedSource(doc).xml;
+            const std::string token = R"(<property name="fixedorigin" type="boolean">true)";
+            const auto at = xml.find(token);
+            ASSERT_NE(at, std::string::npos);
+            xml.replace(at, token.size(), R"(<property name="fixedorigin" type="boolean">false)");
+            auto parsed = motrack::parseTrackerProject(xml);
+            doc.project = std::move(parsed.project);
+            doc.trackerSource = std::move(parsed.source);
+            doc.project.clip.sourceFrameCount = 4;
+            motrack::TrackEdits edits;
+            ASSERT_TRUE(edits.setCoordinateAxes(doc.project, {.frame = 1, .originX = 10, .originY = 18, .positiveX = 10, .positiveY = 10}));
+        },
         [](auto& doc) { doc.project.clip.mediaReferences.front() = "missing.avi"; },
         [](auto& doc)
         {

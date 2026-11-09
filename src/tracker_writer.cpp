@@ -1020,8 +1020,16 @@ bool patchLinkedMoviePath(QDomDocument& xml, const LegacyProject& project, Legac
     require(project.clip.mediaReferences.size() == 1 && baseline.clip.mediaReferences.size() == 1 && project.vectors.empty() &&
             std::ranges::all_of(project.unsupportedTrackTypes,
                                 [](const auto& type) { return type == "org.opensourcephysics.cabrillo.tracker.CoordAxes"; }));
-    // Movie edits retain original timing, geometry and identity. Clip ranges keep source frame numbers.
+    // Movie edits retain original timing and identity. Clip ranges keep source frame numbers.
+    // Existing fixed calibration uses the shared coordinate writer and its numerical checks below.
     auto unchanged = project;
+    if (project.calibration != baseline.calibration)
+    {
+        require(baseline.calibration && baseline.calibration->fixedOrigin && baseline.calibration->fixedAngle &&
+                baseline.calibration->fixedScale); // Keyed movie calibration needs its own application reference.
+        unchanged.calibration = baseline.calibration;
+    }
+    unchanged.lengthUnit = baseline.lengthUnit;
     unchanged.clip.mediaReferences = baseline.clip.mediaReferences;
     unchanged.clip.firstFrame = baseline.clip.firstFrame;
     unchanged.clip.stepSize = baseline.clip.stepSize;

@@ -329,6 +329,52 @@ class CorpusTests(unittest.TestCase):
                         corpus.verify_media_package_export(original, exported, selected, case, clip_mode, movie=True)
                         self.assertEqual(selected.read_text(encoding="utf-8"), xml)
 
+    def test_movie_calibration_xml_oracles_reject_unexpected_geometry_and_units(self):
+        for packaged in [False, True]:
+            case = next(c for c in corpus.load_manifest()["cases"] if c["id"] == ("linked-mov" if packaged else "linked-movie"))
+            original = corpus.local_fixture_path(case)
+            exported = self.root / ("calibrated.trz" if packaged else "calibrated.trk")
+            selected = self.root / "selected-calibrated.trk"
+            with corpus.minidom.parse(str(original)) as document:
+                corpus.patch_expected_linked_media(document, movie=True, packaged=packaged)
+                frame = next(node for node in document.getElementsByTagName("object")
+                             if node.getAttribute("class") == "org.opensourcephysics.media.core.ImageCoordSystem$FrameData")
+                for name, value in [("xorigin", "10"), ("yorigin", "18"), ("angle", "90"), ("xscale", "4"), ("yscale", "8")]:
+                    prop = next(node for node in frame.getElementsByTagName("property") if node.getAttribute("name") == name)
+                    prop.firstChild.data = value
+                unit = next(node for node in document.documentElement.childNodes
+                            if node.nodeType == node.ELEMENT_NODE and node.getAttribute("name") == "length_unit")
+                unit.firstChild.data = "cm"
+                xml = document.toxml()
+            payload = corpus.local_fixture_path(case["assets"][0]).read_bytes()
+            if not packaged:
+                media = self.root / "média & movie"
+                media.mkdir()
+                (media / "constant-rate.avi").write_bytes(payload)
+            for mutation in [None, "xorigin", "yorigin", "angle", "xscale", "yscale", "length_unit", "mass"]:
+                with self.subTest(packaged=packaged, mutation=mutation):
+                    with corpus.minidom.parseString(xml) as document:
+                        if mutation:
+                            prop = next(node for node in document.getElementsByTagName("property") if node.getAttribute("name") == mutation)
+                            prop.firstChild.data = "m" if mutation == "length_unit" else "999"
+                        changed = document.toxml()
+                    if packaged:
+                        with zipfile.ZipFile(exported, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                            archive.writestr("experiment.trk", changed)
+                            archive.writestr("media/movie.mov", payload)
+                    else:
+                        exported.write_text(changed, encoding="utf-8")
+                    def verify():
+                        if packaged:
+                            corpus.verify_media_package_export(original, exported, selected, case, movie=True, calibrated=True)
+                        else:
+                            corpus.verify_linked_movie_export_xml(original, exported, case, calibrated=True)
+                    if mutation:
+                        with self.assertRaises(ValueError):
+                            verify()
+                    else:
+                        verify()
+
     def test_linked_movie_export_oracle_checks_all_xml_and_movie_bytes(self):
         case = next(c for c in corpus.load_manifest()["cases"] if c["id"] == "linked-movie")
         original = corpus.local_fixture_path(case)
@@ -488,7 +534,8 @@ class CorpusTests(unittest.TestCase):
                 patch.object(corpus, "check_archive_tabs") as check:
             corpus.check_sessions(manifest, self.root, "java", "native-probe")
         self.assertEqual([call.args[-1] for call in check.call_args_list],
-                         ["archive-movie", "archive-movie-clip", "archive-movie-clip-single", "paired-archive-movie"])
+                         ["archive-movie", "archive-movie-clip", "archive-movie-clip-single", "paired-archive-movie",
+                          "archive-movie-calibration", "paired-archive-movie-calibration"])
         self.assertTrue(all(call.args[0]["id"] == "archived-movie" for call in check.call_args_list))
 
     def test_linked_image_export_oracle_checks_edited_geometry_all_xml_and_relocated_assets(self):
@@ -669,13 +716,20 @@ class CorpusTests(unittest.TestCase):
             with self.subTest(case=case_id):
                 self.check_media_session_oracle(case_id)
 
-    def check_media_session_oracle(self, case_id, clip_mode=None):
+    def test_movie_calibration_session_requires_independent_geometry_and_units(self):
+        for case_id in ["linked-movie", "linked-mov", "archived-movie"]:
+            with self.subTest(case=case_id):
+                self.check_media_session_oracle(case_id, calibrated=True)
+
+    def check_media_session_oracle(self, case_id, clip_mode=None, *, calibrated=False):
         manifest = corpus.load_manifest()
         case = next(c for c in manifest["cases"] if c["id"] == case_id)
         expected = json.loads(corpus.expected_path(case).read_text())["project"]
         if clip_mode is not None:
             expected, case = corpus.linked_media_clip_expected(case, clip_mode == "single")
-        keys = [[0, 1, 2]] if clip_mode is not None else None
+        if calibrated:
+            expected, case = corpus.linked_movie_calibration_expected(case)
+        keys = [[0, 1, 2]] if clip_mode is not None or calibrated else None
         mass = expected["point_masses"][0]
         before = {"tracks": [case["session_tracks"][0], {
             **case["session_tracks"][1], "mass": mass["mass"], "key_frames": [0, 1, 2] if keys else [],
@@ -692,7 +746,7 @@ class CorpusTests(unittest.TestCase):
         corpus.validate_session(case, valid, manifest, expected, keys)
         for stages in [["after"], ["before", "after_save", "after"]]:
             for mutation in ["missing", "pixels", "order", "time", "dimensions", "count", "origin", "scale", "axes_grid", "engine",
-                             "clip-range", "missing-mark", "display-time"]:
+                             "clip-range", "missing-mark", "display-time", "angle", "world", "unit"]:
                 invalid = copy.deepcopy(valid)
                 for stage in stages:
                     media = invalid[stage]["media"]
@@ -712,6 +766,12 @@ class CorpusTests(unittest.TestCase):
                         invalid[stage]["calibration"]["keys"][0]["origin"] = [0.0, 0.0]
                     elif mutation == "scale":
                         invalid[stage]["calibration"]["keys"][0]["scale"] = [1.0, 1.0]
+                    elif mutation == "angle":
+                        invalid[stage]["calibration"]["keys"][0]["angle"] += 5.0
+                    elif mutation == "world":
+                        invalid[stage]["tracks"][1]["samples"][0]["world"][0] += 1.0
+                    elif mutation == "unit":
+                        invalid[stage]["length_unit"] = "wrong"
                     elif mutation == "axes_grid":
                         invalid[stage]["axes"][0]["grid"]["visible"] = True
                     elif mutation == "clip-range":

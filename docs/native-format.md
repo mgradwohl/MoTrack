@@ -651,13 +651,26 @@ Windows/macOS and actual Tracker package acceptance, with 95.72% combined C++ li
 ### Linked constant-rate movie edits
 
 The document writer accepts the explicitly audited `XuggleVideo`/`VideoClipControl` schema only through
-its movie adapter. Existing point-mass values and image-coordinate marks, clip start/step/count and the
-linked media path may change. Original names, membership, calibration, unit labels, numeric clip timing
-and other parsed fields must remain unchanged. Filters, vectors, other track types except axes, display-orientation
+its movie adapter. Existing point-mass values and image-coordinate marks, clip start/step/count, existing
+fixed calibration, length-unit labels and the linked media path may change. Original names, membership,
+mass/time-unit labels, numeric clip timing and other parsed fields must remain unchanged. Filters, vectors, other track types except axes, display-orientation
 transforms remain refused. The selected-member archive writer uses the same audited movie adapter
 after verifying its immutable source, media members and completed native index.
 This opt-in schema does not enable movie renames or
 membership edits through the media-free writer.
+
+Movie calibration edits require one original and edited frame-0 key with origin, angle and scale all
+fixed. The shared coordinate writer validates finite/invertible values and image/world precision before
+replacing the output. Creating/removing calibration, changing fixed flags, locked or unsafe transforms
+and keyed/partly fixed movie calibration edits remain refused. Existing axes/distance commands retain
+undo/redo and length labels together; native reopen, selected MOV archive saves, paired recovery and
+portable MOV packaging use the same validated writer.
+
+Four new [movie-calibration corpus modes](../tests/corpus/README.md#fixed-movie-calibration-saving)
+independently check a moved origin, 90-degree rotation, nonuniform scale, centimetre labels and all
+calculated positions, plus complete movie bytes/times and the untouched image tab. Native export/oracle/
+reimport and desktop paired-save regressions pass locally. Actual Tracker load/save/fresh-reopen acceptance
+for this new calibration scope still requires current-revision Linux CI and review.
 
 Default point-mass number formats use the same movie-aware schema audit and remain in the exported
 XML after native reopen. Custom formats remain refused under the existing #64 fidelity guard.
@@ -732,7 +745,7 @@ actual Tracker movie-range cases and **95.72% combined C++ line coverage (8874/9
 An existing `.trz` containing an audited constant-rate MOV file can use the selected-member writer and
 paired desktop Save workflow. The original archive, other experiments, compressed media and opaque
 members retain their existing preservation contract. The selected XML may change only within the
-movie adapter's mass/mark/clip-range limits. Native close/reopen and removal of the original input do
+movie adapter's mass/mark/clip-range and existing fixed-calibration limits. Native close/reopen and removal of the original input do
 not break the owned archive or index. Both root and nested selected-member paths are covered.
 
 The desktop regression edits mass and clip settings, uses undo/redo and ordinary paired Save, removes
@@ -783,7 +796,7 @@ project persistence does not link media decoders. The package contains `experime
 `media/movie.mov`; the complete source movie is copied byte for byte, including frames excluded by a
 trimmed or strided clip. No transcode, frame renumbering or timestamp change is performed.
 
-The standalone movie writer validates mass/mark/clip-range edits and unchanged timing, calibration and
+The standalone movie writer validates mass/mark/clip-range and existing fixed-calibration edits, with unchanged timing and
 track identity against the retained source envelope. Staging clears runtime media bindings only in its
 private snapshot, so generated members resolve inside the package. Before atomic replacement, the
 normal archive reader reopens the ZIP, resolves its media, and FFmpeg decodes/indexes the staged movie.
@@ -803,9 +816,11 @@ subsequent embedded native saving and archive resave, stale timing, corrupt sour
 cancellation and shared save locks/recovery. Desktop cases exercise export after indexing, ordinary Save
 and undo/redo after export, cancellation, refusal of AVI, media removal/relocation, frame seeking and
 paired saving of the reopened package. Three independent corpus modes require actual Tracker acceptance:
-`packaged-movie`, `packaged-movie-clip` and `packaged-movie-clip-single`. Their current-head Linux
-application results, three-platform CI and review are still required; local/native checks alone are
-not accepted interoperability evidence. Broader movie formats and full export authoring remain unfinished.
+`packaged-movie`, `packaged-movie-clip` and `packaged-movie-clip-single`. All three passed actual Tracker
+load/save/fresh reopen in [PR #141](https://github.com/mgradwohl/MoTrack/pull/141), reviewed at `d0e1a66`;
+[CI 42583275559](https://github.com/mgradwohl/MoTrack/actions/runs/42583275559) passed all six checks with
+**95.83% combined C++ line coverage (8931/9320)**. The new `packaged-movie-calibration` case still awaits
+its own current-revision acceptance. Broader movie formats and full export authoring remain unfinished.
 
 Local Windows validation at `f18cecd` passes all ten CTest groups in **127.87 seconds** with
 **95.75% C++ line coverage (8897/9292)**, 90 Python corpus tests and all three native package
