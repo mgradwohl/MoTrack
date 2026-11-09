@@ -190,6 +190,15 @@ This storage API does not yet expose editable tabs or a shared native workspace.
 
 Implementation order after this writer:
 
+Before reusing the native archive carrier, fix the reproduced ownership failure in
+[#153](https://github.com/mgradwohl/MoTrack/issues/153): native-only saves must reject destinations
+inside their own source/extraction directories. The Windows public-API regression reproduced attachment
+overwrite and a new save in temporary source storage; it now passes locally with external save/reopen
+controls. All 10 Windows CTest groups and static analysis of both changed translation units pass;
+local line coverage is 95.83% (9070/9465). Three-platform CI and the POSIX file/directory-alias regression
+remain pending. This is native
+R02/R03 protection work, not evidence that the historical Tracker MOV/Open Recent report is resolved.
+
 1. Persist an archive group containing the immutable original archive and current project/source
    records for every changed member, including closed tabs. Keep bindings against the original XML;
    adopting newly rendered archive bytes without migrating source bindings is invalid.

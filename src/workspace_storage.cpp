@@ -1,5 +1,6 @@
 #include "workspace_storage.hpp"
 
+#include "local_media_path.hpp"
 #include "tracker_archive.hpp"
 
 #include <QBuffer>
@@ -31,6 +32,30 @@ void require(bool valid)
     {
         throw ProjectError("Invalid or unavailable MoTrack project storage.");
     }
+}
+
+QString externalArchiveDestination(const QString& path, const TrackerArchive& source)
+{
+    const auto physical = physicalLocalFilePath(path);
+    require(!physical.isEmpty());
+    const auto parent = QFileInfo(QFileInfo(physical).absolutePath()).canonicalFilePath();
+    require(!parent.isEmpty());
+    for (const auto& owned : {source.root(), QFileInfo(source.sourcePath()).absolutePath()})
+    {
+        const auto root = QFileInfo(owned).canonicalFilePath();
+        require(!root.isEmpty());
+        // Compare directory identities so aliases and filesystem case rules cannot make
+        // an owner-managed temporary directory appear to be a permanent save location.
+        for (auto ancestor = parent;;)
+        {
+            require(!sameLocalFile(ancestor, root));
+            const auto next = QFileInfo(ancestor).absolutePath();
+            if (next == ancestor)
+                break;
+            ancestor = next;
+        }
+    }
+    return physical;
 }
 
 WorkspaceStorage readBundle(const QString& path, const std::atomic_bool* cancelled)
@@ -169,7 +194,7 @@ void writeWorkspaceStorage(const QString& path,
                            const std::function<void(WorkspaceWriteProgress)>& progress)
 {
     require((!cancelled || !*cancelled) && json.size() <= MAX_WORKSPACE_JSON_BYTES);
-    QSaveFile output(path);
+    QSaveFile output(source ? externalArchiveDestination(path, *source) : path);
     if (!source)
     {
         require(output.open(QIODevice::WriteOnly) && output.write(json) == json.size());

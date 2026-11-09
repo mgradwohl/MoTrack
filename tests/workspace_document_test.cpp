@@ -1,12 +1,15 @@
 #include "workspace_document.hpp"
 
 #include "archive_fixture.hpp"
+#include "paired_save.hpp"
 #include "track_edits.hpp"
 #include "tracker_archive.hpp"
 #include "workspace_storage.hpp"
 
 #include <QByteArray>
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -465,6 +468,100 @@ TEST(WorkspaceDocument, RejectsInvalidOrOversizedSourceBeforeReplacingExistingFi
     EXPECT_THROW(motrack::writeWorkspaceDocument(path, document), motrack::ProjectError);
     EXPECT_EQ(readBytes(path), original);
 }
+
+TEST(WorkspaceDocument, RefusesNativeWritesInsideOwnedArchiveDirectories)
+{
+    for (const int target : {0, 1, 2, 3})
+    {
+        SCOPED_TRACE(target);
+        QTemporaryDir temporary;
+        const auto original = temporary.filePath("original.trz");
+        const QByteArray retained("Unchanged archive attachment");
+        ASSERT_TRUE(motrack::test::writeArchive(
+            original, {{.name = "selected.trk", .bytes = boundXml()}, {.name = "support/retained.motrack", .bytes = retained}}));
+        auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(original));
+        auto document = motrack::importTrackerDocument(payload->projectPath("selected.trk"));
+        document.archivePayload = payload;
+        document.archiveMember = "selected.trk";
+        const auto originalBytes = readBytes(payload->sourcePath());
+        const auto attachment = QDir(payload->root()).filePath("support/retained.motrack");
+        const auto inside = target == 0   ? payload->sourcePath()
+                            : target == 1 ? attachment
+                            : target == 2 ? QDir(QFileInfo(payload->sourcePath()).absolutePath()).filePath("saved.motrack")
+                                          : QDir(payload->root()).filePath("support/new.motrack");
+        EXPECT_THROW(motrack::writeWorkspaceDocument(inside, document), motrack::ProjectError);
+        if (target != 0)
+            EXPECT_THROW(static_cast<void>(motrack::writeNativeDocument(inside, document)), motrack::ProjectError);
+        EXPECT_EQ(readBytes(payload->sourcePath()), originalBytes);
+        EXPECT_EQ(readBytes(attachment), retained);
+        if (target >= 2)
+            EXPECT_FALSE(QFileInfo::exists(inside));
+        const auto alternate = inside.toUpper();
+        if (target == 1 && alternate != inside && QFileInfo::exists(alternate))
+        {
+            EXPECT_THROW(motrack::writeWorkspaceDocument(alternate, document), motrack::ProjectError);
+            EXPECT_THROW(static_cast<void>(motrack::writeNativeDocument(alternate, document)), motrack::ProjectError);
+            EXPECT_EQ(readBytes(attachment), retained);
+        }
+        const auto external = temporary.filePath(QString::fromUtf8("saved-élève.motrack"));
+        motrack::TrackEdits edits;
+        ASSERT_TRUE(edits.setPointMassValue(document.project, 0, 7.0));
+        static_cast<void>(motrack::writeNativeDocument(external, document));
+        const auto reopened = motrack::readWorkspaceDocument(external);
+        EXPECT_EQ(reopened.project, document.project);
+        ASSERT_TRUE(reopened.archivePayload);
+        EXPECT_EQ(readBytes(reopened.archivePayload->sourcePath()), originalBytes);
+        EXPECT_EQ(readBytes(QDir(reopened.archivePayload->root()).filePath("support/retained.motrack")), retained);
+    }
+}
+
+#ifndef Q_OS_WIN
+TEST(WorkspaceDocument, RefusesNativeWritesThroughAliasesIntoOwnedArchiveDirectories)
+{
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("original.trz");
+    const QByteArray retained("Unchanged archive attachment");
+    ASSERT_TRUE(motrack::test::writeArchive(
+        original, {{.name = "selected.trk", .bytes = boundXml()}, {.name = "support/retained.motrack", .bytes = retained}}));
+    const auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(original));
+    auto document = motrack::importTrackerDocument(payload->projectPath("selected.trk"));
+    document.archivePayload = payload;
+    document.archiveMember = "selected.trk";
+    const auto originalBytes = readBytes(payload->sourcePath());
+    for (const auto& owned : {payload->root(), QFileInfo(payload->sourcePath()).absolutePath()})
+    {
+        SCOPED_TRACE(owned.toStdString());
+        const auto directoryAlias = temporary.filePath("directory-alias");
+        ASSERT_TRUE(QFile::link(owned, directoryAlias));
+        const auto throughDirectory = QDir(directoryAlias).filePath("new.motrack");
+        EXPECT_THROW(motrack::writeWorkspaceDocument(throughDirectory, document), motrack::ProjectError);
+        EXPECT_THROW(static_cast<void>(motrack::writeNativeDocument(throughDirectory, document)), motrack::ProjectError);
+        EXPECT_FALSE(QFileInfo::exists(QDir(owned).filePath("new.motrack")));
+        ASSERT_TRUE(QFile::remove(directoryAlias));
+    }
+    const auto attachment = QDir(payload->root()).filePath("support/retained.motrack");
+    const auto missing = QDir(payload->root()).filePath("support/new.motrack");
+    for (const auto& target : {attachment, missing})
+    {
+        const auto fileAlias = temporary.filePath("file-alias.motrack");
+        ASSERT_TRUE(QFile::link(target, fileAlias));
+        EXPECT_THROW(motrack::writeWorkspaceDocument(fileAlias, document), motrack::ProjectError);
+        EXPECT_THROW(static_cast<void>(motrack::writeNativeDocument(fileAlias, document)), motrack::ProjectError);
+        EXPECT_TRUE(QFileInfo(fileAlias).isSymLink());
+        EXPECT_EQ(readBytes(attachment), retained);
+        EXPECT_FALSE(QFileInfo::exists(missing));
+        ASSERT_TRUE(QFile::remove(fileAlias));
+    }
+    const auto outside = temporary.filePath("outside.motrack");
+    const auto validAlias = temporary.filePath("external-alias.motrack");
+    ASSERT_TRUE(QFile::link(outside, validAlias));
+    motrack::writeWorkspaceDocument(validAlias, document);
+    EXPECT_EQ(motrack::readWorkspaceDocument(outside).project, document.project);
+    EXPECT_TRUE(QFileInfo(validAlias).isSymLink());
+    EXPECT_EQ(readBytes(payload->sourcePath()), originalBytes);
+    EXPECT_EQ(readBytes(attachment), retained);
+}
+#endif
 
 TEST(WorkspaceDocument, RetainsEveryArchiveByteAndSelectedTabAfterOriginalRemoval)
 {
