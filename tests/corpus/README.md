@@ -1237,7 +1237,94 @@ specified mass/mark/path edits. Movie bytes, all frame timestamps, source-frame 
 settings and the second archive experiment remain independently checked. Negative tests corrupt origin,
 rotation, scales, label or calculated positions, including the same corruption at every application stage.
 
-The normal Linux application runner requires Tracker load, save, fresh-process reopen and native
-reimport for all four modes. Local Windows native export/oracle/reimport passes; current-revision Linux
-acceptance and code review remain pending. This slice does not accept keyed/partly fixed movie
-calibration, timing edits, filters or broader movie containers, and does not close MoTrack #78.
+All four modes passed Tracker load, save, fresh-process reopen and native reimport in
+[PR #142](https://github.com/mgradwohl/MoTrack/pull/142), reviewed at `9c864e0`.
+[CI 42591194102](https://github.com/mgradwohl/MoTrack/actions/runs/42591194102) passed all six checks with
+**95.83% combined C++ coverage (8938/9327)**. That fixed-calibration slice does not establish varying
+calibration acceptance, timing edits, filters or broader movie containers, and does not close MoTrack #78.
+
+### Varying and partly fixed movie calibration
+
+The corpus now has **44 pinned cases**. Seven `keyed-movie-0` through `keyed-movie-6` projects and
+seven corresponding `archived-keyed-movie-*` experiments extend the original 30 cases without changing
+their fixture bytes or expectations. Flag bits 1, 2 and 4 mean fixed origin, angle and scale respectively;
+zero is fully varying and the remaining six cases cover every partly fixed combination. All-fixed
+geometry retains the accepted cases above.
+
+[KeyedMovieCalibrationFixture.java](../../tools/reference/KeyedMovieCalibrationFixture.java) reads the
+pinned linked-MOV controls and uses Tracker 6.3.5's public coordinate setters and serializers. It writes
+keys at original frames 0 and 2. The requested values are origin (2,20), angle 0, scales (2,4) at frame 0,
+then origin (10,18), angle 90 degrees, scales (4,8) at frame 2. Fixed components take the last public
+setter's value globally. Every original frame 0–3 has a point-mass mark at image position (4,16).
+The movie is the unchanged **9799-byte** raw MOV with SHA-256
+`0b00d3dff932ab23c1c4997045b0ef9542b05ce4da2e652fb5413fa4e1368832`.
+
+The generator takes the existing linked-MOV directory and a fresh output directory. Its classpath is
+the pinned Tracker JAR plus the two `reference_dependencies` listed in the manifest. Run it headlessly
+with JDK 17 and `-Xmx256m`; the seven output directories contain `linked-movie.trk` and `constant-rate.mov`.
+Compile the existing `ArchiveMovieFixture.java` with `javac -encoding UTF-8`, then use its `mov` mode
+on each generated directory and the unchanged linked-image directory to produce the corresponding
+two-tab archive. Separate generations in UTC and Pacific/Kiritimati were byte-identical for all projects,
+movies and archives. Headless `TrackerReference.java` snapshots are committed separately; every baseline
+world coordinate was also checked with independent quadrant arithmetic, without consulting MoTrack.
+
+Four edited modes run for every flag combination:
+
+- `linked-movie-keyed-calibration`
+- `archive-movie-keyed-calibration`
+- `paired-archive-movie-keyed-calibration`
+- `packaged-movie-keyed-calibration`
+
+The native probe changes mass to 5 and moves the existing frame-1 mark to (8,12), then performs three
+reversible commands: calibrate an eight-pixel horizontal distance at frame 2 to one `cm`, set frame 2's
+axes from (12,16) toward (20,16), and set frame 1's axes from (6,14) toward (6,22). The first command
+sets scales to (8,16), globally only when scale is fixed. The axes commands set angles to 0 and −90
+degrees. A new frame-1 coordinate key is created unless both origin and angle are fixed. Undoing all
+three commands restores the exact previous project; redoing them restores the exact edited project.
+
+The expected calibrated positions are specified independently:
+
+| Flags (fixed components) | Frame 0 | Frame 1 | Frames 2 and 3 |
+| --- | --- | --- | --- |
+| 0 (none) | (1, 1) | (−0.5, 1) | (−1, 0) |
+| 1 (origin) | (−1, −0.5) | (−0.5, 1) | (−0.25, −0.125) |
+| 2 (angle) | (−1, 1) | (−0.5, 1) | (0, −1) |
+| 3 (origin, angle) | (0.5, −1) | (−0.5, 1) | (0.125, −0.25) |
+| 4 (scale) | (0.25, 0.25) | (−0.125, 0.25) | (−1, 0) |
+| 5 (origin, scale) | (−0.25, −0.125) | (−0.125, 0.25) | (−0.25, −0.125) |
+| 6 (angle, scale) | (−0.25, 0.25) | (−0.125, 0.25) | (0, −1) |
+
+For scaled image deltas `u=(x−origin_x)/scale_x`, `v=(y−origin_y)/scale_y`, the independent inverse
+uses `(u,−v)` at 0 degrees, `(−v,−u)` at 90 and `(v,u)` at −90. Both the original-frame marks and
+the separate coordinate probes are checked. Fixed origin/angle raw records may differ before Java
+normalizes them; full XML comparison uses explicit raw rows, while application snapshots use independently
+specified effective values. Changing an existing mark's position preserves the source's empty manual
+`keyFrames` array. It does not add a new frame or change that metadata.
+
+Raw XML and loaded manual keys are different expectations. The pinned PointMass loader populates an
+empty or absent key array from every non-null marked step. Its
+[source branch](https://github.com/OpenSourcePhysics/tracker/blob/dc064f922fd924826fb42030b9cd5f5bbc720c9f/src/org/opensourcephysics/cabrillo/tracker/PointMass.java#L2981)
+and actual JAR bytecode agree. A bounded headless JDK 17 load/reserialize/reload of all seven original
+fixtures independently confirms raw keys `[]` become `[0,1,2,3]` and remain so after reload.
+[Initial PR #143 CI](https://github.com/mgradwohl/MoTrack/actions/runs/42598798607/job/129097892583)
+confirmed that behavior in the real application and rejected the earlier empty-list session expectation.
+The manifest now explicitly requires `[0,1,2,3]` for all 14 baseline and edited application cases,
+while the full XML oracle still requires MoTrack to preserve the source's empty array. Negative tests
+reject missing, extra, reordered or empty loaded manual keys even if every application stage agrees.
+
+The XML oracle permits only the requested geometry, label, mass, mark and path edits. It retains the
+typed-null coordinate padding at frame 3, the point-mass array extent, fixed flags, timing, selections
+and all other content. Negative tests reject altered keys/flags/padding and consistently wrong positions
+at every application stage. Native refusal tests preserve an existing destination for keys outside the
+full movie, deleted original keys, changed fixed flags, singular/nonfinite transforms and malformed padding.
+
+All 28 local native export/XML/media/reimport cases pass, including native close/reopen after source
+removal, recovered paired saves, and package reopening without external movies. Core tests also combine
+all seven calibrations with a strided clip without losing excluded marks. The desktop regression seeks
+original frames 2 and 1, places axes and distance endpoints, saves after undo, redoes and saves again,
+then reopens the native companion and saves the same calibration back to Tracker format.
+
+Actual Tracker baseline and edited load/save/fresh-process reopen acceptance for these new cases is
+still pending current-revision Linux CI and review. Both archive experiments and every media byte must
+survive, including the untouched image tab. These cases do not enable fixed-state toggles, key deletion,
+moving reference frames, filters, numeric movie timing changes or broader movie containers.

@@ -46,8 +46,11 @@ On **2026-11-09**, Tracker #12/#13 and their complete discussions were refreshed
 calibration save slice. #12 remains a confirmed upstream two-click workflow; #13 remains open with the
 historical second-endpoint report unreproduced by its maintainer. The native desktop regression now
 places axes and both distance endpoints through the existing input controller, checks undo/redo, and
-saves/reopens fixed calibration in both file formats. Four independent movie save/reference modes are
-added with current-revision application CI still pending. This is scoped phase-3 persistence evidence;
+saves/reopens fixed calibration in both file formats. Those four independent movie save/reference modes
+passed actual Tracker acceptance in [PR #142](https://github.com/mgradwohl/MoTrack/pull/142), reviewed at
+`9c864e0` with all six checks passing in [CI 42591194102](https://github.com/mgradwohl/MoTrack/actions/runs/42591194102).
+The current varying/partly fixed extension refreshes the same discussions and adds seven flag combinations,
+frame-specific desktop placement/undo/save tests and 28 application cases awaiting their own acceptance. This is scoped phase-3 persistence evidence;
 [MoTrack #78](https://github.com/mgradwohl/MoTrack/issues/78) stays open for the full phase-5 tool,
 selection/dragging, zoom/DPI and cancellation acceptance. The original reported bug is not claimed reproduced.
 

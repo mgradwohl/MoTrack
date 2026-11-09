@@ -1021,12 +1021,13 @@ bool patchLinkedMoviePath(QDomDocument& xml, const LegacyProject& project, Legac
             std::ranges::all_of(project.unsupportedTrackTypes,
                                 [](const auto& type) { return type == "org.opensourcephysics.cabrillo.tracker.CoordAxes"; }));
     // Movie edits retain original timing and identity. Clip ranges keep source frame numbers.
-    // Existing fixed calibration uses the shared coordinate writer and its numerical checks below.
+    // Existing calibration uses the shared coordinate writer and its numerical checks below.
     auto unchanged = project;
     if (project.calibration != baseline.calibration)
     {
-        require(baseline.calibration && baseline.calibration->fixedOrigin && baseline.calibration->fixedAngle &&
-                baseline.calibration->fixedScale); // Keyed movie calibration needs its own application reference.
+        require(project.calibration && std::ranges::all_of(project.calibration->keyframes,
+                                                           [frameTimes](const auto& key)
+                                                           { return key.frame >= 0 && std::cmp_less(key.frame, frameTimes.size()); }));
         unchanged.calibration = baseline.calibration;
     }
     unchanged.lengthUnit = baseline.lengthUnit;

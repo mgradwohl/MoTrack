@@ -385,10 +385,11 @@ struct RenameSchema
         if (type == "object")
         {
             const auto nested = value.firstChildElement();
-            // Track serializers retain frame-array extent with typed null final cells.
+            // Track and coordinate serializers retain frame-array extent with typed null final cells.
             // This is geometry data, not a missing named object or permission for arbitrary nulls.
             if (nested.isNull() &&
-                (expected == QString(TRACKER) + "Vector$FrameData" || expected == QString(TRACKER) + "PointMass$FrameData") &&
+                (expected == QString(TRACKER) + "Vector$FrameData" || expected == QString(TRACKER) + "PointMass$FrameData" ||
+                 expected == QString(MEDIA) + "ImageCoordSystem$FrameData") &&
                 value.text() == "null")
             {
                 return;

@@ -189,6 +189,26 @@ void editMovieCalibration(motrack::WorkspaceDocument& document, motrack::TrackEd
         throw motrack::ProjectError("Movie calibration history did not preserve the experiment.");
 }
 
+void editKeyedMovieCalibration(motrack::WorkspaceDocument& document, motrack::TrackEdits& edits)
+{
+    const auto before = document.project;
+    if (!edits.calibrateDistance(document.project, {.frame = 2, .imageDeltaX = 8, .imageDeltaY = 0, .knownLength = 1, .unit = "cm"}) ||
+        !edits.setCoordinateAxes(document.project, {.frame = 2, .originX = 12, .originY = 16, .positiveX = 20, .positiveY = 16}) ||
+        !edits.setCoordinateAxes(document.project, {.frame = 1, .originX = 6, .originY = 14, .positiveX = 6, .positiveY = 22}))
+        throw motrack::ProjectError("Could not edit keyed movie calibration.");
+    const auto edited = document.project;
+    for (int index = 0; index < 3; ++index)
+        if (!edits.undo(document.project))
+            throw motrack::ProjectError("Could not undo keyed movie calibration.");
+    if (document.project != before)
+        throw motrack::ProjectError("Undo changed the original keyed movie project.");
+    for (int index = 0; index < 3; ++index)
+        if (!edits.redo(document.project))
+            throw motrack::ProjectError("Could not redo keyed movie calibration.");
+    if (document.project != edited)
+        throw motrack::ProjectError("Redo changed the edited keyed movie project.");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -212,11 +232,13 @@ try
                                                           });
         throw motrack::ProjectError("Interruption probe did not reach the first commit: " + result.diagnostic.toStdString());
     }
-    if (args.size() == 4 && (args[1] == "--export-archive-images" || args[1] == "--export-paired-archive-images" ||
-                             args[1] == "--export-multitab-archive-images" || args[1] == "--export-archive-image-clip" ||
-                             args[1] == "--export-archive-movie" || args[1] == "--export-archive-movie-clip" ||
-                             args[1] == "--export-archive-movie-clip-single" || args[1] == "--export-paired-archive-movie" ||
-                             args[1] == "--export-archive-movie-calibration" || args[1] == "--export-paired-archive-movie-calibration"))
+    if (args.size() == 4 &&
+        (args[1] == "--export-archive-images" || args[1] == "--export-paired-archive-images" ||
+         args[1] == "--export-multitab-archive-images" || args[1] == "--export-archive-image-clip" || args[1] == "--export-archive-movie" ||
+         args[1] == "--export-archive-movie-clip" || args[1] == "--export-archive-movie-clip-single" ||
+         args[1] == "--export-paired-archive-movie" || args[1] == "--export-archive-movie-calibration" ||
+         args[1] == "--export-paired-archive-movie-calibration" || args[1] == "--export-archive-movie-keyed-calibration" ||
+         args[1] == "--export-paired-archive-movie-keyed-calibration"))
     {
         const bool movie = args[1].contains("movie");
         QTemporaryDir temporary;
@@ -254,6 +276,8 @@ try
             throw motrack::ProjectError("Could not edit archived media reference.");
         if (args[1].endsWith("-movie-calibration"))
             editMovieCalibration(document, edits);
+        if (args[1].endsWith("-movie-keyed-calibration"))
+            editKeyedMovieCalibration(document, edits);
         if (args[1] == "--export-archive-image-clip" || args[1] == "--export-archive-movie-clip" ||
             args[1] == "--export-archive-movie-clip-single")
         {
@@ -274,10 +298,12 @@ try
             motrack::writeTrackerArchiveDocument(args[3], document);
         return 0;
     }
-    if (args.size() == 4 && (args[1] == "--export-linked-movie" || args[1] == "--export-linked-movie-clip" ||
-                             args[1] == "--export-linked-movie-clip-single" || args[1] == "--export-packaged-movie" ||
-                             args[1] == "--export-packaged-movie-clip" || args[1] == "--export-packaged-movie-clip-single" ||
-                             args[1] == "--export-linked-movie-calibration" || args[1] == "--export-packaged-movie-calibration"))
+    if (args.size() == 4 &&
+        (args[1] == "--export-linked-movie" || args[1] == "--export-linked-movie-clip" || args[1] == "--export-linked-movie-clip-single" ||
+         args[1] == "--export-packaged-movie" || args[1] == "--export-packaged-movie-clip" ||
+         args[1] == "--export-packaged-movie-clip-single" || args[1] == "--export-linked-movie-calibration" ||
+         args[1] == "--export-packaged-movie-calibration" || args[1] == "--export-linked-movie-keyed-calibration" ||
+         args[1] == "--export-packaged-movie-keyed-calibration"))
     {
         const bool packaged = args[1].startsWith("--export-packaged-movie");
         QTemporaryDir temporary;
@@ -287,7 +313,8 @@ try
         const QDir originalDirectory(QFileInfo(args[2]).absolutePath());
         const QDir destinationDirectory(QFileInfo(args[3]).absolutePath());
         const auto mediaDirectory = destinationDirectory.absoluteFilePath(QString::fromUtf8("média & movie"));
-        const auto name = packaged ? QStringLiteral("constant-rate.mov") : QStringLiteral("constant-rate.avi");
+        const bool keyed = args[1].endsWith("-movie-keyed-calibration");
+        const auto name = packaged || keyed ? QStringLiteral("constant-rate.mov") : QStringLiteral("constant-rate.avi");
         const auto movie = mediaDirectory + '/' + name;
         if (!temporary.isValid() || !QDir().mkdir(inputDirectory) || !QDir().mkdir(mediaDirectory) || !QFile::copy(args[2], source) ||
             !QFile::copy(originalDirectory.filePath(name), movie))
@@ -311,6 +338,8 @@ try
             throw motrack::ProjectError("Could not edit linked-movie reference.");
         if (args[1].endsWith("-movie-calibration"))
             editMovieCalibration(document, edits);
+        if (keyed)
+            editKeyedMovieCalibration(document, edits);
         if (args[1].contains("-clip"))
         {
             const bool single = args[1].endsWith("-single");

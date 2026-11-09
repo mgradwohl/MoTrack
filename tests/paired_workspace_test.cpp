@@ -184,6 +184,103 @@ TEST(PairedWorkspace, SavesIndexedMovieEditsAndNativeCompanionAfterSourceRemoval
     EXPECT_EQ(motrack::importTrackerDocument(target).project.calibration, motrack::readWorkspaceDocument(native).project.calibration);
 }
 
+TEST(PairedWorkspace, SavesMovingMovieCalibrationAtOriginalFramesWithUndoRedo)
+{
+    QTemporaryDir temporary;
+    const auto directory = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/keyed-movie-0/";
+    const auto source = temporary.filePath("input.trk");
+    const auto target = temporary.filePath("saved.trk");
+    const auto native = temporary.filePath("saved.motrack");
+    ASSERT_TRUE(QFile::copy(directory + "linked-movie.trk", source));
+    ASSERT_TRUE(QFile::copy(directory + "constant-rate.mov", temporary.filePath("constant-rate.mov")));
+    {
+        motrack::MainWindow window;
+        ASSERT_TRUE(window.loadProject(source));
+        auto* plot = window.findChild<QWidget*>("positionPlot");
+        auto* video = dynamic_cast<motrack::VideoCanvas*>(window.findChild<QWidget*>("videoCanvas"));
+        auto* slider = window.findChild<QSlider*>("stepSlider");
+        auto* axes = window.findChild<QAction*>("setCoordinateAxes");
+        auto* distance = window.findChild<QAction*>("calibrationStick");
+        auto* undo = window.findChild<QAction*>("undoEdit");
+        auto* redo = window.findChild<QAction*>("redoEdit");
+        ASSERT_TRUE(plot && video && slider && axes && distance && undo && redo);
+        ASSERT_TRUE(QTest::qWaitFor([plot] { return plot->accessibleName().endsWith("Time (s)"); }));
+        slider->setValue(2);
+        ASSERT_TRUE(QTest::qWaitFor([video] { return video->accessibleName() == "Frame 2"; }));
+        distance->trigger();
+        ASSERT_TRUE(video->pick({4, 12}, false));
+        bool configured = false;
+        QTimer::singleShot(0,
+                           &window,
+                           [&configured]
+                           {
+                               if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
+                               {
+                                   auto* length = dialog->findChild<QDoubleSpinBox*>("knownDistance");
+                                   auto* unit = dialog->findChild<QLineEdit*>("lengthUnit");
+                                   if (length && unit)
+                                   {
+                                       length->setValue(1);
+                                       unit->setText("cm");
+                                       configured = true;
+                                   }
+                                   dialog->accept();
+                               }
+                           });
+        ASSERT_TRUE(video->pick({12, 12}, false));
+        ASSERT_TRUE(configured);
+        axes->trigger();
+        ASSERT_TRUE(video->pick({12, 16}, false));
+        ASSERT_TRUE(video->pick({20, 16}, false));
+        slider->setValue(1);
+        ASSERT_TRUE(QTest::qWaitFor([video] { return video->accessibleName() == "Frame 1"; }));
+        axes->trigger();
+        ASSERT_TRUE(video->pick({6, 14}, false));
+        ASSERT_TRUE(video->pick({6, 22}, false));
+        EXPECT_TRUE(plot->accessibleName().contains("(cm)"));
+        ASSERT_TRUE(QFile::remove(source));
+        undo->trigger();
+        ASSERT_TRUE(window.saveTrackerProject(target));
+        const auto undone = motrack::readWorkspaceDocument(native);
+        if (!undone.project.calibration)
+            FAIL() << "Undo save lost movie calibration.";
+        EXPECT_EQ(undone.project.calibration->keyframes.size(), 2);
+        ASSERT_TRUE(redo->isEnabled());
+        redo->trigger();
+        ASSERT_TRUE(window.saveTrackerProject(target));
+    }
+    const auto saved = motrack::readWorkspaceDocument(native);
+    EXPECT_EQ(saved.project.lengthUnit, "cm");
+    if (!saved.project.calibration)
+        FAIL() << "Moving movie calibration was not saved.";
+    EXPECT_FALSE(saved.project.calibration->fixedOrigin);
+    EXPECT_FALSE(saved.project.calibration->fixedAngle);
+    EXPECT_FALSE(saved.project.calibration->fixedScale);
+    const auto& keys = saved.project.calibration->keyframes;
+    ASSERT_EQ(keys.size(), 3);
+    EXPECT_EQ(keys[0].frame, 0);
+    EXPECT_EQ(keys[1].frame, 1);
+    EXPECT_DOUBLE_EQ(keys[1].originX, 6);
+    EXPECT_DOUBLE_EQ(keys[1].originY, 14);
+    EXPECT_DOUBLE_EQ(keys[1].angleDegrees, -90);
+    EXPECT_DOUBLE_EQ(keys[1].scaleX, 2);
+    EXPECT_DOUBLE_EQ(keys[1].scaleY, 4);
+    EXPECT_EQ(keys[2].frame, 2);
+    EXPECT_DOUBLE_EQ(keys[2].originX, 12);
+    EXPECT_DOUBLE_EQ(keys[2].originY, 16);
+    EXPECT_DOUBLE_EQ(keys[2].angleDegrees, 0);
+    EXPECT_DOUBLE_EQ(keys[2].scaleX, 8);
+    EXPECT_DOUBLE_EQ(keys[2].scaleY, 16);
+    EXPECT_EQ(motrack::importTrackerDocument(target).project.calibration, saved.project.calibration);
+    motrack::MainWindow reopened;
+    ASSERT_TRUE(reopened.loadProject(native));
+    auto* plot = reopened.findChild<QWidget*>("positionPlot");
+    ASSERT_TRUE(plot);
+    ASSERT_TRUE(QTest::qWaitFor([plot] { return plot->accessibleName().endsWith("Time (s)"); }));
+    ASSERT_TRUE(reopened.saveTrackerProject(target));
+    EXPECT_EQ(motrack::importTrackerDocument(target).project.calibration, saved.project.calibration);
+}
+
 TEST(PairedWorkspace, SavesArchivedMovieClipsAndBothCopiesAfterOriginalRemoval)
 {
     QTemporaryDir temporary;
