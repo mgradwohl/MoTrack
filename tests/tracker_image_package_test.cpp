@@ -183,15 +183,17 @@ TEST(TrackerImagePackage, RefusesUnsupportedDocumentsMissingMediaAndCancellation
     }
 }
 
-TEST(TrackerImagePackage, NamesMissingOrNonFileSourcesWithoutReplacingOutput)
+TEST(TrackerImagePackage, NamesMissingEmptyOrNonFileSourcesWithoutReplacingOutput)
 {
-    for (const bool directory : {false, true})
+    for (int kind = 0; kind < 3; ++kind)
     {
-        SCOPED_TRACE(directory);
+        SCOPED_TRACE(kind);
         QTemporaryDir temporary;
         const auto missing = temporary.filePath(QString::fromUtf8("missing é image.png"));
-        if (directory)
+        if (kind == 1)
             ASSERT_TRUE(QDir().mkdir(missing));
+        else if (kind == 2)
+            put(missing, {});
         auto document = motrack::importTrackerDocument(fixture());
         document.project.clip.mediaReferences[0] = missing.toStdString();
         const auto target = temporary.filePath("existing.trz");
