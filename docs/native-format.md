@@ -699,3 +699,11 @@ groups (124.80 seconds), 86 Python tests, both native export/oracle/reimport cas
 static analysis for all four changed C++ source files, with 95.64% line coverage (8838/9241). Three
 existing LLVM function-profile mismatch warnings remain visible. Current-head three-platform CI,
 actual Tracker movie-range acceptance and review remain required before merging this extension.
+
+
+A standard movie import initially infers a provisional source-frame bound from its saved clip endpoint.
+When the linked movie's full index completes, the desktop replaces that bound with the decoded source
+count. Otherwise a reopened single-frame clip could not expand to retained frames beyond its endpoint.
+A desktop regression reproduced that failure, then verified single-frame export, standard-file reopen,
+index completion, expansion to all four frames, paired resave and display of the retained final frame.
+Index completion does not mark the document modified or remove measurements.

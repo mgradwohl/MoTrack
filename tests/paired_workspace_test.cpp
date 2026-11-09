@@ -132,6 +132,64 @@ TEST(PairedWorkspace, SavesIndexedMovieEditsAndNativeCompanionAfterSourceRemoval
     EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(target).project.pointMasses.front().mass, 9);
 }
 
+TEST(PairedWorkspace, ReopenedSingleFrameMovieCanExpandToTheCompleteIndexedSource)
+{
+    QTemporaryDir temporary;
+    const auto source = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-movie/linked-movie.trk";
+    const auto target = temporary.filePath("single.trk");
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(source));
+    auto* plot = window.findChild<QWidget*>("positionPlot");
+    auto* canvas = window.findChild<QWidget*>("videoCanvas");
+    auto* slider = window.findChild<QSlider*>("stepSlider");
+    auto* settings = window.findChild<QAction*>("clipSettings");
+    ASSERT_TRUE(plot && canvas && slider && settings);
+    for (const bool expand : {false, true})
+    {
+        SCOPED_TRACE(expand);
+        ASSERT_TRUE(QTest::qWaitFor([plot] { return plot->accessibleName().endsWith("Time (s)"); }));
+        EXPECT_FALSE(window.isWindowModified());
+        int maximum = -1;
+        bool accepted = false;
+        QTimer::singleShot(0,
+                           &window,
+                           [&]
+                           {
+                               if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
+                               {
+                                   auto* first = dialog->findChild<QSpinBox*>("clipStart");
+                                   auto* last = dialog->findChild<QSpinBox*>("clipEnd");
+                                   auto* stride = dialog->findChild<QSpinBox*>("clipStride");
+                                   if (!first || !last || !stride)
+                                   {
+                                       dialog->reject();
+                                       return;
+                                   }
+                                   maximum = last->maximum();
+                                   first->setValue(expand ? 0 : 2);
+                                   last->setValue(expand ? 3 : 2);
+                                   stride->setValue(1);
+                                   accepted = true;
+                                   dialog->accept();
+                               }
+                           });
+        settings->trigger();
+        ASSERT_TRUE(accepted);
+        ASSERT_EQ(maximum, 3);
+        ASSERT_TRUE(window.saveTrackerProject(target));
+        const auto saved = motrack::readWorkspaceDocument(temporary.filePath("single.motrack"));
+        EXPECT_EQ(saved.project.clip.sourceFrameCount, 4);
+        EXPECT_EQ(saved.project.clip.firstFrame, expand ? 0 : 2);
+        EXPECT_EQ(saved.project.clip.stepCount, expand ? 4 : 1);
+        EXPECT_EQ(saved.project.pointMasses, motrack::importTrackerDocument(source).project.pointMasses);
+        if (!expand)
+            ASSERT_TRUE(window.loadProject(target));
+    }
+    slider->setValue(3);
+    ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 3"; }));
+    EXPECT_EQ(motrack::importTrackerDocument(target).project.clip.stepCount, 4);
+}
+
 TEST(PairedWorkspace, SavesEditedLinkedAndArchivedProjectsAndUsesThePairForOrdinarySave)
 {
     for (const bool archive : {false, true})

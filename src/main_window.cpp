@@ -955,6 +955,8 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
                             if (!index.frameTimes.empty())
                             {
                                 m_Session.document.movieFrameTimes = std::move(index.frameTimes);
+                                // The imported clip endpoint is only a provisional source bound.
+                                m_Session.document.project.clip.sourceFrameCount = index.frameCount;
                             }
                             refreshPlot();
                             return;
