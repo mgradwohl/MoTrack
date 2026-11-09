@@ -374,6 +374,82 @@ class CorpusTests(unittest.TestCase):
         with corpus.minidom.parse(str(original)) as document, self.assertRaisesRegex(ValueError, "Unknown"):
             corpus.patch_expected_linked_media(document, clip_mode="unreviewed")
 
+    def saved_image_inventory_fixture(self):
+        case = next(c for c in corpus.load_manifest()["cases"] if c["id"] == "linked-images")
+        media = self.root / "media é & frames"
+        media.mkdir()
+        for asset in case["assets"]:
+            (media / asset["file"]).write_bytes(corpus.local_fixture_path(asset).read_bytes())
+        output = self.root / "tracker-resaved.trk"
+        with corpus.minidom.parse(str(corpus.local_fixture_path(case))) as document:
+            corpus.patch_expected_linked_media(document, clip_mode="single")
+            output.write_text(document.toxml(), encoding="utf-8")
+        return case["assets"], output, media
+
+    def test_saved_image_inventory_rejects_changes_to_excluded_pixels_and_references(self):
+        assets, saved, media = self.saved_image_inventory_fixture()
+        valid = saved.read_bytes()
+        observed = corpus.verify_saved_image_inventory(saved, assets)
+        self.assertEqual([item["frame"] for item in observed], [0, 1, 2, 3])
+        self.assertEqual([item["sha256"] for item in observed], [asset["sha256"] for asset in assets])
+        excluded = media / "frame0.png"
+        original = excluded.read_bytes()
+        excluded.write_bytes(original[:-1] + bytes([original[-1] ^ 1]))
+        with self.assertRaisesRegex(ValueError, "checksum.*frame 0"):
+            corpus.verify_saved_image_inventory(saved, assets)
+        excluded.write_bytes(original)
+        for mutation in ["redirect", "missing", "reorder", "duplicate-index", "network", "wrong-array"]:
+            root = ET.fromstring(valid)
+            paths = root.find(".//property[@name='paths']")
+            if mutation == "redirect":
+                paths[0].text = paths[1].text
+            elif mutation == "missing":
+                paths.remove(paths[0])
+            elif mutation == "reorder":
+                paths[:] = [paths[1], paths[0], *list(paths)[2:]]
+            elif mutation == "duplicate-index":
+                paths[0].set("name", "[1]")
+            elif mutation == "network":
+                paths[0].text = "https://example.invalid/frame0.png"
+            else:
+                paths.set("class", "wrong")
+            ET.ElementTree(root).write(saved, encoding="utf-8")
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                corpus.verify_saved_image_inventory(saved, assets)
+        saved.write_bytes(valid)
+        excluded.unlink()
+        with self.assertRaises(OSError):
+            corpus.verify_saved_image_inventory(saved, assets)
+
+    def test_saved_image_inventory_resolves_local_and_archive_references_after_resaving(self):
+        assets, saved, media = self.saved_image_inventory_fixture()
+        valid = saved.read_bytes()
+        package = self.root / "archive é & images.trz"
+        with zipfile.ZipFile(package, "w") as archive:
+            for asset in assets:
+                archive.writestr("images/" + asset["file"], (media / asset["file"]).read_bytes())
+        for kind in ["relative", "absolute", "file-url", "archive-relative", "archive-file-url"]:
+            root = ET.fromstring(valid)
+            paths = root.find(".//property[@name='paths']")
+            for entry, asset in zip(paths, assets, strict=True):
+                if kind == "absolute":
+                    entry.text = str(media / asset["file"])
+                elif kind == "file-url":
+                    entry.text = (media / asset["file"]).as_uri()
+                elif kind.startswith("archive"):
+                    entry.text = (package.name if kind == "archive-relative" else "jar:" + package.as_uri()) + "!/images/" + asset["file"]
+            ET.ElementTree(root).write(saved, encoding="utf-8")
+            with self.subTest(kind=kind):
+                actual = corpus.verify_saved_image_inventory(saved, assets)
+                self.assertEqual([item["sha256"] for item in actual], [asset["sha256"] for asset in assets])
+        # Frame zero is outside the single-frame clip. A valid archive with changed bytes must fail.
+        with zipfile.ZipFile(package, "w") as archive:
+            for index, asset in enumerate(assets):
+                payload = (media / asset["file"]).read_bytes()
+                archive.writestr("images/" + asset["file"], payload[::-1] if index == 0 else payload)
+        with self.assertRaisesRegex(ValueError, "checksum.*frame 0"):
+            corpus.verify_saved_image_inventory(saved, assets)
+
     def test_image_clip_session_checks_strided_and_single_frame_bounds(self):
         for mode in ["stride", "single"]:
             with self.subTest(mode=mode):

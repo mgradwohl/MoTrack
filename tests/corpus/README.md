@@ -1086,8 +1086,17 @@ clip, and -250 ms at frame 2 for the single-frame clip. These differ from raw me
 125, 250 and 375 ms at source frames 1, 2 and 3. Calibration samples use the new clip endpoints.
 The reference inspects decoded frames only within the video's active start/end bounds because Tracker
 clamps seeks outside that interval; it requires each requested frame to be reached. Source frame count
-remains four, and independent asset hashes verify the entire retained image inventory. It does not
-expand or modify the live clip to inspect excluded frames.
+remains four. After Tracker saves, and again after the separate-process reopen, an independent XML
+oracle reads the complete ordered `ImageVideo.paths` array and resolves every local file or ZIP member.
+Each asset must match the pinned four-image byte count and SHA-256, including frames outside the clip.
+The archived fixture contains the exact same four pinned PNGs. Relative/absolute local paths, file URLs
+and local archive-member references are bounded; network references, missing/reordered entries and
+ambiguous members fail acceptance. Per-stage inventories are retained in the report. The live clip
+is never expanded to inspect excluded frames.
+
+All 84 Python corpus tests pass with this post-resave oracle. Negative regressions corrupt an excluded
+image, redirect its reference to another valid image, remove/reorder entries, and corrupt an excluded ZIP
+member. Actual Tracker acceptance of the new oracle still requires current-head Linux CI.
 
 All four native exports/reimports and independent XML/media oracles pass locally. Windows validation
 passes all nine CTest groups (164.31 s), all 82 Python corpus tests, formatting and static analysis for

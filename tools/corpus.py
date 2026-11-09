@@ -7,7 +7,7 @@ import hashlib
 import json
 import math
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import select
 import shutil
@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+import urllib.parse
 import xml.dom.minidom as minidom
 import xml.etree.ElementTree as ET
 import zipfile
@@ -484,7 +485,7 @@ def linked_image_clip_expected(case, single=False):
     case["session_time_samples"] = ([{"frame": 2, "time_ms": -250.0}, {"frame": 2, "time_ms": -250.0}] if single
                                     else [{"frame": 1, "time_ms": -250.0}, {"frame": 3, "time_ms": 0.0}])
     # The raw video retains all four frames, while seeks respect its active bounds (not stride).
-    # Every source image, including excluded frames, is independently checksum-verified at export.
+    # Full source inventories are independently checksum-verified at export and after Tracker resaves.
     case["session_media"]["frames"] = [case["session_media"]["frames"][2]] if single else case["session_media"]["frames"][1:]
     return expected, case
 
@@ -550,6 +551,58 @@ def verify_linked_image_export_xml(original, exported, case, clip_mode=None):
             raise ValueError("Linked-image export changed content beyond the requested paths, mass, mark and clip range")
     for asset in case["assets"]:
         verify_file(exported.parent / "media é & frames" / asset["file"], asset)
+
+
+def verify_saved_image_inventory(saved, assets):
+    """Check every serialized image reference, including frames outside the active clip."""
+    if saved.stat().st_size > MAX_XML_BYTES:
+        raise ValueError("Saved image experiment exceeds XML limit")
+    videos = ET.parse(saved).getroot().findall("property[@name='videoclip']/object/property[@name='video']/object")
+    if len(videos) != 1 or videos[0].get("class") != "org.opensourcephysics.media.core.ImageVideo":
+        raise ValueError("Saved image inventory requires exactly one ImageVideo")
+    arrays = videos[0].findall("property[@name='paths']")
+    if len(arrays) != 1 or arrays[0].get("type") != "array" or arrays[0].get("class") != "[Ljava.lang.String;":
+        raise ValueError("Saved image inventory lost its complete path array")
+    entries = list(arrays[0])
+    if len(entries) != len(assets):
+        raise ValueError("Saved image inventory changed its frame count")
+    inventory = []
+    for index, (entry, asset) in enumerate(zip(entries, assets, strict=True)):
+        if (entry.tag != "property" or entry.get("name") != f"[{index}]" or entry.get("type") != "string"
+                or len(entry) or not entry.text or len(entry.text) > 4096):
+            raise ValueError("Saved image inventory contains a missing, reordered or invalid path")
+        reference = entry.text.replace("\\", "/")
+        if reference.startswith("jar:"):
+            reference = reference[4:]
+        container, separator, member = reference.partition("!/")
+        url = urllib.parse.urlsplit(container)
+        if url.scheme == "file":
+            if url.netloc not in {"", "localhost"} or url.query or url.fragment:
+                raise ValueError("Saved image reference is not a local file")
+            container = urllib.request.url2pathname(url.path)
+        elif url.scheme and not re.match(r"^[A-Za-z]:/", container):
+            raise ValueError("Saved image reference is not a local file")
+        path = Path(container)
+        if not path.is_absolute():
+            path = saved.parent / path
+        if separator:
+            if (not member or PurePosixPath(member).is_absolute() or ".." in PurePosixPath(member).parts
+                    or "!/" in member or path.stat().st_size > 1024 * 1024):
+                raise ValueError("Saved image archive reference exceeds fixture bounds")
+            with zipfile.ZipFile(path) as archive:
+                matches = [info for info in archive.infolist() if info.filename == member]
+                if len(matches) != 1 or matches[0].file_size != asset["bytes"] or matches[0].is_dir():
+                    raise ValueError("Saved image archive member is missing, ambiguous or changed")
+                with archive.open(matches[0]) as source:
+                    payload = source.read(asset["bytes"] + 1)
+        else:
+            with path.open("rb") as source:
+                payload = source.read(asset["bytes"] + 1)
+        digest = hashlib.sha256(payload).hexdigest()
+        if len(payload) != asset["bytes"] or digest != asset["sha256"]:
+            raise ValueError(f"Saved image checksum changed at original frame {index}")
+        inventory.append({"frame": index, "reference": entry.text, "bytes": len(payload), "sha256": digest})
+    return inventory
 
 
 def verify_linked_movie_export_xml(original, exported, case):
@@ -2041,6 +2094,7 @@ def check_sessions(manifest, cache, java, probe=None):
                 compare(expected, json.loads(native_report.read_text(encoding="utf-8")), manifest["tolerance"], case["id"] + ".export")
                 project = exported
             stages = {}
+            image_inventories = {}
             # Tracker has static per-panel drawing state but allocates IDs separately in each TFrame.
             # A fresh JVM prevents two windows' vector snapping registries from sharing the same IDs.
             for stage in ["save", "reopen"]:
@@ -2068,11 +2122,15 @@ def check_sessions(manifest, cache, java, probe=None):
                     raise ValueError("Missing Tracker loader callback evidence")
                 if callbacks > 1:
                     print(f"{case['id']}/{mode}/{stage}: observed {callbacks} loader callbacks; reference action ran once")
+                if case["id"] in {"linked-images", "archived-images"}:
+                    # Both cases use the independently pinned four-image fixture, including excluded frames.
+                    assets = next(item["assets"] for item in manifest["cases"] if item["id"] == "linked-images")
+                    image_inventories[stage] = verify_saved_image_inventory(output / "tracker-resaved.trk", assets)
             report = {"reference_version": stages["save"]["reference_version"], "verification_level": "tracker_session_resave",
                       "view_preparation": stages["save"]["view_preparation"],
                       "loader_callbacks": {stage: stages[stage]["loader_callbacks"] for stage in stages},
                       "before": stages["save"]["loaded"], "after_save": stages["save"]["after_save"],
-                      "after": stages["reopen"]["loaded"]}
+                      "after": stages["reopen"]["loaded"], "saved_image_inventories": image_inventories}
             keys = {"marks": [[0, 3], [7]], "empty-marks": [[], [0]], "first-mark": [[4], [0]]}.get(mode)
             if mode in {"linked-movie", "linked-images", "linked-image-clip", "linked-image-clip-single", "archive-images",
                         "paired-linked-images", "paired-archive-images", "packaged-images", "archive-image-clip", "packaged-image-clip"}:
