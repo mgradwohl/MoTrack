@@ -188,7 +188,7 @@ if(BUILD_TESTING)
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/point-mass.trk")
     add_test(NAME desktop_invalid_project COMMAND motrack --smoke-test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/missing.trk")
-    set_tests_properties(workspace workspace_saving workspace_document document_session desktop_smoke desktop_invalid_project PROPERTIES
+    set_tests_properties(workspace workspace_saving workspace_document document_session document_session_journals desktop_smoke desktop_invalid_project PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     set_tests_properties(desktop_invalid_project PROPERTIES WILL_FAIL TRUE)
     if(MOTRACK_BUILD_BENCHMARKS)
