@@ -14,6 +14,8 @@
 namespace motrack
 {
 
+struct ArchiveGroup;
+
 enum class SaveDestinationConflict : std::uint8_t
 {
     Busy,
@@ -81,6 +83,14 @@ using PairedSaveObserver = std::function<void(PairedSaveProgress)>;
                                                     const QString& mediaProjectPath,
                                                     const std::atomic_bool* cancelled = nullptr,
                                                     const PairedSaveObserver& observer = {});
+/// Prepare all retained group edits as one .trz and one same-stem version-6 native snapshot.
+/// Uses the same locks, observations and recovery journal as standalone paired saving.
+/// Does not update live group/session checkpoints; recovery uses recoverPairedDocuments.
+/// The caller retains an immutable worker snapshot throughout this synchronous call.
+[[nodiscard]] PairedSaveResult writePairedArchiveGroup(const QString& standardPath,
+                                                       const ArchiveGroup& group,
+                                                       const std::atomic_bool* cancelled = nullptr,
+                                                       const PairedSaveObserver& observer = {});
 /// Write a prepared/rebased native snapshot under the same destination lock as paired saving.
 /// Refuses pending recovery. Replacement and the returned observation are ordered under that lock.
 /// The worker-only observer receives NativeSaved after replacement, before stamping/releasing the lock.
@@ -90,6 +100,12 @@ NativeSaveResult writeNativeDocument(const QString& path,
                                      const WorkspaceDocument& document,
                                      const std::atomic_bool* cancelled = nullptr,
                                      const PairedSaveObserver& observer = {});
+/// Atomically store a group under the same destination lock, refusing pending paired recovery.
+/// The result carries an ordered observation, with no per-document media-location changes.
+NativeSaveResult writeNativeArchiveGroup(const QString& path,
+                                         const ArchiveGroup& group,
+                                         const std::atomic_bool* cancelled = nullptr,
+                                         const PairedSaveObserver& observer = {});
 
 /// Export a standalone image archive copy under the same per-stem destination lock as paired saving.
 /// Refuses pending journals and file aliases; no session checkpoints or companion files are changed.
