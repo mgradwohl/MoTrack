@@ -3,12 +3,12 @@
 <TS version="2.1" language="fr">
   <context>
     <name>MainWindow</name>
-    <message><source>Export portable image &amp;archive…</source><translation type="unfinished"></translation></message>
-    <message><source>Copy this experiment and its images into one portable Tracker archive.</source><translation type="unfinished"></translation></message>
-    <message><source>Export portable image archive</source><translation type="unfinished"></translation></message>
-    <message><source>Choose a .trz filename for an imported image project.</source><translation type="unfinished"></translation></message>
-    <message><source>Exporting portable image archive</source><translation type="unfinished"></translation></message>
-    <message><source>Copying the experiment and its images…</source><translation type="unfinished"></translation></message>
+    <message><source>Export portable &amp;archive…</source><translation type="unfinished"></translation></message>
+    <message><source>Copy this experiment and its media into one portable Tracker archive.</source><translation type="unfinished"></translation></message>
+    <message><source>Export portable archive</source><translation type="unfinished"></translation></message>
+    <message><source>Choose a .trz filename for an imported image or indexed MOV project.</source><translation type="unfinished"></translation></message>
+    <message><source>Exporting portable archive</source><translation type="unfinished"></translation></message>
+    <message><source>Copying the experiment and its media…</source><translation type="unfinished"></translation></message>
     <message><source>Canceling export…</source><translation type="unfinished"></translation></message>
     <message><source>Export canceled. Existing files were kept.</source><translation type="unfinished"></translation></message>
     <message><source>Could not export the Tracker archive: %1</source><translation type="unfinished"></translation></message>
@@ -198,6 +198,10 @@
   </context>
   <context>
     <name>TrackerImagePackage</name>
+    <message><source>The movie's frame count or timing no longer matches this document.</source><translation type="unfinished"></translation></message>
+    <message><source>Choose a regular Tracker archive filename.</source><translation type="unfinished"></translation></message>
+    <message><source>Cannot package this linked-media experiment safely.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker media packaging was canceled.</source><translation type="unfinished"></translation></message>
     <message><source>Could not read a file required for the archive: %1</source><translation type="unfinished"></translation></message>
   </context>
 </TS>

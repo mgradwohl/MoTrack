@@ -259,9 +259,11 @@ try
             motrack::writeTrackerArchiveDocument(args[3], document);
         return 0;
     }
-    if (args.size() == 4 &&
-        (args[1] == "--export-linked-movie" || args[1] == "--export-linked-movie-clip" || args[1] == "--export-linked-movie-clip-single"))
+    if (args.size() == 4 && (args[1] == "--export-linked-movie" || args[1] == "--export-linked-movie-clip" ||
+                             args[1] == "--export-linked-movie-clip-single" || args[1] == "--export-packaged-movie" ||
+                             args[1] == "--export-packaged-movie-clip" || args[1] == "--export-packaged-movie-clip-single"))
     {
+        const bool packaged = args[1].startsWith("--export-packaged-movie");
         QTemporaryDir temporary;
         const auto inputDirectory = temporary.filePath("source");
         const auto source = inputDirectory + "/input.trk";
@@ -269,12 +271,13 @@ try
         const QDir originalDirectory(QFileInfo(args[2]).absolutePath());
         const QDir destinationDirectory(QFileInfo(args[3]).absolutePath());
         const auto mediaDirectory = destinationDirectory.absoluteFilePath(QString::fromUtf8("média & movie"));
-        const auto movie = mediaDirectory + "/constant-rate.avi";
+        const auto name = packaged ? QStringLiteral("constant-rate.mov") : QStringLiteral("constant-rate.avi");
+        const auto movie = mediaDirectory + '/' + name;
         if (!temporary.isValid() || !QDir().mkdir(inputDirectory) || !QDir().mkdir(mediaDirectory) || !QFile::copy(args[2], source) ||
-            !QFile::copy(originalDirectory.filePath("constant-rate.avi"), movie))
+            !QFile::copy(originalDirectory.filePath(name), movie))
             throw motrack::ProjectError("Could not prepare linked-movie round trip.");
         auto document = motrack::importTrackerDocument(source);
-        if (document.project.clip.mediaReferences != std::vector<std::string>{"constant-rate.avi"})
+        if (document.project.clip.mediaReferences != std::vector<std::string>{name.toStdString()})
             throw motrack::ProjectError("Expected the pinned movie reference.");
         const std::atomic_bool cancelled{false};
         const auto index = motrack::buildMovieIndex(movie, motrack::VideoOrientation::Encoded, cancelled);
@@ -290,9 +293,9 @@ try
             !edits.markPointMass(document.project, 0, {.frame = 1, .x = 8.0, .y = 12.0}) || !edits.undo(document.project) ||
             !edits.redo(document.project))
             throw motrack::ProjectError("Could not edit linked-movie reference.");
-        if (args[1] != "--export-linked-movie")
+        if (args[1] != "--export-linked-movie" && args[1] != "--export-packaged-movie")
         {
-            const bool single = args[1] == "--export-linked-movie-clip-single";
+            const bool single = args[1].endsWith("-single");
             if (!edits.setClipRange(document.project, single ? 2 : 1, single ? 2 : 3, single ? 1 : 2) || !edits.undo(document.project) ||
                 !edits.redo(document.project))
                 throw motrack::ProjectError("Could not edit the movie clip range.");
@@ -303,7 +306,14 @@ try
         if (!QFile::remove(source) || !QDir().rmdir(inputDirectory))
             throw motrack::ProjectError("Could not remove the original movie project directory.");
         document = motrack::readWorkspaceDocument(native);
-        motrack::writeTrackerDocument(args[3], document, native);
+        if (packaged)
+        {
+            motrack::writeTrackerMoviePackage(args[3], document, native);
+            if (!QFile::remove(movie) || !QDir().rmdir(mediaDirectory))
+                throw motrack::ProjectError("Could not remove original packaged movie.");
+        }
+        else
+            motrack::writeTrackerDocument(args[3], document, native);
         return 0;
     }
     if (args.size() == 4 && (args[1] == "--export-linked-images" || args[1] == "--export-paired-linked-images" ||

@@ -619,15 +619,15 @@ existing destination bytes and source bindings. PNG/JPEG/BMP success cases retai
 The project-only import benchmark still links Qt Core/Xml without Qt Gui. Three existing LLVM
 function-profile mismatch warnings remain visible. Current-head CI and review remain required.
 
-### Desktop portable-image export
+### Desktop portable archive export
 
-`File → Export portable image archive…` chooses a `.trz` destination and runs the adapter on the
+`File → Export portable archive…` chooses a `.trz` destination and runs the adapter on the
 session's bounded save worker with an immutable document snapshot. The filename chooser is guarded
 against document replacement and window destruction. Progress and cancellation remain on the GUI thread;
 closing or destroying the window cannot leave a worker borrowing its widgets. Prepared project opens
 wait until export bookkeeping has finished, and overlapping save/export requests are rejected.
 
-The action is available for imported linked-image documents. The writer remains the authoritative schema
+The shared action is available for imported linked-image documents and indexed MOV documents (see the movie package contract below). The writer remains the authoritative schema
 check, so an enabled action does not promise that every imported setting or edit is exportable. Missing
 source diagnostics identify the resolved file. A successful export preserves the source paths, native and
 Tracker checkpoints, title, dirty state and undo/redo history. Edits made programmatically during export
@@ -760,7 +760,7 @@ Tracker's extraction writes are also isolated from the committed fixtures. Corre
 passes all ten CTest groups in **123.28 seconds** with **95.74% line coverage (8857/9251)**, all 89 Python
 tests, all 30 native/headless Java import cases and all four native archive export/oracle/reimport modes.
 Formatting and static analysis of all five changed C++ sources pass; three existing LLVM profile-mismatch
-warnings remain visible. Actual-Tracker and three-platform CI/review remain pending for this correction.
+warnings remain visible. The following CI attempts supplied the application/three-platform evidence below.
 The next Linux attempt (`4efb381`, run 42567671197) loaded the MOV archive but exposed missing cache
 initialization in the bare-`TFrame` reference harness: with `ResourceLoader.ospCache` unset, extracted
 movies are marked for deletion on JVM exit. The harness now uses Tracker's public `setOSPCache`
@@ -768,5 +768,50 @@ preference API under each subprocess's private home, records that policy and ver
 reports. A bounded headless resource experiment reproduced deletion without the setting and exact-byte
 retention with it; the ordinary AVI extraction omission remains. This sets up the standard cache policy;
 it does not copy media or change the application loader, saver, expected data or fresh-process gate.
-New portable movie packaging, broader archived containers, filters, variable-rate timing and broader
-movie schemas remain unfinished.
+The existing MOV archive slice merged in [PR #139](https://github.com/mgradwohl/MoTrack/pull/139) at reviewed
+head `f166ba9`, with all six checks passing in [run 42568545597](https://github.com/mgradwohl/MoTrack/actions/runs/42568545597)
+and **95.82% combined C++ line coverage (8887/9275)**. The isolated baseline and all four edited modes passed
+actual Tracker loading, saving and fresh-process reopening of both tabs, full media hashes and native reimport.
+Broader archived containers, filters, variable-rate timing and broader movie schemas remain unfinished.
+
+
+## Creating a portable movie archive
+
+`writeTrackerMoviePackage` creates a new `.trz` from an audited, fully indexed constant-rate linked MOV
+experiment. It shares the bounded staging/ZIP adapter used for images, preserving the one-way boundary:
+project persistence does not link media decoders. The package contains `experiment.trk` and
+`media/movie.mov`; the complete source movie is copied byte for byte, including frames excluded by a
+trimmed or strided clip. No transcode, frame renumbering or timestamp change is performed.
+
+The standalone movie writer validates mass/mark/clip-range edits and unchanged timing, calibration and
+track identity against the retained source envelope. Staging clears runtime media bindings only in its
+private snapshot, so generated members resolve inside the package. Before atomic replacement, the
+normal archive reader reopens the ZIP, resolves its media, and FFmpeg decodes/indexes the staged movie.
+Its complete frame count and relative timestamps must match the retained document index. Corrupt media,
+changed timing, incomplete indexing, other containers (including AVI under #140), existing archives,
+unsupported edits, file aliases and cancellation are refused without replacing an existing destination.
+The existing 512 MiB total extracted-media and bounded archive/index/decoded-pixel limits apply.
+
+`writeTrackerMoviePackageCopy` uses the same destination lock and pending-recovery refusal as image
+export. The desktop's **Export portable archive…** command selects the movie adapter for indexed linked
+MOV imports, runs it on the bounded save worker, and retains the session's current title, save destinations,
+checkpoints, dirty state and undo/redo history. The copied archive has no automatic native companion;
+opening it enables the existing paired Save workflow, including a native companion when requested.
+
+Native tests cover source/native reopen and removal, relocation, complete movie bytes, clip edits,
+subsequent embedded native saving and archive resave, stale timing, corrupt sources, unsupported schemas,
+cancellation and shared save locks/recovery. Desktop cases exercise export after indexing, ordinary Save
+and undo/redo after export, cancellation, refusal of AVI, media removal/relocation, frame seeking and
+paired saving of the reopened package. Three independent corpus modes require actual Tracker acceptance:
+`packaged-movie`, `packaged-movie-clip` and `packaged-movie-clip-single`. Their current-head Linux
+application results, three-platform CI and review are still required; local/native checks alone are
+not accepted interoperability evidence. Broader movie formats and full export authoring remain unfinished.
+
+Local Windows validation at `f18cecd` passes all ten CTest groups in **127.87 seconds** with
+**95.75% C++ line coverage (8897/9292)**, 90 Python corpus tests and all three native package
+export/oracle/reimport modes. All tracked C++ formatting and five changed-source static analyses pass.
+The three existing LLVM function-profile mismatch warnings remain visible.
+
+The subsequent review correction sends the shared image/MOV destination-refusal message through Qt
+translation and adds unfinished entries to all three catalogs. Its rebuilt package tests (12 cases),
+affected-source formatting/static analysis and catalog checks pass; package behavior is unchanged.

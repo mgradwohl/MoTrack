@@ -275,12 +275,59 @@ class CorpusTests(unittest.TestCase):
                     package.writestr("unexpected.txt", "unexpected")
 
         build()
-        corpus.verify_image_package_export(original, exported, selected, case)
+        corpus.verify_media_package_export(original, exported, selected, case)
         self.assertEqual(selected.read_text(encoding="utf-8"), xml)
         for mutation in ["xml", "path", "pixels", "missing", "extra", "stored"]:
             build(mutation)
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
-                corpus.verify_image_package_export(original, exported, selected, case)
+                corpus.verify_media_package_export(original, exported, selected, case)
+
+    def test_movie_package_oracle_checks_complete_media_xml_and_clip_ranges(self):
+        case = next(c for c in corpus.load_manifest()["cases"] if c["id"] == "linked-mov")
+        self.assertTrue(case["native_movie_package_roundtrip"])
+        original = corpus.local_fixture_path(case)
+        exported = self.root / "packaged-movie.trz"
+        selected = self.root / "selected-movie.trk"
+        payload = corpus.local_fixture_path(case["assets"][0]).read_bytes()
+        for clip_mode in [None, "stride", "single"]:
+            with corpus.minidom.parse(str(original)) as document:
+                corpus.patch_expected_linked_media(document, movie=True, relocate=False, clip_mode=clip_mode)
+                xml = document.toxml().replace("constant-rate.mov", "media/movie.mov")
+            for mutation in [None, "xml", "path", "movie", "missing", "extra", "stored", "crc-xml", "crc-movie", "not-zip"]:
+                with self.subTest(clip_mode=clip_mode, mutation=mutation):
+                    with zipfile.ZipFile(exported, "w", compression=(zipfile.ZIP_STORED if mutation == "stored"
+                                                                  else zipfile.ZIP_DEFLATED)) as package:
+                        data = xml
+                        if mutation == "xml":
+                            data = data.replace('name="xorigin" type="double">2.0', 'name="xorigin" type="double">3.0')
+                        elif mutation == "path":
+                            data = data.replace("media/movie.mov", "../external.mov")
+                        package.writestr("experiment.trk", data)
+                        if mutation != "missing":
+                            package.writestr("media/movie.mov", payload[:-1] + bytes([payload[-1] ^ 1]) if mutation == "movie" else payload)
+                        if mutation == "extra":
+                            package.writestr("unexpected.txt", "unexpected")
+                    if mutation in {"crc-xml", "crc-movie"}:
+                        damaged = bytearray(exported.read_bytes())
+                        with zipfile.ZipFile(exported) as package:
+                            central = package.start_dir
+                            if mutation == "crc-movie":
+                                first = package.infolist()[0]
+                                central += 46 + len(first.filename.encode("utf-8")) + len(first.extra) + len(first.comment)
+                        self.assertEqual(damaged[central:central + 4], b"PK\x01\x02")
+                        damaged[central + 16] ^= 1  # Central-directory CRC, leaving decoded bytes unchanged.
+                        exported.write_bytes(damaged)
+                    elif mutation == "not-zip":
+                        exported.write_bytes(b"not a ZIP archive")
+                    if mutation:
+                        previous = selected.read_bytes()
+                        message = "ZIP integrity" if mutation in {"crc-xml", "crc-movie", "not-zip"} else ".*"
+                        with self.assertRaisesRegex(ValueError, message):
+                            corpus.verify_media_package_export(original, exported, selected, case, clip_mode, movie=True)
+                        self.assertEqual(selected.read_bytes(), previous)
+                    else:
+                        corpus.verify_media_package_export(original, exported, selected, case, clip_mode, movie=True)
+                        self.assertEqual(selected.read_text(encoding="utf-8"), xml)
 
     def test_linked_movie_export_oracle_checks_all_xml_and_movie_bytes(self):
         case = next(c for c in corpus.load_manifest()["cases"] if c["id"] == "linked-movie")

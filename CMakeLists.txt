@@ -41,10 +41,10 @@ add_library(motrack_project STATIC src/document_session.cpp src/legacy_project.c
 target_include_directories(motrack_project PUBLIC src)
 target_link_libraries(motrack_project PUBLIC Qt6::Core PRIVATE Qt6::Xml motrack_archive)
 
-# Image-package validation decodes staged media without adding image codecs to the project model.
+# Package validation decodes staged images/movies without adding codecs to the project model.
 add_library(motrack_image_package STATIC src/tracker_image_package.cpp)
 target_include_directories(motrack_image_package PUBLIC src)
-target_link_libraries(motrack_image_package PUBLIC motrack_project PRIVATE Qt6::Gui motrack_archive)
+target_link_libraries(motrack_image_package PUBLIC motrack_project PRIVATE Qt6::Gui motrack_archive motrack_media)
 
 qt_add_executable(motrack src/main.cpp)
 add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp src/movie_worker.cpp src/position_plot.cpp
@@ -148,7 +148,7 @@ if(BUILD_TESTING)
     FetchContent_MakeAvailable(googletest)
 
     add_executable(motrack_tests tests/paired_save_test.cpp tests/legacy_project_test.cpp tests/measurements_test.cpp tests/track_edits_test.cpp
-        tests/tracker_archive_test.cpp tests/tracker_archive_writer_test.cpp tests/tracker_image_package_test.cpp tests/tracker_references_test.cpp tests/tracker_writer_test.cpp)
+        tests/tracker_archive_test.cpp tests/tracker_archive_writer_test.cpp tests/tracker_image_package_test.cpp tests/tracker_movie_package_test.cpp tests/tracker_references_test.cpp tests/tracker_writer_test.cpp)
     target_link_libraries(motrack_tests PRIVATE motrack_project motrack_image_package GTest::gtest_main motrack_archive Qt6::Xml Qt6::Gui)
     target_compile_definitions(motrack_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")

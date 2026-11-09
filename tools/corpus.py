@@ -510,7 +510,9 @@ def patch_expected_linked_media(document, relocate=True, packaged=False, movie=F
             scalar(prop(clip, name), value)
     video = elements(prop(clip, "video"), "object")[0]
     if movie:
-        if relocate:
+        if packaged:
+            scalar(prop(video, "path"), "media/movie.mov")
+        elif relocate:
             scalar(prop(video, "path"), "média & movie/constant-rate.avi")
     elif relocate or packaged:
         paths = prop(video, "paths")
@@ -664,25 +666,33 @@ def verify_linked_movie_export_xml(original, exported, case, clip_mode=None):
     verify_file(exported.parent / "média & movie" / "constant-rate.avi", case["assets"][0])
 
 
-def verify_image_package_export(original, exported, selected_xml, case, clip_mode=None):
-    """Independent ZIP/XML/hash oracle for a new package; no external image paths may survive."""
+def verify_media_package_export(original, exported, selected_xml, case, clip_mode=None, *, movie=False):
+    """Independent ZIP/XML/hash oracle for a new package; no external media paths may survive."""
     if exported.stat().st_size > 1024 * 1024:
-        raise ValueError("Image package reference exceeds the small-fixture limit")
-    images = [f"images/frame-{index:06d}.png" for index in range(4)]
-    with zipfile.ZipFile(exported) as package:
-        if (package.namelist() != ["experiment.trk", *images] or package.comment or package.testzip() is not None
-                or any(entry.compress_type != zipfile.ZIP_DEFLATED or entry.extract_version > 20 for entry in package.infolist())):
-            raise ValueError("Unexpected image package inventory or encoding")
-        for member, asset in zip(images, case["assets"], strict=True):
-            payload = package.read(member)
-            if len(payload) != asset["bytes"] or hashlib.sha256(payload).hexdigest() != asset["sha256"]:
-                raise ValueError("Packaged image bytes changed")
-        xml = package.read("experiment.trk")
-        with minidom.parse(str(original)) as expected, minidom.parseString(xml) as actual:
-            patch_expected_linked_media(expected, packaged=True, clip_mode=clip_mode)
-            if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
-                raise ValueError("Image package changed XML beyond the requested paths, mass and mark")
-        selected_xml.write_bytes(xml)
+        raise ValueError("Media package reference exceeds the small-fixture limit")
+    media = ["media/movie.mov"] if movie else [f"images/frame-{index:06d}.png" for index in range(4)]
+    try:
+        with zipfile.ZipFile(exported) as package:
+            if (package.namelist() != ["experiment.trk", *media] or package.comment
+                    or any(entry.compress_type != zipfile.ZIP_DEFLATED or entry.extract_version > 20 for entry in package.infolist())):
+                raise ValueError("Unexpected media package inventory or encoding")
+            # Reading every bounded member checks its CRC without an unbounded testzip() pass.
+            for member, asset in zip(media, case["assets"], strict=True):
+                if package.getinfo(member).file_size != asset["bytes"]:
+                    raise ValueError("Packaged media size changed")
+                payload = package.read(member)
+                if len(payload) != asset["bytes"] or hashlib.sha256(payload).hexdigest() != asset["sha256"]:
+                    raise ValueError("Packaged media bytes changed")
+            if package.getinfo("experiment.trk").file_size > MAX_XML_BYTES:
+                raise ValueError("Packaged XML exceeds fixture bounds")
+            xml = package.read("experiment.trk")
+            with minidom.parse(str(original)) as expected, minidom.parseString(xml) as actual:
+                patch_expected_linked_media(expected, packaged=True, clip_mode=clip_mode, movie=movie)
+                if canonical_tracker_xml(expected) != canonical_tracker_xml(actual):
+                    raise ValueError("Media package changed XML beyond the requested paths, mass, mark and clip")
+            selected_xml.write_bytes(xml)
+    except zipfile.BadZipFile as error:
+        raise ValueError("Media package ZIP integrity check failed") from error
 
 
 def verify_archive_media_export(original, exported, selected_xml, member_count=7, clip_mode=None, *, movie=False):
@@ -1978,6 +1988,9 @@ def check_sessions(manifest, cache, java, probe=None):
              ("linked-image-clip", "native_linked_image_clip_roundtrip"), ("linked-image-clip-single", "native_linked_image_clip_roundtrip"),
              ("archive-image-clip", "native_archive_image_clip_roundtrip"), ("packaged-image-clip", "native_linked_image_clip_roundtrip"),
              ("packaged-images", "native_image_package_roundtrip"),
+             ("packaged-movie", "native_movie_package_roundtrip"),
+             ("packaged-movie-clip", "native_movie_package_roundtrip"),
+             ("packaged-movie-clip-single", "native_movie_package_roundtrip"),
              ("paired-archive-images", "native_paired_archive_roundtrip"), ("paired-linked-images", "native_paired_linked_roundtrip"),
              ("mass", "native_mass_roundtrip"), ("marks", "native_mark_roundtrip"),
              ("empty-marks", "native_mark_roundtrip"), ("first-mark", "native_mark_roundtrip"),
@@ -2067,17 +2080,20 @@ def check_sessions(manifest, cache, java, probe=None):
                 case = {**case, "session_tracks": [track for track in case["session_tracks"]
                                                    if track["class"] == "org.opensourcephysics.cabrillo.tracker.CoordAxes"]}
             expected = None
-            if mode in {"packaged-images", "packaged-image-clip"}:
+            if mode in {"packaged-images", "packaged-image-clip", "packaged-movie", "packaged-movie-clip", "packaged-movie-clip-single"}:
+                packaged_movie = mode.startswith("packaged-movie")
+                clip_mode = ("single" if mode in {"packaged-image-clip", "packaged-movie-clip-single"}
+                             else "stride" if mode == "packaged-movie-clip" else None)
                 exported = output / "motrack-export.trz"
                 run([str(Path(probe).resolve()), "--export-" + mode, str(project), str(exported)])
                 selected = output / "exported-member.trk"
-                verify_image_package_export(project, exported, selected, case, "single" if mode == "packaged-image-clip" else None)
-                if (output / "media é & frames").exists():
-                    raise ValueError("Image package probe retained original external media")
+                verify_media_package_export(project, exported, selected, case, clip_mode, movie=packaged_movie)
+                if (output / ("média & movie" if packaged_movie else "media é & frames")).exists():
+                    raise ValueError("Media package probe retained original external media")
                 project = selected
                 expected = linked_media_roundtrip_expected(case)
-                if mode == "packaged-image-clip":
-                    expected, case = linked_media_clip_expected(case, single=True)
+                if clip_mode:
+                    expected, case = linked_media_clip_expected(case, single=clip_mode == "single")
                 native_report = output / "native-export.json"
                 run([str(Path(probe).resolve()), str(project), str(native_report)])
                 compare(expected, json.loads(native_report.read_text(encoding="utf-8")), manifest["tolerance"], case["id"] + ".export")
@@ -2203,7 +2219,8 @@ def check_sessions(manifest, cache, java, probe=None):
                 stages[stage] = json.loads((output / ("session-" + stage + ".json")).read_text(encoding="utf-8"))
                 if (stages[stage]["reference_version"] != manifest["reference"]["version"]
                         or stages[stage]["verification_level"] != "tracker_session_" + stage
-                        or stages[stage].get("view_preparation") != "expand_visit_custom_tables_restore_selection"):
+                        or stages[stage].get("view_preparation") != "expand_visit_custom_tables_restore_selection"
+                        or (mode.startswith("packaged-movie") and stages[stage].get("cache_policy") != "private_persistent_osp_cache")):
                     raise ValueError("Unexpected Tracker session stage")
                 callbacks = stages[stage].get("loader_callbacks")
                 if type(callbacks) is not int or callbacks < 1:
@@ -2215,15 +2232,18 @@ def check_sessions(manifest, cache, java, probe=None):
                     assets = next(item["assets"] for item in manifest["cases"] if item["id"] == "linked-images")
                     image_inventories[stage] = verify_saved_image_inventory(output / "tracker-resaved.trk", assets)
                 elif case["id"] in {"linked-movie", "linked-mov"}:
-                    movie_inventories[stage] = verify_saved_movie_asset(output / "tracker-resaved.trk", case["assets"][0])
+                    movie_inventories[stage] = verify_saved_movie_asset(output / "tracker-resaved.trk", case["assets"][0],
+                                                                       allow_archive=mode.startswith("packaged-movie"))
             report = {"reference_version": stages["save"]["reference_version"], "verification_level": "tracker_session_resave",
                       "view_preparation": stages["save"]["view_preparation"],
                       "loader_callbacks": {stage: stages[stage]["loader_callbacks"] for stage in stages},
+                      "cache_policy": {stage: stages[stage].get("cache_policy") for stage in stages},
                       "before": stages["save"]["loaded"], "after_save": stages["save"]["after_save"],
                       "after": stages["reopen"]["loaded"], "saved_image_inventories": image_inventories, "saved_movie_assets": movie_inventories}
             keys = {"marks": [[0, 3], [7]], "empty-marks": [[], [0]], "first-mark": [[4], [0]]}.get(mode)
             if mode in {"linked-movie", "linked-movie-clip", "linked-movie-clip-single", "linked-images", "linked-image-clip", "linked-image-clip-single", "archive-images",
-                        "paired-linked-images", "paired-archive-images", "packaged-images", "archive-image-clip", "packaged-image-clip"}:
+                        "paired-linked-images", "paired-archive-images", "packaged-images", "archive-image-clip", "packaged-image-clip",
+                        "packaged-movie", "packaged-movie-clip", "packaged-movie-clip-single"}:
                 keys = [[0, 1, 2]]
             if mode in {"create-mass", "create-empty-mass"}:
                 keys = [[0], [0], [] if mode == "create-empty-mass" else [1, 4, 8]]
@@ -2262,7 +2282,8 @@ def check_sessions(manifest, cache, java, probe=None):
                     print(f"{case['id']}/{mode}: passed (MoTrack rejected unsafe export; actual Tracker snapping confirmed; resave/reimport)")
                 else:
                     standard = "TRZ" if mode in {"archive-images", "paired-archive-images", "packaged-images",
-                                                "archive-image-clip", "packaged-image-clip"} else "TRK"
+                                                "archive-image-clip", "packaged-image-clip",
+                                                "packaged-movie", "packaged-movie-clip", "packaged-movie-clip-single"} else "TRK"
                     pair = "interrupted paired save/recovery; " if mode.startswith("paired-") else ""
                     print(f"{case['id']}/{mode}: passed (MoTrack edit/native reopen/{standard} export; {pair}Tracker load/save/reopen; native reimport)")
             elif known_report is not None:
