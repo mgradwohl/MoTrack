@@ -1216,5 +1216,28 @@ Tracker opens the actual `.trz`, saves through its normal application saver and 
 process/private home. The normal persistent cache policy is required in both reports. Every source
 movie byte must remain available after saving and again after fresh reopen, including excluded frames;
 independent pixels, frame ordinals, timestamps, geometry, mass and untouched content remain checked.
-Native reimport of Tracker's resave closes the loop. These new modes still require their current-head
-Linux application run and three-platform CI/review; native or mocked oracle checks are not that evidence.
+Native reimport of Tracker's resave closes the loop. All three modes passed actual Tracker acceptance in
+[PR #141](https://github.com/mgradwohl/MoTrack/pull/141) at reviewed revision `d0e1a66`, with all six checks
+and **95.83% combined coverage (8931/9320)** in [CI 42583275559](https://github.com/mgradwohl/MoTrack/actions/runs/42583275559).
+
+### Fixed movie calibration saving
+
+`linked-movie-calibration`, `archive-movie-calibration`, `paired-archive-movie-calibration` and
+`packaged-movie-calibration` reuse the pinned AVI/MOV sources and unchanged asset hashes. The native
+probe edits mass/mark 1, then uses the real axes and distance commands at original frames 1 and 2.
+Undo twice restores the previous project; redo twice restores the edited project. The commands move
+the fixed frame-0 origin to (10,18), rotate it to 90 degrees, change nonuniform scales to (4,8), and
+set the length label to `cm`. Native save/reopen and original-source removal precede standard output;
+the paired archive mode interrupts and recovers both outputs, and packaging removes external media.
+
+Independent expected coordinates use `X=(18-y)/8`, `Y=(10-x)/4`. Image marks (4,16), (8,12), (12,4)
+must become (0.25,1.5), (0.75,0.5), (1.75,-0.5); probe point (13.5,17.25) must become
+(0.09375,-0.875). XML comparison permits only the five coordinate values, length label and previously
+specified mass/mark/path edits. Movie bytes, all frame timestamps, source-frame identities, axes display
+settings and the second archive experiment remain independently checked. Negative tests corrupt origin,
+rotation, scales, label or calculated positions, including the same corruption at every application stage.
+
+The normal Linux application runner requires Tracker load, save, fresh-process reopen and native
+reimport for all four modes. Local Windows native export/oracle/reimport passes; current-revision Linux
+acceptance and code review remain pending. This slice does not accept keyed/partly fixed movie
+calibration, timing edits, filters or broader movie containers, and does not close MoTrack #78.

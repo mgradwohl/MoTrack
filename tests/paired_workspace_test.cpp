@@ -3,6 +3,7 @@
 #include "paired_save.hpp"
 #include "tracker_archive.hpp"
 #include "tracker_writer.hpp"
+#include "video_canvas.hpp"
 #include "workspace_document.hpp"
 
 #include <QAction>
@@ -10,9 +11,11 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QDir>
+#include <QDoubleSpinBox>
 #include <QFile>
 #include <QFileDialog>
 #include <QInputDialog>
+#include <QLineEdit>
 #include <QLocale>
 #include <QLockFile>
 #include <QMessageBox>
@@ -109,6 +112,42 @@ TEST(PairedWorkspace, SavesIndexedMovieEditsAndNativeCompanionAfterSourceRemoval
         ASSERT_TRUE(plot && canvas && slider);
         ASSERT_TRUE(QTest::qWaitFor([plot] { return plot->accessibleName().endsWith("Time (s)"); }));
         ASSERT_TRUE(editMass(window, 7));
+        auto* video = dynamic_cast<motrack::VideoCanvas*>(canvas);
+        auto* axes = window.findChild<QAction*>("setCoordinateAxes");
+        auto* calibrate = window.findChild<QAction*>("calibrationStick");
+        auto* undo = window.findChild<QAction*>("undoEdit");
+        auto* redo = window.findChild<QAction*>("redoEdit");
+        ASSERT_TRUE(video && axes && calibrate && undo && redo);
+        axes->trigger();
+        ASSERT_TRUE(video->pick({10, 18}, false));
+        ASSERT_TRUE(video->pick({10, 10}, false));
+        calibrate->trigger();
+        ASSERT_TRUE(video->pick({4, 12}, false));
+        bool configured = false;
+        QTimer::singleShot(0,
+                           &window,
+                           [&configured]
+                           {
+                               if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
+                               {
+                                   auto* distance = dialog->findChild<QDoubleSpinBox*>("knownDistance");
+                                   auto* unit = dialog->findChild<QLineEdit*>("lengthUnit");
+                                   if (distance && unit)
+                                   {
+                                       distance->setValue(2);
+                                       unit->setText("cm");
+                                       configured = true;
+                                   }
+                                   dialog->accept();
+                               }
+                           });
+        ASSERT_TRUE(video->pick({12, 12}, false));
+        ASSERT_TRUE(configured);
+        EXPECT_TRUE(plot->accessibleName().contains("(cm)"));
+        undo->trigger();
+        EXPECT_TRUE(plot->accessibleName().contains("(m)"));
+        redo->trigger();
+        EXPECT_TRUE(plot->accessibleName().contains("(cm)"));
         ASSERT_TRUE(QFile::remove(source));
         ASSERT_TRUE(QDir().rmdir(inputDirectory));
         ASSERT_TRUE(window.saveTrackerProject(target));
@@ -117,6 +156,17 @@ TEST(PairedWorkspace, SavesIndexedMovieEditsAndNativeCompanionAfterSourceRemoval
         EXPECT_TRUE(companion.movie && companion.alignMovieToClip);
         EXPECT_EQ(companion.movieFrameTimes, (std::vector<double>{0.0, 0.125, 0.25, 0.375}));
         EXPECT_DOUBLE_EQ(companion.project.pointMasses.front().mass, 7);
+        EXPECT_EQ(companion.project.lengthUnit, "cm");
+        if (!companion.project.calibration)
+            FAIL() << "Paired save lost the calibrated movie.";
+        ASSERT_EQ(companion.project.calibration->keyframes.size(), 1);
+        const auto& key = companion.project.calibration->keyframes.front();
+        EXPECT_DOUBLE_EQ(key.originX, 10);
+        EXPECT_DOUBLE_EQ(key.originY, 18);
+        EXPECT_DOUBLE_EQ(key.angleDegrees, 90);
+        EXPECT_DOUBLE_EQ(key.scaleX, 4);
+        EXPECT_DOUBLE_EQ(key.scaleY, 8);
+        EXPECT_EQ(motrack::importTrackerDocument(target).project.calibration, companion.project.calibration);
         EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(target).project.pointMasses.front().mass, 7);
         slider->setValue(2);
         ASSERT_TRUE(QTest::qWaitFor([canvas] { return canvas->accessibleName() == "Frame 2"; }));
@@ -130,6 +180,8 @@ TEST(PairedWorkspace, SavesIndexedMovieEditsAndNativeCompanionAfterSourceRemoval
     ASSERT_TRUE(reopened.saveTrackerProject(target));
     EXPECT_DOUBLE_EQ(motrack::readWorkspaceDocument(native).project.pointMasses.front().mass, 9);
     EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(target).project.pointMasses.front().mass, 9);
+    EXPECT_EQ(motrack::importTrackerDocument(target).project.lengthUnit, "cm");
+    EXPECT_EQ(motrack::importTrackerDocument(target).project.calibration, motrack::readWorkspaceDocument(native).project.calibration);
 }
 
 TEST(PairedWorkspace, SavesArchivedMovieClipsAndBothCopiesAfterOriginalRemoval)

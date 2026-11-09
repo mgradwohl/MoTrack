@@ -140,6 +140,7 @@
         "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
         "slf4j-api-1.7.30.jar"
       ],
+      "native_archive_movie_calibration_roundtrip": true,
       "native_archive_movie_roundtrip": true,
       "project_member": "experiment.trk",
       "session_archive": true,
@@ -163,6 +164,7 @@
     },
     {
       "id": "linked-mov",
+      "native_movie_package_calibration_roundtrip": true,
       "native_movie_package_roundtrip": true,
       "tracker_version": "6.3.5",
       "file": "linked-movie.trk",
@@ -1700,6 +1702,7 @@
     },
     {
       "id": "linked-movie",
+      "native_linked_movie_calibration_roundtrip": true,
       "native_linked_movie_roundtrip": true,
       "native_linked_movie_clip_roundtrip": true,
       "tracker_version": "6.3.5",

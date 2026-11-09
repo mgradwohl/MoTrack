@@ -76,7 +76,9 @@ audited constant-rate imports after timestamp indexing; its edited-file Tracker 
 has passed for the pinned linked four-frame AVI and mixed-tab MOV archive cases. Later revisions require
 their own CI and review. Archived AVI output is refused because pinned Tracker cannot reopen it;
 the original case and compatibility restriction are tracked in [#140](https://github.com/mgradwohl/MoTrack/issues/140).
-Movie timing/calibration/track-identity edits, broader movie containers, filters and broader settings remain unfinished. An unsupported export is refused; save a MoTrack copy to retain work.
+Existing fixed movie calibration can also retain axes, distance-scale and length-label edits through
+linked saves, MOV archives and paired saving. Its new actual-Tracker acceptance cases await current-revision CI.
+Movie timing, varying calibration and track-identity edits, broader movie containers, filters and broader settings remain unfinished. An unsupported export is refused; save a MoTrack copy to retain work.
 Image experiments can retain Clip Settings changes to the starting frame, ending frame and frame
 interval in linked `.trk` files, existing image archives and portable image exports. All source images
 and marks remain available, including those outside the selected clip; image timing stays unchanged.
@@ -93,7 +95,7 @@ history; exporting a copy does not replace ordinary Save or create a companion a
 
 Export runs in the background with a Cancel button. Missing media files are named in the error message,
 and failures or cancellation before replacement keep an existing archive intact. This command currently
-supports audited local-image schemas and linked MOV mass/mark/clip-range edits described in the
+supports audited local-image schemas and linked MOV mass/mark/clip-range and existing fixed-calibration edits described in the
 [format guide](docs/native-format.md#creating-a-portable-movie-archive). The entire movie is retained, including
 frames outside the selected clip. Other movie containers, arbitrary supporting documents and newly created
 standalone media projects remain unfinished.

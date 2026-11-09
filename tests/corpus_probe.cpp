@@ -177,6 +177,18 @@ void saveAndRecoverPair(const QString& path, const motrack::WorkspaceDocument& d
         throw motrack::ProjectError("Recovered native companion changed the edited project or original source.");
 }
 
+void editMovieCalibration(motrack::WorkspaceDocument& document, motrack::TrackEdits& edits)
+{
+    const auto before = document.project;
+    if (!edits.setCoordinateAxes(document.project, {.frame = 1, .originX = 10, .originY = 18, .positiveX = 10, .positiveY = 10}) ||
+        !edits.calibrateDistance(document.project, {.frame = 2, .imageDeltaX = 8, .imageDeltaY = 0, .knownLength = 2, .unit = "cm"}))
+        throw motrack::ProjectError("Could not calibrate the movie reference.");
+    const auto edited = document.project;
+    if (!edits.undo(document.project) || !edits.undo(document.project) || document.project != before || !edits.redo(document.project) ||
+        !edits.redo(document.project) || document.project != edited)
+        throw motrack::ProjectError("Movie calibration history did not preserve the experiment.");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -203,7 +215,8 @@ try
     if (args.size() == 4 && (args[1] == "--export-archive-images" || args[1] == "--export-paired-archive-images" ||
                              args[1] == "--export-multitab-archive-images" || args[1] == "--export-archive-image-clip" ||
                              args[1] == "--export-archive-movie" || args[1] == "--export-archive-movie-clip" ||
-                             args[1] == "--export-archive-movie-clip-single" || args[1] == "--export-paired-archive-movie"))
+                             args[1] == "--export-archive-movie-clip-single" || args[1] == "--export-paired-archive-movie" ||
+                             args[1] == "--export-archive-movie-calibration" || args[1] == "--export-paired-archive-movie-calibration"))
     {
         const bool movie = args[1].contains("movie");
         QTemporaryDir temporary;
@@ -239,6 +252,8 @@ try
             !edits.markPointMass(document.project, 0, {.frame = 1, .x = 8.0, .y = 12.0}) || !edits.undo(document.project) ||
             !edits.redo(document.project))
             throw motrack::ProjectError("Could not edit archived media reference.");
+        if (args[1].endsWith("-movie-calibration"))
+            editMovieCalibration(document, edits);
         if (args[1] == "--export-archive-image-clip" || args[1] == "--export-archive-movie-clip" ||
             args[1] == "--export-archive-movie-clip-single")
         {
@@ -253,7 +268,7 @@ try
         if (!QFile::remove(source))
             throw motrack::ProjectError("Could not remove original archive reference.");
         document = motrack::readWorkspaceDocument(native);
-        if (args[1] == "--export-paired-archive-images" || args[1] == "--export-paired-archive-movie")
+        if (args[1] == "--export-paired-archive-images" || args[1].startsWith("--export-paired-archive-movie"))
             saveAndRecoverPair(args[3], document, native);
         else
             motrack::writeTrackerArchiveDocument(args[3], document);
@@ -261,7 +276,8 @@ try
     }
     if (args.size() == 4 && (args[1] == "--export-linked-movie" || args[1] == "--export-linked-movie-clip" ||
                              args[1] == "--export-linked-movie-clip-single" || args[1] == "--export-packaged-movie" ||
-                             args[1] == "--export-packaged-movie-clip" || args[1] == "--export-packaged-movie-clip-single"))
+                             args[1] == "--export-packaged-movie-clip" || args[1] == "--export-packaged-movie-clip-single" ||
+                             args[1] == "--export-linked-movie-calibration" || args[1] == "--export-packaged-movie-calibration"))
     {
         const bool packaged = args[1].startsWith("--export-packaged-movie");
         QTemporaryDir temporary;
@@ -293,7 +309,9 @@ try
             !edits.markPointMass(document.project, 0, {.frame = 1, .x = 8.0, .y = 12.0}) || !edits.undo(document.project) ||
             !edits.redo(document.project))
             throw motrack::ProjectError("Could not edit linked-movie reference.");
-        if (args[1] != "--export-linked-movie" && args[1] != "--export-packaged-movie")
+        if (args[1].endsWith("-movie-calibration"))
+            editMovieCalibration(document, edits);
+        if (args[1].contains("-clip"))
         {
             const bool single = args[1].endsWith("-single");
             if (!edits.setClipRange(document.project, single ? 2 : 1, single ? 2 : 3, single ? 1 : 2) || !edits.undo(document.project) ||

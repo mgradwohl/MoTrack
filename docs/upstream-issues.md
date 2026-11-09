@@ -42,6 +42,15 @@ record the test evidence and update the plan. The broader post-port review in
 [MoTrack #39](https://github.com/mgradwohl/MoTrack/issues/39) remains separate from correctness and
 compatibility work that must happen during the port.
 
+On **2026-11-09**, Tracker #12/#13 and their complete discussions were refreshed for the fixed-movie
+calibration save slice. #12 remains a confirmed upstream two-click workflow; #13 remains open with the
+historical second-endpoint report unreproduced by its maintainer. The native desktop regression now
+places axes and both distance endpoints through the existing input controller, checks undo/redo, and
+saves/reopens fixed calibration in both file formats. Four independent movie save/reference modes are
+added with current-revision application CI still pending. This is scoped phase-3 persistence evidence;
+[MoTrack #78](https://github.com/mgradwohl/MoTrack/issues/78) stays open for the full phase-5 tool,
+selection/dragging, zoom/DPI and cancellation acceptance. The original reported bug is not claimed reproduced.
+
 ## Defects discovered by the reference harness
 
 | Observation | Evidence and current limit | MoTrack tracking |
