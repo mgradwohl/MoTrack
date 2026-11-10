@@ -83,7 +83,11 @@ policy while saving hidden members. Those routes passed all current-head checks,
 Tracker acceptance in merged #160. The next shared-services slice additionally exercises two actual
 desktop windows with one continuing AutoTracker after the other closes, bounded pools/cache, and
 isolated frame cancellation. Those local cases pass, but tabbed controls, registry-bound views and
-full cross-platform acceptance remain unfinished. #69 remains open. See
+full cross-platform acceptance remain unfinished. The following retained-editor slice additionally
+tests actual registry-bound views while saving and closing another experiment: tracking continues
+with independent timing/units, and hidden archive edits remain in whole-source saves. Its local
+regressions pass; a tabbed workspace and its explicit close/discard controls are still absent.
+#69 remains open. See
 [workspace ownership and routing](workspace-sessions.md).
 
 The baseline tabset workflow is now tracked explicitly in [MoTrack #150](https://github.com/mgradwohl/MoTrack/issues/150); moving reference frames discovered in the real Diabolo archive are tracked in [MoTrack #148](https://github.com/mgradwohl/MoTrack/issues/148). Neither discovery is an accepted full round trip.

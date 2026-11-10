@@ -95,6 +95,12 @@ class WorkspaceSession
     [[nodiscard]] LegacyProject& project(QUuid id);
     [[nodiscard]] TrackEdits& history(QUuid id);
     [[nodiscard]] QUuid sourceId(QUuid document) const;
+    [[nodiscard]] const QString& sourcePath(QUuid source) const;
+    [[nodiscard]] QString mediaProjectPath(QUuid document) const;
+    /// View identity/revision only; writes still require whole-source beginSave/completeSave routing.
+    [[nodiscard]] DocumentSession::SaveCheckpoint documentCheckpoint(QUuid document) const;
+    /// Adopt derived media metadata only for the current index job; never clears edit history.
+    [[nodiscard]] bool applyMovieIndex(const WorkspaceJobToken& token, std::vector<double> frameTimes, int frameCount);
     [[nodiscard]] bool isModified(QUuid source) const;
     [[nodiscard]] bool requiresPairedSave(QUuid source) const;
     [[nodiscard]] const QString& nativeSavePath(QUuid source) const;
@@ -114,6 +120,9 @@ class WorkspaceSession
 
     /// Supersedes only the same document/job kind. Selection and tab order never cancel jobs.
     [[nodiscard]] WorkspaceJobToken beginJob(QUuid document, WorkspaceJob kind);
+    /// A desktop reader has identified a movie source. Mark its derived media kind before indexing,
+    /// so unindexed movies cannot be mistaken for portable image sequences while the worker runs.
+    [[nodiscard]] WorkspaceJobToken beginMovieIndex(QUuid document);
     [[nodiscard]] bool accepts(const WorkspaceJobToken& token) const;
     [[nodiscard]] bool finishJob(const WorkspaceJobToken& token);
     void cancelJobs(QUuid document);

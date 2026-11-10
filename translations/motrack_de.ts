@@ -3,6 +3,7 @@
 <TS version="2.1" language="de">
   <context>
     <name>MainWindow</name>
+    <message><source>The workspace already has two pending saves. Wait for one to finish.</source><translation type="unfinished"></translation></message>
     <message><source>Export portable &amp;archive…</source><translation type="unfinished"></translation></message>
     <message><source>Copy this experiment and its media into one portable Tracker archive.</source><translation type="unfinished"></translation></message>
     <message><source>Export portable archive</source><translation type="unfinished"></translation></message>
