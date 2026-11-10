@@ -34,6 +34,12 @@ the reader accepts versions 1 through 5 and rejects unknown versions. Archive-ba
 the native ZIP container described below; other documents remain plain JSON. Existing measurement, calibration,
 clip, media-reference and movie-time fields retain their version-1 meanings.
 
+An engaged frame duration must be finite and strictly positive before the shared encoder creates JSON.
+Explicit absence remains valid and is different from an invalid numeric duration. NaN, either infinity,
+zero and negative durations are rejected without replacing an existing standalone or group file.
+The standalone regression reproduced silent duration loss/unreadable output before this guard;
+the group decoder already rejected the invalid in-memory values. See [#157](https://github.com/mgradwohl/MoTrack/issues/157).
+
 ## Unit labels
 
 The optional `timeUnit` string records the experiment's analysis-time label, independently of clip
@@ -1001,7 +1007,7 @@ conflicts. The four grouped image/MOV corpus modes additionally recover an inter
 destroying the prior group owners and deleting its previous native file; recovered identities, models
 and shared ownership must agree, and the standard output must remain byte-identical to both preceding
 export routes. All 10 Windows CTest groups and all four extended native corpus routes pass, with
-95.89% C++ line coverage (9247/9643), formatting and changed-source static analysis. Current-branch CI,
+95.90% C++ line coverage (9250/9645), formatting and changed-source static analysis. Current-branch CI,
 actual Tracker acceptance and external review remain pending.
 
 These worker results describe written files. Live group membership revisions and per-session native/

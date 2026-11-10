@@ -207,21 +207,32 @@ MOV/Open Recent report is resolved. Both completed branches have been removed lo
    records for every changed member, including closed tabs. Keep bindings against the original XML;
    adopting newly rendered archive bytes without migrating source bindings is invalid.
    This branch implements the version-6 group envelope with persistent group/document UUIDs, one source
-   payload and shared version-5 member codecs. Six Windows public-API tests and all four extended native
+   payload and shared version-5 member codecs. Seven Windows public-API tests and all four extended native
    image/MOV corpus routes pass, including original-input removal and byte-identical exports through
-   the independent-companion and shared-group paths. The full Windows suite passes with 95.87% coverage
-   (9192/9588), and formatting/static analysis pass. [PR #155](https://github.com/mgradwohl/MoTrack/pull/155)
-   passed code review at `c0582d5`; three-platform CI and actual Tracker acceptance remain pending. This snapshot API
+   the independent-companion and shared-group paths. [PR #155](https://github.com/mgradwohl/MoTrack/pull/155)
+   at `e62f545` passed all six checks in [CI 42694357611](https://github.com/mgradwohl/MoTrack/actions/runs/42694357611),
+   with 95.94% combined coverage (9222/9612) and the same 237 edited actual-Tracker cases, including all
+   four shared-native group modes. The following review correction remains unmerged. This snapshot API
    does not itself implement visible-tab close behavior, group checkpoints or desktop dispatch.
+   Review follow-up [#157](https://github.com/mgradwohl/MoTrack/issues/157) adds shared-encoder validation
+   for invalid optional frame durations and standalone/group output-preservation regressions. The
+   reported group overwrite did not reproduce; the standalone writer did replace the valid file.
+   The new guard rejects NaN, infinities, zero and negative durations before serialization, while
+   preserving positive fractional milliseconds and explicit absence. All 10 Windows CTest groups and
+   all four native corpus routes pass serially with 95.88% coverage (9195/9590); formatting and relevant
+   static analysis pass. Current-revision CI and review remain pending.
 2. Add group save coordination with separate native/standard checkpoints, canonical destination
    locking and paired recovery. Capture group identity and each member's session identity/revision.
    Late edits and stale/out-of-order completions must not clear newer dirty state.
    The current dependent branch implements worker-level paired group saves and locked native group
    saves through the existing transaction engine and recovery format. It adds all-boundary interruption,
    ownership, lock contention and recovery-conflict regressions, and extends the four grouped corpus
-   routes through explicit recovery after the prior group/native source is removed. All 10 Windows CTest
-   groups and the four extended native corpus modes pass with 95.89% coverage (9247/9643); formatting
-   and changed-source static analysis pass. CI, actual Tracker acceptance and review remain pending.
+   routes through explicit recovery after the prior group/native source is removed. [PR #156](https://github.com/mgradwohl/MoTrack/pull/156)
+   at `2dc712e` passed all six checks in [CI 42694373970](https://github.com/mgradwohl/MoTrack/actions/runs/42694373970),
+   code review, 95.97% combined coverage (9277/9667) and the same 237 edited actual-Tracker cases,
+   including all four paired-group recovery modes. With the parent's duration guard integrated, all
+   10 Windows CTest groups and all four native corpus routes pass serially at 95.90% coverage (9250/9645).
+   Current-revision CI and review remain pending.
    Live group membership revisions and per-session checkpoint coordination remain to do.
 3. Introduce a workspace controller owning stable document sessions, separate archive groups, tab
    order and selection. Bound aggregate media work; keep per-document history/playhead/jobs independent.

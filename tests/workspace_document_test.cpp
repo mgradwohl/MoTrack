@@ -378,6 +378,31 @@ TEST(WorkspaceDocument, RejectsIncompleteAmbiguousAndWrongTypeSourceBindings)
     EXPECT_EQ(readBytes(native), bytes);
 }
 
+TEST(WorkspaceDocument, RejectsInvalidOptionalFrameDurationsBeforeReplacingExistingFile)
+{
+    QTemporaryDir temporary;
+    const auto path = temporary.filePath("duration.motrack");
+    motrack::WorkspaceDocument document;
+    document.project.clip.frameDurationMs = 125.5;
+    motrack::writeWorkspaceDocument(path, document);
+    const auto before = readBytes(path);
+    EXPECT_EQ(motrack::readWorkspaceDocument(path).project.clip.frameDurationMs, 125.5);
+    for (const auto invalid : {std::numeric_limits<double>::quiet_NaN(),
+                               std::numeric_limits<double>::infinity(),
+                               -std::numeric_limits<double>::infinity(),
+                               0.0,
+                               -1.0})
+    {
+        SCOPED_TRACE(invalid);
+        document.project.clip.frameDurationMs = invalid;
+        EXPECT_THROW(motrack::writeWorkspaceDocument(path, document), motrack::ProjectError);
+        EXPECT_TRUE(readBytes(path) == before);
+    }
+    document.project.clip.frameDurationMs.reset();
+    motrack::writeWorkspaceDocument(path, document);
+    EXPECT_FALSE(motrack::readWorkspaceDocument(path).project.clip.frameDurationMs);
+}
+
 TEST(WorkspaceDocument, RejectsInvalidIdentitiesAndPreservesExistingFile)
 {
     QTemporaryDir temporary;

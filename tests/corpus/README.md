@@ -1525,5 +1525,5 @@ file must retain the group/member IDs, original payload digest, both edited mode
 owner; reverse mode also checks reversed member ordering. Recovered standard bytes must still equal
 the independently verified export before the existing actual-Tracker acceptance stages run. Current-
 branch actual-Tracker acceptance is pending; all four extended native modes and their independent
-oracles pass locally, along with all 10 CTest groups and 95.89% coverage (9247/9643). No original
+oracles pass locally, along with all 10 CTest groups and 95.90% coverage (9250/9645). No original
 expectations or fixture bytes change.

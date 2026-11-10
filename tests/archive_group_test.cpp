@@ -179,6 +179,32 @@ TEST(ArchiveGroup, PreservesUntouchedExperimentsAndOpaqueContentAfterOriginalRem
     EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(exported.projectPath("b.trk")).project.pointMasses.front().mass, 7);
 }
 
+TEST(ArchiveGroup, RejectsInvalidOptionalFrameDurationsWithoutReplacingExistingOutput)
+{
+    QTemporaryDir temporary;
+    const auto path = temporary.filePath("durations.motrack");
+    auto snapshot = group();
+    snapshot.members[1].document.project.clip.frameDurationMs = 125.5;
+    motrack::writeArchiveGroup(path, snapshot);
+    const auto before = readBytes(path);
+    for (const auto invalid : {std::numeric_limits<double>::quiet_NaN(),
+                               std::numeric_limits<double>::infinity(),
+                               -std::numeric_limits<double>::infinity(),
+                               0.0,
+                               -1.0})
+    {
+        SCOPED_TRACE(invalid);
+        snapshot.members[1].document.project.clip.frameDurationMs = invalid;
+        EXPECT_THROW(motrack::writeArchiveGroup(path, snapshot), motrack::ProjectError);
+        EXPECT_TRUE(readBytes(path) == before);
+    }
+    snapshot.members[1].document.project.clip.frameDurationMs.reset();
+    motrack::writeArchiveGroup(path, snapshot);
+    const auto reopened = motrack::readArchiveGroup(path);
+    ASSERT_EQ(reopened.members.size(), 2u);
+    EXPECT_FALSE(reopened.members[1].document.project.clip.frameDurationMs);
+}
+
 TEST(ArchiveGroup, RejectsInvalidSnapshotsWithoutReplacingExistingOutput)
 {
     QTemporaryDir temporary;
