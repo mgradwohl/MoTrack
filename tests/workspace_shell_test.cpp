@@ -781,7 +781,8 @@ TEST(WorkspaceShell, FirstOrdinarySaveProtectsExistingCompanionsAcrossAllSaveEnt
                                      question->button(QMessageBox::Save)->click();
                                  else
                                  {
-                                     EXPECT_EQ(question->windowTitle(), "Replace MoTrack companion?");
+                                     // macOS ignores QMessageBox window titles; verify the actual confirmation and target instead.
+                                     EXPECT_EQ(question->text(), QString("This also replaces the existing MoTrack file:\n%1").arg(native));
                                      ++confirmations;
                                      question->button(answer)->click();
                                  }
