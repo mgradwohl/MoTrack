@@ -23,18 +23,19 @@ void requireTransferable(const std::unique_ptr<DocumentSession>& incoming)
 
 } // namespace
 
-void ArchiveGroupSession::replace(ArchiveGroup incoming, const QString& nativePath)
+void ArchiveGroupSession::replace(ArchiveGroup incoming, const QString& path, ArchiveGroupSource source)
 {
-    require(nativePath.endsWith(".motrack", Qt::CaseInsensitive));
+    require((source == ArchiveGroupSource::Native && path.endsWith(".motrack", Qt::CaseInsensitive)) ||
+            (source == ArchiveGroupSource::Tracker && path.endsWith(".trz", Qt::CaseInsensitive)));
     validateArchiveGroupMembership(incoming);
     SaveState state;
-    state.reset(nativePath);
+    state.reset(path);
     std::vector<Member> members;
     members.reserve(incoming.members.size());
     for (auto& member : incoming.members)
     {
         auto session = std::make_unique<DocumentSession>();
-        session->replace(std::move(member.document), nativePath);
+        session->replace(std::move(member.document), path);
         members.push_back({.id = member.id, .member = std::move(member.member), .session = std::move(session)});
     }
     m_Id = incoming.id;

@@ -1536,6 +1536,16 @@ registered and explicitly recovered. Recovery must leave both current save point
 fresh complete-group save succeeds. Reopened member IDs/models and final standard bytes must still
 match the preceding independently verified exports before actual Tracker acceptance. All four extended
 native modes, both reimports and independent XML/ZIP/media oracles pass locally, with identical results
-in both orders. All 10 Windows CTest groups pass at 96.01% coverage (9508/9903); current-head CI/review
-and actual Tracker acceptance remain pending. No fixture bytes, original expectations or
-case-inventory entries change; desktop tab/job/close-discard behavior remains later work.
+in both orders. Merged #159 at `c72b6de` passed all six checks and review in
+[CI 42745307223](https://github.com/mgradwohl/MoTrack/actions/runs/42745307223), with 96.07% combined
+coverage (9537/9927), all 237 edited actual-Tracker cases and the three known defects still unaccepted.
+No fixture bytes, original expectations or case-inventory entries changed.
+
+The current workspace-routing extension performs the same live-group sequence through
+`WorkspaceSession`. It switches/hides the other member while retaining the first member's tracking
+token, requests complete-group saves from the hidden member, and routes interruption/recovery through
+the source owner. All preceding independent-companion, source-removal and XML/media oracles remain.
+All four extended native routes, both reimports, XML/ZIP/media oracles and byte equality pass locally.
+All 10 Windows CTest groups pass serially with 96.11% coverage (9819/10216); current-head CI/review and
+actual Tracker acceptance of this extension remain pending. Desktop tab/job/close-discard integration
+remains later work. See [workspace ownership](../../docs/workspace-sessions.md).
