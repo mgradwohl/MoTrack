@@ -1515,15 +1515,27 @@ the original owner it also writes one version-6 native group, relocates it, then
 input and every separate companion. Reopening only that group must retain both persistent member IDs,
 the original archive digest, one shared owner and both edited projects. Its standard export must be
 byte-identical to the independent-companion export. All four extended native modes and their independent
-XML/ZIP/media/reimport oracles pass locally; actual Tracker acceptance on the extended current branch
-and three-platform CI/review remain pending. Shared save/recovery coordination and desktop tabs remain separate.
+XML/ZIP/media/reimport oracles passed. Merged #155 at `a672849` passed all six checks and review in
+[CI 42737686781](https://github.com/mgradwohl/MoTrack/actions/runs/42737686781), with 95.94% combined
+coverage and the same 237 edited actual-Tracker cases, including all four group modes.
 
 The dependent paired-group extension keeps both preceding export checks and then interrupts
 `writePairedArchiveGroup` after the standard output is current. It destroys the group/document owners
 and removes the previous shared native file before explicit journal recovery. The recovered native
 file must retain the group/member IDs, original payload digest, both edited models and one shared
 owner; reverse mode also checks reversed member ordering. Recovered standard bytes must still equal
-the independently verified export before the existing actual-Tracker acceptance stages run. Current-
-branch actual-Tracker acceptance is pending; all four extended native modes and their independent
-oracles pass locally, along with all 10 CTest groups and 95.90% coverage (9250/9645). No original
-expectations or fixture bytes change.
+the independently verified export before the existing actual-Tracker acceptance stages run. Merged
+#156 at `a8e6e83` passed all six checks and review in
+[CI 42738323793](https://github.com/mgradwohl/MoTrack/actions/runs/42738323793), with 95.98% combined
+coverage and all 237 edited actual-Tracker cases. The three known defects remained unaccepted.
+
+The current live-group extension retains all those checks, then loads the recovered group into
+`ArchiveGroupSession`. A frozen save completes after a new edit and must leave the group dirty;
+undoing that edit must not clear the invalidated save point. Another paired save is interrupted,
+registered and explicitly recovered. Recovery must leave both current save points invalid until a
+fresh complete-group save succeeds. Reopened member IDs/models and final standard bytes must still
+match the preceding independently verified exports before actual Tracker acceptance. All four extended
+native modes, both reimports and independent XML/ZIP/media oracles pass locally, with identical results
+in both orders. All 10 Windows CTest groups pass at 96.01% coverage (9508/9903); current-head CI/review
+and actual Tracker acceptance remain pending. No fixture bytes, original expectations or
+case-inventory entries change; desktop tab/job/close-discard behavior remains later work.
