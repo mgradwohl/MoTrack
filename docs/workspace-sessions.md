@@ -4,7 +4,7 @@
 tabs. It uses Qt Core and the project adapters; it does not depend on Widgets, FFmpeg, Java or Swift.
 It owns independent `DocumentSession` records and `ArchiveGroupSession` owners. Retained experiment
 editors and complete asynchronous input preparation are merged in #162 and #163. The ordinary
-application entry point now uses `WorkspaceWindow`; the new shell is in local validation.
+application entry point uses `WorkspaceWindow`; the tabbed shell is merged in #164.
 
 ## Documents, sources and views
 
@@ -30,7 +30,7 @@ selection. Hiding an archive member never excludes its edits from a later group 
 source requires all its views to be hidden and destroyed, no pending save/recovery operation, and
 either a clean source or explicit confirmation to discard the whole source. It cancels only that
 source's jobs and removes its owned records. It never deletes source files or recovery journals.
-Discarding one member's edits while retaining the group still needs an actual saved model snapshot;
+Discarding one member's edits while retaining the group uses the actual saved model described below;
 a history checkpoint or `replaceMember` alone cannot implement that policy.
 
 ## Background results and resource limits
@@ -159,8 +159,8 @@ three previously investigated LLVM wrapper warnings remain visible, with no miss
 records and the unchanged 90% gate. PR #162 merged after approved review and all six checks in
 [CI 42767649627](https://github.com/mgradwohl/MoTrack/actions/runs/42767649627), with **96.32% combined
 coverage (10367/10763)** and all 237 edited Tracker cases. A bound view's close operation hides it and
-retains edits; the shell below owns explicit whole-source Save/Discard/Cancel decisions. #69 and #150
-remain open pending their complete acceptance evidence.
+retains edits; the shell below owns explicit whole-source Save/Discard/Cancel decisions. At that
+foundation milestone, #69 and #150 remained open pending complete acceptance evidence.
 
 ## Preparing complete inputs
 
@@ -289,8 +289,13 @@ an optional-value expression in saved-tab restoration and QtTest's `keyClick`/`Q
 keyboard regression. Saved-tab restoration now uses an explicit UUID value, and the test sends the
 same platform shortcut with separate key press/release events, as the existing workspace tests do.
 All 17 shell cases pass again (10993 ms), with both affected translation-unit analyses and formatting
-passing locally. No checks or assertions were removed. Fresh current-head CI and review are required.
-GitHub reports exhausted Copilot review quota; resolved initial findings do not constitute current-head approval.
+passing locally. No checks or assertions were removed. PR #164 subsequently merged at reviewed head
+`0b772d0`, with all six checks passing in [CI 42787438966](https://github.com/mgradwohl/MoTrack/actions/runs/42787438966),
+**96.13% combined coverage (11225/11677)** and all 237 unchanged edited Tracker cases. The user-authorized
+independent Codex review approved that exact revision with no blocking findings after Copilot's quota
+was exhausted. The completed branch was removed locally/remotely after containment checks.
+[MoTrack #69](https://github.com/mgradwohl/MoTrack/issues/69) is closed with native tab-isolation and
+cancellation evidence; upstream Tracker #18 remains independently open.
 The 38 new strings (including correct plural forms) are cataloged in German, Spanish and French as unfinished. Tracker TFrame tabsets
 (#150), cross-tab import and the remaining R04 layouts are not implemented by this shell.
 
@@ -306,7 +311,11 @@ so appended/replaced records never inherit a previous member's saved model.
 
 `restoreSavedDocument` requires the editor destroyed/hidden and no pending source operation. Paired
 sources require known, identical native/Tracker baselines and no recovery journal. Recovery publishes
-files without a known live snapshot, so a fresh save must establish the baseline afterward. Restoration
+files without a known live snapshot, so a physically newer save must establish the baseline afterward.
+A separate monotonic recovery-observation barrier rejects earlier write snapshots even if their callbacks
+arrive later. Both observed recovery failures and lock-confirmed journal absence advance it without
+retargeting save destinations. A write dispatched before recovery but physically published afterward
+can supply a known model while its history checkpoint remains stale. Restoration
 copies before mutation, clears only the selected history, preserves the track-ID allocation high-water
 mark and the full extent already discovered for unchanged movie media, while restoring the saved clip
 selection. It retains the document/source/member identities, media bindings and archive ownership. It
@@ -325,7 +334,15 @@ reopen; split-pair and interrupted-save recovery refusal; appended/replaced grou
 Cancel/Discard, hidden records, tab order, other edits and modal destruction/revision changes. A regression
 reproduced Revert shrinking an older movie's newly indexed extent and preventing a later clip extension;
 the fix preserves all known frames and the retained index without changing the saved clip selection.
-All 10 Windows CTest groups pass serially with **96.09% production-line coverage (11372/11835)**.
+Independent review also reproduced an older successful callback restoring mass 7 after recovery wrote
+mass 9 to both files. The eleventh regression covers standalone/group sources and ordinary/external
+recovery, checks both files and the live model, and permits restoration after a fresh save. A positive
+control retains a known snapshot from a write physically published after recovery. Both tests pass
+locally across their variants (18982 ms). After the fix, all 10 Windows CTest groups pass serially
+in 254.10 seconds with **96.09% production-line coverage (11375/11838)**. All C++ formatting,
+the three fix-affected translation-unit analyses and 52 relative guide links pass. Fresh exact-head
+cross-platform CI and independent review remain required.
+Before the ordering correction, the initial full Windows suite passed with **96.09% production-line coverage (11372/11835)**.
 All C++ formatting, nine affected translation-unit analyses (with rechecks after the fixes), and 42
 relative guide links pass. The final direct-include cleanup builds and passes static analysis plus all
 ten new regressions (2902 ms for seven UI/session cases and 4182 ms for three core cases). LLVM's six
@@ -387,13 +404,13 @@ passed; three known Tracker defects remain explicitly unaccepted. The merged bra
 locally and remotely after containment checks. This foundation does not close
 [MoTrack #69](https://github.com/mgradwohl/MoTrack/issues/69), whose upstream
 [Tracker #18](https://github.com/OpenSourcePhysics/tracker/issues/18) discussion was refreshed on
-2026-11-09. The historical report concerns actual playback/tracking controls. The visible shell above is the current integration slice. Cross-tab import, saved-view restoration and [Tracker tabsets #150](https://github.com/mgradwohl/MoTrack/issues/150) remain in
+2026-11-10. The historical report concerns actual playback/tracking controls. The visible shell is merged and native #69 is closed with acceptance evidence. Cross-tab import, saved-view restoration and [Tracker tabsets #150](https://github.com/mgradwohl/MoTrack/issues/150) remain in
 the [full-port order](migration-plan.md#implementation-order-and-exit-gates).
 
 The remaining integration order is:
 
 1. Shared services, retained editors and complete project preparation are merged in #161–#163.
-2. Complete validation of the visible shell above on the exact reviewed revision: actual tracking and
+2. The visible shell is merged in #164 with exact-head review and cross-platform validation: actual tracking and
    keyboard/tab interactions, all-source saving/close decisions, source removal and native/Tracker reopen.
 3. Complete validation of saved-model restoration and the per-experiment Revert command above.
 4. Add persisted views, then Tracker tabsets and cross-tab import. Source records and visible views

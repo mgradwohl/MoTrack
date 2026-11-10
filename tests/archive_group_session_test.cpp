@@ -318,7 +318,8 @@ TEST(ArchiveGroupSession, RecoveryNeverMarksCurrentMembersCleanOrRevivesComplete
         EXPECT_EQ(live.completePairedSave(old.checkpoint, partial), motrack::SaveOutcome::Stale);
         EXPECT_TRUE(live.recoveryPath().isEmpty());
         const auto delayed = motrack::writePairedArchiveGroup(standard, beforeRecovery.snapshot);
-        EXPECT_EQ(live.completePairedSave(beforeRecovery.checkpoint, delayed), motrack::SaveOutcome::Stale);
+        EXPECT_EQ(live.completePairedSave(beforeRecovery.checkpoint, delayed, &beforeRecovery.snapshot), motrack::SaveOutcome::Stale);
+        EXPECT_TRUE(live.canRestoreSavedMember(id));
         EXPECT_TRUE(live.isModified());
         const auto fresh = live.prepareSave();
         const auto saved = motrack::writePairedArchiveGroup(standard, fresh.snapshot);

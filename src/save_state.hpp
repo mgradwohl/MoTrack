@@ -115,6 +115,8 @@ class SaveState
     std::uint64_t m_MediaObservation = 0;
     std::uint64_t m_NativeDestinationObservation = 0;
     std::uint64_t m_StandardDestinationObservation = 0;
+    // Recovery invalidates model knowledge without retargeting ordinary save destinations.
+    std::uint64_t m_SnapshotInvalidationObservation = 0;
     bool m_PairedSaving = false;
 };
 
