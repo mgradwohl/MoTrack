@@ -545,13 +545,15 @@ TEST(BoundWorkspace, CancellingPendingMovieFramesResetsTrackingAndPlaybackWithou
             const auto moviePath = QString::fromUtf8(MOTRACK_FIXTURES) + "/vfr.mp4";
             motrack::VideoReader reader(moviePath);
             const auto decoded = reader.readNext();
-            ASSERT_TRUE(decoded);
+            if (!decoded)
+                FAIL() << "Missing first movie fixture frame.";
             std::optional<QPoint> center;
             for (int y = 6; y < decoded->image.height() - 6 && !center; ++y)
                 for (int x = 6; x < decoded->image.width() - 6 && !center; ++x)
                     if (motrack::TemplateTracker::fromImage(decoded->image, {x, y}))
                         center = QPoint{x, y};
-            ASSERT_TRUE(center);
+            if (!center)
+                FAIL() << "Movie fixture has no textured tracking patch.";
             motrack::WorkspaceDocument movie;
             movie.movie = true;
             movie.project.clip.stepCount = 4;
