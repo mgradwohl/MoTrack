@@ -1,4 +1,5 @@
 #include "archive_group.hpp"
+#include "archive_group_session.hpp"
 #include "legacy_project.hpp"
 #include "measurements.hpp"
 #include "media_vectors.hpp"
@@ -460,6 +461,45 @@ try
         if (!groupedExport.open(QIODevice::ReadOnly) || groupedExport.readAll() != separateBytes ||
             groupedExport.error() != QFileDevice::NoError)
             throw motrack::ProjectError("Shared paired recovery changed the independently verified archive export.");
+        groupedExport.close();
+        motrack::ArchiveGroupSession live;
+        live.replace(recoveredGroup, recovered.nativePath);
+        const auto liveId = live.memberIds().front();
+        const auto staleRequest = live.prepareSave();
+        if (!live.history(liveId).setPointMassValue(live.project(liveId), 0, live.project(liveId).pointMasses.front().mass + 1.0))
+            throw motrack::ProjectError("Could not prepare an edit while the group snapshot was pending.");
+        const auto staleSaved = motrack::writePairedArchiveGroup(args[3], staleRequest.snapshot);
+        if (live.completePairedSave(staleRequest.checkpoint, staleSaved) != motrack::SaveOutcome::Stale || !live.isModified() ||
+            !live.history(liveId).undo(live.project(liveId)) || !live.isModified())
+            throw motrack::ProjectError("A stale group completion cleared a newer edit or its invalidated checkpoint.");
+        const auto liveRequest = live.prepareSave();
+        cancelled = false;
+        const auto livePartial =
+            motrack::writePairedArchiveGroup(args[3],
+                                             liveRequest.snapshot,
+                                             &cancelled,
+                                             [&](auto state) { cancelled = state == motrack::PairedSaveProgress::StandardSaved; });
+        if (live.completePairedSave(liveRequest.checkpoint, livePartial) != motrack::SaveOutcome::Partial || !live.isModified())
+            throw motrack::ProjectError("An interrupted live group was incorrectly marked saved.");
+        const auto recoveryCheckpoint = live.saveCheckpoint();
+        const auto liveRecovery = motrack::recoverPairedDocuments(live.recoveryPath(), nullptr, {}, livePartial.transactionId);
+        if (live.completePairedRecovery(recoveryCheckpoint, live.recoveryPath(), liveRecovery) != motrack::SaveOutcome::Recovered ||
+            !live.isModified() || !live.recoveryPath().isEmpty())
+            throw motrack::ProjectError("Group recovery did not preserve the requirement for a fresh save.");
+        const auto finalRequest = live.prepareSave();
+        const auto finalSaved = motrack::writePairedArchiveGroup(args[3], finalRequest.snapshot);
+        if (live.completePairedSave(finalRequest.checkpoint, finalSaved) != motrack::SaveOutcome::Saved || live.isModified())
+            throw motrack::ProjectError("Could not save the current complete group after recovery.");
+        const auto finalGroup = motrack::readArchiveGroup(finalSaved.nativePath);
+        if (finalGroup.id != recoveredGroup.id || finalGroup.members.size() != recoveredGroup.members.size())
+            throw motrack::ProjectError("Live group coordination changed persisted membership.");
+        for (std::size_t i = 0; i < finalGroup.members.size(); ++i)
+            if (finalGroup.members[i].id != recoveredGroup.members[i].id ||
+                finalGroup.members[i].document.project != recoveredGroup.members[i].document.project)
+                throw motrack::ProjectError("Live group coordination changed an independently checked experiment.");
+        if (!groupedExport.open(QIODevice::ReadOnly) || groupedExport.readAll() != separateBytes ||
+            groupedExport.error() != QFileDevice::NoError)
+            throw motrack::ProjectError("Live group saving changed the independently verified archive export.");
         return 0;
     }
     if (args.size() == 4 &&

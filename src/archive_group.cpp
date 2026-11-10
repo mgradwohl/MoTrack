@@ -68,6 +68,11 @@ void validateMembership(const ArchiveGroup& group, const std::atomic_bool* cance
 
 } // namespace
 
+void validateArchiveGroupMembership(const ArchiveGroup& group)
+{
+    validateMembership(group, nullptr);
+}
+
 ArchiveGroup makeArchiveGroup(WorkspaceDocument document)
 {
     if (!document.archivePayload || !document.archiveMember)

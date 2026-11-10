@@ -1017,3 +1017,43 @@ three known Tracker defects remain explicitly unaccepted. Local Windows testing 
 These worker results describe written files. Live group membership revisions and per-session native/
 standard checkpoints, stale completion handling and desktop close/discard behavior still require the
 next controller layer; successful recovery alone does not establish that current live edits are saved.
+
+## Live archive-group records and checkpoints
+
+The current `ArchiveGroupSession` layer owns stable `DocumentSession` records for every retained
+experiment. A view borrows its project/history by member ID; view lifetime does not own or remove
+the record. Source envelopes, exact member bindings and the immutable archive owner stay inside the
+group. The group does not expose a member's standalone save interface, which would permit replacing
+the shared native file with only one experiment. Workspace tab selection and close/discard UI are
+still separate work.
+
+Opening a prepared native group creates a fresh runtime save identity while retaining its persistent
+group/member UUIDs. Promoting or appending an idle standalone session transfers its stable owner and
+preserves undo history and member identity. Invalid ownership, duplicate members and pending standalone
+recovery are refused before ownership transfers. The caller must finish or cancel its standalone jobs
+first. A standalone `.motrack` source is not treated as an already-saved group target; conversion requires
+an explicit group target. The source file and old edits remain available until group saving succeeds.
+
+`prepareSave` captures one owned group snapshot together with the group membership revision and every
+member's runtime identity, edit revision and output invalidations. `SaveState` supplies the existing
+destination/recovery ordering rules. Native and Tracker membership save points remain separate from
+each member's history: adding or replacing a member is dirty even if its new history is empty. A
+completion can mark an output current only for unchanged membership and unchanged member checkpoints.
+New edits, replacement, copied persistent IDs and older destination observations cannot clear current
+unsaved work. Group writes retain each member's archive-relative media bindings.
+
+Explicit recovery clears only its observed journal record and invalidates both live output save points;
+it never proves that the recovered snapshot equals all current members. A fresh complete-group save is
+required afterward. Native-only saving cannot clear outstanding Tracker edits once paired saving is
+required. Worker snapshots retain their own source owners across live-group replacement.
+
+Twelve public-API regressions cover history-preserving transfer, Save As, retained experiments in both
+orders, source removal/reopen, membership changes, member/group replacement, copied IDs, late edits,
+reordered writes/callbacks, partial recovery, failed adoption and snapshot lifetime. The four image/MOV
+corpus routes additionally retain their earlier independent-companion/shared-native/source-removal
+checks, then exercise a stale live save, undo, interrupted group saving, recovery and a fresh save.
+Final standard bytes must still match the independently verified export. All 10 Windows CTest groups
+pass serially in 170.56 seconds, with 96.01% production-line coverage (9508/9903). All four extended
+native corpus modes and both reimports pass, including byte-identical forward/reverse outputs. All
+C++ formatting, four changed translation-unit analyses and 63 relative guide links pass. Current-head
+CI/review remain pending; this is not desktop-tab or full-port acceptance.

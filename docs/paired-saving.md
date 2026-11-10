@@ -453,4 +453,7 @@ Local Windows validation passes all 10 CTest groups serially in 153.80 seconds, 
 production-line coverage (9317/9712), all C++ formatting and both changed-source static analyses.
 All 30 existing session cases remain unchanged; they cover independent/replaced sessions, per-document
 undo/redo, partial writes, stale and reordered callbacks, media adoption and journal-slot recovery.
-The three updated guides have 43 valid relative file links. Current-revision CI/review remain pending.
+The three updated guides have 43 valid relative file links. Merged #158 at `8f2161d` passed all six
+checks and review in [CI 42741967508](https://github.com/mgradwohl/MoTrack/actions/runs/42741967508),
+with 95.99% combined coverage (9346/9736) and all 237 unique edited actual-Tracker cases. The three
+known Tracker defects remained explicitly unaccepted; its local and remote branch is cleaned up.

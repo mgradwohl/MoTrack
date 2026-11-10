@@ -34,6 +34,9 @@ struct ArchiveGroup
 /// Add a prepared document from this exact owner; equal digests do not join independent groups.
 /// Duplicate members and invalid ownership leave the group unchanged.
 [[nodiscard]] QUuid appendArchiveGroupDocument(ArchiveGroup& group, WorkspaceDocument document);
+/// Check persistent IDs, uniqueness and exact source-owner/member bindings without reading or writing files.
+/// Full metadata, source-integrity and output checks remain the persistence worker's responsibility.
+void validateArchiveGroupMembership(const ArchiveGroup& group);
 /// Read a version-6 group with one original archive; standalone formats are handled separately.
 [[nodiscard]] ArchiveGroup readArchiveGroup(const QString& path, const std::atomic_bool* cancelled = nullptr);
 /// Atomically write every retained member, including records without a visible tab.
