@@ -7,12 +7,12 @@
 #include "track_edits.hpp"
 #include "tracker_archive.hpp"
 #include "video_reader.hpp"
+#include "workspace_services.hpp"
 
 #include <QCoreApplication>
 #include <QFutureWatcher>
 #include <QMainWindow>
 #include <QPointF>
-#include <QThread>
 #include <QTimer>
 
 #include <atomic>
@@ -35,14 +35,13 @@ namespace motrack
 
 class VideoCanvas;
 class PositionPlot;
-class MovieWorker;
 
 class MainWindow final : public QMainWindow
 {
     Q_DECLARE_TR_FUNCTIONS(MainWindow)
 
   public:
-    MainWindow();
+    explicit MainWindow(std::shared_ptr<WorkspaceServices> services = {});
     ~MainWindow() override;
     bool loadProject(const QString& path);
     void openProject(const QString& path);
@@ -52,6 +51,8 @@ class MainWindow final : public QMainWindow
     bool saveWorkspace(const QString& path);
     bool saveTrackerProject(const QString& path, bool recoverPending = false);
     bool exportTrackerArchive(const QString& path);
+    /// Shared services outlive every borrowing view; default construction creates one workspace owner.
+    [[nodiscard]] WorkspaceServices& executionServices();
 
   protected:
     void closeEvent(QCloseEvent* event) override;
@@ -110,6 +111,7 @@ class MainWindow final : public QMainWindow
     void clearCalibrationPoint();
     [[nodiscard]] bool confirmDiscard();
 
+    WorkspaceServices* m_Services; // Borrowed from a parent-owned lease, released after QObject::destroyed.
     VideoCanvas* m_Video;
     QLabel* m_FrameLabel;
     QSlider* m_StepSlider;
@@ -173,8 +175,8 @@ class MainWindow final : public QMainWindow
     std::unique_ptr<QFutureWatcher<MovieIndex>> m_MovieOpenWatcher;
     std::shared_ptr<std::atomic_bool> m_ProjectOpenCancelled;
     std::unique_ptr<QFutureWatcher<std::shared_ptr<PreparedProject>>> m_ProjectOpenWatcher;
-    QThread m_MovieThread;
-    MovieWorker* m_MovieWorker = nullptr;
+    QUuid m_FrameDocument = QUuid::createUuid();
+    QUuid m_MediaGeneration = QUuid::createUuid();
     std::atomic<quint64> m_RequestGeneration = 0;
 };
 

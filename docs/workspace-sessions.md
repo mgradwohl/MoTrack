@@ -42,10 +42,54 @@ appropriate tokens; flags survive with workers. Selecting, moving or hiding anot
 AutoTracker. Callers must cancel jobs made incompatible by an edit or media change, and validate any
 scientific revision requirements before applying results.
 
-These are ownership and result-routing rules, not a worker scheduler. Desktop integration still needs
-shared bounded pools and an aggregate decoder/cache budget. Creating an existing `MainWindow` for
-every tab would multiply decoder threads, cache memory and save pools, so that is not the planned tab
-implementation. Keep local builds at two workers and local tests serial while developing these layers.
+These registry tokens define ownership and result routing. The next `WorkspaceServices` layer is in
+local validation and connects the existing desktop to bounded execution services. A window creates
+an owner by default; multiple views in one workspace must receive the same shared owner. The registry
+and desktop document bindings are still separate until the next integration slice. Keep local builds
+at two workers and local tests serial while developing these layers.
+
+## Shared execution services
+
+| Resource | Bound per shared service owner | Ownership and scheduling |
+| --- | --- | --- |
+| Frame execution | One persistent worker thread | One active decode, one replaceable pending frame per document, fair document order. |
+| Frame decoders | Two least-recently-used readers | Path, orientation, media generation and archive owner must match before reuse. Eviction closes the reader before releasing its archive. |
+| Frame cache | 32 MiB of cached image pixels across those readers | Keys include document, media generation, original frame ordinal and optional presentation timestamp. Smaller budgets are supported; oversized frames are displayed without caching. |
+| Import, indexing and template matching | Two workers in one analysis pool | Existing per-document cancellation and stale-result checks remain. Each running indexer can additionally own its own decoder. |
+| Saving, packaging and recovery | One save worker | Separate from frame/analysis work so saving does not stop tracking. Registry binding must additionally enforce its two-pending-operation snapshot limit. |
+
+The cache limit is not a total application-memory claim: displayed images, a returned frame, model
+snapshots, source ownership and FFmpeg's internal buffers have separate lifetimes. Thread and frame
+cache limits belong to the shared owner, not to the number of tabs. Worker pools are borrowed by
+desktop callers; production code must not change their limits. Existing scheduling regressions now
+pause/wait on these actual pools instead of the process-global pool, preserving their assertions and
+timeouts.
+
+Frame requests carry owned cancellation/source references plus document and media-generation IDs.
+Submitting a newer frame cancels only the same document's active/pending frame; other documents keep
+their place. Closing a view cancels its queued frames and coalesces asynchronous decoder cleanup.
+Requests and decoders retain archive ownership until their handles close, so releasing extracted
+media no longer needs a blocking GUI-thread decoder call. Path/orientation/source changes invalidate
+that document's cache before lookup. The existing timestamp seek and presentation-order fallback
+remain the decoding algorithm.
+
+Worker results return through the service's GUI-thread watcher. A result callback may destroy its
+last owner; the scheduler checks the QObject lifetime before dispatching more work. The last service
+owner cancels pending frames, closes decoder handles on their worker thread and drains its pools.
+Each window's parent-owned QObject lease keeps shared services alive through Qt's destruction
+notification before that final drain. The new regression reproduced the incorrect ordering before
+this correction and passes afterward. Closing one view of a shared workspace
+must not join or cancel another view's analysis work.
+
+All nine new local service tests pass (405 ms), covering cache/decoder bounds, physical path and
+orientation changes, timestamp
+seeking, refused/cancelled frames, source lifetime, queue coalescing/fairness, isolated cleanup,
+owner deletion from a result callback, destruction notification before worker drain and two actual
+windows sharing services while one continues AutoTracker after the other closes. Formatting and all
+seven affected translation-unit static analyses pass without new suppressions. All 10 Windows CTest
+groups pass serially in 178.32 seconds with **96.29%** production-line coverage (9953/10336).
+Current-head CI/review remain pending.
+This is not yet a tabbed desktop or complete acceptance of #69.
 
 ## Saving and recovery
 
@@ -97,15 +141,15 @@ actual Tracker acceptance of this routing change remain pending. This foundation
 [MoTrack #69](https://github.com/mgradwohl/MoTrack/issues/69), whose upstream
 [Tracker #18](https://github.com/OpenSourcePhysics/tracker/issues/18) discussion was refreshed on
 2026-11-09. The historical report concerns actual playback/tracking controls. Multi-tab desktop
-acceptance, shared worker/cache limits, per-view media/playhead state, explicit close/discard UI,
+acceptance, registry-bound views using shared worker/cache limits, per-view media/playhead state, explicit close/discard UI,
 cross-tab import and [Tracker tabsets #150](https://github.com/mgradwohl/MoTrack/issues/150) remain in
 the [full-port order](migration-plan.md#implementation-order-and-exit-gates).
 
 The remaining integration order is:
 
-1. Add workspace-owned bounded execution services and a shared decoder/cache budget. Frame requests
-   carry document and media-generation identity; serving another document must not invalidate a
-   running experiment's AutoTracker request. Workers retain immutable source ownership until finished.
+1. Finish validation and merge the shared execution/cache services above. Frame requests carry
+   document and media-generation identity; serving another document must not invalidate a running
+   experiment's AutoTracker request. Workers retain immutable source ownership until finished.
 2. Bind reusable experiment views to registry records and those services. Keep each view's playhead,
    image, selections, playback/tracking controls and derived media index with its document; route
    saves through the source owner. Activate actions for the selected view without replacing records.

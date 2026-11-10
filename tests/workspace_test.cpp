@@ -811,7 +811,8 @@ TEST(Workspace, NativeSaveKeepsAnActiveAutoTrackerMatchAndContinuesToTheEnd)
     }
     const auto path = temporary.filePath("autotrack.motrack");
     motrack::writeWorkspaceDocument(path, document);
-    auto* pool = QThreadPool::globalInstance();
+    auto services = std::make_shared<motrack::WorkspaceServices>();
+    auto* pool = &services->analysisPool();
     const auto previousLimit = pool->maxThreadCount();
     pool->setMaxThreadCount(1);
     QSemaphore entered;
@@ -832,7 +833,7 @@ TEST(Workspace, NativeSaveKeepsAnActiveAutoTrackerMatchAndContinuesToTheEnd)
             release.acquire();
         });
     ASSERT_TRUE(entered.tryAcquire(1, 5'000));
-    motrack::MainWindow window;
+    motrack::MainWindow window(services);
     ASSERT_TRUE(window.loadProject(path));
     auto* action = window.findChild<QAction*>("autoTracker");
     auto* slider = window.findChild<QSlider*>("stepSlider");
@@ -909,7 +910,7 @@ TEST(Workspace, AutoTracksATexturedMarkAndStopsWhenItDisappears)
     slider->setValue(1);
     action->trigger();
     slider->setValue(0);
-    ASSERT_TRUE(QThreadPool::globalInstance()->waitForDone(5'000));
+    ASSERT_TRUE(window.executionServices().analysisPool().waitForDone(5'000));
     QCoreApplication::processEvents();
     EXPECT_EQ(marks->rowCount(), 1);
     EXPECT_FALSE(action->isChecked());
@@ -1867,7 +1868,7 @@ TEST(Workspace, ProcessesEventsDuringSaveWithoutMarkingNewerEditsSaved)
     QSemaphore release;
     motrack::MainWindow window;
     ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
-    auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+    auto* pool = &window.executionServices().savePool();
     auto* create = window.findChild<QAction*>("newPointMass");
     auto* undo = window.findChild<QAction*>("undoEdit");
     ASSERT_TRUE(pool && create && undo);
@@ -1918,7 +1919,7 @@ TEST(Workspace, AppliesPreparedOpensAfterSavingAndRejectsCanceledResults)
                 QSemaphore release;
                 motrack::MainWindow window;
                 ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
-                auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+                auto* pool = &window.executionServices().savePool();
                 ASSERT_TRUE(pool);
                 pool->start(
                     [&]
@@ -1941,13 +1942,13 @@ TEST(Workspace, AppliesPreparedOpensAfterSavingAndRejectsCanceledResults)
                                        {
                                            window.openProject(fixturePath(target));
                                        }
-                                       EXPECT_TRUE(QThreadPool::globalInstance()->waitForDone(5000));
+                                       EXPECT_TRUE(window.executionServices().analysisPool().waitForDone(5000));
                                        QCoreApplication::sendPostedEvents(); // Deliver the prepared result while saving is held.
                                        EXPECT_TRUE(window.windowTitle().contains("point-mass.trk"));
                                        if (cancel)
                                        {
                                            window.openProject(temporary.filePath("missing.trk"));
-                                           EXPECT_TRUE(QThreadPool::globalInstance()->waitForDone(5000));
+                                           EXPECT_TRUE(window.executionServices().analysisPool().waitForDone(5000));
                                            QCoreApplication::sendPostedEvents();
                                        }
                                        processed = true;
@@ -1981,7 +1982,7 @@ TEST(Workspace, DoesNotApplySaveCompletionToAReplacementDocument)
     QSemaphore release;
     motrack::MainWindow window;
     ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
-    auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+    auto* pool = &window.executionServices().savePool();
     ASSERT_TRUE(pool);
     pool->start(
         [&]
@@ -2014,7 +2015,7 @@ TEST(Workspace, KeepsOnlySuccessfulSaveAsDestinationsAndCheckpoints)
         QSemaphore release;
         motrack::MainWindow window;
         ASSERT_TRUE(window.loadProject(fixturePath("point-mass.trk")));
-        auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+        auto* pool = &window.executionServices().savePool();
         auto* create = window.findChild<QAction*>("newPointMass");
         auto* undo = window.findChild<QAction*>("undoEdit");
         auto* save = window.findChild<QAction*>("saveProject");

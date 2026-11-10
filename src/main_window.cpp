@@ -63,6 +63,18 @@ namespace motrack
 
 namespace
 {
+/// QObject emits destroyed before deleting children. Retain shared services until that notification
+/// has released any observers waiting on window teardown, then join only when the last owner goes away.
+class WorkspaceServiceLease final : public QObject
+{
+  public:
+    WorkspaceServiceLease(std::shared_ptr<WorkspaceServices> services, QObject* parent) : QObject(parent), m_Services(std::move(services))
+    {}
+
+  private:
+    std::shared_ptr<WorkspaceServices> m_Services;
+};
+
 QString physicalSourcePath(const QString& path)
 {
     const QFileInfo info(path);
@@ -137,11 +149,22 @@ struct MainWindow::PreparedProject
     bool chooseArchiveTab = false;
 };
 
-MainWindow::MainWindow()
+MainWindow::MainWindow(std::shared_ptr<WorkspaceServices> services)
 {
-    m_SavePool = new QThreadPool(this);
-    m_SavePool->setObjectName("workspaceSavePool");
-    m_SavePool->setMaxThreadCount(1);
+    if (!services)
+        services = std::make_shared<WorkspaceServices>();
+    m_Services = services.get();
+    new WorkspaceServiceLease(std::move(services), this);
+    m_SavePool = &m_Services->savePool();
+    connect(m_Services,
+            &WorkspaceServices::frameDecoded,
+            this,
+            [this](const MovieFrameResult& result)
+            {
+                if (result.request.token.document == m_FrameDocument && result.request.media == m_MediaGeneration &&
+                    result.request.sequence == m_RequestGeneration)
+                    displayFrame({.number = result.request.frame, .image = result.image}, tr("This video frame could not be decoded."));
+            });
     setWindowTitle("MoTrack");
     resize(1000, 650);
     auto* open = new QAction(tr("&Open project…"), this);
@@ -639,8 +662,12 @@ MainWindow::~MainWindow()
     cancelProjectOpen();
     cancelMovieOpen();
     ++m_RequestGeneration;
-    m_MovieThread.quit();
-    m_MovieThread.wait();
+    m_Services->clearFrames(m_FrameDocument);
+}
+
+WorkspaceServices& MainWindow::executionServices()
+{
+    return *m_Services;
 }
 
 bool MainWindow::loadProject(const QString& path)
@@ -745,18 +772,18 @@ void MainWindow::openProject(const QString& path)
                         }
                     });
             });
-    watcher->setFuture(QtConcurrent::run(
-        [path, cancelled]() -> Result
-        {
-            try
-            {
-                return std::make_shared<PreparedProject>(prepareProject(path, cancelled.get()));
-            }
-            catch (const ProjectError&)
-            {
-                return {};
-            }
-        }));
+    watcher->setFuture(QtConcurrent::run(&m_Services->analysisPool(),
+                                         [path, cancelled]() -> Result
+                                         {
+                                             try
+                                             {
+                                                 return std::make_shared<PreparedProject>(prepareProject(path, cancelled.get()));
+                                             }
+                                             catch (const ProjectError&)
+                                             {
+                                                 return {};
+                                             }
+                                         }));
 }
 
 void MainWindow::completeAfterSave(std::function<void()> completion)
@@ -863,11 +890,8 @@ void MainWindow::releaseArchive()
     if (m_Session.document.archivePayload)
     {
         ++m_RequestGeneration;
-        if (m_MovieWorker)
-        {
-            // Release the decoder's file handle before removing extracted media on Windows.
-            QMetaObject::invokeMethod(m_MovieWorker, "clear", Qt::BlockingQueuedConnection);
-        }
+        // Worker requests/decoders retain the payload until their handles close, without blocking other views.
+        m_Services->clearFrames(m_FrameDocument);
         m_Session.document.archivePayload.reset();
         m_Session.document.archiveMember.reset();
     }
@@ -1013,6 +1037,7 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
             });
     const auto orientation = standalone || m_Session.document.useDisplayOrientation ? VideoOrientation::Display : VideoOrientation::Encoded;
     watcher->setFuture(QtConcurrent::run(
+        &m_Services->analysisPool(),
         [path, orientation, cancelled = m_MovieOpenCancelled, archive = standalone ? nullptr : m_Session.document.archivePayload]
         {
             // Keep extracted media available until the indexer closes its input.
@@ -1028,10 +1053,8 @@ void MainWindow::activateProject(const QString& path)
     setPlaying(false);
     m_Video->resetZoom();
     ++m_RequestGeneration;
-    if (m_MovieWorker)
-    {
-        QMetaObject::invokeMethod(m_MovieWorker, "clear", Qt::QueuedConnection);
-    }
+    m_Services->clearFrames(m_FrameDocument);
+    m_MediaGeneration = QUuid::createUuid();
     m_DisplayedFrame.reset();
     m_Calibrate->setChecked(false);
     m_Calibrate->setEnabled(false);
@@ -2342,7 +2365,8 @@ void MainWindow::autoTrackFrame(const ImageFrame& frame)
                     applyAutoTrackMatch(number, match->result());
                 }
             });
-    match->setFuture(QtConcurrent::run([pattern = session.pattern, image = frame.image, predicted = session.predicted]
+    match->setFuture(QtConcurrent::run(&m_Services->analysisPool(),
+                                       [pattern = session.pattern, image = frame.image, predicted = session.predicted]
                                        { return pattern.find(image, predicted); }));
 }
 
@@ -2407,34 +2431,18 @@ void MainWindow::requestMovieFrame(int frame)
     {
         m_Video->display({}, {}, tr("Decoding frame…"));
     }
-    if (!m_MovieWorker)
-    {
-        m_MovieWorker = new MovieWorker(m_RequestGeneration);
-        m_MovieWorker->moveToThread(&m_MovieThread);
-        connect(&m_MovieThread, &QThread::finished, m_MovieWorker, &QObject::deleteLater);
-        connect(m_MovieWorker,
-                &MovieWorker::frameDecoded,
-                this,
-                [this](int number, quint64 request, const QImage& image)
-                {
-                    if (request == m_RequestGeneration)
-                    {
-                        displayFrame({.number = number, .image = image}, tr("This video frame could not be decoded."));
-                    }
-                });
-        m_MovieThread.start();
-    }
     const bool hasTimestamp = frame >= 0 && std::cmp_less(frame, m_MoviePresentationTimes.size());
-    const qint64 timestamp = hasTimestamp ? m_MoviePresentationTimes.at(static_cast<std::size_t>(frame)).count() : 0;
-    QMetaObject::invokeMethod(m_MovieWorker,
-                              "readFrame",
-                              Qt::QueuedConnection,
-                              m_MoviePath,
-                              frame,
-                              generation,
-                              m_Session.document.useDisplayOrientation,
-                              hasTimestamp,
-                              timestamp);
+    MovieFrameRequest request{
+        .token = {},
+        .media = m_MediaGeneration,
+        .path = m_MoviePath,
+        .frame = frame,
+        .sequence = generation,
+        .orientation = m_Session.document.useDisplayOrientation ? VideoOrientation::Display : VideoOrientation::Encoded,
+        .timestamp = hasTimestamp ? std::optional{m_MoviePresentationTimes.at(static_cast<std::size_t>(frame))} : std::nullopt,
+        .archive = m_Session.document.archivePayload};
+    request.token = {.document = m_FrameDocument, .kind = WorkspaceJob::Frame, .cancelled = std::make_shared<std::atomic_bool>(false)};
+    m_Services->requestFrame(request);
 }
 
 } // namespace motrack

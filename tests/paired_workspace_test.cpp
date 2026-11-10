@@ -1139,7 +1139,7 @@ TEST(PairedWorkspace, AppliesPreparedOpensAfterSavingAndRejectsCanceledResults)
                 QSemaphore release;
                 motrack::MainWindow window;
                 ASSERT_TRUE(window.loadProject(fixture()));
-                auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+                auto* pool = &window.executionServices().savePool();
                 ASSERT_NE(pool, nullptr);
                 pool->start(
                     [&]
@@ -1159,13 +1159,13 @@ TEST(PairedWorkspace, AppliesPreparedOpensAfterSavingAndRejectsCanceledResults)
                                            window.openMovie(path);
                                        else
                                            window.openProject(path);
-                                       EXPECT_TRUE(QThreadPool::globalInstance()->waitForDone(5000));
+                                       EXPECT_TRUE(window.executionServices().analysisPool().waitForDone(5000));
                                        QCoreApplication::sendPostedEvents();
                                        EXPECT_TRUE(window.windowTitle().contains("linked-images.trk"));
                                        if (cancel)
                                        {
                                            window.openProject(temporary.filePath("missing.trk"));
-                                           EXPECT_TRUE(QThreadPool::globalInstance()->waitForDone(5000));
+                                           EXPECT_TRUE(window.executionServices().analysisPool().waitForDone(5000));
                                            QCoreApplication::sendPostedEvents();
                                        }
                                        processed = true;
@@ -1200,7 +1200,7 @@ TEST(PairedWorkspace, DoesNotApplySaveCompletionToAReplacementDocument)
     QSemaphore release;
     motrack::MainWindow window;
     ASSERT_TRUE(window.loadProject(fixture()));
-    auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+    auto* pool = &window.executionServices().savePool();
     ASSERT_NE(pool, nullptr);
     pool->start(
         [&]
@@ -1235,7 +1235,7 @@ TEST(PairedWorkspace, CancellationPreservesBothExistingFilesAndNewerEdits)
     const auto native = temporary.filePath("saved.motrack");
     put(target, "previous standard");
     put(native, "previous native");
-    auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+    auto* pool = &window.executionServices().savePool();
     ASSERT_NE(pool, nullptr);
     pool->start(
         [&]
@@ -1274,7 +1274,7 @@ TEST(PairedWorkspace, StaleCompletionAndNativeOnlySaveLeaveStandardEditsDirty)
     QSemaphore release;
     motrack::MainWindow window;
     ASSERT_TRUE(window.loadProject(fixture()));
-    auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+    auto* pool = &window.executionServices().savePool();
     auto* create = window.findChild<QAction*>("newPointMass");
     auto* undo = window.findChild<QAction*>("undoEdit");
     ASSERT_TRUE(pool && create && undo);
@@ -1422,7 +1422,7 @@ TEST(PairedWorkspace, PendingOpensInvalidateTheTrackerChooserAndCompanionConfirm
         const auto replace = [&]
         {
             window.openProject(replacement);
-            EXPECT_TRUE(QThreadPool::globalInstance()->waitForDone(5000));
+            EXPECT_TRUE(window.executionServices().analysisPool().waitForDone(5000));
             QCoreApplication::sendPostedEvents();
             replaced = window.windowTitle().contains("replacement.trk");
             EXPECT_TRUE(replaced);
@@ -1503,7 +1503,7 @@ TEST(PairedWorkspace, PendingOpensInvalidateTheNativeSaveChooser)
                              return;
                          poll.stop();
                          window.openProject(replacement);
-                         ASSERT_TRUE(QThreadPool::globalInstance()->waitForDone(5000));
+                         ASSERT_TRUE(window.executionServices().analysisPool().waitForDone(5000));
                          QCoreApplication::sendPostedEvents();
                          replaced = window.windowTitle().contains("replacement.trk");
                          ASSERT_TRUE(replaced);
@@ -1583,7 +1583,7 @@ TEST(PairedWorkspace, PendingOpenInvalidatesRecoveryConfirmationAndItsSaveDestin
                          poll.stop();
                          discard.start(10);
                          window.openProject(replacement);
-                         EXPECT_TRUE(QThreadPool::globalInstance()->waitForDone(5000));
+                         EXPECT_TRUE(window.executionServices().analysisPool().waitForDone(5000));
                          QCoreApplication::sendPostedEvents();
                          replaced = window.windowTitle().contains("replacement.trk");
                          EXPECT_TRUE(replaced);
@@ -1624,9 +1624,9 @@ TEST(PairedWorkspace, DestroyingTheWindowDuringSaveCancelsAndReleasesTheWorker)
         QSemaphore release;
         auto window = std::make_unique<motrack::MainWindow>();
         ASSERT_TRUE(window->loadProject(fixture()));
-        // MainWindow sets cancellation before QObject emits destroyed, then its child pool joins.
+        // MainWindow sets cancellation before QObject emits destroyed, then its child service lease can join.
         QObject::connect(window.get(), &QObject::destroyed, [&release] { release.release(); });
-        auto* pool = window->findChild<QThreadPool*>("workspaceSavePool");
+        auto* pool = &window->executionServices().savePool();
         ASSERT_NE(pool, nullptr);
         pool->start(
             [&]
