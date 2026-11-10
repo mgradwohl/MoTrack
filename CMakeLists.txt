@@ -53,7 +53,12 @@ set_target_properties(motrack_workspace PROPERTIES AUTOMOC ON)
 add_library(motrack_media STATIC src/template_tracker.cpp src/video_reader.cpp)
 target_include_directories(motrack_media PUBLIC src)
 target_link_libraries(motrack_media PUBLIC Qt6::Gui PRIVATE motrack_ffmpeg)
-target_link_libraries(motrack_workspace PUBLIC motrack_project Qt6::Widgets PRIVATE motrack_media motrack_image_package Qt6::Concurrent)
+
+# Input adaptation may probe/index media; keep Qt Gui and FFmpeg outside the document model.
+add_library(motrack_input STATIC src/workspace_input.cpp)
+target_include_directories(motrack_input PUBLIC src)
+target_link_libraries(motrack_input PUBLIC motrack_project PRIVATE motrack_media)
+target_link_libraries(motrack_workspace PUBLIC motrack_project motrack_input Qt6::Widgets PRIVATE motrack_media motrack_image_package Qt6::Concurrent)
 target_link_libraries(motrack PRIVATE motrack_workspace)
 qt_add_translations(motrack
     TS_FILES translations/motrack_de.ts translations/motrack_es.ts translations/motrack_fr.ts
@@ -99,7 +104,7 @@ if(MOTRACK_STAGE_DESKTOP)
     install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/motrack)
 endif()
 
-set(motrack_targets motrack_project motrack_image_package motrack_media motrack_workspace motrack)
+set(motrack_targets motrack_project motrack_input motrack_image_package motrack_media motrack_workspace motrack)
 if(MOTRACK_BUILD_BENCHMARKS)
     add_executable(motrack_import_benchmark benchmarks/import_benchmark.cpp)
     target_link_libraries(motrack_import_benchmark PRIVATE motrack_project)
@@ -156,8 +161,9 @@ if(BUILD_TESTING)
     add_executable(motrack_corpus_probe tests/corpus_probe.cpp)
     add_dependencies(motrack_tests motrack_corpus_probe)
     target_compile_definitions(motrack_tests PRIVATE MOTRACK_CORPUS_PROBE="$<TARGET_FILE:motrack_corpus_probe>")
-    target_link_libraries(motrack_corpus_probe PRIVATE motrack_project motrack_image_package motrack_media)
+    target_link_libraries(motrack_corpus_probe PRIVATE motrack_project motrack_input motrack_image_package motrack_media)
     add_executable(motrack_workspace_tests
+        tests/workspace_input_test.cpp
         tests/bound_workspace_test.cpp
         tests/workspace_services_test.cpp
         tests/image_package_workspace_test.cpp

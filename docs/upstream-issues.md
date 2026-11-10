@@ -94,6 +94,17 @@ the new run. A tabbed workspace and its explicit close/discard controls are stil
 #69 remains open. See
 [workspace ownership and routing](workspace-sessions.md).
 
+The discussion was refreshed again on **2026-11-10** for complete input preparation; Tracker #18
+remains open with the same video-stepping explanation. New local regressions confirm that opening a
+complete archive, refusing a third queued input, cancelling one open or failing another preserves an
+existing dirty document and its tracking token. They also exercise bound editors after asynchronous
+archive loading. Review reproduced a whole-source save failure when a movie member had no editor;
+the input adapter now prepares missing movie metadata before adoption. The new mixed-archive test
+saves image edits with the unopened movie intact, and extended corpus modes use the same initial
+preparation path. All 14 input cases and the full serial Windows suite pass locally. This is additional preventive coverage, not evidence that the still-absent tabbed
+desktop and close/discard workflow meet #69's complete acceptance criteria. #150 also remains open:
+the new dispatcher handles experiment files and archives, not `TFrame` tabsets.
+
 The baseline tabset workflow is now tracked explicitly in [MoTrack #150](https://github.com/mgradwohl/MoTrack/issues/150); moving reference frames discovered in the real Diabolo archive are tracked in [MoTrack #148](https://github.com/mgradwohl/MoTrack/issues/148). Neither discovery is an accepted full round trip.
 
 ## Defects discovered by the reference harness

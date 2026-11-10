@@ -1,5 +1,6 @@
 #include "archive_group.hpp"
 
+#include "archive_group_codec.hpp"
 #include "tracker_archive.hpp"
 #include "workspace_document_codec.hpp"
 #include "workspace_storage.hpp"
@@ -101,13 +102,18 @@ QUuid appendArchiveGroupDocument(ArchiveGroup& group, WorkspaceDocument document
 ArchiveGroup readArchiveGroup(const QString& path, const std::atomic_bool* cancelled)
 {
     auto storage = readWorkspaceStorage(path, cancelled);
+    return detail::decodeArchiveGroup(QJsonDocument::fromJson(storage.json).object(), std::move(storage.archive), cancelled);
+}
+
+ArchiveGroup
+detail::decodeArchiveGroup(const QJsonObject& input, std::shared_ptr<const TrackerArchive> archive, const std::atomic_bool* cancelled)
+{
     checkCancellation(cancelled);
-    const auto input = QJsonDocument::fromJson(storage.json).object();
     require(input.value("format") == "MoTrack" && input.value("version").toInt() == GROUP_VERSION &&
-            input.value("kind") == "archive-group" && storage.archive);
+            input.value("kind") == "archive-group" && archive);
     require(input.value("sourceDigest").isString() &&
-            input.value("sourceDigest").toString() == QString::fromLatin1(storage.archive->sourceDigest().toHex()));
-    ArchiveGroup result{.id = readId(input.value("groupId")), .archive = std::move(storage.archive), .members = {}};
+            input.value("sourceDigest").toString() == QString::fromLatin1(archive->sourceDigest().toHex()));
+    ArchiveGroup result{.id = readId(input.value("groupId")), .archive = std::move(archive), .members = {}};
     require(input.value("members").isArray());
     const auto members = input.value("members").toArray();
     require(!members.isEmpty() && members.size() <= result.archive->projects().size());

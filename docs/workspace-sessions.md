@@ -162,6 +162,64 @@ required. These editors do not add visible tabs or a source-discard policy: a bo
 operation hides it and retains edits. The future shell must make save/discard decisions
 explicit before releasing sources. #69 and #150 remain open.
 
+## Preparing complete inputs
+
+`prepareWorkspaceInput` reads a local experiment into an idle, owned `DocumentSession` or
+`ArchiveGroupSession` before changing the live registry. Standalone `.trk` inputs retain their source
+XML and physical media locations. Standard `.trz` inputs prepare **every** experiment against one
+immutable archive owner; one malformed member rejects the whole input. The existing archive limits
+and cancellation checks apply. Records are accumulated before one complete membership validation;
+incremental append would repeatedly revalidate every preceding member. Preparation never needs a
+widget or a Java runtime.
+
+The separate `motrack_input` adapter probes/indexes available movies before adoption, including archive
+members with no editor. This keeps Qt Gui and FFmpeg outside the document model. It uses the existing
+bounded, cancellable movie indexer, preserves clip timing/range and fills missing derived frame
+metadata. Existing native indexes remain intact; older unindexed native members are initialized too.
+An invalid available movie rejects preparation before adoption, while missing media remains missing.
+Without this step an unopened movie would still look like an image document to whole-source saving.
+
+Native dispatch reads the container once and selects standalone versions 1–5 or the version-6 group
+envelope. A native group keeps precisely its saved membership, order, IDs and edits; preserved but
+unopened payload members do not become invented live records. Older external-archive companions
+retain a snapshot of the referenced archive and clear that external reference. Standalone archive
+companions remain standalone, including old files without a known member association. Promotion is
+a separate explicit operation. This does not implement Tracker `TFrame` tabsets (#150).
+
+`adoptWorkspaceInput` transfers one completely prepared source on the registry's owner thread.
+Refusal retains incoming ownership and does not alter existing sources. Independently opening the
+same path creates independent live records. `KeepCurrent` preserves an existing selection; an empty
+workspace selects the first new experiment.
+
+`WorkspaceContext::openProject` runs preparation on the shared analysis pool. At most two inputs may
+be pending; a busy request returns before starting another worker. Each request has its own ID and
+cancellation flag. Cancellation keeps its slot until completion and never cancels another source's
+tracking, playback or open request. Completion removes the pending slot before notifying observers,
+which may immediately open another source or destroy the context. Workers own their results and
+flags, never a borrow of the registry. Context destruction cancels outstanding inputs before shared
+services drain; completed results can no longer adopt into the destroyed registry.
+
+Fourteen public-entry-point tests cover standalone/native opening and physical media, Unicode paths,
+complete image/MOV archives after original-file removal, native group order/subsets, older embedded
+and external archive companions, malformed-member refusal, atomic adoption, independent cancellation,
+two-input backpressure, failed-open retry, destruction while queued and from completion observers,
+editing/saving both members through bound editors, 32-member ordering/identities and movie indexing
+without views. A reproduced mixed-archive regression now edits only the image experiment, saves
+both standard/native files without ever creating a movie editor, and preserves the movie and media
+after original-file removal. The four existing image/MOV archive-group
+corpus modes now import and reopen through this dispatcher before whole-source save/recovery and the unchanged
+independent XML/ZIP/media/reimport checks. All four local modes pass, including byte-identical exports
+in either order. They also require the original extraction to disappear before native reopen.
+All 10 Windows CTest groups pass serially in 183.00 seconds after both review fixes, with **96.24%**
+production-line coverage (10517/10928). All C++ formatting, five affected translation-unit static
+analyses and 36 relative guide links pass. The three previously investigated LLVM wrapper warnings
+remain visible; no production records are missing and the 90% gate is unchanged. All 14 input cases
+pass in 3139 ms. Current-head actual Tracker
+acceptance, cross-platform checks and external review remain the current-head CI/review gates.
+
+The default desktop still opens a standalone editor. The next shell integration must connect these
+prepared inputs to visible tabs, user-facing cancellation/error controls and explicit close decisions.
+
 ## Saving and recovery
 
 `beginSave(document)` captures an owned snapshot and checkpoint of its source. For a group member,
@@ -227,7 +285,7 @@ The remaining integration order is:
    experiment's AutoTracker request. Workers retain immutable source ownership until finished.
 2. Finish validation of the retained experiment editors above, then activate their actions from the
    workspace shell without replacing records. Retain each editor while switching tabs.
-3. Add tab interactions and asynchronous opening of complete prepared archive groups. Exercise actual
+3. Connect the bounded asynchronous input preparation above to visible tab interactions. Exercise actual
    view switching/closure while tracking, distinct timing/units, undo, source removal and save/reopen.
    Save All deduplicates source IDs and respects the pending-operation bound.
 4. Implement explicit close/discard decisions and a saved-model restoration policy, then tabsets and
