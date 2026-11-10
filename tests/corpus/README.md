@@ -1506,5 +1506,14 @@ all media/opaque bytes, local compressed records, central metadata, physical ord
 The real Tracker harness must load the resulting archive, save both loaded tabs, freshly reopen each
 saved experiment in a separate JVM, check its own expected mass/marks/world values/keyframes/media,
 and reimport both into MoTrack. Unit tests reject wrong edits in either member and a completely
-unedited second member. Current-branch local writer and 107 corpus-runner tests pass; actual-application
-acceptance of these four modes and current-head CI/review remain pending.
+unedited second member. All four modes passed actual Tracker acceptance in merged #152 at `e73ea6f`,
+with all six checks and 95.88% combined coverage in CI 42672882606 attempt 2. #154 preserves the same
+237 edited-case inventory, including these four modes, with 95.89% combined coverage.
+
+The current group-persistence extension retains this independent-companion route. Before releasing
+the original owner it also writes one version-6 native group, relocates it, then removes the original
+input and every separate companion. Reopening only that group must retain both persistent member IDs,
+the original archive digest, one shared owner and both edited projects. Its standard export must be
+byte-identical to the independent-companion export. All four extended native modes and their independent
+XML/ZIP/media/reimport oracles pass locally; actual Tracker acceptance on the extended current branch
+and three-platform CI/review remain pending. Shared save/recovery coordination and desktop tabs remain separate.

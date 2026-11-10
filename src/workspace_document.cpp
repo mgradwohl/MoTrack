@@ -3,6 +3,7 @@
 #include "local_media_path.hpp"
 #include "track_identity.hpp"
 #include "tracker_archive.hpp"
+#include "workspace_document_codec.hpp"
 #include "workspace_storage.hpp"
 
 #include <QByteArray>
@@ -374,15 +375,19 @@ WorkspaceDocument importTrackerDocument(const QString& path)
 WorkspaceDocument readWorkspaceDocument(const QString& path, const std::atomic_bool* cancelled)
 {
     auto storage = readWorkspaceStorage(path, cancelled);
-    const auto input = QJsonDocument::fromJson(storage.json).object();
+    return detail::decodeWorkspaceDocument(QJsonDocument::fromJson(storage.json).object(), std::move(storage.archive));
+}
+
+WorkspaceDocument detail::decodeWorkspaceDocument(const QJsonObject& input, std::shared_ptr<const TrackerArchive> payload)
+{
     const auto version = input.value("version").toInt();
-    require(input.value("format") == "MoTrack" && version >= 1 && version <= DOCUMENT_VERSION);
+    require(input.value("format") == "MoTrack" && version >= 1 && version <= DOCUMENT_VERSION && !input.contains("kind"));
     WorkspaceDocument result;
     if (version >= 5)
     {
         const auto embedded = input.value("embeddedArchive");
-        require(embedded.isBool() && embedded.toBool() == static_cast<bool>(storage.archive));
-        result.archivePayload = std::move(storage.archive);
+        require(embedded.isBool() && embedded.toBool() == static_cast<bool>(payload));
+        result.archivePayload = std::move(payload);
         const auto member = input.value("archiveMember");
         if (!member.isNull())
         {
@@ -391,7 +396,7 @@ WorkspaceDocument readWorkspaceDocument(const QString& path, const std::atomic_b
     }
     else
     {
-        require(!storage.archive && !input.contains("embeddedArchive") && !input.contains("archiveMember"));
+        require(!payload && !input.contains("embeddedArchive") && !input.contains("archiveMember"));
     }
     if (version >= 2)
     {
@@ -546,10 +551,18 @@ void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& docume
 {
     if (cancelled && *cancelled)
         throw ProjectError("Project save canceled.");
+    const auto bytes = QJsonDocument(detail::encodeWorkspaceDocument(document)).toJson(QJsonDocument::Compact);
+    writeWorkspaceStorage(path, bytes, document.archivePayload, cancelled);
+}
+
+QJsonObject detail::encodeWorkspaceDocument(const WorkspaceDocument& document)
+{
     const auto& project = document.project;
     validateTrackIdentities(project);
     validateArchive(document);
     const auto& clip = project.clip;
+    if (clip.frameDurationMs)
+        require(std::isfinite(*clip.frameDurationMs) && *clip.frameDurationMs > 0.0);
     QJsonArray frameTimes;
     for (const auto time : document.movieFrameTimes)
     {
@@ -562,7 +575,7 @@ void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& docume
                                  {"frameDurationMs", clip.frameDurationMs ? QJsonValue(*clip.frameDurationMs) : QJsonValue::Null},
                                  {"sourceFrameCount", clip.sourceFrameCount ? QJsonValue(*clip.sourceFrameCount) : QJsonValue::Null},
                                  {"startTimeMs", clip.startTimeMs}};
-    const QJsonObject output{
+    return QJsonObject{
         {"format", "MoTrack"},
         {"version", DOCUMENT_VERSION},
         {"nextTrackId", QString::fromStdString(std::to_string(project.nextTrackId))},
@@ -584,8 +597,6 @@ void writeWorkspaceDocument(const QString& path, const WorkspaceDocument& docume
         {"archiveMember", document.archiveMember ? QJsonValue(QString::fromStdString(*document.archiveMember)) : QJsonValue::Null},
         {"movieFrameTimes", frameTimes},
         {"clip", clipObject}};
-    const auto bytes = QJsonDocument(output).toJson(QJsonDocument::Compact);
-    writeWorkspaceStorage(path, bytes, document.archivePayload, cancelled);
 }
 
 } // namespace motrack
