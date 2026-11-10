@@ -981,9 +981,11 @@ remain. Cancellation and errors preserve an existing destination through the sha
 The new local regressions cover native relocation, original-input removal, two edited experiments,
 an untouched third experiment, opaque bytes, promotion/ownership isolation, undo/redo, malformed
 metadata and refused/cancelled writes. The corpus additionally compares independent-companion export
-with shared-group export byte-for-byte before actual Tracker acceptance. Full current-branch CI and
-review remain pending. Group save checkpoints, destination locking/recovery and desktop tab lifecycle
-remain the next layers; this low-level snapshot API does not mark live documents saved.
+with shared-group export byte-for-byte before actual Tracker acceptance. Merged #155 at `a672849`
+passed all six checks, review and 95.94% combined coverage in
+[CI 42737686781](https://github.com/mgradwohl/MoTrack/actions/runs/42737686781). All 237 edited cases
+passed, including the four group modes. Live group checkpoints and desktop tab lifecycle remain
+later layers; this low-level snapshot API does not mark live documents saved.
 
 ## Coordinated archive-group file writes
 
@@ -1006,9 +1008,11 @@ snapshots, native/standalone/group lock contention, post-commit observer failure
 conflicts. The four grouped image/MOV corpus modes additionally recover an interrupted pair after
 destroying the prior group owners and deleting its previous native file; recovered identities, models
 and shared ownership must agree, and the standard output must remain byte-identical to both preceding
-export routes. All 10 Windows CTest groups and all four extended native corpus routes pass, with
-95.90% C++ line coverage (9250/9645), formatting and changed-source static analysis. Current-branch CI,
-actual Tracker acceptance and external review remain pending.
+export routes. Merged #156 at `a8e6e83` passed all six checks, review and 95.98% combined C++ line
+coverage (9280/9669) in [CI 42738323793](https://github.com/mgradwohl/MoTrack/actions/runs/42738323793).
+All 237 unique edited Tracker cases passed, including the four paired-group recovery modes; the
+three known Tracker defects remain explicitly unaccepted. Local Windows testing also passed all
+10 CTest groups and four extended native corpus routes before CI.
 
 These worker results describe written files. Live group membership revisions and per-session native/
 standard checkpoints, stale completion handling and desktop close/discard behavior still require the

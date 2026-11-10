@@ -1,50 +1,20 @@
 #pragma once
 
-#include "paired_save.hpp"
+#include "save_state.hpp"
 #include "track_edits.hpp"
 #include "workspace_document.hpp"
 
 #include <QHash>
-#include <QStringList>
-
-#include <cstdint>
-#include <memory>
+#include <QString>
 
 namespace motrack
 {
 
-enum class DocumentSourceKind : std::uint8_t
-{
-    Project,
-    Media
-};
-
-enum class SaveOutcome : std::uint8_t
-{
-    Saved,
-    Failed,
-    Stale,
-    Replaced,
-    Partial,
-    Recovered,
-    Superseded // A newer native write already owns the destination and bindings.
-};
-
 /// One live document, its undo history and per-output save checkpoints. GUI-thread owned; workers receive copies.
 class DocumentSession
 {
-    struct Identity
-    {};
-
   public:
-    struct SaveCheckpoint
-    {
-        std::shared_ptr<const Identity> identity;
-        std::uint64_t revision;
-        QHash<QString, QString> recoveryTransactions;
-        std::uint64_t nativeInvalidation = 0;
-        std::uint64_t trackerInvalidation = 0;
-    };
+    using SaveCheckpoint = SaveState::Checkpoint;
 
     WorkspaceDocument document;
     TrackEdits history;
@@ -77,30 +47,8 @@ class DocumentSession
     ~DocumentSession() = default;
 
   private:
-    struct RecoveryObservation
-    {
-        QString transaction;
-        std::uint64_t observation;
-    };
-    void invalidateSaved(SaveTarget target = SaveTarget::Native);
-    void rememberRecovery(const QString& path, const QString& transaction, std::uint64_t observation);
-    void forgetRecovery(const QString& path, const QString& transaction, std::uint64_t observation, bool cleared);
-    // Tokens retain the identity object, preventing reuse after replacement or destruction, even across sessions.
-    std::shared_ptr<const Identity> m_Identity = std::make_shared<const Identity>();
-    QString m_SourcePath;
-    QString m_NativeSavePath;
-    QString m_StandardSavePath;
-    QStringList m_RecoveryPaths;
-    QHash<QString, QList<RecoveryObservation>> m_RecoveryTransactions;
-    QHash<QString, QHash<QString, std::uint64_t>> m_CompletedRecoveryTransactions;
-    QHash<QString, std::uint64_t> m_ClearedRecoveryObservations;
-    QHash<QString, std::shared_ptr<const QString>> m_RecoveryLocationIdentities;
-    std::uint64_t m_NativeInvalidation = 0;
-    std::uint64_t m_TrackerInvalidation = 0;
-    std::uint64_t m_MediaObservation = 0;
-    std::uint64_t m_NativeDestinationObservation = 0;
-    std::uint64_t m_StandardDestinationObservation = 0;
-    bool m_PairedSaving = false;
+    SaveOutcome applySaveUpdate(const SaveUpdate& update, const QHash<QString, QString>& mediaLocations);
+    SaveState m_SaveState;
 };
 
 } // namespace motrack
