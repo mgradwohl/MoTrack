@@ -312,10 +312,16 @@ MOV/Open Recent report is resolved. Both completed branches have been removed lo
    and cross-tab import. The current shell opens complete project/media inputs with cancellation,
    lazily creates retained editors, activates per-tab menus/shortcuts, supports reorder/hide/reopen,
    saves each modified source once and explicitly resolves whole-source Save/Discard/Cancel. Window
-   close collects all decisions and rechecks revisions before releasing any source. Current-head
-   cross-platform CI/review remain required. All 15 shell cases and all 10 serial Windows CTest groups
-   pass (191.90 seconds; 96.07% local coverage, 11158/11615), with clean formatting/static analysis
-   and translated-string catalogs updated; see [shell ownership](workspace-sessions.md#desktop-workspace-shell).
+   close collects all decisions and rechecks revisions before releasing any source. PR #164 has
+   17 passing shell regressions and full serial Windows validation at 96.08% local coverage. Its
+   subsequent Linux-analysis fixes pass all 17 cases again and await fresh cross-platform CI/review.
+   PR #165 adds per-experiment Revert from captured saved models, including common paired baselines,
+   preserved other-member edits, monotonic IDs and discovered movie extent. Its ten restore regressions
+   and full Windows suite pass at 96.09% coverage; all 27 focused shell/restore cases also pass after
+   integrating the parent fixes. Both PRs still require green current-head CI and passing review;
+   Copilot review quota is exhausted. Persisted views follow these changes, then tabsets and cross-tab
+   import; see [shell ownership](workspace-sessions.md#desktop-workspace-shell) and
+   [saved-model restoration](workspace-sessions.md#saved-models-and-per-experiment-revert).
    Tabsets are TFrame-root `.trk` files
    containing absolute/relative path pairs, distinct from a TrackerPanel experiment and a multi-member
    `.trz`. They can reference unrelated experiments, archives and media. [#150](https://github.com/mgradwohl/MoTrack/issues/150)
