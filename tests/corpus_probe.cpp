@@ -337,7 +337,11 @@ try
         const auto relocated = temporary.filePath(QString::fromUtf8("réouverture"));
         if (!temporary.isValid() || !QDir().mkdir(relocated) || !QFile::copy(args[2], source))
             throw motrack::ProjectError("Could not prepare the multi-member archive round trip.");
-        auto payload = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(source));
+        auto initialInput = motrack::prepareWorkspaceInput(source);
+        if (!initialInput.group)
+            throw motrack::ProjectError("Expected a prepared archive group.");
+        auto initialGroup = initialInput.group->prepareSave().snapshot;
+        auto payload = initialGroup.archive;
         const QStringList members{"experiment.trk", "second.trk"};
         if (payload->projects() != members)
             throw motrack::ProjectError("Expected both independently pinned archive experiments.");
@@ -345,21 +349,12 @@ try
         std::optional<motrack::ArchiveGroup> nativeGroup;
         for (int i = 0; i < members.size(); ++i)
         {
-            auto document = motrack::importTrackerDocument(payload->projectPath(members[i]));
-            payload->resolveMedia(document.project, members[i]);
-            document.archivePayload = payload;
-            document.archiveMember = members[i].toStdString();
+            auto document = initialGroup.members[static_cast<std::size_t>(i)].document;
             if (document.project.clip.mediaReferences == std::vector<std::string>{"constant-rate.mov"})
             {
-                const std::atomic_bool cancelled{false};
-                const auto index = motrack::buildMovieIndex(
-                    QDir(payload->root()).filePath("constant-rate.mov"), motrack::VideoOrientation::Encoded, cancelled);
-                if (index.frameCount != 4 || index.frameTimes != std::vector<double>{0.0, 0.125, 0.25, 0.375})
+                if (!document.movie || !document.alignMovieToClip || document.project.clip.sourceFrameCount != 4 ||
+                    document.movieFrameTimes != std::vector<double>{0.0, 0.125, 0.25, 0.375})
                     throw motrack::ProjectError("Multi-member movie timing differs from the independent reference.");
-                document.movie = true;
-                document.alignMovieToClip = true;
-                document.movieFrameTimes = index.frameTimes;
-                document.project.clip.sourceFrameCount = index.frameCount;
             }
             motrack::TrackEdits edits;
             if (!edits.setPointMassValue(document.project, 0, i == 0 ? 5.0 : 7.0) ||
@@ -389,8 +384,13 @@ try
         motrack::writeArchiveGroup(originalGroupPath, *nativeGroup);
         if (!QFile::copy(originalGroupPath, relocatedGroupPath) || !QFile::remove(originalGroupPath))
             throw motrack::ProjectError("Could not relocate the shared native archive group.");
+        const auto originalExtraction = payload->root();
         nativeGroup.reset();
+        initialGroup = {};
+        initialInput = {};
         payload.reset();
+        if (QFileInfo::exists(originalExtraction))
+            throw motrack::ProjectError("Original archive extraction remained owned before native reopen.");
         if (!QFile::remove(source))
             throw motrack::ProjectError("Could not remove the original multi-member archive.");
         std::vector<motrack::WorkspaceDocument> documents;

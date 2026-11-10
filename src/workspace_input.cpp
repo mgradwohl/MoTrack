@@ -3,14 +3,16 @@
 #include "archive_group_codec.hpp"
 #include "local_media_path.hpp"
 #include "tracker_archive.hpp"
+#include "video_reader.hpp"
 #include "workspace_document_codec.hpp"
 #include "workspace_storage.hpp"
 
 #include <QDir>
 #include <QFileInfo>
+#include <QImageReader>
 #include <QJsonDocument>
 
-#include <optional>
+#include <algorithm>
 #include <utility>
 
 namespace motrack
@@ -22,6 +24,32 @@ void checkCancellation(const std::atomic_bool* cancelled)
 {
     if (cancelled && cancelled->load())
         throw ProjectError("Workspace opening canceled.");
+}
+
+void prepareMovieMetadata(WorkspaceDocument& document, const QString& mediaProjectPath, const std::atomic_bool* cancelled)
+{
+    checkCancellation(cancelled);
+    auto& clip = document.project.clip;
+    if (!document.movieFrameTimes.empty() || clip.mediaReferences.size() != 1)
+        return;
+    const auto path = workspaceMediaPath(document, mediaProjectPath, clip.mediaReferences.front());
+    const QFileInfo media(path);
+    if (!media.isFile() || (!document.movie && (QImageReader::supportedImageFormats().contains(media.suffix().toLatin1().toLower()) ||
+                                                QImageReader(path).canRead())))
+        return;
+    const std::atomic_bool running{false};
+    auto index = buildMovieIndex(
+        path, document.useDisplayOrientation ? VideoOrientation::Display : VideoOrientation::Encoded, cancelled ? *cancelled : running);
+    checkCancellation(cancelled);
+    if (index.frameCount <= 0)
+        throw ProjectError("The project's movie could not be indexed.");
+    document.movie = true;
+    document.movieFrameTimes = std::move(index.frameTimes);
+    // Match desktop index adoption: retain the saved clip and never shrink its source-frame extent.
+    const auto steps = clip.stepCount.value_or(0);
+    const auto last = static_cast<std::int64_t>(clip.firstFrame) + static_cast<std::int64_t>(steps - 1) * clip.stepSize;
+    if (steps == 0 || last < index.frameCount)
+        clip.sourceFrameCount = std::max(clip.sourceFrameCount.value_or(0), index.frameCount);
 }
 
 } // namespace
@@ -38,7 +66,9 @@ PreparedWorkspaceInput prepareWorkspaceInput(const QString& path, const std::ato
     if (path.endsWith(".trz", Qt::CaseInsensitive))
     {
         const auto archive = std::make_shared<TrackerArchive>(TrackerArchive::open(physical, cancelled));
-        std::optional<ArchiveGroup> group;
+        ArchiveGroup group{.id = QUuid::createUuid(), .archive = archive, .members = {}};
+        group.members.reserve(static_cast<std::size_t>(archive->projects().size()));
+        result.mediaProjectPath = QDir(archive->root()).absoluteFilePath("archive.trk");
         for (const auto& member : archive->projects())
         {
             checkCancellation(cancelled);
@@ -47,16 +77,15 @@ PreparedWorkspaceInput prepareWorkspaceInput(const QString& path, const std::ato
             loaded.archivePayload = archive;
             loaded.archiveMember = member.toStdString();
             loaded.alignMovieToClip = true;
-            if (group)
-                (void)appendArchiveGroupDocument(*group, std::move(loaded));
-            else
-                group = makeArchiveGroup(std::move(loaded));
+            prepareMovieMetadata(loaded, result.mediaProjectPath, cancelled);
+            group.members.push_back({.id = QUuid::createUuid(), .member = member.toStdString(), .document = std::move(loaded)});
         }
         checkCancellation(cancelled);
-        if (!group)
+        if (group.members.empty())
             throw ProjectError("Tracker archive contains no experiments.");
         result.group = std::make_unique<ArchiveGroupSession>();
-        result.group->replace(std::move(*group), path, ArchiveGroupSource::Tracker);
+        // Validate the complete group once; incremental append revalidates every preceding member.
+        result.group->replace(std::move(group), path, ArchiveGroupSource::Tracker);
         return result;
     }
     if (path.endsWith(".motrack", Qt::CaseInsensitive))
@@ -67,6 +96,9 @@ PreparedWorkspaceInput prepareWorkspaceInput(const QString& path, const std::ato
         if (metadata.value("kind") == "archive-group")
         {
             auto group = detail::decodeArchiveGroup(metadata, std::move(storage.archive), cancelled);
+            const auto mediaPath = QDir(group.archive->root()).absoluteFilePath("archive.trk");
+            for (auto& member : group.members)
+                prepareMovieMetadata(member.document, mediaPath, cancelled);
             result.group = std::make_unique<ArchiveGroupSession>();
             result.group->replace(std::move(group), path);
             return result;
@@ -95,6 +127,7 @@ PreparedWorkspaceInput prepareWorkspaceInput(const QString& path, const std::ato
     checkCancellation(cancelled);
     if (!document.archivePayload)
         retainWorkspaceMediaLocations(document, physical);
+    prepareMovieMetadata(document, result.mediaProjectPath, cancelled);
     result.document = std::make_unique<DocumentSession>();
     result.document->replace(std::move(document), path);
     return result;

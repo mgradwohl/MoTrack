@@ -11,6 +11,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QSemaphore>
+#include <QSet>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
@@ -276,8 +277,8 @@ TEST(WorkspaceInput, AsyncOpeningBoundsPendingInputsAndCancelsOnlyTheSelectedReq
     ASSERT_TRUE(held.ready());
     const auto a = workspace.openProject(fixture());
     const auto b = workspace.openProject(fixture("linked-images/multitab-images.trz"), motrack::WorkspaceActivation::KeepCurrent);
-    ASSERT_TRUE(a);
-    ASSERT_TRUE(b);
+    if (!a || !b)
+        FAIL() << "Expected both bounded input slots.";
     EXPECT_FALSE(workspace.openProject(fixture()));
     EXPECT_TRUE(workspace.cancelOpen(*a));
     EXPECT_FALSE(workspace.cancelOpen(QUuid::createUuid()));
@@ -309,7 +310,8 @@ TEST(WorkspaceInput, FailedAsyncOpenRetainsDocumentsAndReleasesItsSlotForRetry)
     QSignalSpy failed(&workspace, &motrack::WorkspaceContext::inputFailed);
     QSignalSpy opened(&workspace, &motrack::WorkspaceContext::inputOpened);
     const auto request = workspace.openProject(temporary.filePath("missing.trk"));
-    ASSERT_TRUE(request);
+    if (!request)
+        FAIL() << "Expected an input slot for the failed-open test.";
     ASSERT_TRUE(QTest::qWaitFor([&] { return !failed.empty(); }, 5000));
     EXPECT_EQ(failed.front()[0].toUuid(), *request);
     EXPECT_FALSE(failed.front()[1].toString().isEmpty());
@@ -346,12 +348,105 @@ TEST(WorkspaceInput, CompletionObserversMayDestroyTheirContextOnSuccessFailureOr
         QObject::connect(workspace.get(), &motrack::WorkspaceContext::inputFailed, [&] { workspace.reset(); });
         QObject::connect(workspace.get(), &motrack::WorkspaceContext::inputCancelled, [&] { workspace.reset(); });
         const auto request = workspace->openProject(outcome == 1 ? temporary.filePath("missing.trk") : fixture());
-        ASSERT_TRUE(request);
+        if (!request)
+            FAIL() << "Expected an input slot for the completion-lifetime test.";
         if (outcome == 2)
             ASSERT_TRUE(workspace->cancelOpen(*request));
         held.release();
         ASSERT_TRUE(QTest::qWaitFor([&] { return !workspace; }, 5000));
     }
+}
+
+TEST(WorkspaceInput, PreparesManyArchiveMembersInOrderWithUniqueIdentities)
+{
+    QTemporaryDir temporary;
+    std::array<QByteArray, 32> names;
+    std::vector<motrack::test::ArchiveEntry> entries;
+    const auto xml = bytes(fixture());
+    for (std::size_t i = 0; i < names.size(); ++i)
+    {
+        names[i] = QByteArray::number(i).rightJustified(2, '0') + ".trk";
+        entries.push_back({.name = names[i].constData(), .bytes = xml});
+    }
+    const auto path = temporary.filePath("many.trz");
+    ASSERT_TRUE(motrack::test::writeArchive(path, entries));
+    auto input = motrack::prepareWorkspaceInput(path);
+    const auto snapshot = input.group->prepareSave().snapshot;
+    ASSERT_EQ(snapshot.members.size(), names.size());
+    QSet<QUuid> identities;
+    for (std::size_t i = 0; i < names.size(); ++i)
+    {
+        EXPECT_EQ(snapshot.members[i].member, names[i].toStdString());
+        EXPECT_EQ(snapshot.members[i].document.archivePayload, snapshot.archive);
+        EXPECT_FALSE(snapshot.members[i].id.isNull());
+        identities.insert(snapshot.members[i].id);
+    }
+    EXPECT_EQ(identities.size(), names.size());
+}
+
+TEST(WorkspaceInput, MovieMetadataIsPreparedWithoutViewsAndInvalidMoviesFailBeforeAdoption)
+{
+    QTemporaryDir temporary;
+    auto input = motrack::prepareWorkspaceInput(fixture("linked-mov/linked-movie.trk"));
+    ASSERT_TRUE(input.document);
+    EXPECT_TRUE(input.document->document.movie);
+    EXPECT_EQ(input.document->document.movieFrameTimes, (std::vector<double>{0, .125, .25, .375}));
+    EXPECT_EQ(input.document->document.project.clip.sourceFrameCount, 4);
+    auto document = input.document->document;
+    document.movieFrameTimes.clear();
+    document.movie = false; // Earlier native groups can contain members never opened in an editor.
+    auto group = motrack::prepareWorkspaceInput(fixture("linked-mov/archived-movie.trz"));
+    auto snapshot = group.group->prepareSave().snapshot;
+    snapshot.members.front().document.movieFrameTimes.clear();
+    snapshot.members.front().document.movie = false;
+    const auto nativeGroup = temporary.filePath("unindexed.motrack");
+    motrack::writeArchiveGroup(nativeGroup, snapshot);
+    auto reopened = motrack::prepareWorkspaceInput(nativeGroup);
+    const auto movie = reopened.group->prepareSave().snapshot.members.front().document;
+    EXPECT_TRUE(movie.movie);
+    EXPECT_EQ(movie.movieFrameTimes, (std::vector<double>{0, .125, .25, .375}));
+    const auto invalidPath = temporary.filePath("invalid.mov");
+    QFile invalid(invalidPath);
+    ASSERT_TRUE(invalid.open(QIODevice::WriteOnly));
+    ASSERT_EQ(invalid.write("not a movie"), 11);
+    invalid.close();
+    document.project.clip.mediaReferences = {"invalid.mov"};
+    const auto native = temporary.filePath("invalid.motrack");
+    motrack::writeWorkspaceDocument(native, document);
+    EXPECT_THROW((void)motrack::prepareWorkspaceInput(native), motrack::ProjectError);
+}
+
+TEST(WorkspaceInput, SavingAnImageMemberAlsoPreservesAnUnopenedMovieMember)
+{
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("original.trz");
+    ASSERT_TRUE(QFile::copy(fixture("linked-mov/archived-movie.trz"), original));
+    auto workspace = std::make_shared<motrack::WorkspaceContext>();
+    QSignalSpy opened(workspace.get(), &motrack::WorkspaceContext::inputOpened);
+    ASSERT_TRUE(workspace->openProject(original));
+    ASSERT_TRUE(QTest::qWaitFor([&] { return !opened.empty(); }, 5000));
+    const auto documents = opened.front()[2].value<QList<QUuid>>();
+    ASSERT_EQ(documents.size(), 2);
+    const auto movie = documents[0];
+    const auto image = documents[1];
+    ASSERT_EQ(workspace->session().document(movie).archiveMember, "experiment.trk");
+    ASSERT_EQ(workspace->session().document(image).archiveMember, "second.trk");
+    const auto movieProject = workspace->session().project(movie);
+    const auto archive = workspace->session().document(movie).archivePayload;
+    ASSERT_TRUE(QFile::remove(original));
+    motrack::MainWindow imageView(workspace, image); // No movie editor is ever constructed.
+    ASSERT_TRUE(workspace->session().history(image).setPointMassValue(workspace->session().project(image), 0, 29));
+    const auto output = temporary.filePath("mixed.trz");
+    ASSERT_TRUE(imageView.saveTrackerProject(output));
+    auto saved = motrack::prepareWorkspaceInput(temporary.filePath("mixed.motrack"));
+    const auto snapshot = saved.group->prepareSave().snapshot;
+    EXPECT_EQ(snapshot.members[0].document.project, movieProject);
+    EXPECT_TRUE(snapshot.members[0].document.movie);
+    EXPECT_EQ(snapshot.members[0].document.movieFrameTimes, (std::vector<double>{0, .125, .25, .375}));
+    EXPECT_DOUBLE_EQ(snapshot.members[1].document.project.pointMasses.front().mass, 29);
+    EXPECT_EQ(snapshot.archive->sourceDigest(), archive->sourceDigest());
+    const auto standard = motrack::TrackerArchive::open(output);
+    EXPECT_EQ(bytes(QDir(standard.root()).filePath("constant-rate.mov")), bytes(QDir(archive->root()).filePath("constant-rate.mov")));
 }
 
 TEST(WorkspaceInput, AsyncArchiveCanBindEditorsAndSaveEditsFromBothMembers)

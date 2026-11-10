@@ -98,7 +98,10 @@ The discussion was refreshed again on **2026-11-10** for complete input preparat
 remains open with the same video-stepping explanation. New local regressions confirm that opening a
 complete archive, refusing a third queued input, cancelling one open or failing another preserves an
 existing dirty document and its tracking token. They also exercise bound editors after asynchronous
-archive loading. This is additional preventive coverage, not evidence that the still-absent tabbed
+archive loading. Review reproduced a whole-source save failure when a movie member had no editor;
+the input adapter now prepares missing movie metadata before adoption. The new mixed-archive test
+saves image edits with the unopened movie intact, and extended corpus modes use the same initial
+preparation path. All 14 input cases and the full serial Windows suite pass locally. This is additional preventive coverage, not evidence that the still-absent tabbed
 desktop and close/discard workflow meet #69's complete acceptance criteria. #150 also remains open:
 the new dispatcher handles experiment files and archives, not `TFrame` tabsets.
 
