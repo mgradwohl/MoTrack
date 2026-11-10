@@ -83,14 +83,14 @@ policy while saving hidden members. Those routes passed all current-head checks,
 Tracker acceptance in merged #160. The next shared-services slice additionally exercises two actual
 desktop windows with one continuing AutoTracker after the other closes, bounded pools/cache, and
 isolated frame cancellation. All six current-head checks and review passed in merged #161, with
-96.35% combined coverage and all 237 edited Tracker cases; tabbed controls and registry-bound views
-remain unfinished. The following retained-editor slice additionally
+96.35% combined coverage and all 237 edited Tracker cases; that revision did not yet include
+tabbed controls or registry-bound views. The following retained-editor slice additionally
 tests actual registry-bound views while saving and closing another experiment: tracking continues
 with independent timing/units, and hidden archive edits remain in whole-source saves. Its local
 regressions pass. Review also reproduced a Stop-only state after explicit cancellation while waiting
 for a match or movie frame. Run-level tokens and independently queued cancellation notifications now
 reset the owning controls, preserve unrelated jobs and permit restart without stale notices stopping
-the new run. A tabbed workspace and its explicit close/discard controls are still absent.
+the new run. This editor foundation merged in #162 with all-six-green CI, approved review and all 237 edited Tracker cases; the visible shell is the next acceptance layer.
 #69 remains open. See
 [workspace ownership and routing](workspace-sessions.md).
 
@@ -101,8 +101,13 @@ existing dirty document and its tracking token. They also exercise bound editors
 archive loading. Review reproduced a whole-source save failure when a movie member had no editor;
 the input adapter now prepares missing movie metadata before adoption. The new mixed-archive test
 saves image edits with the unopened movie intact, and extended corpus modes use the same initial
-preparation path. All 14 input cases and the full serial Windows suite pass locally. This is additional preventive coverage, not evidence that the still-absent tabbed
-desktop and close/discard workflow meet #69's complete acceptance criteria. #150 also remains open:
+preparation path. All 14 input cases and the full serial Windows suite pass locally. PR #163 merged
+with all six checks passing, approved review, 96.29% combined coverage and the same 237 edited Tracker
+cases. The current shell adds real tab-switch/reorder/close-other-project AutoTracker regressions,
+independent histories/playheads/timing, explicit close decisions and bounded input cancellation.
+All 15 shell cases and the full serial Windows suite pass (96.07% local coverage). Those checks are
+preventive coverage informed by Tracker #18; cross-platform shell CI/review
+are still required before closing #69. #150 also remains open:
 the new dispatcher handles experiment files and archives, not `TFrame` tabsets.
 
 The baseline tabset workflow is now tracked explicitly in [MoTrack #150](https://github.com/mgradwohl/MoTrack/issues/150); moving reference frames discovered in the real Diabolo archive are tracked in [MoTrack #148](https://github.com/mgradwohl/MoTrack/issues/148). Neither discovery is an accepted full round trip.

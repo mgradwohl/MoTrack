@@ -1,9 +1,10 @@
-#include "main_window.hpp"
+#include "workspace_window.hpp"
 
 #include <QApplication>
 #include <QFileInfo>
 #include <QLibraryInfo>
 #include <QLocale>
+#include <QTimer>
 #include <QTranslator>
 
 #include <cstdio>
@@ -34,24 +35,29 @@ try
         app.installTranslator(&translator);
     }
     const auto args = app.arguments();
-    motrack::MainWindow window;
+    motrack::WorkspaceWindow window;
     window.show();
     const bool smokeTest = args.size() == 3 && args[1] == "--smoke-test";
     if (smokeTest)
     {
-        return window.loadProject(args.last()) ? EXIT_SUCCESS : EXIT_FAILURE;
+        QObject::connect(
+            window.context().get(), &motrack::WorkspaceContext::inputOpened, &app, [] { QCoreApplication::exit(EXIT_SUCCESS); });
+        QObject::connect(
+            window.context().get(), &motrack::WorkspaceContext::inputFailed, &app, [] { QCoreApplication::exit(EXIT_FAILURE); });
+        QTimer::singleShot(15000, &app, [] { QCoreApplication::exit(EXIT_FAILURE); });
+        (void)window.openProject(args.last());
     }
-    if (args.size() == 2)
+    else if (args.size() == 2)
     {
         const auto extension = QFileInfo(args.last()).suffix();
         if (extension.compare("trk", Qt::CaseInsensitive) == 0 || extension.compare("trz", Qt::CaseInsensitive) == 0 ||
             extension.compare("motrack", Qt::CaseInsensitive) == 0)
         {
-            window.openProject(args.last());
+            (void)window.openProject(args.last());
         }
         else
         {
-            window.openMovie(args.last());
+            (void)window.openMovie(args.last());
         }
     }
     return app.exec();

@@ -91,8 +91,12 @@ MainWindow::MainWindow(std::shared_ptr<WorkspaceContext> workspace, QUuid docume
         if (QFileInfo(path).isFile())
             m_MoviePath = path;
     }
+    if (model.movieTimeline && matchesMovieTimeline(*model.movieTimeline,
+                                                    m_MoviePath,
+                                                    model.useDisplayOrientation ? VideoOrientation::Display : VideoOrientation::Encoded))
+        m_MovieTimeline = model.movieTimeline;
     activateProject(viewSourcePath());
-    if (!m_MoviePath.isEmpty())
+    if (!m_MoviePath.isEmpty() && !m_MovieTimeline)
         scheduleMovieIndex(m_MoviePath, false);
 }
 

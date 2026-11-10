@@ -1,6 +1,9 @@
 #include "video_reader.hpp"
 
+#include "workspace_document.hpp"
+
 #include <QColor>
+#include <QDateTime>
 #include <QFile>
 #include <QTemporaryDir>
 #include <QtEndian>
@@ -162,6 +165,35 @@ TEST(VideoReader, AppliesOrthogonalDisplayMetadataWithoutChangingTimestamps)
     EXPECT_EQ(result->image.pixelColor(23, 0), source->image.pixelColor(0, 0));
     EXPECT_EQ(result->image.pixelColor(0, 31), source->image.pixelColor(31, 23));
     EXPECT_EQ(unchanged->image, source->image);
+}
+
+TEST(VideoReader, RetainedTimelineRejectsChangedFilePathOrientationSizeAndTime)
+{
+    QTemporaryDir temporary;
+    const auto path = temporary.filePath("movie.mp4");
+    const auto other = temporary.filePath("other.mp4");
+    ASSERT_TRUE(QFile::copy(fixturePath("vfr.mp4"), path));
+    ASSERT_TRUE(QFile::copy(path, other));
+    const std::atomic_bool cancelled{false};
+    auto index = motrack::buildMovieIndex(path, motrack::VideoOrientation::Encoded, cancelled);
+    const auto timeline = motrack::retainMovieTimeline(path, motrack::VideoOrientation::Encoded, index);
+    EXPECT_TRUE(index.presentationTimes.empty());
+    EXPECT_EQ(timeline->presentationTimes.front(), 40ms);
+    EXPECT_TRUE(motrack::matchesMovieTimeline(*timeline, path, motrack::VideoOrientation::Encoded));
+    EXPECT_FALSE(motrack::matchesMovieTimeline(*timeline, other, motrack::VideoOrientation::Encoded));
+    EXPECT_FALSE(motrack::matchesMovieTimeline(*timeline, path, motrack::VideoOrientation::Display));
+    auto changed = *timeline;
+    ++changed.fileSize;
+    EXPECT_FALSE(motrack::matchesMovieTimeline(changed, path, motrack::VideoOrientation::Encoded));
+    changed = *timeline;
+    ++changed.modifiedMsecs;
+    EXPECT_FALSE(motrack::matchesMovieTimeline(changed, path, motrack::VideoOrientation::Encoded));
+    EXPECT_FALSE(motrack::matchesMovieTimeline(*timeline, temporary.filePath("missing.mp4"), motrack::VideoOrientation::Encoded));
+    QFile file(path);
+    ASSERT_TRUE(file.open(QIODevice::ReadWrite));
+    ASSERT_TRUE(file.setFileTime(QDateTime::fromMSecsSinceEpoch(timeline->modifiedMsecs).addSecs(10), QFileDevice::FileModificationTime));
+    file.close();
+    EXPECT_FALSE(motrack::matchesMovieTimeline(*timeline, path, motrack::VideoOrientation::Encoded));
 }
 
 TEST(VideoReader, RejectsAudioOnlyFiles)

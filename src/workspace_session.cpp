@@ -170,6 +170,31 @@ QUuid WorkspaceSession::sourceId(QUuid id) const
     return findDocument(id).source->id;
 }
 
+std::vector<QUuid> WorkspaceSession::sources() const
+{
+    std::vector<QUuid> result;
+    result.reserve(m_Sources.size());
+    for (const auto& source : m_Sources)
+        result.push_back(source->id);
+    return result;
+}
+
+std::vector<QUuid> WorkspaceSession::sourceDocuments(QUuid id) const
+{
+    (void)findSource(id);
+    std::vector<QUuid> result;
+    for (const auto& document : m_Documents)
+        if (document->source->id == id)
+            result.push_back(document->id);
+    return result;
+}
+
+bool WorkspaceSession::hasPendingOperations(QUuid id) const
+{
+    (void)findSource(id);
+    return std::ranges::any_of(m_Operations, [id](const auto& operation) { return operation.token.source == id; });
+}
+
 const QString& WorkspaceSession::sourcePath(QUuid id) const
 {
     const auto& source = findSource(id);
@@ -208,7 +233,10 @@ WorkspaceJobToken WorkspaceSession::beginMovieIndex(QUuid id)
     return token;
 }
 
-bool WorkspaceSession::applyMovieIndex(const WorkspaceJobToken& token, std::vector<double> frameTimes, int frameCount)
+bool WorkspaceSession::applyMovieIndex(const WorkspaceJobToken& token,
+                                       std::vector<double> frameTimes,
+                                       int frameCount,
+                                       std::shared_ptr<const MovieTimeline> timeline)
 {
     if (token.kind != WorkspaceJob::MediaIndex || !accepts(token) || frameCount <= 0 || !std::cmp_equal(frameCount, frameTimes.size()) ||
         frameTimes.front() != 0.0 || !std::ranges::all_of(frameTimes, [](double time) { return std::isfinite(time); }) ||
@@ -218,6 +246,7 @@ bool WorkspaceSession::applyMovieIndex(const WorkspaceJobToken& token, std::vect
     auto& document =
         entry.source->group ? entry.source->group->findMember(entry.member).session->document : entry.source->standalone->document;
     document.movie = true;
+    document.movieTimeline = std::move(timeline);
     document.movieFrameTimes = std::move(frameTimes);
     auto& clip = document.project.clip;
     const auto steps = clip.stepCount.value_or(0);
@@ -343,6 +372,15 @@ void WorkspaceSession::cancelJobs(QUuid id)
 {
     for (const auto& flag : findDocument(id).jobs)
         cancel(flag);
+    if (m_JobsCancelled)
+        m_JobsCancelled(id);
+}
+
+void WorkspaceSession::stopActivity(QUuid id)
+{
+    const auto& jobs = findDocument(id).jobs;
+    cancel(jobs[static_cast<std::size_t>(WorkspaceJob::AutoTrack)]);
+    cancel(jobs[static_cast<std::size_t>(WorkspaceJob::Playback)]);
     if (m_JobsCancelled)
         m_JobsCancelled(id);
 }

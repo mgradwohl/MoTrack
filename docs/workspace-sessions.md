@@ -1,10 +1,10 @@
 # Workspace ownership and routing
 
-`WorkspaceSession` is the owner-thread registry between prepared project inputs and future desktop
+`WorkspaceSession` is the owner-thread registry between prepared project inputs and desktop
 tabs. It uses Qt Core and the project adapters; it does not depend on Widgets, FFmpeg, Java or Swift.
 It owns independent `DocumentSession` records and `ArchiveGroupSession` owners. Retained experiment
-editors are in local validation. The ordinary application entry point still uses its existing
-single-document window; the tabbed workspace shell is the next integration step.
+editors and complete asynchronous input preparation are merged in #162 and #163. The ordinary
+application entry point now uses `WorkspaceWindow`; the new shell is in local validation.
 
 ## Documents, sources and views
 
@@ -43,11 +43,10 @@ appropriate tokens; flags survive with workers. Selecting, moving or hiding anot
 AutoTracker. Callers must cancel jobs made incompatible by an edit or media change, and validate any
 scientific revision requirements before applying results.
 
-These registry tokens define ownership and result routing. The next `WorkspaceServices` layer is in
-local validation and connects the existing desktop to bounded execution services. A window creates
-an owner by default; multiple views in one workspace must receive the same shared owner. The registry
-and desktop document bindings are still separate until the next integration slice. Keep local builds
-at two workers and local tests serial while developing these layers.
+These registry tokens define ownership and result routing. `WorkspaceServices` supplies bounded
+execution, and `WorkspaceContext` binds it to retained experiment editors. A window creates an owner
+by default; every view in one workspace receives that shared owner. Keep local builds at two workers
+and local tests serial while developing these layers.
 
 ## Shared execution services
 
@@ -97,7 +96,8 @@ suppression. PR #161 merged at reviewed head `537e617` with all six checks passi
 coverage (9984/10362)** and all 237 unchanged edited Tracker cases. Three known reference defects
 remain unaccepted. Review 5836935274 recommends approval with no threads; the completed branch was
 verified contained in main and removed locally/remotely.
-This is not yet a tabbed desktop or complete acceptance of #69.
+The services alone do not establish complete acceptance of #69; the visible shell regressions below
+exercise the actual tab controls.
 
 ## Retained experiment editors
 
@@ -105,9 +105,8 @@ This is not yet a tabbed desktop or complete acceptance of #69.
 GUI thread. The bound `MainWindow` constructor takes this owner and a runtime document ID. It borrows
 that record's project and history rather than moving or copying them into its old standalone session.
 Only one experiment editor may claim a record at a time; later plot/table views will share its editor
-model. Duplicate or unknown claims are refused. The existing standalone constructor remains the
-application's compatibility path until the workspace shell adopts prepared inputs and creates bound
-editors. Opening/replacing sources is disabled within a bound editor because it belongs to that shell.
+model. Duplicate or unknown claims are refused. The existing standalone constructor remains available for focused editor tests. The application
+workspace adopts prepared inputs and creates bound editors on first selection. Opening/replacing sources is disabled within a bound editor because it belongs to that shell.
 
 Each existing editor keeps its own playhead, displayed image, selection, plot, playback controls,
 tracking timers and media index. Selecting another record does not reset these controls. Destroying
@@ -157,10 +156,11 @@ five affected translation-unit static analyses pass without new suppressions. Ex
 labels and save-progress strings remain unchanged. All three translation catalogs contain
 the new pending-save message, and 35 relative links across the three changed guides resolve. The
 three previously investigated LLVM wrapper warnings remain visible, with no missing production
-records and the unchanged 90% gate. Cross-platform CI, actual Tracker acceptance and review remain
-required. These editors do not add visible tabs or a source-discard policy: a bound view's close
-operation hides it and retains edits. The future shell must make save/discard decisions
-explicit before releasing sources. #69 and #150 remain open.
+records and the unchanged 90% gate. PR #162 merged after approved review and all six checks in
+[CI 42767649627](https://github.com/mgradwohl/MoTrack/actions/runs/42767649627), with **96.32% combined
+coverage (10367/10763)** and all 237 edited Tracker cases. A bound view's close operation hides it and
+retains edits; the shell below owns explicit whole-source Save/Discard/Cancel decisions. #69 and #150
+remain open pending their complete acceptance evidence.
 
 ## Preparing complete inputs
 
@@ -214,11 +214,85 @@ All 10 Windows CTest groups pass serially in 183.00 seconds after both review fi
 production-line coverage (10517/10928). All C++ formatting, five affected translation-unit static
 analyses and 36 relative guide links pass. The three previously investigated LLVM wrapper warnings
 remain visible; no production records are missing and the 90% gate is unchanged. All 14 input cases
-pass in 3139 ms. Current-head actual Tracker
-acceptance, cross-platform checks and external review remain the current-head CI/review gates.
+pass in 3139 ms. PR #163 merged at reviewed `363b0ba` after all six checks in
+[CI 42769356388](https://github.com/mgradwohl/MoTrack/actions/runs/42769356388), with **96.29% combined
+coverage (10546/10952)**. All 237 unique edited Tracker cases pass, including the four archive-group
+modes in both edit orders; the three known Tracker defects remain explicitly unaccepted. Its completed
+branch was removed locally/remotely after containment checks.
 
-The default desktop still opens a standalone editor. The next shell integration must connect these
-prepared inputs to visible tabs, user-facing cancellation/error controls and explicit close decisions.
+## Desktop workspace shell
+
+`WorkspaceWindow` is the default application window and owns one shared context. Local projects, movies
+and image sequences enter through the same two-input worker bound, with individual progress/cancel
+controls and failure diagnostics. Raw media has `DocumentSourceKind::Media`: its original movie/image
+is never a native-save target. Image rates are finite and nonnegative; zero means unknown timing.
+Movies use the existing bounded display-orientation indexer; imported Tracker coordinates are unchanged.
+The prepared absolute presentation timestamps remain in immutable, runtime-only document state,
+shared by recreated views. Opening a prepared movie tab therefore does not scan it a second time.
+The adapter checks physical path, file size, modification time and orientation before reuse; native
+files retain their existing relative timing format and acquire a runtime index on first view creation.
+
+Every imported archive member gets a lightweight tab. Its complete editor is created on first
+selection and retained across tab switches, preserving playback, tracking, selection, playhead and
+undo state without constructing thousands of editors during a large archive open. The active editor
+supplies the workspace menus and keyboard actions. Reordering updates registry order; selecting or
+reordering another experiment never cancels the running document's jobs.
+
+The tab × and Ctrl+W deliberately mean **Hide experiment view**, not discard: destroying its editor
+cancels that document's work while retaining its data and history. **Experiments** reopens a hidden
+record. Its recreated editor starts at the first clip step, as documented above. **Close project…**
+resolves Save/Discard/Cancel for the entire source, including every hidden archive member. Per-member
+discard/restoration and persisted view layouts remain separate unfinished workflows.
+
+Ordinary Save on a standard Tracker source writes the standard output and companion together. Save All
+and save-before-close use the same companion-replacement confirmation as Save As when establishing a
+pair over an existing independent `.motrack`; Cancel preserves both files. Established pairs save
+automatically. Save All
+iterates distinct source identities, writes only modified sources, includes hidden member edits and
+stops at the first failure/cancel. Before an aggregate/close save, known destinations are checked
+against other modified sources, including the standard file's companion and physical file aliases.
+Two independently edited copies sharing an output are refused until saved to distinct destinations.
+This prevents Save All from overwriting one copy and marking both saved. Hidden sources can use a temporary parent-owned editor for the
+existing save/recovery prompts without reopening a visible tab. Native-only copies keep the existing
+paired-save obligations; raw media or native-only inputs choose a native destination as before.
+
+Closing the window cancels pending inputs and stops tracking/playback, refuses active saves and collects
+all source decisions before releasing any records. A later Cancel preserves earlier sources, although
+already-approved saves may have written files. A complete revision preflight prevents a later prompt
+from discarding newer edits in an earlier source. Destruction during open/save/close modal loops
+retains worker ownership and clears only the appropriate view/job state. The shell destroys its
+editors and disconnects callbacks before its C++ member maps and registry leases are destroyed.
+Pending frame/index requests survive close decisions, so an aborted close leaves frame controls
+usable; actual editor destruction/source release cancels the remaining work.
+
+Local shell validation currently covers actual tab selection/reordering and focused Undo/Redo, lazy
+archive members, hidden edits and native/standard Save All, complete-source Save/Discard/Cancel,
+whole-window Cancel and later-prompt edits, failed saves and pending-operation refusal, raw media,
+input cancellation/backpressure/failure and destruction during modal operations/completion. Actual
+AutoTracker continues through another tab's switch, reorder and project close with independent
+timing/units. Self-review reproduced Save All overwriting two independently edited copies with one shared destination;
+the new preflight preserves both dirty copies and also protects a standard file's native companion.
+Review regressions also cover first-Save companion replacement for TRK/TRZ through Save, Save All and
+save-before-close; canceled project/window close with a pending movie frame; prepared movie reuse
+through recreated tabs, including nonzero absolute timestamps; native first-index retention; and stale
+file/orientation cache rejection. Both companion loss and stuck controls reproduced before their fixes.
+All 17 shell regressions and 14 bound-editor regressions pass locally (9774 ms and 5239 ms).
+All 10 Windows CTest groups pass serially in
+197.60 seconds with **96.08% production-line coverage (11196/11653)**. All C++ formatting, the nine
+review-affected translation-unit analyses and 45 relative guide links pass. LLVM reports six hash-mismatch
+records for the generated `tr()` wrappers of WorkspaceWindow, MainWindow and PositionPlot, each
+listed twice; all production source records are present. No coverage exclusions or thresholds changed.
+The earlier `b0ef32a` [CI run](https://github.com/mgradwohl/MoTrack/actions/runs/42782801088) passed all
+three platform builds and the unchanged 237 edited Tracker cases, including all four group modes;
+three known upstream defects remain explicitly not accepted. Linux static analysis then rejected
+an optional-value expression in saved-tab restoration and QtTest's `keyClick`/`QPointer` path in the
+keyboard regression. Saved-tab restoration now uses an explicit UUID value, and the test sends the
+same platform shortcut with separate key press/release events, as the existing workspace tests do.
+All 17 shell cases pass again (10993 ms), with both affected translation-unit analyses and formatting
+passing locally. No checks or assertions were removed. Fresh current-head CI and review are required.
+GitHub reports exhausted Copilot review quota; resolved initial findings do not constitute current-head approval.
+The 38 new strings (including correct plural forms) are cataloged in German, Spanish and French as unfinished. Tracker TFrame tabsets
+(#150), cross-tab import and the remaining R04 layouts are not implemented by this shell.
 
 ## Saving and recovery
 
@@ -273,20 +347,13 @@ passed; three known Tracker defects remain explicitly unaccepted. The merged bra
 locally and remotely after containment checks. This foundation does not close
 [MoTrack #69](https://github.com/mgradwohl/MoTrack/issues/69), whose upstream
 [Tracker #18](https://github.com/OpenSourcePhysics/tracker/issues/18) discussion was refreshed on
-2026-11-09. The historical report concerns actual playback/tracking controls. Multi-tab desktop
-acceptance, registry-bound views using shared worker/cache limits, per-view media/playhead state, explicit close/discard UI,
-cross-tab import and [Tracker tabsets #150](https://github.com/mgradwohl/MoTrack/issues/150) remain in
+2026-11-09. The historical report concerns actual playback/tracking controls. The visible shell above is the current integration slice. Cross-tab import, saved-view restoration and [Tracker tabsets #150](https://github.com/mgradwohl/MoTrack/issues/150) remain in
 the [full-port order](migration-plan.md#implementation-order-and-exit-gates).
 
 The remaining integration order is:
 
-1. Shared execution/cache services are merged in #161. Frame requests carry
-   document and media-generation identity; serving another document must not invalidate a running
-   experiment's AutoTracker request. Workers retain immutable source ownership until finished.
-2. Finish validation of the retained experiment editors above, then activate their actions from the
-   workspace shell without replacing records. Retain each editor while switching tabs.
-3. Connect the bounded asynchronous input preparation above to visible tab interactions. Exercise actual
-   view switching/closure while tracking, distinct timing/units, undo, source removal and save/reopen.
-   Save All deduplicates source IDs and respects the pending-operation bound.
-4. Implement explicit close/discard decisions and a saved-model restoration policy, then tabsets and
-   cross-tab import. Retained source records and visible views must not be conflated at any close step.
+1. Shared services, retained editors and complete project preparation are merged in #161–#163.
+2. Complete validation of the visible shell above on the exact reviewed revision: actual tracking and
+   keyboard/tab interactions, all-source saving/close decisions, source removal and native/Tracker reopen.
+3. Implement saved-model restoration for per-member discard and persisted views, then Tracker tabsets
+   and cross-tab import. Source records and visible views must not be conflated at any close step.

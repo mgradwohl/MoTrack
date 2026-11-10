@@ -3,6 +3,7 @@
 #include "track_identity.hpp"
 #include "tracker_archive.hpp"
 #include "workspace_context.hpp"
+#include "workspace_input.hpp"
 
 #include <QAction>
 #include <QApplication>
@@ -642,6 +643,94 @@ TEST(BoundWorkspace, DelayedCancellationDoesNotStopRestartedTrackingOrPlayback)
             [&] { return slider->value() == slider->maximum() && !action->isChecked() && play->accessibleName() == "Play"; }));
         EXPECT_EQ(marks->rowCount(), tracking ? 3 : 1);
     }
+}
+
+TEST(BoundWorkspace, PreparedMovieTabsReuseIndexAndAbsoluteTimestampsAfterHiding)
+{
+    using namespace std::chrono_literals;
+    for (const int kind : {0, 1, 2})
+    {
+        SCOPED_TRACE(kind);
+        auto workspace = std::make_shared<motrack::WorkspaceContext>();
+        auto input =
+            kind == 0
+                ? motrack::prepareWorkspaceMovie(QString::fromUtf8(MOTRACK_FIXTURES) + "/vfr.mp4")
+                : motrack::prepareWorkspaceInput(fixture(kind == 1 ? "linked-mov/linked-movie.trk" : "linked-mov/archived-movie.trz"));
+        const auto source = motrack::adoptWorkspaceInput(workspace->session(), input);
+        auto& model = workspace->session();
+        int movies = 0;
+        for (const auto document : source.documents)
+        {
+            const auto retained = model.document(document).movieTimeline;
+            if (!model.document(document).movie)
+            {
+                EXPECT_FALSE(retained);
+                continue;
+            }
+            ++movies;
+            ASSERT_TRUE(retained);
+            ASSERT_EQ(retained->presentationTimes.size(), 4u);
+            EXPECT_EQ(retained->presentationTimes.front(), kind == 0 ? 40ms : 0ms);
+            EXPECT_DOUBLE_EQ(model.document(document).movieFrameTimes.front(), 0);
+            for (int opening = 0; opening < 2; ++opening)
+            {
+                // An unwanted new index would supersede this identity even before its worker finished.
+                const auto sentinel = model.beginMovieIndex(document);
+                std::optional<motrack::MovieFrameResult> decoded;
+                const auto connection = QObject::connect(workspace->services().get(),
+                                                         &motrack::WorkspaceServices::frameDecoded,
+                                                         workspace.get(),
+                                                         [&](const auto& result) { decoded = result; });
+                const auto disconnect = qScopeGuard([&] { QObject::disconnect(connection); });
+                motrack::MainWindow view(workspace, document);
+                EXPECT_TRUE(model.accepts(sentinel));
+                ASSERT_TRUE(QTest::qWaitFor([&] { return decoded.has_value(); }));
+                if (!decoded)
+                    FAIL() << "Missing initial movie frame.";
+                EXPECT_EQ(decoded->request.timestamp, retained->presentationTimes.front());
+                auto* slider = view.findChild<QSlider*>("stepSlider");
+                ASSERT_TRUE(slider);
+                decoded.reset();
+                slider->setValue(2);
+                ASSERT_TRUE(QTest::qWaitFor([&] { return decoded && decoded->request.frame == 2; }));
+                if (!decoded)
+                    FAIL() << "Missing selected movie frame.";
+                EXPECT_EQ(decoded->request.timestamp, kind == 0 ? 288ms : 250ms);
+                EXPECT_FALSE(decoded->image.isNull());
+                EXPECT_EQ(model.document(document).movieTimeline, retained);
+                EXPECT_TRUE(model.accepts(sentinel));
+            }
+        }
+        EXPECT_EQ(movies, 1);
+    }
+}
+
+TEST(BoundWorkspace, NativeMovieIndexesOnceThenRetainsTimelineAcrossViews)
+{
+    QTemporaryDir temporary;
+    auto input = motrack::prepareWorkspaceMovie(QString::fromUtf8(MOTRACK_FIXTURES) + "/vfr.mp4");
+    const auto path = temporary.filePath("native.motrack");
+    auto snapshot = input.document->document;
+    motrack::rebaseWorkspaceMedia(snapshot, input.mediaProjectPath, path);
+    motrack::writeWorkspaceDocument(path, snapshot);
+    auto native = motrack::prepareWorkspaceInput(path);
+    ASSERT_FALSE(native.document->document.movieTimeline); // Runtime data never leaks into the file format.
+    auto workspace = std::make_shared<motrack::WorkspaceContext>();
+    const auto source = motrack::adoptWorkspaceInput(workspace->session(), native);
+    const auto document = source.documents.front();
+    auto& model = workspace->session();
+    {
+        motrack::MainWindow view(workspace, document);
+        ASSERT_TRUE(QTest::qWaitFor([&] { return static_cast<bool>(model.document(document).movieTimeline); }));
+    }
+    const auto retained = model.document(document).movieTimeline;
+    const auto sentinel = model.beginMovieIndex(document);
+    motrack::MainWindow reopened(workspace, document);
+    EXPECT_TRUE(model.accepts(sentinel));
+    EXPECT_EQ(model.document(document).movieTimeline, retained);
+    auto* canvas = reopened.findChild<QWidget*>("videoCanvas");
+    ASSERT_TRUE(canvas);
+    EXPECT_TRUE(QTest::qWaitFor([&] { return canvas->accessibleName() == "Frame 0"; }));
 }
 
 } // namespace

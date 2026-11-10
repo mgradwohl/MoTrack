@@ -13,6 +13,7 @@
 #include <QJsonDocument>
 
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 namespace motrack
@@ -44,6 +45,8 @@ void prepareMovieMetadata(WorkspaceDocument& document, const QString& mediaProje
     if (index.frameCount <= 0)
         throw ProjectError("The project's movie could not be indexed.");
     document.movie = true;
+    document.movieTimeline =
+        retainMovieTimeline(path, document.useDisplayOrientation ? VideoOrientation::Display : VideoOrientation::Encoded, index);
     document.movieFrameTimes = std::move(index.frameTimes);
     // Match desktop index adoption: retain the saved clip and never shrink its source-frame extent.
     const auto steps = clip.stepCount.value_or(0);
@@ -130,6 +133,68 @@ PreparedWorkspaceInput prepareWorkspaceInput(const QString& path, const std::ato
     prepareMovieMetadata(document, result.mediaProjectPath, cancelled);
     result.document = std::make_unique<DocumentSession>();
     result.document->replace(std::move(document), path);
+    return result;
+}
+
+PreparedWorkspaceInput prepareWorkspaceMovie(const QString& path, const std::atomic_bool* cancelled)
+{
+    checkCancellation(cancelled);
+    const auto physical = QFileInfo(path).canonicalFilePath();
+    if (physical.isEmpty() || !QFileInfo(physical).isFile())
+        throw ProjectError("Movie file is unavailable.");
+    const std::atomic_bool running{false};
+    auto index = buildMovieIndex(physical, VideoOrientation::Display, cancelled ? *cancelled : running);
+    checkCancellation(cancelled);
+    if (index.frameCount <= 0)
+        throw ProjectError("The movie could not be indexed.");
+    WorkspaceDocument document;
+    document.movie = true;
+    document.useDisplayOrientation = true;
+    document.movieTimeline = retainMovieTimeline(physical, VideoOrientation::Display, index);
+    document.movieFrameTimes = std::move(index.frameTimes);
+    document.project.clip.stepCount = index.frameCount;
+    document.project.clip.sourceFrameCount = index.frameCount;
+    document.project.clip.mediaReferences.push_back(QFileInfo(physical).fileName().toStdString());
+    retainWorkspaceMediaLocations(document, physical);
+    PreparedWorkspaceInput result;
+    result.mediaProjectPath = physical;
+    result.document = std::make_unique<DocumentSession>();
+    result.document->replace(std::move(document), physical, DocumentSourceKind::Media);
+    return result;
+}
+
+PreparedWorkspaceInput prepareWorkspaceImages(const QStringList& paths, double frameRate, const std::atomic_bool* cancelled)
+{
+    checkCancellation(cancelled);
+    const auto duration = frameRate > 0.0 ? 1000.0 / frameRate : 0.0;
+    if (paths.isEmpty() || !std::in_range<int>(paths.size()) || !std::isfinite(frameRate) || frameRate < 0.0 || !std::isfinite(duration))
+        throw ProjectError("Invalid image sequence or frame rate.");
+    const auto physical = QFileInfo(paths.front()).canonicalFilePath();
+    if (physical.isEmpty())
+        throw ProjectError("An image file is unavailable.");
+    const QDir directory(localProjectDirectory(physical));
+    WorkspaceDocument document;
+    auto& clip = document.project.clip;
+    clip.stepCount = static_cast<int>(paths.size());
+    clip.sourceFrameCount = clip.stepCount;
+    if (duration > 0.0)
+        clip.frameDurationMs = duration;
+    for (const auto& path : paths)
+    {
+        checkCancellation(cancelled);
+        const auto image = QFileInfo(path).canonicalFilePath();
+        if (image.isEmpty() || !QImageReader(image).canRead())
+            throw ProjectError("An image file could not be read.");
+        clip.mediaReferences.push_back(directory.relativeFilePath(image).toStdString());
+    }
+    if (QImageReader(physical).read().isNull())
+        throw ProjectError("The first image could not be decoded.");
+    checkCancellation(cancelled);
+    retainWorkspaceMediaLocations(document, physical);
+    PreparedWorkspaceInput result;
+    result.mediaProjectPath = physical;
+    result.document = std::make_unique<DocumentSession>();
+    result.document->replace(std::move(document), physical, DocumentSourceKind::Media);
     return result;
 }
 

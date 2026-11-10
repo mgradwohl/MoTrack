@@ -53,6 +53,8 @@ class MainWindow final : public QMainWindow
     bool openImageSequence(const QStringList& paths, double frameRate);
     bool saveMeasurements(const QString& path);
     bool saveWorkspace(const QString& path);
+    /// Normal Save action, including whole-source paired saving and recovery prompts in a workspace.
+    bool saveCurrentWorkspace();
     bool saveTrackerProject(const QString& path, bool recoverPending = false);
     bool exportTrackerArchive(const QString& path);
     /// Shared services outlive every borrowing view; default construction creates one workspace owner.
@@ -105,7 +107,6 @@ class MainWindow final : public QMainWindow
     bool chooseArchivePath();
     bool saveTrackerWithRecoveryPrompt(const QString& path);
     void finishSaving();
-    bool saveCurrentWorkspace();
     bool saveCsv(const QString& path, const std::string& csv);
     void refreshEditViews(int track);
     void refreshPlot();
@@ -194,6 +195,7 @@ class MainWindow final : public QMainWindow
     std::shared_ptr<std::atomic_bool> m_SaveCancelled;
     std::vector<std::function<void()>> m_AfterSave;
     std::vector<std::chrono::nanoseconds> m_MoviePresentationTimes;
+    std::shared_ptr<const MovieTimeline> m_MovieTimeline;
     std::shared_ptr<std::atomic_bool> m_MovieOpenCancelled;
     std::unique_ptr<QFutureWatcher<MovieIndex>> m_MovieOpenWatcher;
     std::shared_ptr<std::atomic_bool> m_ProjectOpenCancelled;
