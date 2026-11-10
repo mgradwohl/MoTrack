@@ -1,5 +1,6 @@
 #include "paired_save.hpp"
 
+#include "archive_group.hpp"
 #include "local_media_path.hpp"
 #include "save_observation.hpp"
 #include "tracker_archive.hpp"
@@ -28,6 +29,7 @@
 #include <mutex>
 #include <optional>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -577,11 +579,80 @@ void withSaveDestinationLock(const QString& path, const std::atomic_bool* cancel
     write(physical);
 }
 
-PairedSaveResult writePairedDocuments(const QString& standardPath,
-                                      const WorkspaceDocument& document,
-                                      const QString& mediaProjectPath,
-                                      const std::atomic_bool* cancelled,
-                                      const PairedSaveObserver& observer)
+namespace
+{
+
+void preparePairSnapshot(const Record& record, WorkspaceDocument& snapshot, const QString& mediaProjectPath, PairedSaveResult& result)
+{
+    refreshWorkspaceMediaLocations(snapshot, mediaProjectPath);
+    result.mediaLocations = snapshot.mediaLocations;
+    protectSourceFiles(record, snapshot, mediaProjectPath);
+}
+
+void preparePairSnapshot(const Record& record, const ArchiveGroup& snapshot, const QString&, PairedSaveResult&)
+{
+    require(record.outputs[0].name.endsWith(".trz", Qt::CaseInsensitive), "Archive groups require a Tracker archive filename.");
+    require(snapshot.archive && !snapshot.members.empty(), "Invalid MoTrack archive group.");
+    for (const auto& member : snapshot.members)
+    {
+        require(member.document.archivePayload == snapshot.archive, "Archive group members must share their original source owner.");
+        protectSourceFiles(record, member.document, {});
+    }
+}
+
+void writePairStandard(const QString& path,
+                       const WorkspaceDocument& snapshot,
+                       const QString& mediaProjectPath,
+                       const std::atomic_bool* cancelled)
+{
+    if (path.endsWith(".trz", Qt::CaseInsensitive))
+        writeTrackerArchiveDocument(path, snapshot, cancelled);
+    else
+        writeTrackerDocument(path, snapshot, mediaProjectPath);
+}
+
+void writePairStandard(const QString& path, const ArchiveGroup& snapshot, const QString&, const std::atomic_bool* cancelled)
+{
+    std::vector<WorkspaceDocument> documents;
+    documents.reserve(snapshot.members.size());
+    for (const auto& member : snapshot.members)
+        documents.push_back(member.document);
+    writeTrackerArchiveDocuments(path, documents, cancelled);
+}
+
+void writePairNative(const QString& path,
+                     WorkspaceDocument& snapshot,
+                     const QString& mediaProjectPath,
+                     const QString& destination,
+                     const std::atomic_bool* cancelled)
+{
+    rebaseWorkspaceMedia(snapshot, mediaProjectPath, destination);
+    writeWorkspaceDocument(path, snapshot, cancelled);
+    validateNativeSnapshot(snapshot, readWorkspaceDocument(path, cancelled));
+}
+
+void writePairNative(const QString& path, const ArchiveGroup& snapshot, const QString&, const QString&, const std::atomic_bool* cancelled)
+{
+    writeArchiveGroup(path, snapshot, cancelled);
+    const auto reopened = readArchiveGroup(path, cancelled);
+    require(snapshot.id == reopened.id && snapshot.archive->sourceDigest() == reopened.archive->sourceDigest() &&
+                snapshot.members.size() == reopened.members.size(),
+            "Prepared native group did not preserve its snapshot.");
+    for (std::size_t i = 0; i < snapshot.members.size(); ++i)
+    {
+        const auto& before = snapshot.members[i];
+        const auto& after = reopened.members[i];
+        require(before.id == after.id && before.member == after.member, "Prepared native group changed a member identity.");
+        validateNativeSnapshot(before.document, after.document);
+    }
+}
+
+template <typename Snapshot>
+PairedSaveResult writePairedSnapshot(const QString& standardPath,
+                                     const Snapshot& document,
+                                     const QString& mediaProjectPath,
+                                     const std::atomic_bool* cancelled,
+                                     const PairedSaveObserver& observer)
 {
     PairedSaveResult result;
     try
@@ -617,10 +688,10 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
             result.transactionId = readRecord(recoveryPath, parent).transactionId;
             throw ProjectError("Resolve the previous paired save before replacing either output.");
         }
-        auto snapshot = document;
-        refreshWorkspaceMediaLocations(snapshot, mediaProjectPath);
-        result.mediaLocations = snapshot.mediaLocations;
-        protectSourceFiles(record, snapshot, mediaProjectPath);
+        // Only standalone documents need a private copy for media rebasing; groups stay immutable.
+        using PreparedSnapshot = std::conditional_t<std::is_same_v<Snapshot, WorkspaceDocument>, Snapshot, const Snapshot&>;
+        PreparedSnapshot snapshot = document;
+        preparePairSnapshot(record, snapshot, mediaProjectPath, result);
         for (auto& output : record.outputs)
             output.before = fingerprint(directory.filePath(output.name), parent, cancelled);
         QString standard;
@@ -641,19 +712,14 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
         native = createStage(directory.filePath(".motrack-stage-XXXXXX.motrack"));
         record.outputs[0].stage = QFileInfo(standard).fileName();
         record.outputs[1].stage = QFileInfo(native).fileName();
-        if (target.suffix().compare("trz", Qt::CaseInsensitive) == 0)
-            writeTrackerArchiveDocument(standard, snapshot, cancelled);
-        else
-            writeTrackerDocument(standard, snapshot, mediaProjectPath);
+        writePairStandard(standard, snapshot, mediaProjectPath, cancelled);
         const auto standardFingerprint = fingerprint(standard, parent, cancelled);
         if (!standardFingerprint)
             throw ProjectError("Prepared standard file disappeared.");
         record.outputs[0].after = *standardFingerprint;
         notify(observer, PairedSaveProgress::StandardPrepared);
         checkCancelled(cancelled);
-        rebaseWorkspaceMedia(snapshot, mediaProjectPath, result.nativePath);
-        writeWorkspaceDocument(native, snapshot, cancelled);
-        validateNativeSnapshot(snapshot, readWorkspaceDocument(native, cancelled));
+        writePairNative(native, snapshot, mediaProjectPath, result.nativePath, cancelled);
         const auto nativeFingerprint = fingerprint(native, parent, cancelled);
         if (!nativeFingerprint)
             throw ProjectError("Prepared native file disappeared.");
@@ -687,25 +753,48 @@ PairedSaveResult writePairedDocuments(const QString& standardPath,
     return result;
 }
 
+} // namespace
+
+PairedSaveResult writePairedDocuments(const QString& standardPath,
+                                      const WorkspaceDocument& document,
+                                      const QString& mediaProjectPath,
+                                      const std::atomic_bool* cancelled,
+                                      const PairedSaveObserver& observer)
+{
+    return writePairedSnapshot(standardPath, document, mediaProjectPath, cancelled, observer);
+}
+
+PairedSaveResult writePairedArchiveGroup(const QString& standardPath,
+                                         const ArchiveGroup& group,
+                                         const std::atomic_bool* cancelled,
+                                         const PairedSaveObserver& observer)
+{
+    return writePairedSnapshot(standardPath, group, {}, cancelled, observer);
+}
+
 SaveDestinationError::SaveDestinationError(SaveDestinationConflict conflict)
     : ProjectError(conflict == SaveDestinationConflict::Busy ? "Another save for this project is already in progress."
                                                              : "An interrupted paired save requires recovery before replacement."),
       m_Conflict(conflict)
 {}
 
-NativeSaveResult writeNativeDocument(const QString& path,
-                                     const WorkspaceDocument& document,
+namespace
+{
+
+template <typename Writer>
+NativeSaveResult writeNativeSnapshot(const QString& path,
+                                     NativeSaveResult result,
                                      const std::atomic_bool* cancelled,
-                                     const PairedSaveObserver& observer)
+                                     const PairedSaveObserver& observer,
+                                     const Writer& write)
 {
     checkCancelled(cancelled);
     require(path.endsWith(".motrack", Qt::CaseInsensitive), "Choose a native project filename.");
-    NativeSaveResult result{.mediaLocations = document.mediaLocations};
     withSaveDestinationLock(path,
                             cancelled,
                             [&](const auto& physical)
                             {
-                                writeWorkspaceDocument(physical, document, cancelled);
+                                write(physical);
                                 const auto completed = [&result]
                                 {
                                     result.saved = true;
@@ -724,6 +813,28 @@ NativeSaveResult writeNativeDocument(const QString& path,
                                 completed(); // Stamp before withSaveDestinationLock releases the shared lock.
                             });
     return result;
+}
+
+} // namespace
+
+NativeSaveResult writeNativeDocument(const QString& path,
+                                     const WorkspaceDocument& document,
+                                     const std::atomic_bool* cancelled,
+                                     const PairedSaveObserver& observer)
+{
+    return writeNativeSnapshot(path,
+                               {.mediaLocations = document.mediaLocations},
+                               cancelled,
+                               observer,
+                               [&](const auto& physical) { writeWorkspaceDocument(physical, document, cancelled); });
+}
+
+NativeSaveResult writeNativeArchiveGroup(const QString& path,
+                                         const ArchiveGroup& group,
+                                         const std::atomic_bool* cancelled,
+                                         const PairedSaveObserver& observer)
+{
+    return writeNativeSnapshot(path, {}, cancelled, observer, [&](const auto& physical) { writeArchiveGroup(physical, group, cancelled); });
 }
 
 PairedSaveResult recoverPairedDocuments(const QString& recoveryPath,

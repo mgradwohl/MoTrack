@@ -984,3 +984,32 @@ metadata and refused/cancelled writes. The corpus additionally compares independ
 with shared-group export byte-for-byte before actual Tracker acceptance. Full current-branch CI and
 review remain pending. Group save checkpoints, destination locking/recovery and desktop tab lifecycle
 remain the next layers; this low-level snapshot API does not mark live documents saved.
+
+## Coordinated archive-group file writes
+
+The next worker-adapter layer adds `writePairedArchiveGroup`: it stages all retained edits into one
+standard `.trz` and one same-stem version-6 `.motrack`, reopens and compares every native member, then
+commits through the existing paired-save engine. Standalone and group saving share destination locks,
+bounded fingerprints, stage validation, observation ordering and the unchanged version-1 recovery
+journal. Groups reject `.trk` output, foreign archive owners and unsupported member edits before
+replacing either destination. Native-only `writeNativeArchiveGroup` uses the same lock and refuses
+pending paired recovery, including a transaction initiated by a standalone save.
+
+Interruption before the journal is published leaves both destinations unchanged and removes staging.
+After publication, the existing explicit `recoverPairedDocuments` can finish the complete pair without
+the original group, input archive or any live document session. It verifies the expected transaction,
+every stage and each existing output before further replacement. Changed destinations or a replaced
+journal are preserved for investigation; opening a project never starts recovery automatically.
+
+Five public-API regressions cover source removal, all five interruption boundaries, invalid member
+snapshots, native/standalone/group lock contention, post-commit observer failure and transaction/output
+conflicts. The four grouped image/MOV corpus modes additionally recover an interrupted pair after
+destroying the prior group owners and deleting its previous native file; recovered identities, models
+and shared ownership must agree, and the standard output must remain byte-identical to both preceding
+export routes. All 10 Windows CTest groups and all four extended native corpus routes pass, with
+95.90% C++ line coverage (9250/9645), formatting and changed-source static analysis. Current-branch CI,
+actual Tracker acceptance and external review remain pending.
+
+These worker results describe written files. Live group membership revisions and per-session native/
+standard checkpoints, stale completion handling and desktop close/discard behavior still require the
+next controller layer; successful recovery alone does not establish that current live edits are saved.

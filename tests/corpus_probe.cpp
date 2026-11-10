@@ -412,7 +412,7 @@ try
         for (std::size_t i = 0; i < expected.size(); ++i)
             if (!QFile::remove(QDir(relocated).filePath(QString("saved-%1.motrack").arg(i))))
                 throw motrack::ProjectError("Could not remove the independent native companions.");
-        const auto reopened = motrack::readArchiveGroup(relocatedGroupPath);
+        auto reopened = motrack::readArchiveGroup(relocatedGroupPath);
         if (reopened.id != groupId || reopened.archive->sourceDigest() != originalDigest || reopened.members.size() != expected.size())
             throw motrack::ProjectError("Native group reopen changed its identity or immutable source.");
         for (std::size_t i = 0; i < expected.size(); ++i)
@@ -430,6 +430,36 @@ try
         if (!groupedExport.open(QIODevice::ReadOnly) || groupedExport.readAll() != separateBytes ||
             groupedExport.error() != QFileDevice::NoError)
             throw motrack::ProjectError("Shared native persistence changed the independently verified archive export.");
+        groupedExport.close();
+        if (args[1].endsWith("-reverse"))
+            std::ranges::reverse(reopened.members);
+        std::atomic_bool cancelled{false};
+        const auto partial = motrack::writePairedArchiveGroup(
+            args[3], reopened, &cancelled, [&](auto state) { cancelled = state == motrack::PairedSaveProgress::StandardSaved; });
+        if (partial.status != motrack::PairedSaveStatus::RecoveryRequired || !partial.standardCurrent || partial.nativeCurrent)
+            throw motrack::ProjectError("Expected an interrupted shared-group pair after standard saving.");
+        documents.clear();
+        reopened = {};
+        if (!QFile::remove(relocatedGroupPath))
+            throw motrack::ProjectError("Could not remove the previous shared native group.");
+        const auto recovered = motrack::recoverPairedDocuments(partial.recoveryPath, nullptr, {}, partial.transactionId);
+        if (recovered.status != motrack::PairedSaveStatus::Saved || !recovered.standardCurrent || !recovered.nativeCurrent)
+            throw motrack::ProjectError("Could not recover the complete shared archive group.");
+        const auto recoveredGroup = motrack::readArchiveGroup(recovered.nativePath);
+        if (recoveredGroup.id != groupId || recoveredGroup.archive->sourceDigest() != originalDigest ||
+            recoveredGroup.members.size() != expected.size())
+            throw motrack::ProjectError("Shared-group recovery changed its identity or immutable source.");
+        for (std::size_t i = 0; i < recoveredGroup.members.size(); ++i)
+        {
+            const auto index = args[1].endsWith("-reverse") ? expected.size() - 1 - i : i;
+            const auto& member = recoveredGroup.members[i];
+            if (member.id != documentIds[index] || member.member != members[static_cast<qsizetype>(index)].toStdString() ||
+                member.document.project != expected[index] || member.document.archivePayload != recoveredGroup.archive)
+                throw motrack::ProjectError("Shared-group recovery changed an experiment or its owner.");
+        }
+        if (!groupedExport.open(QIODevice::ReadOnly) || groupedExport.readAll() != separateBytes ||
+            groupedExport.error() != QFileDevice::NoError)
+            throw motrack::ProjectError("Shared paired recovery changed the independently verified archive export.");
         return 0;
     }
     if (args.size() == 4 &&

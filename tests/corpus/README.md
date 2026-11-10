@@ -1517,3 +1517,13 @@ the original archive digest, one shared owner and both edited projects. Its stan
 byte-identical to the independent-companion export. All four extended native modes and their independent
 XML/ZIP/media/reimport oracles pass locally; actual Tracker acceptance on the extended current branch
 and three-platform CI/review remain pending. Shared save/recovery coordination and desktop tabs remain separate.
+
+The dependent paired-group extension keeps both preceding export checks and then interrupts
+`writePairedArchiveGroup` after the standard output is current. It destroys the group/document owners
+and removes the previous shared native file before explicit journal recovery. The recovered native
+file must retain the group/member IDs, original payload digest, both edited models and one shared
+owner; reverse mode also checks reversed member ordering. Recovered standard bytes must still equal
+the independently verified export before the existing actual-Tracker acceptance stages run. Current-
+branch actual-Tracker acceptance is pending; all four extended native modes and their independent
+oracles pass locally, along with all 10 CTest groups and 95.90% coverage (9250/9645). No original
+expectations or fixture bytes change.

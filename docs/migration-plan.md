@@ -224,6 +224,16 @@ MOV/Open Recent report is resolved. Both completed branches have been removed lo
 2. Add group save coordination with separate native/standard checkpoints, canonical destination
    locking and paired recovery. Capture group identity and each member's session identity/revision.
    Late edits and stale/out-of-order completions must not clear newer dirty state.
+   The current dependent branch implements worker-level paired group saves and locked native group
+   saves through the existing transaction engine and recovery format. It adds all-boundary interruption,
+   ownership, lock contention and recovery-conflict regressions, and extends the four grouped corpus
+   routes through explicit recovery after the prior group/native source is removed. [PR #156](https://github.com/mgradwohl/MoTrack/pull/156)
+   at `2dc712e` passed all six checks in [CI 42694373970](https://github.com/mgradwohl/MoTrack/actions/runs/42694373970),
+   code review, 95.97% combined coverage (9277/9667) and the same 237 edited actual-Tracker cases,
+   including all four paired-group recovery modes. With the parent's duration guard integrated, all
+   10 Windows CTest groups and all four native corpus routes pass serially at 95.90% coverage (9250/9645).
+   Current-revision CI and review remain pending.
+   Live group membership revisions and per-session checkpoint coordination remain to do.
 3. Introduce a workspace controller owning stable document sessions, separate archive groups, tab
    order and selection. Bound aggregate media work; keep per-document history/playhead/jobs independent.
    Switching or closing another tab must leave AutoTracker running (#69 / Tracker #18).
