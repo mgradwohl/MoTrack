@@ -48,7 +48,7 @@ target_link_libraries(motrack_image_package PUBLIC motrack_project PRIVATE Qt6::
 
 qt_add_executable(motrack src/main.cpp)
 add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp src/movie_worker.cpp src/position_plot.cpp
-    src/video_canvas.cpp src/workspace_services.cpp)
+    src/video_canvas.cpp src/workspace_services.cpp src/workspace_context.cpp src/bound_workspace.cpp)
 set_target_properties(motrack_workspace PROPERTIES AUTOMOC ON)
 add_library(motrack_media STATIC src/template_tracker.cpp src/video_reader.cpp)
 target_include_directories(motrack_media PUBLIC src)
@@ -57,7 +57,7 @@ target_link_libraries(motrack_workspace PUBLIC motrack_project Qt6::Widgets PRIV
 target_link_libraries(motrack PRIVATE motrack_workspace)
 qt_add_translations(motrack
     TS_FILES translations/motrack_de.ts translations/motrack_es.ts translations/motrack_fr.ts
-    SOURCES src/main_window.cpp src/position_plot.cpp src/tracker_image_package.cpp
+    SOURCES src/main_window.cpp src/bound_workspace.cpp src/position_plot.cpp src/tracker_image_package.cpp
     RESOURCE_PREFIX "/i18n"
 )
 
@@ -158,6 +158,7 @@ if(BUILD_TESTING)
     target_compile_definitions(motrack_tests PRIVATE MOTRACK_CORPUS_PROBE="$<TARGET_FILE:motrack_corpus_probe>")
     target_link_libraries(motrack_corpus_probe PRIVATE motrack_project motrack_image_package motrack_media)
     add_executable(motrack_workspace_tests
+        tests/bound_workspace_test.cpp
         tests/workspace_services_test.cpp
         tests/image_package_workspace_test.cpp
         tests/paired_workspace_test.cpp

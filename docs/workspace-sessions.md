@@ -2,8 +2,9 @@
 
 `WorkspaceSession` is the owner-thread registry between prepared project inputs and future desktop
 tabs. It uses Qt Core and the project adapters; it does not depend on Widgets, FFmpeg, Java or Swift.
-It owns independent `DocumentSession` records and `ArchiveGroupSession` owners. It does not yet
-replace the desktop window's single-document state or implement visible tabs.
+It owns independent `DocumentSession` records and `ArchiveGroupSession` owners. Retained experiment
+editors are in local validation. The ordinary application entry point still uses its existing
+single-document window; the tabbed workspace shell is the next integration step.
 
 ## Documents, sources and views
 
@@ -91,8 +92,75 @@ groups pass serially in 182.49 seconds with **96.30%** production-line coverage 
 The first CI revision passed all three platform builds and all 237 edited Tracker cases, but Clang 18
 flagged Qt weak-pointer cleanup and callback-owned test cleanup. The follow-up uses an explicit
 destruction observer and parent-owned test cleanup, preserving all nine cases and adding no
-suppression. The affected analyses pass locally; fresh current-head CI/review remain pending.
+suppression. PR #161 merged at reviewed head `537e617` with all six checks passing in
+[CI 42758565994](https://github.com/mgradwohl/MoTrack/actions/runs/42758565994), **96.35% combined
+coverage (9984/10362)** and all 237 unchanged edited Tracker cases. Three known reference defects
+remain unaccepted. Review 5836935274 recommends approval with no threads; the completed branch was
+verified contained in main and removed locally/remotely.
 This is not yet a tabbed desktop or complete acceptance of #69.
+
+## Retained experiment editors
+
+`WorkspaceContext` connects the registry, shared execution services and experiment editors on the
+GUI thread. The bound `MainWindow` constructor takes this owner and a runtime document ID. It borrows
+that record's project and history rather than moving or copying them into its old standalone session.
+Only one experiment editor may claim a record at a time; later plot/table views will share its editor
+model. Duplicate or unknown claims are refused. The existing standalone constructor remains the
+application's compatibility path until the workspace shell adopts prepared inputs and creates bound
+editors. Opening/replacing sources is disabled within a bound editor because it belongs to that shell.
+
+Each existing editor keeps its own playhead, displayed image, selection, plot, playback controls,
+tracking timers and media index. Selecting another record does not reset these controls. Destroying
+an editor cancels only its document's jobs and hides its record; the retained model, undo history and
+source membership survive. Recreating an editor restores its model/history and starts at the first
+clip step. Persistent view/playhead restoration remains part of the subsequent layout work.
+
+Frame and movie-index requests use registry tokens. AutoTracker and playback keep separate tokens
+for each complete run, including time spent waiting for a movie frame or a patch match. Explicit
+registry cancellation posts a context notification independently of worker results, so suppressed
+frame delivery cannot leave a checked Stop/Pause control without work. The owner-thread observer
+must defer notifications; it cannot synchronously mutate registry state or views during cancellation.
+Each editor stops only its own currently canceled run. A queued notice from an older run cannot stop
+a newly restarted run. Pressing Play after a canceled frame re-requests that frame before scheduling
+playback. Normal completion does not emit cancellation notifications. Index completion applies only
+to the current document/index identity, retaining edit history and source bindings. The registry
+marks an identified movie before indexing so an unindexed movie cannot be offered as an image
+package. Finite, zero-origin, strictly increasing index data must match the reported frame count and
+native reopen invariants; failed or obsolete results do not replace live metadata. Source limits only expand when the complete saved clip fits the index.
+
+Native and paired saves from any member capture the entire retained source through `beginSave`.
+Recovery completes through the source owner before taking a fresh current-edit snapshot. Native-only
+saving preserves established Tracker obligations. Save and recovery callbacks retain the workspace
+through their nested GUI event loops and always deliver their results even after the initiating view
+is destroyed. This releases operation slots while retaining any partial-save journal. Portable
+exports also reserve a slot before copying a model, but release it without adopting a save path or
+advancing checkpoints. Busy sources/workspaces and cancellation keep their existing data.
+
+Group dirty indications and refreshed physical media bindings reach sibling views through queued
+source notifications, without changing their selections, playheads or tracking jobs. Queued delivery
+lets a workspace observer create or destroy views after the initiating editor operation returns.
+The existing QObject service lease continues to keep pools alive through window destruction
+notifications, including when a window owns the final workspace reference.
+
+Twelve new local regressions cover independent playheads/history/destinations; hidden-member edits,
+native/Tracker group saves and restored undo history; duplicate/invalid view claims; indexed movie
+identity and refused data; pending-operation bounds and export copies; destroyed native/paired-save
+views; stale writes; interrupted/cancelled group recovery; and AutoTracker continuing through saving,
+selection and another view's destruction with distinct timing/units; and restarting after a pending
+match is canceled through either document or source cancellation; resetting tracking/playback while
+a movie frame is pending, without receiving a result; and restarting before an older cancellation
+notice is delivered. Both timestamp admission and
+tracking-control regressions reproduced the review findings before their fixes. Rejected index
+values leave existing metadata unchanged; valid indexed groups save and reopen natively. All 10
+Windows CTest groups pass serially in 179.39 seconds with **96.27%** production-line coverage (10338/10739). Formatting and all
+five affected translation-unit static analyses pass without new suppressions. Existing plot/measurement
+labels and save-progress strings remain unchanged. All three translation catalogs contain
+the new pending-save message, and 35 relative links across the three changed guides resolve. The
+three previously investigated LLVM wrapper warnings remain visible, with no missing production
+records and the unchanged 90% gate. Cross-platform CI, actual Tracker acceptance and review remain
+required. These editors do not add visible tabs or a source-discard policy: a bound view's close
+operation hides it and retains edits. The future shell must make save/discard decisions
+explicit before releasing sources. #69 and #150 remain open.
 
 ## Saving and recovery
 
@@ -154,12 +222,11 @@ the [full-port order](migration-plan.md#implementation-order-and-exit-gates).
 
 The remaining integration order is:
 
-1. Finish validation and merge the shared execution/cache services above. Frame requests carry
+1. Shared execution/cache services are merged in #161. Frame requests carry
    document and media-generation identity; serving another document must not invalidate a running
    experiment's AutoTracker request. Workers retain immutable source ownership until finished.
-2. Bind reusable experiment views to registry records and those services. Keep each view's playhead,
-   image, selections, playback/tracking controls and derived media index with its document; route
-   saves through the source owner. Activate actions for the selected view without replacing records.
+2. Finish validation of the retained experiment editors above, then activate their actions from the
+   workspace shell without replacing records. Retain each editor while switching tabs.
 3. Add tab interactions and asynchronous opening of complete prepared archive groups. Exercise actual
    view switching/closure while tracking, distinct timing/units, undo, source removal and save/reopen.
    Save All deduplicates source IDs and respects the pending-operation bound.

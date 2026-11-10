@@ -78,6 +78,7 @@ class ArchiveGroupSession
     ~ArchiveGroupSession() = default;
 
   private:
+    friend class WorkspaceSession; // Registry media-index completion may update derived metadata, never source ownership.
     struct Member
     {
         QUuid id;

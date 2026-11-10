@@ -7,6 +7,7 @@
 #include "track_edits.hpp"
 #include "tracker_archive.hpp"
 #include "video_reader.hpp"
+#include "workspace_context.hpp"
 #include "workspace_services.hpp"
 
 #include <QCoreApplication>
@@ -15,6 +16,7 @@
 #include <QPointF>
 #include <QTimer>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <functional>
@@ -42,6 +44,8 @@ class MainWindow final : public QMainWindow
 
   public:
     explicit MainWindow(std::shared_ptr<WorkspaceServices> services = {});
+    /// Bind a prepared retained record. Opening/replacing sources belongs to the workspace shell.
+    MainWindow(std::shared_ptr<WorkspaceContext> workspace, QUuid document);
     ~MainWindow() override;
     bool loadProject(const QString& path);
     void openProject(const QString& path);
@@ -58,6 +62,19 @@ class MainWindow final : public QMainWindow
     void closeEvent(QCloseEvent* event) override;
 
   private:
+    [[nodiscard]] const WorkspaceDocument& viewDocument() const;
+    [[nodiscard]] LegacyProject& viewProject();
+    [[nodiscard]] const LegacyProject& viewProject() const;
+    [[nodiscard]] TrackEdits& viewHistory();
+    [[nodiscard]] bool viewModified() const;
+    [[nodiscard]] bool viewRequiresPairedSave() const;
+    [[nodiscard]] QString viewSourcePath() const;
+    [[nodiscard]] QString viewNativeSavePath() const;
+    [[nodiscard]] QString viewStandardSavePath() const;
+    [[nodiscard]] QString viewRecoveryPath() const;
+    [[nodiscard]] DocumentSession::SaveCheckpoint viewCheckpoint() const;
+    bool saveBoundWorkspace(const QString& path, bool paired, bool recoverPending = false);
+    bool recoverBoundWorkspace();
     struct PreparedProject;
     [[nodiscard]] static PreparedProject prepareProject(const QString& path, const std::atomic_bool* cancelled);
     bool applyProject(const QString& path, PreparedProject prepared, const std::atomic_bool* cancelled);
@@ -112,6 +129,7 @@ class MainWindow final : public QMainWindow
     [[nodiscard]] bool confirmDiscard();
 
     WorkspaceServices* m_Services; // Borrowed from a parent-owned lease, released after QObject::destroyed.
+    std::array<QAction*, 3> m_OpenActions{};
     VideoCanvas* m_Video;
     QLabel* m_FrameLabel;
     QSlider* m_StepSlider;
@@ -148,6 +166,11 @@ class MainWindow final : public QMainWindow
     QLabel* m_FitSummary;
     PositionPlot* m_Plot;
     DocumentSession m_Session;
+    std::shared_ptr<WorkspaceContext> m_Workspace;
+    QUuid m_WorkspaceDocument;
+    std::optional<WorkspaceJobToken> m_IndexJob;
+    std::optional<WorkspaceJobToken> m_TrackingJob;
+    std::optional<WorkspaceJobToken> m_PlaybackJob;
     std::optional<ImageSequence> m_Sequence;
     std::optional<ImageFrame> m_DisplayedFrame;
     std::optional<QPointF> m_CalibrationFirst;

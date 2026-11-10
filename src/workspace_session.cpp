@@ -1,6 +1,11 @@
 #include "workspace_session.hpp"
 
+#include "tracker_archive.hpp"
+
+#include <QDir>
+
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 namespace motrack
@@ -28,6 +33,9 @@ WorkspaceOperation newOperation(QUuid source)
 }
 
 } // namespace
+
+WorkspaceSession::WorkspaceSession(std::function<void(QUuid)> jobsCancelled) : m_JobsCancelled(std::move(jobsCancelled))
+{}
 
 WorkspaceSession::~WorkspaceSession()
 {
@@ -162,6 +170,63 @@ QUuid WorkspaceSession::sourceId(QUuid id) const
     return findDocument(id).source->id;
 }
 
+const QString& WorkspaceSession::sourcePath(QUuid id) const
+{
+    const auto& source = findSource(id);
+    return source.group ? source.group->sourcePath() : source.standalone->sourcePath();
+}
+
+QString WorkspaceSession::mediaProjectPath(QUuid id) const
+{
+    const auto& entry = findDocument(id);
+    if (entry.source->group)
+        return QDir(document(id).archivePayload->root()).absoluteFilePath("archive.trk");
+    return entry.source->mediaProjectPath;
+}
+
+DocumentSession::SaveCheckpoint WorkspaceSession::documentCheckpoint(QUuid id) const
+{
+    const auto& entry = findDocument(id);
+    if (!entry.source->group)
+        return entry.source->standalone->saveCheckpoint();
+    auto checkpoint = entry.source->group->findMember(entry.member).session->saveCheckpoint();
+    const auto source = entry.source->group->m_SaveState.saveCheckpoint(0);
+    checkpoint.recoveryTransactions = source.recoveryTransactions;
+    checkpoint.nativeInvalidation = source.nativeInvalidation;
+    checkpoint.trackerInvalidation = source.trackerInvalidation;
+    return checkpoint;
+}
+
+WorkspaceJobToken WorkspaceSession::beginMovieIndex(QUuid id)
+{
+    auto& entry = findDocument(id);
+    auto& document =
+        entry.source->group ? entry.source->group->findMember(entry.member).session->document : entry.source->standalone->document;
+    require(document.project.clip.mediaReferences.size() == 1);
+    auto token = beginJob(id, WorkspaceJob::MediaIndex);
+    document.movie = true;
+    return token;
+}
+
+bool WorkspaceSession::applyMovieIndex(const WorkspaceJobToken& token, std::vector<double> frameTimes, int frameCount)
+{
+    if (token.kind != WorkspaceJob::MediaIndex || !accepts(token) || frameCount <= 0 || !std::cmp_equal(frameCount, frameTimes.size()) ||
+        frameTimes.front() != 0.0 || !std::ranges::all_of(frameTimes, [](double time) { return std::isfinite(time); }) ||
+        std::ranges::adjacent_find(frameTimes, [](double previous, double next) { return previous >= next; }) != frameTimes.end())
+        return false;
+    auto& entry = findDocument(token.document);
+    auto& document =
+        entry.source->group ? entry.source->group->findMember(entry.member).session->document : entry.source->standalone->document;
+    document.movie = true;
+    document.movieFrameTimes = std::move(frameTimes);
+    auto& clip = document.project.clip;
+    const auto steps = clip.stepCount.value_or(0);
+    const auto last = static_cast<std::int64_t>(clip.firstFrame) + static_cast<std::int64_t>(steps - 1) * clip.stepSize;
+    if (steps == 0 || last < frameCount)
+        clip.sourceFrameCount = std::max(clip.sourceFrameCount.value_or(0), frameCount);
+    return true;
+}
+
 bool WorkspaceSession::isModified(QUuid id) const
 {
     const auto& source = findSource(id);
@@ -278,6 +343,8 @@ void WorkspaceSession::cancelJobs(QUuid id)
 {
     for (const auto& flag : findDocument(id).jobs)
         cancel(flag);
+    if (m_JobsCancelled)
+        m_JobsCancelled(id);
 }
 
 void WorkspaceSession::cancelSourceWork(QUuid id)

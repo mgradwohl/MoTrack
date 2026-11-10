@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <variant>
@@ -30,7 +31,8 @@ enum class WorkspaceJob : std::uint8_t
 {
     Frame,
     MediaIndex,
-    AutoTrack
+    AutoTrack,
+    Playback
 };
 
 struct WorkspaceJobToken
@@ -95,6 +97,12 @@ class WorkspaceSession
     [[nodiscard]] LegacyProject& project(QUuid id);
     [[nodiscard]] TrackEdits& history(QUuid id);
     [[nodiscard]] QUuid sourceId(QUuid document) const;
+    [[nodiscard]] const QString& sourcePath(QUuid source) const;
+    [[nodiscard]] QString mediaProjectPath(QUuid document) const;
+    /// View identity/revision only; writes still require whole-source beginSave/completeSave routing.
+    [[nodiscard]] DocumentSession::SaveCheckpoint documentCheckpoint(QUuid document) const;
+    /// Adopt derived media metadata only for the current index job; never clears edit history.
+    [[nodiscard]] bool applyMovieIndex(const WorkspaceJobToken& token, std::vector<double> frameTimes, int frameCount);
     [[nodiscard]] bool isModified(QUuid source) const;
     [[nodiscard]] bool requiresPairedSave(QUuid source) const;
     [[nodiscard]] const QString& nativeSavePath(QUuid source) const;
@@ -114,6 +122,9 @@ class WorkspaceSession
 
     /// Supersedes only the same document/job kind. Selection and tab order never cancel jobs.
     [[nodiscard]] WorkspaceJobToken beginJob(QUuid document, WorkspaceJob kind);
+    /// A desktop reader has identified a movie source. Mark its derived media kind before indexing,
+    /// so unindexed movies cannot be mistaken for portable image sequences while the worker runs.
+    [[nodiscard]] WorkspaceJobToken beginMovieIndex(QUuid document);
     [[nodiscard]] bool accepts(const WorkspaceJobToken& token) const;
     [[nodiscard]] bool finishJob(const WorkspaceJobToken& token);
     void cancelJobs(QUuid document);
@@ -128,7 +139,9 @@ class WorkspaceSession
     [[nodiscard]] SaveOutcome completePairedSave(const WorkspaceSaveRequest& request, const PairedSaveResult& result);
     [[nodiscard]] SaveOutcome completeRecovery(const WorkspaceRecoveryRequest& request, const PairedSaveResult& result);
 
-    WorkspaceSession() = default;
+    /// Optional owner-thread notification. The observer must post/defer work, never mutate the
+    /// registry or views synchronously; cancellation may be part of a larger source operation.
+    explicit WorkspaceSession(std::function<void(QUuid)> jobsCancelled = {});
     WorkspaceSession(const WorkspaceSession&) = delete;
     WorkspaceSession& operator=(const WorkspaceSession&) = delete;
     WorkspaceSession(WorkspaceSession&&) = delete;
@@ -148,7 +161,7 @@ class WorkspaceSession
         QUuid id;
         Source* source = nullptr; // Stable owner node; removed only after its entries and views.
         QUuid member;
-        std::array<std::shared_ptr<std::atomic_bool>, 3> jobs{};
+        std::array<std::shared_ptr<std::atomic_bool>, 4> jobs{};
     };
     struct PendingOperation
     {
@@ -169,6 +182,7 @@ class WorkspaceSession
     std::vector<QUuid> m_Tabs;
     std::optional<QUuid> m_Active;
     std::vector<PendingOperation> m_Operations;
+    std::function<void(QUuid)> m_JobsCancelled;
 };
 
 /// Synchronous worker adapters. They operate only on owned snapshots and cancellation flags;
