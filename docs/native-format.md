@@ -89,8 +89,9 @@ no session token. This prevents a delayed stamp from making an older on-disk sna
 Workers receive an owned document snapshot, including shared archive ownership, rather than access
 to the live session. Replacing the session clears only its own history and data; a pending snapshot
 can finish without retaining a widget or losing its extracted media. Session state is GUI-thread owned.
-The desktop still has one active session: decoder/playback, open/save orchestration and view state
-remain in `MainWindow` until the multi-document controller work. The extraction does not itself add tabs.
+The desktop uses a [tabbed workspace](workspace-sessions.md#desktop-workspace-shell) with retained
+document/group records, shared bounded media services and independent editor/playback state.
+The shell coordinates whole-source saving and close decisions; persisted layouts remain unfinished.
 
 ## Tracker import source
 

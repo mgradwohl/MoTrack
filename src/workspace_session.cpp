@@ -195,6 +195,25 @@ bool WorkspaceSession::hasPendingOperations(QUuid id) const
     return std::ranges::any_of(m_Operations, [id](const auto& operation) { return operation.token.source == id; });
 }
 
+bool WorkspaceSession::restoreSavedDocument(QUuid id)
+{
+    auto& entry = findDocument(id);
+    if (std::ranges::find(m_Tabs, id) != m_Tabs.end() || hasPendingOperations(entry.source->id))
+        return false;
+    const bool restored =
+        entry.source->group ? entry.source->group->restoreSavedMember(entry.member) : entry.source->standalone->restoreSavedProject();
+    if (restored)
+        cancelJobs(id);
+    return restored;
+}
+
+bool WorkspaceSession::canRestoreSavedDocument(QUuid id) const
+{
+    const auto& entry = findDocument(id);
+    return !hasPendingOperations(entry.source->id) && (entry.source->group ? entry.source->group->canRestoreSavedMember(entry.member)
+                                                                           : entry.source->standalone->canRestoreSavedProject());
+}
+
 const QString& WorkspaceSession::sourcePath(QUuid id) const
 {
     const auto& source = findSource(id);
@@ -457,10 +476,15 @@ SaveOutcome WorkspaceSession::completeSave(const WorkspaceSaveRequest& request, 
     auto* source = operationSource(request.operation, false);
     if (!source)
         return SaveOutcome::Replaced;
-    const auto outcome =
-        source->group
-            ? source->group->completeSave(std::get<ArchiveGroupSession::SaveRequest>(request.snapshot).checkpoint, destination, result)
-            : source->standalone->completeSave(std::get<WorkspaceDocumentSnapshot>(request.snapshot).checkpoint, destination, result);
+    const auto outcome = source->group
+                             ? source->group->completeSave(std::get<ArchiveGroupSession::SaveRequest>(request.snapshot).checkpoint,
+                                                           destination,
+                                                           result,
+                                                           &std::get<ArchiveGroupSession::SaveRequest>(request.snapshot).snapshot)
+                             : source->standalone->completeSave(std::get<WorkspaceDocumentSnapshot>(request.snapshot).checkpoint,
+                                                                destination,
+                                                                result,
+                                                                &std::get<WorkspaceDocumentSnapshot>(request.snapshot).document.project);
     finishOperation(request.operation);
     return outcome;
 }
@@ -471,8 +495,12 @@ SaveOutcome WorkspaceSession::completePairedSave(const WorkspaceSaveRequest& req
     if (!source)
         return SaveOutcome::Replaced;
     const auto outcome =
-        source->group ? source->group->completePairedSave(std::get<ArchiveGroupSession::SaveRequest>(request.snapshot).checkpoint, result)
-                      : source->standalone->completePairedSave(std::get<WorkspaceDocumentSnapshot>(request.snapshot).checkpoint, result);
+        source->group ? source->group->completePairedSave(std::get<ArchiveGroupSession::SaveRequest>(request.snapshot).checkpoint,
+                                                          result,
+                                                          &std::get<ArchiveGroupSession::SaveRequest>(request.snapshot).snapshot)
+                      : source->standalone->completePairedSave(std::get<WorkspaceDocumentSnapshot>(request.snapshot).checkpoint,
+                                                               result,
+                                                               &std::get<WorkspaceDocumentSnapshot>(request.snapshot).document.project);
     finishOperation(request.operation);
     return outcome;
 }

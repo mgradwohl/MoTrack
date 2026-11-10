@@ -7,6 +7,9 @@
 #include <QHash>
 #include <QString>
 
+#include <array>
+#include <memory>
+
 namespace motrack
 {
 
@@ -29,10 +32,19 @@ class DocumentSession
     [[nodiscard]] bool requiresPairedSave() const;
     [[nodiscard]] bool isModified() const;
     [[nodiscard]] SaveCheckpoint saveCheckpoint() const;
+    /// Restore only a known saved model. Paired sessions require matching native/Tracker baselines
+    /// and no unresolved journal. The owner must first destroy its view and refuse outstanding saves.
+    /// Copies before mutation, retains source/output identities and clears this document's history.
+    [[nodiscard]] bool restoreSavedProject(bool requireTracker = false);
+    [[nodiscard]] bool canRestoreSavedProject(bool requireTracker = false) const;
     /// Failed/replaced/superseded writes leave this session untouched. A current stale write stays dirty.
-    [[nodiscard]] SaveOutcome completeSave(const SaveCheckpoint& checkpoint, const QString& destination, const NativeSaveResult& result);
+    [[nodiscard]] SaveOutcome completeSave(const SaveCheckpoint& checkpoint,
+                                           const QString& destination,
+                                           const NativeSaveResult& result,
+                                           const LegacyProject* snapshot = nullptr);
     /// Apply a new paired-write result, marking only outputs confirmed current for this revision.
-    [[nodiscard]] SaveOutcome completePairedSave(const SaveCheckpoint& checkpoint, const PairedSaveResult& result);
+    [[nodiscard]] SaveOutcome
+    completePairedSave(const SaveCheckpoint& checkpoint, const PairedSaveResult& result, const LegacyProject* snapshot = nullptr);
     /// Capture a fresh checkpoint before starting recovery; it identifies the pending transaction.
     /// Recovery may belong to an older snapshot, even after restart. Never marks the live document clean.
     /// Successful recovery clears the pending record but requires a fresh save of the current snapshot.
@@ -47,8 +59,15 @@ class DocumentSession
     ~DocumentSession() = default;
 
   private:
-    SaveOutcome applySaveUpdate(const SaveUpdate& update, const QHash<QString, QString>& mediaLocations);
+    friend class ArchiveGroupSession;
+    [[nodiscard]] std::shared_ptr<const LegacyProject> captureSavedProject(const SaveCheckpoint& checkpoint,
+                                                                           const LegacyProject* snapshot) const;
+    void applySavedProject(const SaveUpdate& update, const std::shared_ptr<const LegacyProject>& snapshot);
+    SaveOutcome applySaveUpdate(const SaveUpdate& update,
+                                const QHash<QString, QString>& mediaLocations,
+                                const std::shared_ptr<const LegacyProject>& snapshot = {});
     SaveState m_SaveState;
+    std::array<std::shared_ptr<const LegacyProject>, 2> m_SavedProjects{};
 };
 
 } // namespace motrack

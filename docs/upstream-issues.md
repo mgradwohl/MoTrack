@@ -74,7 +74,7 @@ varying-coordinate extension refreshes the same issue and Tracker #10 discussion
 sessions and 56 edited modes passed actual Tracker acceptance in [PR #147](https://github.com/mgradwohl/MoTrack/pull/147), reviewed at `dc8fed8`, with all six checks passing in [CI 42655960136](https://github.com/mgradwohl/MoTrack/actions/runs/42655960136). This does not resolve the dependent-member loss or mixed-track
 snapping model, and does not close #63 or the broader media persistence issue #65.
 
-For the multi-member archive foundation, Tracker #18 and its complete discussion were refreshed on **2026-11-09**. The report remains open: switching/closing another tab pauses AutoTracker and leaves inconsistent controls. Its maintainer linked the pause to video stepping. [MoTrack #69](https://github.com/mgradwohl/MoTrack/issues/69) remains open; the storage writer does not address job ownership or desktop tab switching. Separate workspace sessions must retain active tracking when another tab is selected or closed.
+For the multi-member archive foundation, Tracker #18 and its complete discussion were refreshed on **2026-11-09**. The report remains open: switching/closing another tab pauses AutoTracker and leaves inconsistent controls. Its maintainer linked the pause to video stepping. [MoTrack #69](https://github.com/mgradwohl/MoTrack/issues/69) remained open at that milestone; the storage writer does not address job ownership or desktop tab switching. Separate workspace sessions must retain active tracking when another tab is selected or closed.
 
 The workspace-registry foundation now has local regressions for that ownership policy: switching,
 reordering or hiding a different member preserves the first member's AutoTracker token, and cancelling
@@ -91,7 +91,7 @@ regressions pass. Review also reproduced a Stop-only state after explicit cancel
 for a match or movie frame. Run-level tokens and independently queued cancellation notifications now
 reset the owning controls, preserve unrelated jobs and permit restart without stale notices stopping
 the new run. This editor foundation merged in #162 with all-six-green CI, approved review and all 237 edited Tracker cases; the visible shell is the next acceptance layer.
-#69 remains open. See
+#69 remained open at that foundation milestone. See
 [workspace ownership and routing](workspace-sessions.md).
 
 The discussion was refreshed again on **2026-11-10** for complete input preparation; Tracker #18
@@ -105,9 +105,15 @@ preparation path. All 14 input cases and the full serial Windows suite pass loca
 with all six checks passing, approved review, 96.29% combined coverage and the same 237 edited Tracker
 cases. The current shell adds real tab-switch/reorder/close-other-project AutoTracker regressions,
 independent histories/playheads/timing, explicit close decisions and bounded input cancellation.
-All 15 shell cases and the full serial Windows suite pass (96.07% local coverage). Those checks are
-preventive coverage informed by Tracker #18; cross-platform shell CI/review
-are still required before closing #69. #150 also remains open:
+All 17 final shell cases and the full serial Windows suite pass (96.08% local coverage). Those checks
+are preventive coverage informed by Tracker #18. PR #164 merged at reviewed `0b772d0`, with all six
+checks passing in [CI 42787438966](https://github.com/mgradwohl/MoTrack/actions/runs/42787438966),
+96.13% combined coverage and all 237 unchanged edited Tracker cases. Independent Codex review
+approved the exact head after the user authorized that reviewer when Copilot's quota was exhausted.
+[MoTrack #69](https://github.com/mgradwohl/MoTrack/issues/69) is closed with complete native acceptance
+evidence: tracking survives actual other-tab switch/reorder/close, cancelled or replaced jobs reject
+late results, and controls reset/restart independently. This does not claim an upstream fix.
+#150 remains open:
 the new dispatcher handles experiment files and archives, not `TFrame` tabsets.
 
 The baseline tabset workflow is now tracked explicitly in [MoTrack #150](https://github.com/mgradwohl/MoTrack/issues/150); moving reference frames discovered in the real Diabolo archive are tracked in [MoTrack #148](https://github.com/mgradwohl/MoTrack/issues/148). Neither discovery is an accepted full round trip.

@@ -31,6 +31,7 @@ void SaveState::reset(const QString& source, DocumentSourceKind kind)
     m_MediaObservation = 0;
     m_NativeDestinationObservation = 0;
     m_StandardDestinationObservation = 0;
+    m_SnapshotInvalidationObservation = 0;
 }
 
 const QString& SaveState::sourcePath() const
@@ -147,6 +148,7 @@ SaveState::completeSave(const Checkpoint& checkpoint, std::uint64_t revision, co
         return finish(SaveOutcome::Superseded);
     m_NativeSavePath = QFileInfo(destination).absoluteFilePath();
     m_NativeDestinationObservation = result.observation;
+    update.nativeSnapshotAccepted = result.observation > m_SnapshotInvalidationObservation;
     if (result.observation >= m_MediaObservation)
     {
         update.adoptMediaLocations = true;
@@ -208,6 +210,7 @@ SaveUpdate SaveState::completePairedSave(const Checkpoint& checkpoint, std::uint
     }
     if (result.standardCurrent && !olderStandard)
     {
+        update.trackerSnapshotAccepted = result.observation > m_SnapshotInvalidationObservation;
         if (trackerStale)
             invalidateSaved(SaveTarget::Tracker, update);
         else
@@ -215,6 +218,7 @@ SaveUpdate SaveState::completePairedSave(const Checkpoint& checkpoint, std::uint
     }
     if (result.nativeCurrent && !olderNative)
     {
+        update.nativeSnapshotAccepted = result.observation > m_SnapshotInvalidationObservation;
         m_NativeSavePath = QFileInfo(result.nativePath).absoluteFilePath();
         m_NativeDestinationObservation = result.observation;
         if (nativeStale)
@@ -268,6 +272,7 @@ SaveState::completePairedRecovery(const Checkpoint& checkpoint, const QString& r
         if (!result.transactionId.isEmpty() && result.transactionId != transaction)
             forgetRecovery(completedPath, transaction, result.observation, false);
         rememberRecovery(completedPath, result.transactionId, result.observation);
+        m_SnapshotInvalidationObservation = std::max(m_SnapshotInvalidationObservation, result.observation);
         invalidateSaved(SaveTarget::Native, update);
         invalidateSaved(SaveTarget::Tracker, update);
         return finish(SaveOutcome::Partial);
@@ -303,6 +308,8 @@ SaveState::completePairedRecovery(const Checkpoint& checkpoint, const QString& r
             std::max(m_CompletedRecoveryTransactions.value(completedPath).value(result.transactionId), result.observation);
     // Recovery never establishes that its snapshot equals the live document. Previously dispatched
     // writes cannot clear this invalidation merely because their edit revision happens to match.
+    // Only a physically newer write can supply a known saved model after recovery.
+    m_SnapshotInvalidationObservation = std::max(m_SnapshotInvalidationObservation, result.observation);
     invalidateSaved(SaveTarget::Native, update);
     invalidateSaved(SaveTarget::Tracker, update);
     return finish(newerObservation ? SaveOutcome::Stale : SaveOutcome::Recovered);

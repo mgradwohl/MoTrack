@@ -32,6 +32,7 @@ class WorkspaceWindow final : public QMainWindow
     [[nodiscard]] std::optional<QUuid> currentDocument() const;
     bool showDocument(QUuid document);
     bool hideDocument(QUuid document);
+    bool revertDocument(QUuid document);
     bool saveAll();
     bool closeSource(QUuid source);
 
@@ -61,6 +62,7 @@ class WorkspaceWindow final : public QMainWindow
     QList<QAction*> m_OpenActions;
     QAction* m_SaveAll = nullptr;
     QAction* m_HideView = nullptr;
+    QAction* m_Revert = nullptr;
     QAction* m_CloseSource = nullptr;
     QAction* m_Quit = nullptr;
     QHash<QUuid, MainWindow*> m_Views; // Qt parent-owned; views hold their own shared context lease.

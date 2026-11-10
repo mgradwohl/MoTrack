@@ -45,6 +45,10 @@ struct SaveUpdate
     SaveChange native = SaveChange::Unchanged;
     SaveChange tracker = SaveChange::Unchanged;
     bool adoptMediaLocations = false;
+    // The supplied write snapshot owns the latest observed output, even when newer live edits
+    // make its completion stale. Recovery has no supplied model and never sets these flags.
+    bool nativeSnapshotAccepted = false;
+    bool trackerSnapshotAccepted = false;
 };
 
 /// Owner-thread save destinations, recovery records and completion ordering, independent of edit history.
@@ -111,6 +115,8 @@ class SaveState
     std::uint64_t m_MediaObservation = 0;
     std::uint64_t m_NativeDestinationObservation = 0;
     std::uint64_t m_StandardDestinationObservation = 0;
+    // Recovery invalidates model knowledge without retargeting ordinary save destinations.
+    std::uint64_t m_SnapshotInvalidationObservation = 0;
     bool m_PairedSaving = false;
 };
 

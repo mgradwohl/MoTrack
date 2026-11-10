@@ -569,4 +569,190 @@ TEST(WorkspaceSession, DestructionCancelsTokensWhileWorkerSnapshotsRetainArchive
     EXPECT_FALSE(QFileInfo::exists(ownedPath));
 }
 
+TEST(WorkspaceSession, RestoreSavedExperimentUsesActualStalePairAndKeepsOtherMembersAndJobs)
+{
+    for (const bool grouped : {false, true})
+    {
+        SCOPED_TRACE(grouped);
+        QTemporaryDir temporary;
+        motrack::WorkspaceSession workspace;
+        auto group = archiveSession();
+        const auto opened = grouped ? workspace.addGroup(group) : addStandalone(workspace);
+        const auto id = opened.documents.front();
+        const auto unrelated = addStandalone(workspace);
+        const auto other = grouped ? opened.documents.back() : unrelated.documents.front();
+        const auto target = temporary.filePath(grouped ? "saved.trz" : "saved.trk");
+        setMass(workspace, id, 7);
+        const auto request = workspace.beginSave(id);
+        if (!request)
+            FAIL() << "Expected a save request.";
+        setMass(workspace, id, 9);
+        setMass(workspace, other, 13);
+        EXPECT_FALSE(workspace.canRestoreSavedDocument(id));
+        const auto result = motrack::writeWorkspacePair(*request, target);
+        ASSERT_EQ(result.status, motrack::PairedSaveStatus::Saved);
+        EXPECT_EQ(workspace.completePairedSave(*request, result), motrack::SaveOutcome::Stale);
+        EXPECT_TRUE(workspace.canRestoreSavedDocument(id));
+        EXPECT_FALSE(workspace.restoreSavedDocument(id)); // The visible view must be detached first.
+        const auto ownJob = workspace.beginJob(id, motrack::WorkspaceJob::AutoTrack);
+        const auto otherJob = workspace.beginJob(other, motrack::WorkspaceJob::AutoTrack);
+        const auto revision = workspace.history(other).revision();
+        const auto identity = workspace.documentCheckpoint(id).identity;
+        const auto archive = workspace.document(id).archivePayload;
+        workspace.hideDocument(id);
+        ASSERT_TRUE(workspace.restoreSavedDocument(id));
+        EXPECT_DOUBLE_EQ(workspace.project(id).pointMasses.front().mass, 7);
+        EXPECT_DOUBLE_EQ(workspace.project(other).pointMasses.front().mass, 13);
+        EXPECT_EQ(workspace.documentCheckpoint(id).identity, identity);
+        EXPECT_EQ(workspace.document(id).archivePayload, archive);
+        EXPECT_EQ(workspace.history(other).revision(), revision);
+        EXPECT_TRUE(workspace.history(other).canUndo());
+        EXPECT_FALSE(workspace.accepts(ownJob));
+        EXPECT_TRUE(workspace.accepts(otherJob));
+        EXPECT_EQ(workspace.isModified(opened.source), grouped);
+        const auto fresh = workspace.beginSave(id);
+        if (!fresh)
+            FAIL() << "Expected a save request.";
+        ASSERT_EQ(workspace.completePairedSave(*fresh, motrack::writeWorkspacePair(*fresh, target)), motrack::SaveOutcome::Saved);
+        const auto saved = grouped ? motrack::readArchiveGroup(temporary.filePath("saved.motrack")).members.front().document
+                                   : motrack::readWorkspaceDocument(temporary.filePath("saved.motrack"));
+        EXPECT_DOUBLE_EQ(saved.project.pointMasses.front().mass, 7);
+        if (grouped)
+            EXPECT_DOUBLE_EQ(
+                motrack::readArchiveGroup(temporary.filePath("saved.motrack")).members.back().document.project.pointMasses.front().mass,
+                13);
+    }
+}
+
+TEST(WorkspaceSession, RestoreRefusesDivergentPairAndRecoveryUntilFreshCommonSnapshot)
+{
+    for (const bool grouped : {false, true})
+    {
+        SCOPED_TRACE(grouped);
+        QTemporaryDir temporary;
+        motrack::WorkspaceSession workspace;
+        auto group = archiveSession();
+        const auto source = grouped ? workspace.addGroup(group) : addStandalone(workspace);
+        const auto id = source.documents.front();
+        const auto target = temporary.filePath(grouped ? "saved.trz" : "saved.trk");
+        const auto save = [&]
+        {
+            const auto request = workspace.beginSave(id);
+            if (!request)
+                throw std::runtime_error("Expected a save request.");
+            return workspace.completePairedSave(*request, motrack::writeWorkspacePair(*request, target));
+        };
+        setMass(workspace, id, 7);
+        ASSERT_EQ(save(), motrack::SaveOutcome::Saved);
+        setMass(workspace, id, 9);
+        const auto native = workspace.beginSave(id);
+        if (!native)
+            FAIL() << "Expected a native save request.";
+        const auto copy = temporary.filePath("different.motrack");
+        ASSERT_EQ(workspace.completeSave(*native, copy, motrack::writeWorkspaceNative(*native, copy)), motrack::SaveOutcome::Saved);
+        workspace.hideDocument(id);
+        EXPECT_FALSE(workspace.canRestoreSavedDocument(id));
+        EXPECT_FALSE(workspace.restoreSavedDocument(id));
+        EXPECT_DOUBLE_EQ(workspace.project(id).pointMasses.front().mass, 9);
+        const auto partial = workspace.beginSave(id);
+        if (!partial)
+            FAIL() << "Expected a paired save request.";
+        const auto result = motrack::writeWorkspacePair(*partial,
+                                                        target,
+                                                        [](auto progress)
+                                                        {
+                                                            if (progress == motrack::PairedSaveProgress::StandardSaved)
+                                                                throw std::runtime_error("Interrupt after standard write.");
+                                                        });
+        ASSERT_EQ(workspace.completePairedSave(*partial, result), motrack::SaveOutcome::Partial);
+        EXPECT_FALSE(workspace.restoreSavedDocument(id));
+        const auto recovery = workspace.beginRecovery(id);
+        if (!recovery)
+            FAIL() << "Expected a recovery request.";
+        ASSERT_EQ(workspace.completeRecovery(*recovery, motrack::recoverWorkspacePair(*recovery)), motrack::SaveOutcome::Recovered);
+        EXPECT_FALSE(workspace.canRestoreSavedDocument(id));
+        EXPECT_FALSE(workspace.restoreSavedDocument(id)); // Recovery publishes bytes, not a captured model.
+        ASSERT_EQ(save(), motrack::SaveOutcome::Saved);
+        setMass(workspace, id, 11);
+        ASSERT_TRUE(workspace.restoreSavedDocument(id));
+        EXPECT_DOUBLE_EQ(workspace.project(id).pointMasses.front().mass, 9);
+        EXPECT_FALSE(workspace.isModified(source.source));
+    }
+}
+
+TEST(WorkspaceSession, RestoreRejectsDelayedSaveSnapshotsAfterNewerRecovery)
+{
+    for (const bool grouped : {false, true})
+        for (const bool externallyRecovered : {false, true})
+        {
+            SCOPED_TRACE(grouped);
+            SCOPED_TRACE(externallyRecovered);
+            QTemporaryDir temporary;
+            motrack::WorkspaceSession workspace;
+            auto group = archiveSession();
+            const auto opened = grouped ? workspace.addGroup(group) : addStandalone(workspace);
+            const auto id = opened.documents.front();
+            const auto target = temporary.filePath(grouped ? "saved.trz" : "saved.trk");
+            const auto save = [&]
+            {
+                const auto request = workspace.beginSave(id);
+                if (!request)
+                    throw std::runtime_error("Expected a save request.");
+                return workspace.completePairedSave(*request, motrack::writeWorkspacePair(*request, target));
+            };
+            setMass(workspace, id, 5);
+            ASSERT_EQ(save(), motrack::SaveOutcome::Saved);
+            setMass(workspace, id, 7);
+            const auto delayed = workspace.beginSave(id);
+            if (!delayed)
+                FAIL() << "Expected an older save request.";
+            const auto delayedResult = motrack::writeWorkspacePair(*delayed, target);
+            ASSERT_EQ(delayedResult.status, motrack::PairedSaveStatus::Saved);
+            setMass(workspace, id, 9);
+            const auto interrupted = workspace.beginSave(id);
+            if (!interrupted)
+                FAIL() << "Expected a newer save request.";
+            const auto partial = motrack::writeWorkspacePair(*interrupted,
+                                                             target,
+                                                             [](auto progress)
+                                                             {
+                                                                 if (progress == motrack::PairedSaveProgress::RecoveryRecorded)
+                                                                     throw std::runtime_error("Interrupt before publishing either output.");
+                                                             });
+            ASSERT_FALSE(partial.standardCurrent);
+            ASSERT_FALSE(partial.nativeCurrent);
+            ASSERT_EQ(workspace.completePairedSave(*interrupted, partial), motrack::SaveOutcome::Partial);
+            if (externallyRecovered)
+                ASSERT_EQ(motrack::recoverPairedDocuments(partial.recoveryPath).status, motrack::PairedSaveStatus::Saved);
+            const auto recovery = workspace.beginRecovery(id);
+            if (!recovery)
+                FAIL() << "Expected a recovery request.";
+            const auto recovered = motrack::recoverWorkspacePair(*recovery);
+            ASSERT_EQ(recovered.status,
+                      externallyRecovered ? motrack::PairedSaveStatus::RecoveryNotNeeded : motrack::PairedSaveStatus::Saved);
+            ASSERT_EQ(workspace.completeRecovery(*recovery, recovered), motrack::SaveOutcome::Recovered);
+            EXPECT_EQ(workspace.completePairedSave(*delayed, delayedResult), motrack::SaveOutcome::Stale);
+            EXPECT_FALSE(workspace.canRestoreSavedDocument(id));
+            workspace.hideDocument(id);
+            EXPECT_FALSE(workspace.restoreSavedDocument(id));
+            EXPECT_DOUBLE_EQ(workspace.project(id).pointMasses.front().mass, 9);
+            EXPECT_TRUE(workspace.isModified(opened.source));
+            const auto native = temporary.filePath("saved.motrack");
+            const auto saved =
+                grouped ? motrack::readArchiveGroup(native).members.front().document : motrack::readWorkspaceDocument(native);
+            EXPECT_DOUBLE_EQ(saved.project.pointMasses.front().mass, 9);
+            if (grouped)
+            {
+                const auto archive = motrack::TrackerArchive::open(target);
+                EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(archive.projectPath("experiment.trk")).project.pointMasses.front().mass, 9);
+            }
+            else
+                EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(target).project.pointMasses.front().mass, 9);
+            ASSERT_EQ(save(), motrack::SaveOutcome::Saved);
+            setMass(workspace, id, 11);
+            ASSERT_TRUE(workspace.restoreSavedDocument(id));
+            EXPECT_DOUBLE_EQ(workspace.project(id).pointMasses.front().mass, 9);
+        }
+}
+
 } // namespace
