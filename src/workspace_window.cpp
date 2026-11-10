@@ -609,7 +609,7 @@ bool WorkspaceWindow::closeSource(QUuid source)
         return false;
     m_Busy = true;
     for (const auto document : m_Context->session().sourceDocuments(source))
-        m_Context->session().cancelJobs(document);
+        m_Context->session().stopActivity(document);
     bool alive = true;
     QObject lifetime;
     connect(this, &QObject::destroyed, &lifetime, [&] { alive = false; });
@@ -644,7 +644,7 @@ void WorkspaceWindow::closeEvent(QCloseEvent* event)
     QHash<QUuid, std::uint64_t> approvedRevisions;
     for (const auto source : sources)
         for (const auto document : context->session().sourceDocuments(source))
-            context->session().cancelJobs(document);
+            context->session().stopActivity(document);
     for (const auto source : sources)
     {
         const auto discard = confirmSourceClose(source);

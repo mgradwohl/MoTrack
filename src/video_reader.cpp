@@ -1,6 +1,10 @@
 #include "video_reader.hpp"
 
+#include "workspace_document.hpp"
+
+#include <QDateTime>
 #include <QFile>
+#include <QFileInfo>
 #include <QTransform>
 
 extern "C" {
@@ -335,6 +339,26 @@ std::optional<MovieFrame> VideoReader::decodeNext(bool convertPixels)
         }
         m_Impl->sendNextPacket();
     }
+}
+
+std::shared_ptr<const MovieTimeline> retainMovieTimeline(const QString& path, VideoOrientation orientation, MovieIndex& index)
+{
+    const QFileInfo file(path);
+    return std::make_shared<const MovieTimeline>(MovieTimeline{.physicalPath = file.canonicalFilePath(),
+                                                               .fileSize = file.size(),
+                                                               .modifiedMsecs = file.lastModified().toMSecsSinceEpoch(),
+                                                               .displayOrientation = orientation == VideoOrientation::Display,
+                                                               .frameCount = index.frameCount,
+                                                               .presentationTimes = std::move(index.presentationTimes)});
+}
+
+bool matchesMovieTimeline(const MovieTimeline& timeline, const QString& path, VideoOrientation orientation)
+{
+    const QFileInfo file(path);
+    return timeline.frameCount > 0 && !timeline.physicalPath.isEmpty() && file.isFile() &&
+           timeline.physicalPath == file.canonicalFilePath() && timeline.fileSize == file.size() &&
+           timeline.modifiedMsecs == file.lastModified().toMSecsSinceEpoch() &&
+           timeline.displayOrientation == (orientation == VideoOrientation::Display);
 }
 
 MovieIndex buildMovieIndex(const QString& path, VideoOrientation orientation, const std::atomic_bool& cancelled)

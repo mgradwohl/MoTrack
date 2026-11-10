@@ -45,6 +45,8 @@ void prepareMovieMetadata(WorkspaceDocument& document, const QString& mediaProje
     if (index.frameCount <= 0)
         throw ProjectError("The project's movie could not be indexed.");
     document.movie = true;
+    document.movieTimeline =
+        retainMovieTimeline(path, document.useDisplayOrientation ? VideoOrientation::Display : VideoOrientation::Encoded, index);
     document.movieFrameTimes = std::move(index.frameTimes);
     // Match desktop index adoption: retain the saved clip and never shrink its source-frame extent.
     const auto steps = clip.stepCount.value_or(0);
@@ -148,6 +150,7 @@ PreparedWorkspaceInput prepareWorkspaceMovie(const QString& path, const std::ato
     WorkspaceDocument document;
     document.movie = true;
     document.useDisplayOrientation = true;
+    document.movieTimeline = retainMovieTimeline(physical, VideoOrientation::Display, index);
     document.movieFrameTimes = std::move(index.frameTimes);
     document.project.clip.stepCount = index.frameCount;
     document.project.clip.sourceFrameCount = index.frameCount;

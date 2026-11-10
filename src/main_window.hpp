@@ -195,6 +195,7 @@ class MainWindow final : public QMainWindow
     std::shared_ptr<std::atomic_bool> m_SaveCancelled;
     std::vector<std::function<void()>> m_AfterSave;
     std::vector<std::chrono::nanoseconds> m_MoviePresentationTimes;
+    std::shared_ptr<const MovieTimeline> m_MovieTimeline;
     std::shared_ptr<std::atomic_bool> m_MovieOpenCancelled;
     std::unique_ptr<QFutureWatcher<MovieIndex>> m_MovieOpenWatcher;
     std::shared_ptr<std::atomic_bool> m_ProjectOpenCancelled;

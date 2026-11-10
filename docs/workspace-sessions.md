@@ -227,6 +227,10 @@ and image sequences enter through the same two-input worker bound, with individu
 controls and failure diagnostics. Raw media has `DocumentSourceKind::Media`: its original movie/image
 is never a native-save target. Image rates are finite and nonnegative; zero means unknown timing.
 Movies use the existing bounded display-orientation indexer; imported Tracker coordinates are unchanged.
+The prepared absolute presentation timestamps remain in immutable, runtime-only document state,
+shared by recreated views. Opening a prepared movie tab therefore does not scan it a second time.
+The adapter checks physical path, file size, modification time and orientation before reuse; native
+files retain their existing relative timing format and acquire a runtime index on first view creation.
 
 Every imported archive member gets a lightweight tab. Its complete editor is created on first
 selection and retained across tab switches, preserving playback, tracking, selection, playhead and
@@ -241,6 +245,9 @@ resolves Save/Discard/Cancel for the entire source, including every hidden archi
 discard/restoration and persisted view layouts remain separate unfinished workflows.
 
 Ordinary Save on a standard Tracker source writes the standard output and companion together. Save All
+and save-before-close use the same companion-replacement confirmation as Save As when establishing a
+pair over an existing independent `.motrack`; Cancel preserves both files. Established pairs save
+automatically. Save All
 iterates distinct source identities, writes only modified sources, includes hidden member edits and
 stops at the first failure/cancel. Before an aggregate/close save, known destinations are checked
 against other modified sources, including the standard file's companion and physical file aliases.
@@ -249,12 +256,14 @@ This prevents Save All from overwriting one copy and marking both saved. Hidden 
 existing save/recovery prompts without reopening a visible tab. Native-only copies keep the existing
 paired-save obligations; raw media or native-only inputs choose a native destination as before.
 
-Closing the window cancels pending inputs and source-owned jobs, refuses active saves and collects
+Closing the window cancels pending inputs and stops tracking/playback, refuses active saves and collects
 all source decisions before releasing any records. A later Cancel preserves earlier sources, although
 already-approved saves may have written files. A complete revision preflight prevents a later prompt
 from discarding newer edits in an earlier source. Destruction during open/save/close modal loops
 retains worker ownership and clears only the appropriate view/job state. The shell destroys its
 editors and disconnects callbacks before its C++ member maps and registry leases are destroyed.
+Pending frame/index requests survive close decisions, so an aborted close leaves frame controls
+usable; actual editor destruction/source release cancels the remaining work.
 
 Local shell validation currently covers actual tab selection/reordering and focused Undo/Redo, lazy
 archive members, hidden edits and native/standard Save All, complete-source Save/Discard/Cancel,
@@ -263,9 +272,14 @@ input cancellation/backpressure/failure and destruction during modal operations/
 AutoTracker continues through another tab's switch, reorder and project close with independent
 timing/units. Self-review reproduced Save All overwriting two independently edited copies with one shared destination;
 the new preflight preserves both dirty copies and also protects a standard file's native companion.
-All 15 shell regressions pass locally (8693 ms). All 10 Windows CTest groups pass serially in
-191.90 seconds with **96.07% production-line coverage (11158/11615)**. All C++ formatting, the seven
-affected translation-unit analyses and 45 relative guide links pass. LLVM reports six hash-mismatch
+Review regressions also cover first-Save companion replacement for TRK/TRZ through Save, Save All and
+save-before-close; canceled project/window close with a pending movie frame; prepared movie reuse
+through recreated tabs, including nonzero absolute timestamps; native first-index retention; and stale
+file/orientation cache rejection. Both companion loss and stuck controls reproduced before their fixes.
+All 17 shell regressions and 14 bound-editor regressions pass locally (9774 ms and 5239 ms).
+All 10 Windows CTest groups pass serially in
+197.60 seconds with **96.08% production-line coverage (11196/11653)**. All C++ formatting, the nine
+review-affected translation-unit analyses and 45 relative guide links pass. LLVM reports six hash-mismatch
 records for the generated `tr()` wrappers of WorkspaceWindow, MainWindow and PositionPlot, each
 listed twice; all production source records are present. No coverage exclusions or thresholds changed.
 Current-head cross-platform CI, actual pinned Tracker acceptance and review remain required before merge.

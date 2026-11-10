@@ -38,8 +38,8 @@ scope decisions. Record deliberate behavior changes, including corrections to re
 
 ## Current implementation and evidence
 
-Snapshot: **2026-11-09**, merged main at
-[da21a12](https://github.com/mgradwohl/MoTrack/commit/da21a12c011aa8ea697cf91904e19f07581d6598).
+Snapshot: **2026-11-10**, merged main through the workspace input adapter at
+[6bf5323](https://github.com/mgradwohl/MoTrack/commit/6bf532319fbbfa9f115c0091f9c43eb4b5976dfd).
 [PR #34](https://github.com/mgradwohl/MoTrack/pull/34) added independent vector editing,
 [PR #36](https://github.com/mgradwohl/MoTrack/pull/36) the reference corpus,
 [PR #38](https://github.com/mgradwohl/MoTrack/pull/38) actual Java application resave checks,

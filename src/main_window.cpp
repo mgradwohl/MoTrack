@@ -992,78 +992,84 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
         m_MovieOpenCancelled = std::make_shared<std::atomic_bool>(false);
     m_MovieOpenWatcher = std::make_unique<QFutureWatcher<MovieIndex>>();
     auto* watcher = m_MovieOpenWatcher.get();
-    connect(watcher,
-            &QFutureWatcher<MovieIndex>::finished,
-            this,
-            [this, path, standalone, watcher, cancelled = m_MovieOpenCancelled]
-            {
-                completeAfterSave(
-                    [this, path, standalone, cancelled, index = watcher->result()]() mutable
+    connect(
+        watcher,
+        &QFutureWatcher<MovieIndex>::finished,
+        this,
+        [this, path, standalone, watcher, cancelled = m_MovieOpenCancelled]
+        {
+            completeAfterSave(
+                [this, path, standalone, cancelled, index = watcher->result()]() mutable
+                {
+                    if (*cancelled)
                     {
-                        if (*cancelled)
-                        {
-                            return;
-                        }
-                        if (!standalone)
-                        {
+                        return;
+                    }
+                    if (!standalone)
+                    {
+                        if (!m_Workspace)
                             m_MoviePresentationTimes = std::move(index.presentationTimes);
-                            if (m_Workspace && m_IndexJob)
-                            {
-                                (void)m_Workspace->session().applyMovieIndex(*m_IndexJob, std::move(index.frameTimes), index.frameCount);
-                                (void)m_Workspace->session().finishJob(*m_IndexJob);
-                                m_IndexJob.reset();
-                            }
-                            else if (!index.frameTimes.empty())
-                            {
-                                m_Session.document.movieFrameTimes = std::move(index.frameTimes);
-                                auto& clip = viewProject().clip;
-                                const auto steps = clip.stepCount.value_or(0);
-                                const auto last =
-                                    static_cast<std::int64_t>(clip.firstFrame) + static_cast<std::int64_t>(steps - 1) * clip.stepSize;
-                                // Extend the provisional bound only if the movie contains the saved
-                                // clip. Retain known bounds for earlier ranges and their undo history.
-                                if (steps == 0 || last < index.frameCount)
-                                    clip.sourceFrameCount = std::max(clip.sourceFrameCount.value_or(0), index.frameCount);
-                            }
-                            m_ExportArchive->setEnabled(isLinkedMediaDocument(viewDocument()));
-                            refreshPlot();
-                            return;
-                        }
-                        if (index.frameCount == 0)
+                        if (m_Workspace && m_IndexJob)
                         {
-                            statusBar()->showMessage(tr("Could not open this video."));
-                            return;
+                            const auto timeline = retainMovieTimeline(
+                                path, viewDocument().useDisplayOrientation ? VideoOrientation::Display : VideoOrientation::Encoded, index);
+                            if (m_Workspace->session().applyMovieIndex(
+                                    *m_IndexJob, std::move(index.frameTimes), index.frameCount, timeline))
+                                m_MovieTimeline = timeline;
+                            (void)m_Workspace->session().finishJob(*m_IndexJob);
+                            m_IndexJob.reset();
                         }
-                        bool ownerAlive = true;
-                        QObject lifetime;
-                        connect(this, &QObject::destroyed, &lifetime, [&ownerAlive] { ownerAlive = false; });
-                        const auto discard = confirmDiscard();
-                        if (!ownerAlive)
-                            return;
-                        if (!discard || *cancelled)
+                        else if (!index.frameTimes.empty())
                         {
-                            statusBar()->clearMessage();
-                            return;
+                            m_Session.document.movieFrameTimes = std::move(index.frameTimes);
+                            auto& clip = viewProject().clip;
+                            const auto steps = clip.stepCount.value_or(0);
+                            const auto last =
+                                static_cast<std::int64_t>(clip.firstFrame) + static_cast<std::int64_t>(steps - 1) * clip.stepSize;
+                            // Extend the provisional bound only if the movie contains the saved
+                            // clip. Retain known bounds for earlier ranges and their undo history.
+                            if (steps == 0 || last < index.frameCount)
+                                clip.sourceFrameCount = std::max(clip.sourceFrameCount.value_or(0), index.frameCount);
                         }
-                        releaseArchive();
-                        m_MediaProjectPath = path;
-                        m_Session.replace({}, path, DocumentSourceKind::Media);
-                        viewProject().clip.stepCount = index.frameCount;
-                        viewProject().clip.sourceFrameCount = index.frameCount;
-                        viewProject().clip.mediaReferences.push_back(
-                            QDir(localProjectDirectory(path)).relativeFilePath(QFileInfo(path).canonicalFilePath()).toStdString());
-                        retainWorkspaceMediaLocations(m_Session.document, path);
-                        m_Sequence.reset();
-                        m_MoviePath = path;
-                        m_Session.document.movie = true;
-                        m_Session.document.useDisplayOrientation = true;
-                        m_Session.document.alignMovieToClip = false;
-                        m_MoviePresentationTimes = std::move(index.presentationTimes);
-                        m_Session.document.movieFrameTimes = std::move(index.frameTimes);
-                        activateProject(path);
-                        statusBar()->showMessage(tr("Opened video with %1 frames.").arg(index.frameCount));
-                    });
-            });
+                        m_ExportArchive->setEnabled(isLinkedMediaDocument(viewDocument()));
+                        refreshPlot();
+                        return;
+                    }
+                    if (index.frameCount == 0)
+                    {
+                        statusBar()->showMessage(tr("Could not open this video."));
+                        return;
+                    }
+                    bool ownerAlive = true;
+                    QObject lifetime;
+                    connect(this, &QObject::destroyed, &lifetime, [&ownerAlive] { ownerAlive = false; });
+                    const auto discard = confirmDiscard();
+                    if (!ownerAlive)
+                        return;
+                    if (!discard || *cancelled)
+                    {
+                        statusBar()->clearMessage();
+                        return;
+                    }
+                    releaseArchive();
+                    m_MediaProjectPath = path;
+                    m_Session.replace({}, path, DocumentSourceKind::Media);
+                    viewProject().clip.stepCount = index.frameCount;
+                    viewProject().clip.sourceFrameCount = index.frameCount;
+                    viewProject().clip.mediaReferences.push_back(
+                        QDir(localProjectDirectory(path)).relativeFilePath(QFileInfo(path).canonicalFilePath()).toStdString());
+                    retainWorkspaceMediaLocations(m_Session.document, path);
+                    m_Sequence.reset();
+                    m_MoviePath = path;
+                    m_Session.document.movie = true;
+                    m_Session.document.useDisplayOrientation = true;
+                    m_Session.document.alignMovieToClip = false;
+                    m_MoviePresentationTimes = std::move(index.presentationTimes);
+                    m_Session.document.movieFrameTimes = std::move(index.frameTimes);
+                    activateProject(path);
+                    statusBar()->showMessage(tr("Opened video with %1 frames.").arg(index.frameCount));
+                });
+        });
     const auto orientation = standalone || viewDocument().useDisplayOrientation ? VideoOrientation::Display : VideoOrientation::Encoded;
     watcher->setFuture(QtConcurrent::run(
         &m_Services->analysisPool(),
@@ -1906,17 +1912,6 @@ bool MainWindow::chooseTrackerPath()
                                      suffix);
     if (!path || checkpoint.identity != viewCheckpoint().identity)
         return false;
-    const QFileInfo target(*path);
-    const auto companion = target.absoluteDir().filePath(target.completeBaseName() + ".motrack");
-    if (QFileInfo::exists(companion) && companion != viewNativeSavePath() &&
-        askSaveQuestion(this,
-                        tr("Replace MoTrack companion?"),
-                        tr("This also replaces the existing MoTrack file:\n%1").arg(companion),
-                        QMessageBox::Yes | QMessageBox::Cancel,
-                        QMessageBox::Cancel) != QMessageBox::Yes)
-        return false;
-    if (checkpoint.identity != viewCheckpoint().identity)
-        return false;
     return saveTrackerWithRecoveryPrompt(*path);
 }
 
@@ -1927,6 +1922,17 @@ bool MainWindow::saveTrackerWithRecoveryPrompt(const QString& path)
     // Ordinary Save passes a session member; the dialog's event loop can replace that session.
     const auto destination = path; // NOLINT(performance-unnecessary-copy-initialization)
     const auto checkpoint = viewCheckpoint();
+    const QFileInfo target(destination);
+    const auto companion = target.absoluteDir().filePath(target.completeBaseName() + ".motrack");
+    if (QFileInfo::exists(companion) && companion != viewNativeSavePath() &&
+        askSaveQuestion(this,
+                        tr("Replace MoTrack companion?"),
+                        tr("This also replaces the existing MoTrack file:\n%1").arg(companion),
+                        QMessageBox::Yes | QMessageBox::Cancel,
+                        QMessageBox::Cancel) != QMessageBox::Yes)
+        return false;
+    if (checkpoint.identity != viewCheckpoint().identity)
+        return false;
     const bool recovery = !viewRecoveryPath().isEmpty();
     if (recovery && askSaveQuestion(this,
                                     tr("Finish interrupted save?"),
@@ -2497,7 +2503,8 @@ void MainWindow::requestMovieFrame(int frame)
     {
         m_Video->display({}, {}, tr("Decoding frame…"));
     }
-    const bool hasTimestamp = frame >= 0 && std::cmp_less(frame, m_MoviePresentationTimes.size());
+    const auto& presentationTimes = m_MovieTimeline ? m_MovieTimeline->presentationTimes : m_MoviePresentationTimes;
+    const bool hasTimestamp = frame >= 0 && std::cmp_less(frame, presentationTimes.size());
     MovieFrameRequest request{.token = {},
                               .media = m_MediaGeneration,
                               .path = m_MoviePath,
@@ -2505,7 +2512,7 @@ void MainWindow::requestMovieFrame(int frame)
                               .sequence = generation,
                               .orientation = viewDocument().useDisplayOrientation ? VideoOrientation::Display : VideoOrientation::Encoded,
                               .timestamp =
-                                  hasTimestamp ? std::optional{m_MoviePresentationTimes.at(static_cast<std::size_t>(frame))} : std::nullopt,
+                                  hasTimestamp ? std::optional{presentationTimes.at(static_cast<std::size_t>(frame))} : std::nullopt,
                               .archive = viewDocument().archivePayload};
     request.token = m_Workspace ? m_Workspace->session().beginJob(m_WorkspaceDocument, WorkspaceJob::Frame)
                                 : WorkspaceJobToken{.document = m_FrameDocument,

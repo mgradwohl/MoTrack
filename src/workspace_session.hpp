@@ -105,7 +105,10 @@ class WorkspaceSession
     /// View identity/revision only; writes still require whole-source beginSave/completeSave routing.
     [[nodiscard]] DocumentSession::SaveCheckpoint documentCheckpoint(QUuid document) const;
     /// Adopt derived media metadata only for the current index job; never clears edit history.
-    [[nodiscard]] bool applyMovieIndex(const WorkspaceJobToken& token, std::vector<double> frameTimes, int frameCount);
+    [[nodiscard]] bool applyMovieIndex(const WorkspaceJobToken& token,
+                                       std::vector<double> frameTimes,
+                                       int frameCount,
+                                       std::shared_ptr<const MovieTimeline> timeline = {});
     [[nodiscard]] bool isModified(QUuid source) const;
     [[nodiscard]] bool requiresPairedSave(QUuid source) const;
     [[nodiscard]] const QString& nativeSavePath(QUuid source) const;
@@ -131,6 +134,9 @@ class WorkspaceSession
     [[nodiscard]] bool accepts(const WorkspaceJobToken& token) const;
     [[nodiscard]] bool finishJob(const WorkspaceJobToken& token);
     void cancelJobs(QUuid document);
+    /// Stop tracking/playback for a close decision, retaining in-flight frame/index requests so
+    /// a canceled/failed close leaves the visible experiment usable.
+    void stopActivity(QUuid document);
     void cancelSourceWork(QUuid source);
 
     /// At most two pending save/recovery operations across this workspace; busy returns nullopt

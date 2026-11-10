@@ -13,6 +13,8 @@
 namespace motrack
 {
 
+struct MovieTimeline;
+
 struct MovieFrame
 {
     std::uint64_t ordinal;
@@ -64,5 +66,10 @@ class VideoReader
 
 /// Indexes presentation-order frames and monotonic timestamps in seconds from the movie's first frame.
 [[nodiscard]] MovieIndex buildMovieIndex(const QString& path, VideoOrientation orientation, const std::atomic_bool& cancelled);
+
+/// Retain the completed index's absolute timestamps without copying them into each view.
+[[nodiscard]] std::shared_ptr<const MovieTimeline>
+retainMovieTimeline(const QString& path, VideoOrientation orientation, MovieIndex& index);
+[[nodiscard]] bool matchesMovieTimeline(const MovieTimeline& timeline, const QString& path, VideoOrientation orientation);
 
 } // namespace motrack

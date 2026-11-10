@@ -6,13 +6,28 @@
 #include <QString>
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 namespace motrack
 {
 
 class TrackerArchive;
+
+/// Immutable runtime index retained with a document, independent of decoders and widgets.
+/// Absolute presentation timestamps are for seeking; movieFrameTimes remains zero-origin seconds.
+/// Never serialized. Adapters validate the physical file and orientation before reusing it.
+struct MovieTimeline
+{
+    QString physicalPath;
+    qint64 fileSize = 0;
+    qint64 modifiedMsecs = 0;
+    bool displayOrientation = false;
+    int frameCount = 0;
+    std::vector<std::chrono::nanoseconds> presentationTimes;
+};
 
 struct NativeSaveResult
 {
@@ -34,6 +49,7 @@ struct WorkspaceDocument
     std::optional<std::string> archiveMember = std::nullopt;
     // Runtime source locations captured when opening a desktop document. Never serialized.
     QHash<QString, QString> mediaLocations = {};
+    std::shared_ptr<const MovieTimeline> movieTimeline = {};
 };
 
 /// Retains physical media locations before the original project directory can disappear.

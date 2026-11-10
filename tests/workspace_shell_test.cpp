@@ -725,4 +725,111 @@ TEST(WorkspaceShell, SaveAllProtectsAStandardSourcesCompanionFromAnotherEditedNa
         motrack::readArchiveGroup(temporary.filePath("separate.motrack")).members.front().document.project.pointMasses.front().mass, 9);
 }
 
+TEST(WorkspaceShell, FirstOrdinarySaveProtectsExistingCompanionsAcrossAllSaveEntryPoints)
+{
+    for (const bool archive : {false, true})
+    {
+        SCOPED_TRACE(archive);
+        QTemporaryDir temporary;
+        const auto standard = temporary.filePath(archive ? "experiment.trz" : "experiment.trk");
+        const auto native = temporary.filePath("experiment.motrack");
+        const auto input = archive ? fixture("linked-images/multitab-images.trz") : fixture();
+        ASSERT_TRUE(QFile::copy(input, standard));
+        if (!archive)
+        {
+            ASSERT_TRUE(QDir().mkdir(temporary.filePath("images")));
+            for (int i = 0; i < 4; ++i)
+            {
+                const auto name = QString("images/frame%1.png").arg(i);
+                ASSERT_TRUE(QFile::copy(QFileInfo(input).dir().filePath(name), temporary.filePath(name)));
+            }
+        }
+        auto independent = motrack::prepareWorkspaceInput(standard);
+        if (independent.group)
+        {
+            const auto id = independent.group->memberIds().front();
+            ASSERT_TRUE(independent.group->history(id).setPointMassValue(independent.group->project(id), 0, 17));
+            motrack::writeArchiveGroup(native, independent.group->prepareSave().snapshot);
+        }
+        else
+        {
+            ASSERT_TRUE(independent.document->history.setPointMassValue(independent.document->document.project, 0, 17));
+            motrack::writeWorkspaceDocument(native, independent.document->document);
+        }
+        const auto bytes = [](const QString& path)
+        {
+            QFile file(path);
+            return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray{};
+        };
+        const auto originalStandard = bytes(standard);
+        const auto originalNative = bytes(native);
+        motrack::WorkspaceWindow window;
+        window.show();
+        ASSERT_TRUE(openProject(window, standard));
+        ASSERT_TRUE(editMass(window, 7));
+        int confirmations = 0;
+        auto answer = QMessageBox::Cancel;
+        QTimer responses;
+        QObject::connect(&responses,
+                         &QTimer::timeout,
+                         &window,
+                         [&]
+                         {
+                             if (auto* question = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
+                             {
+                                 if (question->objectName() == "workspaceCloseQuestion")
+                                     question->button(QMessageBox::Save)->click();
+                                 else
+                                 {
+                                     EXPECT_EQ(question->windowTitle(), "Replace MoTrack companion?");
+                                     ++confirmations;
+                                     question->button(answer)->click();
+                                 }
+                             }
+                         });
+        responses.start(1);
+        editor(window)->findChild<QAction*>("saveProject")->trigger();
+        EXPECT_FALSE(window.saveAll());
+        const auto source = window.context()->session().sourceId(currentDocument(window));
+        EXPECT_FALSE(window.closeSource(source));
+        EXPECT_EQ(confirmations, 3);
+        EXPECT_EQ(bytes(standard), originalStandard);
+        EXPECT_EQ(bytes(native), originalNative);
+        EXPECT_TRUE(window.context()->session().isModified(source));
+        // Continue only if Cancel really retained the editor, keeping a failed regression bounded.
+        ASSERT_EQ(tabs(window)->count(), archive ? 2 : 1);
+        answer = QMessageBox::Yes;
+        ASSERT_TRUE(window.saveAll());
+        EXPECT_EQ(confirmations, 4);
+        ASSERT_TRUE(editMass(window, 9));
+        ASSERT_TRUE(window.saveAll());
+        EXPECT_EQ(confirmations, 4); // Established pairs keep automatic Save.
+        const auto saved = archive ? motrack::readArchiveGroup(native).members.front().document : motrack::readWorkspaceDocument(native);
+        EXPECT_DOUBLE_EQ(saved.project.pointMasses.front().mass, 9);
+    }
+}
+
+TEST(WorkspaceShell, AbortedProjectAndWindowCloseAllowPendingMovieFramesToComplete)
+{
+    for (const bool entireWindow : {false, true})
+    {
+        SCOPED_TRACE(entireWindow);
+        motrack::WorkspaceWindow window;
+        window.show();
+        ASSERT_TRUE(openProject(window, fixture("linked-mov/linked-movie.trk")));
+        auto* canvas = editor(window)->findChild<QWidget*>("videoCanvas");
+        ASSERT_TRUE(QTest::qWaitFor([&] { return canvas->accessibleName() == "Frame 0"; }));
+        ASSERT_TRUE(editMass(window, 9));
+        auto* slider = editor(window)->findChild<QSlider*>("stepSlider");
+        slider->setValue(1); // No event-loop turn before the close request.
+        {
+            CloseChoices choices({QMessageBox::Cancel});
+            EXPECT_FALSE(entireWindow ? window.close() : window.closeSource(window.context()->session().sourceId(currentDocument(window))));
+        }
+        EXPECT_TRUE(QTest::qWaitFor([&] { return canvas->accessibleName() == "Frame 1"; }));
+        EXPECT_TRUE(editor(window)->findChild<QAction*>("calibrationStick")->isEnabled());
+        EXPECT_TRUE(window.context()->session().isModified(window.context()->session().sourceId(currentDocument(window))));
+    }
+}
+
 } // namespace
