@@ -11,6 +11,7 @@
 #include "tracker_writer.hpp"
 #include "video_reader.hpp"
 #include "workspace_document.hpp"
+#include "workspace_session.hpp"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -462,33 +463,49 @@ try
             groupedExport.error() != QFileDevice::NoError)
             throw motrack::ProjectError("Shared paired recovery changed the independently verified archive export.");
         groupedExport.close();
-        motrack::ArchiveGroupSession live;
-        live.replace(recoveredGroup, recovered.nativePath);
-        const auto liveId = live.memberIds().front();
-        const auto staleRequest = live.prepareSave();
+        auto liveGroup = std::make_unique<motrack::ArchiveGroupSession>();
+        liveGroup->replace(recoveredGroup, recovered.nativePath);
+        motrack::WorkspaceSession live;
+        const auto opened = live.addGroup(liveGroup);
+        const auto liveId = opened.documents.front();
+        const auto otherId = opened.documents.back();
+        const auto tracking = live.beginJob(liveId, motrack::WorkspaceJob::AutoTrack);
+        live.showDocument(otherId);
+        live.hideDocument(otherId);
+        live.cancelJobs(otherId);
+        if (!live.accepts(tracking))
+            throw motrack::ProjectError("Switching or closing another experiment invalidated the first experiment's job.");
+        const auto staleRequest = live.beginSave(liveId);
+        if (!staleRequest)
+            throw motrack::ProjectError("Could not capture the workspace group save.");
         if (!live.history(liveId).setPointMassValue(live.project(liveId), 0, live.project(liveId).pointMasses.front().mass + 1.0))
             throw motrack::ProjectError("Could not prepare an edit while the group snapshot was pending.");
-        const auto staleSaved = motrack::writePairedArchiveGroup(args[3], staleRequest.snapshot);
-        if (live.completePairedSave(staleRequest.checkpoint, staleSaved) != motrack::SaveOutcome::Stale || !live.isModified() ||
-            !live.history(liveId).undo(live.project(liveId)) || !live.isModified())
+        const auto staleSaved = motrack::writeWorkspacePair(*staleRequest, args[3]);
+        if (live.completePairedSave(*staleRequest, staleSaved) != motrack::SaveOutcome::Stale || !live.isModified(opened.source) ||
+            !live.history(liveId).undo(live.project(liveId)) || !live.isModified(opened.source))
             throw motrack::ProjectError("A stale group completion cleared a newer edit or its invalidated checkpoint.");
-        const auto liveRequest = live.prepareSave();
-        cancelled = false;
-        const auto livePartial =
-            motrack::writePairedArchiveGroup(args[3],
-                                             liveRequest.snapshot,
-                                             &cancelled,
-                                             [&](auto state) { cancelled = state == motrack::PairedSaveProgress::StandardSaved; });
-        if (live.completePairedSave(liveRequest.checkpoint, livePartial) != motrack::SaveOutcome::Partial || !live.isModified())
+        const auto liveRequest = live.beginSave(otherId);
+        if (!liveRequest)
+            throw motrack::ProjectError("Could not capture the hidden experiment's complete group save.");
+        const auto livePartial = motrack::writeWorkspacePair(
+            *liveRequest,
+            args[3],
+            [&](auto state) { liveRequest->operation.cancelled->store(state == motrack::PairedSaveProgress::StandardSaved); });
+        if (live.completePairedSave(*liveRequest, livePartial) != motrack::SaveOutcome::Partial || !live.isModified(opened.source))
             throw motrack::ProjectError("An interrupted live group was incorrectly marked saved.");
-        const auto recoveryCheckpoint = live.saveCheckpoint();
-        const auto liveRecovery = motrack::recoverPairedDocuments(live.recoveryPath(), nullptr, {}, livePartial.transactionId);
-        if (live.completePairedRecovery(recoveryCheckpoint, live.recoveryPath(), liveRecovery) != motrack::SaveOutcome::Recovered ||
-            !live.isModified() || !live.recoveryPath().isEmpty())
+        const auto recoveryRequest = live.beginRecovery(liveId);
+        if (!recoveryRequest || recoveryRequest->transaction != livePartial.transactionId)
+            throw motrack::ProjectError("Workspace recovery did not capture the interrupted transaction.");
+        const auto liveRecovery = motrack::recoverWorkspacePair(*recoveryRequest);
+        if (live.completeRecovery(*recoveryRequest, liveRecovery) != motrack::SaveOutcome::Recovered || !live.isModified(opened.source) ||
+            !live.recoveryPath(opened.source).isEmpty())
             throw motrack::ProjectError("Group recovery did not preserve the requirement for a fresh save.");
-        const auto finalRequest = live.prepareSave();
-        const auto finalSaved = motrack::writePairedArchiveGroup(args[3], finalRequest.snapshot);
-        if (live.completePairedSave(finalRequest.checkpoint, finalSaved) != motrack::SaveOutcome::Saved || live.isModified())
+        const auto finalRequest = live.beginSave(otherId);
+        if (!finalRequest)
+            throw motrack::ProjectError("Could not capture the final workspace save.");
+        const auto finalSaved = motrack::writeWorkspacePair(*finalRequest, args[3]);
+        if (live.completePairedSave(*finalRequest, finalSaved) != motrack::SaveOutcome::Saved || live.isModified(opened.source) ||
+            !live.accepts(tracking))
             throw motrack::ProjectError("Could not save the current complete group after recovery.");
         const auto finalGroup = motrack::readArchiveGroup(finalSaved.nativePath);
         if (finalGroup.id != recoveredGroup.id || finalGroup.members.size() != recoveredGroup.members.size())

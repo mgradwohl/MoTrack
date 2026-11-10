@@ -76,6 +76,13 @@ snapping model, and does not close #63 or the broader media persistence issue #6
 
 For the multi-member archive foundation, Tracker #18 and its complete discussion were refreshed on **2026-11-09**. The report remains open: switching/closing another tab pauses AutoTracker and leaves inconsistent controls. Its maintainer linked the pause to video stepping. [MoTrack #69](https://github.com/mgradwohl/MoTrack/issues/69) remains open; the storage writer does not address job ownership or desktop tab switching. Separate workspace sessions must retain active tracking when another tab is selected or closed.
 
+The workspace-registry foundation now has local regressions for that ownership policy: switching,
+reordering or hiding a different member preserves the first member's AutoTracker token, and cancelling
+one member does not cancel another in the same archive. Group image/MOV corpus routes exercise this
+policy while saving hidden members. This is preventive controller coverage; actual desktop playback,
+tracking controls and bounded shared workers still need integration. #69 remains open. See
+[workspace ownership and routing](workspace-sessions.md).
+
 The baseline tabset workflow is now tracked explicitly in [MoTrack #150](https://github.com/mgradwohl/MoTrack/issues/150); moving reference frames discovered in the real Diabolo archive are tracked in [MoTrack #148](https://github.com/mgradwohl/MoTrack/issues/148). Neither discovery is an accepted full round trip.
 
 ## Defects discovered by the reference harness

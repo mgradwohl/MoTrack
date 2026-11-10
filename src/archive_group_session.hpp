@@ -12,6 +12,12 @@
 namespace motrack
 {
 
+enum class ArchiveGroupSource : std::uint8_t
+{
+    Native,
+    Tracker
+};
+
 /// Owner-thread records for one archive, independent of visible tabs. Closing a view does not remove a record.
 /// Workers receive owned snapshots; only the owner thread applies completion actions.
 class ArchiveGroupSession
@@ -33,8 +39,10 @@ class ArchiveGroupSession
         SaveCheckpoint checkpoint;
     };
 
-    /// Install a prepared native group. Invalid input leaves the current group untouched.
-    void replace(ArchiveGroup incoming, const QString& nativePath);
+    /// Install a prepared on-disk baseline. Tracker groups require .trz, native groups .motrack.
+    /// This is for freshly loaded input, not transferring edited live sessions (use promote/append).
+    /// Invalid input leaves the current group untouched.
+    void replace(ArchiveGroup incoming, const QString& path, ArchiveGroupSource source = ArchiveGroupSource::Native);
     /// Transfer an idle standalone archive session, preserving history and member runtime identity.
     /// The caller must finish/cancel standalone jobs before transfer and route future saves through this group.
     /// Pending recovery is refused. On failure, incoming retains ownership; on success it becomes null.

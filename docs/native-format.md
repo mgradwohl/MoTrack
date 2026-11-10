@@ -1028,7 +1028,10 @@ the shared native file with only one experiment. Workspace tab selection and clo
 still separate work.
 
 Opening a prepared native group creates a fresh runtime save identity while retaining its persistent
-group/member UUIDs. Promoting or appending an idle standalone session transfers its stable owner and
+group/member UUIDs. The workspace foundation also accepts an explicitly identified, freshly loaded
+Tracker `.trz` group as a clean baseline with an inferred standard destination and no inferred native
+destination. This is not a way to reclassify edited live records as saved. Promoting or appending an
+idle standalone session transfers its stable owner and
 preserves undo history and member identity. Invalid ownership, duplicate members and pending standalone
 recovery are refused before ownership transfers. The caller must finish or cancel its standalone jobs
 first. A standalone `.motrack` source is not treated as an already-saved group target; conversion requires
@@ -1055,5 +1058,9 @@ checks, then exercise a stale live save, undo, interrupted group saving, recover
 Final standard bytes must still match the independently verified export. All 10 Windows CTest groups
 pass serially in 170.56 seconds, with 96.01% production-line coverage (9508/9903). All four extended
 native corpus modes and both reimports pass, including byte-identical forward/reverse outputs. All
-C++ formatting, four changed translation-unit analyses and 63 relative guide links pass. Current-head
-CI/review remain pending; this is not desktop-tab or full-port acceptance.
+C++ formatting, four changed translation-unit analyses and 63 relative guide links pass. Merged #159
+at `c72b6de` passed all six checks and review in
+[CI 42745307223](https://github.com/mgradwohl/MoTrack/actions/runs/42745307223), with 96.07% combined
+coverage (9537/9927) and all 237 edited actual-Tracker cases. The three known defects remained
+unaccepted. This is not desktop-tab or full-port acceptance. The next
+[workspace routing layer](workspace-sessions.md) owns these groups and their view identities.
