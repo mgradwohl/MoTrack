@@ -11,6 +11,7 @@
 #include "tracker_writer.hpp"
 #include "video_reader.hpp"
 #include "workspace_document.hpp"
+#include "workspace_input.hpp"
 #include "workspace_session.hpp"
 
 #include <QCoreApplication>
@@ -463,10 +464,9 @@ try
             groupedExport.error() != QFileDevice::NoError)
             throw motrack::ProjectError("Shared paired recovery changed the independently verified archive export.");
         groupedExport.close();
-        auto liveGroup = std::make_unique<motrack::ArchiveGroupSession>();
-        liveGroup->replace(recoveredGroup, recovered.nativePath);
+        auto prepared = motrack::prepareWorkspaceInput(recovered.nativePath);
         motrack::WorkspaceSession live;
-        const auto opened = live.addGroup(liveGroup);
+        const auto opened = motrack::adoptWorkspaceInput(live, prepared);
         const auto liveId = opened.documents.front();
         const auto otherId = opened.documents.back();
         const auto tracking = live.beginJob(liveId, motrack::WorkspaceJob::AutoTrack);
