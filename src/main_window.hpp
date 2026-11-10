@@ -170,6 +170,7 @@ class MainWindow final : public QMainWindow
     QUuid m_WorkspaceDocument;
     std::optional<WorkspaceJobToken> m_IndexJob;
     std::optional<WorkspaceJobToken> m_TrackingJob;
+    std::optional<WorkspaceJobToken> m_PlaybackJob;
     std::optional<ImageSequence> m_Sequence;
     std::optional<ImageFrame> m_DisplayedFrame;
     std::optional<QPointF> m_CalibrationFirst;

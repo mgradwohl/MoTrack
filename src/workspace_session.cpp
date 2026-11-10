@@ -34,6 +34,9 @@ WorkspaceOperation newOperation(QUuid source)
 
 } // namespace
 
+WorkspaceSession::WorkspaceSession(std::function<void(QUuid)> jobsCancelled) : m_JobsCancelled(std::move(jobsCancelled))
+{}
+
 WorkspaceSession::~WorkspaceSession()
 {
     for (const auto& entry : m_Documents)
@@ -340,6 +343,8 @@ void WorkspaceSession::cancelJobs(QUuid id)
 {
     for (const auto& flag : findDocument(id).jobs)
         cancel(flag);
+    if (m_JobsCancelled)
+        m_JobsCancelled(id);
 }
 
 void WorkspaceSession::cancelSourceWork(QUuid id)

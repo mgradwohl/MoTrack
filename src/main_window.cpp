@@ -411,6 +411,10 @@ MainWindow::MainWindow(std::shared_ptr<WorkspaceServices> services)
                 {
                     m_StepSlider->setValue(0);
                 }
+                else if (m_Playing && !m_DisplayedFrame)
+                {
+                    displayStep(m_StepSlider->value());
+                }
                 else
                 {
                     schedulePlayback();
@@ -2314,6 +2318,13 @@ void MainWindow::displayFrame(const ImageFrame& frame, const QString& failureMes
 
 void MainWindow::setPlaying(bool playing)
 {
+    if (m_Workspace)
+    {
+        if (m_PlaybackJob)
+            (void)m_Workspace->session().finishJob(*m_PlaybackJob);
+        m_PlaybackJob =
+            playing ? std::optional(m_Workspace->session().beginJob(m_WorkspaceDocument, WorkspaceJob::Playback)) : std::nullopt;
+    }
     m_Playing = playing;
     m_PlayTimer.stop();
     m_Play->setIcon(style()->standardIcon(playing ? QStyle::SP_MediaPause : QStyle::SP_MediaPlay));
@@ -2354,6 +2365,8 @@ void MainWindow::startAutoTracking()
     }
     m_AutoTrack =
         AutoTrackSession{.pattern = *pattern, .track = static_cast<std::size_t>(track), .lastFrame = frame.number, .predicted = center};
+    if (m_Workspace)
+        m_TrackingJob = m_Workspace->session().beginJob(m_WorkspaceDocument, WorkspaceJob::AutoTrack);
     cancelMeasurement();
     setPlaying(false);
     m_Calibrate->setChecked(false);
@@ -2402,8 +2415,6 @@ void MainWindow::autoTrackFrame(const ImageFrame& frame)
     }
     auto* match = new QFutureWatcher<std::optional<QPoint>>(this);
     m_AutoTrackMatch = match;
-    if (m_Workspace)
-        m_TrackingJob = m_Workspace->session().beginJob(m_WorkspaceDocument, WorkspaceJob::AutoTrack);
     connect(match,
             &QFutureWatcher<std::optional<QPoint>>::finished,
             this,
@@ -2413,12 +2424,11 @@ void MainWindow::autoTrackFrame(const ImageFrame& frame)
                 {
                     m_AutoTrackMatch = nullptr;
                     match->deleteLater();
-                    if (m_Workspace && (!m_TrackingJob || !m_Workspace->session().finishJob(*m_TrackingJob)))
+                    if (m_Workspace && (!m_TrackingJob || !m_Workspace->session().accepts(*m_TrackingJob)))
                     {
                         stopAutoTracking();
                         return;
                     }
-                    m_TrackingJob.reset();
                     applyAutoTrackMatch(number, match->result());
                 }
             });

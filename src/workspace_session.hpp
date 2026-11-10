@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <variant>
@@ -30,7 +31,8 @@ enum class WorkspaceJob : std::uint8_t
 {
     Frame,
     MediaIndex,
-    AutoTrack
+    AutoTrack,
+    Playback
 };
 
 struct WorkspaceJobToken
@@ -137,7 +139,9 @@ class WorkspaceSession
     [[nodiscard]] SaveOutcome completePairedSave(const WorkspaceSaveRequest& request, const PairedSaveResult& result);
     [[nodiscard]] SaveOutcome completeRecovery(const WorkspaceRecoveryRequest& request, const PairedSaveResult& result);
 
-    WorkspaceSession() = default;
+    /// Optional owner-thread notification. The observer must post/defer work, never mutate the
+    /// registry or views synchronously; cancellation may be part of a larger source operation.
+    explicit WorkspaceSession(std::function<void(QUuid)> jobsCancelled = {});
     WorkspaceSession(const WorkspaceSession&) = delete;
     WorkspaceSession& operator=(const WorkspaceSession&) = delete;
     WorkspaceSession(WorkspaceSession&&) = delete;
@@ -157,7 +161,7 @@ class WorkspaceSession
         QUuid id;
         Source* source = nullptr; // Stable owner node; removed only after its entries and views.
         QUuid member;
-        std::array<std::shared_ptr<std::atomic_bool>, 3> jobs{};
+        std::array<std::shared_ptr<std::atomic_bool>, 4> jobs{};
     };
     struct PendingOperation
     {
@@ -178,6 +182,7 @@ class WorkspaceSession
     std::vector<QUuid> m_Tabs;
     std::optional<QUuid> m_Active;
     std::vector<PendingOperation> m_Operations;
+    std::function<void(QUuid)> m_JobsCancelled;
 };
 
 /// Synchronous worker adapters. They operate only on owned snapshots and cancellation flags;

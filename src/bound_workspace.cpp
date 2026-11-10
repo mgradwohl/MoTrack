@@ -68,6 +68,19 @@ MainWindow::MainWindow(std::shared_ptr<WorkspaceContext> workspace, QUuid docume
                         refreshImageMediaLocations();
                 }
             });
+    connect(m_Workspace.get(),
+            &WorkspaceContext::jobsCancelled,
+            this,
+            [this](QUuid cancelledDocument)
+            {
+                if (cancelledDocument != m_WorkspaceDocument)
+                    return;
+                // Run identities survive frame/match waits. A delayed notice must not stop a newer run.
+                if (m_TrackingJob && m_TrackingJob->cancelled->load())
+                    stopAutoTracking();
+                if (m_PlaybackJob && m_PlaybackJob->cancelled->load())
+                    setPlaying(false);
+            });
     m_MediaProjectPath = m_Workspace->session().mediaProjectPath(document);
     const auto& model = viewDocument();
     m_Sequence = model.movie ? std::nullopt : ImageSequence::open(m_MediaProjectPath, model.project.clip, model.mediaLocations);

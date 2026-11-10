@@ -92,7 +92,11 @@ groups pass serially in 182.49 seconds with **96.30%** production-line coverage 
 The first CI revision passed all three platform builds and all 237 edited Tracker cases, but Clang 18
 flagged Qt weak-pointer cleanup and callback-owned test cleanup. The follow-up uses an explicit
 destruction observer and parent-owned test cleanup, preserving all nine cases and adding no
-suppression. The affected analyses pass locally; fresh current-head CI/review remain pending.
+suppression. PR #161 merged at reviewed head `537e617` with all six checks passing in
+[CI 42758565994](https://github.com/mgradwohl/MoTrack/actions/runs/42758565994), **96.35% combined
+coverage (9984/10362)** and all 237 unchanged edited Tracker cases. Three known reference defects
+remain unaccepted. Review 5836935274 recommends approval with no threads; the completed branch was
+verified contained in main and removed locally/remotely.
 This is not yet a tabbed desktop or complete acceptance of #69.
 
 ## Retained experiment editors
@@ -111,7 +115,14 @@ an editor cancels only its document's jobs and hides its record; the retained mo
 source membership survive. Recreating an editor restores its model/history and starts at the first
 clip step. Persistent view/playhead restoration remains part of the subsequent layout work.
 
-Frame, movie-index and AutoTracker requests now use registry tokens. Index completion applies only
+Frame and movie-index requests use registry tokens. AutoTracker and playback keep separate tokens
+for each complete run, including time spent waiting for a movie frame or a patch match. Explicit
+registry cancellation posts a context notification independently of worker results, so suppressed
+frame delivery cannot leave a checked Stop/Pause control without work. The owner-thread observer
+must defer notifications; it cannot synchronously mutate registry state or views during cancellation.
+Each editor stops only its own currently canceled run. A queued notice from an older run cannot stop
+a newly restarted run. Pressing Play after a canceled frame re-requests that frame before scheduling
+playback. Normal completion does not emit cancellation notifications. Index completion applies only
 to the current document/index identity, retaining edit history and source bindings. The registry
 marks an identified movie before indexing so an unindexed movie cannot be offered as an image
 package. Finite, zero-origin, strictly increasing index data must match the reported frame count and
@@ -131,15 +142,17 @@ lets a workspace observer create or destroy views after the initiating editor op
 The existing QObject service lease continues to keep pools alive through window destruction
 notifications, including when a window owns the final workspace reference.
 
-Ten new local regressions cover independent playheads/history/destinations; hidden-member edits,
+Twelve new local regressions cover independent playheads/history/destinations; hidden-member edits,
 native/Tracker group saves and restored undo history; duplicate/invalid view claims; indexed movie
 identity and refused data; pending-operation bounds and export copies; destroyed native/paired-save
 views; stale writes; interrupted/cancelled group recovery; and AutoTracker continuing through saving,
 selection and another view's destruction with distinct timing/units; and restarting after a pending
-match is canceled through either document or source cancellation. Both timestamp admission and
+match is canceled through either document or source cancellation; resetting tracking/playback while
+a movie frame is pending, without receiving a result; and restarting before an older cancellation
+notice is delivered. Both timestamp admission and
 tracking-control regressions reproduced the review findings before their fixes. Rejected index
 values leave existing metadata unchanged; valid indexed groups save and reopen natively. All 10
-Windows CTest groups pass serially in 183.88 seconds with **96.29%** production-line coverage (10315/10712). Formatting and all
+Windows CTest groups pass serially in 179.39 seconds with **96.27%** production-line coverage (10338/10739). Formatting and all
 five affected translation-unit static analyses pass without new suppressions. Existing plot/measurement
 labels and save-progress strings remain unchanged. All three translation catalogs contain
 the new pending-save message, and 35 relative links across the three changed guides resolve. The
@@ -209,7 +222,7 @@ the [full-port order](migration-plan.md#implementation-order-and-exit-gates).
 
 The remaining integration order is:
 
-1. Finish validation and merge the shared execution/cache services above. Frame requests carry
+1. Shared execution/cache services are merged in #161. Frame requests carry
    document and media-generation identity; serving another document must not invalidate a running
    experiment's AutoTracker request. Workers retain immutable source ownership until finished.
 2. Finish validation of the retained experiment editors above, then activate their actions from the

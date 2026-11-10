@@ -26,9 +26,11 @@ class WorkspaceContext final : public QObject
 
   Q_SIGNALS:
     void sourceChanged(QUuid source, bool mediaBindings);
+    void jobsCancelled(QUuid document);
 
   private:
     Q_SIGNAL void sourceChangeQueued(QUuid source, bool mediaBindings);
+    Q_SIGNAL void jobsCancellationQueued(QUuid document);
     std::shared_ptr<WorkspaceServices> m_Services;
     WorkspaceSession m_Session;
     QSet<QUuid> m_Views;

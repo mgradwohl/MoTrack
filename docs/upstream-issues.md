@@ -82,11 +82,15 @@ one member does not cancel another in the same archive. Group image/MOV corpus r
 policy while saving hidden members. Those routes passed all current-head checks, review and actual
 Tracker acceptance in merged #160. The next shared-services slice additionally exercises two actual
 desktop windows with one continuing AutoTracker after the other closes, bounded pools/cache, and
-isolated frame cancellation. Those local cases pass, but tabbed controls, registry-bound views and
-full cross-platform acceptance remain unfinished. The following retained-editor slice additionally
+isolated frame cancellation. All six current-head checks and review passed in merged #161, with
+96.35% combined coverage and all 237 edited Tracker cases; tabbed controls and registry-bound views
+remain unfinished. The following retained-editor slice additionally
 tests actual registry-bound views while saving and closing another experiment: tracking continues
 with independent timing/units, and hidden archive edits remain in whole-source saves. Its local
-regressions pass; a tabbed workspace and its explicit close/discard controls are still absent.
+regressions pass. Review also reproduced a Stop-only state after explicit cancellation while waiting
+for a match or movie frame. Run-level tokens and independently queued cancellation notifications now
+reset the owning controls, preserve unrelated jobs and permit restart without stale notices stopping
+the new run. A tabbed workspace and its explicit close/discard controls are still absent.
 #69 remains open. See
 [workspace ownership and routing](workspace-sessions.md).
 

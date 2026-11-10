@@ -1,4 +1,5 @@
 #include "main_window.hpp"
+#include "template_tracker.hpp"
 #include "track_identity.hpp"
 #include "tracker_archive.hpp"
 #include "workspace_context.hpp"
@@ -16,6 +17,7 @@
 #include <QTableWidget>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QToolButton>
 #include <gtest/gtest.h>
 
 #include <limits>
@@ -525,6 +527,118 @@ TEST(BoundWorkspace, CancelledPendingMatchesResetControlsAndAllowTrackingToResta
         ASSERT_TRUE(QTest::qWaitFor([&] { return !action->isChecked() && marks->rowCount() == 3; }));
         EXPECT_EQ(marks->item(1, 2)->text(), "28");
         EXPECT_EQ(marks->item(2, 2)->text(), "34");
+    }
+}
+
+TEST(BoundWorkspace, CancellingPendingMovieFramesResetsTrackingAndPlaybackWithoutFrameDelivery)
+{
+    for (const bool entireSource : {false, true})
+        for (const bool tracking : {false, true})
+        {
+            SCOPED_TRACE(entireSource);
+            SCOPED_TRACE(tracking);
+            QTemporaryDir temporary;
+            auto workspace = std::make_shared<motrack::WorkspaceContext>();
+            const auto other = addStandalone(*workspace);
+            auto& model = workspace->session();
+            const auto otherJob = model.beginJob(other.documents[0], motrack::WorkspaceJob::AutoTrack);
+            const auto moviePath = QString::fromUtf8(MOTRACK_FIXTURES) + "/vfr.mp4";
+            motrack::VideoReader reader(moviePath);
+            const auto decoded = reader.readNext();
+            ASSERT_TRUE(decoded);
+            std::optional<QPoint> center;
+            for (int y = 6; y < decoded->image.height() - 6 && !center; ++y)
+                for (int x = 6; x < decoded->image.width() - 6 && !center; ++x)
+                    if (motrack::TemplateTracker::fromImage(decoded->image, {x, y}))
+                        center = QPoint{x, y};
+            ASSERT_TRUE(center);
+            motrack::WorkspaceDocument movie;
+            movie.movie = true;
+            movie.project.clip.stepCount = 4;
+            movie.project.clip.sourceFrameCount = 4;
+            movie.project.clip.mediaReferences.push_back(moviePath.toStdString());
+            movie.project.pointMasses.push_back(
+                {.name = "Movie point",
+                 .marks = {{.frame = 0, .x = static_cast<double>(center->x()), .y = static_cast<double>(center->y())}},
+                 .id = motrack::allocateTrackId(movie.project)});
+            auto incoming = std::make_unique<motrack::DocumentSession>();
+            const auto path = temporary.filePath("movie.motrack");
+            incoming->replace(std::move(movie), path);
+            const auto source = model.addDocument(incoming, path);
+            const auto& document = model.document(source.documents[0]);
+            motrack::MainWindow view(workspace, source.documents[0]);
+            auto* canvas = view.findChild<QWidget*>("videoCanvas");
+            auto* action = view.findChild<QAction*>("autoTracker");
+            auto* slider = view.findChild<QSlider*>("stepSlider");
+            auto* play = view.findChild<QToolButton*>("playClip");
+            ASSERT_TRUE(canvas && action && slider && play);
+            ASSERT_TRUE(QTest::qWaitFor([&] { return canvas->accessibleName() == "Frame 0" && !document.movieFrameTimes.empty(); }));
+            int delivered = 0;
+            QObject::connect(workspace->services().get(),
+                             &motrack::WorkspaceServices::frameDecoded,
+                             &view,
+                             [&](const motrack::MovieFrameResult& result)
+                             {
+                                 if (result.request.token.document == source.documents[0])
+                                     ++delivered;
+                             });
+            if (tracking)
+            {
+                action->trigger();
+                ASSERT_TRUE(action->isChecked());
+            }
+            else
+            {
+                play->click();
+                ASSERT_EQ(play->accessibleName(), "Pause");
+            }
+            slider->setValue(1); // No event-loop turn: frame delivery and match creation have not happened.
+            if (entireSource)
+                model.cancelSourceWork(source.source);
+            else
+                model.cancelJobs(source.documents[0]);
+            ASSERT_TRUE(QTest::qWaitFor([&] { return !action->isChecked() && play->accessibleName() == "Play"; }));
+            EXPECT_EQ(delivered, 0);
+            EXPECT_TRUE(model.accepts(otherJob));
+            if (!tracking)
+            {
+                play->click(); // A canceled frame must be requested again before playback can advance.
+                ASSERT_TRUE(QTest::qWaitFor([&] { return slider->value() == slider->maximum() && play->accessibleName() == "Play"; }));
+                EXPECT_GT(delivered, 0);
+            }
+        }
+}
+
+TEST(BoundWorkspace, DelayedCancellationDoesNotStopRestartedTrackingOrPlayback)
+{
+    for (const bool tracking : {false, true})
+    {
+        SCOPED_TRACE(tracking);
+        QTemporaryDir temporary;
+        auto workspace = std::make_shared<motrack::WorkspaceContext>();
+        const auto source = addTrackingExperiment(*workspace, temporary);
+        motrack::MainWindow view(workspace, source.documents[0]);
+        auto* action = view.findChild<QAction*>("autoTracker");
+        auto* play = view.findChild<QToolButton*>("playClip");
+        auto* slider = view.findChild<QSlider*>("stepSlider");
+        auto* marks = view.findChild<QTableWidget*>("marksTable");
+        ASSERT_TRUE(action && play && slider && marks);
+        const auto toggle = [&]
+        {
+            if (tracking)
+                action->trigger();
+            else
+                play->click();
+        };
+        toggle();
+        workspace->session().cancelJobs(source.documents[0]);
+        // Stop and restart before processing the queued cancellation notification.
+        toggle();
+        toggle();
+        EXPECT_TRUE(tracking ? action->isChecked() : play->accessibleName() == "Pause");
+        ASSERT_TRUE(QTest::qWaitFor(
+            [&] { return slider->value() == slider->maximum() && !action->isChecked() && play->accessibleName() == "Play"; }));
+        EXPECT_EQ(marks->rowCount(), tracking ? 3 : 1);
     }
 }
 

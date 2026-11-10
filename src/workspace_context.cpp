@@ -6,9 +6,11 @@ namespace motrack
 {
 
 WorkspaceContext::WorkspaceContext(std::shared_ptr<WorkspaceServices> services)
-    : m_Services(services ? std::move(services) : std::make_shared<WorkspaceServices>())
+    : m_Services(services ? std::move(services) : std::make_shared<WorkspaceServices>()),
+      m_Session([this](QUuid document) { Q_EMIT jobsCancellationQueued(document); })
 {
     connect(this, &WorkspaceContext::sourceChangeQueued, this, &WorkspaceContext::sourceChanged, Qt::QueuedConnection);
+    connect(this, &WorkspaceContext::jobsCancellationQueued, this, &WorkspaceContext::jobsCancelled, Qt::QueuedConnection);
 }
 
 WorkspaceSession& WorkspaceContext::session()
