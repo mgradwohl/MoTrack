@@ -244,14 +244,16 @@ TEST(WorkspaceSession, SavingHiddenArchiveMembersRetainsBothEditsAfterNativeReop
         const auto target = temporary.filePath(QString::fromUtf8("expériences.trz"));
         setMass(workspace, a, 5);
         const auto first = workspace.beginSave(a);
-        ASSERT_TRUE(first);
+        if (!first.has_value())
+            FAIL() << "Expected an available workspace operation.";
         EXPECT_EQ(first->operation.source, opened.source);
         ASSERT_EQ(workspace.completePairedSave(*first, motrack::writeWorkspacePair(*first, target)), motrack::SaveOutcome::Saved);
         EXPECT_FALSE(workspace.isModified(opened.source));
         workspace.hideDocument(a);
         setMass(workspace, b, 7);
         const auto second = workspace.beginSave(b);
-        ASSERT_TRUE(second);
+        if (!second.has_value())
+            FAIL() << "Expected an available workspace operation.";
         EXPECT_EQ(std::get<motrack::ArchiveGroupSession::SaveRequest>(second->snapshot).snapshot.members.size(), 2);
         ASSERT_EQ(workspace.completePairedSave(*second, motrack::writeWorkspacePair(*second, target)), motrack::SaveOutcome::Saved);
         EXPECT_EQ(&workspace.document(a), stable);
@@ -288,7 +290,8 @@ TEST(WorkspaceSession, AppendingMemberPreservesHistoryAndInvalidatesEarlierWhole
     const auto first = opened.documents.front();
     const auto* stable = &workspace.document(first);
     const auto earlier = workspace.beginSave(first);
-    ASSERT_TRUE(earlier);
+    if (!earlier.has_value())
+        FAIL() << "Expected an available workspace operation.";
     auto other = std::make_unique<motrack::DocumentSession>();
     other->replace(memberDocument(archive, "second.trk"), fixturePath("multitab-images.trz"));
     ASSERT_TRUE(other->history.setPointMassValue(other->document.project, 0, 7));
@@ -308,7 +311,8 @@ TEST(WorkspaceSession, AppendingMemberPreservesHistoryAndInvalidatesEarlierWhole
     EXPECT_EQ(workspace.completeSave(*earlier, target, motrack::writeWorkspaceNative(*earlier, target)), motrack::SaveOutcome::Stale);
     EXPECT_TRUE(workspace.isModified(opened.source));
     const auto fresh = workspace.beginSave(second);
-    ASSERT_TRUE(fresh);
+    if (!fresh.has_value())
+        FAIL() << "Expected an available workspace operation.";
     ASSERT_EQ(workspace.completePairedSave(*fresh, motrack::writeWorkspacePair(*fresh, temporary.filePath("group.trz"))),
               motrack::SaveOutcome::Saved);
     EXPECT_FALSE(workspace.isModified(opened.source));
@@ -329,7 +333,8 @@ TEST(WorkspaceSession, StandaloneSaveAsRebasesMediaAndCompletesOnlyItsOwnHistory
     EXPECT_EQ(workspace.standardSavePath(a.source), QFileInfo(fixturePath()).absoluteFilePath());
     const auto nativePath = temporary.filePath("relocated.motrack");
     const auto native = workspace.beginSave(a.documents[0]);
-    ASSERT_TRUE(native);
+    if (!native.has_value())
+        FAIL() << "Expected an available workspace operation.";
     const auto originalReferences = workspace.document(a.documents[0]).project.clip.mediaReferences;
     const auto result = motrack::writeWorkspaceNative(*native, nativePath);
     EXPECT_EQ(workspace.completeSave(*native, nativePath, result), motrack::SaveOutcome::Saved);
@@ -342,7 +347,8 @@ TEST(WorkspaceSession, StandaloneSaveAsRebasesMediaAndCompletesOnlyItsOwnHistory
     for (const auto& reference : reopened.project.clip.mediaReferences)
         EXPECT_TRUE(QFileInfo::exists(motrack::workspaceMediaPath(reopened, nativePath, reference)));
     const auto pair = workspace.beginSave(a.documents[0]);
-    ASSERT_TRUE(pair);
+    if (!pair.has_value())
+        FAIL() << "Expected an available workspace operation.";
     const auto standardPath = temporary.filePath("relocated.trk");
     ASSERT_EQ(workspace.completePairedSave(*pair, motrack::writeWorkspacePair(*pair, standardPath)), motrack::SaveOutcome::Saved);
     EXPECT_FALSE(workspace.isModified(a.source));
@@ -353,7 +359,8 @@ TEST(WorkspaceSession, StandaloneSaveAsRebasesMediaAndCompletesOnlyItsOwnHistory
     EXPECT_TRUE(workspace.requiresPairedSave(a.source));
     setMass(workspace, a.documents[0], 9);
     const auto nativeAfterPair = workspace.beginSave(a.documents[0]);
-    ASSERT_TRUE(nativeAfterPair);
+    if (!nativeAfterPair.has_value())
+        FAIL() << "Expected an available workspace operation.";
     ASSERT_EQ(workspace.completeSave(*nativeAfterPair, nativePath, motrack::writeWorkspaceNative(*nativeAfterPair, nativePath)),
               motrack::SaveOutcome::Saved);
     EXPECT_TRUE(workspace.isModified(a.source)); // The established Tracker target still has mass 5.
@@ -369,7 +376,8 @@ TEST(WorkspaceSession, BoundsPendingSnapshotsAndKeepsCancelledWritesOwnedUntilCo
     const auto b = addStandalone(workspace);
     const auto first = workspace.beginSave(a.documents[0]);
     const auto second = workspace.beginSave(b.documents[0]);
-    ASSERT_TRUE(first && second);
+    if (!first.has_value() || !second.has_value())
+        FAIL() << "Expected an available workspace operation.";
     EXPECT_FALSE(workspace.beginSave(a.documents[0]));
     EXPECT_FALSE(workspace.beginRecovery(a.documents[0]));
     workspace.hideDocument(a.documents[0]);
@@ -384,7 +392,8 @@ TEST(WorkspaceSession, BoundsPendingSnapshotsAndKeepsCancelledWritesOwnedUntilCo
     EXPECT_EQ(workspace.completeSave(*first, {}, {}), motrack::SaveOutcome::Replaced);
     EXPECT_TRUE(workspace.releaseSource(a.source));
     const auto resumed = workspace.beginSave(b.documents[0]);
-    ASSERT_TRUE(resumed);
+    if (!resumed.has_value())
+        FAIL() << "Expected an available workspace operation.";
     EXPECT_FALSE(workspace.beginSave(b.documents[0]));
     EXPECT_EQ(workspace.completePairedSave(*resumed, {}), motrack::SaveOutcome::Failed);
     EXPECT_EQ(workspace.completePairedSave(*second, {}), motrack::SaveOutcome::Failed);
@@ -405,7 +414,8 @@ TEST(WorkspaceSession, ReorderedCompletionUsesPhysicalWriteOrderAndKeepsLateEdit
         const auto old = workspace.beginSave(id);
         setMass(workspace, id, 7);
         const auto newer = workspace.beginSave(id);
-        ASSERT_TRUE(old && newer);
+        if (!old.has_value() || !newer.has_value())
+            FAIL() << "Expected an available workspace operation.";
         const auto target = temporary.filePath(groupMode ? "pair.trz" : "pair.trk");
         const auto newResult = motrack::writeWorkspacePair(*newer, target);
         const auto oldResult = motrack::writeWorkspacePair(*old, target);
@@ -418,7 +428,8 @@ TEST(WorkspaceSession, ReorderedCompletionUsesPhysicalWriteOrderAndKeepsLateEdit
                                         : motrack::readWorkspaceDocument(native).project.pointMasses.front().mass;
         EXPECT_DOUBLE_EQ(diskMass, 5);
         const auto final = workspace.beginSave(id);
-        ASSERT_TRUE(final);
+        if (!final.has_value())
+            FAIL() << "Expected an available workspace operation.";
         ASSERT_EQ(workspace.completePairedSave(*final, motrack::writeWorkspacePair(*final, target)), motrack::SaveOutcome::Saved);
         EXPECT_FALSE(workspace.isModified(opened.source));
     }
@@ -438,7 +449,8 @@ TEST(WorkspaceSession, CancellationAfterPhysicalCommitStillAppliesTheReturnedRes
             const auto id = opened.documents.front();
             setMass(workspace, id, 5);
             const auto request = workspace.beginSave(id);
-            ASSERT_TRUE(request);
+            if (!request.has_value())
+                FAIL() << "Expected an available workspace operation.";
             const auto target = temporary.filePath(paired ? (groupMode ? "committed.trz" : "committed.trk") : "committed.motrack");
             motrack::NativeSaveResult native;
             motrack::PairedSaveResult pair;
@@ -472,7 +484,8 @@ TEST(WorkspaceSession, RecoveryRoutesWholeSourceAndNeverMarksCurrentEditsSaved)
         const auto unrelated = addStandalone(workspace);
         setMass(workspace, id, 5);
         const auto save = workspace.beginSave(id);
-        ASSERT_TRUE(save);
+        if (!save.has_value())
+            FAIL() << "Expected an available workspace operation.";
         const auto target = temporary.filePath(groupMode ? "recover.trz" : "recover.trk");
         const auto partial = motrack::writeWorkspacePair(*save,
                                                          target,
@@ -485,18 +498,21 @@ TEST(WorkspaceSession, RecoveryRoutesWholeSourceAndNeverMarksCurrentEditsSaved)
         EXPECT_FALSE(workspace.recoveryPath(opened.source).isEmpty());
         setMass(workspace, id, 7);
         const auto cancelledRecovery = workspace.beginRecovery(id);
-        ASSERT_TRUE(cancelledRecovery);
+        if (!cancelledRecovery.has_value())
+            FAIL() << "Expected an available workspace operation.";
         workspace.cancelSourceWork(opened.source);
         const auto cancelledResult = motrack::recoverWorkspacePair(*cancelledRecovery);
         EXPECT_EQ(cancelledResult.status, motrack::PairedSaveStatus::RecoveryRequired);
         EXPECT_EQ(workspace.completeRecovery(*cancelledRecovery, cancelledResult), motrack::SaveOutcome::Partial);
         EXPECT_FALSE(workspace.recoveryPath(opened.source).isEmpty());
         const auto recovery = workspace.beginRecovery(opened.documents.back());
-        ASSERT_TRUE(recovery);
+        if (!recovery.has_value())
+            FAIL() << "Expected an available workspace operation.";
         EXPECT_EQ(recovery->operation.source, opened.source);
         EXPECT_EQ(recovery->transaction, partial.transactionId);
         const auto other = workspace.beginSave(unrelated.documents.front());
-        ASSERT_TRUE(other);
+        if (!other.has_value())
+            FAIL() << "Expected an available workspace operation.";
         EXPECT_FALSE(workspace.beginRecovery(id));
         for (const auto document : opened.documents)
             workspace.hideDocument(document);
@@ -508,7 +524,8 @@ TEST(WorkspaceSession, RecoveryRoutesWholeSourceAndNeverMarksCurrentEditsSaved)
         EXPECT_FALSE(workspace.isModified(unrelated.source));
         EXPECT_EQ(workspace.completePairedSave(*other, {}), motrack::SaveOutcome::Failed);
         const auto fresh = workspace.beginSave(id);
-        ASSERT_TRUE(fresh);
+        if (!fresh.has_value())
+            FAIL() << "Expected an available workspace operation.";
         ASSERT_EQ(workspace.completePairedSave(*fresh, motrack::writeWorkspacePair(*fresh, target)), motrack::SaveOutcome::Saved);
         EXPECT_FALSE(workspace.isModified(opened.source));
         EXPECT_TRUE(workspace.releaseSource(opened.source));
@@ -531,7 +548,8 @@ TEST(WorkspaceSession, DestructionCancelsTokensWhileWorkerSnapshotsRetainArchive
         ownedPath = archive.lock()->sourcePath();
         token = workspace.beginJob(id, motrack::WorkspaceJob::AutoTrack);
         request = workspace.beginSave(id);
-        ASSERT_TRUE(request);
+        if (!request.has_value())
+            FAIL() << "Expected an available workspace operation.";
     }
     EXPECT_TRUE(token.cancelled->load());
     EXPECT_TRUE(request->operation.cancelled->load());
