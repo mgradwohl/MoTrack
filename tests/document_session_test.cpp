@@ -1431,4 +1431,76 @@ TEST(DocumentSession, NewerRecoveryFailuresSurviveAnOlderSuccessfulRecoveryCallb
     }
 }
 
+TEST(DocumentSession, RestoreSavedModelSurvivesBranchedHistoryAndNeverRecyclesTrackIds)
+{
+    motrack::DocumentSession session;
+    session.replace(motrack::importTrackerDocument(fixturePath("point-mass.trk")), "original.motrack");
+    auto& project = session.document.project;
+    const auto identity = session.saveCheckpoint().identity;
+    ASSERT_TRUE(session.history.setPointMassValue(project, 0, 7));
+    ASSERT_EQ(session.completeSave(session.saveCheckpoint(), "saved.motrack", nativeCompletion()), motrack::SaveOutcome::Saved);
+    ASSERT_TRUE(session.history.undo(project));
+    ASSERT_TRUE(session.history.createPointMass(project, "discarded"));
+    const auto discardedId = project.pointMasses.back().id;
+    ASSERT_TRUE(session.history.setPointMassValue(project, 0, 11));
+    ASSERT_TRUE(session.restoreSavedProject());
+    EXPECT_DOUBLE_EQ(project.pointMasses.front().mass, 7);
+    EXPECT_EQ(project.pointMasses.size(), 1u);
+    EXPECT_EQ(session.saveCheckpoint().identity, identity);
+    EXPECT_FALSE(session.history.canUndo());
+    EXPECT_FALSE(session.history.canRedo());
+    EXPECT_FALSE(session.isModified());
+    EXPECT_TRUE(session.history.isModified(motrack::SaveTarget::Tracker));
+    ASSERT_TRUE(session.history.createPointMass(project, "new"));
+    EXPECT_GT(project.pointMasses.back().id, discardedId);
+}
+
+TEST(DocumentSession, RestoreUsesLatestPublishedSnapshotEvenWithNewerEditsAndReversedCallbacks)
+{
+    motrack::DocumentSession session;
+    session.replace(motrack::importTrackerDocument(fixturePath("point-mass.trk")), "original.motrack");
+    auto& project = session.document.project;
+    ASSERT_TRUE(session.history.setPointMassValue(project, 0, 7));
+    const auto oldCheckpoint = session.saveCheckpoint();
+    const auto oldSnapshot = project;
+    const auto oldResult = nativeCompletion();
+    ASSERT_TRUE(session.history.setPointMassValue(project, 0, 9));
+    const auto checkpoint = session.saveCheckpoint();
+    const auto snapshot = project;
+    const auto result = nativeCompletion();
+    ASSERT_TRUE(session.history.setPointMassValue(project, 0, 11));
+    EXPECT_EQ(session.completeSave(checkpoint, "latest.motrack", result, &snapshot), motrack::SaveOutcome::Stale);
+    EXPECT_EQ(session.completeSave(oldCheckpoint, "old.motrack", oldResult, &oldSnapshot), motrack::SaveOutcome::Superseded);
+    EXPECT_TRUE(session.isModified());
+    ASSERT_TRUE(session.restoreSavedProject());
+    EXPECT_DOUBLE_EQ(project.pointMasses.front().mass, 9);
+    EXPECT_EQ(QFileInfo(session.nativeSavePath()).fileName(), "latest.motrack");
+    EXPECT_FALSE(session.isModified());
+}
+
+TEST(DocumentSession, RestoreRefusesUnknownStaleBaselineUntilFreshSaveAndIgnoresReplacedCompletions)
+{
+    motrack::DocumentSession session;
+    session.replace(motrack::importTrackerDocument(fixturePath("point-mass.trk")), "original.motrack");
+    auto& project = session.document.project;
+    const auto original = project;
+    const auto checkpoint = session.saveCheckpoint();
+    ASSERT_TRUE(session.history.setPointMassValue(project, 0, 7));
+    EXPECT_EQ(session.completeSave(checkpoint, "unknown.motrack", nativeCompletion()), motrack::SaveOutcome::Stale);
+    EXPECT_FALSE(session.canRestoreSavedProject());
+    EXPECT_FALSE(session.restoreSavedProject());
+    EXPECT_DOUBLE_EQ(project.pointMasses.front().mass, 7);
+    EXPECT_EQ(session.completeSave(session.saveCheckpoint(), "failed.motrack", nativeCompletion(false)), motrack::SaveOutcome::Failed);
+    EXPECT_FALSE(session.canRestoreSavedProject());
+    EXPECT_EQ(session.completeSave(session.saveCheckpoint(), "fresh.motrack", nativeCompletion()), motrack::SaveOutcome::Saved);
+    ASSERT_TRUE(session.history.setPointMassValue(project, 0, 9));
+    ASSERT_TRUE(session.restoreSavedProject());
+    EXPECT_DOUBLE_EQ(project.pointMasses.front().mass, 7);
+    session.replace({.project = original, .movieFrameTimes = {}}, "replacement.motrack");
+    EXPECT_EQ(session.completeSave(checkpoint, "old.motrack", nativeCompletion(), &original), motrack::SaveOutcome::Replaced);
+    ASSERT_TRUE(session.history.setPointMassValue(project, 0, 13));
+    ASSERT_TRUE(session.restoreSavedProject());
+    EXPECT_EQ(project, original);
+}
+
 } // namespace

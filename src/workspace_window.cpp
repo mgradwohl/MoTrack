@@ -44,16 +44,20 @@ QStringList saveDestinations(const WorkspaceSession& session, QUuid source)
     return native.isEmpty() ? QStringList{} : QStringList{native};
 }
 
-QMessageBox::StandardButton askClose(QWidget* parent, const QString& title, const QString& message)
+QMessageBox::StandardButton askQuestion(QWidget* parent,
+                                        const QString& title,
+                                        const QString& message,
+                                        QMessageBox::StandardButtons buttons,
+                                        QMessageBox::StandardButton defaultButton,
+                                        const char* name)
 {
     bool ownerAlive = true;
     bool dialogAlive = true;
     QObject lifetime;
     QObject::connect(parent, &QObject::destroyed, &lifetime, [&] { ownerAlive = false; });
-    auto* dialog =
-        new QMessageBox(QMessageBox::Question, title, message, QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, parent);
-    dialog->setObjectName("workspaceCloseQuestion");
-    dialog->setDefaultButton(QMessageBox::Save);
+    auto* dialog = new QMessageBox(QMessageBox::Question, title, message, buttons, parent);
+    dialog->setObjectName(name);
+    dialog->setDefaultButton(defaultButton);
     QObject::connect(dialog, &QObject::destroyed, &lifetime, [&] { dialogAlive = false; });
     (void)dialog->exec();
     const auto choice = ownerAlive && dialogAlive ? dialog->standardButton(dialog->clickedButton()) : QMessageBox::Cancel;
@@ -172,12 +176,22 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
     m_HideView = new QAction(tr("&Hide experiment view"), this);
     m_HideView->setObjectName("hideExperimentView");
     m_HideView->setShortcut(QKeySequence::Close);
+    m_Revert = new QAction(tr("&Revert experiment…"), this);
+    m_Revert->setObjectName("revertExperiment");
     m_CloseSource = new QAction(tr("Close &project…"), this);
     m_CloseSource->setObjectName("closeWorkspaceProject");
     m_CloseSource->setToolTip(tr("Close all experiments belonging to this project, including hidden views."));
     m_Quit = new QAction(tr("&Quit"), this);
     m_Quit->setShortcut(QKeySequence::Quit);
     connect(m_SaveAll, &QAction::triggered, this, [this] { (void)saveAll(); });
+    connect(m_Revert,
+            &QAction::triggered,
+            this,
+            [this]
+            {
+                if (const auto document = currentDocument())
+                    (void)revertDocument(*document);
+            });
     connect(m_HideView,
             &QAction::triggered,
             this,
@@ -198,7 +212,7 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
     m_EmptyFileMenu = new QMenu(tr("&File"), this);
     m_EmptyFileMenu->addActions(m_OpenActions);
     m_EmptyFileMenu->addSeparator();
-    m_EmptyFileMenu->addActions({m_SaveAll, m_HideView, m_CloseSource, m_Quit});
+    m_EmptyFileMenu->addActions({m_SaveAll, m_Revert, m_HideView, m_CloseSource, m_Quit});
     m_ExperimentsMenu = new QMenu(tr("&Experiments"), this);
     m_ExperimentsMenu->setObjectName("workspaceExperimentsMenu");
     connect(m_ExperimentsMenu, &QMenu::aboutToShow, this, &WorkspaceWindow::rebuildExperimentsMenu);
@@ -377,7 +391,7 @@ void WorkspaceWindow::createView(QUuid document)
         }
     file->insertActions(file->actions().front(), m_OpenActions);
     file->addSeparator();
-    file->addActions({m_SaveAll, m_HideView, m_CloseSource, m_Quit});
+    file->addActions({m_SaveAll, m_Revert, m_HideView, m_CloseSource, m_Quit});
     const QSignalBlocker block(m_Tabs);
     auto* placeholder = m_Pages.value(document);
     const auto index = m_Tabs->indexOf(placeholder);
@@ -441,6 +455,61 @@ bool WorkspaceWindow::hideDocument(QUuid document)
     return true;
 }
 
+bool WorkspaceWindow::revertDocument(QUuid document)
+{
+    if (m_Busy)
+        return false;
+    const auto context = m_Context;
+    auto& session = context->session();
+    if (!session.canRestoreSavedDocument(document))
+    {
+        statusBar()->showMessage(tr("Cannot revert while a save is pending or the saved files need recovery or a fresh paired save."));
+        return false;
+    }
+    m_Busy = true;
+    refreshLabels();
+    session.stopActivity(document);
+    const auto checkpoint = session.documentCheckpoint(document);
+    bool alive = true;
+    QObject lifetime;
+    connect(this, &QObject::destroyed, &lifetime, [&] { alive = false; });
+    const auto answer = askQuestion(
+        this,
+        tr("Revert experiment?"),
+        tr("Discard changes to %1 and restore its last saved or opened state? This clears its undo history.").arg(documentLabel(document)),
+        QMessageBox::Discard | QMessageBox::Cancel,
+        QMessageBox::Cancel,
+        "workspaceRevertQuestion");
+    if (!alive)
+        return false;
+    m_Busy = false;
+    refreshLabels();
+    if (answer != QMessageBox::Discard)
+        return false;
+    const auto current = session.documentCheckpoint(document);
+    if (current.identity != checkpoint.identity || current.revision != checkpoint.revision || !session.canRestoreSavedDocument(document))
+    {
+        statusBar()->showMessage(tr("The experiment changed during confirmation. Review it before reverting."));
+        return false;
+    }
+    const auto selected = currentDocument();
+    const auto position = m_Tabs->indexOf(m_Pages.value(document));
+    removeView(document, false);
+    const bool restored = session.restoreSavedDocument(document);
+    if (position >= 0)
+    {
+        (void)showDocument(document);
+        m_Tabs->tabBar()->moveTab(m_Tabs->indexOf(m_Pages.value(document)), position);
+        if (selected && *selected != document)
+            (void)showDocument(*selected);
+    }
+    context->notifySourceChanged(session.sourceId(document));
+    refreshLabels();
+    if (restored)
+        statusBar()->showMessage(tr("Experiment restored. Other experiments retain their edits."));
+    return restored;
+}
+
 void WorkspaceWindow::refreshMenus()
 {
     menuBar()->clear();
@@ -468,6 +537,7 @@ void WorkspaceWindow::refreshLabels()
     m_Empty->setVisible(m_Tabs->count() == 0);
     m_Tabs->setVisible(m_Tabs->count() > 0);
     m_HideView->setEnabled(!m_Busy && currentDocument().has_value());
+    m_Revert->setEnabled(!m_Busy && currentDocument().has_value());
     m_CloseSource->setEnabled(!m_Busy && currentDocument().has_value());
     const auto sources = session.sources();
     m_SaveAll->setEnabled(!m_Busy && !sources.empty());
@@ -579,9 +649,12 @@ std::optional<WorkspaceDiscard> WorkspaceWindow::confirmSourceClose(QUuid source
         return WorkspaceDiscard::RejectModified;
     const auto name = QFileInfo(m_Context->session().sourcePath(source)).fileName();
     const auto choice =
-        askClose(this,
-                 tr("Close project?"),
-                 tr("Save changes to %1? This includes every experiment in the project, including hidden views.").arg(name));
+        askQuestion(this,
+                    tr("Close project?"),
+                    tr("Save changes to %1? This includes every experiment in the project, including hidden views.").arg(name),
+                    QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel,
+                    QMessageBox::Save,
+                    "workspaceCloseQuestion");
     if (choice == QMessageBox::Discard)
         return WorkspaceDiscard::Confirmed;
     if (choice == QMessageBox::Save && saveSource(source))

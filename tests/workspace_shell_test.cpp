@@ -27,6 +27,7 @@
 #include <QTest>
 #include <gtest/gtest.h>
 
+#include <functional>
 #include <limits>
 #include <stdexcept>
 
@@ -831,6 +832,185 @@ TEST(WorkspaceShell, AbortedProjectAndWindowCloseAllowPendingMovieFramesToComple
         EXPECT_TRUE(editor(window)->findChild<QAction*>("calibrationStick")->isEnabled());
         EXPECT_TRUE(window.context()->session().isModified(window.context()->session().sourceId(currentDocument(window))));
     }
+}
+
+bool answerRevert(motrack::WorkspaceWindow& window,
+                  QUuid document,
+                  QMessageBox::StandardButton answer,
+                  const std::function<void()>& duringQuestion = {})
+{
+    QTimer watchdog;
+    watchdog.setSingleShot(true);
+    QObject::connect(&watchdog,
+                     &QTimer::timeout,
+                     &window,
+                     []
+                     {
+                         if (auto* dialog = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
+                             dialog->reject();
+                     });
+    watchdog.start(2000);
+    QTimer response;
+    QObject::connect(&response,
+                     &QTimer::timeout,
+                     &window,
+                     [&]
+                     {
+                         if (auto* dialog = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+                             dialog && dialog->objectName() == "workspaceRevertQuestion")
+                         {
+                             response.stop();
+                             if (duringQuestion)
+                                 duringQuestion();
+                             dialog->button(answer)->click();
+                         }
+                     });
+    response.start(1);
+    return window.revertDocument(document);
+}
+
+TEST(WorkspaceShell, RevertRestoresOneSavedExperimentAndKeepsOtherEditsTabOrderAndHiddenRecords)
+{
+    for (const bool archive : {false, true})
+    {
+        SCOPED_TRACE(archive);
+        QTemporaryDir temporary;
+        const auto path = archive ? temporary.filePath("group.trz") : nativeCopy(temporary, "first");
+        if (archive)
+            ASSERT_TRUE(QFile::copy(fixture("linked-images/multitab-images.trz"), path));
+        motrack::WorkspaceWindow window;
+        window.show();
+        ASSERT_TRUE(openProject(window, path));
+        auto& session = window.context()->session();
+        const auto first = currentDocument(window);
+        const auto source = session.sourceId(first);
+        if (!archive)
+            ASSERT_TRUE(openProject(window, nativeCopy(temporary, "other")));
+        const auto other = archive ? session.sourceDocuments(source).back() : currentDocument(window);
+        ASSERT_TRUE(window.showDocument(first));
+        ASSERT_TRUE(editMass(window, 7));
+        ASSERT_TRUE(window.showDocument(other));
+        ASSERT_TRUE(editMass(window, 13));
+        ASSERT_TRUE(window.saveAll());
+        ASSERT_TRUE(editMass(window, 17));
+        ASSERT_TRUE(window.showDocument(first));
+        ASSERT_TRUE(editMass(window, 9));
+        const auto order = session.tabs();
+        const auto identity = session.documentCheckpoint(first).identity;
+        auto* original = editor(window);
+        auto* slider = original->findChild<QSlider*>("stepSlider");
+        slider->setValue(1);
+        EXPECT_FALSE(answerRevert(window, first, QMessageBox::Cancel));
+        EXPECT_EQ(editor(window), original);
+        EXPECT_EQ(slider->value(), 1);
+        EXPECT_DOUBLE_EQ(session.project(first).pointMasses.front().mass, 9);
+        auto* revert = window.findChild<QAction*>("revertExperiment");
+        ASSERT_TRUE(revert && revert->isEnabled());
+        EXPECT_TRUE(window.menuBar()->actions().front()->menu()->actions().contains(revert));
+        ASSERT_TRUE(answerRevert(window, first, QMessageBox::Discard));
+        EXPECT_EQ(session.tabs(), order);
+        EXPECT_EQ(currentDocument(window), first);
+        EXPECT_EQ(session.documentCheckpoint(first).identity, identity);
+        EXPECT_DOUBLE_EQ(session.project(first).pointMasses.front().mass, 7);
+        EXPECT_DOUBLE_EQ(session.project(other).pointMasses.front().mass, 17);
+        EXPECT_FALSE(session.history(first).canUndo());
+        EXPECT_TRUE(session.history(other).canUndo());
+        EXPECT_EQ(session.isModified(source), archive);
+        ASSERT_TRUE(window.hideDocument(first));
+        ASSERT_TRUE(session.history(first).setPointMassValue(session.project(first), 0, 19));
+        ASSERT_TRUE(answerRevert(window, first, QMessageBox::Discard));
+        EXPECT_EQ(tabs(window)->count(), 1);
+        EXPECT_EQ(currentDocument(window), other);
+        EXPECT_DOUBLE_EQ(session.project(first).pointMasses.front().mass, 7);
+        ASSERT_TRUE(window.saveAll());
+        if (archive)
+        {
+            const auto saved = motrack::readArchiveGroup(temporary.filePath("group.motrack"));
+            EXPECT_DOUBLE_EQ(saved.members.front().document.project.pointMasses.front().mass, 7);
+            EXPECT_DOUBLE_EQ(saved.members.back().document.project.pointMasses.front().mass, 17);
+        }
+        else
+        {
+            EXPECT_DOUBLE_EQ(motrack::readWorkspaceDocument(path).project.pointMasses.front().mass, 7);
+            EXPECT_DOUBLE_EQ(motrack::readWorkspaceDocument(temporary.filePath("other.motrack")).project.pointMasses.front().mass, 17);
+        }
+    }
+}
+
+TEST(WorkspaceShell, RevertRefusesPendingWritesAndChangesArrivingDuringConfirmation)
+{
+    QTemporaryDir temporary;
+    motrack::WorkspaceWindow window;
+    window.show();
+    ASSERT_TRUE(openProject(window, nativeCopy(temporary, "original")));
+    const auto id = currentDocument(window);
+    auto& session = window.context()->session();
+    ASSERT_TRUE(editMass(window, 7));
+    auto* original = editor(window);
+    auto pending = session.beginSave(id);
+    if (!pending)
+        FAIL() << "Expected a pending save.";
+    EXPECT_FALSE(window.revertDocument(id));
+    EXPECT_EQ(editor(window), original);
+    EXPECT_TRUE(window.statusBar()->currentMessage().contains("Cannot revert"));
+    EXPECT_EQ(session.completeSave(*pending, temporary.filePath("unused.motrack"), {}), motrack::SaveOutcome::Failed);
+    EXPECT_FALSE(answerRevert(
+        window, id, QMessageBox::Discard, [&] { EXPECT_TRUE(session.history(id).setPointMassValue(session.project(id), 0, 9)); }));
+    EXPECT_EQ(editor(window), original);
+    EXPECT_DOUBLE_EQ(session.project(id).pointMasses.front().mass, 9);
+    EXPECT_TRUE(window.statusBar()->currentMessage().contains("changed during confirmation"));
+    EXPECT_FALSE(answerRevert(window, id, QMessageBox::Discard, [&] { pending = session.beginSave(id); }));
+    if (!pending)
+        FAIL() << "Expected a save started during confirmation.";
+    EXPECT_EQ(editor(window), original);
+    EXPECT_EQ(session.completeSave(*pending, temporary.filePath("unused.motrack"), {}), motrack::SaveOutcome::Failed);
+    EXPECT_TRUE(session.history(id).canUndo());
+}
+
+TEST(WorkspaceShell, DestructionDuringRevertQuestionPreservesRetainedEdits)
+{
+    QTemporaryDir temporary;
+    auto window = std::make_unique<motrack::WorkspaceWindow>();
+    window->show();
+    ASSERT_TRUE(openProject(*window, nativeCopy(temporary, "original")));
+    const auto id = currentDocument(*window);
+    const auto context = window->context();
+    ASSERT_TRUE(editMass(*window, 7));
+    QTimer::singleShot(0, context.get(), [&] { window.reset(); });
+    EXPECT_FALSE(window->revertDocument(id));
+    EXPECT_FALSE(window);
+    EXPECT_DOUBLE_EQ(context->session().project(id).pointMasses.front().mass, 7);
+    EXPECT_TRUE(context->session().isModified(context->session().sourceId(id)));
+    EXPECT_TRUE(context->session().tabs().empty());
+}
+
+TEST(WorkspaceShell, RevertKeepsMovieExtentDiscoveredAfterOpeningAnOlderNativeFile)
+{
+    QTemporaryDir temporary;
+    auto input = motrack::prepareWorkspaceMovie(QString::fromUtf8(MOTRACK_FIXTURES) + "/vfr.mp4");
+    auto snapshot = input.document->document;
+    snapshot.project.clip.sourceFrameCount = 1;
+    snapshot.project.clip.stepCount = 1;
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.createPointMass(snapshot.project, "mass"));
+    const auto path = temporary.filePath("older.motrack");
+    motrack::rebaseWorkspaceMedia(snapshot, input.mediaProjectPath, path);
+    motrack::writeWorkspaceDocument(path, snapshot);
+    motrack::WorkspaceWindow window;
+    window.show();
+    ASSERT_TRUE(openProject(window, path));
+    const auto id = currentDocument(window);
+    auto& session = window.context()->session();
+    ASSERT_TRUE(QTest::qWaitFor([&] { return session.project(id).clip.sourceFrameCount == 4; }));
+    const auto timeline = session.document(id).movieTimeline;
+    ASSERT_TRUE(timeline);
+    ASSERT_TRUE(editMass(window, 7));
+    ASSERT_TRUE(answerRevert(window, id, QMessageBox::Discard));
+    EXPECT_EQ(session.project(id).clip.stepCount, 1);
+    EXPECT_EQ(session.project(id).clip.sourceFrameCount, 4);
+    EXPECT_EQ(session.document(id).movieTimeline, timeline);
+    EXPECT_FALSE(session.isModified(session.sourceId(id)));
+    EXPECT_TRUE(session.history(id).setClipRange(session.project(id), 0, 3, 1));
 }
 
 } // namespace

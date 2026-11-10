@@ -100,6 +100,12 @@ class WorkspaceSession
     [[nodiscard]] std::vector<QUuid> sources() const;
     [[nodiscard]] std::vector<QUuid> sourceDocuments(QUuid source) const;
     [[nodiscard]] bool hasPendingOperations(QUuid source) const;
+    /// Restore a hidden experiment from its known saved baseline. Refuses visible views, pending
+    /// source writes and unresolved/mismatched paired files; retains every other record and job.
+    [[nodiscard]] bool restoreSavedDocument(QUuid document);
+    /// Checks saved model/recovery/operation state. A view may still be attached for this preflight;
+    /// restoreSavedDocument additionally requires it hidden and destroyed.
+    [[nodiscard]] bool canRestoreSavedDocument(QUuid document) const;
     [[nodiscard]] const QString& sourcePath(QUuid source) const;
     [[nodiscard]] QString mediaProjectPath(QUuid document) const;
     /// View identity/revision only; writes still require whole-source beginSave/completeSave routing.

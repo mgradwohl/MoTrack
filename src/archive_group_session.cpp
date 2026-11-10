@@ -136,6 +136,17 @@ TrackEdits& ArchiveGroupSession::history(QUuid id)
     return findMember(id).session->history;
 }
 
+bool ArchiveGroupSession::restoreSavedMember(QUuid id)
+{
+    auto& member = findMember(id);
+    return recoveryPath().isEmpty() && member.session->restoreSavedProject(requiresPairedSave());
+}
+
+bool ArchiveGroupSession::canRestoreSavedMember(QUuid id) const
+{
+    return recoveryPath().isEmpty() && findMember(id).session->canRestoreSavedProject(requiresPairedSave());
+}
+
 bool ArchiveGroupSession::requiresPairedSave() const
 {
     return m_InheritedPairedSaving || m_SaveState.requiresPairedSave();
@@ -195,7 +206,36 @@ ArchiveGroupSession::SaveRequest ArchiveGroupSession::prepareSave() const
     return {.snapshot = std::move(snapshot), .checkpoint = saveCheckpoint()};
 }
 
-SaveOutcome ArchiveGroupSession::applyUpdate(const SaveCheckpoint& checkpoint, const SaveUpdate& update)
+ArchiveGroupSession::SavedProjects ArchiveGroupSession::captureSavedProjects(const SaveCheckpoint& checkpoint,
+                                                                             const ArchiveGroup* snapshot) const
+{
+    SavedProjects saved;
+    saved.reserve(static_cast<qsizetype>(m_Members.size()));
+    QHash<QUuid, const MemberCheckpoint*> captured;
+    captured.reserve(static_cast<qsizetype>(checkpoint.members.size()));
+    for (const auto& member : checkpoint.members)
+        captured.insert(member.id, &member);
+    QHash<QUuid, const LegacyProject*> originals;
+    if (snapshot)
+    {
+        originals.reserve(static_cast<qsizetype>(snapshot->members.size()));
+        for (const auto& member : snapshot->members)
+            originals.insert(member.id, &member.document.project);
+    }
+    for (const auto& member : m_Members)
+    {
+        const auto* checkpointMember = captured.value(member.id);
+        if (!checkpointMember)
+            continue;
+        const auto* project = originals.value(member.id);
+        if (snapshot && !project)
+            continue;
+        saved.insert(member.id, member.session->captureSavedProject(checkpointMember->session, project));
+    }
+    return saved;
+}
+
+SaveOutcome ArchiveGroupSession::applyUpdate(const SaveCheckpoint& checkpoint, const SaveUpdate& update, const SavedProjects& snapshots)
 {
     bool staleMember = false;
     const auto apply = [&](SaveChange change, SaveTarget target)
@@ -227,22 +267,30 @@ SaveOutcome ArchiveGroupSession::applyUpdate(const SaveCheckpoint& checkpoint, c
     };
     apply(update.native, SaveTarget::Native);
     apply(update.tracker, SaveTarget::Tracker);
+    for (const auto& member : m_Members)
+        member.session->applySavedProject(update, snapshots.value(member.id));
     // Group writes retain archive-relative bindings; an empty worker media map cannot replace member maps.
     return staleMember && update.outcome == SaveOutcome::Saved ? SaveOutcome::Stale : update.outcome;
 }
 
-SaveOutcome ArchiveGroupSession::completeSave(const SaveCheckpoint& checkpoint, const QString& destination, const NativeSaveResult& result)
+SaveOutcome ArchiveGroupSession::completeSave(const SaveCheckpoint& checkpoint,
+                                              const QString& destination,
+                                              const NativeSaveResult& result,
+                                              const ArchiveGroup* snapshot)
 {
     if (m_Members.empty())
         return SaveOutcome::Replaced;
-    return applyUpdate(checkpoint, m_SaveState.completeSave(checkpoint.group, m_MembershipRevision, destination, result));
+    const auto saved = result.saved ? captureSavedProjects(checkpoint, snapshot) : SavedProjects{};
+    return applyUpdate(checkpoint, m_SaveState.completeSave(checkpoint.group, m_MembershipRevision, destination, result), saved);
 }
 
-SaveOutcome ArchiveGroupSession::completePairedSave(const SaveCheckpoint& checkpoint, const PairedSaveResult& result)
+SaveOutcome
+ArchiveGroupSession::completePairedSave(const SaveCheckpoint& checkpoint, const PairedSaveResult& result, const ArchiveGroup* snapshot)
 {
     if (m_Members.empty())
         return SaveOutcome::Replaced;
-    return applyUpdate(checkpoint, m_SaveState.completePairedSave(checkpoint.group, m_MembershipRevision, result));
+    const auto saved = result.standardCurrent || result.nativeCurrent ? captureSavedProjects(checkpoint, snapshot) : SavedProjects{};
+    return applyUpdate(checkpoint, m_SaveState.completePairedSave(checkpoint.group, m_MembershipRevision, result), saved);
 }
 
 SaveOutcome

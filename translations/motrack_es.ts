@@ -360,6 +360,30 @@
         <source>Save canceled or failed: %1</source>
         <translation type="unfinished" />
     </message>
+    <message>
+        <source>&amp;Revert experiment…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Cannot revert while a save is pending or the saved files need recovery or a fresh paired save.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Revert experiment?</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Discard changes to %1 and restore its last saved or opened state? This clears its undo history.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The experiment changed during confirmation. Review it before reverting.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Experiment restored. Other experiments retain their edits.</source>
+        <translation type="unfinished" />
+    </message>
 </context>
 
 </TS>

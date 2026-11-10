@@ -147,6 +147,7 @@ SaveState::completeSave(const Checkpoint& checkpoint, std::uint64_t revision, co
         return finish(SaveOutcome::Superseded);
     m_NativeSavePath = QFileInfo(destination).absoluteFilePath();
     m_NativeDestinationObservation = result.observation;
+    update.nativeSnapshotAccepted = true;
     if (result.observation >= m_MediaObservation)
     {
         update.adoptMediaLocations = true;
@@ -208,6 +209,7 @@ SaveUpdate SaveState::completePairedSave(const Checkpoint& checkpoint, std::uint
     }
     if (result.standardCurrent && !olderStandard)
     {
+        update.trackerSnapshotAccepted = true;
         if (trackerStale)
             invalidateSaved(SaveTarget::Tracker, update);
         else
@@ -215,6 +217,7 @@ SaveUpdate SaveState::completePairedSave(const Checkpoint& checkpoint, std::uint
     }
     if (result.nativeCurrent && !olderNative)
     {
+        update.nativeSnapshotAccepted = true;
         m_NativeSavePath = QFileInfo(result.nativePath).absoluteFilePath();
         m_NativeDestinationObservation = result.observation;
         if (nativeStale)

@@ -487,4 +487,44 @@ TEST(ArchiveGroupSession, FrozenWorkerSnapshotsOutliveGroupReplacement)
     EXPECT_DOUBLE_EQ(motrack::readArchiveGroup(target).members.front().document.project.pointMasses.front().mass, 5);
 }
 
+TEST(ArchiveGroupSession, RestoreBaselineDoesNotApplyToAppendedOrReplacedMembers)
+{
+    QTemporaryDir temporary;
+    const auto archive = sourceArchive();
+    auto first = session(archive, "experiment.trk");
+    motrack::ArchiveGroupSession live;
+    const auto id = live.promote(first);
+    setMass(live, id, 7);
+    const auto pending = live.prepareSave();
+    auto second = session(archive, "second.trk");
+    const auto other = live.append(second);
+    const auto path = temporary.filePath("group.motrack");
+    const auto saved = motrack::writeNativeArchiveGroup(path, pending.snapshot);
+    ASSERT_EQ(live.completeSave(pending.checkpoint, path, saved, &pending.snapshot), motrack::SaveOutcome::Stale);
+    EXPECT_TRUE(live.canRestoreSavedMember(id));
+    EXPECT_FALSE(live.canRestoreSavedMember(other));
+    EXPECT_FALSE(live.restoreSavedMember(other));
+    EXPECT_TRUE(live.isModified()); // Restoring a member must not erase unsaved group membership.
+    const auto fresh = live.prepareSave();
+    ASSERT_EQ(live.completeSave(fresh.checkpoint, path, motrack::writeNativeArchiveGroup(path, fresh.snapshot), &fresh.snapshot),
+              motrack::SaveOutcome::Saved);
+    EXPECT_TRUE(live.canRestoreSavedMember(other));
+    const auto beforeReplacement = live.prepareSave();
+    auto replacement = document(archive, "experiment.trk");
+    replacement.project.pointMasses.front().mass = 23;
+    live.replaceMember(id, std::move(replacement));
+    EXPECT_EQ(live.completeSave(beforeReplacement.checkpoint,
+                                path,
+                                motrack::writeNativeArchiveGroup(path, beforeReplacement.snapshot),
+                                &beforeReplacement.snapshot),
+              motrack::SaveOutcome::Stale);
+    EXPECT_FALSE(live.canRestoreSavedMember(id));
+    EXPECT_FALSE(live.restoreSavedMember(id));
+    EXPECT_DOUBLE_EQ(live.project(id).pointMasses.front().mass, 23);
+    EXPECT_TRUE(live.canRestoreSavedMember(other));
+    setMass(live, other, 29);
+    EXPECT_TRUE(live.restoreSavedMember(other));
+    EXPECT_TRUE(live.isModified());
+}
+
 } // namespace

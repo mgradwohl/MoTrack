@@ -3,6 +3,8 @@
 #include "archive_group.hpp"
 #include "document_session.hpp"
 
+#include <QHash>
+
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -57,6 +59,10 @@ class ArchiveGroupSession
     /// Use this project's history for edits. Do not reset history or mutate source/member bindings.
     [[nodiscard]] LegacyProject& project(QUuid id);
     [[nodiscard]] TrackEdits& history(QUuid id);
+    /// Restore one retained member without replacing the group, other histories or output identities.
+    /// The caller must destroy its view and refuse all outstanding source writes first.
+    [[nodiscard]] bool restoreSavedMember(QUuid id);
+    [[nodiscard]] bool canRestoreSavedMember(QUuid id) const;
     [[nodiscard]] bool isModified() const;
     [[nodiscard]] bool requiresPairedSave() const;
     [[nodiscard]] const QString& sourcePath() const;
@@ -66,8 +72,12 @@ class ArchiveGroupSession
     [[nodiscard]] SaveCheckpoint saveCheckpoint() const;
     /// Capture membership, all member revisions and frozen values in one owner-thread operation.
     [[nodiscard]] SaveRequest prepareSave() const;
-    [[nodiscard]] SaveOutcome completeSave(const SaveCheckpoint& checkpoint, const QString& destination, const NativeSaveResult& result);
-    [[nodiscard]] SaveOutcome completePairedSave(const SaveCheckpoint& checkpoint, const PairedSaveResult& result);
+    [[nodiscard]] SaveOutcome completeSave(const SaveCheckpoint& checkpoint,
+                                           const QString& destination,
+                                           const NativeSaveResult& result,
+                                           const ArchiveGroup* snapshot = nullptr);
+    [[nodiscard]] SaveOutcome
+    completePairedSave(const SaveCheckpoint& checkpoint, const PairedSaveResult& result, const ArchiveGroup* snapshot = nullptr);
     [[nodiscard]] SaveOutcome completePairedRecovery(const SaveCheckpoint& checkpoint, const QString& path, const PairedSaveResult& result);
 
     ArchiveGroupSession() = default;
@@ -87,7 +97,9 @@ class ArchiveGroupSession
     };
     [[nodiscard]] const Member& findMember(QUuid id) const;
     [[nodiscard]] Member& findMember(QUuid id);
-    SaveOutcome applyUpdate(const SaveCheckpoint& checkpoint, const SaveUpdate& update);
+    using SavedProjects = QHash<QUuid, std::shared_ptr<const LegacyProject>>;
+    [[nodiscard]] SavedProjects captureSavedProjects(const SaveCheckpoint& checkpoint, const ArchiveGroup* snapshot) const;
+    SaveOutcome applyUpdate(const SaveCheckpoint& checkpoint, const SaveUpdate& update, const SavedProjects& snapshots = {});
 
     QUuid m_Id;
     std::shared_ptr<const TrackerArchive> m_Archive;

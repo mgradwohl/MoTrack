@@ -241,8 +241,8 @@ reordering another experiment never cancels the running document's jobs.
 The tab × and Ctrl+W deliberately mean **Hide experiment view**, not discard: destroying its editor
 cancels that document's work while retaining its data and history. **Experiments** reopens a hidden
 record. Its recreated editor starts at the first clip step, as documented above. **Close project…**
-resolves Save/Discard/Cancel for the entire source, including every hidden archive member. Per-member
-discard/restoration and persisted view layouts remain separate unfinished workflows.
+resolves Save/Discard/Cancel for the entire source, including every hidden archive member. The separate
+Revert command below restores one member. Persisted view layouts remain unfinished.
 
 Ordinary Save on a standard Tracker source writes the standard output and companion together. Save All
 and save-before-close use the same companion-replacement confirmation as Save As when establishing a
@@ -282,9 +282,54 @@ All 10 Windows CTest groups pass serially in
 review-affected translation-unit analyses and 45 relative guide links pass. LLVM reports six hash-mismatch
 records for the generated `tr()` wrappers of WorkspaceWindow, MainWindow and PositionPlot, each
 listed twice; all production source records are present. No coverage exclusions or thresholds changed.
-Current-head cross-platform CI, actual pinned Tracker acceptance and review remain required before merge.
+On `b0ef32a`, [CI run 42782801088](https://github.com/mgradwohl/MoTrack/actions/runs/42782801088)
+passes the Windows, macOS and Linux builds and macOS contributor setup. The edited pinned-Tracker
+inventory is unchanged at 237 unique passing cases, including all four group modes; three known
+upstream defects remain explicitly not accepted. The remaining static-analysis/combined-coverage
+checks and a fresh passing review are required before merge. GitHub reports exhausted Copilot review
+quota; the resolved initial findings are not recorded here as approval of the current revision.
 The 38 new strings (including correct plural forms) are cataloged in German, Spanish and French as unfinished. Tracker TFrame tabsets
 (#150), cross-tab import and the remaining R04 layouts are not implemented by this shell.
+
+## Saved models and per-experiment revert
+
+Each document retains immutable native and Tracker `LegacyProject` baselines, sharing one initial
+snapshot when opened. Completed workspace saves supply their actual captured models; completion
+observation order chooses the baseline independently for each output, even if newer live edits make
+the callback stale. Superseded/replaced callbacks cannot replace a newer baseline. A stale legacy
+caller without a captured model leaves that baseline unknown instead of inventing one from live edits.
+Group completion matches members by stable ID and runtime session identity with linear lookup maps,
+so appended/replaced records never inherit a previous member's saved model.
+
+`restoreSavedDocument` requires the editor destroyed/hidden and no pending source operation. Paired
+sources require known, identical native/Tracker baselines and no recovery journal. Recovery publishes
+files without a known live snapshot, so a fresh save must establish the baseline afterward. Restoration
+copies before mutation, clears only the selected history, preserves the track-ID allocation high-water
+mark and the full extent already discovered for unchanged movie media, while restoring the saved clip
+selection. It retains the document/source/member identities, media bindings and archive ownership. It
+cancels only that document's jobs; other member histories, jobs and unsaved group membership survive.
+
+**Revert experiment…** confirms the discard, stops the selected experiment's tracking/playback, then
+rechecks its runtime identity, revision and pending-save state after the modal loop. Cancel, newer
+edits, a save started during confirmation or owner destruction preserves the live model. Successful
+revert recreates a visible editor at its original tab position and first clip step; restoring a hidden
+record leaves it hidden. The command clears undo/redo history as stated in its confirmation. It restores
+the last state observed by this session rather than reloading files changed by another application.
+
+Ten targeted local regressions pass: branch-discarded save points and non-reused IDs; stale/reversed,
+failed, replaced and snapshot-less completions; actual standalone/group paired writes and native
+reopen; split-pair and interrupted-save recovery refusal; appended/replaced group members; and desktop
+Cancel/Discard, hidden records, tab order, other edits and modal destruction/revision changes. A regression
+reproduced Revert shrinking an older movie's newly indexed extent and preventing a later clip extension;
+the fix preserves all known frames and the retained index without changing the saved clip selection.
+All 10 Windows CTest groups pass serially with **96.09% production-line coverage (11372/11835)**.
+All C++ formatting, nine affected translation-unit analyses (with rechecks after the fixes), and 42
+relative guide links pass. The final direct-include cleanup builds and passes static analysis plus all
+ten new regressions (2902 ms for seven UI/session cases and 4182 ms for three core cases). LLVM's six
+generated `tr()` wrapper mismatches remain the same as the shell
+audit above, with all production source records present and no gate/exclusion changes. Current-head
+cross-platform CI, actual pinned-Tracker acceptance and an independent review remain required.
+The six new strings are cataloged as unfinished in German, Spanish and French.
 
 ## Saving and recovery
 
@@ -347,5 +392,6 @@ The remaining integration order is:
 1. Shared services, retained editors and complete project preparation are merged in #161–#163.
 2. Complete validation of the visible shell above on the exact reviewed revision: actual tracking and
    keyboard/tab interactions, all-source saving/close decisions, source removal and native/Tracker reopen.
-3. Implement saved-model restoration for per-member discard and persisted views, then Tracker tabsets
-   and cross-tab import. Source records and visible views must not be conflated at any close step.
+3. Complete validation of saved-model restoration and the per-experiment Revert command above.
+4. Add persisted views, then Tracker tabsets and cross-tab import. Source records and visible views
+   must not be conflated at any close step.
