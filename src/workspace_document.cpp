@@ -561,6 +561,8 @@ QJsonObject detail::encodeWorkspaceDocument(const WorkspaceDocument& document)
     validateTrackIdentities(project);
     validateArchive(document);
     const auto& clip = project.clip;
+    if (clip.frameDurationMs)
+        require(std::isfinite(*clip.frameDurationMs) && *clip.frameDurationMs > 0.0);
     QJsonArray frameTimes;
     for (const auto time : document.movieFrameTimes)
     {

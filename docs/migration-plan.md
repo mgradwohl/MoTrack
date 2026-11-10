@@ -207,12 +207,20 @@ MOV/Open Recent report is resolved. Both completed branches have been removed lo
    records for every changed member, including closed tabs. Keep bindings against the original XML;
    adopting newly rendered archive bytes without migrating source bindings is invalid.
    This branch implements the version-6 group envelope with persistent group/document UUIDs, one source
-   payload and shared version-5 member codecs. Six Windows public-API tests and all four extended native
+   payload and shared version-5 member codecs. Seven Windows public-API tests and all four extended native
    image/MOV corpus routes pass, including original-input removal and byte-identical exports through
-   the independent-companion and shared-group paths. The full Windows suite passes with 95.87% coverage
-   (9192/9588), and formatting/static analysis pass. Three-platform CI, actual Tracker acceptance of
-   the extended path and review are still pending. This snapshot API
+   the independent-companion and shared-group paths. [PR #155](https://github.com/mgradwohl/MoTrack/pull/155)
+   at `e62f545` passed all six checks in [CI 42694357611](https://github.com/mgradwohl/MoTrack/actions/runs/42694357611),
+   with 95.94% combined coverage (9222/9612) and the same 237 edited actual-Tracker cases, including all
+   four shared-native group modes. The following review correction remains unmerged. This snapshot API
    does not itself implement visible-tab close behavior, group checkpoints or desktop dispatch.
+   Review follow-up [#157](https://github.com/mgradwohl/MoTrack/issues/157) adds shared-encoder validation
+   for invalid optional frame durations and standalone/group output-preservation regressions. The
+   reported group overwrite did not reproduce; the standalone writer did replace the valid file.
+   The new guard rejects NaN, infinities, zero and negative durations before serialization, while
+   preserving positive fractional milliseconds and explicit absence. All 10 Windows CTest groups and
+   all four native corpus routes pass serially with 95.88% coverage (9195/9590); formatting and relevant
+   static analysis pass. Current-revision CI and review remain pending.
 2. Add group save coordination with separate native/standard checkpoints, canonical destination
    locking and paired recovery. Capture group identity and each member's session identity/revision.
    Late edits and stale/out-of-order completions must not clear newer dirty state.

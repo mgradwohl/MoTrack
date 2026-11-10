@@ -34,6 +34,12 @@ the reader accepts versions 1 through 5 and rejects unknown versions. Archive-ba
 the native ZIP container described below; other documents remain plain JSON. Existing measurement, calibration,
 clip, media-reference and movie-time fields retain their version-1 meanings.
 
+An engaged frame duration must be finite and strictly positive before the shared encoder creates JSON.
+Explicit absence remains valid and is different from an invalid numeric duration. NaN, either infinity,
+zero and negative durations are rejected without replacing an existing standalone or group file.
+The standalone regression reproduced silent duration loss/unreadable output before this guard;
+the group decoder already rejected the invalid in-memory values. See [#157](https://github.com/mgradwohl/MoTrack/issues/157).
+
 ## Unit labels
 
 The optional `timeUnit` string records the experiment's analysis-time label, independently of clip
