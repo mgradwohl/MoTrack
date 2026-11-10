@@ -170,6 +170,31 @@ QUuid WorkspaceSession::sourceId(QUuid id) const
     return findDocument(id).source->id;
 }
 
+std::vector<QUuid> WorkspaceSession::sources() const
+{
+    std::vector<QUuid> result;
+    result.reserve(m_Sources.size());
+    for (const auto& source : m_Sources)
+        result.push_back(source->id);
+    return result;
+}
+
+std::vector<QUuid> WorkspaceSession::sourceDocuments(QUuid id) const
+{
+    (void)findSource(id);
+    std::vector<QUuid> result;
+    for (const auto& document : m_Documents)
+        if (document->source->id == id)
+            result.push_back(document->id);
+    return result;
+}
+
+bool WorkspaceSession::hasPendingOperations(QUuid id) const
+{
+    (void)findSource(id);
+    return std::ranges::any_of(m_Operations, [id](const auto& operation) { return operation.token.source == id; });
+}
+
 const QString& WorkspaceSession::sourcePath(QUuid id) const
 {
     const auto& source = findSource(id);

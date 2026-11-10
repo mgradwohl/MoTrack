@@ -1780,7 +1780,7 @@ bool MainWindow::chooseWorkspacePath()
 
 bool MainWindow::saveCurrentWorkspace()
 {
-    if (viewRequiresPairedSave())
+    if (viewRequiresPairedSave() || (m_Workspace && !viewStandardSavePath().isEmpty()))
         return saveTrackerWithRecoveryPrompt(viewStandardSavePath());
     return viewNativeSavePath().isEmpty() ? chooseWorkspacePath() : saveWorkspace(viewNativeSavePath());
 }

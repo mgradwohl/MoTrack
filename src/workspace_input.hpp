@@ -2,6 +2,8 @@
 
 #include "workspace_session.hpp"
 
+#include <QStringList>
+
 namespace motrack
 {
 
@@ -19,6 +21,10 @@ struct PreparedWorkspaceInput
 /// Legacy standalone native archive companions stay standalone; no member association is invented.
 /// This adapter probes/indexes available movies off the owner thread, including members without views.
 [[nodiscard]] PreparedWorkspaceInput prepareWorkspaceInput(const QString& path, const std::atomic_bool* cancelled = nullptr);
+/// New native experiments from local media. Preserve physical references; media files are never save targets.
+[[nodiscard]] PreparedWorkspaceInput prepareWorkspaceMovie(const QString& path, const std::atomic_bool* cancelled = nullptr);
+[[nodiscard]] PreparedWorkspaceInput
+prepareWorkspaceImages(const QStringList& paths, double frameRate, const std::atomic_bool* cancelled = nullptr);
 /// Owner-thread transfer. Refusal leaves incoming owned by the caller and existing sources unchanged.
 [[nodiscard]] WorkspaceSession::OpenedSource adoptWorkspaceInput(WorkspaceSession& workspace,
                                                                  PreparedWorkspaceInput& incoming,

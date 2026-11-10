@@ -27,6 +27,22 @@ WorkspaceContext::~WorkspaceContext()
 
 std::optional<QUuid> WorkspaceContext::openProject(const QString& path, WorkspaceActivation activation)
 {
+    return beginOpen([path](const auto* cancelled) { return prepareWorkspaceInput(path, cancelled); }, activation);
+}
+
+std::optional<QUuid> WorkspaceContext::openMovie(const QString& path, WorkspaceActivation activation)
+{
+    return beginOpen([path](const auto* cancelled) { return prepareWorkspaceMovie(path, cancelled); }, activation);
+}
+
+std::optional<QUuid> WorkspaceContext::openImages(const QStringList& paths, double frameRate, WorkspaceActivation activation)
+{
+    return beginOpen([paths, frameRate](const auto* cancelled) { return prepareWorkspaceImages(paths, frameRate, cancelled); }, activation);
+}
+
+std::optional<QUuid> WorkspaceContext::beginOpen(std::function<PreparedWorkspaceInput(const std::atomic_bool*)> prepare,
+                                                 WorkspaceActivation activation)
+{
     constexpr qsizetype MAX_PENDING_INPUTS = 2;
     if (m_Opening.size() >= MAX_PENDING_INPUTS)
         return std::nullopt;
@@ -72,11 +88,11 @@ std::optional<QUuid> WorkspaceContext::openProject(const QString& path, Workspac
     try
     {
         watcher->setFuture(QtConcurrent::run(&m_Services->analysisPool(),
-                                             [path, cancelled, input]
+                                             [prepare = std::move(prepare), cancelled, input]
                                              {
                                                  try
                                                  {
-                                                     *input = prepareWorkspaceInput(path, cancelled.get());
+                                                     *input = prepare(cancelled.get());
                                                      return QString{};
                                                  }
                                                  catch (const std::exception& error)

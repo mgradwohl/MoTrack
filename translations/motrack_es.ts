@@ -205,4 +205,161 @@
     <message><source>Tracker media packaging was canceled.</source><translation type="unfinished"></translation></message>
     <message><source>Could not read a file required for the archive: %1</source><translation type="unfinished"></translation></message>
   </context>
+<context>
+    <name>motrack::WorkspaceWindow</name>
+    <message>
+        <source>Open a project, video, or image sequence to begin.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Cancel selected open</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Canceling %1…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>&amp;Open project…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Open &amp;video…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Open &amp;images…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Open project</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>MoTrack and Tracker projects (*.motrack *.trk *.trz)</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Open video</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Open image sequence</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Images (%1)</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Image sequence timing</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Frames per second (0 for unknown)</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Save &amp;all projects</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>&amp;Hide experiment view</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Close &amp;project…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Close all experiments belonging to this project, including hidden views.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>&amp;Quit</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>&amp;File</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>&amp;Experiments</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Workspace</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not open: %1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Opening canceled.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Two files are already opening. Wait for one to finish or cancel an open.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Opening %1…</source>
+        <translation type="unfinished" />
+    </message>
+    <message numerus="yes">
+        <source>%n images</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message>
+        <source>%1 — %2</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Hide view; keep this experiment in the workspace</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>View hidden. Reopen it from the Experiments menu; its edits are retained.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1 *</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1[*] — MoTrack</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>MoTrack[*]</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1 (hidden)</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Close project?</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Save changes to %1? This includes every experiment in the project, including hidden views.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Wait for the current save to finish before closing the workspace.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Two modified projects share %1. Save one to a different filename before saving or closing both.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Save canceled or failed: %1</source>
+        <translation type="unfinished" />
+    </message>
+</context>
+
 </TS>

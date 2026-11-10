@@ -7,9 +7,14 @@
 #include <QList>
 #include <QObject>
 #include <QSet>
+#include <QStringList>
+
+#include <functional>
 
 namespace motrack
 {
+
+struct PreparedWorkspaceInput;
 
 /// Owner-thread bridge for retained records and their editing views. Records outlive views;
 /// destruction cancels registry work before the shared execution owner can drain its pools.
@@ -23,6 +28,9 @@ class WorkspaceContext final : public QObject
     /// Prepare at most two independent project inputs on shared workers. Busy returns no request ID.
     /// Cancellation retains the slot until its worker completes; other input/jobs remain unaffected.
     [[nodiscard]] std::optional<QUuid> openProject(const QString& path, WorkspaceActivation activation = WorkspaceActivation::SelectNew);
+    [[nodiscard]] std::optional<QUuid> openMovie(const QString& path, WorkspaceActivation activation = WorkspaceActivation::SelectNew);
+    [[nodiscard]] std::optional<QUuid>
+    openImages(const QStringList& paths, double frameRate, WorkspaceActivation activation = WorkspaceActivation::SelectNew);
     [[nodiscard]] bool cancelOpen(QUuid request);
     [[nodiscard]] WorkspaceSession& session();
     [[nodiscard]] const std::shared_ptr<WorkspaceServices>& services() const;
@@ -39,6 +47,8 @@ class WorkspaceContext final : public QObject
     void inputCancelled(QUuid request);
 
   private:
+    [[nodiscard]] std::optional<QUuid> beginOpen(std::function<PreparedWorkspaceInput(const std::atomic_bool*)> prepare,
+                                                 WorkspaceActivation activation);
     Q_SIGNAL void sourceChangeQueued(QUuid source, bool mediaBindings);
     Q_SIGNAL void jobsCancellationQueued(QUuid document);
     std::shared_ptr<WorkspaceServices> m_Services;

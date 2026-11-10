@@ -97,6 +97,9 @@ class WorkspaceSession
     [[nodiscard]] LegacyProject& project(QUuid id);
     [[nodiscard]] TrackEdits& history(QUuid id);
     [[nodiscard]] QUuid sourceId(QUuid document) const;
+    [[nodiscard]] std::vector<QUuid> sources() const;
+    [[nodiscard]] std::vector<QUuid> sourceDocuments(QUuid source) const;
+    [[nodiscard]] bool hasPendingOperations(QUuid source) const;
     [[nodiscard]] const QString& sourcePath(QUuid source) const;
     [[nodiscard]] QString mediaProjectPath(QUuid document) const;
     /// View identity/revision only; writes still require whole-source beginSave/completeSave routing.
