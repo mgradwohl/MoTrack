@@ -208,7 +208,8 @@ WorkspaceJobToken WorkspaceSession::beginMovieIndex(QUuid id)
 bool WorkspaceSession::applyMovieIndex(const WorkspaceJobToken& token, std::vector<double> frameTimes, int frameCount)
 {
     if (token.kind != WorkspaceJob::MediaIndex || !accepts(token) || frameCount <= 0 || !std::cmp_equal(frameCount, frameTimes.size()) ||
-        !std::ranges::all_of(frameTimes, [](double time) { return std::isfinite(time); }) || !std::ranges::is_sorted(frameTimes))
+        frameTimes.front() != 0.0 || !std::ranges::all_of(frameTimes, [](double time) { return std::isfinite(time); }) ||
+        std::ranges::adjacent_find(frameTimes, [](double previous, double next) { return previous >= next; }) != frameTimes.end())
         return false;
     auto& entry = findDocument(token.document);
     auto& document =

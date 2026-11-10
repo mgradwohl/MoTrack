@@ -63,6 +63,33 @@ motrack::WorkspaceSession::OpenedSource addGroup(motrack::WorkspaceContext& work
     return workspace.session().addGroup(incoming);
 }
 
+motrack::WorkspaceSession::OpenedSource addTrackingExperiment(motrack::WorkspaceContext& workspace, const QTemporaryDir& temporary)
+{
+    motrack::WorkspaceDocument document;
+    document.project.pointMasses.push_back(
+        {.name = "Ball", .marks = {{.frame = 0, .x = 22, .y = 22}}, .id = motrack::allocateTrackId(document.project)});
+    document.project.clip.frameDurationMs = 50;
+    document.project.lengthUnit = "cm";
+    for (int frame = 0; frame < 3; ++frame)
+    {
+        const auto name = QString("frame%1.png").arg(frame);
+        document.project.clip.mediaReferences.push_back(name.toStdString());
+        QImage image(64, 48, QImage::Format_Grayscale8);
+        image.fill(30);
+        for (int y = -5; y <= 5; ++y)
+            for (int x = -5; x <= 5; ++x)
+                image.scanLine(22 + y)[22 + frame * 6 + x] =
+                    static_cast<uchar>(((x + 5) * 71 + (y + 5) * 103 + (x * y + 25) * 19) % 190 + 30);
+        if (!image.save(temporary.filePath(name)))
+            throw std::runtime_error("Could not create the tracking fixture image.");
+    }
+    const auto path = temporary.filePath("tracking.motrack");
+    motrack::writeWorkspaceDocument(path, document);
+    auto incoming = std::make_unique<motrack::DocumentSession>();
+    incoming->replace(std::move(document), path);
+    return workspace.session().addDocument(incoming, path);
+}
+
 bool editMass(motrack::MainWindow& view, double mass)
 {
     auto* action = view.findChild<QAction*>("setPointMassValue");
@@ -199,6 +226,7 @@ TEST(BoundWorkspace, RejectsDuplicateEditorsAndKeepsRecordsAfterLastViewReleases
 
 TEST(BoundWorkspace, MovieIndexesAreOwnedByTheRightRecordAndRejectObsoleteOrInvalidMetadata)
 {
+    QTemporaryDir temporary;
     auto workspace = std::make_shared<motrack::WorkspaceContext>();
     const auto source = addGroup(*workspace, true);
     ASSERT_GE(source.documents.size(), 2u);
@@ -214,6 +242,11 @@ TEST(BoundWorkspace, MovieIndexesAreOwnedByTheRightRecordAndRejectObsoleteOrInva
     EXPECT_FALSE(model.applyMovieIndex(current, {0, .125}, 4));
     EXPECT_FALSE(model.applyMovieIndex(current, {0, std::numeric_limits<double>::infinity()}, 2));
     EXPECT_FALSE(model.applyMovieIndex(current, {.125, 0}, 2));
+    const auto before = model.document(source.documents[0]).movieFrameTimes;
+    EXPECT_FALSE(model.applyMovieIndex(current, {0, 0}, 2));
+    EXPECT_FALSE(model.applyMovieIndex(current, {.125, .25}, 2));
+    EXPECT_FALSE(model.applyMovieIndex(current, {-.125, 0}, 2));
+    EXPECT_EQ(model.document(source.documents[0]).movieFrameTimes, before);
     const auto wrongKind = model.beginJob(source.documents[0], motrack::WorkspaceJob::Frame);
     EXPECT_FALSE(model.applyMovieIndex(wrongKind, {0}, 1));
     EXPECT_TRUE(model.applyMovieIndex(current, {0, .125, .25, .375}, 4));
@@ -221,6 +254,9 @@ TEST(BoundWorkspace, MovieIndexesAreOwnedByTheRightRecordAndRejectObsoleteOrInva
     EXPECT_TRUE(model.isModified(source.source));
     const auto image = addStandalone(*workspace);
     EXPECT_THROW((void)model.beginMovieIndex(image.documents[0]), motrack::ProjectError);
+    const auto saved = temporary.filePath("indexed.motrack");
+    ASSERT_TRUE(first.saveWorkspace(saved));
+    EXPECT_EQ(motrack::readArchiveGroup(saved).members[0].document.movieFrameTimes, (std::vector<double>{0, .125, .25, .375}));
 }
 
 TEST(BoundWorkspace, RefusesExtraSnapshotsAndKeepsExportCopiesSeparateFromSaveCheckpoints)
@@ -391,29 +427,8 @@ TEST(BoundWorkspace, RecoversWholeGroupBeforeCapturingFreshEditsAndRetainsCancel
 TEST(BoundWorkspace, TrackingContinuesThroughSavingAndClosingAnotherRetainedView)
 {
     QTemporaryDir temporary;
-    motrack::WorkspaceDocument document;
-    document.project.pointMasses.push_back(
-        {.name = "Ball", .marks = {{.frame = 0, .x = 22, .y = 22}}, .id = motrack::allocateTrackId(document.project)});
-    document.project.clip.frameDurationMs = 50;
-    document.project.lengthUnit = "cm";
-    for (int frame = 0; frame < 3; ++frame)
-    {
-        const auto name = QString("frame%1.png").arg(frame);
-        document.project.clip.mediaReferences.push_back(name.toStdString());
-        QImage image(64, 48, QImage::Format_Grayscale8);
-        image.fill(30);
-        for (int y = -5; y <= 5; ++y)
-            for (int x = -5; x <= 5; ++x)
-                image.scanLine(22 + y)[22 + frame * 6 + x] =
-                    static_cast<uchar>(((x + 5) * 71 + (y + 5) * 103 + (x * y + 25) * 19) % 190 + 30);
-        ASSERT_TRUE(image.save(temporary.filePath(name)));
-    }
-    const auto path = temporary.filePath("tracking.motrack");
-    motrack::writeWorkspaceDocument(path, document);
-    auto incoming = std::make_unique<motrack::DocumentSession>();
-    incoming->replace(std::move(document), path);
     auto workspace = std::make_shared<motrack::WorkspaceContext>();
-    const auto a = workspace->session().addDocument(incoming, path);
+    const auto a = addTrackingExperiment(*workspace, temporary);
     const auto b = addStandalone(*workspace, fixture("linked-mov/linked-movie.trk"));
     motrack::MainWindow first(workspace, a.documents[0]);
     auto second = std::make_unique<motrack::MainWindow>(workspace, b.documents[0]);
@@ -459,6 +474,58 @@ TEST(BoundWorkspace, TrackingContinuesThroughSavingAndClosingAnotherRetainedView
     EXPECT_DOUBLE_EQ(workspace->session().document(b.documents[0]).movieFrameTimes.at(1), .125);
     ASSERT_TRUE(first.saveWorkspace(temporary.filePath("finished.motrack")));
     EXPECT_EQ(motrack::readWorkspaceDocument(temporary.filePath("finished.motrack")).project.pointMasses.front().marks.size(), 3u);
+}
+
+TEST(BoundWorkspace, CancelledPendingMatchesResetControlsAndAllowTrackingToRestart)
+{
+    for (const bool entireSource : {false, true})
+    {
+        SCOPED_TRACE(entireSource);
+        QTemporaryDir temporary;
+        auto workspace = std::make_shared<motrack::WorkspaceContext>();
+        const auto source = addTrackingExperiment(*workspace, temporary);
+        motrack::MainWindow view(workspace, source.documents[0]);
+        auto* action = view.findChild<QAction*>("autoTracker");
+        auto* slider = view.findChild<QSlider*>("stepSlider");
+        auto* marks = view.findChild<QTableWidget*>("marksTable");
+        ASSERT_TRUE(action && slider && marks);
+        QSemaphore entered;
+        QSemaphore release;
+        std::atomic_bool timedOut{false};
+        auto& pool = workspace->services()->analysisPool();
+        const auto cleanup = qScopeGuard(
+            [&]
+            {
+                release.release(2);
+                (void)pool.waitForDone(5000);
+            });
+        for (int index = 0; index < 2; ++index)
+            pool.start(
+                [&]
+                {
+                    entered.release();
+                    if (!release.tryAcquire(1, 5000))
+                        timedOut = true;
+                });
+        ASSERT_TRUE(entered.tryAcquire(2, 5000));
+        action->trigger();
+        slider->setValue(1);
+        ASSERT_TRUE(action->isChecked());
+        if (entireSource)
+            workspace->session().cancelSourceWork(source.source);
+        else
+            workspace->session().cancelJobs(source.documents[0]);
+        release.release(2);
+        EXPECT_FALSE(timedOut.load());
+        ASSERT_TRUE(QTest::qWaitFor([&] { return !action->isChecked(); }));
+        EXPECT_EQ(marks->rowCount(), 1);
+        slider->setValue(0);
+        EXPECT_TRUE(action->isEnabled());
+        action->trigger();
+        ASSERT_TRUE(QTest::qWaitFor([&] { return !action->isChecked() && marks->rowCount() == 3; }));
+        EXPECT_EQ(marks->item(1, 2)->text(), "28");
+        EXPECT_EQ(marks->item(2, 2)->text(), "34");
+    }
 }
 
 } // namespace

@@ -2414,7 +2414,10 @@ void MainWindow::autoTrackFrame(const ImageFrame& frame)
                     m_AutoTrackMatch = nullptr;
                     match->deleteLater();
                     if (m_Workspace && (!m_TrackingJob || !m_Workspace->session().finishJob(*m_TrackingJob)))
+                    {
+                        stopAutoTracking();
                         return;
+                    }
                     m_TrackingJob.reset();
                     applyAutoTrackMatch(number, match->result());
                 }

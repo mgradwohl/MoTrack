@@ -114,8 +114,8 @@ clip step. Persistent view/playhead restoration remains part of the subsequent l
 Frame, movie-index and AutoTracker requests now use registry tokens. Index completion applies only
 to the current document/index identity, retaining edit history and source bindings. The registry
 marks an identified movie before indexing so an unindexed movie cannot be offered as an image
-package. Finite, ordered index data must match the reported frame count; failed or obsolete results
-do not replace live metadata. Source limits only expand when the complete saved clip fits the index.
+package. Finite, zero-origin, strictly increasing index data must match the reported frame count and
+native reopen invariants; failed or obsolete results do not replace live metadata. Source limits only expand when the complete saved clip fits the index.
 
 Native and paired saves from any member capture the entire retained source through `beginSave`.
 Recovery completes through the source owner before taking a fresh current-edit snapshot. Native-only
@@ -131,12 +131,15 @@ lets a workspace observer create or destroy views after the initiating editor op
 The existing QObject service lease continues to keep pools alive through window destruction
 notifications, including when a window owns the final workspace reference.
 
-Nine new local regressions cover independent playheads/history/destinations; hidden-member edits,
+Ten new local regressions cover independent playheads/history/destinations; hidden-member edits,
 native/Tracker group saves and restored undo history; duplicate/invalid view claims; indexed movie
 identity and refused data; pending-operation bounds and export copies; destroyed native/paired-save
 views; stale writes; interrupted/cancelled group recovery; and AutoTracker continuing through saving,
-selection and another view's destruction with distinct timing/units. All 10 Windows CTest groups pass
-serially in 181.52 seconds with **96.27%** production-line coverage (10309/10708). Formatting and all
+selection and another view's destruction with distinct timing/units; and restarting after a pending
+match is canceled through either document or source cancellation. Both timestamp admission and
+tracking-control regressions reproduced the review findings before their fixes. Rejected index
+values leave existing metadata unchanged; valid indexed groups save and reopen natively. All 10
+Windows CTest groups pass serially in 183.88 seconds with **96.29%** production-line coverage (10315/10712). Formatting and all
 five affected translation-unit static analyses pass without new suppressions. Existing plot/measurement
 labels and save-progress strings remain unchanged. All three translation catalogs contain
 the new pending-save message, and 35 relative links across the three changed guides resolve. The
