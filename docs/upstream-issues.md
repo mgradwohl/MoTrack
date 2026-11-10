@@ -79,7 +79,8 @@ For the multi-member archive foundation, Tracker #18 and its complete discussion
 The workspace-registry foundation now has local regressions for that ownership policy: switching,
 reordering or hiding a different member preserves the first member's AutoTracker token, and cancelling
 one member does not cancel another in the same archive. Group image/MOV corpus routes exercise this
-policy while saving hidden members. The next shared-services slice additionally exercises two actual
+policy while saving hidden members. Those routes passed all current-head checks, review and actual
+Tracker acceptance in merged #160. The next shared-services slice additionally exercises two actual
 desktop windows with one continuing AutoTracker after the other closes, bounded pools/cache, and
 isolated frame cancellation. Those local cases pass, but tabbed controls, registry-bound views and
 full cross-platform acceptance remain unfinished. #69 remains open. See

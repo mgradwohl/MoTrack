@@ -81,14 +81,17 @@ notification before that final drain. The new regression reproduced the incorrec
 this correction and passes afterward. Closing one view of a shared workspace
 must not join or cancel another view's analysis work.
 
-All nine new local service tests pass (405 ms), covering cache/decoder bounds, physical path and
+All nine new local service tests pass, covering cache/decoder bounds, physical path and
 orientation changes, timestamp
 seeking, refused/cancelled frames, source lifetime, queue coalescing/fairness, isolated cleanup,
 owner deletion from a result callback, destruction notification before worker drain and two actual
 windows sharing services while one continues AutoTracker after the other closes. Formatting and all
 seven affected translation-unit static analyses pass without new suppressions. All 10 Windows CTest
-groups pass serially in 178.32 seconds with **96.29%** production-line coverage (9953/10336).
-Current-head CI/review remain pending.
+groups pass serially in 182.49 seconds with **96.30%** production-line coverage (9955/10338).
+The first CI revision passed all three platform builds and all 237 edited Tracker cases, but Clang 18
+flagged Qt weak-pointer cleanup and callback-owned test cleanup. The follow-up uses an explicit
+destruction observer and parent-owned test cleanup, preserving all nine cases and adding no
+suppression. The affected analyses pass locally; fresh current-head CI/review remain pending.
 This is not yet a tabbed desktop or complete acceptance of #69.
 
 ## Saving and recovery
@@ -136,8 +139,12 @@ All 10 Windows CTest groups pass serially in 177.35 seconds with **96.11%** prod
 (9819/10216), including all 301 project tests. All C++ formatting, static analysis for the four changed
 translation units, four extended native corpus modes, both reimports, byte equality and 68 relative
 file links pass. Three previously investigated LLVM function-mismatch warnings remain visible;
-no production coverage records are missing and the 90% gate is unchanged. Current-head CI/review and
-actual Tracker acceptance of this routing change remain pending. This foundation does not close
+no production coverage records are missing and the 90% gate is unchanged. PR #160 merged at reviewed
+head `a8a7148` after all six checks in
+[CI 42753586627](https://github.com/mgradwohl/MoTrack/actions/runs/42753586627), with **96.18% combined
+coverage (9849/10240)**. All 237 edited Tracker cases, including the four extended group modes,
+passed; three known Tracker defects remain explicitly unaccepted. The merged branch was removed
+locally and remotely after containment checks. This foundation does not close
 [MoTrack #69](https://github.com/mgradwohl/MoTrack/issues/69), whose upstream
 [Tracker #18](https://github.com/OpenSourcePhysics/tracker/issues/18) discussion was refreshed on
 2026-11-09. The historical report concerns actual playback/tracking controls. Multi-tab desktop

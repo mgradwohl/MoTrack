@@ -1,6 +1,5 @@
 #include "workspace_services.hpp"
 
-#include <QPointer>
 #include <QtConcurrent>
 
 #include <utility>
@@ -32,11 +31,15 @@ WorkspaceServices::WorkspaceServices() : m_MovieWorker(std::make_shared<MovieWor
                 const auto result = m_FrameWatcher.result();
                 m_FrameBusy = false;
                 m_ActiveFrame.reset();
-                QPointer<WorkspaceServices> alive(this);
+                // The synchronous destruction notification protects this owner-thread borrow.
+                // Disconnect the observer before its stack flag leaves scope.
+                bool alive = true;
+                QObject lifetime;
+                connect(this, &QObject::destroyed, &lifetime, [&alive] { alive = false; });
                 if (result.request.token.cancelled && !result.request.token.cancelled->load())
                     Q_EMIT frameDecoded(result);
                 if (alive)
-                    alive->dispatchFrame();
+                    dispatchFrame();
             });
 }
 

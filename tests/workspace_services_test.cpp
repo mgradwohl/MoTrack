@@ -261,18 +261,24 @@ TEST(WorkspaceServices, DestructionCancelsActiveAndPendingFramesAndAllowsDeletio
     }
     EXPECT_TRUE(a.token.cancelled->load());
     EXPECT_TRUE(b.token.cancelled->load());
-    auto service = std::make_unique<motrack::WorkspaceServices>();
     bool delivered = false;
-    QObject::connect(service.get(),
+    bool destroyed = false;
+    QObject owner;
+    auto frame = request();
+    auto* service = new motrack::WorkspaceServices;
+    service->setParent(&owner); // Also cleans up if the bounded wait fails before the callback.
+    QObject::connect(service, &QObject::destroyed, &owner, [&] { destroyed = true; });
+    QObject::connect(service,
                      &motrack::WorkspaceServices::frameDecoded,
-                     [&](const auto&)
+                     &owner,
+                     [service, &delivered](const auto&)
                      {
                          delivered = true;
-                         service.reset();
+                         delete service;
                      });
-    service->requestFrame(request());
+    service->requestFrame(frame);
     ASSERT_TRUE(QTest::qWaitFor([&] { return delivered; }));
-    EXPECT_FALSE(service);
+    EXPECT_TRUE(destroyed);
 }
 
 TEST(WorkspaceServices, TwoWindowsShareLimitsAndClosingOneKeepsTheOthersTrackingWork)
