@@ -428,3 +428,29 @@ Windows validation of the prerequisite passes all eight CTest groups in 127.91 s
 legacy lock preservation and both journal forms. All tracked C++ formatting passes; three existing
 LLVM function-mismatch warnings remain visible. This local result does not replace current-head CI
 and code review.
+
+### Shared completion state
+
+`SaveState` separates destination selection, runtime identity, ordered completion observations and
+recovery records from a particular document or undo history. The owner supplies the current revision;
+each completion returns independent native/Tracker save-point actions and whether its media bindings
+may be adopted. Every returned action is applied immediately on the owner thread, including actions
+from partial or stale writes. A summary outcome alone is not permission to mark both outputs saved.
+
+`DocumentSession` retains its public API, document, history and dirty-state rules. It delegates the
+bookkeeping and applies the returned actions to its existing `TrackEdits` save points. Replacement
+prepares fresh state before installing the document; old completion tokens retain their old runtime
+identity. Save-state ownership can be transferred, but cannot be copied into an independent session.
+
+This extraction prepares shared archive-group coordination without copying the journal/observation
+algorithm. It does not yet implement group membership checkpoints, a workspace controller or tabs.
+The group controller must additionally capture every member identity/revision, retain closed members
+and track membership changes independently of individual histories. Native/standard formats, worker
+results and the explicit recovery contract remain unchanged. The existing session and desktop suites
+exercise this refactoring through their unchanged public entry points.
+
+Local Windows validation passes all 10 CTest groups serially in 153.80 seconds, with **95.93%**
+production-line coverage (9317/9712), all C++ formatting and both changed-source static analyses.
+All 30 existing session cases remain unchanged; they cover independent/replaced sessions, per-document
+undo/redo, partial writes, stale and reordered callbacks, media adoption and journal-slot recovery.
+The three updated guides have 43 valid relative file links. Current-revision CI/review remain pending.
