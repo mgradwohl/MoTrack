@@ -158,7 +158,7 @@ TEST(ImagePackageWorkspace, MovieExportCancellationAndUnsupportedContainersPrese
     ASSERT_TRUE(window.loadProject(movieRoot + "linked-mov/linked-movie.trk"));
     ASSERT_TRUE(QTest::qWaitFor([action] { return action->isEnabled(); }));
     ASSERT_TRUE(editMass(window, 5));
-    auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+    auto* pool = &window.executionServices().savePool();
     ASSERT_NE(pool, nullptr);
     QSemaphore entered;
     QSemaphore release;
@@ -346,7 +346,7 @@ TEST(ImagePackageWorkspace, CancellationAndOverlappingSavesKeepTheOriginalFiles)
     ASSERT_TRUE(editMass(window, 5));
     const auto target = temporary.filePath("portable.trz");
     put(target, "existing archive");
-    auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+    auto* pool = &window.executionServices().savePool();
     ASSERT_NE(pool, nullptr);
     pool->start(
         [&]
@@ -389,7 +389,7 @@ TEST(ImagePackageWorkspace, ProgrammaticEditsDuringExportKeepTheirUnsavedState)
     motrack::MainWindow window;
     ASSERT_TRUE(window.loadProject(fixture()));
     ASSERT_TRUE(editMass(window, 5));
-    auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+    auto* pool = &window.executionServices().savePool();
     ASSERT_NE(pool, nullptr);
     pool->start(
         [&]
@@ -427,7 +427,7 @@ TEST(ImagePackageWorkspace, AppliesPreparedProjectOpensAfterExportFinishes)
     motrack::writeTrackerDocument(replacementPath, replacement, fixture());
     motrack::MainWindow window;
     ASSERT_TRUE(window.loadProject(fixture()));
-    auto* pool = window.findChild<QThreadPool*>("workspaceSavePool");
+    auto* pool = &window.executionServices().savePool();
     ASSERT_NE(pool, nullptr);
     pool->start(
         [&]
@@ -441,7 +441,7 @@ TEST(ImagePackageWorkspace, AppliesPreparedProjectOpensAfterExportFinishes)
                        [&]
                        {
                            window.openProject(replacementPath);
-                           EXPECT_TRUE(QThreadPool::globalInstance()->waitForDone(5000));
+                           EXPECT_TRUE(window.executionServices().analysisPool().waitForDone(5000));
                            QCoreApplication::sendPostedEvents();
                            EXPECT_FALSE(window.windowTitle().contains("replacement.trk"));
                            release.release();
@@ -485,7 +485,7 @@ TEST(ImagePackageWorkspace, MenuExportsAndRejectsAnObsoleteFilenameDialog)
                                  if (replaceDocument)
                                  {
                                      window.openProject(replacement);
-                                     EXPECT_TRUE(QThreadPool::globalInstance()->waitForDone(5000));
+                                     EXPECT_TRUE(window.executionServices().analysisPool().waitForDone(5000));
                                      QCoreApplication::sendPostedEvents();
                                      EXPECT_TRUE(window.windowTitle().contains("replacement.trk"));
                                  }
@@ -555,7 +555,7 @@ TEST(ImagePackageWorkspace, WindowDestructionDuringDirectOrMenuExportReleasesThe
         QSemaphore release;
         auto window = std::make_unique<motrack::MainWindow>();
         ASSERT_TRUE(window->loadProject(fixture()));
-        auto* pool = window->findChild<QThreadPool*>("workspaceSavePool");
+        auto* pool = &window->executionServices().savePool();
         ASSERT_NE(pool, nullptr);
         pool->start(
             [&]

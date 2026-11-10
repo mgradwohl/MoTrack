@@ -1546,6 +1546,8 @@ The current workspace-routing extension performs the same live-group sequence th
 token, requests complete-group saves from the hidden member, and routes interruption/recovery through
 the source owner. All preceding independent-companion, source-removal and XML/media oracles remain.
 All four extended native routes, both reimports, XML/ZIP/media oracles and byte equality pass locally.
-All 10 Windows CTest groups pass serially with 96.11% coverage (9819/10216); current-head CI/review and
-actual Tracker acceptance of this extension remain pending. Desktop tab/job/close-discard integration
+All 10 Windows CTest groups pass serially with 96.11% coverage (9819/10216). PR #160 at reviewed head
+`a8a7148` passed all six checks in [CI 42753586627](https://github.com/mgradwohl/MoTrack/actions/runs/42753586627),
+with 96.18% combined coverage (9849/10240), all 237 edited Tracker cases including these four modes,
+and three known Tracker defects still explicitly unaccepted. Desktop tab/job/close-discard integration
 remains later work. See [workspace ownership](../../docs/workspace-sessions.md).

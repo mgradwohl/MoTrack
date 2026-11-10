@@ -79,8 +79,11 @@ For the multi-member archive foundation, Tracker #18 and its complete discussion
 The workspace-registry foundation now has local regressions for that ownership policy: switching,
 reordering or hiding a different member preserves the first member's AutoTracker token, and cancelling
 one member does not cancel another in the same archive. Group image/MOV corpus routes exercise this
-policy while saving hidden members. This is preventive controller coverage; actual desktop playback,
-tracking controls and bounded shared workers still need integration. #69 remains open. See
+policy while saving hidden members. Those routes passed all current-head checks, review and actual
+Tracker acceptance in merged #160. The next shared-services slice additionally exercises two actual
+desktop windows with one continuing AutoTracker after the other closes, bounded pools/cache, and
+isolated frame cancellation. Those local cases pass, but tabbed controls, registry-bound views and
+full cross-platform acceptance remain unfinished. #69 remains open. See
 [workspace ownership and routing](workspace-sessions.md).
 
 The baseline tabset workflow is now tracked explicitly in [MoTrack #150](https://github.com/mgradwohl/MoTrack/issues/150); moving reference frames discovered in the real Diabolo archive are tracked in [MoTrack #148](https://github.com/mgradwohl/MoTrack/issues/148). Neither discovery is an accepted full round trip.
