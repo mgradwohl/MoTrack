@@ -508,7 +508,7 @@ bool WorkspaceWindow::saveSource(QUuid source)
     const auto documents = context->session().sourceDocuments(source);
     if (documents.empty())
         return false;
-    const auto selected = context->session().activeDocument();
+    const auto selected = context->session().activeDocument().value_or(QUuid{});
     MainWindow* editor = nullptr;
     for (const auto document : documents)
     {
@@ -539,8 +539,8 @@ bool WorkspaceWindow::saveSource(QUuid source)
         delete editor;
     if (!ownerAlive)
         return false;
-    if (selected && std::ranges::find(context->session().tabs(), *selected) != context->session().tabs().end())
-        context->session().showDocument(*selected);
+    if (!selected.isNull() && std::ranges::find(context->session().tabs(), selected) != context->session().tabs().end())
+        context->session().showDocument(selected);
     if (!saved)
         statusBar()->showMessage(tr("Save canceled or failed: %1").arg(diagnostic));
     refreshLabels();

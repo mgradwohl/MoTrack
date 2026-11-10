@@ -282,7 +282,15 @@ All 10 Windows CTest groups pass serially in
 review-affected translation-unit analyses and 45 relative guide links pass. LLVM reports six hash-mismatch
 records for the generated `tr()` wrappers of WorkspaceWindow, MainWindow and PositionPlot, each
 listed twice; all production source records are present. No coverage exclusions or thresholds changed.
-Current-head cross-platform CI, actual pinned Tracker acceptance and review remain required before merge.
+The earlier `b0ef32a` [CI run](https://github.com/mgradwohl/MoTrack/actions/runs/42782801088) passed all
+three platform builds and the unchanged 237 edited Tracker cases, including all four group modes;
+three known upstream defects remain explicitly not accepted. Linux static analysis then rejected
+an optional-value expression in saved-tab restoration and QtTest's `keyClick`/`QPointer` path in the
+keyboard regression. Saved-tab restoration now uses an explicit UUID value, and the test sends the
+same platform shortcut with separate key press/release events, as the existing workspace tests do.
+All 17 shell cases pass again (10993 ms), with both affected translation-unit analyses and formatting
+passing locally. No checks or assertions were removed. Fresh current-head CI and review are required.
+GitHub reports exhausted Copilot review quota; resolved initial findings do not constitute current-head approval.
 The 38 new strings (including correct plural forms) are cataloged in German, Spanish and French as unfinished. Tracker TFrame tabsets
 (#150), cross-tab import and the remaining R04 layouts are not implemented by this shell.
 

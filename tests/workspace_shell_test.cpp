@@ -169,10 +169,22 @@ TEST(WorkspaceShell, TabsKeepPlayheadsHistoriesMenusAndKeyboardEditsIndependent)
     window.activateWindow();
     firstView->findChild<QSlider*>("stepSlider")->setFocus();
     ASSERT_TRUE(QTest::qWaitFor([&] { return window.isActiveWindow(); }));
-    QTest::keySequence(firstView->findChild<QSlider*>("stepSlider"), QKeySequence::Undo);
+    const auto sendShortcut = [firstView](QKeySequence::StandardKey standard)
+    {
+        const QKeySequence sequence(standard);
+        auto* slider = firstView->findChild<QSlider*>("stepSlider");
+        // Undo/Redo retain this window-owned slider across both events. Avoid QtTest keyClick's
+        // QPointer destruction path, which Linux Clang misidentifies as a double free.
+        for (int i = 0; i < sequence.count(); ++i)
+        {
+            QTest::keyPress(slider, sequence[i].key(), sequence[i].keyboardModifiers());
+            QTest::keyRelease(slider, sequence[i].key(), sequence[i].keyboardModifiers());
+        }
+    };
+    sendShortcut(QKeySequence::Undo);
     EXPECT_DOUBLE_EQ(window.context()->session().project(first).pointMasses.front().mass, original);
     EXPECT_DOUBLE_EQ(window.context()->session().project(second).pointMasses.front().mass, 9);
-    QTest::keySequence(firstView->findChild<QSlider*>("stepSlider"), QKeySequence::Redo);
+    sendShortcut(QKeySequence::Redo);
     EXPECT_DOUBLE_EQ(window.context()->session().project(first).pointMasses.front().mass, 7);
     tabs(window)->tabBar()->moveTab(0, 1);
     EXPECT_EQ(window.context()->session().tabs(), (std::vector<QUuid>{second, first}));
