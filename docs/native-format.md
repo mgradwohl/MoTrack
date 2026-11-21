@@ -382,7 +382,7 @@ surviving child and after the last child. These separators are required by OSP's
 even though general XML parsers accept children on the container's line. Seven native deletion subsets
 cover renamed survivors, native close/reopen, repeated export and replacement-name isolation.
 Three independent corpus cases remove the owner, a guest present on both plots, or the first guest
-in an ordered pair. Actual Tracker application acceptance remains required before merging this slice.
+in an ordered pair. This slice merged after its Linux actual-Tracker acceptance passed in CI.
 
 Custom table ownership is cleaned up by original identity, independently of view selection. A deleted
 column owner removes its entire `String[]` row from `track_columns`; a deleted format owner removes
@@ -484,7 +484,7 @@ Native regressions cover relocation, Unicode/ampersand paths, history, native cl
 removal, repeat export/reimport and failed writes. The independent corpus adds a mass and mark edit
 after relocating all four images; its full-XML and byte oracles permit only the requested edits/paths,
 and the actual Tracker application must preserve all decoded pixels/times and calibrated measurements
-through save and fresh reopen. This application acceptance remains required before merge.
+through save and fresh reopen. This slice merged after its Linux actual-Tracker acceptance passed in CI.
 
 Movie engines, filters and archive members need their own audited path/timing contracts. The scoped
 movie/archive adapters below feed the paired-save transaction and desktop Save workflow. This does
@@ -946,7 +946,8 @@ freshly reopen and reimport with independent expectations. No new UI strings wer
 
 The new `ArchiveGroup` persistence API uses a version-6 envelope with `kind: "archive-group"`.
 Standalone document writers remain at version 5; standalone readers accept versions 1–5 and reject
-group envelopes instead of selecting the first experiment. Desktop dispatch for groups is not yet wired.
+group envelopes instead of selecting the first experiment. Desktop dispatch for groups arrived with workspace
+input preparation ([#163](https://github.com/mgradwohl/MoTrack/pull/163)).
 
 A group stores a canonical non-null UUID, the SHA-256 of its original archive, and ordered member
 records containing their own canonical UUID, exact original archive member key and complete version-5

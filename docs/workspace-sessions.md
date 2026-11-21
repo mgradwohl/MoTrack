@@ -297,6 +297,6 @@ destruction cancels its flag instead of leaving borrowed model pointers in the w
 
 The registry/routing foundation merged in [#160](https://github.com/mgradwohl/MoTrack/pull/160);
 services, editors, input preparation, the shell and Revert followed in #161–#165. The remaining phase-4
-order is in the [full-port plan](migration-plan.md#implementation-order-and-exit-gates): persisted views,
+order is in the [full-port plan](migration-plan.md#phase-4-remaining-work): persisted views,
 then Tracker tabsets ([#150](https://github.com/mgradwohl/MoTrack/issues/150)) and cross-tab import.
 Source records and visible views must not be conflated at any close step.

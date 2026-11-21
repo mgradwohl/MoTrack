@@ -8,7 +8,7 @@ This is a dated issue/discussion audit, not a claim that every attached experime
 historical environment was reproduced. Refresh live status and comments before implementing a case.
 
 The [full-port plan](migration-plan.md) owns requirements and dependency order. This audit supplies
-regressions and feature decisions for that plan; it does not expand the frozen baseline to include every
+regressions and feature decisions for that plan; it does not expand the parity baseline to include every
 upstream request. The 32 corresponding MoTrack issues are **24 bug/regression tasks, two investigations
 and six accepted feature/workflow tasks**. They cover 44 distinct upstream reports plus two defects
 observed in our reference tests. Related reports share a filing only when they feed one native
@@ -52,7 +52,8 @@ native dispositions from those refreshes:
 - Tracker #10 (save/load loss): movie track authoring through four save routes passed in #144 as
   preventive coverage; [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65) stays open for the broader workflow.
 - [MoTrack #63](https://github.com/mgradwohl/MoTrack/issues/63) (vector sums): image/MOV vector authoring
-  (#145, #147) does not change the reproduction or the strict export refusal.
+  (#145, #147) does not change the reproduction or the strict export refusal, and does not resolve the
+  dependent-member loss or the mixed-track snapping model.
 - Tracker #18 (AutoTracker stops when another tab closes): native
   [MoTrack #69](https://github.com/mgradwohl/MoTrack/issues/69) is closed with regression evidence from
   the workspace shell (#160–#164): tracking survives another tab's switch, reorder and close, and
@@ -106,7 +107,7 @@ upstream still require native regression coverage. No legal conclusion is inferr
 | [Tracker #60](https://github.com/OpenSourcePhysics/tracker/issues/60) | Deferred distribution proposal | P2 / after native Linux packaging | Nix package; No implementation issue. Needs a tested package/upgrade path and an identified maintenance owner; does not block desktop parity. |
 | [Tracker #37](https://github.com/OpenSourcePhysics/tracker/issues/37) | Deferred distribution proposal | P2 / after release readiness | Microsoft Store; No implementation issue. Depends on clean packages, signing, update policy, store review and explicit publication authority. |
 | [Tracker #63](https://github.com/OpenSourcePhysics/tracker/issues/63) | Deferred distribution proposal | P2 / after release readiness | Apple Store; No implementation issue. Depends on clean packages/signing, sandbox and licensing review, and explicit publication authority; no compatibility claim yet. |
-| [Tracker #31](https://github.com/OpenSourcePhysics/tracker/issues/31) | Outside frozen scope | Separate product/platform decision | Browser/Chromebook execution; No implementation issue. The port is native desktop. A browser build or Chromebook-specific support needs an explicit scope decision. |
+| [Tracker #31](https://github.com/OpenSourcePhysics/tracker/issues/31) | Outside desktop scope | Separate product/platform decision | Browser/Chromebook execution; No implementation issue. The port is native desktop. A browser build or Chromebook-specific support needs an explicit scope decision. |
 
 The automatic uncertainty proposal in Tracker #75 is broader than the baseline Data Tool/Fit Builder
 uncertainty work in R17. Deferring that proposal does not remove existing Tracker uncertainty workflows
