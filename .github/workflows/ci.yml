@@ -34,6 +34,9 @@ jobs:
           python tools/corpus.py fetch
           python tools/corpus.py reference --java "$JAVA_HOME_17_X64/bin/java"
           python tools/corpus.py session --java "$JAVA_HOME_17_X64/bin/java"
+      - name: Check ODE solver kernel reference
+        if: runner.os == 'Linux'
+        run: python tools/corpus.py ode-oracle --java "$JAVA_HOME_17_X64/bin/java"
       - uses: jurplel/install-qt-action@v4
         with:
           version: "6.8.3"

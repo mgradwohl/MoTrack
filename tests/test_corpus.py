@@ -2,9 +2,10 @@
 
 import hashlib
 import copy
-from contextlib import nullcontext
+from contextlib import nullcontext, redirect_stdout
 import io
 import json
+import math
 import os
 from pathlib import Path
 import sys
@@ -3338,6 +3339,127 @@ class CorpusTests(unittest.TestCase):
         self.assertEqual(report["after_save"], {"stage": "after_save"})
         self.assertEqual(report["after"], {"stage": "reopen"})
         self.assertEqual(list(self.root.glob("session-*")), [])
+
+
+class OdeOracleTests(unittest.TestCase):
+    """The ODE kernel oracle (tools/reference/OdeOracle.java) without running Java."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name).resolve()
+        self.manifest = corpus.load_manifest()
+        self.fixture = json.loads(corpus.ODE_REFERENCE.read_text(encoding="utf-8"))
+
+    def check(self, document, *, record=False, commands=None):
+        """Run check_ode_oracle with a fake Java process that emits `document`."""
+        def run(command):
+            if commands is not None:
+                commands.append(command)
+            Path(command[-1]).write_text(json.dumps(document), encoding="utf-8")
+
+        with patch.object(corpus, "verify_file") as verify, patch.object(corpus, "run", side_effect=run),                 redirect_stdout(io.StringIO()) as output:
+            corpus.check_ode_oracle(self.manifest, self.root, "java", record=record)
+        verify.assert_called_once_with(self.root / self.manifest["reference"]["file"], self.manifest["reference"])
+        return output.getvalue()
+
+    def test_committed_fixture_covers_every_solver_in_its_canonical_layout(self):
+        corpus.validate_ode_reference(self.fixture, self.manifest)
+        classes = {solver["class"].rsplit(".", 1)[1] for solver in self.fixture["solvers"]}
+        self.assertEqual(classes, {"Euler", "EulerRichardson", "Ralston2", "Heun3", "RK4", "Butcher5", "Fehlberg8", "Adams4",
+                                   "Adams5", "Adams6", "Verlet", "LeapFrog", "CashKarp45", "DormandPrince45", "RK45",
+                                   "RK45MultiStep", "ODEMultistepSolver"})
+        self.assertEqual({system["id"] for system in self.fixture["systems"]},
+                         {"oscillator", "drag", "kepler", "stiff", "forced", "nan-rate"})
+        self.assertEqual(self.fixture["tracker"]["model_builder_solvers"][0], "org.opensourcephysics.numerics.RK4")
+        self.assertEqual(corpus.ODE_REFERENCE.read_bytes().decode("utf-8"), corpus.ode_reference_text(self.fixture))
+        self.assertLess(corpus.ODE_REFERENCE.stat().st_size, 256 * 1024)
+
+    def test_check_runs_the_pinned_jar_privately_and_accepts_an_identical_regeneration(self):
+        commands = []
+        self.assertIn("274 Java solver cases match tests/science/ode-reference.json", self.check(self.fixture, commands=commands))
+        [command] = commands
+        self.assertEqual(command[0], "java")
+        self.assertIn("-Djava.awt.headless=true", command)
+        self.assertIn("-Xmx256m", command)
+        self.assertEqual(command[command.index("--class-path") + 1], str(self.root / self.manifest["reference"]["file"]))
+        self.assertEqual(Path(command[-2]), corpus.ROOT / "tools/reference/OdeOracle.java")
+        # A private, removed home: OSP preference files never land in the shared reference cache.
+        home = next(arg for arg in command if arg.startswith("-Duser.home=")).split("=", 1)[1]
+        self.assertFalse(Path(home).is_relative_to(self.root))
+        self.assertFalse(Path(home).exists())
+
+    def test_check_rejects_numerical_count_and_non_finite_drift(self):
+        def first(document, predicate):
+            return next(point for case in document["cases"] for point in case["checkpoints"] if predicate(case, point))
+
+        for mutation in ["state", "rates", "error-code", "nan", "taken", "missing-case", "stiff-state", "tracker"]:
+            document = copy.deepcopy(self.fixture)
+            if mutation == "state":
+                point = first(document, lambda case, point: case["solver"] == "rk4" and point["n"] > 1)
+                point["state"][0] = math.nextafter(point["state"][0], math.inf)
+            elif mutation == "rates":
+                first(document, lambda case, point: True)["rates"] += 1
+            elif mutation == "error-code":
+                first(document, lambda case, point: point["error_code"] == 1)["error_code"] = 0
+            elif mutation == "nan":
+                point = first(document, lambda case, point: "NaN" in point["state"])
+                point["state"][point["state"].index("NaN")] = 0.0
+            elif mutation == "taken":
+                first(document, lambda case, point: case["solver"] == "dormandprince45" and point["n"] > 0)["taken"] *= 1 + 1e-9
+            elif mutation == "missing-case":
+                document["cases"].pop()
+            elif mutation == "stiff-state":
+                point = first(document, lambda case, point: case["system"] == "stiff" and case["solver"] == "rk45" and point["n"] > 1)
+                point["state"][0] *= 1 + 1e-5
+            else:
+                document["tracker"]["trace_points_per_step"] = 5
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                self.check(document)
+
+    def test_stiff_adaptive_cases_allow_amplified_last_bit_pow_differences(self):
+        document = copy.deepcopy(self.fixture)
+        point = next(point for case in document["cases"] if case["system"] == "stiff" and case["solver"] == "dormandprince45"
+                     for point in case["checkpoints"] if point["n"] > 1)
+        point["state"][0] *= 1 + 1e-9
+        self.check(document)
+        # Fixed-step solvers on the same system must still match to the last bit.
+        fixed = next(point for case in document["cases"] if case["system"] == "stiff" and case["solver"] == "rk4"
+                     for point in case["checkpoints"] if point["n"] > 1)
+        fixed["state"][1] = math.nextafter(fixed["state"][1], math.inf)
+        with self.assertRaisesRegex(ValueError, "stiff/rk4"):
+            self.check(document)
+
+    def test_record_writes_the_canonical_fixture_only_when_requested(self):
+        destination = self.root / "science" / "ode-reference.json"
+        with patch.object(corpus, "ODE_REFERENCE", destination):
+            self.assertIn("recorded 274", self.check(self.fixture, record=True))
+        self.assertEqual(destination.read_bytes(), corpus.ode_reference_text(self.fixture).encode("utf-8"))
+        with patch.object(sys, "argv", ["corpus.py", "check", "--probe", "probe", "--record"]),                 patch.object(corpus, "check_cases") as check, self.assertRaises(SystemExit),                 patch("sys.stderr", new_callable=io.StringIO):
+            corpus.main()
+        check.assert_not_called()
+        with patch.object(sys, "argv", ["corpus.py", "ode-oracle", "--java", "jdk/java", "--record"]),                 patch.object(corpus, "check_ode_oracle") as oracle:
+            corpus.main()
+        oracle.assert_called_once()
+        self.assertEqual(oracle.call_args.args[2], "jdk/java")
+        self.assertTrue(oracle.call_args.kwargs["record"])
+
+    def test_validation_rejects_malformed_or_incomplete_documents(self):
+        for mutation in ["version", "schema", "no-cases", "duplicate-case", "unknown-solver", "unknown-system", "checkpoint",
+                         "uncovered-solver", "duplicate-solver", "not-object"]:
+            document = copy.deepcopy(self.fixture)
+            if mutation == "version": document["reference_version"] = "6.3.4"
+            elif mutation == "schema": document["schema_version"] = 2
+            elif mutation == "no-cases": document["cases"] = []
+            elif mutation == "duplicate-case": document["cases"].append(document["cases"][0])
+            elif mutation == "unknown-solver": document["cases"][0]["solver"] = "rk5"
+            elif mutation == "unknown-system": document["cases"][0]["system"] = "pendulum"
+            elif mutation == "checkpoint": document["cases"][0]["checkpoints"][-1]["n"] = document["cases"][0]["steps"] + 1
+            elif mutation == "uncovered-solver": document["cases"] = [c for c in document["cases"] if c["solver"] != "leapfrog"]
+            elif mutation == "duplicate-solver": document["solvers"].append(document["solvers"][0])
+            else: document["cases"][0] = "case"
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                corpus.validate_ode_reference(document, self.manifest)
 
 
 if __name__ == "__main__":
