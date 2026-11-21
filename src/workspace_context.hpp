@@ -33,6 +33,8 @@ class WorkspaceContext final : public QObject
     [[nodiscard]] std::optional<QUuid> openMovie(const QString& path, WorkspaceActivation activation = WorkspaceActivation::SelectNew);
     [[nodiscard]] std::optional<QUuid>
     openImages(const QStringList& paths, double frameRate, WorkspaceActivation activation = WorkspaceActivation::SelectNew);
+    /// A single media file whose image/movie route is chosen on the worker (see prepareWorkspaceMediaFile).
+    [[nodiscard]] std::optional<QUuid> openMediaFile(const QString& path, WorkspaceActivation activation = WorkspaceActivation::SelectNew);
     [[nodiscard]] bool cancelOpen(QUuid request);
     [[nodiscard]] WorkspaceSession& session();
     [[nodiscard]] const std::shared_ptr<WorkspaceServices>& services() const;

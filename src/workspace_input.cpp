@@ -204,6 +204,16 @@ PreparedWorkspaceInput prepareWorkspaceImages(const QStringList& paths, double f
     return result;
 }
 
+PreparedWorkspaceInput prepareWorkspaceMediaFile(const QString& path, const std::atomic_bool* cancelled)
+{
+    checkCancellation(cancelled);
+    // Counting an animated image's frames can read the whole file, so decide here rather than on the GUI thread.
+    if (QImageReader::supportedImageFormats().contains(QFileInfo(path).suffix().toLower().toLatin1()))
+        if (const QImageReader reader(path); !(reader.supportsAnimation() && reader.imageCount() != 1))
+            return prepareWorkspaceImages({path}, 0.0, cancelled);
+    return prepareWorkspaceMovie(path, cancelled);
+}
+
 WorkspaceSession::OpenedSource
 adoptWorkspaceInput(WorkspaceSession& workspace, PreparedWorkspaceInput& incoming, WorkspaceActivation activation)
 {

@@ -28,6 +28,7 @@
 #include <functional>
 #include <ranges>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace
@@ -372,7 +373,10 @@ TEST(WorkspaceTabset, LocatedTabsetsOpenInPlaceAndLaterTabsetsStillOpen)
     ASSERT_TRUE(temporary.isValid());
     const auto nested = temporary.filePath("moved/inner.trk");
     ASSERT_TRUE(QDir().mkpath(temporary.filePath("moved")));
-    writeTabset(nested, {absoluteEntry(fixture("linked-images/linked-images.trk")), {.absolute = std::nullopt, .relative = "gone.trk"}});
+    writeTabset(nested,
+                {absoluteEntry(fixture("linked-images/linked-images.trk")),
+                 {.absolute = std::nullopt, .relative = "gone.trk"},
+                 absoluteEntry(fixture("linked-mov/constant-rate.mov"))});
     const auto set = temporary.filePath("set.trk");
     writeTabset(set, {{.absolute = std::nullopt, .relative = "inner.trk"}, absoluteEntry(fixture("linked-mov/constant-rate.mov"))});
     motrack::WorkspaceWindow window;
@@ -390,6 +394,8 @@ TEST(WorkspaceTabset, LocatedTabsetsOpenInPlaceAndLaterTabsetsStillOpen)
     ASSERT_NE(box, nullptr);
     EXPECT_TRUE(box->informativeText().contains("gone.trk"));
     box->accept();
+    // A file the parent already opened is not opened again by a located tabset.
+    EXPECT_EQ(window.context()->session().sources().size(), 2U);
     // A later tabset is not blocked by the located one.
     const auto later = temporary.filePath("later.trk");
     writeTabset(later, {absoluteEntry(fixture("linked-images/secondary-images.trk"))});
@@ -407,18 +413,23 @@ TEST(WorkspaceTabset, TabsetsArrivingTogetherOpenOneAfterAnother)
     motrack::WorkspaceWindow window;
     window.show();
     QSignalSpy finished(&window, &motrack::WorkspaceWindow::tabsetFinished);
-    // Answer the first tabset's prompt only after the second expansion has had time to arrive.
+    QSignalSpy expanded(window.context().get(), &motrack::WorkspaceContext::tabsetOpened);
+    // Open the second tabset from inside the first one's prompt and keep the prompt up until the context has
+    // delivered both expansions, so the second always arrives during the first one's nested event loop.
+    bool secondRequested = false;
     DialogScript script({[&](QWidget* widget)
                          {
                              auto* box = qobject_cast<QMessageBox*>(widget);
                              if (!box || box->objectName() != "workspaceTabsetMissing")
                                  return false;
-                             QTest::qWait(300);
+                             if (!std::exchange(secondRequested, true))
+                                 EXPECT_TRUE(window.openProject(second));
+                             if (expanded.count() < 2)
+                                 return false;
                              box->button(QMessageBox::No)->click();
                              return true;
                          }});
     ASSERT_TRUE(window.openProject(first));
-    ASSERT_TRUE(window.openProject(second));
     ASSERT_TRUE(QTest::qWaitFor([&] { return finished.count() == 2; }, 20000));
     EXPECT_EQ(finished.at(0).at(0).toString(), canonical(first));
     EXPECT_EQ(finished.at(1).at(0).toString(), canonical(second));

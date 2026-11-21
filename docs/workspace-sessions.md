@@ -318,9 +318,10 @@ not a leading video. `tabsetFinished` signals that the selection is final.
 standard Tracker file is referenced by that file; if it has unsaved changes it is offered Save/Skip/Cancel, and a
 failed or canceled save writes no tabset, as in Tracker. An unchanged raw single movie or image is referenced by
 its own path. MoTrack-only sources, image sequences and changed raw media are reported as not included, because
-Tracker could not reopen them from one path. The chooser adds `.trk` before its overwrite confirmation. The
-destination may not be an open source's experiment file, companion or raw media file, and an existing file that is
-not a tabset is never replaced. If a referenced source changes while prompts are open, nothing is written. The
+Tracker could not reopen them from one path. The Qt file dialog adds `.trk` before its overwrite confirmation; a
+platform-native dialog may apply the suffix after its own confirmation. Either way, the destination may not be an
+open source's experiment file, companion or raw media file, and an existing file that is not a tabset is never
+replaced. If a referenced source changes while prompts are open, nothing is written. The
 file is staged and committed atomically.
 
 **Deliberate differences from Tracker 6.3.5.**

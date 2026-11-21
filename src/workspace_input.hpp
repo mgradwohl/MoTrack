@@ -33,6 +33,9 @@ struct PreparedWorkspaceInput
 [[nodiscard]] PreparedWorkspaceInput prepareWorkspaceMovie(const QString& path, const std::atomic_bool* cancelled = nullptr);
 [[nodiscard]] PreparedWorkspaceInput
 prepareWorkspaceImages(const QStringList& paths, double frameRate, const std::atomic_bool* cancelled = nullptr);
+/// One media file listed by a tabset: a still image opens as a one-frame image sequence with unknown timing, as in
+/// Tracker; an animated image or any other file opens as a movie. Inspects the file off the owner thread.
+[[nodiscard]] PreparedWorkspaceInput prepareWorkspaceMediaFile(const QString& path, const std::atomic_bool* cancelled = nullptr);
 /// Owner-thread transfer. Refusal leaves incoming owned by the caller and existing sources unchanged.
 [[nodiscard]] WorkspaceSession::OpenedSource adoptWorkspaceInput(WorkspaceSession& workspace,
                                                                  PreparedWorkspaceInput& incoming,

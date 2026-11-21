@@ -70,6 +70,14 @@ QMessageBox::StandardButton askQuestion(QWidget* parent,
     return choice;
 }
 
+/// Insert into a set and report whether the value was new.
+[[nodiscard]] bool insertNew(QSet<QString>& set, const QString& value)
+{
+    const auto before = set.size();
+    set.insert(value);
+    return set.size() != before;
+}
+
 [[nodiscard]] bool isProjectFile(const QString& path)
 {
     const auto suffix = QFileInfo(path).suffix();
@@ -286,36 +294,36 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
                 addDocuments(documents);
                 completeTabsetInput(request, documents, {});
             });
-    connect(
-        m_Context.get(),
-        &WorkspaceContext::tabsetOpened,
-        this,
-        [this](QUuid request, const QString& tabset, const std::vector<TabsetItem>& items)
-        {
-            finishOpen(request);
-            if (m_Tabset && m_Tabset->request == request)
+    connect(m_Context.get(),
+            &WorkspaceContext::tabsetOpened,
+            this,
+            [this](QUuid request, const QString& tabset, const std::vector<TabsetItem>& items)
             {
-                // A located file was itself a tabset: open its files in place and report the rest without new prompts.
-                QStringList nested;
-                for (const auto& item : items)
-                    if (item.status == TabsetItemStatus::Resolved)
-                    {
-                        if (!std::ranges::any_of(m_Tabset->files, [&](const QString& queued) { return sameLocalFile(queued, item.file); }))
-                            nested.push_back(item.file);
-                    }
-                    else if (auto problem = describeTabsetProblem(item))
-                        m_Tabset->problems.push_back(*problem);
-                m_Tabset->files = nested + m_Tabset->files;
-                m_Tabset->requestIsProject = false;
-                completeTabsetInput(request, {}, {});
-                return;
-            }
-            // One tabset opens at a time; its prompts run after the context's completion handler has returned.
-            m_ExpandedTabsets.push_back({.tabset = tabset, .items = items});
-            QTimer::singleShot(0, this, &WorkspaceWindow::beginQueuedTabset);
-            if (m_Tabset && !m_Tabset->request) // This open may have used the slot the active tabset was waiting for.
-                QTimer::singleShot(0, this, &WorkspaceWindow::continueTabset);
-        });
+                finishOpen(request);
+                if (m_Tabset && m_Tabset->request == request)
+                {
+                    // A located file was itself a tabset: open its files in place and report the rest without new prompts.
+                    QStringList nested;
+                    for (const auto& item : items)
+                        if (item.status == TabsetItemStatus::Resolved)
+                        {
+                            // Skip files this tabset already queued or opened, including earlier tabs.
+                            if (insertNew(m_Tabset->listed, tabsetIdentityKey(item.file)))
+                                nested.push_back(item.file);
+                        }
+                        else if (auto problem = describeTabsetProblem(item))
+                            m_Tabset->problems.push_back(*problem);
+                    m_Tabset->files = nested + m_Tabset->files;
+                    m_Tabset->requestIsProject = false;
+                    completeTabsetInput(request, {}, {});
+                    return;
+                }
+                // One tabset opens at a time; its prompts run after the context's completion handler has returned.
+                m_ExpandedTabsets.push_back({.tabset = tabset, .items = items});
+                QTimer::singleShot(0, this, &WorkspaceWindow::beginQueuedTabset);
+                if (m_Tabset && !m_Tabset->request) // This open may have used the slot the active tabset was waiting for.
+                    QTimer::singleShot(0, this, &WorkspaceWindow::continueTabset);
+            });
     connect(m_Context.get(),
             &WorkspaceContext::inputFailed,
             this,
@@ -406,12 +414,8 @@ std::optional<QUuid> WorkspaceWindow::requestInput(const QString& path, Workspac
 {
     if (isProjectFile(path))
         return m_Context->openProject(path, activation);
-    // Tracker opens a single listed image as a one-frame image video with unknown timing. An animated image
-    // (for example a GIF opened as video) keeps its frames by opening as a movie.
-    if (QImageReader::supportedImageFormats().contains(QFileInfo(path).suffix().toLower().toLatin1()))
-        if (const QImageReader reader(path); !(reader.supportsAnimation() && reader.imageCount() != 1))
-            return m_Context->openImages({path}, 0.0, activation);
-    return m_Context->openMovie(path, activation);
+    // The worker decides between a still image and a movie; animated images keep their frames.
+    return m_Context->openMediaFile(path, activation);
 }
 
 void WorkspaceWindow::beginQueuedTabset()
@@ -459,11 +463,19 @@ void WorkspaceWindow::beginTabset(const QString& tabset, const std::vector<Tabse
                 m_TabsetPrompting = false;
         });
     PendingTabset pending{.tabset = tabset};
+    // Every resolved file is canonical; a located file must not duplicate one of them or another located file.
+    QSet<QString> resolved;
+    for (const auto& item : items)
+        if (item.status == TabsetItemStatus::Resolved)
+            resolved.insert(tabsetIdentityKey(item.file));
     for (const auto& item : items)
     {
         const auto listed = QString::fromStdString(item.entry.relative);
         if (item.status == TabsetItemStatus::Resolved)
+        {
             pending.files.push_back(item.file);
+            pending.listed.insert(tabsetIdentityKey(item.file));
+        }
         else if (item.status != TabsetItemStatus::Missing)
         {
             if (auto problem = describeTabsetProblem(item))
@@ -486,17 +498,12 @@ void WorkspaceWindow::beginTabset(const QString& tabset, const std::vector<Tabse
                     : QString{};
             if (!alive)
                 return;
-            const auto listedElsewhere = [&](const QString& file)
-            {
-                return std::ranges::any_of(pending.files, [&](const QString& open) { return sameLocalFile(open, file); }) ||
-                       std::ranges::any_of(items,
-                                           [&](const TabsetItem& other)
-                                           { return other.status == TabsetItemStatus::Resolved && sameLocalFile(other.file, file); });
-            };
-            if (located.isEmpty())
-                pending.problems.push_back(*describeTabsetProblem(item));
-            else if (!listedElsewhere(located))
-                pending.files.push_back(located);
+            const auto canonical = located.isEmpty() ? QString{} : QFileInfo(located).canonicalFilePath();
+            const auto key = canonical.isEmpty() ? QString{} : tabsetIdentityKey(canonical);
+            if (key.isEmpty())
+                pending.problems.push_back(describeTabsetProblem(item).value_or(listed));
+            else if (!resolved.contains(key) && insertNew(pending.listed, key))
+                pending.files.push_back(canonical);
         }
     }
     m_Tabset = std::move(pending);
@@ -1100,10 +1107,13 @@ void WorkspaceWindow::closeEvent(QCloseEvent* event)
     event->ignore();
     if (m_Busy)
         return;
-    // Queued tabset work must not start new opens while the close prompts run.
+    // Queued tabset work must not start new opens while the close prompts run, even if the close is then canceled.
     m_ExpandedTabsets.clear();
-    if (m_Tabset)
+    if (m_Tabset && !m_Tabset->files.isEmpty())
+    {
         m_Tabset->files.clear();
+        m_Tabset->problems.push_back(tr("Closing the window stopped the remaining tabset files."));
+    }
     for (auto request = m_Opening.cbegin(); request != m_Opening.cend(); ++request)
         (void)m_Context->cancelOpen(request.key());
     const auto context = m_Context;

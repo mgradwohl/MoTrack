@@ -133,17 +133,6 @@ constexpr std::string_view STRING_MATRIX_CLASS = "[[Ljava.lang.String;";
     return canonical.isEmpty() ? std::nullopt : std::optional{std::move(canonical)};
 }
 
-/// Identity key for an already canonical path. NTFS compares names case-insensitively by default; macOS volumes
-/// may be case-sensitive, where folding would silently drop a distinct file, so only Windows folds.
-[[nodiscard]] QString identityKey(const QString& canonical)
-{
-#ifdef Q_OS_WIN
-    return canonical.toCaseFolded();
-#else
-    return canonical;
-#endif
-}
-
 [[nodiscard]] bool isTrackerXmlFile(const QString& path)
 {
     return path.endsWith(".trk", Qt::CaseInsensitive);
@@ -158,7 +147,7 @@ class Expansion
 
     void expand(const QString& tabset, const std::vector<TabsetEntry>& entries, int depth)
     {
-        m_Stack.push_back(identityKey(tabset));
+        m_Stack.push_back(tabsetIdentityKey(tabset));
         const auto directory = QFileInfo(tabset).path();
         for (const auto& entry : entries)
         {
@@ -179,7 +168,7 @@ class Expansion
                 continue;
             }
             // Canonical keys keep large sets linear; hard-linked aliases may still open separately.
-            const auto key = identityKey(*file);
+            const auto key = tabsetIdentityKey(*file);
             if (std::ranges::find(m_Stack, key) != m_Stack.end())
             {
                 append(entry, tabset, TabsetItemStatus::Cycle);
@@ -221,7 +210,7 @@ class Expansion
 
     void markSeen(const QString& file)
     {
-        m_Seen.insert(identityKey(file));
+        m_Seen.insert(tabsetIdentityKey(file));
     }
 
     [[nodiscard]] std::vector<TabsetItem> take() &&
@@ -264,6 +253,17 @@ void appendString(std::string& xml, std::string_view indent, std::size_t index, 
 
 } // namespace
 
+QString tabsetIdentityKey(const QString& canonical)
+{
+    // NTFS compares names case-insensitively by default; macOS volumes may be case-sensitive, where folding would
+    // silently drop a distinct file, so only Windows folds.
+#ifdef Q_OS_WIN
+    return canonical.toCaseFolded();
+#else
+    return canonical;
+#endif
+}
+
 bool isTrackerTabset(std::string_view xml)
 {
     if (xml.size() > MAX_TRACKER_XML_BYTES)
@@ -281,7 +281,7 @@ bool isTrackerTabsetFile(const QString& path)
     if (!file.open(QIODevice::ReadOnly) || file.isSequential())
         return false;
     // The root element decides; stop there instead of parsing an experiment of up to 32 MiB.
-    constexpr qint64 MAX_PROLOG_BYTES = 64 * 1024;
+    constexpr qint64 MAX_PROLOG_BYTES = qint64{64} * 1024;
     QXmlStreamReader reader(&file);
     while (!reader.atEnd() && !reader.hasError() && reader.characterOffset() <= MAX_PROLOG_BYTES)
         if (reader.readNext() == QXmlStreamReader::StartElement)

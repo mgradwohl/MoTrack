@@ -3,6 +3,7 @@
 #include "workspace_context.hpp"
 
 #include <QMainWindow>
+#include <QSet>
 #include <QStringList>
 
 #include <optional>
@@ -91,7 +92,8 @@ class WorkspaceWindow final : public QMainWindow
     struct PendingTabset
     {
         QString tabset;
-        QStringList files; // QList moves without throwing; std::deque may allocate in some libraries.
+        QStringList files;    // QList moves without throwing; std::deque may allocate in some libraries.
+        QSet<QString> listed; // Identity keys of every file queued or opened for this tabset.
         std::optional<QUuid> request;
         QString current;
         bool requestIsProject = false;

@@ -40,6 +40,11 @@ std::optional<QUuid> WorkspaceContext::openImages(const QStringList& paths, doub
     return beginOpen([paths, frameRate](const auto* cancelled) { return prepareWorkspaceImages(paths, frameRate, cancelled); }, activation);
 }
 
+std::optional<QUuid> WorkspaceContext::openMediaFile(const QString& path, WorkspaceActivation activation)
+{
+    return beginOpen([path](const auto* cancelled) { return prepareWorkspaceMediaFile(path, cancelled); }, activation);
+}
+
 std::optional<QUuid> WorkspaceContext::beginOpen(std::function<PreparedWorkspaceInput(const std::atomic_bool*)> prepare,
                                                  WorkspaceActivation activation)
 {

@@ -518,6 +518,10 @@
         <source>%1 exists and is not a tabset. Choose another filename so it is not replaced.</source>
         <translation type="unfinished" />
     </message>
+    <message>
+        <source>Closing the window stopped the remaining tabset files.</source>
+        <translation type="unfinished" />
+    </message>
 </context>
 
 </TS>

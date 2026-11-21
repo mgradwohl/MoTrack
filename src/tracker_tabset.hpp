@@ -49,6 +49,8 @@ struct TabsetEntry
 [[nodiscard]] QString tabsetRelativePath(const QString& file, const QString& baseDirectory);
 /// Saved entry for a physical file referenced from a tabset written in `tabsetDirectory`.
 [[nodiscard]] TabsetEntry tabsetEntry(const QString& file, const QString& tabsetDirectory);
+/// Identity key for a canonical path, as used for duplicates and cycles: case-folded on Windows only.
+[[nodiscard]] QString tabsetIdentityKey(const QString& canonical);
 /// Resolve an existing file in Tracker's order: relative to the tabset directory, relative to the working
 /// directory, then the absolute path. A relative slot that is itself absolute only uses the absolute fallback.
 [[nodiscard]] std::optional<QString>
