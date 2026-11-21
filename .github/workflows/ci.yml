@@ -46,7 +46,19 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $llvm = Join-Path $env:ProgramFiles 'LLVM/bin'
+          # The image's MSVC STL (14.52+) refuses Clang older than 22, and the preinstalled LLVM is 20.
+          # Install the pinned official release, verified by its published SHA-256, ahead of it on PATH.
+          $version = '22.1.8'
+          $installer = Join-Path $env:RUNNER_TEMP "LLVM-$version-win64.exe"
+          Invoke-WebRequest "https://github.com/llvm/llvm-project/releases/download/llvmorg-$version/LLVM-$version-win64.exe" -OutFile $installer
+          $hash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne '16e5709785fef73c854646241c4a92c5cd574318d1b33c63330dd7721903e55c') { throw "Unexpected LLVM installer hash $hash" }
+          $root = Join-Path $env:RUNNER_TEMP 'llvm'
+          $process = Start-Process $installer -ArgumentList '/S', "/D=$root" -Wait -PassThru
+          if ($process.ExitCode) { exit $process.ExitCode }
+          $llvm = Join-Path $root 'bin'
+          & (Join-Path $llvm 'clang++.exe') --version
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $llvm | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
           "LLVM_BIN=$llvm" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
           choco install ccache --yes --no-progress
