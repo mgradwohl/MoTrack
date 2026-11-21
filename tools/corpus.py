@@ -2455,6 +2455,63 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
     print(f"{label}: passed ({level}; all loaded tabs saved and individually reopened)")
 
 
+def check_tabset(manifest, cache, java, classes, root, display, probe):
+    """Actual Tracker opens a MoTrack tabset in order; MoTrack then reads the tabset Tracker writes."""
+    by_id = {item["id"]: item for item in manifest["cases"]}
+    archive_case, linked_case = by_id["multitab-images"], by_id["linked-images"]
+    output = root / "tabset"
+    lesson = output / "input" / "lesson é"
+    # Copy the pinned experiments with their images so Tracker resolves media beside them, not the fixtures.
+    shutil.copytree(local_fixture_path(linked_case).parent, lesson)
+    linked, archive = lesson / linked_case["file"], lesson / archive_case["file"]
+    verify_file(linked, linked_case)
+    verify_file(archive, archive_case)
+    tabset = output / "input" / "sets" / "lesson.trk"
+    tabset.parent.mkdir(parents=True)
+    run([str(Path(probe).resolve()), "--write-tabset", str(tabset), str(linked), str(archive)])
+    # Independent expectations: the linked experiment first, then each archive member in its pinned order.
+    members = archive_case["session_archive_tabs"]
+    expected = [(linked.stem, [linked], linked_case)] + [
+        (tab["member"].removesuffix(".trk"), [archive], by_id[tab["case"]]) for tab in members]
+    home = output / "private-home"
+    home.mkdir(parents=True)
+    session = output / "tracker"
+    try:
+        run([str(java), f"-Duser.home={home}", f"-Djava.io.tmpdir={home}", "-Duser.language=en", "-Duser.country=US", "-Xmx256m",
+             "-cp", java_classpath(manifest, cache, classes=classes), "TrackerTabsetReference",
+             str(tabset), str(session), str(len(expected))], display=display)
+    except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+        raise ValueError(f"tabset: Tracker reference failed: {error}") from error
+    report = json.loads((session / "tabset-session.json").read_text(encoding="utf-8"))
+    if report.get("reference_version") != manifest["reference"]["version"] or report.get("verification_level") != "tracker_tabset_session":
+        raise ValueError("Unexpected Tracker tabset session")
+    tabs = report.get("tabs")
+    if not isinstance(tabs, list) or len(tabs) != len(expected):
+        raise ValueError("Tracker did not load every tabset experiment")
+    # Tracker opens files in tabset order; an archive's members follow its own load order.
+    if tabs[0].get("title") != expected[0][0] or sorted(tab.get("title") for tab in tabs[1:]) != sorted(name for name, _, _ in expected[1:]):
+        raise ValueError(f"Unexpected Tracker tab order: {[tab.get('title') for tab in tabs]}")
+    for name, paths, case in expected:
+        tab = next(tab for tab in tabs if tab.get("title") == name)
+        if Path(tab.get("path", "")).resolve() not in {path.resolve() for path in paths}:
+            raise ValueError(f"{name}: Tracker loaded {tab.get('path')} instead of the referenced copy")
+        masses = json.loads(expected_path(case).read_text(encoding="utf-8"))["project"]["point_masses"]
+        desired = [{"name": mass["name"], "mass": mass["mass"], "samples": len(mass["samples"])} for mass in masses]
+        if tab.get("point_masses") != desired:
+            raise ValueError(f"{name}: Tracker point masses {tab.get('point_masses')} differ from {desired}")
+    # MoTrack opens Tracker's own tabset; Tracker lists the archive once per member tab.
+    read = output / "motrack-read.json"
+    run([str(Path(probe).resolve()), "--read-tabset", str(session / "tracker-tabset.trk"), str(read)])
+    items = json.loads(read.read_text(encoding="utf-8"))
+    resolved = [Path(item["file"]).resolve() for item in items if item["status"] == 0]
+    if resolved != [linked.resolve(), archive.resolve()] or any(item["status"] not in {0, 2} for item in items):
+        raise ValueError(f"MoTrack did not resolve Tracker's tabset to the same experiments: {items}")
+    (cache / "reports" / "tabset-roundtrip.json").write_text(
+        json.dumps({"verification_level": "motrack_tabset_roundtrip", "tracker_session": report, "motrack_read": items},
+                   indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print("tabset: passed (MoTrack tabset opened in order by Tracker; Tracker's tabset reopened by MoTrack)")
+
+
 def check_sessions(manifest, cache, java, probe=None):
     if sys.platform != "linux":
         raise ValueError("Session checks currently require Linux with Xvfb")
@@ -2540,12 +2597,16 @@ def check_sessions(manifest, cache, java, probe=None):
         run([str(javac), "-cp", java_classpath(manifest, cache, dependencies=[
                  item["file"] for item in manifest["reference"].get("runtime_dependencies", [])]), "-d", str(classes),
              str(ROOT / "tools/reference/TrackerReference.java"),
-             str(ROOT / "tools/reference/TrackerSessionReference.java"), str(ROOT / "tools/reference/VectorFixture.java"),
+             str(ROOT / "tools/reference/TrackerSessionReference.java"), str(ROOT / "tools/reference/TrackerTabsetReference.java"),
+             str(ROOT / "tools/reference/VectorFixture.java"),
              str(ROOT / "tools/reference/TrackerSessionDiagnosticsTest.java")])
         diagnostic_home = root / "diagnostic-home"
         diagnostic_home.mkdir()
         run([str(java_path), "-Djava.awt.headless=true", f"-Duser.home={diagnostic_home}", "-Xmx256m",
              "-cp", java_classpath(manifest, cache, classes=classes), "TrackerSessionDiagnosticsTest"])
+        # Reduced manifests in harness tests may omit the pinned tabset experiments.
+        if probe and {"multitab-images", "linked-images"} <= {case["id"] for case in manifest["cases"]}:
+            check_tabset(manifest, cache, java_path, classes, root, display, probe)
         for case, mode in cases:
             case_classpath = java_classpath(manifest, cache, classes=classes, dependencies=case.get("reference_dependencies", []))
             if probe and case.get("session_known_issue"):

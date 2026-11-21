@@ -49,7 +49,16 @@ Choose a point mass from the toolbar or create one in the Tracks menu. Shift-cli
 
 Open a Tracker `.trz` experiment archive from the same project chooser. Every experiment gets a tab, and each can be edited independently. Unopened tabs create their full editor only when selected. Saving the archive includes all member edits and retains its media and unknown files. A `.motrack` copy embeds the complete archive, so it can reopen after the original archive is removed.
 
-Projects, videos, and image sequences open in the same workspace. Switch or reorder tabs without resetting their playheads or undo histories. The tab × and **Hide experiment view** hide a view and retain its edits; reopen it from **Experiments**. **Close project…** closes the entire source, including hidden archive members, after Save/Discard/Cancel. Closing the window resolves every project before releasing any. **Save all projects** saves each modified source once, including hidden experiments. Failed or canceled saves retain the unsaved records. If two modified copies share a save destination, save one under a different filename before using Save All or saving both during close. Tracker tabset files and cross-tab import remain unfinished.
+Projects, videos, and image sequences open in the same workspace. Switch or reorder tabs without resetting their playheads or undo histories. The tab × and **Hide experiment view** hide a view and retain its edits; reopen it from **Experiments**. **Close project…** closes the entire source, including hidden archive members, after Save/Discard/Cancel. Closing the window resolves every project before releasing any. **Save all projects** saves each modified source once, including hidden experiments. Failed or canceled saves retain the unsaved records. If two modified copies share a save destination, save one under a different filename before using Save All or saving both during close. Cross-tab import remains unfinished.
+
+Open a Tracker **tabset** (a `.trk` that lists other files) from the same project chooser to open every listed
+experiment, archive, video or image in order, each as its own project. Files are found next to the tabset first,
+then in the working directory, then at their recorded absolute path, so a copied folder keeps working. MoTrack asks
+you to locate a missing file, opens each file once even when Tracker listed an archive once per experiment, and
+lists anything it could not open. **File → Save tabset as…** writes a tabset that Tracker can open. It lists each
+project's saved Tracker file, or an unchanged single video or image, in tab order; projects with unsaved changes
+are offered Save/Skip/Cancel first, and a failed or canceled save writes no tabset. MoTrack-only copies, image
+sequences and changed raw media are listed as not included until saved as Tracker projects.
 
 **File → Revert experiment…** discards changes in the selected experiment after confirmation, returning
 to its last saved state (or its opened state before the first save). It clears that experiment's undo

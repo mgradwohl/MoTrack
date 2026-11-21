@@ -8,6 +8,7 @@
 #include "track_edits.hpp"
 #include "tracker_archive.hpp"
 #include "tracker_references.hpp"
+#include "tracker_tabset.hpp"
 #include "tracker_writer.hpp"
 #include "video_reader.hpp"
 #include "workspace_document.hpp"
@@ -35,6 +36,8 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <utility>
+#include <vector>
 
 namespace
 {
@@ -223,6 +226,31 @@ try
 {
     const QCoreApplication application(argc, argv);
     const auto args = application.arguments();
+    if (args.size() >= 4 && args[1] == "--write-tabset")
+    {
+        // MoTrack's tabset writer, with paths relative to the destination's directory.
+        const auto directory = QFileInfo(QFileInfo(args[2]).absoluteFilePath()).path();
+        std::vector<motrack::TabsetEntry> entries;
+        for (const auto& file : args.sliced(3))
+            entries.push_back(motrack::tabsetEntry(QFileInfo(file).canonicalFilePath(), directory));
+        if (const auto written = motrack::saveTrackerTabset(args[2], entries); !written)
+            throw motrack::ProjectError(written.error());
+        return EXIT_SUCCESS;
+    }
+    if (args.size() == 4 && args[1] == "--read-tabset")
+    {
+        QJsonArray items;
+        for (const auto& item : motrack::expandTrackerTabset(args[2], QDir::currentPath()))
+            items.push_back(
+                QJsonObject{{"status", static_cast<int>(std::to_underlying(item.status))},
+                            {"file", item.file},
+                            {"relative", QString::fromStdString(item.entry.relative)},
+                            {"absolute", item.entry.absolute ? QJsonValue(QString::fromStdString(*item.entry.absolute)) : QJsonValue()}});
+        QSaveFile output(args[3]);
+        if (!output.open(QIODevice::WriteOnly) || output.write(QJsonDocument(items).toJson()) < 0 || !output.commit())
+            throw motrack::ProjectError("Could not write the tabset report.");
+        return EXIT_SUCCESS;
+    }
     if (args.size() == 4 && args[1] == "--interrupt-paired-save")
     {
         // Run only as a short-lived test child: simulate abrupt process loss without destructors.

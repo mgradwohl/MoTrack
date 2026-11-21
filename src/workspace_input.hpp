@@ -1,24 +1,32 @@
 #pragma once
 
+#include "tracker_tabset.hpp"
 #include "workspace_session.hpp"
 
 #include <QStringList>
 
+#include <optional>
+#include <vector>
+
 namespace motrack
 {
 
-/// An idle source prepared off the owner thread. Exactly one session is present; no live jobs or views.
-/// Native group files retain their exact saved membership; standard archives prepare every experiment.
+/// An idle source prepared off the owner thread: exactly one session, or a Tracker tabset that owns no source
+/// and lists the inputs to open next. No live jobs or views. Native group files retain their exact saved
+/// membership; standard archives prepare every experiment.
 struct PreparedWorkspaceInput
 {
     std::unique_ptr<DocumentSession> document;
     std::unique_ptr<ArchiveGroupSession> group;
     QString mediaProjectPath;
+    /// Expanded references of a `TFrame` .trk, in Tracker's open order; `mediaProjectPath` is the tabset file.
+    std::optional<std::vector<TabsetItem>> tabset{};
 };
 
 /// Read a local .trk, .trz or .motrack with bounded archive/native readers and cancellation boundaries.
 /// Never changes a live registry. A malformed archive member rejects the entire prepared source.
 /// Legacy standalone native archive companions stay standalone; no member association is invented.
+/// A tabset .trk is expanded against its directory and the process working directory, not opened.
 /// This adapter probes/indexes available movies off the owner thread, including members without views.
 [[nodiscard]] PreparedWorkspaceInput prepareWorkspaceInput(const QString& path, const std::atomic_bool* cancelled = nullptr);
 /// New native experiments from local media. Preserve physical references; media files are never save targets.

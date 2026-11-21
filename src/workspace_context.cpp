@@ -64,6 +64,13 @@ std::optional<QUuid> WorkspaceContext::beginOpen(std::function<PreparedWorkspace
                     Q_EMIT inputCancelled(request);
                     return;
                 }
+                if (diagnostic.isEmpty() && input->tabset)
+                {
+                    // Notification is last; the observer may destroy this context.
+                    const auto items = std::move(*input->tabset);
+                    Q_EMIT tabsetOpened(request, input->mediaProjectPath, items);
+                    return;
+                }
                 std::optional<WorkspaceSession::OpenedSource> opened;
                 try
                 {

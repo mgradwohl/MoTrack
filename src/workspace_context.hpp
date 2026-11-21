@@ -1,5 +1,6 @@
 #pragma once
 
+#include "tracker_tabset.hpp"
 #include "workspace_services.hpp"
 #include "workspace_session.hpp"
 
@@ -10,6 +11,7 @@
 #include <QStringList>
 
 #include <functional>
+#include <vector>
 
 namespace motrack
 {
@@ -43,6 +45,8 @@ class WorkspaceContext final : public QObject
     void sourceChanged(QUuid source, bool mediaBindings);
     void jobsCancelled(QUuid document);
     void inputOpened(QUuid request, QUuid source, QList<QUuid> documents);
+    /// A Tracker tabset owns no source; observers open its resolved items in order.
+    void tabsetOpened(QUuid request, QString tabset, const std::vector<motrack::TabsetItem>& items);
     void inputFailed(QUuid request, QString diagnostic);
     void inputCancelled(QUuid request);
 

@@ -6,6 +6,7 @@
 #include <QAction>
 #include <QCloseEvent>
 #include <QCollator>
+#include <QCoreApplication>
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -25,6 +26,8 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <array>
+#include <ranges>
 #include <utility>
 
 namespace motrack
@@ -64,6 +67,28 @@ QMessageBox::StandardButton askQuestion(QWidget* parent,
     if (dialogAlive)
         delete dialog;
     return choice;
+}
+
+[[nodiscard]] bool isProjectFile(const QString& path)
+{
+    const auto suffix = QFileInfo(path).suffix();
+    return std::ranges::any_of(std::array{"trk", "trz", "motrack"},
+                               [&](const char* known) { return suffix.compare(QLatin1StringView(known), Qt::CaseInsensitive) == 0; });
+}
+
+/// Window-modal summary without a nested event loop; tests and users dismiss it independently.
+void showProblems(QWidget* parent, const QString& text, const QStringList& problems, const char* name)
+{
+    constexpr qsizetype MAX_LISTED = 20;
+    auto listed = problems.first(std::min(problems.size(), MAX_LISTED));
+    if (const auto more = static_cast<int>(problems.size() - MAX_LISTED); more > 0)
+        listed.push_back(QCoreApplication::translate("motrack::WorkspaceWindow", "…and %n more.", nullptr, more));
+    auto* box = new QMessageBox(
+        QMessageBox::Warning, QCoreApplication::translate("motrack::WorkspaceWindow", "Tabset"), text, QMessageBox::Ok, parent);
+    box->setObjectName(name);
+    box->setInformativeText(listed.join('\n'));
+    box->setAttribute(Qt::WA_DeleteOnClose);
+    box->open();
 }
 
 } // namespace
@@ -173,6 +198,10 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
             });
     m_SaveAll = new QAction(tr("Save &all projects"), this);
     m_SaveAll->setObjectName("saveAllProjects");
+    m_SaveTabset = new QAction(tr("Save &tabset as…"), this);
+    m_SaveTabset->setObjectName("saveTrackerTabset");
+    m_SaveTabset->setToolTip(tr("Save a Tracker tabset that reopens all open projects together."));
+    connect(m_SaveTabset, &QAction::triggered, this, [this] { (void)saveTabset(); });
     m_HideView = new QAction(tr("&Hide experiment view"), this);
     m_HideView->setObjectName("hideExperimentView");
     m_HideView->setShortcut(QKeySequence::Close);
@@ -212,7 +241,7 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
     m_EmptyFileMenu = new QMenu(tr("&File"), this);
     m_EmptyFileMenu->addActions(m_OpenActions);
     m_EmptyFileMenu->addSeparator();
-    m_EmptyFileMenu->addActions({m_SaveAll, m_Revert, m_HideView, m_CloseSource, m_Quit});
+    m_EmptyFileMenu->addActions({m_SaveAll, m_SaveTabset, m_Revert, m_HideView, m_CloseSource, m_Quit});
     m_ExperimentsMenu = new QMenu(tr("&Experiments"), this);
     m_ExperimentsMenu->setObjectName("workspaceExperimentsMenu");
     connect(m_ExperimentsMenu, &QMenu::aboutToShow, this, &WorkspaceWindow::rebuildExperimentsMenu);
@@ -254,6 +283,17 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
             {
                 finishOpen(request);
                 addDocuments(documents);
+                completeTabsetInput(request, documents, {});
+            });
+    connect(m_Context.get(),
+            &WorkspaceContext::tabsetOpened,
+            this,
+            [this](QUuid request, const QString& tabset, const std::vector<TabsetItem>& items)
+            {
+                finishOpen(request);
+                // Missing-file prompts run after the context's completion handler has returned.
+                m_ExpandedTabsets.push_back({.tabset = tabset, .items = items});
+                QTimer::singleShot(0, this, &WorkspaceWindow::beginQueuedTabset);
             });
     connect(m_Context.get(),
             &WorkspaceContext::inputFailed,
@@ -262,6 +302,7 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
             {
                 finishOpen(request);
                 statusBar()->showMessage(tr("Could not open: %1").arg(diagnostic));
+                completeTabsetInput(request, {}, diagnostic);
             });
     connect(m_Context.get(),
             &WorkspaceContext::inputCancelled,
@@ -270,6 +311,7 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
             {
                 finishOpen(request);
                 statusBar()->showMessage(tr("Opening canceled."));
+                completeTabsetInput(request, {}, {}, true);
             });
     QList<QUuid> visible;
     for (const auto document : m_Context->session().tabs())
@@ -339,6 +381,318 @@ void WorkspaceWindow::finishOpen(QUuid request)
     m_Pending->setVisible(m_Pending->count() > 0);
 }
 
+std::optional<QUuid> WorkspaceWindow::requestInput(const QString& path, WorkspaceActivation activation)
+{
+    if (isProjectFile(path))
+        return m_Context->openProject(path, activation);
+    // Tracker opens a single listed image as a one-frame image video with unknown timing.
+    if (QImageReader::supportedImageFormats().contains(QFileInfo(path).suffix().toLower().toLatin1()))
+        return m_Context->openImages({path}, 0.0, activation);
+    return m_Context->openMovie(path, activation);
+}
+
+void WorkspaceWindow::beginQueuedTabset()
+{
+    if (m_ExpandedTabsets.empty())
+        return;
+    auto next = std::move(m_ExpandedTabsets.front());
+    m_ExpandedTabsets.erase(m_ExpandedTabsets.begin());
+    beginTabset(next.tabset, next.items);
+}
+
+void WorkspaceWindow::beginTabset(const QString& tabset, const std::vector<TabsetItem>& items)
+{
+    if (m_Tabset)
+    {
+        statusBar()->showMessage(tr("Another tabset is still opening."));
+        return;
+    }
+    bool alive = true;
+    QObject lifetime;
+    connect(this, &QObject::destroyed, &lifetime, [&] { alive = false; });
+    PendingTabset pending{.tabset = tabset};
+    for (const auto& item : items)
+    {
+        const auto listed = QString::fromStdString(item.entry.relative);
+        switch (item.status)
+        {
+        case TabsetItemStatus::Resolved:
+            pending.files.push_back(item.file);
+            break;
+        case TabsetItemStatus::Missing:
+        {
+            const auto answer =
+                askQuestion(this,
+                            tr("Tabset file not found"),
+                            tr("“%1”, listed in %2, was not found. Locate it?").arg(listed, QFileInfo(item.tabset).fileName()),
+                            QMessageBox::Yes | QMessageBox::No,
+                            QMessageBox::Yes,
+                            "workspaceTabsetMissing");
+            if (!alive)
+                return;
+            const auto located =
+                answer == QMessageBox::Yes
+                    ? QFileDialog::getOpenFileName(this, tr("Locate %1").arg(QFileInfo(listed).fileName()), QFileInfo(item.tabset).path())
+                    : QString{};
+            if (!alive)
+                return;
+            const auto listedElsewhere = [&](const QString& file)
+            {
+                return std::ranges::any_of(pending.files, [&](const QString& open) { return sameLocalFile(open, file); }) ||
+                       std::ranges::any_of(items,
+                                           [&](const TabsetItem& other)
+                                           { return other.status == TabsetItemStatus::Resolved && sameLocalFile(other.file, file); });
+            };
+            if (located.isEmpty())
+                pending.problems.push_back(tr("%1: not found.").arg(listed));
+            else if (!listedElsewhere(located))
+                pending.files.push_back(located);
+            break;
+        }
+        case TabsetItemStatus::Duplicate:
+            // Tracker lists an archive once per experiment tab; open each file once without a warning.
+            break;
+        case TabsetItemStatus::Cycle:
+            pending.problems.push_back(tr("%1: a tabset that includes itself; skipped.").arg(listed));
+            break;
+        case TabsetItemStatus::Unreadable:
+            pending.problems.push_back(tr("%1: could not be read (%2).").arg(listed, QString::fromStdString(item.diagnostic)));
+            break;
+        case TabsetItemStatus::TooDeep:
+            pending.problems.push_back(tr("%1: tabsets are nested too deeply; skipped.").arg(listed));
+            break;
+        case TabsetItemStatus::TooMany:
+            pending.problems.push_back(tr("Only the first %n files were opened.", nullptr, static_cast<int>(MAX_TABSET_ENTRIES)));
+            break;
+        }
+    }
+    if (m_Tabset)
+    {
+        statusBar()->showMessage(tr("Another tabset is still opening."));
+        return;
+    }
+    m_Tabset = std::move(pending);
+    continueTabset();
+}
+
+void WorkspaceWindow::continueTabset()
+{
+    if (!m_Tabset || m_Tabset->request)
+        return;
+    if (auto& pending = *m_Tabset; !pending.files.isEmpty())
+    {
+        // Starting an open only queues a worker; no completion can reset the pending tabset here.
+        const auto file = pending.files.front();
+        const auto request = requestInput(file, WorkspaceActivation::KeepCurrent);
+        if (!request)
+            return; // Both input slots are busy; the next completion resumes the tabset in order.
+        pending.files.removeFirst();
+        pending.request = request;
+        pending.current = QFileInfo(file).fileName();
+        pending.requestIsProject = isProjectFile(file);
+        (void)trackOpen(request, pending.current);
+        return;
+    }
+    auto finished = std::move(*m_Tabset);
+    m_Tabset.reset();
+    // Tracker selects the first listed experiment file rather than a video.
+    if (finished.select && m_Pages.contains(*finished.select))
+        (void)showDocument(*finished.select);
+    const auto name = QFileInfo(finished.tabset).fileName();
+    statusBar()->showMessage(tr("Opened tabset %1.").arg(name));
+    if (!finished.problems.isEmpty())
+        showProblems(this, tr("Some files listed in %1 were not opened.").arg(name), finished.problems, "workspaceTabsetProblems");
+    Q_EMIT tabsetFinished(finished.tabset);
+}
+
+void WorkspaceWindow::completeTabsetInput(QUuid request, const QList<QUuid>& documents, const QString& problem, bool cancelled)
+{
+    if (!m_Tabset)
+        return;
+    if (m_Tabset->request != request)
+    {
+        if (!m_Tabset->request) // Another input freed a slot the tabset was waiting for.
+            QTimer::singleShot(0, this, &WorkspaceWindow::continueTabset);
+        return;
+    }
+    m_Tabset->request.reset();
+    if (m_Tabset->requestIsProject && !m_Tabset->select && !documents.isEmpty())
+        m_Tabset->select = documents.front();
+    if (!problem.isEmpty())
+        m_Tabset->problems.push_back(tr("%1: %2").arg(m_Tabset->current, problem));
+    if (cancelled)
+    {
+        m_Tabset->problems.push_back(tr("Opening canceled; the remaining tabset files were not opened."));
+        m_Tabset->files.clear();
+    }
+    QTimer::singleShot(0, this, &WorkspaceWindow::continueTabset);
+}
+
+std::optional<QString> WorkspaceWindow::tabsetReference(QUuid source, QStringList& problems, bool& cancelled)
+{
+    auto& session = m_Context->session();
+    const auto name = QFileInfo(session.sourcePath(source)).fileName();
+    const auto standard = [&]
+    {
+        return localProjectPath(session.standardSavePath(source));
+    };
+    if (!session.nativeSavePath(source).isEmpty() || !standard().isEmpty())
+    {
+        if (standard().isEmpty())
+        {
+            problems.push_back(tr("%1: saved only as a MoTrack project. Use Save Tracker project… to include it.").arg(name));
+            return std::nullopt;
+        }
+        if (session.isModified(source))
+        {
+            const auto answer = askQuestion(this,
+                                            tr("Save tabset"),
+                                            tr("%1 has unsaved changes. Save it before adding it to the tabset?").arg(name),
+                                            QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel,
+                                            QMessageBox::Yes,
+                                            "workspaceTabsetSaveQuestion");
+            if (answer == QMessageBox::Cancel)
+            {
+                cancelled = true;
+                return std::nullopt;
+            }
+            if (answer != QMessageBox::Yes)
+            {
+                problems.push_back(tr("%1: skipped because it has unsaved changes.").arg(name));
+                return std::nullopt;
+            }
+            // Like Tracker, a failed or canceled component save abandons the whole tabset.
+            if (!saveSource(source) || session.isModified(source) || standard().isEmpty())
+            {
+                cancelled = true;
+                return std::nullopt;
+            }
+        }
+        return standard();
+    }
+    // Raw media: Tracker records an unchanged video's own path. A sequence needs a saved project instead.
+    if (session.isModified(source))
+    {
+        problems.push_back(tr("%1: changed media must be saved as a Tracker project before it can be included.").arg(name));
+        return std::nullopt;
+    }
+    const auto documents = session.sourceDocuments(source);
+    if (documents.size() != 1 || session.document(documents.front()).project.clip.mediaReferences.size() != 1)
+    {
+        problems.push_back(tr("%1: image sequences must be saved as a Tracker project before they can be included.").arg(name));
+        return std::nullopt;
+    }
+    return localProjectPath(session.sourcePath(source));
+}
+
+bool WorkspaceWindow::saveTabset(const QString& path)
+{
+    if (m_Busy)
+        return false;
+    m_Busy = true;
+    refreshLabels();
+    bool alive = true;
+    QObject lifetime;
+    connect(this, &QObject::destroyed, &lifetime, [&] { alive = false; });
+    const auto context = m_Context;
+    auto& session = context->session();
+    const auto finish = [&](const QString& message)
+    {
+        m_Busy = false;
+        refreshLabels();
+        if (!message.isEmpty())
+            statusBar()->showMessage(message);
+    };
+    // Tracker lists tabs in order; hidden-only sources follow in workspace order.
+    std::vector<QUuid> ordered;
+    for (const auto document : session.tabs())
+        if (const auto source = session.sourceId(document); std::ranges::find(ordered, source) == ordered.end())
+            ordered.push_back(source);
+    for (const auto source : session.sources())
+        if (std::ranges::find(ordered, source) == ordered.end())
+            ordered.push_back(source);
+    QStringList problems;
+    std::vector<std::pair<QUuid, QString>> references;
+    for (const auto source : ordered)
+    {
+        bool cancelled = false;
+        auto file = tabsetReference(source, problems, cancelled);
+        if (!alive)
+            return false;
+        if (cancelled)
+        {
+            finish(tr("Tabset not saved."));
+            return false;
+        }
+        if (file && !file->isEmpty())
+            references.emplace_back(source, std::move(*file));
+    }
+    if (references.empty())
+    {
+        finish(tr("No open project has a saved Tracker file or unchanged video to include in a tabset."));
+        if (!problems.isEmpty())
+            showProblems(this, tr("No tabset was saved."), problems, "workspaceTabsetProblems");
+        return false;
+    }
+    auto destination = path;
+    if (destination.isEmpty())
+    {
+        destination = QFileDialog::getSaveFileName(this, tr("Save tabset"), {}, tr("Tracker tabsets (*.trk)"));
+        if (!alive)
+            return false;
+        if (destination.isEmpty())
+        {
+            finish({});
+            return false;
+        }
+        if (!destination.endsWith(".trk", Qt::CaseInsensitive))
+            destination += ".trk";
+    }
+    const auto physical = localProjectPath(destination);
+    if (physical.isEmpty())
+    {
+        finish(tr("The tabset folder is unavailable."));
+        return false;
+    }
+    // Never replace an experiment, companion or media file that belongs to an open source.
+    for (const auto source : session.sources())
+    {
+        auto owned = saveDestinations(session, source);
+        owned.push_back(localProjectPath(session.sourcePath(source)));
+        if (std::ranges::any_of(owned, [&](const QString& file) { return !file.isEmpty() && sameLocalFile(file, physical); }))
+        {
+            finish(tr("%1 belongs to an open project. Choose another tabset filename.").arg(QFileInfo(physical).fileName()));
+            return false;
+        }
+    }
+    // Edits made while confirming or saving would otherwise be missing from files the tabset presents as saved.
+    const auto sources = session.sources();
+    if (std::ranges::any_of(references,
+                            [&](const auto& reference) {
+                                return std::ranges::find(sources, reference.first) == sources.end() || session.isModified(reference.first);
+                            }))
+    {
+        finish(tr("A project changed while the tabset was being prepared. Save the tabset again."));
+        return false;
+    }
+    const auto directory = QFileInfo(physical).path();
+    std::vector<TabsetEntry> entries;
+    entries.reserve(references.size());
+    for (const auto& [source, file] : references)
+        entries.push_back(tabsetEntry(file, directory));
+    const auto written = saveTrackerTabset(physical, entries);
+    if (!written)
+    {
+        finish(tr("Could not save the tabset: %1").arg(QString::fromStdString(written.error())));
+        return false;
+    }
+    finish(tr("Saved tabset %1.").arg(QFileInfo(physical).fileName()));
+    if (!problems.isEmpty())
+        showProblems(
+            this, tr("Some projects were not included in %1.").arg(QFileInfo(physical).fileName()), problems, "workspaceTabsetProblems");
+    return true;
+}
+
 std::optional<QUuid> WorkspaceWindow::currentDocument() const
 {
     const auto document = m_Pages.key(m_Tabs->currentWidget());
@@ -391,7 +745,7 @@ void WorkspaceWindow::createView(QUuid document)
         }
     file->insertActions(file->actions().front(), m_OpenActions);
     file->addSeparator();
-    file->addActions({m_SaveAll, m_Revert, m_HideView, m_CloseSource, m_Quit});
+    file->addActions({m_SaveAll, m_SaveTabset, m_Revert, m_HideView, m_CloseSource, m_Quit});
     const QSignalBlocker block(m_Tabs);
     auto* placeholder = m_Pages.value(document);
     const auto index = m_Tabs->indexOf(placeholder);
@@ -541,6 +895,7 @@ void WorkspaceWindow::refreshLabels()
     m_CloseSource->setEnabled(!m_Busy && currentDocument().has_value());
     const auto sources = session.sources();
     m_SaveAll->setEnabled(!m_Busy && !sources.empty());
+    m_SaveTabset->setEnabled(!m_Busy && !sources.empty());
     const auto current = currentDocument();
     setWindowTitle(current ? tr("%1[*] — MoTrack").arg(documentLabel(*current)) : tr("MoTrack[*]"));
     setWindowModified(std::ranges::any_of(sources, [&session](QUuid source) { return session.isModified(source); }));

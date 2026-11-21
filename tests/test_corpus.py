@@ -198,6 +198,69 @@ class CorpusTests(unittest.TestCase):
                                           self.root / "reference.jar", self.root / "output", ":77")
             run.assert_not_called()
 
+    def test_tabset_roundtrip_requires_tracker_order_data_paths_and_motrack_resolution(self):
+        manifest = corpus.load_manifest()
+        (self.root / "reports").mkdir(exist_ok=True)
+
+        def masses(case_id):
+            case = next(c for c in manifest["cases"] if c["id"] == case_id)
+            project = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
+            return [{"name": m["name"], "mass": m["mass"], "samples": len(m["samples"])} for m in project["point_masses"]]
+
+        def tracker_tabs(lesson):
+            return [{"title": "linked-images", "path": str(lesson / "linked-images.trk"), "point_masses": masses("linked-images")},
+                    {"title": "second", "path": str(lesson / "multitab-images.trz"), "point_masses": masses("secondary-images")},
+                    {"title": "experiment", "path": str(lesson / "multitab-images.trz"), "point_masses": masses("linked-images")}]
+
+        def fake(mutation):
+            def run(command, *, display=None):
+                if command[1] == "--write-tabset":
+                    self.assertEqual(Path(command[2]).name, "lesson.trk")
+                    Path(command[2]).write_text("tabset", encoding="utf-8")
+                    return
+                if "TrackerTabsetReference" in command:
+                    self.assertEqual(display, ":77")
+                    args = command[command.index("TrackerTabsetReference") + 1:]
+                    self.assertEqual(args[2], "3")
+                    lesson = Path(args[0]).parent.parent / "lesson é"
+                    tabs = tracker_tabs(lesson)
+                    if mutation == "order":
+                        tabs = tabs[1:] + tabs[:1]
+                    elif mutation == "mass":
+                        tabs[1]["point_masses"][0]["mass"] = 4.5
+                    elif mutation == "path":
+                        tabs[0]["path"] = str(corpus.local_fixture_path({"local_file": "fixtures/linked-images/linked-images.trk"}))
+                    output = Path(args[1])
+                    output.mkdir(parents=True)
+                    (output / "tracker-tabset.trk").write_text("tracker", encoding="utf-8")
+                    (output / "tabset-session.json").write_text(json.dumps(
+                        {"reference_version": manifest["reference"]["version"], "verification_level": "tracker_tabset_session",
+                         "tabs": tabs}), encoding="utf-8")
+                    return
+                if command[1] == "--read-tabset":
+                    lesson = Path(command[2]).parent.parent / "input" / "lesson é"
+                    items = [{"status": 0, "file": str(lesson / "linked-images.trk")},
+                             {"status": 0, "file": str(lesson / "multitab-images.trz")},
+                             {"status": 2, "file": ""}]
+                    if mutation == "unresolved":
+                        items[1]["status"] = 1
+                    Path(command[3]).write_text(json.dumps(items), encoding="utf-8")
+                    return
+                self.fail(f"unexpected command {command}")
+            return run
+
+        for mutation in [None, "order", "mass", "path", "unresolved"]:
+            root = self.root / f"tabset-{mutation}"
+            root.mkdir()
+            with self.subTest(mutation=mutation), patch.object(corpus, "run", side_effect=fake(mutation)):
+                if mutation is None:
+                    corpus.check_tabset(manifest, self.root, "java", self.root / "classes", root, ":77", "probe")
+                    report = json.loads((self.root / "reports" / "tabset-roundtrip.json").read_text(encoding="utf-8"))
+                    self.assertEqual(report["verification_level"], "motrack_tabset_roundtrip")
+                else:
+                    with self.assertRaises(ValueError):
+                        corpus.check_tabset(manifest, self.root, "java", self.root / "classes", root, ":77", "probe")
+
     def test_failed_multitab_session_cleans_its_private_home_and_outputs(self):
         manifest = corpus.load_manifest()
         manifest["cases"] = [case for case in manifest["cases"] if case["id"] in

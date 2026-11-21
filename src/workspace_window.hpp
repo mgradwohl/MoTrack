@@ -3,6 +3,10 @@
 #include "workspace_context.hpp"
 
 #include <QMainWindow>
+#include <QStringList>
+
+#include <optional>
+#include <vector>
 
 class QAction;
 class QLabel;
@@ -35,6 +39,13 @@ class WorkspaceWindow final : public QMainWindow
     bool revertDocument(QUuid document);
     bool saveAll();
     bool closeSource(QUuid source);
+    /// Write a Tracker tabset listing every open source's saved Tracker file, or its unchanged single movie or
+    /// image, in tab order. Unsaved sources are offered Save/Skip/Cancel first. An empty path asks for one.
+    bool saveTabset(const QString& path = {});
+
+  Q_SIGNALS:
+    /// Every listed file has finished opening, failed or been skipped, and the selection is final.
+    void tabsetFinished(const QString& tabset);
 
   protected:
     void closeEvent(QCloseEvent* event) override;
@@ -50,6 +61,12 @@ class WorkspaceWindow final : public QMainWindow
     [[nodiscard]] std::optional<QUuid> trackOpen(std::optional<QUuid> request, const QString& label);
     void finishOpen(QUuid request);
     bool saveSource(QUuid source);
+    [[nodiscard]] std::optional<QUuid> requestInput(const QString& path, WorkspaceActivation activation);
+    void beginQueuedTabset();
+    void beginTabset(const QString& tabset, const std::vector<TabsetItem>& items);
+    void continueTabset();
+    void completeTabsetInput(QUuid request, const QList<QUuid>& documents, const QString& problem, bool cancelled = false);
+    [[nodiscard]] std::optional<QString> tabsetReference(QUuid source, QStringList& problems, bool& cancelled);
     [[nodiscard]] std::optional<WorkspaceDiscard> confirmSourceClose(QUuid source);
     bool releaseSource(QUuid source, WorkspaceDiscard discard);
 
@@ -61,6 +78,7 @@ class WorkspaceWindow final : public QMainWindow
     QMenu* m_ExperimentsMenu = nullptr;
     QList<QAction*> m_OpenActions;
     QAction* m_SaveAll = nullptr;
+    QAction* m_SaveTabset = nullptr;
     QAction* m_HideView = nullptr;
     QAction* m_Revert = nullptr;
     QAction* m_CloseSource = nullptr;
@@ -68,6 +86,25 @@ class WorkspaceWindow final : public QMainWindow
     QHash<QUuid, MainWindow*> m_Views; // Qt parent-owned; views hold their own shared context lease.
     QHash<QUuid, QWidget*> m_Pages;    // Lightweight placeholders until an experiment is first selected.
     QHash<QUuid, QListWidgetItem*> m_Opening;
+    /// Tracker opens a tabset's files one at a time; tabs keep the listed order.
+    struct PendingTabset
+    {
+        QString tabset;
+        QStringList files; // QList moves without throwing; std::deque may allocate in some libraries.
+        std::optional<QUuid> request;
+        QString current;
+        bool requestIsProject = false;
+        std::optional<QUuid> select;
+        QStringList problems;
+    };
+    std::optional<PendingTabset> m_Tabset;
+    /// Expanded tabsets waiting for their missing-file prompts, which run after the context callback returns.
+    struct ExpandedTabset
+    {
+        QString tabset;
+        std::vector<TabsetItem> items;
+    };
+    std::vector<ExpandedTabset> m_ExpandedTabsets;
     bool m_Busy = false;
 };
 
