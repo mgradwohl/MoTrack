@@ -282,7 +282,7 @@ numbers until each row is re-mapped with its slice.
 | 1 Reference and corpus | wave 0 (A2) | Open: post-6.3.5 reference build, inventory, provenance, source mapping, codec matrix. |
 | 2 Preserve documents and identities | waves 0–1 (A1, B2) | Audited slices merged; ObjectId generalization in B2. |
 | 3 Standard round trips | wave 1 | Audited slices merged; open until its gate above passes for the complete baseline. |
-| 4 Multi-document and shared UI | waves 1–2 (B3, C7) | Workspace, shell and Revert merged; Tracker tabsets (#150) implemented on the current XML layer and moving to A1 in B1; saved views and cross-tab import open. |
+| 4 Multi-document and shared UI | waves 1–2 (B3, C7) | Workspace, shell and Revert merged; Tracker tabsets (#150) under development on the current XML layer, moving to A1 in B1; saved views and cross-tab import open. |
 | 5 Coordinates and mechanical tracks | wave 2 (C0–C4) | Open. |
 | 6 Media and image transformations | wave 2 (C6) | Open. |
 | 7 Automated and image-based measurement | wave 2 (C6) | Open. |
