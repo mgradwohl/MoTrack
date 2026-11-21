@@ -22,11 +22,11 @@ to it elsewhere. Do not describe planned functionality or unavailable tooling as
   work. Reuse a suitable checkout; use a separate branch for an independent change.
 - Keep PRs focused on one behavior or problem. Fix build failures, data loss, and incorrect scientific
   results before adding unrelated features. Use the PR and issue templates in `.github/`.
-- Keep the merge queue small: prefer one active feature PR and at most one dependent follow-up while
-  checks or review run. Resolve findings and merge eligible PRs before starting another feature.
-  After a parent merges, retarget the child and clean up the verified merged branch promptly; do not
-  accumulate a long stack of green PRs. Unchanged checks or a pending review are not reasons to add
-  further dependent work.
+- The maintainer allowed parallel work on 2026-11-21: several independent PRs on disjoint components
+  may be open at once, each developed in its own branch/worktree with its own review. Dependent stacks
+  stay at most one PR deep. Resolve findings and merge eligible PRs promptly; after a parent merges,
+  retarget the child and clean up the verified merged branch. Do not accumulate long stacks of green
+  PRs, and keep PRs that touch the same files sequential.
 - Run formatting, static analysis, and relevant tests before opening a code PR. Follow CONTRIBUTING
   for the actual tools; MoTrack does not currently require TaskSmack's pre-commit hooks or scripts.
 - Distinguish locally verified results from CI results. Report the tested commit and platform. A Windows
@@ -52,14 +52,16 @@ to it elsewhere. Do not describe planned functionality or unavailable tooling as
 - Preserve the required [Tracker round-trip workflow](docs/migration-plan.md#tracker-round-trip-compatibility).
   A `.motrack` companion is allowed alongside standard files; native-only saving is not the compatibility
   target. Retain unknown source content and validate exported edits by reopening them in Java Tracker.
-- Follow the [full-port implementation order](docs/migration-plan.md#implementation-order-and-exit-gates).
+- Follow the [full-port implementation order](docs/migration-plan.md#implementation-order-and-exit-gates)
+  and its [architecture](docs/migration-plan.md#architecture). New model work targets the typed
+  `TrackerDocument` and OSP XMLControl layers rather than extending `LegacyProject` or the QDom writers.
   Update its requirement/status matrix with each completed slice. Keep status docs concise: the matrix
   row, user-facing docs and a PR link; detailed validation evidence belongs in the PR description.
   A working prototype, preserved unknown object, or green coverage result does not by itself establish
   full Tracker parity.
 - The maintainer extended completion on 2026-11-08: after the full port, resolve the remaining MoTrack
   issues in prioritized, coherent PR groups; then review the entire codebase, file actionable findings
-  and resolve those issues with the same process. Follow migration-plan phases 13–14. Do not postpone
+  and resolve those issues with the same process. Follow migration-plan waves 5–6 (formerly phases 13–14). Do not postpone
   current data-loss/scientific failures until that audit, or close unresolved work merely to empty the queue.
 - Before a port slice, consult the Tracker issue triage and refresh relevant upstream discussions.
   Link accepted fixes/workflows to a MoTrack issue with the original report, reproduction status and
