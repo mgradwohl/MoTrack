@@ -73,6 +73,12 @@ to it elsewhere. Do not describe planned functionality or unavailable tooling as
   evidence or an explicit investigated disposition. Deferred proposals do not silently expand port scope.
 - Preserve correct scientific behavior when the reference has a bug: keep independent expected values,
   document the intentional difference, and do not accept a lossy Tracker resave as compatibility evidence.
+- Rationalize every bug you find, whether in MoTrack, Tracker or OSP, with existing issues before or with
+  the fix: search the OpenSourcePhysics/tracker and OpenSourcePhysics/osp issues and MoTrack's issues;
+  link a match or file a MoTrack issue (reproduction, upstream search result, impact on Tracker workflows,
+  disposition and closing condition); add reference defects to
+  [docs/upstream-issues.md](docs/upstream-issues.md#defects-discovered-by-the-reference-harness); and
+  reference the issue from the PR. Filing upstream reports needs the maintainer's approval.
 - Document coordinate spaces, units, original frame numbers, clip steps, and timestamps. Changes to
   scientific results need explicit reasoning and numerical reference tests against the pinned Tracker
   behavior. Do not silently substitute zero for missing or unsupported measurements.
