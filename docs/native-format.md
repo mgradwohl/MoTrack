@@ -626,18 +626,6 @@ checks green. Later revisions still require their own CI and review. Missing or 
 include the resolved source path while preserving an existing output.
 Paired native snapshot adoption, movies and arbitrary supporting-resource collection remain unfinished.
 
-Local Windows validation for this slice passes all six CTest suites, formatting, clang-tidy,
-77 Python corpus tests and the native corpus checks, with 95.65% production line coverage
-(8173/8545). Current-revision Windows/macOS/Linux CI and code review remain required before merge.
-
-The corrupt-image overwrite was reproduced before adding staged decoding. The correction passes all
-eight local Windows CTest groups in 171.33 seconds, with 95.62% production C++ line coverage (8642/9038),
-all tracked formatting and both changed translation-unit static analyses. Regression inputs include
-non-image PNG data, a truncated PNG and a tiny BMP declaring oversized dimensions; each preserves
-existing destination bytes and source bindings. PNG/JPEG/BMP success cases retain exact image bytes.
-The project-only import benchmark still links Qt Core/Xml without Qt Gui. Three existing LLVM
-function-profile mismatch warnings remain visible. Current-head CI and review remain required.
-
 ### Desktop portable archive export
 
 `File → Export portable archive…` chooses a `.trz` destination and runs the adapter on the
