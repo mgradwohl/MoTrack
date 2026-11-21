@@ -1,42 +1,72 @@
 #!/usr/bin/env bash
 # Source this file to use the MoTrack toolchain in the current shell.
 
+# Put a directory first on PATH, once.
+motrack_path_prepend() {
+    local rest=":$PATH:"
+    rest="${rest//:"$1":/:}"
+    rest="${rest#:}"
+    rest="${rest%:}"
+    PATH="$1${rest:+:$rest}"
+}
+
 motrack_dev_env() {
-    local repo llvm tools qt media
+    local repo pins llvm_major gcc_major tools qt media llvm apple gcc_dir
     repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)" || return
-    case "$(uname -s)" in
-        Linux) llvm=/usr/lib/llvm-18/bin ;;
-        Darwin)
-            if command -v brew >/dev/null 2>&1; then
-                llvm="$(brew --prefix llvm@18)/bin"
-            fi
-            if [[ -z "${SDKROOT:-}" ]]; then
-                SDKROOT="$(xcrun --show-sdk-path)" || return
-                export SDKROOT
-            fi
-            ;;
-    esac
-    if [[ -n "${llvm:-}" && -d "$llvm" ]]; then
-        export PATH="$llvm:$PATH"
-    fi
+    pins="$repo/tools/toolchain.env"
+    llvm_major="$(sed -n 's/^MOTRACK_LLVM_MAJOR=//p' "$pins")"
+    gcc_major="$(sed -n 's/^MOTRACK_GCC_MAJOR=//p' "$pins")"
     if command -v python3 >/dev/null 2>&1; then
         tools="$(python3 "$repo/tools/dev_sdk.py" tools-root)" || return
         qt="$(python3 "$repo/tools/dev_sdk.py" qt-prefix)" || return
         if [[ -d "$tools/venv/bin" ]]; then
-            export PATH="$tools/venv/bin:$PATH"
+            motrack_path_prepend "$tools/venv/bin"
         fi
         if [[ -f "$qt/lib/cmake/Qt6/Qt6Config.cmake" ]]; then
             case ":${CMAKE_PREFIX_PATH:-}:" in
                 *":$qt:"*) ;;
                 *) export CMAKE_PREFIX_PATH="$qt${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}" ;;
             esac
-            export PATH="$qt/bin:$PATH"
+            motrack_path_prepend "$qt/bin"
         fi
         media="$(python3 "$repo/tools/media_sdk.py" prefix)" || return
         if [[ -f "$media/share/ffmpeg/FindFFMPEG.cmake" ]]; then
             export MOTRACK_FFMPEG_ROOT="$media"
         fi
     fi
+    # The compilers last, so they come first: ahead of the PyPI clang-format older setups put in the venv.
+    case "$(uname -s)" in
+        Linux)
+            llvm="/usr/lib/llvm-$llvm_major/bin"
+            if [[ -d "$llvm" ]]; then
+                motrack_path_prepend "$llvm"
+            fi
+            # Clang compiles against GCC 14's libstdc++, the C++ library Qt's Linux binaries use
+            # (cmake/MoTrackLibstdcxx.cmake). An explicit setting wins.
+            gcc_dir="/usr/lib/gcc/$(uname -m)-linux-gnu/$gcc_major"
+            if [[ -z "${MOTRACK_GCC_INSTALL_DIR:-}" && -d "$gcc_dir" && -d "/usr/include/c++/$gcc_major" ]]; then
+                export MOTRACK_GCC_INSTALL_DIR="$gcc_dir"
+            fi
+            ;;
+        Darwin)
+            if [[ -z "${SDKROOT:-}" ]]; then
+                SDKROOT="$(xcrun --show-sdk-path)" || return
+                export SDKROOT
+            fi
+            # clang-format and clang-tidy from Homebrew's keg-only llvm@23, then Apple's toolchain ahead
+            # of it: Apple Clang (Qt's macOS binaries use the system libc++) and the llvm-cov and
+            # llvm-profdata that read its coverage profiles.
+            if command -v brew >/dev/null 2>&1; then
+                llvm="$(brew --prefix "llvm@$llvm_major" 2>/dev/null)/bin"
+                if [[ -x "$llvm/clang-format" ]]; then
+                    motrack_path_prepend "$llvm"
+                fi
+            fi
+            apple="$(xcrun --find clang++)" || return
+            motrack_path_prepend "${apple%/*}"
+            ;;
+    esac
+    export PATH
 }
 
 motrack_dev_env
