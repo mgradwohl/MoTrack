@@ -63,6 +63,7 @@ class WorkspaceWindow final : public QMainWindow
     bool saveSource(QUuid source);
     [[nodiscard]] std::optional<QUuid> requestInput(const QString& path, WorkspaceActivation activation);
     void beginQueuedTabset();
+    [[nodiscard]] std::optional<QString> describeTabsetProblem(const TabsetItem& item) const;
     void beginTabset(const QString& tabset, const std::vector<TabsetItem>& items);
     void continueTabset();
     void completeTabsetInput(QUuid request, const QList<QUuid>& documents, const QString& problem, bool cancelled = false);
@@ -105,6 +106,7 @@ class WorkspaceWindow final : public QMainWindow
         std::vector<TabsetItem> items;
     };
     std::vector<ExpandedTabset> m_ExpandedTabsets;
+    bool m_TabsetPrompting = false;
     bool m_Busy = false;
 };
 

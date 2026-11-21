@@ -2469,6 +2469,10 @@ def check_tabset(manifest, cache, java, classes, root, display, probe):
     tabset = output / "input" / "sets" / "lesson.trk"
     tabset.parent.mkdir(parents=True)
     run([str(Path(probe).resolve()), "--write-tabset", str(tabset), str(linked), str(archive)])
+    # Move the whole folder so the recorded absolute paths are stale and only MoTrack's relative paths resolve.
+    relocated = output / "relocated-input"
+    (output / "input").rename(relocated)
+    tabset, linked, archive = (relocated / path.relative_to(output / "input") for path in (tabset, linked, archive))
     # Independent expectations: the linked experiment first, then each archive member in its pinned order.
     members = archive_case["session_archive_tabs"]
     expected = [(linked.stem, [linked], linked_case)] + [
@@ -2499,8 +2503,12 @@ def check_tabset(manifest, cache, java, classes, root, display, probe):
         desired = [{"name": mass["name"], "mass": mass["mass"], "samples": len(mass["samples"])} for mass in masses]
         if tab.get("point_masses") != desired:
             raise ValueError(f"{name}: Tracker point masses {tab.get('point_masses')} differ from {desired}")
-    # MoTrack opens Tracker's own tabset; Tracker lists the archive once per member tab.
-    read = output / "motrack-read.json"
+    # MoTrack opens Tracker's own tabset after the whole tree moves again, so only Tracker's relative paths resolve.
+    # Tracker lists the archive once per member tab.
+    moved = output.with_name(output.name + "-moved")
+    output.rename(moved)
+    session, linked, archive = (moved / path.relative_to(output) for path in (session, linked, archive))
+    read = moved / "motrack-read.json"
     run([str(Path(probe).resolve()), "--read-tabset", str(session / "tracker-tabset.trk"), str(read)])
     items = json.loads(read.read_text(encoding="utf-8"))
     resolved = [Path(item["file"]).resolve() for item in items if item["status"] == 0]
@@ -2509,7 +2517,7 @@ def check_tabset(manifest, cache, java, classes, root, display, probe):
     (cache / "reports" / "tabset-roundtrip.json").write_text(
         json.dumps({"verification_level": "motrack_tabset_roundtrip", "tracker_session": report, "motrack_read": items},
                    indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print("tabset: passed (MoTrack tabset opened in order by Tracker; Tracker's tabset reopened by MoTrack)")
+    print("tabset: passed (relocated MoTrack tabset opened in order by Tracker; relocated Tracker tabset reopened by MoTrack)")
 
 
 def check_sessions(manifest, cache, java, probe=None):

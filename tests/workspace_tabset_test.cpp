@@ -16,6 +16,8 @@
 #include <QLocale>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QScopeGuard>
+#include <QSemaphore>
 #include <QSignalSpy>
 #include <QTabWidget>
 #include <QTemporaryDir>
@@ -81,7 +83,10 @@ class DialogScript
                          {
                              auto* dialog = QApplication::activeModalWidget();
                              if (dialog && m_Next < m_Steps.size() && m_Steps[m_Next](dialog))
+                             {
                                  ++m_Next;
+                                 m_Timeout.start(); // Bound each wait, not the whole script, on slow runners.
+                             }
                          });
         m_Timer.start(1);
         m_Timeout.setSingleShot(true);
@@ -92,7 +97,7 @@ class DialogScript
                              if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
                                  dialog->reject();
                          });
-        m_Timeout.start(5000);
+        m_Timeout.start(15000);
     }
     [[nodiscard]] std::size_t handled() const
     {
@@ -349,11 +354,162 @@ TEST(WorkspaceTabset, SavingRefusesCancelledSavesOpenProjectFilesAndSetsWithNoth
     }
     EXPECT_FALSE(session.isModified(group));
     EXPECT_FALSE(window.saveTabset(archive));
+    // An existing experiment that is not open is never replaced by a tabset either.
+    const auto experiment = temporary.filePath("experiment.trk");
+    ASSERT_TRUE(QFile::copy(fixture("linked-images/linked-images.trk"), experiment));
+    EXPECT_FALSE(window.saveTabset(experiment));
+    EXPECT_FALSE(motrack::isTrackerTabsetFile(experiment));
     const auto saved = motrack::TrackerArchive::open(archive);
     EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(saved.projectPath(saved.projects().front())).project.pointMasses.front().mass, 21);
     EXPECT_TRUE(motrack::readArchiveGroup(temporary.filePath("group.motrack")).members.size() == 2U);
     EXPECT_TRUE(window.saveTabset(set));
     EXPECT_TRUE(QFile::exists(set));
+}
+
+TEST(WorkspaceTabset, LocatedTabsetsOpenInPlaceAndLaterTabsetsStillOpen)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto nested = temporary.filePath("moved/inner.trk");
+    ASSERT_TRUE(QDir().mkpath(temporary.filePath("moved")));
+    writeTabset(nested, {absoluteEntry(fixture("linked-images/linked-images.trk")), {.absolute = std::nullopt, .relative = "gone.trk"}});
+    const auto set = temporary.filePath("set.trk");
+    writeTabset(set, {{.absolute = std::nullopt, .relative = "inner.trk"}, absoluteEntry(fixture("linked-mov/constant-rate.mov"))});
+    motrack::WorkspaceWindow window;
+    window.show();
+    {
+        DialogScript script({answer("workspaceTabsetMissing", QMessageBox::Yes), chooseFile(nested)});
+        ASSERT_TRUE(openTabset(window, set, 2));
+        EXPECT_EQ(script.handled(), 2U);
+    }
+    // The located tabset's experiment opens where that tabset was listed, before the following movie.
+    const auto labels = tabLabels(window);
+    EXPECT_EQ(labels[0], "linked-images.trk");
+    EXPECT_EQ(labels[1], "constant-rate.mov");
+    auto* box = problems(window);
+    ASSERT_NE(box, nullptr);
+    EXPECT_TRUE(box->informativeText().contains("gone.trk"));
+    box->accept();
+    // A later tabset is not blocked by the located one.
+    const auto later = temporary.filePath("later.trk");
+    writeTabset(later, {absoluteEntry(fixture("linked-images/secondary-images.trk"))});
+    ASSERT_TRUE(openTabset(window, later, 3));
+}
+
+TEST(WorkspaceTabset, TabsetsArrivingTogetherOpenOneAfterAnother)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto first = temporary.filePath("first.trk");
+    const auto second = temporary.filePath("second.trk");
+    writeTabset(first, {{.absolute = std::nullopt, .relative = "missing.trk"}, absoluteEntry(fixture("linked-images/linked-images.trk"))});
+    writeTabset(second, {absoluteEntry(fixture("linked-images/secondary-images.trk"))});
+    motrack::WorkspaceWindow window;
+    window.show();
+    QSignalSpy finished(&window, &motrack::WorkspaceWindow::tabsetFinished);
+    // Answer the first tabset's prompt only after the second expansion has had time to arrive.
+    DialogScript script({[&](QWidget* widget)
+                         {
+                             auto* box = qobject_cast<QMessageBox*>(widget);
+                             if (!box || box->objectName() != "workspaceTabsetMissing")
+                                 return false;
+                             QTest::qWait(300);
+                             box->button(QMessageBox::No)->click();
+                             return true;
+                         }});
+    ASSERT_TRUE(window.openProject(first));
+    ASSERT_TRUE(window.openProject(second));
+    ASSERT_TRUE(QTest::qWaitFor([&] { return finished.count() == 2; }, 20000));
+    EXPECT_EQ(finished.at(0).at(0).toString(), canonical(first));
+    EXPECT_EQ(finished.at(1).at(0).toString(), canonical(second));
+    EXPECT_EQ(tabLabels(window), (std::vector<QString>{"linked-images.trk", "secondary-images.trk"}));
+}
+
+TEST(WorkspaceTabset, FailedFilesAreReportedWhileTheOthersOpen)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto broken = temporary.filePath("broken.trk");
+    QFile file(broken);
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+    ASSERT_GT(file.write("not Tracker XML"), 0);
+    file.close();
+    const auto set = temporary.filePath("set.trk");
+    writeTabset(set, {absoluteEntry(broken), absoluteEntry(fixture("linked-images/linked-images.trk"))});
+    motrack::WorkspaceWindow window;
+    window.show();
+    ASSERT_TRUE(openTabset(window, set, 1));
+    auto* box = problems(window);
+    ASSERT_NE(box, nullptr);
+    EXPECT_TRUE(box->informativeText().contains("broken.trk"));
+    box->accept();
+}
+
+TEST(WorkspaceTabset, CancelingAnOpenStopsTheRemainingFiles)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto set = temporary.filePath("set.trk");
+    writeTabset(set,
+                {absoluteEntry(fixture("linked-images/linked-images.trk")), absoluteEntry(fixture("linked-images/secondary-images.trk"))});
+    auto context = std::make_shared<motrack::WorkspaceContext>();
+    motrack::WorkspaceWindow window(context);
+    window.show();
+    QSignalSpy finished(&window, &motrack::WorkspaceWindow::tabsetFinished);
+    QSignalSpy expanded(context.get(), &motrack::WorkspaceContext::tabsetOpened);
+    // Hold both analysis workers after the expansion so the first listed open stays pending, then cancel it.
+    QSemaphore entered;
+    QSemaphore release;
+    auto& pool = context->services()->analysisPool();
+    const auto cleanup = qScopeGuard(
+        [&]
+        {
+            release.release(2);
+            (void)pool.waitForDone(5000);
+        });
+    ASSERT_TRUE(window.openProject(set));
+    ASSERT_TRUE(QTest::qWaitFor([&] { return expanded.count() == 1; }));
+    for (int i = 0; i < 2; ++i)
+        pool.start(
+            [&]
+            {
+                entered.release();
+                (void)release.tryAcquire(1, 5000);
+            });
+    ASSERT_TRUE(entered.tryAcquire(2, 2000));
+    auto* pending = window.findChild<QListWidget*>("pendingWorkspaceInputs");
+    ASSERT_TRUE(QTest::qWaitFor([&] { return pending->count() == 1; }));
+    ASSERT_TRUE(context->cancelOpen(pending->item(0)->data(Qt::UserRole).toUuid()));
+    release.release(2);
+    ASSERT_TRUE(QTest::qWaitFor([&] { return finished.count() == 1; }));
+    EXPECT_TRUE(context->session().sources().empty());
+    auto* box = problems(window);
+    ASSERT_NE(box, nullptr);
+    EXPECT_TRUE(box->informativeText().contains("remaining"));
+    box->accept();
+}
+
+TEST(WorkspaceTabset, DestroyingTheWindowDuringALocatePromptIsSafe)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto set = temporary.filePath("set.trk");
+    writeTabset(set, {{.absolute = std::nullopt, .relative = "missing.trk"}, absoluteEntry(fixture("linked-images/linked-images.trk"))});
+    auto context = std::make_shared<motrack::WorkspaceContext>();
+    auto window = std::make_unique<motrack::WorkspaceWindow>(context);
+    window->show();
+    DialogScript script({[&](QWidget* widget)
+                         {
+                             if (!qobject_cast<QMessageBox*>(widget) || widget->objectName() != "workspaceTabsetMissing")
+                                 return false;
+                             window.reset();
+                             return true;
+                         }});
+    ASSERT_TRUE(window->openProject(set));
+    ASSERT_TRUE(QTest::qWaitFor([&] { return !window; }));
+    QTest::qWait(100);
+    // The remaining file never opens once its owner is gone.
+    EXPECT_TRUE(context->session().sources().empty());
 }
 
 TEST(WorkspaceTabset, NativeOnlyAndChangedMediaSourcesAreReportedInsteadOfReferenced)

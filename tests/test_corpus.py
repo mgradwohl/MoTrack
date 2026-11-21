@@ -222,6 +222,9 @@ class CorpusTests(unittest.TestCase):
                     self.assertEqual(display, ":77")
                     args = command[command.index("TrackerTabsetReference") + 1:]
                     self.assertEqual(args[2], "3")
+                    # Tracker opens the relocated copy; the original folder no longer exists.
+                    self.assertEqual(Path(args[0]).parent.parent.name, "relocated-input")
+                    self.assertFalse(Path(args[0]).parent.parent.with_name("input").exists())
                     lesson = Path(args[0]).parent.parent / "lesson é"
                     tabs = tracker_tabs(lesson)
                     if mutation == "order":
@@ -229,7 +232,7 @@ class CorpusTests(unittest.TestCase):
                     elif mutation == "mass":
                         tabs[1]["point_masses"][0]["mass"] = 4.5
                     elif mutation == "path":
-                        tabs[0]["path"] = str(corpus.local_fixture_path({"local_file": "fixtures/linked-images/linked-images.trk"}))
+                        tabs[0]["path"] = str(Path(args[0]).parent.parent.with_name("input") / "lesson é" / "linked-images.trk")
                     output = Path(args[1])
                     output.mkdir(parents=True)
                     (output / "tracker-tabset.trk").write_text("tracker", encoding="utf-8")
@@ -238,7 +241,9 @@ class CorpusTests(unittest.TestCase):
                          "tabs": tabs}), encoding="utf-8")
                     return
                 if command[1] == "--read-tabset":
-                    lesson = Path(command[2]).parent.parent / "input" / "lesson é"
+                    # The checker moves the whole tree before MoTrack reads Tracker's tabset.
+                    self.assertTrue(Path(command[2]).parent.parent.name.endswith("-moved"))
+                    lesson = Path(command[2]).parent.parent / "relocated-input" / "lesson é"
                     items = [{"status": 0, "file": str(lesson / "linked-images.trk")},
                              {"status": 0, "file": str(lesson / "multitab-images.trz")},
                              {"status": 2, "file": ""}]

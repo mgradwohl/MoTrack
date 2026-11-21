@@ -393,10 +393,6 @@
         <translation type="unfinished" />
     </message>
     <message>
-        <source>Another tabset is still opening.</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
         <source>Tabset file not found</source>
         <translation type="unfinished" />
     </message>
@@ -516,6 +512,10 @@
     </message>
     <message>
         <source>Tabset</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1 exists and is not a tabset. Choose another filename so it is not replaced.</source>
         <translation type="unfinished" />
     </message>
 </context>

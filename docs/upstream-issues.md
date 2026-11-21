@@ -59,7 +59,8 @@ native dispositions from those refreshes:
   the workspace shell (#160–#164): tracking survives another tab's switch, reorder and close, and
   cancelled or replaced jobs reject late results. This does not claim an upstream fix.
 
-The baseline tabset workflow is now tracked explicitly in [MoTrack #150](https://github.com/mgradwohl/MoTrack/issues/150); moving reference frames discovered in the real Diabolo archive are tracked in [MoTrack #148](https://github.com/mgradwohl/MoTrack/issues/148). Neither discovery is an accepted full round trip.
+The baseline tabset workflow ([MoTrack #150](https://github.com/mgradwohl/MoTrack/issues/150)) now opens and saves through
+the workspace with an actual-Tracker check in both directions ([workspace guide](workspace-sessions.md#tracker-tabsets)); moving reference frames discovered in the real Diabolo archive are tracked in [MoTrack #148](https://github.com/mgradwohl/MoTrack/issues/148), which is not an accepted full round trip.
 
 ## Defects discovered by the reference harness
 

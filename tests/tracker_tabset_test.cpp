@@ -98,7 +98,9 @@ TEST(TrackerTabset, WritesOspXmlControlLayout)
     EXPECT_FALSE(motrack::isTrackerTabset("<object"));
 }
 
-TEST(TrackerTabset, ParsesJavaOrderingUnicodeAndIgnoresUnknownProperties)
+// Deliberately lenient: OSP sizes an array from its last element, so Tracker cannot load out-of-order indices,
+// but MoTrack accepts any unique dense order. MoTrack always writes indices in ascending order.
+TEST(TrackerTabset, ParsesIndicesInAnyOrderUnicodeAndIgnoresUnknownProperties)
 {
     const auto xml = std::string(R"(<?xml version="1.0" encoding="UTF-8"?>
 <object class="org.opensourcephysics.cabrillo.tracker.TFrame">

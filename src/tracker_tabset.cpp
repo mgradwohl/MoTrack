@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QSaveFile>
+#include <QXmlStreamReader>
 
 #include <algorithm>
 #include <format>
@@ -132,10 +133,11 @@ constexpr std::string_view STRING_MATRIX_CLASS = "[[Ljava.lang.String;";
     return canonical.isEmpty() ? std::nullopt : std::optional{std::move(canonical)};
 }
 
-/// Identity key for an already canonical path: Windows and default macOS volumes compare names case-insensitively.
+/// Identity key for an already canonical path. NTFS compares names case-insensitively by default; macOS volumes
+/// may be case-sensitive, where folding would silently drop a distinct file, so only Windows folds.
 [[nodiscard]] QString identityKey(const QString& canonical)
 {
-#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+#ifdef Q_OS_WIN
     return canonical.toCaseFolded();
 #else
     return canonical;
@@ -188,7 +190,8 @@ class Expansion
                 append(entry, tabset, TabsetItemStatus::Duplicate);
                 continue;
             }
-            if (!isTrackerXmlFile(*file))
+            // Only a TFrame root needs a full parse; experiments are parsed once, when they are opened.
+            if (!isTrackerXmlFile(*file) || !isTrackerTabsetFile(*file))
             {
                 append(entry, tabset, TabsetItemStatus::Resolved, *file);
                 continue;
@@ -200,11 +203,6 @@ class Expansion
                 continue;
             }
             const std::string_view xml(bytes->constData(), static_cast<std::size_t>(bytes->size()));
-            if (!isTrackerTabset(xml))
-            {
-                append(entry, tabset, TabsetItemStatus::Resolved, *file);
-                continue;
-            }
             if (depth + 1 >= MAX_TABSET_DEPTH)
             {
                 append(entry, tabset, TabsetItemStatus::TooDeep, *file);
@@ -279,10 +277,16 @@ bool isTrackerTabset(std::string_view xml)
 
 bool isTrackerTabsetFile(const QString& path)
 {
-    return readBounded(path)
-        .transform([](const QByteArray& bytes)
-                   { return isTrackerTabset(std::string_view(bytes.constData(), static_cast<std::size_t>(bytes.size()))); })
-        .value_or(false);
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly) || file.isSequential())
+        return false;
+    // The root element decides; stop there instead of parsing an experiment of up to 32 MiB.
+    constexpr qint64 MAX_PROLOG_BYTES = 64 * 1024;
+    QXmlStreamReader reader(&file);
+    while (!reader.atEnd() && !reader.hasError() && reader.characterOffset() <= MAX_PROLOG_BYTES)
+        if (reader.readNext() == QXmlStreamReader::StartElement)
+            return reader.name() == u"object" && reader.attributes().value("class") == QLatin1StringView(TRACKER_TABSET_CLASS);
+    return false;
 }
 
 std::expected<std::vector<TabsetEntry>, std::string> parseTrackerTabset(std::string_view xml)

@@ -17,6 +17,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QScopeGuard>
 #include <QSignalBlocker>
 #include <QStatusBar>
 #include <QTabBar>
@@ -285,16 +286,36 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
                 addDocuments(documents);
                 completeTabsetInput(request, documents, {});
             });
-    connect(m_Context.get(),
-            &WorkspaceContext::tabsetOpened,
-            this,
-            [this](QUuid request, const QString& tabset, const std::vector<TabsetItem>& items)
+    connect(
+        m_Context.get(),
+        &WorkspaceContext::tabsetOpened,
+        this,
+        [this](QUuid request, const QString& tabset, const std::vector<TabsetItem>& items)
+        {
+            finishOpen(request);
+            if (m_Tabset && m_Tabset->request == request)
             {
-                finishOpen(request);
-                // Missing-file prompts run after the context's completion handler has returned.
-                m_ExpandedTabsets.push_back({.tabset = tabset, .items = items});
-                QTimer::singleShot(0, this, &WorkspaceWindow::beginQueuedTabset);
-            });
+                // A located file was itself a tabset: open its files in place and report the rest without new prompts.
+                QStringList nested;
+                for (const auto& item : items)
+                    if (item.status == TabsetItemStatus::Resolved)
+                    {
+                        if (!std::ranges::any_of(m_Tabset->files, [&](const QString& queued) { return sameLocalFile(queued, item.file); }))
+                            nested.push_back(item.file);
+                    }
+                    else if (auto problem = describeTabsetProblem(item))
+                        m_Tabset->problems.push_back(*problem);
+                m_Tabset->files = nested + m_Tabset->files;
+                m_Tabset->requestIsProject = false;
+                completeTabsetInput(request, {}, {});
+                return;
+            }
+            // One tabset opens at a time; its prompts run after the context's completion handler has returned.
+            m_ExpandedTabsets.push_back({.tabset = tabset, .items = items});
+            QTimer::singleShot(0, this, &WorkspaceWindow::beginQueuedTabset);
+            if (m_Tabset && !m_Tabset->request) // This open may have used the slot the active tabset was waiting for.
+                QTimer::singleShot(0, this, &WorkspaceWindow::continueTabset);
+        });
     connect(m_Context.get(),
             &WorkspaceContext::inputFailed,
             this,
@@ -385,41 +406,70 @@ std::optional<QUuid> WorkspaceWindow::requestInput(const QString& path, Workspac
 {
     if (isProjectFile(path))
         return m_Context->openProject(path, activation);
-    // Tracker opens a single listed image as a one-frame image video with unknown timing.
+    // Tracker opens a single listed image as a one-frame image video with unknown timing. An animated image
+    // (for example a GIF opened as video) keeps its frames by opening as a movie.
     if (QImageReader::supportedImageFormats().contains(QFileInfo(path).suffix().toLower().toLatin1()))
-        return m_Context->openImages({path}, 0.0, activation);
+        if (const QImageReader reader(path); !(reader.supportsAnimation() && reader.imageCount() != 1))
+            return m_Context->openImages({path}, 0.0, activation);
     return m_Context->openMovie(path, activation);
 }
 
 void WorkspaceWindow::beginQueuedTabset()
 {
-    if (m_ExpandedTabsets.empty())
+    // A queued tabset starts once the active one, including its prompts' nested event loops, has finished.
+    if (m_ExpandedTabsets.empty() || m_Tabset || m_TabsetPrompting)
         return;
     auto next = std::move(m_ExpandedTabsets.front());
     m_ExpandedTabsets.erase(m_ExpandedTabsets.begin());
     beginTabset(next.tabset, next.items);
 }
 
+std::optional<QString> WorkspaceWindow::describeTabsetProblem(const TabsetItem& item) const
+{
+    const auto listed = QString::fromStdString(item.entry.relative);
+    switch (item.status)
+    {
+    case TabsetItemStatus::Resolved:
+    case TabsetItemStatus::Duplicate: // Tracker lists an archive once per experiment tab; open each file once silently.
+        return std::nullopt;
+    case TabsetItemStatus::Missing:
+        return tr("%1: not found.").arg(listed);
+    case TabsetItemStatus::Cycle:
+        return tr("%1: a tabset that includes itself; skipped.").arg(listed);
+    case TabsetItemStatus::Unreadable:
+        return tr("%1: could not be read (%2).").arg(listed, QString::fromStdString(item.diagnostic));
+    case TabsetItemStatus::TooDeep:
+        return tr("%1: tabsets are nested too deeply; skipped.").arg(listed);
+    case TabsetItemStatus::TooMany:
+        return tr("Only the first %n files were opened.", nullptr, static_cast<int>(MAX_TABSET_ENTRIES));
+    }
+    return std::nullopt;
+}
+
 void WorkspaceWindow::beginTabset(const QString& tabset, const std::vector<TabsetItem>& items)
 {
-    if (m_Tabset)
-    {
-        statusBar()->showMessage(tr("Another tabset is still opening."));
-        return;
-    }
     bool alive = true;
     QObject lifetime;
     connect(this, &QObject::destroyed, &lifetime, [&] { alive = false; });
+    m_TabsetPrompting = true;
+    const auto prompting = qScopeGuard(
+        [&]
+        {
+            if (alive)
+                m_TabsetPrompting = false;
+        });
     PendingTabset pending{.tabset = tabset};
     for (const auto& item : items)
     {
         const auto listed = QString::fromStdString(item.entry.relative);
-        switch (item.status)
-        {
-        case TabsetItemStatus::Resolved:
+        if (item.status == TabsetItemStatus::Resolved)
             pending.files.push_back(item.file);
-            break;
-        case TabsetItemStatus::Missing:
+        else if (item.status != TabsetItemStatus::Missing)
+        {
+            if (auto problem = describeTabsetProblem(item))
+                pending.problems.push_back(*problem);
+        }
+        else
         {
             const auto answer =
                 askQuestion(this,
@@ -444,32 +494,10 @@ void WorkspaceWindow::beginTabset(const QString& tabset, const std::vector<Tabse
                                            { return other.status == TabsetItemStatus::Resolved && sameLocalFile(other.file, file); });
             };
             if (located.isEmpty())
-                pending.problems.push_back(tr("%1: not found.").arg(listed));
+                pending.problems.push_back(*describeTabsetProblem(item));
             else if (!listedElsewhere(located))
                 pending.files.push_back(located);
-            break;
         }
-        case TabsetItemStatus::Duplicate:
-            // Tracker lists an archive once per experiment tab; open each file once without a warning.
-            break;
-        case TabsetItemStatus::Cycle:
-            pending.problems.push_back(tr("%1: a tabset that includes itself; skipped.").arg(listed));
-            break;
-        case TabsetItemStatus::Unreadable:
-            pending.problems.push_back(tr("%1: could not be read (%2).").arg(listed, QString::fromStdString(item.diagnostic)));
-            break;
-        case TabsetItemStatus::TooDeep:
-            pending.problems.push_back(tr("%1: tabsets are nested too deeply; skipped.").arg(listed));
-            break;
-        case TabsetItemStatus::TooMany:
-            pending.problems.push_back(tr("Only the first %n files were opened.", nullptr, static_cast<int>(MAX_TABSET_ENTRIES)));
-            break;
-        }
-    }
-    if (m_Tabset)
-    {
-        statusBar()->showMessage(tr("Another tabset is still opening."));
-        return;
     }
     m_Tabset = std::move(pending);
     continueTabset();
@@ -502,6 +530,7 @@ void WorkspaceWindow::continueTabset()
     statusBar()->showMessage(tr("Opened tabset %1.").arg(name));
     if (!finished.problems.isEmpty())
         showProblems(this, tr("Some files listed in %1 were not opened.").arg(name), finished.problems, "workspaceTabsetProblems");
+    QTimer::singleShot(0, this, &WorkspaceWindow::beginQueuedTabset);
     Q_EMIT tabsetFinished(finished.tabset);
 }
 
@@ -637,21 +666,37 @@ bool WorkspaceWindow::saveTabset(const QString& path)
     auto destination = path;
     if (destination.isEmpty())
     {
-        destination = QFileDialog::getSaveFileName(this, tr("Save tabset"), {}, tr("Tracker tabsets (*.trk)"));
+        // The default suffix is applied before the dialog's overwrite confirmation sees the filename.
+        auto* dialog = new QFileDialog(this, tr("Save tabset"), {}, tr("Tracker tabsets (*.trk)"));
+        dialog->setObjectName("workspaceTabsetSaveDialog");
+        dialog->setAcceptMode(QFileDialog::AcceptSave);
+        dialog->setDefaultSuffix("trk");
+        bool dialogAlive = true;
+        connect(dialog, &QObject::destroyed, &lifetime, [&] { dialogAlive = false; });
+        const bool accepted = dialog->exec() == QDialog::Accepted;
         if (!alive)
             return false;
+        if (dialogAlive)
+        {
+            if (accepted && !dialog->selectedFiles().isEmpty())
+                destination = dialog->selectedFiles().front();
+            delete dialog;
+        }
         if (destination.isEmpty())
         {
             finish({});
             return false;
         }
-        if (!destination.endsWith(".trk", Qt::CaseInsensitive))
-            destination += ".trk";
     }
     const auto physical = localProjectPath(destination);
     if (physical.isEmpty())
     {
         finish(tr("The tabset folder is unavailable."));
+        return false;
+    }
+    if (QFileInfo(physical).exists() && !isTrackerTabsetFile(physical))
+    {
+        finish(tr("%1 exists and is not a tabset. Choose another filename so it is not replaced.").arg(QFileInfo(physical).fileName()));
         return false;
     }
     // Never replace an experiment, companion or media file that belongs to an open source.
@@ -1055,6 +1100,10 @@ void WorkspaceWindow::closeEvent(QCloseEvent* event)
     event->ignore();
     if (m_Busy)
         return;
+    // Queued tabset work must not start new opens while the close prompts run.
+    m_ExpandedTabsets.clear();
+    if (m_Tabset)
+        m_Tabset->files.clear();
     for (auto request = m_Opening.cbegin(); request != m_Opening.cend(); ++request)
         (void)m_Context->cancelOpen(request.key());
     const auto context = m_Context;
