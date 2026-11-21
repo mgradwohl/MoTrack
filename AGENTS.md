@@ -26,7 +26,8 @@ to it elsewhere. Do not describe planned functionality or unavailable tooling as
   may be open at once, each developed in its own branch/worktree with its own review. Dependent stacks
   stay at most one PR deep. Resolve findings and merge eligible PRs promptly; after a parent merges,
   retarget the child and clean up the verified merged branch. Do not accumulate long stacks of green
-  PRs, and keep PRs that touch the same files sequential.
+  PRs. Keep PRs that change the same code sequential; shared registration lines (CMake source lists, CI
+  steps) and separate status rows may be rebased as each PR merges.
 - Run formatting, static analysis, and relevant tests before opening a code PR. Follow CONTRIBUTING
   for the actual tools; MoTrack does not currently require TaskSmack's pre-commit hooks or scripts.
 - Distinguish locally verified results from CI results. Report the tested commit and platform. A Windows
@@ -53,8 +54,11 @@ to it elsewhere. Do not describe planned functionality or unavailable tooling as
   A `.motrack` companion is allowed alongside standard files; native-only saving is not the compatibility
   target. Retain unknown source content and validate exported edits by reopening them in Java Tracker.
 - Follow the [full-port implementation order](docs/migration-plan.md#implementation-order-and-exit-gates)
-  and its [architecture](docs/migration-plan.md#architecture). New model work targets the typed
-  `TrackerDocument` and OSP XMLControl layers rather than extending `LegacyProject` or the QDom writers.
+  and its [architecture](docs/migration-plan.md#architecture). The OSP XMLControl layer and typed
+  `TrackerDocument` are planned (waves 0–1), not yet implemented. New model work targets them rather than
+  growing `LegacyProject` or the QDom writers; until slice B3 retires those, fixes for data loss, crashes
+  or incorrect science in the current code remain required, and workspace features may keep using them
+  where the plan schedules their move (for example tabsets in B1).
   Update its requirement/status matrix with each completed slice. Keep status docs concise: the matrix
   row, user-facing docs and a PR link; detailed validation evidence belongs in the PR description.
   A working prototype, preserved unknown object, or green coverage result does not by itself establish
