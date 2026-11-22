@@ -81,12 +81,15 @@ to it elsewhere. Do not describe planned functionality or unavailable tooling as
   reference the issue from the PR. The maintainer approved filing confirmed reference defects upstream
   under their account (2026-11-21): verify against the current upstream source, file in the
   OpenSourcePhysics repository with permalinks, a reproduction and a suggested fix, and link both ways.
+  File one issue per root cause; group display-only or cosmetic quirks into one issue per class.
 - Document coordinate spaces, units, original frame numbers, clip steps, and timestamps. Changes to
   scientific results need explicit reasoning and numerical reference tests against the pinned Tracker
   behavior. Do not silently substitute zero for missing or unsupported measurements.
 - Keep long decoding, indexing, import, and tracking operations off the GUI thread. Make cancellation,
   stale-result rejection, and lifetime/ownership explicit. Only the GUI thread updates widgets.
-- Preserve familiar Tracker workflows; record deliberate differences in the user-facing documentation.
+- Preserve Tracker's capabilities and workflows; the layout may be modernized (maintainer decision of
+  2026-11-22). Record deliberate differences in the user-facing documentation, including where each
+  Tracker command lives, and surface applicable scientific corrections with a quiet indicator.
   Send visible strings through Qt translation and update catalogs or mark new entries unfinished.
 - Use small synthetic fixtures and offscreen smoke tests by default. Wait for observable UI state rather
   than assuming a fixed frame count or sleep is enough. Keep writes in temporary test directories.
