@@ -1,1 +1,34 @@
+# Text files are UTF-8 without a BOM, with LF line endings in the repository and every working tree
+# (CONTRIBUTING.md, "Text encoding and locale"). tools/check-utf8.py checks every text file.
 * text=auto eol=lf
+
+# Media and archives: never converted, merged or checked as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.bmp binary
+*.ico binary
+*.webp binary
+*.mov binary
+*.mp4 binary
+*.avi binary
+*.mkv binary
+*.webm binary
+*.zip binary
+*.trz binary
+*.motrack binary
+*.jar binary
+*.icns binary
+*.ttf binary
+*.qm binary
+*.pdf binary
+*.exe binary
+*.dll binary
+
+# Test inputs keep their exact bytes: a reader under test may need CRLF or CR line endings, a byte-order mark or
+# another encoding, and tests/corpus/manifest.json pins SHA-256 digests. Git stores them unconverted and
+# tools/check-utf8.py skips them. Never rewrite an existing fixture's bytes.
+tests/fixtures/** -text
+tests/corpus/fixtures/** -text
+tests/fixtures/README.md text eol=lf

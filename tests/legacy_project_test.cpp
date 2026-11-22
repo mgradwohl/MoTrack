@@ -1,12 +1,17 @@
 #include "legacy_project.hpp"
 
+#include "filesystem_path.hpp"
 #include "measurements.hpp"
 #include "osp_layout.hpp"
 #include "tracker_writer.hpp"
 
 #include <QFile>
+#include <QString>
 #include <QTemporaryFile>
 #include <gtest/gtest.h>
+
+#include <string_view>
+#include <tuple>
 
 namespace
 {
@@ -33,7 +38,7 @@ std::string projectWithMarks(std::string_view properties)
 
 TEST(LegacyProject, ImportsMetadataAndSparseMarks)
 {
-    const auto result = motrack::readLegacyProject(std::filesystem::path(MOTRACK_FIXTURES) / "point-mass.trk");
+    const auto result = motrack::readLegacyProject(motrack::toFilesystemPath(QString::fromUtf8(MOTRACK_FIXTURES) + "/point-mass.trk"));
     EXPECT_EQ(result.version, "6.3.5");
     EXPECT_EQ(result.description, "Two marks & a gap.");
     EXPECT_EQ(result.clip.firstFrame, 2);
@@ -170,12 +175,40 @@ TEST(LegacyProject, RejectsOversizedProjectFilesBeforeReading)
     ASSERT_TRUE(file.open());
     ASSERT_TRUE(file.resize(32LL * 1024 * 1024 + 1));
     file.close();
-    EXPECT_THROW(motrack::readLegacyProject(std::filesystem::path(file.fileName().toStdU16String())), motrack::ProjectError);
+    EXPECT_THROW(motrack::readLegacyProject(motrack::toFilesystemPath(file.fileName())), motrack::ProjectError);
+}
+
+TEST(LegacyProject, RefusesWindows1252BytesWhateverTheDeclaration)
+{
+    // Tracker reads every XMLControl file as UTF-8, whatever it declares, and silently turns invalid bytes into
+    // U+FFFD; MoTrack never substitutes silently. Windows-1252 bytes are refused under a UTF-8 or an ISO-8859-1
+    // declaration, and the refusal names Windows-1252 (#277); opening them with a warning is #302 (CONTRIBUTING.md,
+    // Tracker compatibility exceptions). ReadsDocumentsWithTrackersLineOrientedReader covers undefined bytes.
+    QFile input(QString::fromUtf8(MOTRACK_FIXTURES) + "/point-mass.trk");
+    ASSERT_TRUE(input.open(QIODevice::ReadOnly));
+    const auto text = QString::fromUtf8(input.readAll());
+    ASSERT_TRUE(text.contains(QString::fromUtf8("P\xC3\xA9ndulo")) && text.contains(R"(encoding="UTF-8")"));
+    for (const auto* declaration : {R"(encoding="UTF-8")", R"(encoding="ISO-8859-1")"})
+    {
+        SCOPED_TRACE(declaration);
+        auto declared = text;
+        declared.replace(R"(encoding="UTF-8")", QString::fromLatin1(declaration));
+        // e acute is 0xE9 in both Windows-1252 and ISO-8859-1.
+        try
+        {
+            std::ignore = motrack::parseTrackerProject(declared.toLatin1().toStdString());
+            ADD_FAILURE() << "accepted";
+        }
+        catch (const motrack::ProjectError& error)
+        {
+            EXPECT_NE(std::string_view(error.what()).find("It reads as Windows-1252 text"), std::string_view::npos) << error.what();
+        }
+    }
 }
 
 TEST(LegacyProject, ReadsCalibrationAndKeepsMarksWhenCalibrationIsUnsupported)
 {
-    const auto result = motrack::readLegacyProject(std::filesystem::path(MOTRACK_FIXTURES) / "image-sequence.trk");
+    const auto result = motrack::readLegacyProject(motrack::toFilesystemPath(QString::fromUtf8(MOTRACK_FIXTURES) + "/image-sequence.trk"));
     EXPECT_EQ(result.lengthUnit, "m");
     EXPECT_EQ(result.clip.frameDurationMs, 250.0);
     EXPECT_DOUBLE_EQ(result.clip.startTimeMs, -500.0);
@@ -430,7 +463,7 @@ TEST(LegacyProject, KeepsTheLastOfDuplicateCalibrationKeysAsTrackerDoes)
 
 std::string fixtureText(std::string_view name)
 {
-    QFile file(QString::fromStdString((std::filesystem::path(MOTRACK_FIXTURES) / name).string()));
+    QFile file(QString::fromUtf8(MOTRACK_FIXTURES) + '/' + QString::fromUtf8(name.data(), static_cast<qsizetype>(name.size())));
     return file.open(QIODevice::ReadOnly) ? file.readAll().toStdString() : std::string{};
 }
 
@@ -529,7 +562,7 @@ TEST(LegacyProject, AppliesTrackerLoaderDefaultsForUnsavedClipControlAndLengthUn
     EXPECT_EQ(massless.pointMasses.front().mass, 1.0);
     EXPECT_EQ(motrack::parseLegacyProject(projectXml(R"(<property name="length_unit" type="string"></property>)")).lengthUnit, "");
     // Projects with media take their timing from the video and its control, not the media-free default.
-    const auto media = motrack::readLegacyProject(std::filesystem::path(MOTRACK_FIXTURES) / "point-mass.trk");
+    const auto media = motrack::readLegacyProject(motrack::toFilesystemPath(QString::fromUtf8(MOTRACK_FIXTURES) + "/point-mass.trk"));
     EXPECT_FALSE(media.clip.frameDurationMs.has_value());
     EXPECT_EQ(media.lengthUnit, "m");
 

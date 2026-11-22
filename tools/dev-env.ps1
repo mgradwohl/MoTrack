@@ -16,10 +16,24 @@ function Add-MoTrackPath {
     $env:Path = (($entries | Where-Object { $_ } | Select-Object -Unique) -join ';')
 }
 
+function Invoke-MoTrackUtf8 {
+    # Runs a native command whose output is parsed, decoding that output as UTF-8 rather than the OEM code page
+    # (CONTRIBUTING.md, "Text encoding and locale"). This file is dot-sourced, so the user's console encoding is
+    # restored afterwards. The command must write UTF-8: python -X utf8, vswhere -utf8.
+    param([scriptblock]$Command)
+    $previous = [Console]::OutputEncoding
+    try {
+        try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch { Write-Verbose "Console encoding unchanged: $_" }
+        & $Command
+    } finally {
+        try { [Console]::OutputEncoding = $previous } catch { Write-Verbose "Console encoding not restored: $_" }
+    }
+}
+
 function Get-MoTrackVisualStudio {
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
     if (Test-Path -LiteralPath $vswhere) {
-        & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+        Invoke-MoTrackUtf8 { & $vswhere -utf8 -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath }
     }
 }
 
@@ -66,9 +80,9 @@ function Initialize-MoTrackEnvironment {
     if ($python) {
         Add-MoTrackPath @(Split-Path -Parent $python)
         $sdk = Join-Path $repo 'tools\dev_sdk.py'
-        $tools = & $python $sdk tools-root
+        $tools = Invoke-MoTrackUtf8 { & $python -X utf8 $sdk tools-root }
         if ($LASTEXITCODE -ne 0) { throw 'Could not locate the MoTrack tools directory.' }
-        $qt = & $python $sdk qt-prefix
+        $qt = Invoke-MoTrackUtf8 { & $python -X utf8 $sdk qt-prefix }
         if ($LASTEXITCODE -ne 0) { throw 'Could not locate the MoTrack Qt SDK.' }
         $venv = Join-Path $tools 'venv\Scripts'
         if (Test-Path -LiteralPath $venv) { Add-MoTrackPath @($venv) }
@@ -77,7 +91,7 @@ function Initialize-MoTrackEnvironment {
             $prefixes = @($qt) + @($env:CMAKE_PREFIX_PATH -split ';')
             $env:CMAKE_PREFIX_PATH = (($prefixes | Where-Object { $_ } | Select-Object -Unique) -join ';')
         }
-        $media = & $python (Join-Path $repo 'tools\media_sdk.py') prefix
+        $media = Invoke-MoTrackUtf8 { & $python -X utf8 (Join-Path $repo 'tools\media_sdk.py') prefix }
         if ($LASTEXITCODE -ne 0) { throw 'Could not locate the MoTrack FFmpeg SDK.' }
         if (Test-Path -LiteralPath (Join-Path $media 'share\ffmpeg\FindFFMPEG.cmake')) {
             $env:MOTRACK_FFMPEG_ROOT = $media

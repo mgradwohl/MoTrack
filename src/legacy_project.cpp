@@ -1,5 +1,6 @@
 #include "legacy_project.hpp"
 
+#include "filesystem_path.hpp"
 #include "track_identity.hpp"
 #include "tracker_import.hpp"
 
@@ -478,7 +479,7 @@ LegacyProject readLegacyProject(const std::filesystem::path& path)
 ImportedTrackerProject readTrackerProject(const std::filesystem::path& path)
 {
     // Use the same Unicode/long-path capable filesystem adapter as desktop saving.
-    QFile file(QString::fromStdU16String(path.u16string()));
+    QFile file(fromFilesystemPath(path));
     if (!file.open(QIODevice::ReadOnly) || file.isSequential())
     {
         throw ProjectError("Could not open the Tracker project.");

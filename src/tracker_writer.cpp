@@ -1610,7 +1610,7 @@ void writeTrackerArchiveDocuments(const QString& path, std::span<const Workspace
     {
         require(!cancelled || !cancelled->load());
         require(document.archivePayload && document.archiveMember && document.archivePayload->sourceDigest() == source.sourceDigest() &&
-                members.insert(*document.archiveMember).second);
+                members.insert(archiveMemberKey(*document.archiveMember)).second);
         require(!QFileInfo(document.archivePayload->sourcePath()).isSymLink());
         // Independently reopened companions own separate source/extraction trees. Protect every
         // owner's paths, even though the common original bytes are read only from the first owner.

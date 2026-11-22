@@ -1,5 +1,6 @@
 #include "main_window.hpp"
 
+#include "display_locale.hpp"
 #include "local_media_path.hpp"
 #include "measurements.hpp"
 #include "movie_worker.hpp"
@@ -2245,6 +2246,7 @@ bool MainWindow::saveCsv(const QString& path, const std::string& csv)
 void MainWindow::displayMarks()
 {
     const auto& project = viewProject();
+    const auto locale = dataDisplayLocale();
     m_Marks->setRowCount(0);
     for (const auto& track : project.pointMasses)
     {
@@ -2253,14 +2255,14 @@ void MainWindow::displayMarks()
             const auto row = m_Marks->rowCount();
             m_Marks->insertRow(row);
             m_Marks->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(track.name)));
-            m_Marks->setItem(row, 1, new QTableWidgetItem(QString::number(mark.frame)));
-            m_Marks->setItem(row, 2, new QTableWidgetItem(QString::number(mark.x, 'g', 12)));
-            m_Marks->setItem(row, 3, new QTableWidgetItem(QString::number(mark.y, 'g', 12)));
+            m_Marks->setItem(row, 1, new QTableWidgetItem(locale.toString(mark.frame)));
+            m_Marks->setItem(row, 2, new QTableWidgetItem(locale.toString(mark.x, 'g', 12)));
+            m_Marks->setItem(row, 3, new QTableWidgetItem(locale.toString(mark.y, 'g', 12)));
             const auto world = project.calibration ? worldPosition(*project.calibration, mark) : std::nullopt;
             if (world)
             {
-                m_Marks->setItem(row, 4, new QTableWidgetItem(QString::number(world->x, 'g', 12)));
-                m_Marks->setItem(row, 5, new QTableWidgetItem(QString::number(world->y, 'g', 12)));
+                m_Marks->setItem(row, 4, new QTableWidgetItem(locale.toString(world->x, 'g', 12)));
+                m_Marks->setItem(row, 5, new QTableWidgetItem(locale.toString(world->y, 'g', 12)));
             }
         }
     }

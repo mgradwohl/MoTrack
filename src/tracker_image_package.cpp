@@ -2,6 +2,7 @@
 #include "paired_save.hpp"
 #include "tracker_archive.hpp"
 #include "tracker_writer.hpp"
+#include "utf8_thread_locale.hpp"
 #include "video_reader.hpp"
 #include "workspace_document.hpp"
 
@@ -215,12 +216,16 @@ void writeTrackerMediaPackage(
     const auto staged = temporary.filePath("package.trz");
     ZipOutput output{.file = QFile(staged), .cancelled = cancelled};
     require(output.file.open(QIODevice::WriteOnly | QIODevice::NewOnly));
+    // hdrcharset needs a UTF-8 thread LC_CTYPE on POSIX (MoTrack's libarchive has no iconv); on Windows it is
+    // what sets the UTF-8 flag. The locale scope outlives the writer.
+    const ScopedUtf8ThreadLocale utf8Names;
     std::unique_ptr<archive, decltype(&archive_write_free)> writer(archive_write_new(), &archive_write_free);
     // libarchive streams a data descriptor after each member. Java ZipInputStream (used by Tracker)
     // accepts descriptors only for DEFLATED entries, even when all uncompressed sizes are known.
+    // Names are UTF-8 and a non-ASCII name gets the UTF-8 flag, as java.util.zip writes them, whatever the C locale.
     require(writer && archive_write_set_format_zip(writer.get()) == ARCHIVE_OK &&
             archive_write_set_bytes_per_block(writer.get(), 0) == ARCHIVE_OK &&
-            archive_write_set_options(writer.get(), "zip:compression=deflate,zip:compression-level=1") == ARCHIVE_OK &&
+            archive_write_set_options(writer.get(), "zip:compression=deflate,zip:compression-level=1,zip:hdrcharset=UTF-8") == ARCHIVE_OK &&
             archive_write_open(writer.get(), &output, nullptr, &writeBlock, nullptr) == ARCHIVE_OK);
     for (const auto& member : members)
         writeMember(writer.get(), member, temporary.filePath(member), cancelled);

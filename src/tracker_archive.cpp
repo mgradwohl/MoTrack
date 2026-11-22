@@ -1,27 +1,23 @@
 #include "tracker_archive.hpp"
 
+#include "utf8_thread_locale.hpp"
+
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
-#include <QScopeGuard>
 #include <QSet>
 
 #include <algorithm>
 #include <array>
-#include <clocale>
 #include <memory>
 #include <utility>
 #include <vector>
 
 #include <archive.h>
 #include <archive_entry.h>
-
-#ifdef __APPLE__
-#include <xlocale.h>
-#endif
 
 namespace motrack
 {
@@ -37,6 +33,15 @@ void require(bool valid)
     {
         throw ProjectError("Invalid or unsupported Tracker archive.");
     }
+}
+
+/// A member name that is not UTF-8. Tracker's java.util.zip refuses the whole archive too (#275).
+[[noreturn]] void refuseNonUtf8Name()
+{
+    throw ProjectError(QCoreApplication::translate("TrackerArchive",
+                                                   "A member name in this Tracker archive is not valid UTF-8 text, so the archive "
+                                                   "cannot be opened. Tracker cannot open it either.")
+                           .toStdString());
 }
 
 bool safeMember(const QString& path)
@@ -122,6 +127,18 @@ QByteArray snapshotArchive(const QString& path, const QString& destination, cons
 
 } // namespace
 
+std::string archiveMemberKey(std::string_view member)
+{
+    return QString::fromUtf8(member.data(), static_cast<qsizetype>(member.size())).normalized(QString::NormalizationForm_C).toStdString();
+}
+
+bool detail::isNameConversionWarning(std::string_view libarchiveError) noexcept
+{
+    // libarchive's ZIP reader: "Pathname cannot be converted from UTF-8 to current locale." and the same for
+    // "Symlink". CRC, size and truncation problems keep the generic message.
+    return libarchiveError.starts_with("Pathname cannot be converted") || libarchiveError.starts_with("Symlink cannot be converted");
+}
+
 TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool* cancelled)
 {
     TrackerArchive result;
@@ -129,25 +146,17 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
     result.m_CanonicalRoot = QFileInfo(result.m_Directory.path()).canonicalFilePath();
     require(!result.m_CanonicalRoot.isEmpty());
     result.m_SourceDigest = snapshotArchive(path, result.sourcePath(), cancelled);
-#ifndef _WIN32
-    // libarchive converts ZIP names through the calling thread's character locale,
-    // even when archive_entry_pathname_utf8 is requested. A C locale rejects Unicode.
-    // Keep this conversion local to the archive call; never change the global locale.
-    auto textLocale = newlocale(LC_CTYPE_MASK, "C.UTF-8", nullptr);
-    if (!textLocale)
-        textLocale = newlocale(LC_CTYPE_MASK, "en_US.UTF-8", nullptr);
-    if (!textLocale)
-        throw ProjectError("Could not create a UTF-8 locale for Tracker archive names.");
-    const auto freeTextLocale = qScopeGuard([textLocale] { freelocale(textLocale); });
-    const auto previousLocale = uselocale(textLocale);
-    if (!previousLocale)
-        throw ProjectError("Could not select a UTF-8 locale for Tracker archive names.");
-    const auto restoreTextLocale = qScopeGuard([previousLocale] { uselocale(previousLocale); });
-#endif
+    // libarchive converts names through the thread's LC_CTYPE on POSIX; outlives the reader below.
+    const ScopedUtf8ThreadLocale utf8Names;
     const std::unique_ptr<archive, decltype(&archive_read_free)> reader(archive_read_new(), &archive_read_free);
+    // Tracker reads archives with java.util.zip, which decodes every member name as UTF-8 whether or not the
+    // name's UTF-8 flag (general-purpose bit 11) is set, and refuses a name that is not UTF-8. libarchive would
+    // otherwise decode an unflagged name through the C locale or the OEM code page, which differ between motrack,
+    // the test binaries and the user's system (#275; CONTRIBUTING.md, "Tracker compatibility exceptions").
     // macOS builds of libarchive hide "__MACOSX/" members by default, bypassing every check below and
     // differing from the raw records the writer copies. Read the same entries on every platform.
     require(reader && archive_read_support_format_zip_seekable(reader.get()) == ARCHIVE_OK &&
+            archive_read_set_format_option(reader.get(), "zip", "hdrcharset", "UTF-8") == ARCHIVE_OK &&
             archive_read_set_options(reader.get(), "zip:!mac-ext") == ARCHIVE_OK);
 #ifdef _WIN32
     require(archive_read_open_filename_w(
@@ -189,6 +198,11 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
     for (auto status = archive_read_next_header(reader.get(), &entry); status != ARCHIVE_EOF;
          status = archive_read_next_header(reader.get(), &entry))
     {
+        const auto* warning = status == ARCHIVE_WARN ? archive_error_string(reader.get()) : nullptr;
+        if (warning != nullptr && detail::isNameConversionWarning(warning))
+        {
+            refuseNonUtf8Name();
+        }
         if (status != ARCHIVE_OK)
         {
             const auto* error = archive_error_string(reader.get());
@@ -203,6 +217,13 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
         if (type == AE_IFDIR && member.endsWith('/'))
         {
             member.chop(1);
+        }
+        // Member identities are NFC. libarchive gives macOS callers NFD names, and names that differ only in
+        // normalization are refused as duplicates below anyway; lookups normalize the same way (#308).
+        member = member.normalized(QString::NormalizationForm_C);
+        if (member.contains(QChar::ReplacementCharacter))
+        {
+            refuseNonUtf8Name(); // Windows' UTF-8 decoding substitutes U+FFFD instead of failing
         }
         // Every name, extracted or not, takes part in duplicate detection: an unsafe spelling of a safe
         // member's name (such as "videos\a.mp4" or "./videos/a.mp4") would leave the archive ambiguous.
@@ -271,8 +292,9 @@ const QStringList& TrackerArchive::projects() const
 
 QString TrackerArchive::projectPath(const QString& member) const
 {
-    require(m_Projects.contains(member));
-    return m_Directory.filePath(member);
+    const auto key = member.normalized(QString::NormalizationForm_C);
+    require(m_Projects.contains(key));
+    return m_Directory.filePath(key);
 }
 
 QString TrackerArchive::root() const
@@ -308,10 +330,11 @@ const QHash<QString, QByteArray>& TrackerArchive::memberDigests() const
 bool TrackerArchive::memberMatchesSource(const QString& member, const std::atomic_bool* cancelled) const
 {
     require(!cancelled || !*cancelled);
-    const auto expected = m_MemberDigests.constFind(member);
+    const auto key = member.normalized(QString::NormalizationForm_C);
+    const auto expected = m_MemberDigests.constFind(key);
     if (expected == m_MemberDigests.cend())
         return false;
-    QFile input(m_Directory.filePath(member));
+    QFile input(m_Directory.filePath(key));
     const QFileInfo info(input);
     if (!info.isFile() || !info.canonicalFilePath().startsWith(m_CanonicalRoot + '/') || !input.open(QIODevice::ReadOnly) ||
         input.size() > MAX_TRACKER_EXTRACTED_BYTES)
@@ -349,7 +372,7 @@ void TrackerArchive::resolveMedia(LegacyProject& project, const QString& project
         {
             value = parent + '/' + value;
         }
-        const auto member = QDir::cleanPath(value);
+        const auto member = QDir::cleanPath(value).normalized(QString::NormalizationForm_C);
         if (m_SkippedKeys.contains(memberKey(value)))
         {
             throw ProjectError(QCoreApplication::translate(

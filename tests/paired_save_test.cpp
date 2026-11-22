@@ -1,5 +1,6 @@
 #include "paired_save.hpp"
 
+#include "filesystem_path.hpp"
 #include "local_media_path.hpp"
 #include "track_edits.hpp"
 #include "tracker_archive.hpp"
@@ -578,8 +579,7 @@ TEST(PairedSave, AJournalUnderAnotherStemCannotWriteAnUnlockedPair)
             if (hardLink)
             {
                 std::error_code error;
-                std::filesystem::create_hard_link(
-                    std::filesystem::path(partial.recoveryPath.toStdU16String()), std::filesystem::path(alias.toStdU16String()), error);
+                std::filesystem::create_hard_link(motrack::toFilesystemPath(partial.recoveryPath), motrack::toFilesystemPath(alias), error);
                 ASSERT_FALSE(error) << error.message();
             }
             else
