@@ -123,6 +123,21 @@ struct TrackSourceBinding
     bool operator==(const TrackSourceBinding&) const = default;
 };
 
+/// Revisions of MoTrack's reading of a Tracker source. Native documents record the revision their typed values follow
+/// as `trackerReading`, numbered like the `readerRevision` of native version 7 (docs/tracker-document.md §3).
+enum class TrackerReading : std::uint8_t
+{
+    /// Before #313/#314: track frames at their saved indices, ignoring a clip frame shift, and a coordinate system
+    /// with a duplicate key read as no calibration. Kept only to recognize values saved by that reader.
+    SavedIndices = 0,
+    /// Tracker 6.3.5's loader: the clip frame shift applies and the last of duplicate coordinate keys wins.
+    FrameShift = 1,
+    /// Track `framedata` slots as Java's array loader assigns them too: the last of duplicate indices wins, a null one
+    /// included (part of #315).
+    LastTrackSlot = 2,
+};
+inline constexpr auto CURRENT_TRACKER_READING = TrackerReading::LastTrackSlot;
+
 /// Immutable import baseline, kept separately from editable measurements. Bytes retain the XML encoding,
 /// comments, unknown objects and properties. This is not a serialization of subsequent edits.
 struct TrackerSource

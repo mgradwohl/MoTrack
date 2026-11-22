@@ -1,0 +1,135 @@
+{
+  "reference_version": "6.3.5",
+  "verification_level": "xml_and_coordinate_api",
+  "project": {
+    "source_version": "6.3.5",
+    "length_unit": "m",
+    "mass_unit": "kg",
+    "time_unit": "s",
+    "clip": {
+      "first_frame": 1,
+      "step_size": 1,
+      "step_count": 6,
+      "start_ms": 0.0
+    },
+    "point_masses": [
+      {
+        "name": "mass A",
+        "samples": [
+          {
+            "frame": 0,
+            "image": [
+              30.0,
+              30.0
+            ],
+            "world": [
+              -145.0,
+              52.5
+            ]
+          },
+          {
+            "frame": 1,
+            "image": [
+              40.0,
+              35.0
+            ],
+            "world": [
+              -140.0,
+              51.25
+            ]
+          },
+          {
+            "frame": 3,
+            "image": [
+              60.0,
+              45.0
+            ],
+            "world": [
+              -130.0,
+              48.75
+            ]
+          },
+          {
+            "frame": 5,
+            "image": [
+              80.0,
+              55.0
+            ],
+            "world": [
+              8.125,
+              5.0
+            ]
+          }
+        ],
+        "mass": 2.0
+      },
+      {
+        "name": "single",
+        "samples": [
+          {
+            "frame": 0,
+            "image": [
+              10.0,
+              30.0
+            ],
+            "world": [
+              -155.0,
+              52.5
+            ]
+          }
+        ],
+        "mass": 1.0
+      },
+      {
+        "name": "dropped",
+        "samples": [],
+        "mass": 1.0
+      }
+    ],
+    "vectors": [
+      {
+        "name": "vector A",
+        "samples": [
+          {
+            "frame": 2,
+            "tail": [
+              60.0,
+              90.0
+            ],
+            "components": [
+              2.0,
+              8.0
+            ]
+          }
+        ]
+      }
+    ],
+    "unsupported_tracks": [
+      "org.opensourcephysics.cabrillo.tracker.CoordAxes"
+    ],
+    "coordinate_samples": [
+      {
+        "frame": 1,
+        "image": [
+          13.5,
+          17.25
+        ],
+        "world": [
+          -153.25,
+          55.6875
+        ]
+      },
+      {
+        "frame": 6,
+        "image": [
+          13.5,
+          17.25
+        ],
+        "world": [
+          12.843749999999998,
+          21.625
+        ]
+      }
+    ]
+  }
+}

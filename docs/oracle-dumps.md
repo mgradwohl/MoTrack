@@ -117,8 +117,8 @@ MoTrack's importer applies a 100 ms frame duration and the `m` label when a medi
 The XML-only probe does not decode media, so movie cases are untimed here even though MoTrack's decoder times
 them in the application.
 
-**What O4 covers today:** positions (`x`, `y`), pixels, steps and frames, compared in 43 point-mass cases, plus
-vector tails, tips and components in 36 cases, and clip timing, including Tracker's 100 ms default in 19
+**What O4 covers today:** positions (`x`, `y`), pixels, steps and frames, compared in 45 point-mass cases, plus
+vector tails, tips and components in 37 cases, and clip timing, including Tracker's 100 ms default in 21
 media-free cases. Finite velocity, speed, momentum and kinetic energy are compared in three point masses of
 `attachments` and `model-dependencies`. Each has three marks, so its acceleration is compared as blank: Tracker's
 five-point stencil has no window there (#207). Tracker's other finite derivatives (BallToss and the 14 keyed

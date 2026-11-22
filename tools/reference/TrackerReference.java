@@ -44,6 +44,11 @@ public final class TrackerReference {
         Integer count = has(clip, "stepcount") ? clip.getInt("stepcount") : null;
         if (first < 0 || stride < 1 || (count != null && count < 0))
             throw new IllegalArgumentException("Invalid clip range");
+        // A saved clip frame shift (MoTrack #313): VideoClip.Loader subtracts it from the start frame, which
+        // setStartFrameNumber keeps at or after 0, and Tracker's application loader removes that many leading
+        // slots from every track's framedata (see droppedSlots). getInt reads another property type as MIN_VALUE.
+        int shift = has(clip, "frameshift") ? clip.getInt("frameshift") : Integer.MIN_VALUE;
+        if (shift != Integer.MIN_VALUE && has(clip, "startframe")) first = Math.max(0, first - shift);
         // getObject instantiates the saved class by name; with untrusted (library) files, load only the
         // expected coordinate system class and reject anything else before OSP touches it.
         XMLControl coordsControl = has(root, "coords") ? root.getChildControl("coords") : null;
@@ -62,9 +67,12 @@ public final class TrackerReference {
                 continue;
             }
             List<Object> samples = new ArrayList<>();
+            int dropped = droppedSlots(property(track, "framedata"), shift);
             for (XMLControl sample : objects(property(track, "framedata"))) {
                 String index = sample.getPropertyName();
                 int frame = Integer.parseInt(index.substring(1, index.length() - 1));
+                if (dropped < 0 || frame < dropped) continue;
+                frame -= dropped;
                 if (mass) {
                     double x = sample.getDouble("x");
                     double y = sample.getDouble("y");
@@ -97,6 +105,21 @@ public final class TrackerReference {
             "coordinate_samples", coordinateSamples);
         if (coords != null) coords.dispose();
         return result;
+    }
+
+    /** Leading framedata slots Tracker's application loader removes from a track, or -1 when it removes them all.
+     * TrackerIO.AsyncLoader.adjustFrameData (via XMLControlElement.getAdjustedFrameData) copies a positive shift's
+     * range of every track array of Java length above 1 and returns null when the array is no longer than the shift.
+     * The Java length is the last element's index plus one (XMLControlElement.arrayValue). TrackerPanel loads the
+     * coordinate system without the adjuster, so its keys never move.
+     */
+    static int droppedSlots(XMLProperty frames, int shift) {
+        if (frames == null || shift <= 0 || frames.getPropertyContent().isEmpty()) return 0;
+        List<Object> content = frames.getPropertyContent();
+        String last = ((XMLProperty) content.get(content.size() - 1)).getPropertyName();
+        int length = Integer.parseInt(last.substring(1, last.indexOf("]"))) + 1;
+        if (length <= 1) return 0;
+        return shift >= length ? -1 : shift;
     }
 
     private static Object world(ImageCoordSystem coords, int frame, double x, double y) {
