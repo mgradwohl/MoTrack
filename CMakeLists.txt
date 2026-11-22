@@ -237,7 +237,7 @@ if(MOTRACK_BUILD_BENCHMARKS)
     list(APPEND motrack_targets motrack_import_benchmark)
     # One AutoTracker step: typed edit, legacy view rebuild, TrackEdits mark and template match (tracker-document.md).
     add_executable(motrack_autotracker_benchmark benchmarks/autotracker_benchmark.cpp)
-    target_link_libraries(motrack_autotracker_benchmark PRIVATE motrack_project motrack_media Qt6::Gui)
+    target_link_libraries(motrack_autotracker_benchmark PRIVATE motrack_project motrack_media motrack_locale Qt6::Gui)
     list(APPEND motrack_targets motrack_autotracker_benchmark)
 endif()
 

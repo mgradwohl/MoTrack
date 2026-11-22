@@ -1,3 +1,4 @@
+#include "app_locale.hpp"
 #include "legacy_view.hpp"
 #include "model/tracker_document.hpp"
 #include "template_tracker.hpp"
@@ -148,6 +149,7 @@ int main(int argc, char** argv)
 try
 {
     QCoreApplication application(argc, argv);
+    motrack::configureProcessLocale();
     if (argc < 2)
     {
         std::fputs("Usage: motrack_autotracker_benchmark <project.trk|archive.trz!member.trk> [run lengths...]\n", stderr);
