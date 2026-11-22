@@ -166,10 +166,7 @@ TEST(ArchiveGroupSave, InvalidGroupOrUnsupportedMemberCannotReplaceEitherOutput)
         [](auto& group) { group.members.clear(); },
         [](auto& group) { group.members[1].id = group.members[0].id; },
         [](auto& group) { group.members[1].document.archivePayload = editedGroup().archive; },
-        [](auto& group)
-        {
-            group.members[1].document.project.description = "unsupported edit";
-        }};
+        [](auto& group) { group.members[1].document.project.description = "unsupported edit"; }};
     for (std::size_t i = 0; i < mutations.size(); ++i)
     {
         SCOPED_TRACE(i);
