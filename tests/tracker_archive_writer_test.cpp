@@ -191,8 +191,8 @@ TEST(TrackerArchiveWriter, OmitsOnlyMembersTheReaderSkipsAndRetainsEveryOtherRec
         ASSERT_EQ(source.omittedOnSave(), motrack::test::omittedTrackerExportMembers());
         motrack::writeTrackerArchive(destination, source, "experiment.trk", EDITED_XML);
 
-        // Only the duplicate movie and the Finder icons go; the unique info page and the other unsafe
-        // name stay byte-for-byte and are skipped again on reopen.
+        // Only the duplicate movie goes; the unique info page, the Finder icons and the other unsafe name
+        // stay byte-for-byte and are skipped again on reopen.
         QSet<QByteArray> omitted;
         for (const auto& name : motrack::test::omittedTrackerExportMembers())
             omitted.insert(name.toUtf8());
@@ -223,7 +223,10 @@ TEST(TrackerArchiveWriter, OmitsOnlyMembersTheReaderSkipsAndRetainsEveryOtherRec
         const auto reopened = motrack::TrackerArchive::open(destination);
         EXPECT_EQ(reopened.projects(), (QStringList{"experiment.trk", "second.trk"}));
         EXPECT_EQ(reopened.skippedMembers(),
-                  (QStringList{"C:/Users/x/AppData/Local/Temp/tracker1/html/experiment_info.html", R"(support/mixed\name.bin)"}));
+                  (QStringList{"C:/Users/x/AppData/Local/Temp/tracker1/html/experiment_info.html",
+                               "html/Icon\r",
+                               "images/Icon\r",
+                               R"(support/mixed\name.bin)"}));
         EXPECT_TRUE(reopened.omittedOnSave().isEmpty());
         EXPECT_EQ(readBytes(reopened.projectPath("experiment.trk")), EDITED_XML);
         EXPECT_EQ(reopened.memberDigests().size(), source.memberDigests().size());

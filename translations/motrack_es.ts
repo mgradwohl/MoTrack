@@ -42,7 +42,8 @@
     <message><source>Tracker archives (*.trz)</source><translation type="unfinished"></translation></message>
     <message><source>Tracker file saved. The MoTrack companion needs recovery.</source><translation type="unfinished"></translation></message>
     <message><source>Tracker project and MoTrack companion saved.</source><translation type="unfinished"></translation></message>
-    <message numerus="yes"><source>Tracker project and MoTrack companion saved. The Tracker archive omits %n duplicate or Finder icon member(s) with unsafe names.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform></translation></message>
+    <message numerus="yes"><source>The Tracker archive omits %n duplicate member(s) with unsafe names.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform></translation></message>
+    <message numerus="yes"><source>The Tracker archive keeps %n unextracted member(s) whose names may show the author's folder or user names.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform></translation></message>
     <message><source>Tracker projects (*.trk)</source><translation type="unfinished"></translation></message>
     <message><source>Saving project…</source><translation>Guardando proyecto…</translation></message>
     <message><source>Project changed while saving. Save again to keep the latest edits.</source><translation>El proyecto cambió durante el guardado. Guarde de nuevo para conservar los últimos cambios.</translation></message>
@@ -206,6 +207,15 @@
     <message><source>Tracker media packaging was canceled.</source><translation type="unfinished"></translation></message>
     <message><source>Could not read a file required for the archive: %1</source><translation type="unfinished"></translation></message>
   </context>
+  <context>
+    <name>TrackerArchive</name>
+    <message><source>This Tracker archive contains a project with an unsafe member name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
+    <message><source>This Tracker project refers to an archive member with an unsafe name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
+  </context>
+  <context>
+    <name>WorkspaceInput</name>
+    <message><source>No Tracker project in this archive could be read. %1: %2</source><translation type="unfinished"></translation></message>
+  </context>
 <context>
     <name>motrack::WorkspaceWindow</name>
     <message>
@@ -306,14 +316,31 @@
             <numerusform /><numerusform /></translation>
     </message>
     <message numerus="yes">
-        <source>Saving this Tracker archive omits %n of them: duplicate copies and Finder icon files.</source>
+        <source>Saving this Tracker archive omits %n duplicate copy(ies) among them.</source>
         <translation type="unfinished">
             <numerusform /><numerusform /></translation>
     </message>
     <message numerus="yes">
-        <source>Could not read %n Tracker project(s) in this archive: %1. Saving keeps their files unchanged.</source>
+        <source>Saved archives keep the other %n unchanged; their names may show the author&apos;s folder or user names.</source>
         <translation type="unfinished">
             <numerusform /><numerusform /></translation>
+    </message>
+    <message>
+        <source>Could not read the Tracker project %1; see the Experiments menu.</source>
+        <translation type="unfinished" />
+    </message>
+    <message numerus="yes">
+        <source>Could not read %1 and %n other Tracker project(s); see the Experiments menu.</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message>
+        <source>%1 — %2 (could not be read)</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not read %1: %2</source>
+        <translation type="unfinished" />
     </message>
     <message>
         <source>Two files are already opening. Wait for one to finish or cancel an open.</source>

@@ -1,5 +1,6 @@
 #include "tracker_archive.hpp"
 
+#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
@@ -56,12 +57,26 @@ bool safeMember(const QString& path)
                                 });
 }
 
-/// Comparison form shared by duplicate detection and media lookup: '/' separators, '.' and '..' resolved
-/// where possible, Unicode NFC and case folding. A safe name changes only in Unicode form and case.
+/// Platform-independent comparison form shared by duplicate detection and media lookup: '\' read as '/',
+/// the leading '/' run kept, empty and '.' segments dropped, '..' resolved against a preceding segment,
+/// then Unicode NFC and case folding. A safe name changes only in Unicode form and case.
 QString memberKey(QString member)
 {
     member.replace('\\', '/');
-    return QDir::cleanPath(member).normalized(QString::NormalizationForm_C).toCaseFolded();
+    qsizetype root = 0;
+    while (root < member.size() && member[root] == '/')
+        ++root;
+    QStringList segments;
+    for (const auto& segment : member.sliced(root).split('/', Qt::SkipEmptyParts))
+    {
+        if (segment == QStringLiteral("."))
+            continue;
+        if (segment == QStringLiteral("..") && !segments.isEmpty() && segments.constLast() != QStringLiteral(".."))
+            segments.removeLast();
+        else
+            segments.push_back(segment);
+    }
+    return (QString(root, '/') + segments.join('/')).normalized(QString::NormalizationForm_C).toCaseFolded();
 }
 
 /// The final name segment, whichever separator the name uses.
@@ -75,13 +90,6 @@ bool appleDouble(const QString& member, const QByteArray& head)
 {
     static const auto magic = QByteArray::fromHex("00051607");
     return head.startsWith(magic) || (fileName(member).startsWith("._") && member.split('/').contains(QStringLiteral("__MACOSX")));
-}
-
-/// macOS Finder custom-folder icons ("Icon\r") and their AppleDouble resource forks.
-bool finderIcon(const QString& member)
-{
-    const auto name = fileName(member);
-    return name == QStringLiteral("Icon\r") || name == QStringLiteral("._Icon\r");
 }
 
 QByteArray snapshotArchive(const QString& path, const QString& destination, const std::atomic_bool* cancelled)
@@ -207,7 +215,11 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
             // Tracker would list an unsafe .trk as a tab; MoTrack refuses instead of extracting it by that name.
             if (type == AE_IFREG && member.endsWith(".trk", Qt::CaseInsensitive))
             {
-                throw ProjectError("This Tracker archive contains a project with an unsafe member name, which MoTrack does not extract.");
+                throw ProjectError(
+                    QCoreApplication::translate(
+                        "TrackerArchive",
+                        "This Tracker archive contains a project with an unsafe member name, which MoTrack does not extract.")
+                        .toStdString());
             }
             // Never extracted, opened or followed. Only its digest is read, to recognize redundant copies.
             result.m_SkippedMembers.append(member);
@@ -234,8 +246,8 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
         }
     }
     require(!result.m_Projects.isEmpty());
-    // Standard saves drop only skipped members that Tracker never uses: exact copies of an extracted member
-    // with the same file name (the OSP JarTool absolute duplicates) and Finder folder icons.
+    // Standard saves drop only skipped members that duplicate an extracted member with the same file name
+    // (the OSP JarTool absolute copies). Every other skipped member, Finder icons included, is kept.
     QSet<std::pair<QString, QByteArray>> extracted;
     for (auto member = result.m_MemberDigests.cbegin(); member != result.m_MemberDigests.cend(); ++member)
     {
@@ -244,7 +256,7 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
     for (const auto& member : std::as_const(result.m_SkippedMembers))
     {
         const auto file = std::ranges::find(skippedFiles, member, &std::pair<QString, QByteArray>::first);
-        if (finderIcon(member) || (file != skippedFiles.end() && extracted.contains({fileName(member), file->second})))
+        if (file != skippedFiles.end() && extracted.contains({fileName(member), file->second}))
         {
             result.m_OmittedOnSave.append(member);
         }
@@ -339,9 +351,12 @@ void TrackerArchive::resolveMedia(LegacyProject& project, const QString& project
             value = parent + '/' + value;
         }
         const auto member = QDir::cleanPath(value);
-        if (m_SkippedKeys.contains(memberKey(member)))
+        if (m_SkippedKeys.contains(memberKey(value)))
         {
-            throw ProjectError("A Tracker project in this archive refers to a member with an unsafe name, which MoTrack does not extract.");
+            throw ProjectError(QCoreApplication::translate(
+                                   "TrackerArchive",
+                                   "This Tracker project refers to an archive member with an unsafe name, which MoTrack does not extract.")
+                                   .toStdString());
         }
         reference = !external && m_MemberDigests.contains(member) ? member.toStdString() : std::string{};
     }

@@ -191,7 +191,9 @@ TEST(WorkspaceInput, OpensArchivesWithUnsafeMacAndUnreadableMembersAndKeepsTheir
     ASSERT_TRUE(motrack::test::writeArchive(path, members));
     auto prepared = motrack::prepareWorkspaceInput(path);
     ASSERT_TRUE(prepared.group);
-    EXPECT_EQ(prepared.unreadableProjects, QStringList{"broken.trk"});
+    ASSERT_EQ(prepared.unreadableProjects.size(), 1);
+    EXPECT_EQ(prepared.unreadableProjects.front().member, "broken.trk");
+    EXPECT_FALSE(prepared.unreadableProjects.front().reason.isEmpty());
     const auto snapshot = prepared.group->prepareSave().snapshot;
     ASSERT_EQ(snapshot.members.size(), 1u);
     EXPECT_EQ(snapshot.members.front().member, "experiment.trk");
@@ -201,12 +203,13 @@ TEST(WorkspaceInput, OpensArchivesWithUnsafeMacAndUnreadableMembersAndKeepsTheir
     EXPECT_EQ(snapshot.members.front().document.project.clip.mediaReferences,
               (std::vector<std::string>{"images/frame0.png", "images/frame1.png", "images/frame2.png", "images/frame3.png"}));
 
-    // Standard saving keeps the unreadable project, Finder metadata and the unique info page byte-for-byte;
-    // duplicate absolute copies and Finder icons are omitted.
+    // Standard saving keeps the unreadable project, Finder metadata, Finder icons and the unique info page
+    // byte-for-byte; only the duplicate absolute copies are omitted.
     const auto standard = temporary.filePath("saved.trz");
     motrack::writeTrackerArchiveDocuments(standard, std::span(&snapshot.members.front().document, 1));
     const auto saved = motrack::TrackerArchive::open(standard);
-    EXPECT_EQ(saved.skippedMembers(), QStringList{"C:/Users/x/AppData/Local/Temp/tracker1/html/experiment_info.html"});
+    EXPECT_EQ(saved.skippedMembers(),
+              (QStringList{"C:/Users/x/AppData/Local/Temp/tracker1/html/experiment_info.html", "html/Icon\r", "images/Icon\r"}));
     EXPECT_EQ(bytes(QDir(saved.root()).filePath("broken.trk")), "invalid xml");
     ASSERT_TRUE(saved.memberDigests().contains("__MACOSX/._experiment.trk"));
     EXPECT_EQ(saved.memberDigests().value("__MACOSX/._experiment.trk"),
@@ -219,7 +222,7 @@ TEST(WorkspaceInput, OpensArchivesWithUnsafeMacAndUnreadableMembersAndKeepsTheir
     EXPECT_EQ(reopened.group->prepareSave().snapshot.archive->skippedMembers(), snapshot.archive->skippedMembers());
 }
 
-TEST(WorkspaceInput, RefusesAnArchiveWhoseProjectUsesAnUnsafeMember)
+TEST(WorkspaceInput, RefusesProjectsThatUseAnUnsafeMemberAndOpensTheOthers)
 {
     QTemporaryDir temporary;
     auto xml = bytes(fixture());
@@ -231,12 +234,26 @@ TEST(WorkspaceInput, RefusesAnArchiveWhoseProjectUsesAnUnsafeMember)
     try
     {
         (void)motrack::prepareWorkspaceInput(path);
-        FAIL() << "An unsafe media member must not open.";
+        FAIL() << "An archive whose only project uses an unsafe member must not open.";
     }
     catch (const motrack::ProjectError& error)
     {
-        EXPECT_TRUE(QString::fromUtf8(error.what()).contains("unsafe name"));
+        const auto message = QString::fromUtf8(error.what());
+        EXPECT_TRUE(message.contains("experiment.trk") && message.contains("unsafe name")) << error.what();
     }
+    // Another readable project opens; the unsafe one is reported with its reason and kept for saving.
+    members.push_back({.name = "readable.trk", .bytes = bytes(fixture())});
+    ASSERT_TRUE(motrack::test::writeArchive(path, members));
+    {
+        const auto partial = motrack::prepareWorkspaceInput(path);
+        const auto snapshot = partial.group->prepareSave().snapshot;
+        ASSERT_EQ(snapshot.members.size(), 1u);
+        EXPECT_EQ(snapshot.members.front().member, "readable.trk");
+        ASSERT_EQ(partial.unreadableProjects.size(), 1);
+        EXPECT_EQ(partial.unreadableProjects.front().member, "experiment.trk");
+        EXPECT_TRUE(partial.unreadableProjects.front().reason.contains("unsafe name"));
+    }
+    members.pop_back();
     // An absolute reference to a file outside the archive stays missing, never a local fallback.
     members.pop_back();
     ASSERT_TRUE(motrack::test::writeArchive(path, members));

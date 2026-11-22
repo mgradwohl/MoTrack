@@ -262,7 +262,8 @@ TEST(WorkspaceShell, ReportsSkippedArchiveMembersOnOpenAndTheirOmissionOnSave)
                                                      {.name = "images/frame2.png", .bytes = image(2)},
                                                      {.name = "images/frame3.png", .bytes = image(3)},
                                                      {.name = "videos/a.mp4", .bytes = motrack::test::duplicateMovieBytes()},
-                                                     {.name = "broken.trk", .bytes = "invalid xml"}};
+                                                     {.name = "broken.trk", .bytes = "invalid xml"},
+                                                     {.name = "also-broken.trk", .bytes = "invalid xml"}};
     for (auto& unsafe : motrack::test::unsafeTrackerExportMembers())
         members.push_back(std::move(unsafe));
     const auto path = temporary.filePath("library.trz");
@@ -273,17 +274,41 @@ TEST(WorkspaceShell, ReportsSkippedArchiveMembersOnOpenAndTheirOmissionOnSave)
     ASSERT_EQ(tabs(window)->count(), 1);
     const auto opened = window.statusBar()->currentMessage();
     EXPECT_TRUE(opened.contains("4 archive member(s) with unsafe names were not extracted")) << opened.toStdString();
-    EXPECT_TRUE(opened.contains("omits 3 of them")) << opened.toStdString();
-    EXPECT_TRUE(opened.contains("broken.trk")) << opened.toStdString();
+    EXPECT_TRUE(opened.contains("omits 1 duplicate copy(ies)")) << opened.toStdString();
+    EXPECT_TRUE(opened.contains("keep the other 3 unchanged; their names may show the author's folder or user names"))
+        << opened.toStdString();
+    // One name and a count, never the whole list; the Experiments menu keeps each failed project.
+    EXPECT_TRUE(opened.contains("Could not read also-broken.trk and 1 other Tracker project(s)")) << opened.toStdString();
+    auto* menu = window.findChild<QMenu*>("workspaceExperimentsMenu");
+    ASSERT_NE(menu, nullptr);
+    Q_EMIT menu->aboutToShow();
+    QAction* failed = nullptr;
+    for (auto* action : menu->actions())
+        if (action->text().contains("broken.trk (could not be read)") && !action->text().contains("also-"))
+            failed = action;
+    ASSERT_NE(failed, nullptr);
+    EXPECT_EQ(menu->actions().size(), 3);
+    EXPECT_FALSE(failed->toolTip().isEmpty());
+    failed->trigger();
+    EXPECT_TRUE(window.statusBar()->currentMessage().startsWith("Could not read broken.trk: "))
+        << window.statusBar()->currentMessage().toStdString();
+
+    // Save All from a hidden experiment reports the result of its temporary editor in this window.
     ASSERT_TRUE(editMass(window, 7));
-    const auto standard = temporary.filePath("saved.trz");
-    ASSERT_TRUE(editor(window)->saveTrackerProject(standard));
-    const auto saved = editor(window)->statusBar()->currentMessage();
-    EXPECT_TRUE(saved.contains("omits 3 duplicate or Finder icon member(s)")) << saved.toStdString();
-    const auto archive = motrack::TrackerArchive::open(standard);
-    EXPECT_EQ(archive.skippedMembers(), QStringList{"C:/Users/x/AppData/Local/Temp/tracker1/html/experiment_info.html"});
-    EXPECT_EQ(archive.projects(), (QStringList{"broken.trk", "experiment.trk"}));
+    ASSERT_TRUE(window.hideDocument(currentDocument(window)));
+    ASSERT_TRUE(window.saveAll());
+    const auto saved = window.statusBar()->currentMessage();
+    EXPECT_TRUE(saved.contains("omits 1 duplicate member(s) with unsafe names")) << saved.toStdString();
+    EXPECT_TRUE(saved.contains("keeps 3 unextracted member(s)")) << saved.toStdString();
+    const auto archive = motrack::TrackerArchive::open(path);
+    EXPECT_EQ(archive.skippedMembers(),
+              (QStringList{"C:/Users/x/AppData/Local/Temp/tracker1/html/experiment_info.html", "html/Icon\r", "images/Icon\r"}));
+    EXPECT_EQ(archive.projects(), (QStringList{"also-broken.trk", "broken.trk", "experiment.trk"}));
     EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(archive.projectPath("experiment.trk")).project.pointMasses.front().mass, 7);
+    // Closing the project removes its failed entries from the menu.
+    ASSERT_TRUE(window.closeSource(window.context()->session().sources().front()));
+    Q_EMIT menu->aboutToShow();
+    EXPECT_TRUE(menu->actions().isEmpty());
 }
 
 TEST(WorkspaceShell, CloseProjectCancelSaveAndDiscardIncludeHiddenMembers)

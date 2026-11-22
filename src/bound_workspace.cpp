@@ -108,13 +108,20 @@ const WorkspaceDocument& MainWindow::viewDocument() const
 
 QString MainWindow::pairedSavedMessage() const
 {
-    const auto& archive = viewDocument().archivePayload;
-    const auto omitted = archive ? static_cast<int>(archive->omittedOnSave().size()) : 0;
-    return omitted > 0 ? tr("Tracker project and MoTrack companion saved. The Tracker archive omits %n duplicate or Finder icon "
-                            "member(s) with unsafe names.",
-                            nullptr,
-                            omitted)
-                       : tr("Tracker project and MoTrack companion saved.");
+    QStringList message{tr("Tracker project and MoTrack companion saved.")};
+    if (const auto& archive = viewDocument().archivePayload)
+    {
+        const auto omitted = static_cast<int>(archive->omittedOnSave().size());
+        const auto kept = static_cast<int>(archive->skippedMembers().size()) - omitted;
+        if (omitted > 0)
+            message.push_back(tr("The Tracker archive omits %n duplicate member(s) with unsafe names.", nullptr, omitted));
+        if (kept > 0)
+            message.push_back(
+                tr("The Tracker archive keeps %n unextracted member(s) whose names may show the author's folder or user names.",
+                   nullptr,
+                   kept));
+    }
+    return message.join(' ');
 }
 
 LegacyProject& MainWindow::viewProject()

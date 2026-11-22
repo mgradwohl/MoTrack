@@ -37,7 +37,7 @@ class TrackerArchive
     /// their bytes stay in the source snapshot, and standard saves copy them except omittedOnSave().
     [[nodiscard]] const QStringList& skippedMembers() const;
     /// Skipped members that standard saves omit: exact copies of an extracted member with the same file
-    /// name (OSP JarTool absolute copies) and macOS Finder "Icon\r" files. Tracker uses neither.
+    /// name (OSP JarTool absolute copies), which Tracker never uses.
     [[nodiscard]] const QStringList& omittedOnSave() const;
     /// Import-time SHA-256 of each extracted regular member, keyed by its exact archive name.
     [[nodiscard]] const QHash<QString, QByteArray>& memberDigests() const;

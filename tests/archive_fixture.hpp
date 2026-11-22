@@ -100,10 +100,11 @@ inline std::vector<ArchiveEntry> unsafeTrackerExportMembers()
             {.name = "images/Icon\r", .bytes = {}}};
 }
 
-/// The members of unsafeTrackerExportMembers() that a standard save omits, when "videos/a.mp4" is present.
+/// The member of unsafeTrackerExportMembers() that a standard save omits, when "videos/a.mp4" is present.
+/// The info page has no copy and Finder icons hold real metadata, so saves keep both.
 inline QStringList omittedTrackerExportMembers()
 {
-    return {"C:/Users/x/videos/a.mp4", "html/Icon\r", "images/Icon\r"};
+    return {"C:/Users/x/videos/a.mp4"};
 }
 
 /// A macOS AppleDouble resource fork header (RFC 1740 magic and version 2).

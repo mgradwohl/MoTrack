@@ -147,9 +147,11 @@ TEST(TrackerArchive, SkipsUnsafeNonProjectMembersWithoutWritingOutsideTheExtract
     for (auto& unsafe : motrack::test::unsafeTrackerExportMembers())
         members.push_back(std::move(unsafe));
     // The same file name with different bytes is not a redundant copy, so saving keeps it.
+    // "//server" and "/server" stay distinct names on every platform.
     for (const auto* name : {"D:/horHarmonic/videos/a.mp4",
                              "C:|Users|x|b.mp4",
                              "//server/share/a.mp4",
+                             "/server/share/a.mp4",
                              "||server|share|b.mp4",
                              "/rooted/a.mp4",
                              "videos/mixed|c.mp4",
@@ -255,7 +257,8 @@ TEST(TrackerArchive, RefusesMediaReferencesToSkippedMembersAndNeverResolvesLocal
                                                                     {"html/Icon\r", "experiment.trk"},
                                                                     {"videos\\..\\html\\Icon\r", "experiment.trk"},
                                                                     {"../html/Icon\r", "nested/inner.trk"},
-                                                                    {"../escape.mp4", "experiment.trk"}})
+                                                                    {"../escape.mp4", "experiment.trk"},
+                                                                    {"videos/./../../escape.mp4", "experiment.trk"}})
     {
         SCOPED_TRACE(reference);
         project.clip.mediaReferences = {"videos/a.mp4", reference};
@@ -280,7 +283,7 @@ TEST(TrackerArchive, KeepsMacMetadataAsMembersButNeverAsProjects)
     const auto archive = motrack::TrackerArchive::open(path);
     EXPECT_EQ(archive.projects(), (QStringList{"Experiment/experiment.trk", "__MACOSX/Experiment/kept.trk"}));
     EXPECT_EQ(archive.skippedMembers(), QStringList{"__MACOSX/Experiment/html/._Icon\r"});
-    EXPECT_EQ(archive.omittedOnSave(), QStringList{"__MACOSX/Experiment/html/._Icon\r"});
+    EXPECT_TRUE(archive.omittedOnSave().isEmpty()); // The folder-icon resource fork is real metadata.
     for (const auto* member : {"__MACOSX/Experiment/._experiment.trk", "__MACOSX/Experiment/._empty.trk", "Experiment/._copied.trk"})
     {
         EXPECT_TRUE(archive.memberDigests().contains(member)) << member;

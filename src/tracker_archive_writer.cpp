@@ -144,7 +144,7 @@ Directory readDirectory(QFile& input,
         const bool selected = match != replacements.cend();
         if (member.endsWith('/'))
             member.chop(1);
-        // Drop only redundant skipped members (duplicate copies and Finder icons); every other record,
+        // Drop only redundant skipped members (exact duplicate copies); every other record,
         // including other unsafe names, stays byte-for-byte (see docs/native-format.md).
         const bool omitted = omissions.contains(member);
         require(!selected || !omitted);
