@@ -2920,8 +2920,8 @@ def xml_oracle_inputs(manifest, cache):
     sources.extend((f"osp/{path.name}", path, True) for path in sorted(OSP_FIXTURES.glob("*.xml")))
     sources.extend((f"osp/generated/{path.name}", path, True) for path in sorted((OSP_FIXTURES / "generated").glob("*.xml")))
     # Library collections and libraries are OSP documents too (the library oracle checks their loaded model).
-    sources.extend((f"library/{path.relative_to(LIBRARY_FIXTURES).as_posix()}", path, False)
-                   for path in sorted(LIBRARY_FIXTURES.rglob("*.xml")))
+    library = COMMITTED_FIXTURES / "library"
+    sources.extend((f"library/{path.relative_to(library).as_posix()}", path, False) for path in sorted(library.rglob("*.xml")))
     documents, seen = [], set()
     for label, path, variants in sources:
         for name, data in xml_documents(path, label):
