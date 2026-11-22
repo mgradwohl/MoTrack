@@ -26,4 +26,4 @@ labels: enhancement
 <!-- Link the original Tracker request when applicable and consult docs/upstream-issues.md.
      State required baseline, partial acceptance, deferred proposal, or outside scope, with rationale,
      prerequisites and full-port requirement IDs/phase. A new proposal does not automatically expand
-     the frozen baseline; do not present an unapproved extension as a committed feature. -->
+     the parity baseline; do not present an unapproved extension as a committed feature. -->

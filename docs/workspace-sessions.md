@@ -2,9 +2,8 @@
 
 `WorkspaceSession` is the owner-thread registry between prepared project inputs and desktop
 tabs. It uses Qt Core and the project adapters; it does not depend on Widgets, FFmpeg, Java or Swift.
-It owns independent `DocumentSession` records and `ArchiveGroupSession` owners. Retained experiment
-editors and complete asynchronous input preparation are merged in #162 and #163. The ordinary
-application entry point uses `WorkspaceWindow`; the tabbed shell is merged in #164.
+It owns independent `DocumentSession` records and `ArchiveGroupSession` owners. The ordinary
+application entry point is the tabbed `WorkspaceWindow` described below.
 
 ## Documents, sources and views
 
@@ -45,8 +44,8 @@ scientific revision requirements before applying results.
 
 These registry tokens define ownership and result routing. `WorkspaceServices` supplies bounded
 execution, and `WorkspaceContext` binds it to retained experiment editors. A window creates an owner
-by default; every view in one workspace receives that shared owner. Keep local builds at two workers
-and local tests serial while developing these layers.
+by default; every view in one workspace receives that shared owner. Keep the CTest groups serial
+locally; their 60-second limits assume it.
 
 ## Shared execution services
 
@@ -77,27 +76,13 @@ Worker results return through the service's GUI-thread watcher. A result callbac
 last owner; the scheduler checks the QObject lifetime before dispatching more work. The last service
 owner cancels pending frames, closes decoder handles on their worker thread and drains its pools.
 Each window's parent-owned QObject lease keeps shared services alive through Qt's destruction
-notification before that final drain. The new regression reproduced the incorrect ordering before
-this correction and passes afterward. Closing one view of a shared workspace
-must not join or cancel another view's analysis work.
+notification before that final drain. Closing one view of a shared workspace must not join or cancel
+another view's analysis work.
 
-All nine new local service tests pass, covering cache/decoder bounds, physical path and
-orientation changes, timestamp
-seeking, refused/cancelled frames, source lifetime, queue coalescing/fairness, isolated cleanup,
-owner deletion from a result callback, destruction notification before worker drain and two actual
-windows sharing services while one continues AutoTracker after the other closes. Formatting and all
-seven affected translation-unit static analyses pass without new suppressions. All 10 Windows CTest
-groups pass serially in 182.49 seconds with **96.30%** production-line coverage (9955/10338).
-The first CI revision passed all three platform builds and all 237 edited Tracker cases, but Clang 18
-flagged Qt weak-pointer cleanup and callback-owned test cleanup. The follow-up uses an explicit
-destruction observer and parent-owned test cleanup, preserving all nine cases and adding no
-suppression. PR #161 merged at reviewed head `537e617` with all six checks passing in
-[CI 42758565994](https://github.com/mgradwohl/MoTrack/actions/runs/42758565994), **96.35% combined
-coverage (9984/10362)** and all 237 unchanged edited Tracker cases. Three known reference defects
-remain unaccepted. Review 5836935274 recommends approval with no threads; the completed branch was
-verified contained in main and removed locally/remotely.
-The services alone do not establish complete acceptance of #69; the visible shell regressions below
-exercise the actual tab controls.
+Tests: `WorkspaceServices.*` cover cache/decoder bounds, path/orientation changes, timestamp seeking,
+cancellation, source lifetime, queue fairness, isolated cleanup, owner deletion from a result callback
+and two windows sharing services while one continues AutoTracker. Merged in
+[#161](https://github.com/mgradwohl/MoTrack/pull/161).
 
 ## Retained experiment editors
 
@@ -141,26 +126,11 @@ lets a workspace observer create or destroy views after the initiating editor op
 The existing QObject service lease continues to keep pools alive through window destruction
 notifications, including when a window owns the final workspace reference.
 
-Twelve new local regressions cover independent playheads/history/destinations; hidden-member edits,
-native/Tracker group saves and restored undo history; duplicate/invalid view claims; indexed movie
-identity and refused data; pending-operation bounds and export copies; destroyed native/paired-save
-views; stale writes; interrupted/cancelled group recovery; and AutoTracker continuing through saving,
-selection and another view's destruction with distinct timing/units; and restarting after a pending
-match is canceled through either document or source cancellation; resetting tracking/playback while
-a movie frame is pending, without receiving a result; and restarting before an older cancellation
-notice is delivered. Both timestamp admission and
-tracking-control regressions reproduced the review findings before their fixes. Rejected index
-values leave existing metadata unchanged; valid indexed groups save and reopen natively. All 10
-Windows CTest groups pass serially in 179.39 seconds with **96.27%** production-line coverage (10338/10739). Formatting and all
-five affected translation-unit static analyses pass without new suppressions. Existing plot/measurement
-labels and save-progress strings remain unchanged. All three translation catalogs contain
-the new pending-save message, and 35 relative links across the three changed guides resolve. The
-three previously investigated LLVM wrapper warnings remain visible, with no missing production
-records and the unchanged 90% gate. PR #162 merged after approved review and all six checks in
-[CI 42767649627](https://github.com/mgradwohl/MoTrack/actions/runs/42767649627), with **96.32% combined
-coverage (10367/10763)** and all 237 edited Tracker cases. A bound view's close operation hides it and
-retains edits; the shell below owns explicit whole-source Save/Discard/Cancel decisions. At that
-foundation milestone, #69 and #150 remained open pending complete acceptance evidence.
+Tests: the bound-editor cases cover independent playheads/history/destinations, hidden-member group
+saves, duplicate/invalid view claims, indexed movie identity, pending-operation bounds, destroyed
+save views, stale writes, interrupted recovery, and AutoTracker continuing through saving, selection
+and another view's destruction, including restart after cancellation. Merged in
+[#162](https://github.com/mgradwohl/MoTrack/pull/162).
 
 ## Preparing complete inputs
 
@@ -199,26 +169,11 @@ which may immediately open another source or destroy the context. Workers own th
 flags, never a borrow of the registry. Context destruction cancels outstanding inputs before shared
 services drain; completed results can no longer adopt into the destroyed registry.
 
-Fourteen public-entry-point tests cover standalone/native opening and physical media, Unicode paths,
-complete image/MOV archives after original-file removal, native group order/subsets, older embedded
-and external archive companions, malformed-member refusal, atomic adoption, independent cancellation,
-two-input backpressure, failed-open retry, destruction while queued and from completion observers,
-editing/saving both members through bound editors, 32-member ordering/identities and movie indexing
-without views. A reproduced mixed-archive regression now edits only the image experiment, saves
-both standard/native files without ever creating a movie editor, and preserves the movie and media
-after original-file removal. The four existing image/MOV archive-group
-corpus modes now import and reopen through this dispatcher before whole-source save/recovery and the unchanged
-independent XML/ZIP/media/reimport checks. All four local modes pass, including byte-identical exports
-in either order. They also require the original extraction to disappear before native reopen.
-All 10 Windows CTest groups pass serially in 183.00 seconds after both review fixes, with **96.24%**
-production-line coverage (10517/10928). All C++ formatting, five affected translation-unit static
-analyses and 36 relative guide links pass. The three previously investigated LLVM wrapper warnings
-remain visible; no production records are missing and the 90% gate is unchanged. All 14 input cases
-pass in 3139 ms. PR #163 merged at reviewed `363b0ba` after all six checks in
-[CI 42769356388](https://github.com/mgradwohl/MoTrack/actions/runs/42769356388), with **96.29% combined
-coverage (10546/10952)**. All 237 unique edited Tracker cases pass, including the four archive-group
-modes in both edit orders; the three known Tracker defects remain explicitly unaccepted. Its completed
-branch was removed locally/remotely after containment checks.
+Tests: the input cases cover standalone/native opening, Unicode paths, complete image/MOV archives
+after original-file removal, native group order, older companions, malformed-member refusal, atomic
+adoption, cancellation, backpressure, destruction while queued, and saving a mixed archive without
+ever creating a movie editor. The four archive-group corpus modes import through this dispatcher.
+Merged in [#163](https://github.com/mgradwohl/MoTrack/pull/163).
 
 ## Desktop workspace shell
 
@@ -265,39 +220,14 @@ editors and disconnects callbacks before its C++ member maps and registry leases
 Pending frame/index requests survive close decisions, so an aborted close leaves frame controls
 usable; actual editor destruction/source release cancels the remaining work.
 
-Local shell validation currently covers actual tab selection/reordering and focused Undo/Redo, lazy
-archive members, hidden edits and native/standard Save All, complete-source Save/Discard/Cancel,
-whole-window Cancel and later-prompt edits, failed saves and pending-operation refusal, raw media,
-input cancellation/backpressure/failure and destruction during modal operations/completion. Actual
-AutoTracker continues through another tab's switch, reorder and project close with independent
-timing/units. Self-review reproduced Save All overwriting two independently edited copies with one shared destination;
-the new preflight preserves both dirty copies and also protects a standard file's native companion.
-Review regressions also cover first-Save companion replacement for TRK/TRZ through Save, Save All and
-save-before-close; canceled project/window close with a pending movie frame; prepared movie reuse
-through recreated tabs, including nonzero absolute timestamps; native first-index retention; and stale
-file/orientation cache rejection. Both companion loss and stuck controls reproduced before their fixes.
-All 17 shell regressions and 14 bound-editor regressions pass locally (9774 ms and 5239 ms).
-All 10 Windows CTest groups pass serially in
-197.60 seconds with **96.08% production-line coverage (11196/11653)**. All C++ formatting, the nine
-review-affected translation-unit analyses and 45 relative guide links pass. LLVM reports six hash-mismatch
-records for the generated `tr()` wrappers of WorkspaceWindow, MainWindow and PositionPlot, each
-listed twice; all production source records are present. No coverage exclusions or thresholds changed.
-The earlier `b0ef32a` [CI run](https://github.com/mgradwohl/MoTrack/actions/runs/42782801088) passed all
-three platform builds and the unchanged 237 edited Tracker cases, including all four group modes;
-three known upstream defects remain explicitly not accepted. Linux static analysis then rejected
-an optional-value expression in saved-tab restoration and QtTest's `keyClick`/`QPointer` path in the
-keyboard regression. Saved-tab restoration now uses an explicit UUID value, and the test sends the
-same platform shortcut with separate key press/release events, as the existing workspace tests do.
-All 17 shell cases pass again (10993 ms), with both affected translation-unit analyses and formatting
-passing locally. No checks or assertions were removed. PR #164 subsequently merged at reviewed head
-`0b772d0`, with all six checks passing in [CI 42787438966](https://github.com/mgradwohl/MoTrack/actions/runs/42787438966),
-**96.13% combined coverage (11225/11677)** and all 237 unchanged edited Tracker cases. The user-authorized
-independent Codex review approved that exact revision with no blocking findings after Copilot's quota
-was exhausted. The completed branch was removed locally/remotely after containment checks.
-[MoTrack #69](https://github.com/mgradwohl/MoTrack/issues/69) is closed with native tab-isolation and
-cancellation evidence; upstream Tracker #18 remains independently open.
-The 38 new strings (including correct plural forms) are cataloged in German, Spanish and French as unfinished. Tracker TFrame tabsets
-(#150), cross-tab import and the remaining R04 layouts are not implemented by this shell.
+Tests: `WorkspaceShell.*` covers tab selection/reordering and focused Undo/Redo, lazy members, hidden
+edits with Save All, whole-source and whole-window Save/Discard/Cancel, failed saves, raw media,
+input cancellation, destruction during modal operations, shared-destination refusal, companion
+replacement prompts, and AutoTracker continuing through another tab's switch, reorder and close.
+Merged in [#164](https://github.com/mgradwohl/MoTrack/pull/164), which closed native tab-isolation
+issue [#69](https://github.com/mgradwohl/MoTrack/issues/69); upstream Tracker #18 remains open.
+Tracker TFrame tabsets ([#150](https://github.com/mgradwohl/MoTrack/issues/150)), cross-tab import
+and saved layouts are not implemented by this shell.
 
 ## Saved models and per-experiment revert
 
@@ -328,28 +258,11 @@ revert recreates a visible editor at its original tab position and first clip st
 record leaves it hidden. The command clears undo/redo history as stated in its confirmation. It restores
 the last state observed by this session rather than reloading files changed by another application.
 
-Ten targeted local regressions pass: branch-discarded save points and non-reused IDs; stale/reversed,
-failed, replaced and snapshot-less completions; actual standalone/group paired writes and native
-reopen; split-pair and interrupted-save recovery refusal; appended/replaced group members; and desktop
-Cancel/Discard, hidden records, tab order, other edits and modal destruction/revision changes. A regression
-reproduced Revert shrinking an older movie's newly indexed extent and preventing a later clip extension;
-the fix preserves all known frames and the retained index without changing the saved clip selection.
-Independent review also reproduced an older successful callback restoring mass 7 after recovery wrote
-mass 9 to both files. The eleventh regression covers standalone/group sources and ordinary/external
-recovery, checks both files and the live model, and permits restoration after a fresh save. A positive
-control retains a known snapshot from a write physically published after recovery. Both tests pass
-locally across their variants (18982 ms). After the fix, all 10 Windows CTest groups pass serially
-in 254.10 seconds with **96.09% production-line coverage (11375/11838)**. All C++ formatting,
-the three fix-affected translation-unit analyses and 52 relative guide links pass. Fresh exact-head
-cross-platform CI and independent review remain required.
-Before the ordering correction, the initial full Windows suite passed with **96.09% production-line coverage (11372/11835)**.
-All C++ formatting, nine affected translation-unit analyses (with rechecks after the fixes), and 42
-relative guide links pass. The final direct-include cleanup builds and passes static analysis plus all
-ten new regressions (2902 ms for seven UI/session cases and 4182 ms for three core cases). LLVM's six
-generated `tr()` wrapper mismatches remain the same as the shell
-audit above, with all production source records present and no gate/exclusion changes. Current-head
-cross-platform CI, actual pinned-Tracker acceptance and an independent review remain required.
-The six new strings are cataloged as unfinished in German, Spanish and French.
+Tests: restore cases cover branch-discarded save points and non-reused IDs; stale, failed, replaced
+and snapshot-less completions; standalone/group paired writes and native reopen; split-pair and
+interrupted-save refusal; appended/replaced members; desktop Cancel/Discard, hidden records and
+modal destruction; preserved movie extent; and an older save callback arriving after recovery.
+Merged in [#165](https://github.com/mgradwohl/MoTrack/pull/165).
 
 ## Saving and recovery
 
@@ -380,38 +293,10 @@ it does not downgrade that obligation to an ordinary cancelled write. A request 
 worker needs even if the workspace is destroyed;
 destruction cancels its flag instead of leaving borrowed model pointers in the worker.
 
-## Evidence and remaining integration
+## Remaining integration
 
-Twelve public-API regressions exercise independent histories/selection, duplicate paths,
-stable owners, refused transfers, per-document jobs, hidden members in both edit/save orders, group
-append during an older save, native media relocation, two-operation backpressure, cancelled writes,
-physical write/callback ordering, cancellation after commit, cancelled/partial recovery, native reopen
-and owner destruction. The four
-existing image/MOV group corpus modes now also use workspace routing, hide a member, retain another
-member's tracking token, save from the hidden member and recover before final actual-Tracker checks.
-Earlier independent-companion, native relocation/source-removal, XML/ZIP/media and byte-equality
-oracles remain; fixture data and the case inventory are unchanged.
-
-All 10 Windows CTest groups pass serially in 177.35 seconds with **96.11%** production-line coverage
-(9819/10216), including all 301 project tests. All C++ formatting, static analysis for the four changed
-translation units, four extended native corpus modes, both reimports, byte equality and 68 relative
-file links pass. Three previously investigated LLVM function-mismatch warnings remain visible;
-no production coverage records are missing and the 90% gate is unchanged. PR #160 merged at reviewed
-head `a8a7148` after all six checks in
-[CI 42753586627](https://github.com/mgradwohl/MoTrack/actions/runs/42753586627), with **96.18% combined
-coverage (9849/10240)**. All 237 edited Tracker cases, including the four extended group modes,
-passed; three known Tracker defects remain explicitly unaccepted. The merged branch was removed
-locally and remotely after containment checks. This foundation does not close
-[MoTrack #69](https://github.com/mgradwohl/MoTrack/issues/69), whose upstream
-[Tracker #18](https://github.com/OpenSourcePhysics/tracker/issues/18) discussion was refreshed on
-2026-11-10. The historical report concerns actual playback/tracking controls. The visible shell is merged and native #69 is closed with acceptance evidence. Cross-tab import, saved-view restoration and [Tracker tabsets #150](https://github.com/mgradwohl/MoTrack/issues/150) remain in
-the [full-port order](migration-plan.md#implementation-order-and-exit-gates).
-
-The remaining integration order is:
-
-1. Shared services, retained editors and complete project preparation are merged in #161–#163.
-2. The visible shell is merged in #164 with exact-head review and cross-platform validation: actual tracking and
-   keyboard/tab interactions, all-source saving/close decisions, source removal and native/Tracker reopen.
-3. Complete validation of saved-model restoration and the per-experiment Revert command above.
-4. Add persisted views, then Tracker tabsets and cross-tab import. Source records and visible views
-   must not be conflated at any close step.
+The registry/routing foundation merged in [#160](https://github.com/mgradwohl/MoTrack/pull/160);
+services, editors, input preparation, the shell and Revert followed in #161–#165. The remaining phase-4
+order is in the [full-port plan](migration-plan.md#phase-4-remaining-work): persisted views,
+then Tracker tabsets ([#150](https://github.com/mgradwohl/MoTrack/issues/150)) and cross-tab import.
+Source records and visible views must not be conflated at any close step.

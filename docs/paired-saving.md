@@ -388,12 +388,6 @@ the recovery checkpoint captured an unreadable UUID that a later known observati
 observations remain pending. Successful recovery writes still require the checkpoint's transaction to
 match; confirmed absence does not authorize a write or mark the live document clean.
 
-At `f6f5de7`, the location-scoped completion, mixed native/paired destination order and superseded-unidentified-checkpoint
-regressions pass on Windows with all eight CTest groups (including all 28 session and 23 paired-save cases).
-Combined local production line coverage is 95.49% (8108/8491); formatting and all six changed C++
-translation-unit static analyses pass. Persistence and session cases now have separate CTest groups
-from the UI, retaining every case and each 60-second limit. Current-revision CI/review remain required.
-
 The combined desktop/package/movie integration at `1df6f03` passes all nine Windows CTest groups
 with 95.70% production line coverage (8734/9126), including the mixed-order cases through the locked
 native writer. All tracked C++ formatting and four affected integration translation-unit static
