@@ -11,7 +11,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -92,8 +92,8 @@ inline double overlapBySlices(const std::array<ImagePoint, 4>& quad, int column,
             continue;
         }
         const double x = (left + right) / 2;
-        std::optional<double> low;
-        std::optional<double> high;
+        double low = std::numeric_limits<double>::infinity();
+        double high = -std::numeric_limits<double>::infinity();
         for (std::size_t i = 0; i < quad.size(); ++i)
         {
             const ImagePoint a = quad[i];
@@ -103,12 +103,12 @@ inline double overlapBySlices(const std::array<ImagePoint, 4>& quad, int column,
                 continue;
             }
             const double y = a.y + ((x - a.x) * (b.y - a.y) / (b.x - a.x));
-            low = low ? std::min(*low, y) : y;
-            high = high ? std::max(*high, y) : y;
+            low = std::min(low, y);
+            high = std::max(high, y);
         }
-        if (low && high)
+        if (low <= high)
         {
-            area += (right - left) * std::max(0.0, std::min(*high, bottom) - std::max(*low, top));
+            area += (right - left) * std::max(0.0, std::min(high, bottom) - std::max(low, top));
         }
     }
     return area;

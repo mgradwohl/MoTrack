@@ -241,8 +241,23 @@ LineProfileData sampleTilted(const ArgbImage& image, ImagePoint end0, ImagePoint
         {
             const double r = row - row0;
             const ClipPolygon band = clip(clip(probe, false, r, false), false, r + 1, true);
+            if (band.size == 0)
+            {
+                continue;
+            }
+            // Only columns under the band can overlap it; the one-column margin absorbs rounding.
+            // Skipped columns would add exact zeros, so the result is unchanged.
+            double bandMin = band.points[0].x;
+            double bandMax = band.points[0].x;
+            for (std::size_t k = 1; k < band.size; ++k)
+            {
+                bandMin = std::min(bandMin, band.points[k].x);
+                bandMax = std::max(bandMax, band.points[k].x);
+            }
+            const int bandFirst = std::max(firstColumn, static_cast<int>(column0 + std::floor(bandMin)) - 1);
+            const int bandEnd = std::min(endColumn, static_cast<int>(column0 + std::ceil(bandMax)) + 1);
             const auto pixels = image.row(row);
-            for (int column = firstColumn; column < endColumn; ++column)
+            for (int column = bandFirst; column < bandEnd; ++column)
             {
                 const double c = column - column0;
                 const double a = area(clip(clip(band, true, c, false), true, c + 1, true));

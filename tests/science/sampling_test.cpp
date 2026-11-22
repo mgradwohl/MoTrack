@@ -90,7 +90,10 @@ TEST(ArgbImage, ValidatesSizesAndAddressesWordsByStride)
     EXPECT_FALSE(ArgbImage::filled(-1, 4, 0));
     EXPECT_FALSE(ArgbImage::filled(4, ArgbImage::MAX_DIMENSION + 1, 0));
     const auto empty = ArgbImage::filled(0, 0, 0);
-    ASSERT_TRUE(empty);
+    if (!empty)
+    {
+        FAIL() << "a 0 x 0 image is valid";
+    }
     EXPECT_EQ(empty->width(), 0);
     EXPECT_FALSE(empty->contains(0, 0));
     EXPECT_EQ(ArgbImage().height(), 0);
@@ -100,7 +103,10 @@ TEST(ArgbImage, ValidatesSizesAndAddressesWordsByStride)
     EXPECT_FALSE(ArgbImage::fromPixels(-3, 2, 4, std::vector<std::uint32_t>(8))); // negative width
     EXPECT_TRUE(ArgbImage::fromPixels(3, 0, 3, {}));
     auto image = ArgbImage::fromPixels(3, 2, 4, {0xff010203U, 2, 3, 0xdead, 0xff112233U, 5, 6});
-    ASSERT_TRUE(image);
+    if (!image)
+    {
+        FAIL() << "a strided 3 x 2 image is valid";
+    }
     EXPECT_EQ(image->stride(), 4U);
     EXPECT_EQ(image->pixel(0, 1), 0xff112233U);
     EXPECT_EQ(image->row(1).size(), 3U);
@@ -306,7 +312,16 @@ TEST(RgbRegionOutline, PolygonsUseNonZeroWindingAndImplicitClosure)
     EXPECT_FALSE(RgbRegionOutline(rectangle(4, 4), {std::numeric_limits<double>::infinity(), 0}).bounds());
     EXPECT_FALSE(RgbRegionOutline(rectangle(4, 4), {10, 10}).contains(NOT_A_NUMBER, 10));
     // Bounds beyond the int range cannot be measured.
-    EXPECT_FALSE(RgbRegionOutline(rectangle(4, 4), {3e9, 10}).bounds());
+    EXPECT_FALSE(RgbRegionOutline(rectangle(4, 4), {.x = 3e9, .y = 10}).bounds());
+    // Finite inputs whose translation overflows to infinity give NaN extents (inf - inf).
+    const RgbRegionOutline overflowing(polygon({{.x = 1e308, .y = 1e308}, {.x = 1e308, .y = 1e308}, {.x = 1e308, .y = 1e308}}),
+                                       {.x = 1e308, .y = 1e308});
+    EXPECT_TRUE(overflowing.isFinite());
+    EXPECT_FALSE(overflowing.bounds());
+    EXPECT_EQ(
+        measureRgbRegion(gradient(), polygon({{.x = 1e308, .y = 0}, {.x = 1e308, .y = 1}, {.x = 1e308, .y = 2}}), {.x = 1e308, .y = 0})
+            .status,
+        RgbRegionStatus::OutsideImage);
 }
 
 TEST(MeasureRgbRegion, ReportsAnalyticMeansAndDeviations)
@@ -346,7 +361,10 @@ TEST(MeasureRgbRegion, ReportsAnalyticMeansAndDeviations)
 
     // Alpha is ignored; one pixel has no deviation.
     const auto translucent = ArgbImage::fromPixels(2, 2, 2, {0x00090807U, 0x80090807U, 0x7f090807U, 0x01090807U});
-    ASSERT_TRUE(translucent);
+    if (!translucent)
+    {
+        FAIL() << "a 2 x 2 image is valid";
+    }
     auto single = measureRgbRegion(*translucent, rectangle(1, 1), {.x = 1, .y = 1});
     ASSERT_EQ(single.status, RgbRegionStatus::Measured);
     EXPECT_EQ(single.statistics.pixels, 1);
@@ -399,6 +417,23 @@ TEST(MeasureRgbRegion, KeepsExactDeviationsWhereTrackerIntSumsOverflow)
     EXPECT_EQ(overflows.statistics.redDeviation, 0.0);
     EXPECT_EQ(overflows.statistics.greenDeviation, 0.0);
     EXPECT_EQ(overflows.statistics.blueDeviation, 0.0);
+}
+
+TEST(MeasureRgbRegion, KeepsExactMeansWhereTrackerChannelSumsOverflow)
+{
+    // 2902^2 = 8,421,604 white pixels: 255 n exceeds 2^31 - 1, so Tracker's int sums wrap the means.
+    const auto white = makeImage(2904, 2904, [](int, int) { return rgb(255, 255, 255); });
+    const auto huge = measureRgbRegion(white, rectangle(2902, 2902), {.x = 1452, .y = 1452});
+    ASSERT_EQ(huge.status, RgbRegionStatus::Measured);
+    EXPECT_EQ(huge.statistics.pixels, 2902LL * 2902);
+    EXPECT_GT(huge.statistics.sums[0], std::numeric_limits<std::int32_t>::max());
+    EXPECT_TRUE(huge.trackerSumOverflow);
+    EXPECT_EQ(huge.statistics.red, 255.0);
+    EXPECT_EQ(huge.statistics.luma, trackerLuma(255, 255, 255));
+    EXPECT_EQ(huge.statistics.greenDeviation, 0.0);
+    // What Tracker's 32-bit sum gives instead: a negative "mean".
+    const auto wrapped = static_cast<std::int32_t>(static_cast<std::uint32_t>(huge.statistics.sums[0]));
+    EXPECT_LT(static_cast<double>(wrapped) / static_cast<double>(huge.statistics.pixels), 0.0);
 }
 
 TEST(LineProfileMode, MatchesTrackersAxisTest)

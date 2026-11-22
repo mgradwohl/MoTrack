@@ -63,7 +63,8 @@ enum class Defect : std::uint8_t
     SumOverflow,
     /// An all-black horizontal strip is treated as an unloaded image: no data.
     BlackStrip,
-    /// Tilted probes with sin * cos < 0 get incorrect area weights.
+    /// Tilted probes get incorrect area weights: sin * cos < 0, downward vertical lines, and some
+    /// first probes that start on a pixel corner.
     TiltedWeights,
     /// Tilted probes meeting grid vertices make getProfileData throw.
     TiltedException,
@@ -82,6 +83,9 @@ const std::map<std::string, Defect>& defects()
         {"tilted-q3-s1", Defect::TiltedWeights},
         {"tilted-q1-vedge", Defect::TiltedWeights},
         {"tilted-q1-gradient", Defect::TiltedWeights},
+        {"tilted-vertical-down-s0", Defect::TiltedWeights},
+        {"tilted-vertical-down-s1", Defect::TiltedWeights},
+        {"tilted-integer-start-first-sample", Defect::TiltedWeights},
         {"tilted-vertical-integer", Defect::TiltedException},
         {"tilted-vertical-half", Defect::TiltedException},
         {"tilted-integer-start", Defect::TiltedException},
@@ -233,7 +237,13 @@ const std::map<std::string, ArgbImage>& frames()
             const int width = spec.value(QStringLiteral("width")).toInt();
             const int height = spec.value(QStringLiteral("height")).toInt();
             std::uint64_t state = spec.value(QStringLiteral("seed")).toString().toULongLong(nullptr, 16);
-            auto image = *ArgbImage::filled(width, height, 0);
+            auto created = ArgbImage::filled(width, height, 0);
+            if (!created)
+            {
+                ADD_FAILURE() << "invalid frame size " << width << " x " << height;
+                continue;
+            }
+            ArgbImage image = *std::move(created);
             std::uint64_t hash = FNV_OFFSET;
             for (int y = 0; y < height; ++y)
             {
@@ -275,7 +285,7 @@ TEST(SamplingReference, FixtureMatchesTheKernelConstants)
     EXPECT_EQ(number(luma.at(0)), trackerLuma(1, 0, 0));
     EXPECT_EQ(number(luma.at(1)), trackerLuma(0, 1, 0));
     EXPECT_EQ(number(luma.at(2)), trackerLuma(0, 0, 1));
-    EXPECT_EQ(frames().size(), 9U);
+    EXPECT_EQ(frames().size(), 10U);
     // Every registered defect names a recorded case.
     std::set<std::string> ids;
     for (const QString& key : {QStringLiteral("regions"), QStringLiteral("profiles")})
@@ -349,7 +359,11 @@ TEST(SamplingReference, RgbRegionsMatchTracker)
         // Inclusion: Tracker's Shape.getBounds() and the exact set of included pixel centres.
         const RgbRegionOutline outline(shape, position);
         const auto bounds = outline.bounds();
-        ASSERT_TRUE(bounds);
+        if (!bounds)
+        {
+            ADD_FAILURE() << "no pixel bounds";
+            continue;
+        }
         const QJsonArray expectedBounds = item.value(QStringLiteral("bounds")).toArray();
         EXPECT_EQ(
             *bounds,

@@ -105,6 +105,7 @@ public final class SamplingOracle {
 
     private static final List<FrameSpec> FRAMES = List.of(
         new FrameSpec("noise", "noise", 96, 72, 0x5EED0001L),
+        new FrameSpec("noise160", "noise", 160, 120, 0x5EED0004L),
         new FrameSpec("gradient", "gradient", 128, 96, 0),
         new FrameSpec("checker", "checker", 80, 60, 0),
         new FrameSpec("edge", "edge", 64, 48, 0),
@@ -326,8 +327,15 @@ public final class SamplingOracle {
         tilted("tilted-short", "noise", 10.3, 10.2, 10.9, 10.7, 0),
         tilted("tilted-vertical-integer", "noise", 40, 10, 40, 40, 1),
         tilted("tilted-vertical-half", "noise", 40.5, 10.25, 40.5, 40.25, 0),
+        // Downward vertical lines (an x-axis rotated 90 degrees clockwise) return wrong weights
+        // silently although sin * cos = +6e-17; the upward line is exact.
+        tilted("tilted-vertical-down-s0", "noise", 40.25, 10.5, 40.25, 40.5, 0),
+        tilted("tilted-vertical-down-s1", "noise", 20.37, 10.18, 20.37, 45.66, 1),
+        tilted("tilted-vertical-up-s0", "noise", 40.25, 40.5, 40.25, 10.5, 0),
         tilted("tilted-diagonal-integer", "noise", 10, 10, 40, 40, 1),
         tilted("tilted-integer-start", "noise", 30, 20, 58.7, 28.9, 1),
+        // A start on a pixel corner in a quadrant that is otherwise exact: a wrong first sample.
+        tilted("tilted-integer-start-first-sample", "noise160", 9, 47, 110, 131, 4),
         tilted("tilted-horizontal-line", "noise", 10.25, 30.5, 50.75, 30.5, 1),
         tilted("tilted-q2-vedge", "vedge", 20.13, 10.29, 44.07, 30.18, 2),
         tilted("tilted-q1-vedge", "vedge", 20.13, 30.18, 44.07, 10.29, 2),

@@ -233,7 +233,12 @@ std::optional<PixelRect> RgbRegionOutline::bounds() const noexcept
     const double y2 = std::ceil(box.minY + height);
     constexpr auto INT_LOW = static_cast<double>(std::numeric_limits<int>::min());
     constexpr auto INT_HIGH = static_cast<double>(std::numeric_limits<int>::max());
-    if (x1 < INT_LOW || y1 < INT_LOW || x2 > INT_HIGH || y2 > INT_HIGH || x2 - x1 > INT_HIGH || y2 - y1 > INT_HIGH)
+    // Written so that NaN (for example inf - inf from coordinates that overflowed) fails as well.
+    const auto representable = [](double value)
+    {
+        return value >= INT_LOW && value <= INT_HIGH;
+    };
+    if (!(representable(x1) && representable(y1) && representable(x2) && representable(y2) && x2 - x1 <= INT_HIGH && y2 - y1 <= INT_HIGH))
     {
         return std::nullopt;
     }

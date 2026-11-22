@@ -133,8 +133,15 @@ Each sample's channel values are the means of the pixels weighted by their **exa
 with the probe (Sutherland–Hodgman clipping per pixel). Lines shorter than one pixel are
 `TooShort`; profiles with no probe inside the image are `OutsideImage`.
 
-Tracker computes the overlaps with its own grid-intersection walk. It is exact only for directions
-with sin θ · cos θ > 0; MoTrack uses the exact weights for every direction (see the defects below).
+Tracker computes the overlaps with its own grid-intersection walk, which silently returns wrong
+weights for every direction with sin θ · cos θ < 0, for downward vertical lines (θ = +90°, although
+the floating-point product is +6 × 10⁻¹⁷; the upward line is exact) and for some first probes that
+start on a pixel corner, and throws on other grid-aligned probes. MoTrack uses the exact weights for
+every direction (see the defects below).
+
+Each probe clips only the pixel columns under its row band (plus a one-column margin), so a
+4K-wide profile with spread 100 costs a fraction of a second. The call has no internal
+cancellation point; C6 runs it off the GUI thread like other per-frame measurements.
 
 ### Columns
 
@@ -154,9 +161,9 @@ region, luma, standard deviation, profile, line profile); none has been filed up
 
 | Tracker 6.3.5 behavior | MoTrack behavior | Issue |
 | --- | --- | --- |
-| RGB-region deviations use Java `int` sums of squares, which overflow above 2³¹ − 1 (more than 33,025 pixels of value 255; regions may be up to one pixel less than the smaller image dimension). Uniform white regions then show NaN; a 1000 × 1000 region with 9.2 % white pixels shows 33.47 instead of 73.6. | Exact 64-bit sums; `trackerSumOverflow` marks results that Tracker shows differently. | [#232](https://github.com/mgradwohl/MoTrack/issues/232) |
-| Tilted line profiles weight pixels incorrectly whenever sin θ · cos θ < 0, which includes every x-axis rotated counter-clockwise by less than 90°. In a 4,000-line scan every such line with non-integer start points was wrong by more than 10⁻³, by up to 138 of 255. | Exact overlap weights in every direction. | [#233](https://github.com/mgradwohl/MoTrack/issues/233) |
-| Tilted probes whose edges meet grid vertices (vertical lines, integer start points, 45° lines between integer points) throw `NullPointerException` or `ArrayIndexOutOfBoundsException`, or print a stack trace and show no data. | Measured like any other probe. | [#234](https://github.com/mgradwohl/MoTrack/issues/234) |
+| RGB-region sums use Java `int`s, which wrap above 2³¹ − 1; regions may be up to one pixel less than the smaller image dimension. Sums of squares wrap from 33,026 pixels of value 255: uniform white regions show NaN deviations, and a 1000 × 1000 region with 9.2 % white pixels shows 33.47 instead of 73.6. Channel sums wrap from 8,421,505 such pixels (reachable on 8K video, up to 4319 × 4319), making the means wrong too. | Exact 64-bit sums; `trackerSumOverflow` marks results that Tracker shows differently. | [#232](https://github.com/mgradwohl/MoTrack/issues/232) |
+| Tilted line profiles silently weight pixels incorrectly (1) whenever sin θ · cos θ < 0, which includes every x-axis rotated counter-clockwise by less than 90° (in a 4,000-line scan every such line with non-integer start points was wrong by more than 10⁻³, by up to 138 of 255); (2) for downward vertical lines, i.e. an x-axis rotated 90° clockwise as used for vertical motion (every sample of the recorded cases is wrong, by up to 26); and (3) for some first probes that start on a pixel corner in the other quadrants (15 of 1,939 random lines in an independent review, by up to 18). | Exact overlap weights in every direction. | [#233](https://github.com/mgradwohl/MoTrack/issues/233) |
+| Other tilted probes whose edges meet grid vertices (vertical lines on pixel boundaries, integer start points, 45° lines between integer points) throw `NullPointerException` or `ArrayIndexOutOfBoundsException`, or print a stack trace and show no data. | Measured like any other probe. | [#234](https://github.com/mgradwohl/MoTrack/issues/234) |
 | A horizontal profile whose every pixel is pure black is treated as an unloaded image ("LineProfileStep image failed") and shows no data. | Reports the zero values; `trackerOmitsBlackStrip` marks them. | [#235](https://github.com/mgradwohl/MoTrack/issues/235) |
 
 Preserved Tracker behavior, recorded in [#236](https://github.com/mgradwohl/MoTrack/issues/236):
@@ -177,13 +184,14 @@ Tracker's own `getRGBShape` and `getBounds()` also provide each region's bounds 
 hash of its included pixels, so inclusion is compared even where Tracker returns no data.
 
 Frames are generated from integer formulas in both languages and checked by FNV-1a hash: SplitMix64
-noise, a linear gradient, a checkerboard, anti-aliased edges at x = 20.3 and y = 30.6, a hard
-vertical edge, a black band, uniform white and bright noise (260 × 260) and a sparse 1008 × 1008
-frame for the overflow cases. The 55 region and 45 profile cases cover integer, half-pixel and
-subpixel positions, odd and even sizes, 0, 1, 2 and 3-pixel shapes, negative sizes, edge contact,
-concave, self-intersecting, multiply wound, collinear, single-vertex and offset polygons,
-truncation, clamping and band limits, the algorithm switch, all four direction quadrants, inward
-stepping at both ends, wide probes and grid-aligned probes.
+noise (96 × 72 and 160 × 120), a linear gradient, a checkerboard, anti-aliased edges at x = 20.3 and
+y = 30.6, a hard vertical edge, a black band, uniform white and bright noise (260 × 260) and a sparse
+1008 × 1008 frame for the overflow cases. The 55 region and 49 profile cases cover integer,
+half-pixel and subpixel positions, odd and even sizes, 0, 1, 2 and 3-pixel shapes, negative sizes,
+edge contact, concave, self-intersecting, multiply wound, collinear, single-vertex and offset
+polygons, truncation, clamping and band limits, the algorithm switch, all four direction quadrants,
+upward and downward vertical lines, inward stepping at both ends, wide probes and grid-aligned probes.
+The channel-sum overflow needs an 8K-sized region and is covered by a unit test instead.
 
 The committed fixture is `tests/science/sampling-reference.json`:
 
@@ -230,4 +238,6 @@ plus a 512 × 512 point lattice inside each probe across a hard edge.
   when recomputed MoTrack values replace saved ones, and can use `trackerSumOverflow` to explain a
   difference from a saved NaN.
 - **Threading.** The kernels are pure functions of their arguments with no shared state and may run on
-  worker threads; C6 owns cancellation and stale-result rejection.
+  worker threads. They have no cancellation points (a large region or a wide 4K profile takes up to
+  a few hundred milliseconds per frame), so C6 keeps them off the GUI thread and owns cancellation
+  between frames and stale-result rejection.

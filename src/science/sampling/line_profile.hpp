@@ -89,7 +89,8 @@ struct LineProfileData
 /// `end1`, first advancing the start (and shortening the far end) by whole pixels until the probe
 /// corners lie inside the image, exactly as Tracker does. Each sample is the mean of the pixels
 /// weighted by their exact overlap area with the probe; Tracker's own area computation is
-/// incorrect for directions with sin * cos < 0 (MoTrack #233) and fails on grid-aligned probes
+/// incorrect for directions with sin * cos < 0, downward vertical lines and some probes that
+/// start on a pixel corner (MoTrack #233), and fails on other grid-aligned probes
 /// (MoTrack #234), so MoTrack's weights are the exact geometric ones (docs/image-sampling.md).
 [[nodiscard]] LineProfileData sampleLineProfile(const ArgbImage& image, ImagePoint end0, ImagePoint end1, int spread, LineProfileMode mode);
 

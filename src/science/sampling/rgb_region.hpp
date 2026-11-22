@@ -175,9 +175,10 @@ struct RgbRegionMeasurement
     RgbStatistics statistics;
     /// Tracker's pixel bounds (`Shape.getBounds()`); empty when they are invalid or exceed `int`.
     PixelRect bounds;
-    /// Tracker 6.3.5 accumulates these sums in Java `int`s. When a channel's sum of squares (or
-    /// sum) exceeds 2^31 - 1 - more than 33,025 pixels of value 255 - its deviations wrap: Tracker
-    /// shows NaN or a finite wrong value where MoTrack reports the correct deviation (MoTrack #232).
+    /// Tracker 6.3.5 accumulates these sums in Java `int`s. Above 2^31 - 1 they wrap: a channel's sum
+    /// of squares from 33,026 pixels of value 255, which makes its deviation NaN or a finite wrong
+    /// value, and the channel sum itself from 8,421,505 such pixels (8K video allows regions of
+    /// 4319 x 4319), which makes the mean wrong too. MoTrack reports the correct values (#232).
     bool trackerSumOverflow = false;
 };
 
