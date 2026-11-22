@@ -10,6 +10,7 @@
 #include <numbers>
 #include <sstream>
 #include <string_view>
+#include <utility>
 
 namespace motrack
 {
@@ -58,17 +59,51 @@ bool validConstantClipTiming(const Clip& clip)
     return true;
 }
 
+std::optional<int> clipStepOfFrame(const Clip& clip, int frame)
+{
+    if (clip.firstFrame < 0 || frame < clip.firstFrame || clip.stepSize < 1)
+    {
+        return std::nullopt;
+    }
+    const auto offset = frame - clip.firstFrame;
+    const auto step = offset / clip.stepSize;
+    if (offset % clip.stepSize != 0 || (clip.stepCount && step >= *clip.stepCount))
+    {
+        return std::nullopt;
+    }
+    return step;
+}
+
+std::optional<int> clipFrameOfStep(const Clip& clip, int step)
+{
+    if (clip.firstFrame < 0 || clip.stepSize < 1 || step < 0 || (clip.stepCount && step >= *clip.stepCount))
+    {
+        return std::nullopt;
+    }
+    const auto frame = std::int64_t{clip.firstFrame} + std::int64_t{step} * clip.stepSize;
+    if (!std::in_range<int>(frame))
+    {
+        return std::nullopt;
+    }
+    return static_cast<int>(frame);
+}
+
+std::optional<double> clipFrameTimeMs(const Clip& clip, int frame)
+{
+    const auto duration = clip.frameDurationMs.value_or(0.0);
+    if (!(duration > 0.0))
+    {
+        return std::nullopt;
+    }
+    return clip.startTimeMs + static_cast<double>(std::int64_t{frame} - clip.firstFrame) * duration;
+}
+
 namespace
 {
 
 bool includesFrame(const Clip& clip, int frame)
 {
-    if (clip.firstFrame < 0 || frame < clip.firstFrame || clip.stepSize < 1)
-    {
-        return false;
-    }
-    const auto offset = frame - clip.firstFrame;
-    return offset % clip.stepSize == 0 && (!clip.stepCount || offset / clip.stepSize < *clip.stepCount);
+    return clipStepOfFrame(clip, frame).has_value();
 }
 
 void writeCsvField(std::ostream& output, std::string_view value)
@@ -233,9 +268,9 @@ PlotSeries measurementPlot(const LegacyProject& project,
             }
             horizontal = frameTimes[static_cast<std::size_t>(mark.frame)];
         }
-        else if (series.timed)
+        else if (const auto time = clipFrameTimeMs(project.clip, mark.frame))
         {
-            horizontal = (project.clip.startTimeMs + (mark.frame - project.clip.firstFrame) * frameDurationMs) / 1000.0;
+            horizontal = *time / 1000.0;
         }
         if (!point || !std::isfinite(horizontal + displayOffset) || !std::isfinite(point->x) || !std::isfinite(point->y))
         {
