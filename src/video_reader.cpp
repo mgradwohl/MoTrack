@@ -194,6 +194,11 @@ void RgbaFrameConverter::convertInto(const AVFrame& frame, std::span<std::uint8_
     {
         throw VideoError("The converted video frame buffer is too small.");
     }
+    // FFmpeg n9.0.2's unscaled YUV-to-RGB C converter, used on AArch64 for widths that are not multiples of 16
+    // and on CPUs without SSSE3, never writes the last column of an odd-width row. SWS_ACCURATE_RND disables
+    // the unscaled converters. swscale forces full horizontal chroma for odd RGB widths anyway; requesting it
+    // keeps the cached context reusable. FFmpeg master fixed this in 72f8c33; drop this when the pin has it.
+    const int flags = (frame.width & 1) == 0 ? SWS_BILINEAR : SWS_BILINEAR | SWS_ACCURATE_RND | SWS_FULL_CHR_H_INT;
     m_Scale.reset(sws_getCachedContext(m_Scale.release(),
                                        frame.width,
                                        frame.height,
@@ -201,7 +206,7 @@ void RgbaFrameConverter::convertInto(const AVFrame& frame, std::span<std::uint8_
                                        frame.width,
                                        frame.height,
                                        AV_PIX_FMT_RGBA,
-                                       SWS_BILINEAR,
+                                       flags,
                                        nullptr,
                                        nullptr,
                                        nullptr));

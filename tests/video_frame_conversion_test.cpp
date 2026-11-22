@@ -11,6 +11,7 @@
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
+#include <libavutil/cpu.h>
 #include <libavutil/frame.h>
 #include <libavutil/mem.h>
 #include <libavutil/pixdesc.h>
@@ -34,6 +35,7 @@ extern "C" {
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #if defined(_WIN32) && defined(_DEBUG)
@@ -74,7 +76,7 @@ constexpr int CHROMA_V = 150;
 constexpr std::array MOVIE_WIDTHS{1080, 1404, 634, 426, 540, 1204};
 constexpr std::array FRAME_WIDTHS{1080, 1404, 634, 426, 540, 1204, 635, 31, 1};
 constexpr std::array ALIGNED_WIDTHS{16, 32, 1088, 1920};
-// Even heights take swscale's unscaled YUV 4:2:0 and 4:2:2 converters; odd heights take its general scaler.
+// Even widths and heights take swscale's unscaled YUV 4:2:0 and 4:2:2 converters; other sizes take its general scaler.
 constexpr std::array HEIGHTS{2, 3};
 
 struct Pattern
@@ -116,7 +118,9 @@ struct Format
 constexpr std::array FORMATS{Format{.pixels = AV_PIX_FMT_YUV420P, .pattern = RAMP},
                              Format{.pixels = AV_PIX_FMT_YUVJ420P, .pattern = Pattern{.fullRange = true}},
                              Format{.pixels = AV_PIX_FMT_YUV422P, .pattern = RAMP},
-                             Format{.pixels = AV_PIX_FMT_YUV444P, .pattern = RAMP}};
+                             Format{.pixels = AV_PIX_FMT_YUV444P, .pattern = RAMP},
+                             Format{.pixels = AV_PIX_FMT_NV12, .pattern = RAMP},
+                             Format{.pixels = AV_PIX_FMT_YUV420P10, .pattern = RAMP}};
 
 void check(int result, const char* operation)
 {
@@ -185,20 +189,42 @@ FramePtr syntheticFrame(AVPixelFormat format, QSize size, const Pattern& pattern
     {
         return (length + (1 << shift) - 1) >> shift;
     };
-    const auto chromaWidth = static_cast<std::size_t>(chroma(size.width(), descriptor->log2_chroma_w));
+    const QSize chromaSize(chroma(size.width(), descriptor->log2_chroma_w), chroma(size.height(), descriptor->log2_chroma_h));
+    for (int plane = 0; plane < 4 && frame->data[plane] != nullptr; ++plane)
+    {
+        const auto rows = plane == 0 ? size.height() : chromaSize.height();
+        std::memset(frame->data[plane], 0, static_cast<std::size_t>(rows) * static_cast<std::size_t>(frame->linesize[plane]));
+    }
+    // Writes an 8-bit level at the component's bit depth, following the descriptor's planes, steps and offsets.
+    const auto write = [&frame](const AVComponentDescriptor& component, int x, int y, int level)
+    {
+        auto* sample = frame->data[component.plane] + (static_cast<std::ptrdiff_t>(y) * frame->linesize[component.plane]) +
+                       (static_cast<std::ptrdiff_t>(x) * component.step) + component.offset;
+        const auto value = (level << (component.depth - 8)) << component.shift;
+        if (component.depth > 8)
+        {
+            const auto word = static_cast<std::uint16_t>(value);
+            std::memcpy(sample, &word, sizeof(word));
+        }
+        else
+        {
+            *sample = static_cast<std::uint8_t>(value);
+        }
+    };
     for (int y = 0; y < size.height(); ++y)
     {
-        auto* row = frame->data[0] + (static_cast<std::ptrdiff_t>(y) * frame->linesize[0]);
-        std::memset(row, 0, static_cast<std::size_t>(frame->linesize[0]));
         for (int x = 0; x < size.width(); ++x)
         {
-            row[x] = static_cast<std::uint8_t>(pattern.luma(x, y));
+            write(descriptor->comp[0], x, y, pattern.luma(x, y));
         }
     }
-    for (int y = 0; y < chroma(size.height(), descriptor->log2_chroma_h); ++y)
+    for (int y = 0; y < chromaSize.height(); ++y)
     {
-        std::memset(frame->data[1] + (static_cast<std::ptrdiff_t>(y) * frame->linesize[1]), CHROMA_U, chromaWidth);
-        std::memset(frame->data[2] + (static_cast<std::ptrdiff_t>(y) * frame->linesize[2]), CHROMA_V, chromaWidth);
+        for (int x = 0; x < chromaSize.width(); ++x)
+        {
+            write(descriptor->comp[1], x, y, CHROMA_U);
+            write(descriptor->comp[2], x, y, CHROMA_V);
+        }
     }
     return frame;
 }
@@ -359,7 +385,8 @@ TEST(RgbaFrameConverter, RejectsFramesItCannotConvert)
     EXPECT_THROW(converter.convertInto(*empty, packed), motrack::VideoError);
 }
 
-TEST(RgbaFrameConverter, KeepsSwscaleWritesInsideThePaddedLayout)
+// Converts every format and size into canary-filled memory, then checks each pixel and the canary after the layout.
+void expectConversionsInsideThePaddedLayout()
 {
     constexpr std::uint8_t CANARY = 0xa5;
     constexpr std::size_t GUARD_BYTES = 256;
@@ -386,6 +413,32 @@ TEST(RgbaFrameConverter, KeepsSwscaleWritesInsideThePaddedLayout)
             }
         }
     }
+}
+
+TEST(RgbaFrameConverter, KeepsSwscaleWritesInsideThePaddedLayout)
+{
+    expectConversionsInsideThePaddedLayout();
+}
+
+// swscale's C converters, which AArch64 uses for widths that are not multiples of 16, must also fill every column.
+TEST(RgbaFrameConverter, ConvertsEveryColumnWithoutSimd)
+{
+    struct RestoreCpuDetection
+    {
+        RestoreCpuDetection(const RestoreCpuDetection&) = delete;
+        RestoreCpuDetection& operator=(const RestoreCpuDetection&) = delete;
+        RestoreCpuDetection()
+        {
+            av_force_cpu_flags(0);
+        }
+        ~RestoreCpuDetection()
+        {
+            av_force_cpu_flags(-1);
+        }
+    };
+    const RestoreCpuDetection noSimd;
+    EXPECT_EQ(av_get_cpu_flags(), 0);
+    expectConversionsInsideThePaddedLayout();
 }
 
 TEST(RgbaFrameConverter, MatchesThePreviousUnpaddedConversionAtAlignedWidths)
@@ -426,15 +479,21 @@ TEST(RgbaFrameConverter, ImagesOwnTheirPixelsAcrossThreads)
     EXPECT_EQ(image.bytesPerLine(), layout->stride);
     const auto expected = image.copy();
     std::string seen;
+    bool unchanged = false;
+    // The worker takes the last reference, so the converted buffer is freed on that thread.
     std::thread(
-        [copy = image, &seen]() mutable
+        [owned = std::move(image), &expected, &seen, &unchanged]() mutable
         {
-            seen = firstMismatch(copy, RAMP, 3);
-            copy.setPixelColor(0, 0, QColor(Qt::red));
+            auto copy = owned;
+            copy.setPixelColor(0, 0, QColor(Qt::red)); // Detaches the copy from the shared buffer.
+            seen = firstMismatch(owned, RAMP, 3);
+            unchanged = owned == expected;
+            copy = QImage();
+            owned = QImage();
         })
         .join();
     EXPECT_EQ(seen, "");
-    EXPECT_EQ(image, expected);
+    EXPECT_TRUE(unchanged);
 }
 
 TEST(VideoReader, DecodesUnalignedMovieWidthsIntoPaddedImages)

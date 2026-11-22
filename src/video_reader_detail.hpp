@@ -24,8 +24,10 @@ struct RgbaLayout
 };
 
 /// Rounds rows up to 64 bytes and keeps 64 spare bytes after the last row, like av_image_alloc with
-/// align 64. swscale's x86 SSSE3 YUV-to-RGB converter stores 16 pixels at a time and can write up to
-/// 15 pixels past the requested width (#211). Returns nothing for unsupported dimensions.
+/// align 64. In the pinned FFmpeg n9.0.2, swscale's x86 SSSE3 YUV-to-RGB converter stores 16 pixels at
+/// a time and can write up to 15 pixels past the requested width (#211). FFmpeg master stops at the
+/// width since c6af16b; re-evaluate this padding when the pin includes it. Returns nothing for
+/// unsupported dimensions.
 [[nodiscard]] std::optional<RgbaLayout> paddedRgbaLayout(int width, int height);
 
 /// Converts decoded frames to RGBA without resizing them. Each converter belongs to a single thread.
