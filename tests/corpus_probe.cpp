@@ -922,26 +922,17 @@ try
     }
     if (args.size() >= 4 && args[1] == "--save-tabset")
     {
-        // The workspace's Save tabset as… after its prompts: an existing tabset at the destination is edited in place.
-        std::optional<motrack::TrackerTabset> existing;
-        if (QFileInfo::exists(args[2]))
-        {
-            auto read = motrack::readTrackerTabset(args[2]);
-            if (!read)
-                throw motrack::ProjectError(read.error());
-            existing = std::move(*read);
-        }
+        // Save tabset as… after its prompts: the window's file work (saveTrackerTabsetFiles) with the canonical
+        // destination localProjectPath gives it, so an existing tabset at the destination is edited in place.
         std::vector<QString> files;
         for (const auto& file : args.sliced(3))
             files.push_back(QFileInfo(file).canonicalFilePath());
-        const auto* baseline = existing ? &*existing : nullptr;
-        // The canonical destination, as the window passes it, so relative paths compare with the canonical files.
         const QFileInfo destination(args[2]);
         const auto folder = QFileInfo(destination.absolutePath()).canonicalFilePath();
         const auto tabset = folder.isEmpty() ? destination.absoluteFilePath() : QDir(folder).filePath(destination.fileName());
-        const auto entries = motrack::tabsetEntries(files, tabset, QDir::currentPath(), baseline);
-        if (const auto written = motrack::saveTrackerTabset(args[2], entries, baseline); !written)
-            throw motrack::ProjectError(written.error());
+        const auto saved = motrack::saveTrackerTabsetFiles(tabset, files, QDir::currentPath());
+        if (saved.status != motrack::TabsetSave::Status::Saved)
+            throw motrack::ProjectError(saved.diagnostic.empty() ? std::string("The destination is not a tabset.") : saved.diagnostic);
         return EXIT_SUCCESS;
     }
     if (args.size() == 4 && args[1] == "--read-tabset")

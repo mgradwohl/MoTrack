@@ -289,17 +289,16 @@ TEST(WorkspaceTabset, MissingFilesCanBeLocatedOrSkippedAndOtherProblemsAreReport
     EXPECT_TRUE(text.contains("gone.trk")) << text.toStdString();
     dismiss(window, box);
 
-    // Saving the set back keeps the entry that names the open experiment and lists the entries that name no file.
+    // Saving the set back keeps every entry, including those whose files did not open, and says so.
+    const auto bytes = readBytes(set);
     ASSERT_TRUE(window.saveTabset(set));
     box = problems(window);
     ASSERT_NE(box, nullptr);
-    EXPECT_TRUE(box->informativeText().contains("moved.trk: not found, so the saved tabset no longer lists it."))
+    EXPECT_TRUE(box->informativeText().contains("moved.trk: not open, so the tabset still lists it as before."))
         << box->informativeText().toStdString();
-    EXPECT_TRUE(box->informativeText().contains("gone.trk: not found")) << box->informativeText().toStdString();
+    EXPECT_TRUE(box->informativeText().contains("gone.trk: not open")) << box->informativeText().toStdString();
     dismiss(window, box);
-    const auto saved = motrack::readTrackerTabset(set);
-    ASSERT_TRUE(saved.has_value()) << saved.error();
-    EXPECT_EQ(saved->entries, std::vector{absoluteEntry(experiment)});
+    EXPECT_EQ(readBytes(set), bytes);
 }
 
 TEST(WorkspaceTabset, SavingAsksToSaveChangedProjectsAndReopensTheSameSet)
@@ -382,22 +381,29 @@ TEST(WorkspaceTabset, SavingRefusesCancelledSavesOpenProjectFilesAndSetsWithNoth
     EXPECT_FALSE(QFile::exists(set));
     EXPECT_TRUE(session.isModified(group));
     {
-        // Skipping the only project leaves nothing to reference.
+        // Not saving the changes lists the file as it was last saved, as Tracker lists every tab that has a file.
         DialogScript script({answer("workspaceTabsetSaveQuestion", QMessageBox::No)});
-        EXPECT_FALSE(window.saveTabset(set));
+        EXPECT_TRUE(window.saveTabset(set));
         EXPECT_EQ(script.handled(), 1U);
     }
-    EXPECT_FALSE(QFile::exists(set));
     auto* box = problems(window);
     ASSERT_NE(box, nullptr);
-    box->accept();
+    EXPECT_TRUE(box->informativeText().contains("group.trz: listed as last saved")) << box->informativeText().toStdString();
+    dismiss(window, box);
+    EXPECT_TRUE(session.isModified(group));
+    const auto listed = motrack::readTrackerTabset(set);
+    ASSERT_TRUE(listed.has_value()) << listed.error();
+    EXPECT_EQ(listed->entries.size(), 1U);
+    ASSERT_TRUE(QFile::remove(set));
     {
         DialogScript script({answer("workspaceTabsetSaveQuestion", QMessageBox::Yes)});
-        // The project is saved, but a tabset must never replace an open experiment or its companion.
-        EXPECT_FALSE(window.saveTabset(temporary.filePath("group.motrack")));
+        // The project is saved, and as in Tracker a tabset ends in .trk, so its companion is never replaced.
+        EXPECT_TRUE(window.saveTabset(temporary.filePath("group.motrack")));
         EXPECT_EQ(script.handled(), 1U);
     }
     EXPECT_FALSE(session.isModified(group));
+    EXPECT_TRUE(motrack::isTrackerTabsetFile(temporary.filePath("group.trk")));
+    // An existing file that the .trk name points to is replaced only when chosen.
     EXPECT_FALSE(window.saveTabset(archive));
     // An existing experiment that is not open is never replaced by a tabset either.
     const auto experiment = temporary.filePath("experiment.trk");
@@ -499,7 +505,15 @@ TEST(WorkspaceTabset, FailedFilesAreReportedWhileTheOthersOpen)
     // The listed file's line is B1's import diagnostic, as a single-project window reports it.
     EXPECT_TRUE(box->informativeText().contains("broken.trk: Invalid Tracker XML: No OSP root object"))
         << box->informativeText().toStdString();
-    box->accept();
+    dismiss(window, box);
+    // Saving the set back does not drop the file that failed to open.
+    const auto bytes = readBytes(set);
+    ASSERT_TRUE(window.saveTabset(set));
+    box = problems(window);
+    ASSERT_NE(box, nullptr);
+    EXPECT_TRUE(box->informativeText().contains("broken.trk: not open")) << box->informativeText().toStdString();
+    dismiss(window, box);
+    EXPECT_EQ(readBytes(set), bytes);
 }
 
 TEST(WorkspaceTabset, CancelingAnOpenStopsTheRemainingFiles)
@@ -564,7 +578,9 @@ TEST(WorkspaceTabset, DestroyingTheWindowDuringALocatePromptIsSafe)
                          }});
     ASSERT_TRUE(window->openProject(set));
     ASSERT_TRUE(QTest::qWaitFor([&] { return !window; }));
-    QTest::qWait(100);
+    // Every open that could have started has finished and delivered its result.
+    ASSERT_TRUE(context->services()->analysisPool().waitForDone(10000));
+    QCoreApplication::processEvents();
     // The remaining file never opens once its owner is gone.
     EXPECT_TRUE(context->session().sources().empty());
 }
@@ -659,6 +675,19 @@ TEST(WorkspaceTabset, SavingOverTheOpenedTabsetKeepsItsBytesAndAddsOnlyNewTabs)
     EXPECT_EQ(reread->entries[2].absolute,
               QDir::fromNativeSeparators(canonical(fixture("linked-images/secondary-images.trk"))).toStdString());
 
+    // A file the user closes leaves the saved set; the others keep their entries.
+    auto& session = window.context()->session();
+    const auto open = session.sources();
+    const auto movie = std::ranges::find_if(open, [&](QUuid source) { return session.sourcePath(source).endsWith("constant-rate.mov"); });
+    ASSERT_NE(movie, open.end());
+    ASSERT_TRUE(window.closeSource(*movie));
+    ASSERT_TRUE(window.saveTabset(set));
+    const auto closed = motrack::readTrackerTabset(set);
+    ASSERT_TRUE(closed.has_value()) << closed.error();
+    ASSERT_EQ(closed->entries.size(), 2U);
+    EXPECT_EQ(closed->entries[0], reread->entries[0]);
+    EXPECT_EQ(closed->entries[1], reread->entries[2]);
+
     // A tabset MoTrack cannot read is not replaced.
     const auto unreadable = temporary.filePath("unreadable.trk");
     const QByteArray refused = "<object class=\"org.opensourcephysics.cabrillo.tracker.TFrame\">\n"
@@ -722,6 +751,57 @@ TEST(WorkspaceTabset, NativeMembersWithResetTrackerLinksOpenWithTheirNoticeAndSt
     ASSERT_TRUE(written.has_value()) << written.error();
     ASSERT_EQ(written->entries.size(), 1U);
     EXPECT_TRUE(written->entries.front().relative.ends_with("secondary-images.trk"));
+}
+
+TEST(WorkspaceTabset, SavingWaitsForEveryOpenIncludingOnesStartedDuringItsPrompts)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto archive = temporary.filePath("group.trz");
+    ASSERT_TRUE(QFile::copy(fixture("linked-images/multitab-images.trz"), archive));
+    const auto set = temporary.filePath("set.trk");
+    writeTabset(set, {{.absolute = std::nullopt, .relative = "group.trz"}, absoluteEntry(fixture("linked-images/linked-images.trk"))});
+    const auto other = temporary.filePath("other.trk");
+    writeTabset(other, {absoluteEntry(fixture("linked-images/secondary-images.trk"))});
+    const auto bytes = readBytes(set);
+    motrack::WorkspaceWindow window;
+    window.show();
+    ASSERT_TRUE(openTabset(window, set, 3));
+    auto* saveAction = window.findChild<QAction*>("saveTrackerTabset");
+    ASSERT_NE(saveAction, nullptr);
+    EXPECT_TRUE(saveAction->isEnabled());
+
+    // Any open in progress may turn out to be a tabset, so saving waits for it.
+    QSignalSpy finished(&window, &motrack::WorkspaceWindow::tabsetFinished);
+    ASSERT_TRUE(window.openProject(other));
+    EXPECT_FALSE(saveAction->isEnabled());
+    EXPECT_FALSE(window.saveTabset(set));
+    ASSERT_TRUE(QTest::qWaitFor([&] { return finished.count() == 1; }, 20000));
+    EXPECT_TRUE(saveAction->isEnabled());
+    EXPECT_EQ(readBytes(set), bytes);
+
+    // An open that starts during one of Save tabset as…'s prompts stops the save after that prompt.
+    auto& session = window.context()->session();
+    const auto open = session.sources();
+    const auto group = std::ranges::find_if(open, [&](QUuid source) { return session.sourcePath(source).endsWith("group.trz"); });
+    ASSERT_NE(group, open.end());
+    ASSERT_TRUE(window.showDocument(session.sourceDocuments(*group).front()));
+    ASSERT_TRUE(editMass(window, 7));
+    bool started = false;
+    {
+        DialogScript script({[&](QWidget* widget)
+                             {
+                                 if (widget->objectName() != "workspaceTabsetSaveQuestion")
+                                     return false;
+                                 started = window.openProject(other).has_value();
+                                 return answer("workspaceTabsetSaveQuestion", QMessageBox::No)(widget);
+                             }});
+        EXPECT_FALSE(window.saveTabset(set));
+        EXPECT_EQ(script.handled(), 1U);
+    }
+    EXPECT_TRUE(started);
+    EXPECT_EQ(readBytes(set), bytes);
+    ASSERT_TRUE(QTest::qWaitFor([&] { return finished.count() == 2; }, 20000));
 }
 
 } // namespace

@@ -9,8 +9,10 @@
 #include <QCollator>
 #include <QCoreApplication>
 #include <QDir>
+#include <QEventLoop>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFutureWatcher>
 #include <QImageReader>
 #include <QInputDialog>
 #include <QLabel>
@@ -26,9 +28,11 @@
 #include <QTimer>
 #include <QToolBar>
 #include <QVBoxLayout>
+#include <QtConcurrentRun>
 
 #include <algorithm>
 #include <array>
+#include <memory>
 #include <ranges>
 #include <utility>
 
@@ -301,6 +305,9 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
             [this](QUuid request, QUuid source, const QList<QUuid>& documents, const QList<UnreadableProject>& unreadable)
             {
                 finishOpen(request);
+                // Reopened files are listed by a saved tabset again.
+                for (const auto& key : sourceFileKeys(source))
+                    m_ClosedFiles.remove(key);
                 // Kept for the source's lifetime so the Experiments menu can list them, as Tracker keeps a failed tab.
                 if (!unreadable.isEmpty())
                     m_Unreadable.insert(source, unreadable);
@@ -392,6 +399,7 @@ std::optional<QUuid> WorkspaceWindow::trackOpen(std::optional<QUuid> request, co
     m_Opening.insert(*request, item);
     m_Pending->setCurrentItem(item);
     m_Pending->show();
+    refreshLabels();
     return request;
 }
 
@@ -449,6 +457,7 @@ void WorkspaceWindow::finishOpen(QUuid request)
 {
     delete m_Opening.take(request);
     m_Pending->setVisible(m_Pending->count() > 0);
+    refreshLabels();
 }
 
 std::optional<QUuid> WorkspaceWindow::requestInput(const QString& path, WorkspaceActivation activation)
@@ -555,7 +564,8 @@ void WorkspaceWindow::beginTabset(const QString& tabset, const std::vector<Tabse
 
 bool WorkspaceWindow::tabsetOpening() const
 {
-    return m_Tabset.has_value() || !m_ExpandedTabsets.empty() || m_TabsetPrompting;
+    // A pending open may still be a tabset that has not been expanded yet.
+    return !m_Opening.isEmpty() || m_Tabset.has_value() || !m_ExpandedTabsets.empty() || m_TabsetPrompting;
 }
 
 void WorkspaceWindow::expandInPlace(OrderedOpens& queue, const std::vector<TabsetItem>& items) const
@@ -642,7 +652,7 @@ void WorkspaceWindow::completeTabsetInput(QUuid request, const QList<QUuid>& doc
     QTimer::singleShot(0, this, &WorkspaceWindow::continueTabset);
 }
 
-std::optional<QString> WorkspaceWindow::tabsetReference(QUuid source, QStringList& problems, bool& cancelled)
+std::optional<QString> WorkspaceWindow::tabsetReference(QUuid source, QStringList& problems, QStringList& notices, bool& cancelled)
 {
     auto& session = m_Context->session();
     const auto name = QFileInfo(session.sourcePath(source)).fileName();
@@ -668,7 +678,9 @@ std::optional<QString> WorkspaceWindow::tabsetReference(QUuid source, QStringLis
         {
             const auto answer = askQuestion(this,
                                             tr("Save tabset"),
-                                            tr("%1 has unsaved changes. Save it before adding it to the tabset?").arg(name),
+                                            tr("%1 has unsaved changes. Save them first? Otherwise the tabset lists the file as "
+                                               "it was last saved.")
+                                                .arg(name),
                                             QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel,
                                             QMessageBox::Yes,
                                             "workspaceTabsetSaveQuestion");
@@ -679,8 +691,9 @@ std::optional<QString> WorkspaceWindow::tabsetReference(QUuid source, QStringLis
             }
             if (answer != QMessageBox::Yes)
             {
-                problems.push_back(tr("%1: skipped because it has unsaved changes.").arg(name));
-                return std::nullopt;
+                // As Tracker lists every tab that has a file, the file is listed as it was last saved.
+                notices.push_back(tr("%1: listed as last saved, without its unsaved changes.").arg(name));
+                return standard();
             }
             // Like Tracker, a failed or canceled component save abandons the whole tabset.
             if (!saveSource(source) || session.isModified(source) || standard().isEmpty())
@@ -706,14 +719,26 @@ std::optional<QString> WorkspaceWindow::tabsetReference(QUuid source, QStringLis
     return localProjectPath(session.sourcePath(source));
 }
 
+QStringList WorkspaceWindow::sourceFileKeys(QUuid source) const
+{
+    const auto& session = m_Context->session();
+    QStringList keys;
+    for (const auto& path : {session.sourcePath(source), session.standardSavePath(source), session.nativeSavePath(source)})
+        if (const auto local = localProjectPath(path); !local.isEmpty())
+            keys.push_back(tabsetIdentityKey(local));
+    return keys;
+}
+
 bool WorkspaceWindow::saveTabset(const QString& path)
 {
     if (m_Busy)
         return false;
-    // A tabset that is still opening would be saved, possibly over itself, with only the files opened so far.
+    // A tabset that is still opening would be saved, possibly over itself, with only the files opened so far. Any open
+    // in progress may turn out to be such a tabset.
+    const auto waitForOpening = tr("Wait until every file has finished opening before saving a tabset.");
     if (tabsetOpening())
     {
-        statusBar()->showMessage(tr("Wait until the tabset has finished opening before saving a tabset."));
+        statusBar()->showMessage(waitForOpening);
         return false;
     }
     m_Busy = true;
@@ -723,6 +748,7 @@ bool WorkspaceWindow::saveTabset(const QString& path)
     connect(this, &QObject::destroyed, &lifetime, [&] { alive = false; });
     const auto context = m_Context;
     auto& session = context->session();
+    const auto offered = m_LastTabset; // Before any prompt, during which another tabset could start opening.
     const auto finish = [&](const QString& message)
     {
         m_Busy = false;
@@ -739,11 +765,13 @@ bool WorkspaceWindow::saveTabset(const QString& path)
         if (std::ranges::find(ordered, source) == ordered.end())
             ordered.push_back(source);
     QStringList problems;
+    QStringList notices;
     std::vector<std::pair<QUuid, QString>> references;
+    std::vector<QUuid> lastSaved;
     for (const auto source : ordered)
     {
         bool cancelled = false;
-        auto file = tabsetReference(source, problems, cancelled);
+        auto file = tabsetReference(source, problems, notices, cancelled);
         if (!alive)
             return false;
         if (cancelled)
@@ -751,8 +779,19 @@ bool WorkspaceWindow::saveTabset(const QString& path)
             finish(tr("Tabset not saved."));
             return false;
         }
+        // The prompts and saves above run nested event loops in which an open can begin.
+        if (tabsetOpening())
+        {
+            finish(waitForOpening);
+            return false;
+        }
         if (file && !file->isEmpty())
+        {
+            // A source still modified here was answered No: it is listed as last saved.
+            if (session.isModified(source))
+                lastSaved.push_back(source);
             references.emplace_back(source, std::move(*file));
+        }
     }
     if (references.empty())
     {
@@ -770,8 +809,8 @@ bool WorkspaceWindow::saveTabset(const QString& path)
         dialog->setAcceptMode(QFileDialog::AcceptSave);
         dialog->setDefaultSuffix("trk");
         // Offer the tabset opened last, so an edited set is saved back over the file it came from.
-        if (!m_LastTabset.isEmpty())
-            dialog->selectFile(m_LastTabset);
+        if (!offered.isEmpty())
+            dialog->selectFile(offered);
         bool dialogAlive = true;
         connect(dialog, &QObject::destroyed, &lifetime, [&] { dialogAlive = false; });
         const bool accepted = dialog->exec() == QDialog::Accepted;
@@ -788,6 +827,22 @@ bool WorkspaceWindow::saveTabset(const QString& path)
             finish({});
             return false;
         }
+        if (tabsetOpening())
+        {
+            finish(waitForOpening);
+            return false;
+        }
+    }
+    // As Tracker does, a tabset always ends in .trk, so that it reopens as one. A different existing file is not
+    // replaced without being chosen.
+    if (const auto tracker = trackerTabsetPath(destination); tracker != destination)
+    {
+        if (QFileInfo::exists(tracker))
+        {
+            finish(tr("Tabsets end in .trk, and %1 already exists. Choose it to replace it.").arg(QFileInfo(tracker).fileName()));
+            return false;
+        }
+        destination = tracker;
     }
     const auto physical = localProjectPath(destination);
     if (physical.isEmpty())
@@ -795,11 +850,7 @@ bool WorkspaceWindow::saveTabset(const QString& path)
         finish(tr("The tabset folder is unavailable."));
         return false;
     }
-    if (QFileInfo(physical).exists() && !isTrackerTabsetFile(physical))
-    {
-        finish(tr("%1 exists and is not a tabset. Choose another filename so it is not replaced.").arg(QFileInfo(physical).fileName()));
-        return false;
-    }
+    const auto name = QFileInfo(physical).fileName();
     // Never replace an experiment, companion or media file that belongs to an open source.
     for (const auto source : session.sources())
     {
@@ -807,53 +858,89 @@ bool WorkspaceWindow::saveTabset(const QString& path)
         owned.push_back(localProjectPath(session.sourcePath(source)));
         if (std::ranges::any_of(owned, [&](const QString& file) { return !file.isEmpty() && sameLocalFile(file, physical); }))
         {
-            finish(tr("%1 belongs to an open project. Choose another tabset filename.").arg(QFileInfo(physical).fileName()));
+            finish(tr("%1 belongs to an open project. Choose another tabset filename.").arg(name));
             return false;
         }
     }
     // Edits made while confirming or saving would otherwise be missing from files the tabset presents as saved.
     const auto sources = session.sources();
-    if (std::ranges::any_of(
-            references,
-            [&](const auto& reference)
-            { return std::ranges::find(sources, reference.first) == sources.end() || session.isModified(reference.first); }))
+    if (std::ranges::any_of(references,
+                            [&](const auto& reference)
+                            {
+                                return std::ranges::find(sources, reference.first) == sources.end() ||
+                                       (session.isModified(reference.first) && !std::ranges::contains(lastSaved, reference.first));
+                            }))
     {
         finish(tr("A project changed while the tabset was being prepared. Save the tabset again."));
         return false;
-    }
-    // Replacing a tabset edits it: entries that still name their file, and everything Tracker does not read, keep
-    // their bytes. A tabset MoTrack cannot read is not replaced, since its content would be lost.
-    std::optional<TrackerTabset> existing;
-    if (QFileInfo::exists(physical))
-    {
-        auto read = readTrackerTabset(physical);
-        if (!read)
-        {
-            finish(tr("%1 is a tabset that MoTrack cannot read (%2). Choose another filename so it is not replaced.")
-                       .arg(QFileInfo(physical).fileName(), QString::fromStdString(read.error())));
-            return false;
-        }
-        existing = std::move(*read);
     }
     std::vector<QString> files;
     files.reserve(references.size());
     for (const auto& [source, file] : references)
         files.push_back(file);
-    const auto* baseline = existing ? &*existing : nullptr;
-    std::vector<TabsetEntry> unresolved;
-    const auto entries = tabsetEntries(files, physical, QDir::currentPath(), baseline, &unresolved);
-    for (const auto& entry : unresolved)
-        problems.push_back(tr("%1: not found, so the saved tabset no longer lists it.").arg(QString::fromStdString(entry.relative)));
-    const auto written = saveTrackerTabset(physical, entries, baseline);
-    if (!written)
+    const std::vector<QString> closed(m_ClosedFiles.cbegin(), m_ClosedFiles.cend());
+    const auto workingDirectory = QDir::currentPath();
+    // Reading the existing tabset (up to 32 MiB), resolving its entries and writing run on the save worker. As for a
+    // project save, the window keeps painting while user input waits.
+    statusBar()->showMessage(tr("Saving tabset %1…").arg(name));
+    QEventLoop loop;
+    QFutureWatcher<TabsetSave> watcher;
+    connect(&watcher, &QFutureWatcher<TabsetSave>::finished, &loop, &QEventLoop::quit);
+    connect(this, &QObject::destroyed, &loop, &QEventLoop::quit);
+    // One immutable job, so that copying the task cannot throw.
+    struct Job
     {
-        finish(tr("Could not save the tabset: %1").arg(QString::fromStdString(written.error())));
+        QString path;
+        std::vector<QString> files;
+        QString workingDirectory;
+        std::vector<QString> closed;
+    };
+    const auto job = std::make_shared<const Job>(
+        Job{.path = physical, .files = std::move(files), .workingDirectory = workingDirectory, .closed = closed});
+    watcher.setFuture(QtConcurrent::run(&context->services()->savePool(),
+                                        [job]
+                                        {
+                                            TabsetSave result;
+                                            try
+                                            {
+                                                result = saveTrackerTabsetFiles(job->path, job->files, job->workingDirectory, job->closed);
+                                            }
+                                            catch (...)
+                                            {
+                                                // Nothing that allocates here: the worker must not throw.
+                                                result = TabsetSave{};
+                                            }
+                                            return result;
+                                        }));
+    loop.exec(QEventLoop::ExcludeUserInputEvents);
+    if (!alive)
         return false;
+    const auto result = watcher.result();
+    switch (result.status)
+    {
+    case TabsetSave::Status::NotTabset:
+        finish(tr("%1 exists and is not a tabset. Choose another filename so it is not replaced.").arg(name));
+        return false;
+    case TabsetSave::Status::Unreadable:
+        finish(tr("%1 is a tabset that MoTrack cannot read (%2). Choose another filename so it is not replaced.")
+                   .arg(name, QString::fromStdString(result.diagnostic)));
+        return false;
+    case TabsetSave::Status::Failed:
+        finish(result.diagnostic.empty() ? tr("Tabset not saved.")
+                                         : tr("Could not save the tabset: %1").arg(QString::fromStdString(result.diagnostic)));
+        return false;
+    case TabsetSave::Status::Saved:
+        break;
     }
-    finish(tr("Saved tabset %1.").arg(QFileInfo(physical).fileName()));
-    if (!problems.isEmpty())
-        showProblems(
-            this, tr("Some projects were not included in %1.").arg(QFileInfo(physical).fileName()), problems, "workspaceTabsetProblems");
+    for (const auto& entry : result.unopened)
+        notices.push_back(tr("%1: not open, so the tabset still lists it as before.").arg(QString::fromStdString(entry.relative)));
+    finish(tr("Saved tabset %1.").arg(name));
+    if (!problems.isEmpty() || !notices.isEmpty())
+        showProblems(this,
+                     problems.isEmpty() ? tr("Saved tabset %1, with notes.").arg(name)
+                                        : tr("Some projects were not included in %1.").arg(name),
+                     problems + notices,
+                     "workspaceTabsetProblems");
     return true;
 }
 
@@ -1236,9 +1323,15 @@ bool WorkspaceWindow::releaseSource(QUuid source, WorkspaceDiscard discard)
         return false;
     for (const auto document : m_Context->session().sourceDocuments(source))
         removeView(document, false);
+    const auto keys = sourceFileKeys(source);
     const bool released = m_Context->session().releaseSource(source, discard);
     if (released)
+    {
         m_Unreadable.remove(source);
+        // Saving over a tabset drops the entries of files the user closed, and keeps those that did not open.
+        for (const auto& key : keys)
+            m_ClosedFiles.insert(key);
+    }
     if (const auto active = currentDocument())
         (void)showDocument(*active);
     refreshMenus();

@@ -128,16 +128,45 @@ struct TabsetItem
 expandTrackerTabset(const QString& path, const QString& workingDirectory, const std::atomic_bool* cancelled = nullptr);
 
 /// Entries for a tabset at `tabsetPath` that lists `files` (canonical, in tab order). When `existing` is the tabset
-/// that path holds now, each entry of it that still resolves to the listed file in Tracker's order is kept as it
-/// is, together with the repeats that follow it (Tracker lists an archive once per experiment tab), so that saving
-/// an unchanged set leaves the file unchanged. Other files get a new tabsetEntry against tabsetBase. As in Tracker,
-/// which saves only open tabs, entries without a listed file are not kept; those that name no existing file at all
-/// are added to `unresolved` so the caller can say so.
+/// that path holds now:
+/// - each of its entries that resolves to a listed file in Tracker's order is kept where that file is listed, with
+///   the repeats that follow it (Tracker lists an archive once per experiment tab). It keeps its bytes while its
+///   relative path still finds the file from tabsetBase, and is rewritten otherwise;
+/// - entries for files that are not listed keep their place, except those naming a file in `closed` (identity keys
+///   of files the user closed). A file that failed to open, was not found or was not opened is therefore kept, and is
+///   reported in `unopened`; a nested tabset is kept for the listed files it opens;
+/// so that saving an unchanged set leaves the file unchanged. Other files get a new tabsetEntry against tabsetBase.
 [[nodiscard]] std::vector<TabsetEntry> tabsetEntries(std::span<const QString> files,
                                                      const QString& tabsetPath,
                                                      const QString& workingDirectory,
                                                      const TrackerTabset* existing = nullptr,
-                                                     std::vector<TabsetEntry>* unresolved = nullptr);
+                                                     std::span<const QString> closed = {},
+                                                     std::vector<TabsetEntry>* unopened = nullptr);
+/// TrackerIO.fixXML: a tabset path whose extension is not `.trk` gets `.trk` in place of it ("set.trz" and "Lab 3.5"
+/// become "set.trk" and "Lab 3.trk"), so the saved file reopens as a tabset.
+[[nodiscard]] QString trackerTabsetPath(const QString& path);
+
+/// The outcome of saveTrackerTabsetFiles.
+struct TabsetSave
+{
+    enum class Status : std::uint8_t
+    {
+        Saved,
+        NotTabset,  ///< The destination exists and is not a tabset; it is not replaced.
+        Unreadable, ///< The destination is a tabset MoTrack cannot read; it is not replaced.
+        Failed,     ///< The tabset could not be written; any existing file is unchanged.
+    };
+    Status status = Status::Failed;
+    std::string diagnostic{};
+    /// Entries kept although their file is not listed (see tabsetEntries).
+    std::vector<TabsetEntry> unopened{};
+};
+/// The file work of Save tabset as…, safe to run off the GUI thread: read the tabset at `path` (bounded) when it
+/// exists, compute tabsetEntries for `files` and save, editing the existing tabset in place.
+[[nodiscard]] TabsetSave saveTrackerTabsetFiles(const QString& path,
+                                                std::span<const QString> files,
+                                                const QString& workingDirectory,
+                                                std::span<const QString> closed = {});
 /// Write a tabset atomically: `existing` (read from `path`) edited by renderTrackerTabset, or a new document.
 /// Existing destinations are only replaced after the complete file is staged.
 [[nodiscard]] std::expected<void, std::string>

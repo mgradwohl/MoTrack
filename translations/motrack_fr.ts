@@ -560,14 +560,6 @@
         <translation type="unfinished" />
     </message>
     <message>
-        <source>%1 has unsaved changes. Save it before adding it to the tabset?</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <source>%1: skipped because it has unsaved changes.</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
         <source>%1: changed media must be saved as a Tracker project before it can be included.</source>
         <translation type="unfinished" />
     </message>
@@ -645,11 +637,31 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Wait until the tabset has finished opening before saving a tabset.</source>
+        <source>%1 has unsaved changes. Save them first? Otherwise the tabset lists the file as it was last saved.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>%1: not found, so the saved tabset no longer lists it.</source>
+        <source>%1: listed as last saved, without its unsaved changes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Wait until every file has finished opening before saving a tabset.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tabsets end in .trk, and %1 already exists. Choose it to replace it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Saving tabset %1…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1: not open, so the tabset still lists it as before.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Saved tabset %1, with notes.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

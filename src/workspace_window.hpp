@@ -79,7 +79,9 @@ class WorkspaceWindow final : public QMainWindow
     void beginTabset(const QString& tabset, const std::vector<TabsetItem>& items);
     void continueTabset();
     void completeTabsetInput(QUuid request, const QList<QUuid>& documents, const QString& problem, bool cancelled = false);
-    [[nodiscard]] std::optional<QString> tabsetReference(QUuid source, QStringList& problems, bool& cancelled);
+    [[nodiscard]] std::optional<QString> tabsetReference(QUuid source, QStringList& problems, QStringList& notices, bool& cancelled);
+    /// Identity keys of a source's files (source, standard and native paths) for tabset saving.
+    [[nodiscard]] QStringList sourceFileKeys(QUuid source) const;
     [[nodiscard]] std::optional<WorkspaceDiscard> confirmSourceClose(QUuid source);
     bool releaseSource(QUuid source, WorkspaceDiscard discard);
 
@@ -121,11 +123,13 @@ class WorkspaceWindow final : public QMainWindow
     /// Queue the resolved files of a tabset that the queue's current request turned out to be, ahead of the
     /// remaining files, and record the others as problems. No prompts: they run only for the tabset the user opened.
     void expandInPlace(OrderedOpens& queue, const std::vector<TabsetItem>& items) const;
-    /// A tabset is expanded, prompting or opening its files; saving a tabset waits for it.
+    /// A file or tabset is opening, or a tabset is prompting or opening its files; saving a tabset waits for it.
     [[nodiscard]] bool tabsetOpening() const;
     std::optional<OrderedOpens> m_Tabset;
     /// The last tabset opened, offered by Save tabset as… so that an edited set can be saved back over it.
     QString m_LastTabset;
+    /// Identity keys of files the user closed; saving over a tabset drops only their entries among unopened ones.
+    QSet<QString> m_ClosedFiles;
     /// Expanded tabsets waiting for their missing-file prompts, which run after the context callback returns.
     struct ExpandedTabset
     {

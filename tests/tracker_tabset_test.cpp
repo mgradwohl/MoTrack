@@ -645,19 +645,33 @@ TEST(TrackerTabset, KeepsEntriesThatStillNameTheirFiles)
     EXPECT_EQ(entries({a, b}), saved);
     ASSERT_TRUE(motrack::saveTrackerTabset(set, entries({a, b}), &*existing).has_value());
     EXPECT_EQ(readFile(set), bytes);
-    // Reordered, removed and added files keep the existing entries they still match.
+    // Reordered and added files keep the existing entries they still match; new entries follow.
     EXPECT_EQ(entries({b, a}), (std::vector{saved[1], saved[2], saved[0]}));
-    EXPECT_EQ(entries({b}), (std::vector{saved[1], saved[2]}));
     EXPECT_EQ(entries({a, b, c}), (std::vector{saved[0], saved[1], saved[2], motrack::tabsetEntry(c, base)}));
+    EXPECT_EQ(entries({c, a, b}), (std::vector{motrack::tabsetEntry(c, base), saved[0], saved[1], saved[2]}));
+    // A file that is not listed keeps its entry, and is reported, unless the user closed it.
+    std::vector<TabsetEntry> unopened;
+    EXPECT_EQ(motrack::tabsetEntries(std::vector{b}, set, {}, &*existing, {}, &unopened), saved);
+    EXPECT_EQ(unopened, std::vector{saved[0]});
+    const auto closed = std::vector{motrack::tabsetIdentityKey(a)};
+    EXPECT_EQ(motrack::tabsetEntries(std::vector{b}, set, {}, &*existing, closed), (std::vector{saved[1], saved[2]}));
     // Without an existing tabset every entry is new.
     EXPECT_EQ(motrack::tabsetEntries(std::vector{a}, set, {}), std::vector{motrack::tabsetEntry(a, base)});
-    // Entries naming no file are not kept, and are reported.
+    // An entry naming no file stays where it is, with new entries after it.
     writeTabset(set, {saved[0], relativeEntry("gone.trk"), saved[1]});
     const auto withMissing = motrack::readTrackerTabset(set);
     ASSERT_TRUE(withMissing.has_value()) << withMissing.error();
-    std::vector<TabsetEntry> unresolved;
-    EXPECT_EQ(motrack::tabsetEntries(std::vector{a, b}, set, {}, &*withMissing, &unresolved), (std::vector{saved[0], saved[1]}));
-    EXPECT_EQ(unresolved, std::vector{relativeEntry("gone.trk")});
+    unopened.clear();
+    EXPECT_EQ(motrack::tabsetEntries(std::vector{a, c, b}, set, {}, &*withMissing, {}, &unopened),
+              (std::vector{saved[0], relativeEntry("gone.trk"), motrack::tabsetEntry(c, base), saved[1]}));
+    EXPECT_EQ(unopened, std::vector{relativeEntry("gone.trk")});
+    // After the tabset moves alone, an entry whose relative path no longer finds its file is rewritten.
+    writeFile(base + "/sets/moved.trk",
+              motrack::writeTrackerTabset(std::vector{TabsetEntry{.absolute = a.toStdString(), .relative = "a.trk"}}).value());
+    const auto alone = motrack::readTrackerTabset(base + "/sets/moved.trk");
+    ASSERT_TRUE(alone.has_value()) << alone.error();
+    EXPECT_EQ(motrack::tabsetEntries(std::vector{a}, base + "/sets/moved.trk", {}, &*alone),
+              std::vector{motrack::tabsetEntry(a, base + "/sets")});
     writeFile(set, bytes);
 
     // A saved basepath stays the base for new entries, so Tracker finds them where MoTrack wrote them.
@@ -671,9 +685,56 @@ TEST(TrackerTabset, KeepsEntriesThatStillNameTheirFiles)
     ASSERT_TRUE(rebased.has_value()) << rebased.error();
     const auto inSub = canonical(base + "/sub/a.trk");
     const auto withBase = motrack::tabsetEntries(std::vector{inSub, c}, set, {}, &*rebased);
-    ASSERT_EQ(withBase.size(), 2U);
+    ASSERT_EQ(withBase.size(), 4U);
     EXPECT_EQ(withBase[0], saved[0]); // "a.trk" now names sub/a.trk through the basepath.
-    EXPECT_EQ(withBase[1].relative, "../c.mov");
+    EXPECT_EQ(withBase[3].relative, "../c.mov");
+}
+
+TEST(TrackerTabset, SavingKeepsNestedTabsetsRefusesOtherFilesAndUsesTrackersExtension)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const auto base = canonical(directory.path());
+    for (const auto* name : {"/a.trk", "/c.trk", "/d.trk", "/panel.trk"})
+        writeFile(base + name, PANEL);
+    writeTabset(base + "/inner.trk", {relativeEntry("c.trk"), relativeEntry("d.trk")});
+    const auto top = base + "/top.trk";
+    writeTabset(top, {relativeEntry("a.trk"), relativeEntry("inner.trk"), relativeEntry("top.trk")});
+    const auto bytes = readFile(top);
+    const std::vector files{canonical(base + "/a.trk"), canonical(base + "/c.trk"), canonical(base + "/d.trk")};
+    using Status = motrack::TabsetSave::Status;
+
+    // The workspace holds the files the nested tabset opened; its entry stays for them, and the cycle stays too.
+    auto saved = motrack::saveTrackerTabsetFiles(top, files, {});
+    EXPECT_EQ(saved.status, Status::Saved) << saved.diagnostic;
+    EXPECT_EQ(saved.unopened, std::vector{relativeEntry("top.trk")});
+    EXPECT_EQ(readFile(top), bytes);
+    // A listed file keeps an entry of its own even when a nested tabset opens it as well.
+    writeTabset(top, {relativeEntry("inner.trk"), relativeEntry("c.trk")});
+    EXPECT_EQ(motrack::saveTrackerTabsetFiles(top, files, {}).status, Status::Saved);
+    EXPECT_EQ(entriesOf(readFile(top)),
+              (std::vector{relativeEntry("inner.trk"), motrack::tabsetEntry(files[0], base), relativeEntry("c.trk")}));
+
+    // Other files are refused and left unchanged; a new tabset lists every file.
+    EXPECT_EQ(motrack::saveTrackerTabsetFiles(base + "/panel.trk", files, {}).status, Status::NotTabset);
+    EXPECT_EQ(readFile(base + "/panel.trk"), PANEL);
+    const auto broken = motrack::test::ospLayout(
+        R"(<object class="org.opensourcephysics.cabrillo.tracker.TFrame"><property name="tabs" type="string">a.trk</property></object>)");
+    writeFile(base + "/broken.trk", broken);
+    saved = motrack::saveTrackerTabsetFiles(base + "/broken.trk", files, {});
+    EXPECT_EQ(saved.status, Status::Unreadable);
+    EXPECT_FALSE(saved.diagnostic.empty());
+    EXPECT_EQ(readFile(base + "/broken.trk"), broken);
+    EXPECT_EQ(motrack::saveTrackerTabsetFiles(base + "/missing/new.trk", files, {}).status, Status::Failed);
+    EXPECT_EQ(motrack::saveTrackerTabsetFiles(base + "/new.trk", files, {}).status, Status::Saved);
+    EXPECT_EQ(entriesOf(readFile(base + "/new.trk")).size(), 3U);
+
+    // TrackerIO.fixXML: the extension becomes .trk.
+    EXPECT_EQ(motrack::trackerTabsetPath("/x/set.trz"), "/x/set.trk");
+    EXPECT_EQ(motrack::trackerTabsetPath("/x/Lab 3.5"), "/x/Lab 3.trk");
+    EXPECT_EQ(motrack::trackerTabsetPath("/x.y/lesson"), "/x.y/lesson.trk");
+    EXPECT_EQ(motrack::trackerTabsetPath("/x/lesson.TRK"), "/x/lesson.TRK");
+    EXPECT_EQ(motrack::trackerTabsetPath("lesson"), "lesson.trk");
 }
 
 TEST(TrackerTabset, SavesAtomicallyAndPreservesExistingFilesOnFailure)

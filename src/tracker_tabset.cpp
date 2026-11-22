@@ -11,8 +11,10 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QSaveFile>
+#include <QSet>
 
 #include <algorithm>
+#include <iterator>
 #include <ranges>
 #include <set>
 #include <utility>
@@ -551,15 +553,72 @@ std::vector<TabsetEntry> tabsetEntries(std::span<const QString> files,
                                        const QString& tabsetPath,
                                        const QString& workingDirectory,
                                        const TrackerTabset* existing,
-                                       std::vector<TabsetEntry>* unresolved)
+                                       std::span<const QString> closed,
+                                       std::vector<TabsetEntry>* unopened)
 {
     const auto base = existing ? tabsetBase(*existing, tabsetPath) : QFileInfo(tabsetPath).absolutePath();
-    // The file each existing entry names now, in Tracker's search order.
+    QSet<QString> listed;
+    for (const auto& file : files)
+        listed.insert(tabsetIdentityKey(file));
+    const QSet<QString> dropped(closed.begin(), closed.end());
+    // The file each existing entry names now, in Tracker's search order, and which listed files a nested tabset that
+    // is kept opens: those stay represented by the nested tabset's entry instead of getting entries of their own.
     std::vector<QString> named;
+    std::vector<bool> nested;
+    QSet<QString> throughNested;
+    // An entry naming the tabset itself is a cycle, not a nested tabset.
+    const auto self = existingFile(tabsetPath).transform(tabsetIdentityKey).value_or(QString{});
     if (existing)
         for (const auto& entry : existing->entries)
-            named.push_back(resolveTabsetEntry(entry, base, workingDirectory).transform(tabsetIdentityKey).value_or(QString{}));
+        {
+            const auto file = resolveTabsetEntry(entry, base, workingDirectory);
+            named.push_back(file.transform(tabsetIdentityKey).value_or(QString{}));
+            nested.push_back(false);
+            if (!file || named.back() == self || !isTrackerXmlFile(*file) || listed.contains(named.back()) ||
+                dropped.contains(named.back()) || !isTrackerTabsetFile(*file))
+                continue;
+            try
+            {
+                for (const auto& item : expandTrackerTabset(*file, workingDirectory))
+                    if (item.status == TabsetItemStatus::Resolved)
+                    {
+                        throughNested.insert(tabsetIdentityKey(item.file));
+                        nested.back() = true;
+                    }
+            }
+            catch (const ProjectError&)
+            {
+                // An unreadable nested tabset opened nothing; its entry is kept like any other unopened file.
+                nested.back() = false;
+            }
+        }
     std::vector<bool> used(named.size(), false);
+    // Entries whose file is not listed keep their place unless the user closed that file: a file that failed to open,
+    // was not found, or was left unopened by a canceled open stays in the tabset, as an unchanged file would.
+    const auto retained = [&](std::size_t index)
+    {
+        return !listed.contains(named[index]) && !dropped.contains(named[index]);
+    };
+    std::vector<TabsetEntry> result;
+    // New entries wait for the next kept entry, so that unopened entries before it keep their positions.
+    std::vector<TabsetEntry> added;
+    const auto flush = [&]
+    {
+        std::ranges::move(added, std::back_inserter(result));
+        added.clear();
+    };
+    std::size_t next = 0; // Existing entries before this one have been kept or passed over.
+    const auto passTo = [&](std::size_t end)
+    {
+        for (; next < end; ++next)
+            if (!used[next] && retained(next))
+            {
+                used[next] = true;
+                result.push_back(existing->entries[next]);
+                if (unopened && !nested[next])
+                    unopened->push_back(existing->entries[next]);
+            }
+    };
     const auto find = [&](const QString& key, std::size_t begin, std::size_t end) -> std::optional<std::size_t>
     {
         for (auto index = begin; index < end; ++index)
@@ -567,8 +626,18 @@ std::vector<TabsetEntry> tabsetEntries(std::span<const QString> files,
                 return index;
         return std::nullopt;
     };
-    std::vector<TabsetEntry> result;
-    std::size_t next = 0; // Existing entries before this one have been kept or passed over.
+    // An entry stays as written while its relative path still finds the file from the base, or when a new entry would
+    // be the same; otherwise (say after the tabset moved alone) it is rewritten, so Tracker finds the file again.
+    const auto current = [&](std::size_t index, const QString& file, const QString& key)
+    {
+        const auto& entry = existing->entries[index];
+        const auto relative = QString::fromStdString(entry.relative);
+        if (!base.isEmpty() && QDir::isRelativePath(QDir::fromNativeSeparators(relative)))
+            if (const auto found = existingFile(QDir(base).filePath(relative)); found && tabsetIdentityKey(*found) == key)
+                return entry;
+        auto fresh = tabsetEntry(file, base);
+        return fresh == entry ? entry : fresh;
+    };
     for (const auto& file : files)
     {
         const auto key = tabsetIdentityKey(file);
@@ -578,24 +647,73 @@ std::vector<TabsetEntry> tabsetEntries(std::span<const QString> files,
             found = find(key, 0, next);
         if (!found)
         {
-            result.push_back(tabsetEntry(file, base));
+            // A file without an entry of its own that a kept nested tabset opens stays listed through that tabset.
+            if (!throughNested.contains(key))
+                added.push_back(tabsetEntry(file, base));
             continue;
         }
+        if (ahead)
+            passTo(*found);
+        flush();
         // Keep the entry with the repeats that follow it: Tracker writes an archive once per experiment tab.
         auto index = *found;
         do
         {
             used[index] = true;
-            result.push_back(existing->entries[index]);
+            result.push_back(current(index, file, key));
             ++index;
         } while (index < named.size() && !used[index] && named[index] == key);
         if (ahead)
             next = index;
     }
-    if (unresolved && existing) // `named` is empty without an existing tabset.
-        for (std::size_t index = 0; index < named.size(); ++index)
-            if (named[index].isEmpty())
-                unresolved->push_back(existing->entries[index]);
+    passTo(named.size());
+    flush();
+    return result;
+}
+
+QString trackerTabsetPath(const QString& path)
+{
+    // TrackerIO.fixXML: XML.stripExtension and the default ".trk" extension.
+    const auto name = QFileInfo(path).fileName();
+    const auto dot = name.lastIndexOf('.');
+    if (dot > 0 && QStringView(name).sliced(dot + 1).compare(u"trk", Qt::CaseInsensitive) == 0)
+        return path;
+    return path.left(path.size() - name.size()) + (dot > 0 ? name.first(dot) : name) + ".trk";
+}
+
+TabsetSave saveTrackerTabsetFiles(const QString& path,
+                                  std::span<const QString> files,
+                                  const QString& workingDirectory,
+                                  std::span<const QString> closed)
+{
+    TabsetSave result;
+    std::optional<TrackerTabset> existing;
+    if (QFileInfo::exists(path))
+    {
+        if (!isTrackerTabsetFile(path))
+        {
+            result.status = TabsetSave::Status::NotTabset;
+            return result;
+        }
+        auto read = readTrackerTabset(path);
+        if (!read)
+        {
+            result.status = TabsetSave::Status::Unreadable;
+            result.diagnostic = std::move(read).error();
+            return result;
+        }
+        existing = std::move(*read);
+    }
+    const auto* baseline = existing ? &*existing : nullptr;
+    const auto entries = tabsetEntries(files, path, workingDirectory, baseline, closed, &result.unopened);
+    if (auto written = saveTrackerTabset(path, entries, baseline); !written)
+    {
+        result.status = TabsetSave::Status::Failed;
+        result.diagnostic = std::move(written).error();
+        result.unopened.clear();
+        return result;
+    }
+    result.status = TabsetSave::Status::Saved;
     return result;
 }
 

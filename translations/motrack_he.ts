@@ -79,8 +79,6 @@
     <message><source>%1: its links to the original Tracker tracks could not be restored, so it cannot be saved as a Tracker project. Open the original Tracker file again to include it.</source><translation type="unfinished"></translation></message>
     <message><source>%1: saved only as a MoTrack project. Use Save Tracker project… to include it.</source><translation type="unfinished"></translation></message>
     <message><source>Save tabset</source><translation type="unfinished"></translation></message>
-    <message><source>%1 has unsaved changes. Save it before adding it to the tabset?</source><translation type="unfinished"></translation></message>
-    <message><source>%1: skipped because it has unsaved changes.</source><translation type="unfinished"></translation></message>
     <message><source>%1: changed media must be saved as a Tracker project before it can be included.</source><translation type="unfinished"></translation></message>
     <message><source>%1: image sequences must be saved as a Tracker project before they can be included.</source><translation type="unfinished"></translation></message>
     <message><source>Tabset not saved.</source><translation type="unfinished"></translation></message>
@@ -96,8 +94,13 @@
     <message><source>Saved tabset %1.</source><translation type="unfinished"></translation></message>
     <message><source>Some projects were not included in %1.</source><translation type="unfinished"></translation></message>
     <message><source>Closing the window stopped the remaining tabset files.</source><translation type="unfinished"></translation></message>
-    <message><source>Wait until the tabset has finished opening before saving a tabset.</source><translation type="unfinished"></translation></message>
-    <message><source>%1: not found, so the saved tabset no longer lists it.</source><translation type="unfinished"></translation></message>
+    <message><source>%1 has unsaved changes. Save them first? Otherwise the tabset lists the file as it was last saved.</source><translation type="unfinished"></translation></message>
+    <message><source>%1: listed as last saved, without its unsaved changes.</source><translation type="unfinished"></translation></message>
+    <message><source>Wait until every file has finished opening before saving a tabset.</source><translation type="unfinished"></translation></message>
+    <message><source>Tabsets end in .trk, and %1 already exists. Choose it to replace it.</source><translation type="unfinished"></translation></message>
+    <message><source>Saving tabset %1…</source><translation type="unfinished"></translation></message>
+    <message><source>%1: not open, so the tabset still lists it as before.</source><translation type="unfinished"></translation></message>
+    <message><source>Saved tabset %1, with notes.</source><translation type="unfinished"></translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>
