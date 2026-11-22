@@ -34,6 +34,10 @@ inline constexpr std::string_view STEPPER_CLIP_CONTROL_CLASS = "org.opensourceph
 inline constexpr std::string_view VIDEO_CLIP_CONTROL_CLASS = "org.opensourcephysics.media.core.VideoClipControl";
 inline constexpr std::string_view COORD_SYSTEM_CLASS = "org.opensourcephysics.media.core.ImageCoordSystem";
 inline constexpr std::string_view COORD_FRAME_CLASS = "org.opensourcephysics.media.core.ImageCoordSystem$FrameData";
+/// The root of a Tracker tabset, which lists other files to open instead of holding an experiment.
+inline constexpr std::string_view TFRAME_CLASS = "org.opensourcephysics.cabrillo.tracker.TFrame";
+inline constexpr std::string_view STRING_ARRAY_CLASS = "[Ljava.lang.String;";
+inline constexpr std::string_view STRING_MATRIX_CLASS = "[[Ljava.lang.String;";
 
 /// Loader defaults of pinned Tracker 6.3.5 for properties a file does not save (#214).
 /// TrackerPanel starts with `Tracker.preferredLengthUnit` (SI "m" without a preference file) and only replaces it
@@ -198,8 +202,33 @@ struct PanelLoad
     std::vector<TrackItem> trackItems{};
 };
 
+/// One element of a TFrame's `tabs` array, normally a `String[]` of {absolute, relative} paths.
+struct TabsetTabLoad
+{
+    ArrayElement element{};
+    osp::PropertyType type = osp::PropertyType::Array;
+    std::string className{};            ///< Array class attribute after the media remap; "" for other types.
+    std::vector<StringElement> paths{}; ///< The element's own `[n]` elements in file order, when it is an array.
+};
+
+/// TFrame.Loader fields (`loadObject` reads `tabs` and `basepath`).
+struct TabsetLoad
+{
+    osp::NodeId object{};
+    std::string className{};
+    /// `getString("basepath")`. XMLControlElement answers a string property of that name before the directory the
+    /// document was read from, so a saved one replaces the first folder every relative tab path is resolved in.
+    Read<std::string> basepath = std::string{};
+    /// `getObject("tabs")`: the last property with that name, whatever its type.
+    std::optional<osp::NodeId> tabs{};
+    std::size_t tabsProperties = 0;           ///< Properties named `tabs`, repeats included.
+    std::vector<TabsetTabLoad> tabElements{}; ///< Elements of `tabs` in file order, when it is an array.
+};
+
 /// Loads the root object. The caller checks its class.
 [[nodiscard]] PanelLoad loadPanel(const osp::Source& source);
+/// Loads a tabset's root object. The caller checks its class and the shape of `tabs`.
+[[nodiscard]] TabsetLoad loadTabset(const osp::Source& source);
 [[nodiscard]] PointMassLoad loadPointMass(const osp::Source& source, osp::NodeId object);
 [[nodiscard]] VectorLoad loadVector(const osp::Source& source, osp::NodeId object);
 [[nodiscard]] CoordSystemLoad loadCoordSystem(const osp::Source& source, osp::NodeId object);

@@ -225,7 +225,7 @@ Findings from the first census:
 - [#229](https://github.com/mgradwohl/MoTrack/issues/229): a Tracker 4.88 step saved as `NaN` rejects the whole experiment.
 - [#196](https://github.com/mgradwohl/MoTrack/issues/196): a track name with control characters that XML
   forbids is accepted by OSP's line reader but rejected by MoTrack's QDom importer.
-- [#150](https://github.com/mgradwohl/MoTrack/issues/150): one published `.trk` is a `TFrame` tabset.
+- [#150](https://github.com/mgradwohl/MoTrack/issues/150): one published `.trk` is a `TFrame` tabset. MoTrack now reads it, but its only entry names an archive member (`Bungeemodelenergy.trz!/Bungeemodelenergy.trk`, [#325](https://github.com/mgradwohl/MoTrack/issues/325)), and the census cache does not keep the archive beside it.
 - All 14 projects where Java and MoTrack differ use a moving reference frame (`referenceframe`, #148). MoTrack
   returns no world coordinates for them, while the XML/coordinate reference evaluates only the static
   `ImageCoordSystem` and ignores the frame. Neither result is Tracker's displayed value.

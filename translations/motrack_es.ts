@@ -496,6 +496,184 @@
         <source>The camera recording is kept: it opens as a new experiment once it is saved.</source>
         <translation type="unfinished" />
     </message>
+    <message>
+        <source>Save &amp;tabset as…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Save a Tracker tabset that reopens all open projects together.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Tabset file not found</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>“%1”, listed in %2, was not found. Locate it?</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Locate %1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1: not found.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1: a tabset that includes itself; skipped.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1: could not be read (%2).</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1: tabsets are nested too deeply; skipped.</source>
+        <translation type="unfinished" />
+    </message>
+    <message numerus="yes">
+        <source>Only the first %n files were opened.</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message>
+        <source>Opened tabset %1.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Some files listed in %1 were not opened.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1: %2</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Opening canceled; the remaining tabset files were not opened.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1: saved only as a MoTrack project. Use Save Tracker project… to include it.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Save tabset</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1: changed media must be saved as a Tracker project before it can be included.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1: image sequences must be saved as a Tracker project before they can be included.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Tabset not saved.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>No open project has a saved Tracker file or unchanged video to include in a tabset.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>No tabset was saved.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Tracker tabsets (*.trk)</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The tabset folder is unavailable.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1 belongs to an open project. Choose another tabset filename.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>A project changed while the tabset was being prepared. Save the tabset again.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not save the tabset: %1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Saved tabset %1.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Some projects were not included in %1.</source>
+        <translation type="unfinished" />
+    </message>
+    <message numerus="yes">
+        <source>…and %n more.</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message>
+        <source>Tabset</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1 exists and is not a tabset. Choose another filename so it is not replaced.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Closing the window stopped the remaining tabset files.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Some projects listed in %1 cannot be saved as Tracker files.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1: its links to the original Tracker tracks could not be restored, so it cannot be saved as a Tracker project. Open the original Tracker file again to include it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 is a tabset that MoTrack cannot read (%2). Choose another filename so it is not replaced.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 has unsaved changes. Save them first? Otherwise the tabset lists the file as it was last saved.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1: listed as last saved, without its unsaved changes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Wait until every file has finished opening before saving a tabset.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tabsets end in .trk, and %1 already exists. Choose it to replace it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Saving tabset %1…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1: not open, so the tabset still lists it as before.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Saved tabset %1, with notes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1: closed, so the tabset no longer lists it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1: listed more than once, so one of its entries was removed.</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 
 <context>

@@ -123,6 +123,10 @@ Slice B1 moved `motrack_project` off QDom; QtXml is now only a test dependency.
 - **O8 on every export.** `SourceEdits::render` re-parses the output and walks both trees: every node outside
   the edit set must keep its raw bytes and logical value, every edited value must decode to the intended one
   and every insertion or renamed subtree must read back as written. A mismatch refuses the export.
+- **Tabsets** ([`tracker_tabset.hpp`](../src/tracker_tabset.hpp), [Tracker tabsets](workspace-sessions.md#tracker-tabsets))
+  read their `TFrame` root with `tracker::loadTabset` (`tabs`, and `basepath` as `getString` returns it) and keep
+  MoTrack's entry refusals on top. A new tabset is written with `write`; saving over an existing one edits it with
+  `SourceEdits` under the same O8 check, so an unchanged set renders byte-identical.
 - **Guards.** Guards for Tracker behavior stay: numeric and timing checks, dense-array budgets, snapping,
   coordinate inversion, table formats (#64), vector sums (#63), schemas audited for identity edits and the
   name codec; the audited schemas still refuse duplicate fields. QDom layout guards are gone: unique-property
