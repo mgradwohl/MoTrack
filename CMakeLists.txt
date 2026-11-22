@@ -126,6 +126,13 @@ if(MOTRACK_BUILD_BENCHMARKS)
     list(APPEND motrack_targets motrack_import_benchmark)
 endif()
 
+# Qt-free port of OSP's TemplateMatcher behind Tracker's AutoTracker (docs/template-matching.md).
+add_library(motrack_matching STATIC src/science/matching/template_matcher.cpp src/science/matching/java_geometry.cpp
+    src/science/matching/java_numerics.cpp src/science/matching/java_trigonometry.cpp)
+target_include_directories(motrack_matching PUBLIC src)
+target_compile_options(motrack_matching PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
+list(APPEND motrack_targets motrack_matching)
+
 foreach(target IN LISTS motrack_targets)
     if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
         target_compile_options(${target} PRIVATE /W4)
@@ -216,6 +223,14 @@ if(BUILD_TESTING)
     target_compile_definitions(motrack_media_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
     add_test(NAME video_reader COMMAND motrack_media_tests)
+    # The matching kernel's tests read the Java oracle fixture with Qt Core's JSON support only.
+    add_executable(motrack_matching_tests tests/science/template_matcher_test.cpp tests/science/template_matcher_reference_test.cpp)
+    target_link_libraries(motrack_matching_tests PRIVATE motrack_matching GTest::gtest_main Qt6::Core)
+    target_compile_definitions(motrack_matching_tests PRIVATE
+        MOTRACK_MATCH_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/match-reference.json")
+    # The synthetic frame generator must round like tools/reference/MatchOracle.java.
+    target_compile_options(motrack_matching_tests PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
+    add_test(NAME template_matching COMMAND motrack_matching_tests)
     add_test(NAME desktop_smoke COMMAND motrack --smoke-test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/point-mass.trk")
     add_test(NAME desktop_invalid_project COMMAND motrack --smoke-test
@@ -230,6 +245,6 @@ if(BUILD_TESTING)
 
     if(MOTRACK_COVERAGE)
         file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/coverage-objects.txt"
-            CONTENT "$<TARGET_FILE:motrack>\n$<TARGET_FILE:motrack_tests>\n$<TARGET_FILE:motrack_workspace_tests>\n$<TARGET_FILE:motrack_media_tests>\n")
+            CONTENT "$<TARGET_FILE:motrack>\n$<TARGET_FILE:motrack_tests>\n$<TARGET_FILE:motrack_workspace_tests>\n$<TARGET_FILE:motrack_media_tests>\n$<TARGET_FILE:motrack_matching_tests>\n")
     endif()
 endif()
