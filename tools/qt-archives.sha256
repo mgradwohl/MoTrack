@@ -1,0 +1,28 @@
+# SHA-256 of every essential and add-on module (QT_MODULES) Qt archive tools/dev_sdk.py installs
+# when it bypasses aqtinstall, as "<sha256>  <repository OS>/<package>/<archive>". The download.qt.io
+# fallback trusts these values, not the repository's own checksum files at install time.
+# Recorded on 2026-11-21 from download.qt.io.
+# After changing MOTRACK_QT_VERSION, review the archives and regenerate this file with:
+#   python tools/dev_sdk.py qt-archive-checksums > tools/qt-archives.sha256
+41688269fac0565db956c66d9eecae777d16197e0c02cd81b88640c1f5d73d3f  windows_x86/qt.qt6.683.win64_msvc2022_64/6.8.3-0-202503201308qtbase-Windows-Windows_11_23H2-MSVC2022-Windows-Windows_11_23H2-X86_64.7z
+48d1d798894cbf8696a0010fcfdeafea652b35159c56ea2060ee85ce3d0048f7  windows_x86/qt.qt6.683.win64_msvc2022_64/6.8.3-0-202503201308qtsvg-Windows-Windows_11_23H2-MSVC2022-Windows-Windows_11_23H2-X86_64.7z
+c2f9f481bf6e8fb004530f20b820fbc77d4ee6dcca24d1ea1d1863d99c5dabf1  windows_x86/qt.qt6.683.win64_msvc2022_64/6.8.3-0-202503201308qtdeclarative-Windows-Windows_11_23H2-MSVC2022-Windows-Windows_11_23H2-X86_64.7z
+76ac7b8c86ca72b6608f1d41ee848aeab19663536990b4968ce52db8ec980bc3  windows_x86/qt.qt6.683.win64_msvc2022_64/6.8.3-0-202503201308qttools-Windows-Windows_11_23H2-MSVC2022-Windows-Windows_11_23H2-X86_64.7z
+c78fef2eff30b880e1aa9b049eff8a283431bc2d7e03132143279b5480d95418  windows_x86/qt.qt6.683.win64_msvc2022_64/6.8.3-0-202503201308qttranslations-Windows-Windows_11_23H2-MSVC2022-Windows-Windows_11_23H2-X86_64.7z
+f886f3255600d46b3e651ab5cb8084b42df5e59f78993ad43d8b0cb3b70552c3  windows_x86/qt.qt6.683.win64_msvc2022_64/6.8.3-0-202503201308d3dcompiler_47-x64.7z
+b3e65312ca58e3ea3853eb5af7893a9fb26887b05bc6a1ccc706f88f9f971aeb  windows_x86/qt.qt6.683.win64_msvc2022_64/6.8.3-0-202503201308opengl32sw-64-mesa_11_2_2-signed_sha256.7z
+607afd11b22079bc8d6bb1b6df08a9b44f5d15d1b87089a1cb00902dfa0a4340  windows_x86/qt.qt6.683.addons.qtmultimedia.win64_msvc2022_64/6.8.3-0-202503201308qtmultimedia-Windows-Windows_11_23H2-MSVC2022-Windows-Windows_11_23H2-X86_64.7z
+d8fe882cae71284a7ca906b70b42840376882fe96f22fce1ba5a7a70ceeec799  linux_x64/qt.qt6.683.linux_gcc_64/6.8.3-0-202503201345qtbase-Linux-RHEL_8_10-GCC-Linux-RHEL_8_10-X86_64.7z
+e330eb3abed3e0b9c9a278da971ec67306969f35020a3d54350a6ee86d57983d  linux_x64/qt.qt6.683.linux_gcc_64/6.8.3-0-202503201345qtsvg-Linux-RHEL_8_10-GCC-Linux-RHEL_8_10-X86_64.7z
+6330a5ed0138393468be3ddcca458606e14a607f7191d8dbad3978004bdf29ee  linux_x64/qt.qt6.683.linux_gcc_64/6.8.3-0-202503201345qtdeclarative-Linux-RHEL_8_10-GCC-Linux-RHEL_8_10-X86_64.7z
+a39477caa537743afb5575e5c65018a7d62e47ccf15a4e3444ecc43208ac1047  linux_x64/qt.qt6.683.linux_gcc_64/6.8.3-0-202503201345qttools-Linux-RHEL_8_10-GCC-Linux-RHEL_8_10-X86_64.7z
+fb9747168a0d5fbc39d44fd97b0e9ba4ca0115a32b145efffc4e1c7afd2a7ed4  linux_x64/qt.qt6.683.linux_gcc_64/6.8.3-0-202503201345qttranslations-Linux-RHEL_8_10-GCC-Linux-RHEL_8_10-X86_64.7z
+da40cc32c95aa9bf96fcf3e2bfe19055c93cc1ae297bd7cd3cf532aaef634cff  linux_x64/qt.qt6.683.linux_gcc_64/6.8.3-0-202503201345qtwayland-Linux-RHEL_8_10-GCC-Linux-RHEL_8_10-X86_64.7z
+a2543496e1280c6fa348e0791def5026d5bde9e5749d9fc2244866ab0bee8aed  linux_x64/qt.qt6.683.linux_gcc_64/6.8.3-0-202503201345icu-linux-Rhel8.6-x86_64.7z
+5d4fa3b0f8b84ad0d83b423362ccba8a77f295fbaf0bcdc19f1d355b8eb7cfaa  linux_x64/qt.qt6.683.addons.qtmultimedia.linux_gcc_64/6.8.3-0-202503201345qtmultimedia-Linux-RHEL_8_10-GCC-Linux-RHEL_8_10-X86_64.7z
+c4dfc40f1be702eaa08e08cf87a749c44c55e5eb09e46a7933f18ab4b7ca7ac7  mac_x64/qt.qt6.683.clang_64/6.8.3-0-202503201723qtbase-MacOS-MacOS_14-Clang-MacOS-MacOS_14-X86_64-ARM64.7z
+9b499244b4feafc9d5ff7cdb2ed8baf8ddbb7e71f6cd828c57707e37c8327beb  mac_x64/qt.qt6.683.clang_64/6.8.3-0-202503201723qtdeclarative-MacOS-MacOS_14-Clang-MacOS-MacOS_14-X86_64-ARM64.7z
+14f0e28662ba3d2d6b297916746e5b45197cf5cca408de7c5249ce628aecdd02  mac_x64/qt.qt6.683.clang_64/6.8.3-0-202503201723qtsvg-MacOS-MacOS_14-Clang-MacOS-MacOS_14-X86_64-ARM64.7z
+ee98096c12c8a4026a550182fdd37d8546ec780c1a60a1a5b5d60d216e53a445  mac_x64/qt.qt6.683.clang_64/6.8.3-0-202503201723qttools-MacOS-MacOS_14-Clang-MacOS-MacOS_14-X86_64-ARM64.7z
+8d68157133a0c7c1ca6bfb83de2141c7956cba8d51978571a8166bd642830376  mac_x64/qt.qt6.683.clang_64/6.8.3-0-202503201723qttranslations-MacOS-MacOS_14-Clang-MacOS-MacOS_14-X86_64-ARM64.7z
+947f0871b0b18c997b4ad4fb961f6e999ef0e252c896ee88a6f0642b6b2e2633  mac_x64/qt.qt6.683.addons.qtmultimedia.clang_64/6.8.3-0-202503201723qtmultimedia-MacOS-MacOS_14-Clang-MacOS-MacOS_14-X86_64-ARM64.7z

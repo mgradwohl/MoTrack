@@ -458,7 +458,8 @@ std::optional<WorkspaceRecoveryRequest> WorkspaceSession::beginRecovery(QUuid id
 WorkspaceSession::Source* WorkspaceSession::operationSource(const WorkspaceOperation& token, bool recovery)
 {
     const auto found = std::ranges::find_if(m_Operations,
-                                            [&](const auto& op) {
+                                            [&](const auto& op)
+                                            {
                                                 return op.token.source == token.source && op.token.id == token.id &&
                                                        op.token.cancelled == token.cancelled && op.recovery == recovery;
                                             });

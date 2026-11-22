@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "producer": {"kind":"tracker","version":"6.3.5","loading":"tracker_session","view_preparation":"expand_visit_custom_tables_bounded_restore_selection"},
+  "panel": {
+    "units": {"length":"m","mass":"kg","time":"s","angles_in_radians":false},
+    "selected_track": "system",
+    "properties": {"@class":"org.opensourcephysics.cabrillo.tracker.TrackerPanel","width":640.0,"height":480.0,"videoclip":{"@class":"org.opensourcephysics.media.core.VideoClip","startframe":0,"stepsize":1,"stepcount":3,"starttime":0.0,"readout":"frame","playallsteps":true},"clipcontrol":{"@class":"org.opensourcephysics.media.core.StepperClipControl","rate":1.0,"delta_t":100.0},"coords":{"@class":"org.opensourcephysics.media.core.ImageCoordSystem","fixedorigin":true,"fixedangle":true,"fixedscale":true,"locked":false,"framedata":{"@array":"[Lorg.opensourcephysics.media.core.ImageCoordSystem$FrameData;","items":[{"@class":"org.opensourcephysics.media.core.ImageCoordSystem$FrameData","xorigin":20.0,"yorigin":40.0,"angle":0.0,"xscale":2.0,"yscale":2.0}]}},"time_unit":"s","length_unit":"m","mass_unit":"kg","radians":false,"units_visible":true,"selectedtrack":"system"},
+    "clip": {
+      "first_frame": 0,
+      "step_size": 1,
+      "step_count": 3,
+      "end_frame": 2,
+      "frame_count": 10,
+      "frame_shift": 0,
+      "extra_frames": 0,
+      "start_time_ms": 0.0,
+      "frame_duration_ms": 100.0,
+      "rate": 1.0,
+      "looping": false,
+      "steps": [
+        [0,0,0.0],
+        [1,1,100.0],
+        [2,2,200.0]
+      ]
+    },
+    "video": null,
+    "coords": {
+      "class": "org.opensourcephysics.media.core.ImageCoordSystem",
+      "fixed_origin": true,
+      "fixed_angle": true,
+      "fixed_scale": true,
+      "locked": false,
+      "key_frames": [],
+      "frames": [
+        [0,20.0,40.0,0.0,2.0,2.0,[0.5,0.0,0.0,-0.5,-10.0,20.0]],
+        [1,20.0,40.0,0.0,2.0,2.0,[0.5,0.0,0.0,-0.5,-10.0,20.0]],
+        [2,20.0,40.0,0.0,2.0,2.0,[0.5,0.0,0.0,-0.5,-10.0,20.0]],
+        [3,20.0,40.0,0.0,2.0,2.0,[0.5,0.0,0.0,-0.5,-10.0,20.0]],
+        [4,20.0,40.0,0.0,2.0,2.0,[0.5,0.0,0.0,-0.5,-10.0,20.0]],
+        [5,20.0,40.0,0.0,2.0,2.0,[0.5,0.0,0.0,-0.5,-10.0,20.0]],
+        [6,20.0,40.0,0.0,2.0,2.0,[0.5,0.0,0.0,-0.5,-10.0,20.0]],
+        [7,20.0,40.0,0.0,2.0,2.0,[0.5,0.0,0.0,-0.5,-10.0,20.0]],
+        [8,20.0,40.0,0.0,2.0,2.0,[0.5,0.0,0.0,-0.5,-10.0,20.0]],
+        [9,20.0,40.0,0.0,2.0,2.0,[0.5,0.0,0.0,-0.5,-10.0,20.0]]
+      ]
+    },
+    "tracks": [
+      {
+        "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+        "name": "axes",
+        "properties": {"name":"axes","color":{"@class":"java.awt.Color","red":200,"green":0,"blue":200,"alpha":255},"footprint":"Footprint.BoldSimpleAxes","visible":true,"trail":false},
+        "steps": [],
+        "data": {
+          "columns": [],
+          "constants": {},
+          "rows": []
+        }
+      },
+      {
+        "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+        "name": "mass A",
+        "properties": {"mass":2.0,"name":"mass A","color":{"@class":"java.awt.Color","red":0,"green":0,"blue":0,"alpha":255},"footprint":"Footprint.Diamond","visible":true,"trail":true,"framedata":{"@array":"[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;","items":[{"@class":"org.opensourcephysics.cabrillo.tracker.PointMass$FrameData","x":26.0,"y":32.0},{"@class":"org.opensourcephysics.cabrillo.tracker.PointMass$FrameData","x":26.0,"y":32.0},{"@class":"org.opensourcephysics.cabrillo.tracker.PointMass$FrameData","x":26.0,"y":32.0}]},"keyFrames":{"@array":"[I","items":[0,1,2]}},
+        "steps": [
+          {"frame":0,"position":[26.0,32.0]},
+          {"frame":1,"position":[26.0,32.0]},
+          {"frame":2,"position":[26.0,32.0]}
+        ],
+        "data": {
+          "columns": [{"name":"t","dimensions":"T"},{"name":"x","dimensions":"L"},{"name":"y","dimensions":"L"},{"name":"r","dimensions":"L"},{"name":"θ_{r}","dimensions":"A"},{"name":"v_{x}","dimensions":"L/T"},{"name":"v_{y}","dimensions":"L/T"},{"name":"v","dimensions":"L/T"},{"name":"θ_{v}","dimensions":"A"},{"name":"a_{x}","dimensions":"L/TT"},{"name":"a_{y}","dimensions":"L/TT"},{"name":"a","dimensions":"L/TT"},{"name":"θ_{a}","dimensions":"A"},{"name":"θ","dimensions":"A"},{"name":"ω","dimensions":"A/T"},{"name":"α","dimensions":"A/TT"},{"name":"step","dimensions":"I"},{"name":"frame","dimensions":"I"},{"name":"p_{x}","dimensions":"ML/T"},{"name":"p_{y}","dimensions":"ML/T"},{"name":"p","dimensions":"ML/T"},{"name":"θ_{p}","dimensions":"A"},{"name":"pixel_{x}","dimensions":"P"},{"name":"pixel_{y}","dimensions":"P"},{"name":"L","dimensions":"L"},{"name":"K","dimensions":"MLL/TT"}],
+          "constants": {"m":2.0},
+          "rows": [
+            [0.0,3.0,4.0,5.0,0.9272952180016122,"NaN","NaN","NaN","NaN","NaN","NaN","NaN","NaN",0.9272952180016122,"NaN","NaN",0.0,0.0,"NaN","NaN","NaN","NaN",26.0,32.0,0.0,"NaN"],
+            [0.1,3.0,4.0,5.0,0.9272952180016122,0.0,-0.0,0.0,-0.0,"NaN","NaN","NaN","NaN",0.9272952180016122,0.0,"NaN",1.0,1.0,0.0,-0.0,0.0,-0.0,26.0,32.0,0.0,0.0],
+            [0.2,3.0,4.0,5.0,0.9272952180016122,"NaN","NaN","NaN","NaN","NaN","NaN","NaN","NaN",0.9272952180016122,"NaN","NaN",2.0,2.0,"NaN","NaN","NaN","NaN",26.0,32.0,0.0,"NaN"]
+          ]
+        }
+      },
+      {
+        "class": "org.opensourcephysics.cabrillo.tracker.DynamicParticle",
+        "name": "particle A",
+        "properties": {"mass":1.0,"name":"particle A","color":{"@class":"java.awt.Color","red":0,"green":0,"blue":0,"alpha":255},"footprint":"CircleFootprint.FilledCircle#8 outline spot ","visible":true,"trail":true,"locked":true,"user_parameters":{"@array":"[Lorg.opensourcephysics.tools.Parameter;","items":[{"@class":"org.opensourcephysics.tools.Parameter","name":"m","function":"1.0","editable":true,"name_editable":false,"description":"Mass of this particle","synced":false}]},"initial_values":{"@array":"[Lorg.opensourcephysics.tools.Parameter;","items":[{"@class":"org.opensourcephysics.tools.Parameter","name":"t","function":"0","editable":true,"name_editable":false,"description":"Initial time","synced":false},{"@class":"org.opensourcephysics.tools.Parameter","name":"x","function":"1","editable":true,"name_editable":false,"description":"Initial position x-component","synced":false},{"@class":"org.opensourcephysics.tools.Parameter","name":"y","function":"2","editable":true,"name_editable":false,"description":"Initial position y-component","synced":false},{"@class":"org.opensourcephysics.tools.Parameter","name":"vx","function":"0.0","editable":true,"name_editable":false,"description":"Initial velocity x-component","synced":false},{"@class":"org.opensourcephysics.tools.Parameter","name":"vy","function":"0.0","editable":true,"name_editable":false,"description":"Initial velocity y-component","synced":false}]},"main_functions":{"@array":"[Lorg.opensourcephysics.tools.UserFunction;","items":[{"@class":"org.opensourcephysics.tools.UserFunction","name":"fx","description":"Force x-component","name_editable":false,"parameter_names":{"@array":"[Ljava.lang.String;","items":["m"]},"parameter_values":{"@array":"[D","items":[1.0]},"parameter_descriptions":{"@array":"[Ljava.lang.String;","items":["Mass of this particle"]},"variables":{"@array":"[Ljava.lang.String;","items":["x","vx","y","vy","t"]},"expression":"0"},{"@class":"org.opensourcephysics.tools.UserFunction","name":"fy","description":"Force y-component","name_editable":false,"parameter_names":{"@array":"[Ljava.lang.String;","items":["m"]},"parameter_values":{"@array":"[D","items":[1.0]},"parameter_descriptions":{"@array":"[Ljava.lang.String;","items":["Mass of this particle"]},"variables":{"@array":"[Ljava.lang.String;","items":["x","vx","y","vy","t"]},"expression":"0"}]},"inspector_x":604,"inspector_y":0,"inspector_h":600,"inspector_visible":false,"in_system":true},
+        "steps": [
+          {"frame":0,"position":[22.0,36.0]},
+          {"frame":1,"position":[22.0,36.0]},
+          {"frame":2,"position":[22.0,36.0]}
+        ],
+        "data": {
+          "columns": [{"name":"t","dimensions":"T"},{"name":"x","dimensions":"L"},{"name":"y","dimensions":"L"},{"name":"r","dimensions":"L"},{"name":"θ_{r}","dimensions":"A"},{"name":"v_{x}","dimensions":"L/T"},{"name":"v_{y}","dimensions":"L/T"},{"name":"v","dimensions":"L/T"},{"name":"θ_{v}","dimensions":"A"},{"name":"a_{x}","dimensions":"L/TT"},{"name":"a_{y}","dimensions":"L/TT"},{"name":"a","dimensions":"L/TT"},{"name":"θ_{a}","dimensions":"A"},{"name":"θ","dimensions":"A"},{"name":"ω","dimensions":"A/T"},{"name":"α","dimensions":"A/TT"},{"name":"step","dimensions":"I"},{"name":"frame","dimensions":"I"},{"name":"p_{x}","dimensions":"ML/T"},{"name":"p_{y}","dimensions":"ML/T"},{"name":"p","dimensions":"ML/T"},{"name":"θ_{p}","dimensions":"A"},{"name":"pixel_{x}","dimensions":"P"},{"name":"pixel_{y}","dimensions":"P"},{"name":"L","dimensions":"L"},{"name":"K","dimensions":"MLL/TT"}],
+          "constants": {"m":1.0},
+          "rows": [
+            [0.0,1.0,2.0,2.23606797749979,1.1071487177940904,"NaN","NaN","NaN","NaN","NaN","NaN","NaN","NaN",1.1071487177940904,"NaN","NaN",0.0,0.0,"NaN","NaN","NaN","NaN",22.0,36.0,0.0,"NaN"],
+            [0.1,1.0,2.0,2.23606797749979,1.1071487177940904,0.0,-0.0,0.0,-0.0,"NaN","NaN","NaN","NaN",1.1071487177940904,0.0,"NaN",1.0,1.0,0.0,-0.0,0.0,-0.0,22.0,36.0,0.0,0.0],
+            [0.2,1.0,2.0,2.23606797749979,1.1071487177940904,"NaN","NaN","NaN","NaN","NaN","NaN","NaN","NaN",1.1071487177940904,"NaN","NaN",2.0,2.0,"NaN","NaN","NaN","NaN",22.0,36.0,0.0,"NaN"]
+          ]
+        }
+      },
+      {
+        "class": "org.opensourcephysics.cabrillo.tracker.DynamicParticle",
+        "name": "particle B",
+        "properties": {"mass":3.0,"name":"particle B","color":{"@class":"java.awt.Color","red":0,"green":0,"blue":0,"alpha":255},"footprint":"CircleFootprint.FilledCircle#8 outline spot ","visible":true,"trail":true,"locked":true,"user_parameters":{"@array":"[Lorg.opensourcephysics.tools.Parameter;","items":[{"@class":"org.opensourcephysics.tools.Parameter","name":"m","function":"3.0","editable":true,"name_editable":false,"description":"Mass of this particle","synced":false}]},"initial_values":{"@array":"[Lorg.opensourcephysics.tools.Parameter;","items":[{"@class":"org.opensourcephysics.tools.Parameter","name":"t","function":"0","editable":true,"name_editable":false,"description":"Initial time","synced":false},{"@class":"org.opensourcephysics.tools.Parameter","name":"x","function":"3.000","editable":true,"name_editable":false,"description":"Initial position x-component","synced":false},{"@class":"org.opensourcephysics.tools.Parameter","name":"y","function":"4.000","editable":true,"name_editable":false,"description":"Initial position y-component","synced":false},{"@class":"org.opensourcephysics.tools.Parameter","name":"vx","function":"0.0","editable":true,"name_editable":false,"description":"Initial velocity x-component","synced":false},{"@class":"org.opensourcephysics.tools.Parameter","name":"vy","function":"0.0","editable":true,"name_editable":false,"description":"Initial velocity y-component","synced":false}]},"main_functions":{"@array":"[Lorg.opensourcephysics.tools.UserFunction;","items":[{"@class":"org.opensourcephysics.tools.UserFunction","name":"fx","description":"Force x-component","name_editable":false,"parameter_names":{"@array":"[Ljava.lang.String;","items":["m"]},"parameter_values":{"@array":"[D","items":[3.0]},"parameter_descriptions":{"@array":"[Ljava.lang.String;","items":["Mass of this particle"]},"variables":{"@array":"[Ljava.lang.String;","items":["x","vx","y","vy","t"]},"expression":"0"},{"@class":"org.opensourcephysics.tools.UserFunction","name":"fy","description":"Force y-component","name_editable":false,"parameter_names":{"@array":"[Ljava.lang.String;","items":["m"]},"parameter_values":{"@array":"[D","items":[3.0]},"parameter_descriptions":{"@array":"[Ljava.lang.String;","items":["Mass of this particle"]},"variables":{"@array":"[Ljava.lang.String;","items":["x","vx","y","vy","t"]},"expression":"0"}]},"inspector_x":604,"inspector_y":0,"inspector_h":600,"inspector_visible":false,"in_system":true,"booster":"mass A"},
+        "steps": [
+          {"frame":0,"position":[26.0,32.0]},
+          {"frame":1,"position":[26.0,32.0]},
+          {"frame":2,"position":[26.0,32.0]}
+        ],
+        "data": {
+          "columns": [{"name":"t","dimensions":"T"},{"name":"x","dimensions":"L"},{"name":"y","dimensions":"L"},{"name":"r","dimensions":"L"},{"name":"θ_{r}","dimensions":"A"},{"name":"v_{x}","dimensions":"L/T"},{"name":"v_{y}","dimensions":"L/T"},{"name":"v","dimensions":"L/T"},{"name":"θ_{v}","dimensions":"A"},{"name":"a_{x}","dimensions":"L/TT"},{"name":"a_{y}","dimensions":"L/TT"},{"name":"a","dimensions":"L/TT"},{"name":"θ_{a}","dimensions":"A"},{"name":"θ","dimensions":"A"},{"name":"ω","dimensions":"A/T"},{"name":"α","dimensions":"A/TT"},{"name":"step","dimensions":"I"},{"name":"frame","dimensions":"I"},{"name":"p_{x}","dimensions":"ML/T"},{"name":"p_{y}","dimensions":"ML/T"},{"name":"p","dimensions":"ML/T"},{"name":"θ_{p}","dimensions":"A"},{"name":"pixel_{x}","dimensions":"P"},{"name":"pixel_{y}","dimensions":"P"},{"name":"L","dimensions":"L"},{"name":"K","dimensions":"MLL/TT"}],
+          "constants": {"m":3.0},
+          "rows": [
+            [0.0,3.0,4.0,5.0,0.9272952180016122,"NaN","NaN","NaN","NaN","NaN","NaN","NaN","NaN",0.9272952180016122,"NaN","NaN",0.0,0.0,"NaN","NaN","NaN","NaN",26.0,32.0,0.0,"NaN"],
+            [0.1,3.0,4.0,5.0,0.9272952180016122,0.0,-0.0,0.0,-0.0,"NaN","NaN","NaN","NaN",0.9272952180016122,0.0,"NaN",1.0,1.0,0.0,-0.0,0.0,-0.0,26.0,32.0,0.0,0.0],
+            [0.2,3.0,4.0,5.0,0.9272952180016122,"NaN","NaN","NaN","NaN","NaN","NaN","NaN","NaN",0.9272952180016122,"NaN","NaN",2.0,2.0,"NaN","NaN","NaN","NaN",26.0,32.0,0.0,"NaN"]
+          ]
+        }
+      },
+      {
+        "class": "org.opensourcephysics.cabrillo.tracker.DynamicSystem",
+        "name": "system",
+        "properties": {"particles":{"@array":"[Ljava.lang.String;","items":["particle A","particle B"]},"mass":4.0,"name":"system","color":{"@class":"java.awt.Color","red":51,"green":204,"blue":51,"alpha":255},"footprint":"Footprint.SolidDiamond","visible":true,"trail":true,"locked":true,"user_parameters":{"@array":"[Lorg.opensourcephysics.tools.Parameter;","items":[{"@class":"org.opensourcephysics.tools.Parameter","name":"m","function":"4.0","editable":false,"name_editable":false,"description":"Total mass of this system","synced":false},{"@class":"org.opensourcephysics.tools.Parameter","name":"m1","function":"1","editable":false,"name_editable":false,"description":"Mass of particle A","synced":false},{"@class":"org.opensourcephysics.tools.Parameter","name":"m2","function":"3","editable":false,"name_editable":false,"description":"Mass of particle B","synced":false}]},"initial_values":{"@array":"[Lorg.opensourcephysics.tools.Parameter;","items":[{"@class":"org.opensourcephysics.tools.Parameter","name":"t","function":"0","editable":true,"name_editable":false,"description":"Initial time","synced":false},{"@class":"org.opensourcephysics.tools.Parameter","name":"r_relative","function":"2.8284","editable":false,"name_editable":false,"description":"Initial radius of particle A relative to particle B","synced":false},{"@class":"org.opensourcephysics.tools.Parameter","name":"θ_relative","function":"-2.3562","editable":false,"name_editable":false,"description":"Initial angle of particle A relative to particle B","synced":false},{"@class":"org.opensourcephysics.tools.Parameter","name":"vr_relative","function":"0","editable":false,"name_editable":false,"description":"Initial radial velocity of particle A relative to particle B","synced":false},{"@class":"org.opensourcephysics.tools.Parameter","name":"ω_relative","function":"0","editable":false,"name_editable":false,"description":"Initial angular velocity of particle A relative to particle B","synced":false}]},"main_functions":{"@array":"[Lorg.opensourcephysics.tools.UserFunction;","items":[{"@class":"org.opensourcephysics.tools.UserFunction","name":"fr_internal","description":"Internal force radial component","name_editable":false,"parameter_names":{"@array":"[Ljava.lang.String;","items":["m","m1","m2"]},"parameter_values":{"@array":"[D","items":[4.0,1.0,3.0]},"parameter_descriptions":{"@array":"[Ljava.lang.String;","items":["Total mass of this system","Mass of particle A","Mass of particle B"]},"variables":{"@array":"[Ljava.lang.String;","items":["r","vr","θ","ω","t"]},"expression":"0"},{"@class":"org.opensourcephysics.tools.UserFunction","name":"fθ_internal","description":"Internal force tangential component","name_editable":false,"parameter_names":{"@array":"[Ljava.lang.String;","items":["m","m1","m2"]},"parameter_values":{"@array":"[D","items":[4.0,1.0,3.0]},"parameter_descriptions":{"@array":"[Ljava.lang.String;","items":["Total mass of this system","Mass of particle A","Mass of particle B"]},"variables":{"@array":"[Ljava.lang.String;","items":["r","vr","θ","ω","t"]},"expression":"0"}]},"inspector_x":604,"inspector_y":0,"inspector_h":600,"inspector_visible":false},
+        "steps": [
+          {"frame":0,"position":[25.0,33.0]},
+          {"frame":1,"position":[25.0,33.0]},
+          {"frame":2,"position":[25.0,33.0]}
+        ],
+        "data": {
+          "columns": [{"name":"t","dimensions":"T"},{"name":"x","dimensions":"L"},{"name":"y","dimensions":"L"},{"name":"r","dimensions":"L"},{"name":"θ_{r}","dimensions":"A"},{"name":"v_{x}","dimensions":"L/T"},{"name":"v_{y}","dimensions":"L/T"},{"name":"v","dimensions":"L/T"},{"name":"θ_{v}","dimensions":"A"},{"name":"a_{x}","dimensions":"L/TT"},{"name":"a_{y}","dimensions":"L/TT"},{"name":"a","dimensions":"L/TT"},{"name":"θ_{a}","dimensions":"A"},{"name":"θ","dimensions":"A"},{"name":"ω","dimensions":"A/T"},{"name":"α","dimensions":"A/TT"},{"name":"step","dimensions":"I"},{"name":"frame","dimensions":"I"},{"name":"p_{x}","dimensions":"ML/T"},{"name":"p_{y}","dimensions":"ML/T"},{"name":"p","dimensions":"ML/T"},{"name":"θ_{p}","dimensions":"A"},{"name":"r_{rel}","dimensions":null},{"name":"θ_{rel}","dimensions":"A"},{"name":"vr_{rel}","dimensions":null},{"name":"ω_{rel}","dimensions":null}],
+          "constants": {"m":4.0},
+          "rows": [
+            [0.0,2.5,3.5,4.301162633521313,0.9505468408120751,"NaN","NaN","NaN","NaN","NaN","NaN","NaN","NaN",0.9505468408120751,"NaN","NaN",0.0,0.0,"NaN","NaN","NaN","NaN",139.30183056945089,-2.3612705887256435,-0.0,0.0],
+            [0.1,2.5,3.5,4.301162633521313,0.9505468408120751,0.0,-0.0,0.0,-0.0,"NaN","NaN","NaN","NaN",0.9505468408120751,0.0,"NaN",1.0,1.0,0.0,-0.0,0.0,-0.0,"NaN","NaN","NaN","NaN"],
+            [0.2,2.5,3.5,4.301162633521313,0.9505468408120751,"NaN","NaN","NaN","NaN","NaN","NaN","NaN","NaN",0.9505468408120751,"NaN","NaN",2.0,2.0,"NaN","NaN","NaN","NaN",2.8284271247461903,-2.356194490192345,-0.0,0.0]
+          ]
+        }
+      }
+    ],
+    "views": {"tables":[],"plots":[]}
+  }
+}

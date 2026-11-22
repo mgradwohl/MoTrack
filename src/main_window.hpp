@@ -77,6 +77,8 @@ class MainWindow final : public QMainWindow
     [[nodiscard]] DocumentSession::SaveCheckpoint viewCheckpoint() const;
     bool saveBoundWorkspace(const QString& path, bool paired, bool recoverPending = false);
     bool recoverBoundWorkspace();
+    /// Paired-save success text, naming archive members the standard archive omitted.
+    [[nodiscard]] QString pairedSavedMessage() const;
     struct PreparedProject;
     [[nodiscard]] static PreparedProject prepareProject(const QString& path, const std::atomic_bool* cancelled);
     bool applyProject(const QString& path, PreparedProject prepared, const std::atomic_bool* cancelled);
@@ -165,6 +167,7 @@ class MainWindow final : public QMainWindow
     QComboBox* m_PlotQuantity;
     QCheckBox* m_FitLine;
     QLabel* m_FitSummary;
+    QLabel* m_SourceNotice; ///< Persistent note about the open document's Tracker source.
     PositionPlot* m_Plot;
     DocumentSession m_Session;
     std::shared_ptr<WorkspaceContext> m_Workspace;

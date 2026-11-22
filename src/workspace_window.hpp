@@ -1,11 +1,14 @@
 #pragma once
 
+#include "capture_dialog.hpp"
 #include "workspace_context.hpp"
 
 #include <QMainWindow>
+#include <QPointer>
 #include <QSet>
 #include <QStringList>
 
+#include <functional>
 #include <optional>
 #include <vector>
 
@@ -28,6 +31,8 @@ class WorkspaceWindow final : public QMainWindow
     Q_OBJECT
 
   public:
+    using CameraSourceFactory = std::function<std::unique_ptr<CameraSource>()>;
+
     explicit WorkspaceWindow(std::shared_ptr<WorkspaceContext> context = {});
     ~WorkspaceWindow() override;
     [[nodiscard]] const std::shared_ptr<WorkspaceContext>& context() const;
@@ -43,6 +48,10 @@ class WorkspaceWindow final : public QMainWindow
     /// Write a Tracker tabset listing every open source's saved Tracker file, or its unchanged single movie or
     /// image, in tab order. Unsaved sources are offered Save/Skip/Cancel first. An empty path asks for one.
     bool saveTabset(const QString& path = {});
+    /// Cameras for Capture from camera; Qt Multimedia's by default. Tests supply cameras without hardware.
+    void setCameraSourceFactory(CameraSourceFactory factory);
+    /// Opens the capture window, or raises the open one. A clip it saves opens as a new movie experiment.
+    CaptureDialog* captureFromCamera();
 
   Q_SIGNALS:
     /// Every listed file has finished opening, failed or been skipped, and the selection is final.
@@ -61,6 +70,8 @@ class WorkspaceWindow final : public QMainWindow
     [[nodiscard]] QString documentLabel(QUuid document) const;
     [[nodiscard]] std::optional<QUuid> trackOpen(std::optional<QUuid> request, const QString& label);
     void finishOpen(QUuid request);
+    /// Report skipped unsafe archive members, the ones a standard save omits, and unreadable projects.
+    void reportArchiveLimits(const QList<QUuid>& documents, const QList<UnreadableProject>& unreadable);
     bool saveSource(QUuid source);
     [[nodiscard]] std::optional<QUuid> requestInput(const QString& path, WorkspaceActivation activation);
     void beginQueuedTabset();
@@ -85,6 +96,8 @@ class WorkspaceWindow final : public QMainWindow
     QAction* m_Revert = nullptr;
     QAction* m_CloseSource = nullptr;
     QAction* m_Quit = nullptr;
+    CameraSourceFactory m_CameraSources;
+    QPointer<CaptureDialog> m_Capture; // Qt parent-owned; deletes itself when closed.
     QHash<QUuid, MainWindow*> m_Views; // Qt parent-owned; views hold their own shared context lease.
     QHash<QUuid, QWidget*> m_Pages;    // Lightweight placeholders until an experiment is first selected.
     QHash<QUuid, QListWidgetItem*> m_Opening;
@@ -109,6 +122,7 @@ class WorkspaceWindow final : public QMainWindow
     };
     std::vector<ExpandedTabset> m_ExpandedTabsets;
     bool m_TabsetPrompting = false;
+    QHash<QUuid, QList<UnreadableProject>> m_Unreadable; // Per source, listed in the Experiments menu.
     bool m_Busy = false;
 };
 

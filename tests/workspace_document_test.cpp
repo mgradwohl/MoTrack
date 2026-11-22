@@ -1,9 +1,11 @@
 #include "workspace_document.hpp"
 
 #include "archive_fixture.hpp"
+#include "main_window.hpp"
 #include "paired_save.hpp"
 #include "track_edits.hpp"
 #include "tracker_archive.hpp"
+#include "tracker_writer.hpp"
 #include "workspace_storage.hpp"
 
 #include <QByteArray>
@@ -13,25 +15,37 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLabel>
+#include <QStatusBar>
 #include <QTemporaryDir>
 #include <gtest/gtest.h>
 
 #include <limits>
 #include <string>
+#include <string_view>
 
 namespace
 {
 
+/// A Tracker document in OSP's line layout with CRLF endings, a prolog comment and content Tracker ignores.
 QByteArray sourceXml()
 {
-    return "<?xml version='1.0' encoding='ISO-8859-1'?>\r\n"
+    return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
            "<!-- retain spelling, whitespace and encoding -->\r\n"
-           "<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>\r\n"
-           " <property name='description'>caf\xE9 &amp; data</property>\r\n"
-           " <property name='future'><object class='FutureSettings'><property name='nested'>"
-           "<![CDATA[<unknown>]]></property></object></property>\r\n"
-           " <property name='tracks'><property name='item'><object class='FutureTrack'>"
-           "<property name='link'>same name</property></object></property></property>\r\n"
+           "<object class=\"org.opensourcephysics.cabrillo.tracker.TrackerPanel\">\r\n"
+           " <property name=\"description\" type=\"string\"><![CDATA[caf\xC3\xA9 & data]]></property>\r\n"
+           " <property name=\"future\" type=\"object\">\r\n"
+           " <object class=\"FutureSettings\">\r\n"
+           "  <property name=\"nested\" type=\"string\"><![CDATA[<unknown>]]></property>\r\n"
+           " </object>\r\n"
+           " </property>\r\n"
+           " <property name=\"tracks\" type=\"collection\" class=\"java.util.ArrayList\">\r\n"
+           "  <property name=\"item\" type=\"object\">\r\n"
+           "  <object class=\"FutureTrack\">\r\n"
+           "   <property name=\"link\" type=\"string\">same name</property>\r\n"
+           "  </object>\r\n"
+           "  </property>\r\n"
+           " </property>\r\n"
            "</object>\r\n";
 }
 
@@ -40,15 +54,28 @@ QByteArray boundXml()
     return R"(<?xml version="1.0"?>
       <object class="org.opensourcephysics.cabrillo.tracker.TrackerPanel">
         <!-- Original names and positions must not be used as editable identity. -->
-        <property name="tracks">
-          <property name="[10]"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">
-            <property name="name">same</property></object></property>
-          <property name="[20]"><object class="Uneditable"><property name="custom">keep</property></object></property>
-          <property name="[30]"/>
-          <property name="[40]"><object class="org.opensourcephysics.cabrillo.tracker.Vector">
-            <property name="name">same</property></object></property>
-          <property name="[50]"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">
-            <property name="name">same</property></object></property>
+        <property name="tracks" type="collection" class="java.util.ArrayList">
+          <property name="[10]" type="object">
+            <object class="org.opensourcephysics.cabrillo.tracker.PointMass">
+              <property name="name" type="string">same</property>
+            </object>
+          </property>
+          <property name="[20]" type="object">
+            <object class="Uneditable">
+              <property name="custom" type="string">keep</property>
+            </object>
+          </property>
+          <property name="[30]" type="object">null</property>
+          <property name="[40]" type="object">
+            <object class="org.opensourcephysics.cabrillo.tracker.Vector">
+              <property name="name" type="string">same</property>
+            </object>
+          </property>
+          <property name="[50]" type="object">
+            <object class="org.opensourcephysics.cabrillo.tracker.PointMass">
+              <property name="name" type="string">same</property>
+            </object>
+          </property>
         </property>
       </object>)";
 }
@@ -78,8 +105,9 @@ TEST(WorkspaceDocument, RecoversTimeUnitFromOlderNativeSourceAndPersistsLaterEdi
         motrack::WorkspaceDocument document;
         if (source)
         {
-            const auto imported = motrack::parseTrackerProject("<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>"
-                                                               "<property name='time_unit' type='string'>tick</property></object>");
+            const auto imported = motrack::parseTrackerProject("<object class=\"org.opensourcephysics.cabrillo.tracker.TrackerPanel\">\n"
+                                                               "    <property name=\"time_unit\" type=\"string\">tick</property>\n"
+                                                               "</object>\n");
             document.project = imported.project;
             document.trackerSource = imported.source;
         }
@@ -174,8 +202,10 @@ TEST(WorkspaceDocument, RejectsMalformedOrAmbiguousSourceEnvelopes)
         QJsonObject{{"xmlBase64", encoded + "\n"}},
         QJsonObject{{"xmlBase64", QString::fromUtf8("\xE2\x98\x83")}},
         QJsonObject{{"xmlBase64", QString::fromLatin1(QByteArray("<object/>").toBase64())}, {"bindings", QJsonValue::Null}},
-        QJsonObject{{"xmlBase64", QString::fromLatin1((QByteArray("<!DOCTYPE object>") + sourceXml()).toBase64())},
-                    {"bindings", QJsonValue::Null}}};
+        // MoTrack reads only UTF-8 Tracker XML (OSP ignores a declared encoding and decodes UTF-8 itself).
+        QJsonObject{
+            {"xmlBase64", QString::fromLatin1(QByteArray(sourceXml()).replace("encoding=\"UTF-8\"", "encoding=\"ISO-8859-1\"").toBase64())},
+            {"bindings", QJsonValue::Null}}};
     for (const auto& source : invalid)
     {
         auto object = valid;
@@ -343,13 +373,31 @@ TEST(WorkspaceDocument, RejectsIncompleteAmbiguousAndWrongTypeSourceBindings)
         ASSERT_TRUE(writeBytes(native, QJsonDocument(changed).toJson()));
         EXPECT_THROW(static_cast<void>(motrack::readWorkspaceDocument(native)), motrack::ProjectError);
     };
+    // Bindings that contradict only the source's track objects are dropped on open, as stale bindings recorded by
+    // MoTrack's former DOM reader are (RecoversStaleSourceBindingsAndExplainsUnreadableSources).
+    const auto recovers = [&](const QJsonValue& stale)
+    {
+        auto changed = root;
+        auto envelope = source;
+        envelope.insert("bindings", stale);
+        changed.insert("trackerSource", envelope);
+        ASSERT_TRUE(writeBytes(native, QJsonDocument(changed).toJson()));
+        const auto reopened = motrack::readWorkspaceDocument(native);
+        EXPECT_TRUE(reopened.trackerBindingsReset);
+        EXPECT_TRUE(reopened.trackerSource && !reopened.trackerSource->bindings);
+    };
     rejects(QJsonValue::Undefined);
     rejects(true);
-    rejects(QJsonArray{});
+    recovers(QJsonArray{});
     rejects(QJsonArray{bindings.at(0), bindings.at(0), bindings.at(2)});
+    for (const auto& replacement : std::vector<QJsonObject>{QJsonObject{{"trackId", "1"}, {"sourceIndex", 1}, {"kind", "pointMass"}},
+                                                            QJsonObject{{"trackId", "1"}, {"sourceIndex", 999}, {"kind", "pointMass"}}})
+    {
+        auto stale = bindings;
+        stale.replace(0, replacement);
+        recovers(stale);
+    }
     for (const auto& replacement : std::vector<QJsonObject>{QJsonObject{},
-                                                            QJsonObject{{"trackId", "1"}, {"sourceIndex", 1}, {"kind", "pointMass"}},
-                                                            QJsonObject{{"trackId", "1"}, {"sourceIndex", 999}, {"kind", "pointMass"}},
                                                             QJsonObject{{"trackId", "1"}, {"sourceIndex", -1}, {"kind", "pointMass"}},
                                                             QJsonObject{{"trackId", "1"}, {"sourceIndex", 0.5}, {"kind", "pointMass"}},
                                                             QJsonObject{{"trackId", "1"}, {"sourceIndex", 0}, {"kind", "vector"}},
@@ -376,6 +424,91 @@ TEST(WorkspaceDocument, RejectsIncompleteAmbiguousAndWrongTypeSourceBindings)
     invalid.project.nextTrackId = 1; // Deleted IDs must stay reserved for their source objects.
     EXPECT_THROW(motrack::writeWorkspaceDocument(native, invalid), motrack::ProjectError);
     EXPECT_EQ(readBytes(native), bytes);
+}
+
+TEST(WorkspaceDocument, RecoversStaleSourceBindingsAndExplainsUnreadableSources)
+{
+    // A native file saved before B1 holds bindings that MoTrack's former DOM reader recorded. OSP's line reader,
+    // like Tracker, ends the tracks collection at a blank line, so it sees fewer track objects than they name.
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("original.trk");
+    const auto native = temporary.filePath("bound.motrack");
+    ASSERT_TRUE(writeBytes(original, boundXml()));
+    const auto document = motrack::importTrackerDocument(original);
+    motrack::writeWorkspaceDocument(native, document);
+    const auto root = QJsonDocument::fromJson(readBytes(native)).object();
+    const auto withSource = [&](const QByteArray& xml)
+    {
+        auto changed = root;
+        auto envelope = root.value("trackerSource").toObject();
+        envelope.insert("xmlBase64", QString::fromLatin1(xml.toBase64()));
+        changed.insert("trackerSource", envelope);
+        return writeBytes(native, QJsonDocument(changed).toJson());
+    };
+    auto blankLine = boundXml();
+    blankLine.replace(R"(          <property name="[50]")",
+                      "\n"
+                      R"(          <property name="[50]")");
+    ASSERT_TRUE(withSource(blankLine));
+    const auto recovered = motrack::readWorkspaceDocument(native);
+    EXPECT_TRUE(recovered.trackerBindingsReset);
+    if (!recovered.trackerSource)
+    {
+        FAIL() << "The preserved source was dropped.";
+    }
+    EXPECT_FALSE(recovered.trackerSource->bindings);
+    EXPECT_EQ(recovered.trackerSource->xml, blankLine.toStdString());
+    EXPECT_EQ(recovered.project.pointMasses.size(), document.project.pointMasses.size());
+    EXPECT_EQ(recovered.project.vectors.size(), document.project.vectors.size());
+
+    // Standard export refuses instead of guessing associations; a native save keeps measurements and source.
+    try
+    {
+        motrack::writeTrackerDocument(temporary.filePath("export.trk"), recovered, {});
+        ADD_FAILURE() << "Standard export guessed the dropped associations.";
+    }
+    catch (const motrack::ProjectError& error)
+    {
+        EXPECT_STREQ(error.what(), "Tracker export requires original object associations.");
+    }
+    const auto resaved = temporary.filePath("resaved.motrack");
+    motrack::writeWorkspaceDocument(resaved, recovered);
+    const auto reopened = motrack::readWorkspaceDocument(resaved);
+    EXPECT_FALSE(reopened.trackerBindingsReset);
+    EXPECT_TRUE(reopened.trackerSource && !reopened.trackerSource->bindings && reopened.trackerSource->xml == blankLine.toStdString());
+
+    // The window says so persistently, and the note goes away with the next document.
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(native));
+    const auto* notice = window.findChild<QLabel*>("sourceNotice");
+    ASSERT_NE(notice, nullptr);
+    EXPECT_FALSE(notice->isHidden());
+    EXPECT_TRUE(notice->text().startsWith("Tracker export unavailable:")) << notice->text().toStdString();
+    ASSERT_TRUE(window.loadProject(resaved));
+    EXPECT_TRUE(notice->isHidden());
+
+    // A source the current reader refuses is explained rather than reported as bare XML. Here a blank line ends the
+    // collection, so the null element that follows belongs to the panel, which Tracker refuses too (#196).
+    auto refused = boundXml();
+    refused.replace(R"(          <property name="[30]")",
+                    "\n"
+                    R"(          <property name="[30]")");
+    ASSERT_TRUE(withSource(refused));
+    try
+    {
+        static_cast<void>(motrack::readWorkspaceDocument(native));
+        ADD_FAILURE() << "An unreadable preserved source was accepted.";
+    }
+    catch (const motrack::ProjectError& error)
+    {
+        EXPECT_TRUE(std::string_view(error.what())
+                        .starts_with("The copy of the original Tracker file kept in this MoTrack project can no longer be read (Invalid "
+                                     "Tracker XML"))
+            << error.what();
+    }
+    EXPECT_FALSE(window.loadProject(native));
+    EXPECT_TRUE(window.statusBar()->currentMessage().startsWith("Could not open this project: The copy of the original Tracker file"))
+        << window.statusBar()->currentMessage().toStdString();
 }
 
 TEST(WorkspaceDocument, RejectsInvalidOptionalFrameDurationsBeforeReplacingExistingFile)

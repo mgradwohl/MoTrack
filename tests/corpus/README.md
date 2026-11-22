@@ -76,6 +76,201 @@ cases described below. Selected/unselected point-mass names have a conservative 
 Broader names/dependencies, partly fixed calibration and track-membership edits, media/archive
 round trips, desktop export UI and paired saves remain unfinished.
 
+## Real-world library corpus
+
+The cases above are a small set of audited examples and synthetic fixtures. The library corpus adds the
+experiments other Tracker users have published in the collections that Tracker's Library Browser loads by
+default. It shows which Tracker features real files use and which of those files MoTrack mishandles.
+Nothing in it is committed except metadata, hashes and the census report.
+
+| Source ID | Root | Loaded by Tracker as |
+| --- | --- | --- |
+| `compadre-tracker` | ComPADRE REST record service `osp_tracker.cfm?OSPType=Tracker` | `TFrame` → `LibraryComPADRE.TRACKER_SERVER_TREE` (per-subject queries of the same service) |
+| `osp-tracker-library` | `opensourcephysics.github.io/resources/CAB/tracker_library.xml` | `LibraryBrowser.TRACKER_LIBRARY` ("Tracker Home Library") |
+| `osp-shared-library` | `opensourcephysics.github.io/resources/CAB/shared_library.xml` | `LibraryBrowser.SHARED_LIBRARY` (community collections) |
+
+[library-manifest.json](library-manifest.json) has one entry for each distinct downloadable Tracker file
+(`.trz`, `.trk`, or a `.zip` that contains a `.trk`). Each entry records:
+
+- a stable ID, the source URL, the original file name, the byte count and the SHA-256;
+- the title, authors, subjects and information URL;
+- the source's rights or license statement, copied verbatim and not interpreted;
+- the collection paths or ComPADRE record details, the number of projects and the discovery date.
+
+A byte-identical file listed again keeps its first ID, and later copies name it in `duplicate_of`.
+ComPADRE documents are kept whatever their attachment type. `compadre.library_browser_records` lists the
+records whose Library Browser entry opens each document under OSP's own selection rules; it is empty for
+documents Tracker cannot reach ([#213](https://github.com/mgradwohl/MoTrack/issues/213)).
+
+The manifest has three more lists:
+
+- `sources[].skipped`: collections that could not be read, or that point at hosts outside the allowlist.
+- `excluded`: candidates that failed to download, or archives without a project.
+- `withdrawn`: entries that are no longer listed upstream.
+
+```sh
+python tools/corpus.py discover-library [--source ID] [--redownload]   # refresh the manifest (network)
+python tools/corpus.py fetch-library [--source ID]                     # download missing pins, verify all
+python tools/corpus.py verify-library                                  # offline verification
+python tools/corpus.py library-projects                                # every project as a private .trk + index.json
+python tools/corpus.py library-census --probe build/dev/motrack_corpus_probe [--java JAVA] [--jobs N] [--check]
+```
+
+Downloads go to the ignored `<cache>/library/files/<id>-<first 12 SHA-256 digits>.<ext>`, which `--cache`
+places with the other reference downloads. Content-addressed names keep a stale or restored cache from
+blocking a re-pinned file:
+
+- `fetch-library` deletes a cached copy whose bytes do not match its pin and downloads it again; new bytes
+  are published only after they match.
+- A verified copy under an older name is adopted without a download.
+- Every file the manifest no longer names, including partial downloads, is pruned.
+
+A refresh reuses a verified pin when its URL and listed size are unchanged. Otherwise it downloads to a
+staging name. If that download fails, the previous verified pin is kept.
+
+**Request limits:**
+
+- Requests are made one at a time, at least one second apart, with the generic user agent `MoTrack-corpus/1.0`.
+- Throttling (429), 5xx and network or TLS errors, including errors while reading the body, are retried
+  three times with exponential backoff.
+- Size caps are 64 MiB per file, 1.5 GiB in total and 16 MiB per metadata response.
+- Every request must be plain HTTPS. Every redirect hop is checked against the hosts that request may reach;
+  for file downloads, that is only the download allowlist.
+- Experiment files come only from `www.compadre.org`, `opensourcephysics.github.io` and `iwant2study.org`.
+  Metadata may also come from `api.github.com`, for the OSP resources license, and from the Shared Library's
+  other collection hosts.
+- `robots.txt` was checked on 2026-11-21. ComPADRE disallows only its user, groups, workflow and `physlets2`/`physlets3`/`pqp2` paths, which the corpus does not request. `iwant2study.org` allows all crawlers, and
+  `opensourcephysics.github.io` has no `robots.txt`.
+
+**Untrusted files:**
+
+- Archives are read member by member with the 32 MiB XML bound, and member names never become paths.
+  macOS AppleDouble companions (`__MACOSX/…` and `._name`) are not projects; the census counts them under
+  `(appledouble)`.
+- An archive that Python cannot read is recorded as that experiment's `archive_error`, naming its ID and
+  cached path, and the census continues.
+- `TrackerReference` instantiates no saved class except `ImageCoordSystem`.
+- XML with document type or entity declarations is refused.
+- Nothing downloaded is executed. The probes and Java run on private copies with offscreen Qt and a private Java home.
+
+**Rights:**
+
+- ComPADRE statements come from each item's detail page.
+- Files hosted on `opensourcephysics.github.io` carry the heading of the license file of the
+  `OpenSourcePhysics/resources` repository.
+- `iwant2study.org` entries have none, because its listing publishes no statement.
+- The corpus fetches files only for local testing and never redistributes them.
+
+The census ([library-census.json](library-census.json)) records the following:
+
+- **Per experiment:** the archive member types and the number of tabs (TrackerPanel projects, plus the tabs
+  a tabset lists).
+- **Per project:** the root class, `semantic_version`/`version`, track classes, models, data functions,
+  video class and file type, filters, reference frame, Data Tool tabs and custom views. These fields are
+  read structurally from the XML.
+- **MoTrack's desktop open path, per platform:** `motrack_corpus_probe --open` runs the bounded archive
+  reader, opens every member, resolves media and indexes movies. The result is `opened`, `rejected`,
+  `crashed` (memory error, signal or Windows exception) or `timed_out`.
+- **With `--java`:** the pinned Tracker 6.3.5 XML/coordinate reference (`TrackerReference.java`, as in
+  `corpus.py reference`) compared with MoTrack's import snapshot of each project.
+
+The census is a report, not acceptance evidence.
+
+`--check` regenerates the report and fails on any difference, with two exceptions:
+
+- A platform with no committed native results publishes them instead. They are written to
+  `<cache>/library/library-census.json`, which CI uploads, so the maintainer can commit them as that platform's
+  baseline.
+- Experiments listed under the manifest's `known_issues` are compared only by their marker, for defects
+  whose outcome is undefined behaviour and may differ between runs. The list is empty now: it held the 12
+  experiments affected by #211 until that fix landed (#295). The mechanism stays for future undefined-behaviour
+  defects.
+
+Give `--check` the same options the committed census was recorded with; a census recorded with `--java`
+cannot be checked without it.
+
+A fix for #212, #224 or #229, or any change to MoTrack's open path, changes the committed results. Regenerate
+the census locally on Windows with `--java` in the same PR, run the workflow once for the `linux` results, and
+drop fixed experiments from `known_issues`.
+
+`corpus_library.library_projects(manifest, cache)` and the `library-projects` index give each project's
+experiment ID, archive member, private path, size and SHA-256, so corpus oracles such as A1's O1/O2 checks
+can run over every library file without touching the archives.
+
+[library-corpus.yml](../../.github/workflows/library-corpus.yml) runs monthly and on manual dispatch, so it
+does not fetch about 0.83 GB from the source hosts every week:
+
+1. It runs the unit tests.
+2. It restores the most recent download cache with the SHA-pinned `actions/cache`.
+3. It fetches and verifies the pins, which also prunes unpinned files. Whenever the set of verified files
+   changed, it saves a new cache entry, even after a partial fetch.
+4. It builds the probe and runs `library-census --check` with Java 17.
+5. It uploads the regenerated census.
+
+Ordinary PR CI runs only the network-free unit tests in `test_corpus_library.py`.
+
+Findings from the first census:
+
+- [#211](https://github.com/mgradwohl/MoTrack/issues/211) (fixed by #269 in #295): movie indexing wrote past
+  the converted frame buffer for H.264 widths that are not multiples of 16. The Windows debug CRT reported heap
+  corruption and Linux glibc aborted on four files. All 12 affected experiments now open.
+- [#212](https://github.com/mgradwohl/MoTrack/issues/212): archives that Tracker's own export filled with
+  absolute-path members, or that contain macOS `Icon\r` or `__MACOSX/._*.trk` AppleDouble files, are rejected as a whole.
+  The census excludes AppleDouble files from project and tab counts, which leaves 11 experiments with 2–4
+  real projects and 507 TrackerPanel projects.
+- [#213](https://github.com/mgradwohl/MoTrack/issues/213): Tracker's Library Browser cannot reach ComPADRE
+  `Source Code` TRZ attachments (OSP reference defect).
+- [#224](https://github.com/mgradwohl/MoTrack/issues/224): `.zip` experiments open in Tracker but are rejected
+  by extension. Renamed to `.trz`, all 33 open.
+- [#229](https://github.com/mgradwohl/MoTrack/issues/229): a Tracker 4.88 step saved as `NaN` rejects the whole experiment.
+- [#196](https://github.com/mgradwohl/MoTrack/issues/196): a track name with control characters that XML
+  forbids is accepted by OSP's line reader but rejected by MoTrack's QDom importer.
+- [#150](https://github.com/mgradwohl/MoTrack/issues/150): one published `.trk` is a `TFrame` tabset.
+- All 14 projects where Java and MoTrack differ use a moving reference frame (`referenceframe`, #148). MoTrack
+  returns no world coordinates for them, while the XML/coordinate reference evaluates only the static
+  `ImageCoordSystem` and ignores the frame. Neither result is Tracker's displayed value.
+- The Shared Library lists one `.trk` that is not a Tracker file (a JaCoB simulation). Java and MoTrack
+  both refuse it, which is correct.
+- The Shared Library collections "LivePhoto Videos", "NTNU Videos" and "University of Cincinnati" list no
+  Tracker files.
+
+The committed census holds two native baselines. The `windows` baseline was generated locally on Windows 11
+with the `dev` (debug) build. The `linux` baseline comes from the workflow's validation run
+[44986545856](https://github.com/mgradwohl/MoTrack/actions/runs/44986545856) on Ubuntu 24.04 with the pinned
+toolchain from `tools/toolchain.env` (Clang 23, GCC 14 libstdc++, Qt 6.8.3). All 492 experiments give the
+same outcome on both platforms. macOS has no baseline. Before the #211 fix, the first
+validation run ([44978631660](https://github.com/mgradwohl/MoTrack/actions/runs/44978631660)) showed why
+undefined behaviour needs `known_issues`: Windows' debug CRT stopped all 12 affected experiments, while
+Linux glibc aborted on four (`double free or corruption`) and opened the rest.
+
+<!-- library-census:start -->
+
+Generated from manifest refresh 2026-11-21 by `python tools/corpus.py library-census`; see `library-census.json` for every experiment.
+
+| Census | Result |
+| --- | --- |
+| Experiments / projects (TrackerPanel) / bytes | 492 / 510 (507) / 783,645,678 |
+| Tracker versions (projects) | 5.0.0 (57), 4.87 (55), 4.91 (47), 4.85 (45), 4.92 (42), 4.80 (32), (not recorded) (31), 6.1.6 (27), … 34 more |
+| Track classes (projects using) | CoordAxes (506), TapeMeasure (459), PointMass (430), DynamicParticle (206), AnalyticParticle (75), Calibration (39), LineProfile (34), Protractor (28), DynamicParticlePolar (24), CenterOfMass (12), PerspectiveTrack (5), Vector (4), … 6 more |
+| Video classes (projects) | xuggle.XuggleVideo (398), ImageVideo (95), (none) (8), gif.GifVideo (7), quicktime.QTVideo (2) |
+| Video file types (projects) | mp4 (371), jpg (89), mov (23), (none) (8), gif (7), png (6), avi (2), flv (2), … 1 more |
+| Video filters (projects) | RotateFilter (6), DeinterlaceFilter (5), GhostFilter (3), PerspectiveFilter (3), BrightnessFilter (2), BaselineFilter (1) |
+| Models (projects) | DynamicParticle (206), AnalyticParticle (75), DynamicParticlePolar (24), DynamicSystem (1), ParticleDataTrack (1) |
+| Data functions | 1057 in 133 projects |
+| Archive member types (experiments) | trk (492), html (295), png (295), mp4 (245), pdf (77), jpg (63), mov (13), docx (8), … 13 more |
+| Tabs per experiment (experiments) | 1 (480), 2 (6), 3 (3), 4 (2), 0 (1) |
+| MoTrack desktop open, linux (experiments) | opened (445), rejected (47) |
+| MoTrack open failures, linux (excluding known issues) | Choose a Tracker or MoTrack project file. (33), Invalid or unsupported Tracker archive. (6), Invalid Tracker XML. (4), Expected a TrackerPanel project. (2), Invalid Tracker numeric property. (2) |
+| Unsupported tracks reported, linux (experiments) | CoordAxes (444), TapeMeasure (408), DynamicParticle (191), AnalyticParticle (74), Protractor (28), Calibration (23), DynamicParticlePolar (23), LineProfile (18), CenterOfMass (9), PerspectiveTrack (5), … 5 more |
+| ZIP experiments renamed .trz, linux | opened (33) |
+| MoTrack desktop open, windows (experiments) | opened (445), rejected (47) |
+| MoTrack open failures, windows (excluding known issues) | Choose a Tracker or MoTrack project file. (33), Invalid or unsupported Tracker archive. (6), Invalid Tracker XML. (4), Expected a TrackerPanel project. (2), Invalid Tracker numeric property. (2) |
+| Unsupported tracks reported, windows (experiments) | CoordAxes (444), TapeMeasure (408), DynamicParticle (191), AnalyticParticle (74), Protractor (28), Calibration (23), DynamicParticlePolar (23), LineProfile (18), CenterOfMass (9), PerspectiveTrack (5), … 5 more |
+| ZIP experiments renamed .trz, windows | opened (33) |
+| Java 6.3.5 XML/coordinate vs MoTrack import (projects) | match (491), differs (14), both_rejected (4), native_rejected (1) |
+
+<!-- library-census:end -->
+
 ## Sources and cases
 
 [manifest.json](manifest.json) pins each upstream URL, byte count and SHA-256, the upstream revision,
@@ -134,8 +329,77 @@ python tools/corpus.py check --probe build/coverage/motrack_corpus_probe
 python tools/corpus.py reference --java /path/to/jdk-17/bin/java
 python tools/corpus.py session --java /path/to/jdk-17/bin/java
 python tools/corpus.py roundtrip --probe build/coverage/motrack_corpus_probe --java /path/to/jdk-17/bin/java
-python -m unittest discover -s tests -p test_corpus.py
+python tools/corpus.py state-oracle --java /path/to/jdk-17/bin/java
+python tools/corpus.py state-check --probe build/coverage/motrack_corpus_probe
+python tools/corpus.py expression-oracle --java /path/to/jdk-17/bin/java
+python tools/corpus.py xml-oracle --probe build/coverage/motrack_corpus_probe --java /path/to/jdk-17/bin/java
+python tools/corpus.py ode-oracle --java /path/to/jdk-17/bin/java
+python tools/corpus.py sampling-oracle --java /path/to/jdk-17/bin/java
+python tools/corpus.py motion-oracle --java /path/to/jdk-17/bin/java
+python tools/corpus.py analysis-oracle --java /path/to/jdk-17/bin/java
+python tools/corpus.py filter-oracle --java /path/to/jdk-17/bin/java
+python tools/corpus.py fit-oracle --java /path/to/jdk-17/bin/java
+python tools/corpus.py library-oracle --probe build/coverage/motrack_corpus_probe --java /path/to/jdk-17/bin/java
+python -m unittest discover -s tests -p 'test_corpus*.py'
 ```
+
+`library-oracle` compares the [library collection model](../../docs/library-collections.md) with the pinned
+OSP `Library` classes.
+
+`filter-oracle` runs the pinned OSP [video filters](../../docs/video-filters.md) on synthetic frames and compares
+the result with `tests/science/video-filter-reference.json` exactly; `--record` replaces the fixture for review.
+
+`state-oracle` dumps every case as Tracker's application loader leaves it (Linux with Xvfb) and diffs the
+committed [loaded-state dumps](state) and the [known-defect registry](known-defects.json); `state-check`
+compares MoTrack's modeled subset with those dumps on any platform without Java and requires its gaps to equal
+the committed [gap baseline](state-gaps.json). The
+[oracle-dump guide](../../docs/oracle-dumps.md) defines the schema, tolerances, registry and gaps.
+
+`expression-oracle` is a kernel oracle rather than a corpus case: it reruns
+[`ExpressionOracle.java`](../../tools/reference/ExpressionOracle.java) with the pinned JAR in a temporary
+Java home and compares the result with
+[`expression-reference.json`](../science/expression-reference.json) under the rules in the
+[expression engine notes](../../docs/expression-engine.md#kernel-oracle). `--record` rewrites that fixture
+for review. The C++ tests read the committed fixture and need no Java.
+
+`xml-oracle` runs oracles O1 and O2 of the [OSP XMLControl library](../../docs/osp-xmlcontrol.md#oracles):
+every case file and XML archive member, the committed fixtures and the synthetic reader fixtures (in four
+line-ending variants) are read by the pinned Java `XMLControlElement` and by MoTrack, and both trees must be
+identical; each unedited MoTrack render must reproduce its input byte for byte. Archive members are read in
+memory and the documents are written to a temporary directory. `--reports PATH` selects where the summary and
+any mismatching dumps are written (default `CACHE/reports/xml-oracle`). It runs headless on any platform;
+`--o2-only` skips Java and checks only the byte-identical renders, as CI does on Windows and macOS.
+Documents MoTrack deliberately refuses (registered reasons only, such as `truncated`) still have their
+trees compared with Java's.
+
+`ode-oracle` integrates the [ODE solver kernel](../../docs/ode-solvers.md) test systems with the pinned
+OSP classes and compares them with `tests/science/ode-reference.json`, using that kernel's own
+per-solver tolerances; `--record` replaces the fixture for review.
+
+`python tools/corpus.py match-oracle --java /path/to/jdk-17/bin/java` runs the pinned `TemplateMatcher` on the
+[template-matching kernel](../../docs/template-matching.md)'s synthetic scenes and compares the result with
+`tests/science/match-reference.json` (exactly, except 1D positions within 1e-9 px); `--record` replaces the
+fixture for review.
+
+`sampling-oracle` measures the [image sampling kernel](../../docs/image-sampling.md) frames with the pinned
+`RGBStep`/`LineProfileStep` classes and compares them with `tests/science/sampling-reference.json`: exactly,
+except tilted profiles within 10⁻⁹. `--record` replaces the fixture for review.
+
+`motion-oracle` runs the [motion kernel](../../docs/motion-kernels.md) cases with the pinned Tracker
+derivative and filter classes and compares them with `tests/science/motion-reference.json`, exactly except
+for the Butterworth cases, OSP's test function and the FilterSelfTest metrics, which use JDK intrinsics;
+`--record` replaces the fixture for review.
+
+`analysis-oracle` is a kernel oracle rather than a corpus case: it runs the Data Tool analysis cases of
+[`AnalysisOracle.java`](../../tools/reference/AnalysisOracle.java) with the pinned JAR in a temporary Java
+home and compares them with [`analysis-reference.json`](../science/analysis-reference.json) under the
+tolerances in the [data analysis kernel notes](../../docs/data-analysis-kernels.md#floating-point-and-the-java-oracle);
+`--record` rewrites that fixture for review. The C++ tests read the committed fixture and need no Java.
+
+`fit-oracle` runs the [curve-fit kernel](../../docs/curve-fitting.md) cases through the pinned OSP Data Tool
+classes (`tools/reference/FitOracle.java`) in a temporary Java home and compares the result with
+`tests/science/fit-reference.json` under that kernel's agreement classes; `--record` replaces the fixture
+for review. The C++ tests read the committed fixture and need no Java.
 
 On Windows, use `build/coverage/motrack_corpus_probe.exe` and the path to `java.exe`. Python 3.10 or newer
 is supported. The reference command uses Java source-file mode and therefore needs a JDK, not just a
@@ -661,7 +925,9 @@ experiment with mass 3. The marked case uses original frames 1/4/8, image positi
 Original tracks, views, names, units and calibration stay unchanged. The new mass starts visible,
 with trails, unlocked, a red Diamond footprint. These explicit interchange defaults avoid Tracker's
 missing `visible` field loading as false; pinned `TTrack.Loader` and `PointMass.Loader` bytecode were
-inspected. Empty tracks have no frame/key arrays; marked tracks have manual keys 1/4/8.
+inspected. The XML oracle expects OSP's writer: `PointMass.Loader`'s property order (`locked` omitted while
+false) and doubles as `Double.toString` (`3.0`), as for every value MoTrack's standard writer edits.
+Empty tracks have no frame/key arrays; marked tracks have manual keys 1/4/8.
 
 The native probe exercises creation/undo, allocation gaps, mass/mark changes, remove/undo, reorder,
 native save/reopen and source-copy removal. The complete XML comparison allows only the appended

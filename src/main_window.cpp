@@ -147,6 +147,7 @@ struct MainWindow::PreparedProject
     QString member;
     QString mediaProjectPath;
     bool chooseArchiveTab = false;
+    QString failure; ///< Set instead of a document when preparing it failed off the GUI thread.
 };
 
 MainWindow::MainWindow(std::shared_ptr<WorkspaceServices> services)
@@ -389,6 +390,10 @@ MainWindow::MainWindow(std::shared_ptr<WorkspaceServices> services)
     workspace->setStretchFactor(0, 2);
     workspace->setStretchFactor(1, 1);
     setCentralWidget(workspace);
+    m_SourceNotice = new QLabel;
+    m_SourceNotice->setObjectName("sourceNotice");
+    m_SourceNotice->hide();
+    statusBar()->addPermanentWidget(m_SourceNotice);
     statusBar()->showMessage(tr("Ready"));
 
     displayStep(0);
@@ -690,9 +695,9 @@ bool MainWindow::loadProject(const QString& path)
     {
         return applyProject(path, prepareProject(path, nullptr), nullptr);
     }
-    catch (const ProjectError&)
+    catch (const ProjectError& error)
     {
-        statusBar()->showMessage(tr("Could not open this project."));
+        statusBar()->showMessage(tr("Could not open this project: %1").arg(QString::fromUtf8(error.what())));
         return false;
     }
 }
@@ -776,13 +781,17 @@ void MainWindow::openProject(const QString& path)
                             {
                                 throw ProjectError("Could not prepare project.");
                             }
+                            if (!result->failure.isEmpty())
+                            {
+                                throw ProjectError(result->failure.toStdString());
+                            }
                             applyProject(path, std::move(*result), cancelled.get());
                         }
-                        catch (const ProjectError&)
+                        catch (const ProjectError& error)
                         {
                             if (!*cancelled)
                             {
-                                statusBar()->showMessage(tr("Could not open this project."));
+                                statusBar()->showMessage(tr("Could not open this project: %1").arg(QString::fromUtf8(error.what())));
                             }
                         }
                     });
@@ -794,9 +803,11 @@ void MainWindow::openProject(const QString& path)
                                              {
                                                  return std::make_shared<PreparedProject>(prepareProject(path, cancelled.get()));
                                              }
-                                             catch (const ProjectError&)
+                                             catch (const ProjectError& error)
                                              {
-                                                 return {};
+                                                 auto failed = std::make_shared<PreparedProject>();
+                                                 failed->failure = QString::fromUtf8(error.what());
+                                                 return failed;
                                              }
                                          }));
 }
@@ -1103,6 +1114,11 @@ void MainWindow::activateProject(const QString& path)
     m_SaveAs->setEnabled(true);
     m_Save->setEnabled(true);
     m_SaveTracker->setEnabled(viewDocument().trackerSource.has_value());
+    const bool bindingsReset = viewDocument().trackerBindingsReset;
+    m_SourceNotice->setText(bindingsReset ? tr("Tracker export unavailable: the links to this project's Tracker tracks could not be "
+                                               "restored. Measurements are unchanged.")
+                                          : QString{});
+    m_SourceNotice->setVisible(bindingsReset);
     m_ExportArchive->setEnabled(isLinkedMediaDocument(viewDocument()));
     refreshEditViews(0);
     syncClipControls();
@@ -2074,7 +2090,7 @@ bool MainWindow::saveTrackerProject(const QString& path, bool recoverPending)
         statusBar()->showMessage(tr("Project changed while saving. Save again to keep the latest edits."));
         return false;
     }
-    statusBar()->showMessage(tr("Tracker project and MoTrack companion saved."));
+    statusBar()->showMessage(pairedSavedMessage());
     return true;
 }
 

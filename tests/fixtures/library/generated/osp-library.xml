@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="org.opensourcephysics.tools.Library">
+    <property name="name" type="string">Generated Library</property>
+    <property name="collection_paths" type="array" class="[Ljava.lang.String;">
+        <property name="[0]" type="string">https://example.org/library/collection.xml</property>
+        <property name="[1]" type="string">C:/Users/student/my_collection.xml</property>
+    </property>
+    <property name="collection_names" type="array" class="[Ljava.lang.String;">
+        <property name="[0]" type="string">Example collection</property>
+        <property name="[1]" type="string">My Collection</property>
+    </property>
+    <property name="chooser_directory" type="string">C:\Users\student</property>
+    <property name="recently_opened" type="array" class="[Ljava.lang.String;">
+        <property name="[0]" type="string">C:/Users/student/my_collection.xml</property>
+        <property name="[1]" type="string">C:/Users/student/experiments/b.trk</property>
+    </property>
+    <property name="recently_opened_names" type="array" class="[Ljava.lang.String;">
+        <property name="[0]" type="string">My Collection</property>
+        <property name="[1]" type="string">b.trk</property>
+    </property>
+    <property name="no_search_paths" type="array" class="[Ljava.lang.String;">
+        <property name="[0]" type="string">https://example.org/alpha.xml</property>
+        <property name="[1]" type="string">https://example.org/zeta.xml</property>
+    </property>
+</object>

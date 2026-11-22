@@ -7,6 +7,7 @@
 #include "workspace_document_codec.hpp"
 #include "workspace_storage.hpp"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
 #include <QImageReader>
@@ -75,8 +76,20 @@ PreparedWorkspaceInput prepareWorkspaceInput(const QString& path, const std::ato
         for (const auto& member : archive->projects())
         {
             checkCancellation(cancelled);
-            auto loaded = importTrackerDocument(archive->projectPath(member));
-            archive->resolveMedia(loaded.project, member);
+            WorkspaceDocument loaded;
+            try
+            {
+                loaded = importTrackerDocument(archive->projectPath(member));
+                // An unsafe media reference refuses only this project; nothing is extracted for it.
+                archive->resolveMedia(loaded.project, member);
+            }
+            catch (const ProjectError& error)
+            {
+                // Tracker reports a tab it cannot read and still opens the others. Keep this member's
+                // bytes untouched for saving; media and cancellation failures stay fatal below.
+                result.unreadableProjects.push_back({.member = member, .reason = QString::fromUtf8(error.what())});
+                continue;
+            }
             loaded.archivePayload = archive;
             loaded.archiveMember = member.toStdString();
             loaded.alignMovieToClip = true;
@@ -85,7 +98,12 @@ PreparedWorkspaceInput prepareWorkspaceInput(const QString& path, const std::ato
         }
         checkCancellation(cancelled);
         if (group.members.empty())
-            throw ProjectError("Tracker archive contains no experiments.");
+            throw ProjectError(
+                result.unreadableProjects.isEmpty()
+                    ? "Tracker archive contains no experiments."
+                    : QCoreApplication::translate("WorkspaceInput", "No Tracker project in this archive could be read. %1: %2")
+                          .arg(result.unreadableProjects.front().member, result.unreadableProjects.front().reason)
+                          .toStdString());
         result.group = std::make_unique<ArchiveGroupSession>();
         // Validate the complete group once; incremental append revalidates every preceding member.
         result.group->replace(std::move(group), path, ArchiveGroupSource::Tracker);

@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- OSP loader behaviors that a collection editor must preserve. -->
+<object class="org.opensourcephysics.tools.LibraryCollection">
+    <property name="name" type="string">  Quirks  </property>
+    <property name="name" type="string">  Quirks (last name wins)  </property>
+    <property name="description" type="string">   </property>
+    <property name="thumbnail" type="string">ignored_thumbnail.png</property>
+    <property name="custom_setting" type="int">42</property>
+    <property name="target" type="string">  unclassified.xml  </property>
+    <property name="properties" type="array" class="[[Ljava.lang.String;">
+        <property name="[0]" type="array" class="[Ljava.lang.String;">
+            <property name="[0]" type="string">zeta</property>
+            <property name="[1]" type="string">last</property>
+        </property>
+        <property name="[1]" type="array" class="[Ljava.lang.String;">
+            <property name="[0]" type="string">alpha</property>
+            <property name="[1]" type="object">null</property>
+        </property>
+        <property name="[2]" type="array" class="[Ljava.lang.String;">
+            <property name="[0]" type="string">zeta</property>
+            <property name="[1]" type="string">replaced</property>
+            <property name="[2]" type="string">extra values are ignored</property>
+        </property>
+    </property>
+    <property name="metadata" type="array" class="[[Ljava.lang.String;">
+        <property name="array" type="string">{{a,b},{c,d,e}}</property>
+    </property>
+    <property name="resources" type="array" class="[Lorg.opensourcephysics.tools.LibraryResource;">
+        <property name="[0]" type="object">
+        <object class="org.opensourcephysics.tools.LibraryResource">
+            <property name="name" type="string">Untrimmed target</property>
+            <property name="target" type="string">  spaced name.trk  </property>
+            <property name="type" type="string">video</property>
+        </object>
+        </property>
+        <property name="[1]" type="object">
+        <object class="org.example.FutureResource">
+            <property name="name" type="string">Unknown class: Tracker ignores it</property>
+        </object>
+        </property>
+        <property name="[2]" type="object">null</property>
+        <property name="[4]" type="object">
+        <object class="org.opensourcephysics.tools.LibraryResource">
+            <property name="name" type="string">After a gap</property>
+            <property name="html_path" type="string">  page.html  </property>
+            <property name="type" type="string">Videos</property>
+        </object>
+        </property>
+        <property name="[5]" type="mystery">unknown type elements are skipped</property>
+        <property name="[6]" type="object">
+        <object class="org.opensourcephysics.tools.LibraryCollection">
+            <property name="name" type="string">Collection target with children</property>
+            <property name="target" type="string">  kept raw  </property>
+            <property name="resources" type="array" class="[Lorg.opensourcephysics.tools.LibraryResource;">
+                <property name="[0]" type="object">
+                <object class="org.opensourcephysics.tools.LibraryResource">
+                    <property name="name" type="string">Shadowed duplicate</property>
+                </object>
+                </property>
+                <property name="[0]" type="object">
+                <object class="org.opensourcephysics.tools.LibraryResource">
+                    <property name="name" type="string">Later duplicate index wins</property>
+                    <property name="html_path" type="string">later.html</property>
+                    <property name="type" type="string">Unknown</property>
+                </object>
+                </property>
+            </property>
+        </object>
+        </property>
+        <property name="[7]" type="object">
+        <object class="org.opensourcephysics.tools.LibraryCollection">
+            <property name="name" type="string">Empty resources array</property>
+            <property name="target" type="string">  raw because resources is not null  </property>
+            <property name="resources" type="array" class="[Lorg.opensourcephysics.tools.LibraryResource;"/>
+        </object>
+        </property>
+        <property name="[8]" type="object">
+        <object class="org.opensourcephysics.tools.LibraryCollection">
+            <property name="name" type="string">Resources of an unknown type</property>
+            <property name="target" type="string">  trimmed  </property>
+            <property name="resources" type="mystery">not read</property>
+        </object>
+        </property>
+    </property>
+</object>

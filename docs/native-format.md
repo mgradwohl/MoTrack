@@ -52,6 +52,13 @@ The standard writer patches `time_unit` without changing the clip or measurement
 label codec refuses unsupported labels before replacing a destination. This adds an optional metadata
 field to version 5; it does not add a persistent undo log or a desktop units editor.
 
+Import applies Tracker's loader defaults for values a file does not save ([#214](https://github.com/mgradwohl/MoTrack/issues/214)):
+`m` without `length_unit`, and a 100 ms frame duration for a media-free source without a clip control. Native
+files written before that stored an empty length label or no duration for such sources, so the reader takes
+the defaults from the preserved source. Calibration refuses a unit label that standard export cannot store,
+including an empty one, so no edit produces those values now; an empty unit typed into an earlier MoTrack
+also reopens as `m`. Standard export keeps the absent properties absent unless they are edited.
+
 ## Track identities
 
 Versions 3 through 5 store an `id` on every editable point mass and independent vector and a document-wide
@@ -109,8 +116,9 @@ new media successfully opens. Failed and canceled opens leave the existing docum
 
 Source XML is limited to 32 MiB, including when read from the native envelope. The native document
 metadata limit remains 128 MiB. The reader checks the encoded length before decoding, requires strict canonical
-Base64, and validates decoded XML with the same bounded Tracker parser used for import. Document
-types are rejected. The writer validates source data before opening its atomic replacement file, so
+Base64, and validates decoded XML with the same bounded Tracker parser used for import: OSP's line-oriented
+reader ([`motrack_osp`](osp-xmlcontrol.md#tracker-import-and-export)), which requires UTF-8 and treats a document
+type as inert text, as Tracker does. The writer validates source data before opening its atomic replacement file, so
 an invalid or oversized envelope cannot overwrite an existing valid native document.
 
 Desktop saves validate and serialize an owned document snapshot on a single save worker. The GUI
@@ -138,7 +146,18 @@ associations intact. Unknown objects remain byte-preserved in XML and are not gi
 
 Validation reparses the baseline and checks complete, unique object positions, matching original/live
 types, unique IDs, and IDs below the saved allocation counter. A deleted object's ID must remain reserved.
-Malformed associations fail before an existing native file is replaced. Versions 2/3 retain their XML
+Malformed associations fail before an existing native file is replaced.
+
+Opening reads the preserved source with the current reader (`motrack_osp`, since B1). Associations written
+before B1 hold ordinals from MoTrack's former DOM reader; where OSP's line reader sees other track objects
+(for example after a blank line inside `tracks`, or the compact layouts of the old test fixtures), they no
+longer match. Such stale associations are dropped on open rather than guessed: the measurements and source
+stay, the window shows a persistent note, and standard export is refused until the original Tracker file is
+imported again. Associations that contradict the native document itself (unreserved, duplicate or
+wrong-kind IDs) still fail. A preserved source that the current reader refuses fails to open with a message
+saying so, and the native file is left unchanged.
+
+Versions 2/3 retain their XML
 when migrated but get `bindings: null`; version 3 retains its existing IDs, while versions 1/2 receive
 new ones. Matching names or order cannot prove historical identity after earlier edits, so migration
 does not invent associations. Future additions to binding kinds require an explicit schema migration.
@@ -154,7 +173,8 @@ The writer stores both entries without another compression pass, streams the pay
 and atomically replaces the destination only after the container is complete. The reader rejects extra
 or duplicate entries, links, encryption, malformed/truncated storage and declared/actual size violations.
 The outer file is bounded to the two payload limits plus 8 MiB of ZIP overhead. The retained Tracker archive
-still passes the existing safe-name, 4096-member and 512 MiB expanded-content checks before use.
+still passes the [member-name](#unsafe-and-non-project-archive-members), 4096-member and 512 MiB
+expanded-content checks before use.
 
 On import, the archive adapter first copies the input to an owned, bounded snapshot and extracts from
 that snapshot. The model, original XML and archive payload therefore come from the same copied bytes.
@@ -183,6 +203,44 @@ Older files did not record the selected archive member, so migration keeps it un
 guessing from names or XML. Embedded and external archive sources cannot coexist in one document.
 Standalone media outside an archive still uses external references; version 5 does not copy all local
 movies or image sequences into the native document.
+
+### Unsafe and non-project archive members
+
+Real Tracker archives contain names that must never be extracted: OSP `JarTool.compress` writes absolute
+names such as `C:/Users/<author>/Desktop/.../videos/a.mp4` in Tracker 6.1.x exports, and macOS Finder
+adds `Icon\r` files. A name is unsafe when it is absolute or has a drive-letter/UNC prefix, contains `\`,
+`:` or another reserved character, has an empty, `.`, `..` or trailing-dot/space segment, contains a control
+character or reserved device name, or exceeds 512 characters. As Windows archivers expect, libarchive first
+reads a name whose only separators are `\` with `/` separators; the writer uses the same spelling. The
+reader disables libarchive's macOS-only `__MACOSX` handling, so every platform sees the same entries.
+
+- An unsafe member is never extracted, listed as a project or used to resolve media, and the rest of the
+  archive opens. Its bytes are only hashed, within the 512 MiB expanded-content limit. An unsafe `.trk` name
+  rejects the archive with an explicit message. A project whose media reference names an unsafe member
+  (relative, `!/`-qualified or absolute) opens no tab and is reported with that reason; the archive is
+  refused only when no project remains. Tracker would list that tab or read that member from the ZIP;
+  MoTrack refuses rather than extract it. Other absolute and URL references stay missing as before and are
+  never opened from disk.
+- Duplicate detection compares every name, skipped or not, after `\`→`/`, removing empty and `.` segments,
+  resolving `..`, Unicode NFC and case folding. The comparison is the same on every platform and keeps a
+  leading `//` distinct from `/`. So `./videos/a.mp4` beside `videos/a.mp4` still rejects the archive.
+  Link, special-entry, encryption and member-count checks apply before a name is skipped.
+- `.trk` members that are AppleDouble files (magic `0x00051607`, or a `._` name under `__MACOSX/`) are Finder
+  metadata, not projects. A project that fails to import opens no tab; the other experiments open, where
+  Tracker shows a failed tab. The status bar names the first such project and a count, and the
+  Experiments menu lists each one with its reason while the archive stays open. Both kinds stay
+  extracted and byte-for-byte in saved archives.
+- Standard `.trz` saves omit only exact copies of an extracted member with the same file name: the
+  JarTool duplicate movies, which Tracker never uses and its own re-export does not copy. Every other
+  unsafe member is copied byte-for-byte, still unextracted. That includes Finder `Icon\r` files, whose
+  `._Icon\r` forks hold the folder-icon resource, and the absolute `_info.html` page in three ComPADRE
+  archives, which has no relative copy and which Tracker's Library Browser finds by file name. Kept names
+  can show the original author's user and folder names; the open and save notices say so, and
+  [#299](https://github.com/mgradwohl/MoTrack/issues/299) tracks an option to drop or rename them. The
+  immutable source snapshot, and so every native `.motrack`, keeps all original bytes. The writer
+  verifies that only the duplicates disappear, that the rest are skipped again on reopen, and that every
+  extracted member except the edited projects has its original bytes
+  ([#212](https://github.com/mgradwohl/MoTrack/issues/212)).
 
 ## Version-1 migration and remaining work
 
@@ -285,10 +343,10 @@ files already store both labels, so no format version change is needed. Labels m
 trimmed, valid UTF-8 and at most 256 UTF-16
 code units; Unicode control/format characters and decimal digits are rejected by code point,
 including C1 controls and supplementary digits. Supplementary letters remain valid labels.
-String labels use OSP-compatible CDATA because its string reader does not decode XML entities. Edits
-to a source unit containing comments or processing instructions are rejected: OSP requires the CDATA
-terminator immediately before the closing property tag and can hang on an intervening comment.
-The CDATA terminator in a label is also rejected before replacing a destination. Time labels follow the
+String labels are written as OSP writes them, with CDATA only for quotes, angle brackets and ampersands,
+because its string reader does not decode XML entities. OSP reads markup inside a value literally, so a
+source label such as `m<!-- note -->` is that label and an edit replaces it; QDom-era refusals of such
+edits are gone. The CDATA terminator in a label is rejected before replacing a destination. Time labels follow the
 same rules; the full units UI and unit defaults remain separate work. The corpus explicitly checks imported labels,
 Java's independently recorded default for an omitted label, and labels after Java resave/native reimport.
 
@@ -316,7 +374,8 @@ mass/vector/axes/unattached-protractor/view schema with unique names and resolve
 name could otherwise become a new dependency merely by adding a track. New names obey the rename codec.
 
 New objects explicitly start visible, with trails, unlocked, a red Diamond footprint, mass and manual
-marks. These are documented interchange defaults until native per-track appearance is implemented;
+marks, written in `PointMass.Loader`'s order (`mass`, `name`, `color`, `footprint`, `visible`, `trail`, then
+`framedata` and `keyFrames`; Tracker omits `locked` while false). These are documented interchange defaults until native per-track appearance is implemented;
 no unknown original track style is cloned. Sparse new marks retain original frame numbers, bounded at
 500000 and one million aggregate dense frame slots across all emitted masses. Every edited export
 counts retained arrays and null placeholders as well as new marks, so standard reimport and later
@@ -515,7 +574,7 @@ uses the [ZIP format specification](https://pkware.cachefly.net/webdocs/casestud
 (local headers, descriptors, central records and end record) to replace only the selected payload
 with stored UTF-8 XML and a recomputed CRC32. Untouched compressed local records remain byte-identical;
 central records retain their metadata with adjusted offsets. Entry/archive comments, member order,
-Unicode names and supporting files survive. The edited member retains timestamps, attributes and
+Unicode names and supporting files survive; only [duplicate unsafe-named copies](#unsafe-and-non-project-archive-members) are omitted. The edited member retains timestamps, attributes and
 supported timestamp/Unix-identity/Unicode-name extra fields. Unknown extra fields on that edited
 member are refused; untouched members' extra fields remain opaque.
 
