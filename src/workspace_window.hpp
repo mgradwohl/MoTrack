@@ -5,6 +5,7 @@
 #include "workspace_context.hpp"
 
 #include <QFutureWatcher>
+#include <QHash>
 #include <QMainWindow>
 #include <QPointer>
 #include <QSet>
@@ -114,8 +115,8 @@ class WorkspaceWindow final : public QMainWindow
     void continueTabset();
     void completeTabsetInput(QUuid request, const QList<QUuid>& documents, const QString& problem, bool cancelled = false);
     [[nodiscard]] std::optional<QString> tabsetReference(QUuid source, QStringList& problems, QStringList& notices, bool& cancelled);
-    /// Identity keys of a source's files (source, standard and native paths) for tabset saving.
-    [[nodiscard]] QStringList sourceFileKeys(QUuid source) const;
+    /// The local paths of a source's files (source, standard and native paths) for tabset saving.
+    [[nodiscard]] QStringList sourceLocalFiles(QUuid source) const;
     [[nodiscard]] std::optional<WorkspaceDiscard> confirmSourceClose(QUuid source);
     bool releaseSource(QUuid source, WorkspaceDiscard discard);
 
@@ -168,8 +169,9 @@ class WorkspaceWindow final : public QMainWindow
     std::optional<OrderedOpens> m_Tabset;
     /// The last tabset opened, offered by Save tabset as… so that an edited set can be saved back over it.
     QString m_LastTabset;
-    /// Identity keys of files the user closed; saving over a tabset drops only their entries among unopened ones.
-    QSet<QString> m_ClosedFiles;
+    /// Files the user closed, by name key, with each one's identity when it closed. Saving over a tabset drops only
+    /// unopened entries whose file still has both (see tabsetEntries).
+    QHash<QString, std::optional<QString>> m_ClosedFiles;
     /// Expanded tabsets waiting for their missing-file prompts, which run after the context callback returns.
     struct ExpandedTabset
     {

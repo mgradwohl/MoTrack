@@ -89,6 +89,8 @@ one is selected. Paths may contain spaces and any Unicode characters, and Window
 afterward, and the others still open. **Cancel selected open** stops the remaining requested files.
 Dropping a file never moves or deletes it. A file that is already open, including by another
 spelling of its name or as the file it was last saved to, is selected rather than opened a second time.
+**Open project…** and **Open video…** in the menu still open a second copy
+([#338](https://github.com/mgradwohl/MoTrack/issues/338)).
 
 Unlike Tracker, a single video dropped on an experiment opens in a new tab instead of replacing that
 experiment's video ([#257](https://github.com/mgradwohl/MoTrack/issues/257)), and an image opens alone

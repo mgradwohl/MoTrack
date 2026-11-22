@@ -5,6 +5,8 @@
 #include <QDir>
 #include <QFileInfo>
 
+#include <array>
+#include <bit>
 #include <filesystem>
 #include <system_error>
 #include <utility>
@@ -126,6 +128,16 @@ QString physicalLocalFilePath(QString path)
     return error ? QString{} : fromFilesystemPath(normalized);
 }
 
+std::optional<QString> fileIdentityKey(std::uint64_t volume, std::uint64_t high, std::uint64_t low)
+{
+    if (volume == 0 || (high == 0 && low == 0))
+        return std::nullopt;
+    return QStringLiteral("file:%1:%2%3")
+        .arg(static_cast<qulonglong>(volume), 0, 16)
+        .arg(static_cast<qulonglong>(high), 16, 16, QChar('0'))
+        .arg(static_cast<qulonglong>(low), 16, 16, QChar('0'));
+}
+
 std::optional<QString> localFileIdentity(const QString& path)
 {
     const auto canonical = QFileInfo(path).canonicalFilePath();
@@ -153,22 +165,21 @@ std::optional<QString> localFileIdentity(const QString& path)
     std::optional<QString> identity;
     // FileIdInfo holds ReFS's 128-bit ids; older file systems answer only the 64-bit index.
     if (GetFileInformationByHandleEx(handle, FileIdInfo, &id, sizeof(id)) != 0)
-        identity = QStringLiteral("file:%1:%2")
-                       .arg(id.VolumeSerialNumber)
-                       .arg(QString::fromLatin1(
-                           QByteArray(reinterpret_cast<const char*>(id.FileId.Identifier), sizeof(id.FileId.Identifier)).toHex()));
+    {
+        // FILE_ID_128 is a little-endian 128-bit value.
+        const auto [low, high] = std::bit_cast<std::array<std::uint64_t, 2>>(id.FileId);
+        identity = fileIdentityKey(id.VolumeSerialNumber, high, low);
+    }
     else if (GetFileInformationByHandle(handle, &information) != 0)
-        identity = QStringLiteral("file:%1:%2%3")
-                       .arg(information.dwVolumeSerialNumber)
-                       .arg(information.nFileIndexHigh, 8, 16, QChar('0'))
-                       .arg(information.nFileIndexLow, 8, 16, QChar('0'));
+        identity = fileIdentityKey(
+            information.dwVolumeSerialNumber, 0, (std::uint64_t{information.nFileIndexHigh} << 32U) | information.nFileIndexLow);
     CloseHandle(handle);
     return identity;
 #else
     struct stat status{};
     if (::stat(toFilesystemPath(canonical).c_str(), &status) != 0)
         return std::nullopt;
-    return QStringLiteral("file:%1:%2").arg(static_cast<qulonglong>(status.st_dev)).arg(static_cast<qulonglong>(status.st_ino));
+    return fileIdentityKey(static_cast<std::uint64_t>(status.st_dev), 0, static_cast<std::uint64_t>(status.st_ino));
 #endif
 }
 

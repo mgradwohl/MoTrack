@@ -755,6 +755,19 @@ TEST(DesktopLaunch, OneFileIdentityMatchesHardLinksForRequestsAndTabsets)
     EXPECT_EQ(context->session().sources().size(), 1u);
 }
 
+TEST(DesktopLaunch, AZeroFileIdOrVolumeIdentifiesNoFile)
+{
+    // Some network redirectors answer id 0 for every file; such files compare by name, not all as one file.
+    EXPECT_FALSE(motrack::fileIdentityKey(7, 0, 0).has_value());
+    EXPECT_FALSE(motrack::fileIdentityKey(0, 0, 5).has_value());
+    const auto low = motrack::fileIdentityKey(7, 0, 5);
+    ASSERT_TRUE(low.has_value());
+    EXPECT_EQ(low, motrack::fileIdentityKey(7, 0, 5));
+    EXPECT_NE(low, motrack::fileIdentityKey(7, 5, 0));
+    EXPECT_NE(low, motrack::fileIdentityKey(8, 0, 5));
+    EXPECT_NE(low, motrack::fileIdentityKey(0x70, 0, 5));
+}
+
 TEST(DesktopLaunch, FileChecksRunOffTheGuiThread)
 {
     QTemporaryDir temporary;

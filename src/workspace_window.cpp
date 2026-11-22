@@ -336,8 +336,8 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
                 const bool requested = m_Requested && m_Requested->request == request;
                 finishOpen(request);
                 // Reopened files are listed by a saved tabset again.
-                for (const auto& key : sourceFileKeys(source))
-                    m_ClosedFiles.remove(key);
+                for (const auto& file : sourceLocalFiles(source))
+                    m_ClosedFiles.remove(tabsetNameKey(file));
                 // Kept for the source's lifetime so the Experiments menu can list them, as Tracker keeps a failed tab.
                 if (!unreadable.isEmpty())
                     m_Unreadable.insert(source, unreadable);
@@ -584,7 +584,7 @@ void WorkspaceWindow::beginTabset(const QString& tabset, const std::vector<Tabse
             pending.files.push_back(item.file);
             pending.listed.insert(tabsetIdentityKey(item.file));
             // A file closed earlier but listed again is not dropped by a later save, even if it fails to open.
-            m_ClosedFiles.remove(tabsetIdentityKey(item.file));
+            m_ClosedFiles.remove(tabsetNameKey(item.file));
         }
         else if (item.status != TabsetItemStatus::Missing)
         {
@@ -615,7 +615,7 @@ void WorkspaceWindow::beginTabset(const QString& tabset, const std::vector<Tabse
             else if (!resolved.contains(key) && insertNew(pending.listed, key))
             {
                 pending.files.push_back(canonical);
-                m_ClosedFiles.remove(key);
+                m_ClosedFiles.remove(tabsetNameKey(canonical));
             }
         }
     }
@@ -636,7 +636,7 @@ void WorkspaceWindow::expandInPlace(OrderedOpens& queue, const std::vector<Tabse
         if (item.status == TabsetItemStatus::Resolved)
         {
             // A file closed earlier but listed again is not dropped by a later save, even if it fails to open.
-            m_ClosedFiles.remove(tabsetIdentityKey(item.file));
+            m_ClosedFiles.remove(tabsetNameKey(item.file));
             // Skip files this queue already listed or opened, including earlier tabs.
             if (insertNew(queue.listed, tabsetIdentityKey(item.file)))
                 nested.push_back(item.file);
@@ -841,14 +841,14 @@ std::optional<QString> WorkspaceWindow::tabsetReference(QUuid source, QStringLis
     return localProjectPath(session.sourcePath(source));
 }
 
-QStringList WorkspaceWindow::sourceFileKeys(QUuid source) const
+QStringList WorkspaceWindow::sourceLocalFiles(QUuid source) const
 {
     const auto& session = m_Context->session();
-    QStringList keys;
+    QStringList files;
     for (const auto& path : {session.sourcePath(source), session.standardSavePath(source), session.nativeSavePath(source)})
-        if (const auto local = localProjectPath(path); !local.isEmpty())
-            keys.push_back(tabsetIdentityKey(local));
-    return keys;
+        if (auto local = localProjectPath(path); !local.isEmpty())
+            files.push_back(std::move(local));
+    return files;
 }
 
 bool WorkspaceWindow::saveTabset(const QString& path)
@@ -1000,7 +1000,10 @@ bool WorkspaceWindow::saveTabset(const QString& path)
     files.reserve(references.size());
     for (const auto& [source, file] : references)
         files.push_back(file);
-    const std::vector<QString> closed(m_ClosedFiles.cbegin(), m_ClosedFiles.cend());
+    std::vector<TabsetFileKeys> closed;
+    closed.reserve(m_ClosedFiles.size());
+    for (const auto& [name, identity] : m_ClosedFiles.asKeyValueRange())
+        closed.push_back({.name = name, .identity = identity});
     const auto workingDirectory = QDir::currentPath();
     // Reading the existing tabset (up to 32 MiB), resolving its entries and writing run on the save worker. As for a
     // project save, the window keeps painting while user input waits.
@@ -1015,10 +1018,10 @@ bool WorkspaceWindow::saveTabset(const QString& path)
         QString path;
         std::vector<QString> files;
         QString workingDirectory;
-        std::vector<QString> closed;
+        std::vector<TabsetFileKeys> closed;
     };
     const auto job = std::make_shared<const Job>(
-        Job{.path = physical, .files = std::move(files), .workingDirectory = workingDirectory, .closed = closed});
+        Job{.path = physical, .files = std::move(files), .workingDirectory = workingDirectory, .closed = std::move(closed)});
     watcher.setFuture(QtConcurrent::run(&context->services()->savePool(),
                                         [job]
                                         {
@@ -1740,14 +1743,17 @@ bool WorkspaceWindow::releaseSource(QUuid source, WorkspaceDiscard discard)
         return false;
     for (const auto document : m_Context->session().sourceDocuments(source))
         removeView(document, false);
-    const auto keys = sourceFileKeys(source);
+    // Taken while the files are still those the source opened and saved: a later file may get one's id.
+    std::vector<TabsetFileKeys> closing;
+    for (const auto& file : sourceLocalFiles(source))
+        closing.push_back(tabsetFileKeys(file));
     const bool released = m_Context->session().releaseSource(source, discard);
     if (released)
     {
         m_Unreadable.remove(source);
         // Saving over a tabset drops the entries of files the user closed, and keeps those that did not open.
-        for (const auto& key : keys)
-            m_ClosedFiles.insert(key);
+        for (const auto& keys : closing)
+            m_ClosedFiles.insert(keys.name, keys.identity);
     }
     if (const auto active = currentDocument())
         (void)showDocument(*active);

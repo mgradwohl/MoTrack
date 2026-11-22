@@ -279,15 +279,17 @@ unknown timing, and every other file is a movie whose indexer reports unsupporte
 - **File checks off the GUI thread.** Before opening, `checkRequestedFile` runs on the services' single
   request worker, because an offline share or sleeping NAS can block any file query: existence, folders
   and file-system identity (`localFileIdentity`: the volume and file id, so case variants, aliases, hard links
-  and short names of one file match). `sameLocalFile` and the tabset's `tabsetIdentityKey` use the same
-  identity. A repeat of an earlier request in the batch is skipped, as in
+  and short names of one file match). A zero volume or file id, which some network redirectors answer for every
+  file, counts as no identity, so such files compare by name rather than as one file. `sameLocalFile` and the
+  tabset's `tabsetIdentityKey` use the same identity. A repeat of an earlier request in the batch is skipped, as in
   Tracker. A source is identified by the file it was opened from and by its native and standard save
   destinations, so a file saved with Save As or a paired save also names it. Such a file is selected, and
   a hidden view shown (after any modal prompt), instead of opening a second copy whose later save would
   replace the first ([#255](https://github.com/mgradwohl/MoTrack/issues/255)). The tabset queue checks each
   file the same way before opening it, whether the tabset was requested or opened from the menu: an open
   file's tab is reused (and selected if it is the first listed experiment), and a saved tabset still lists
-  it. A check blocked by an
+  it. **Open project…** and **Open video…** in the menu do not check yet and open a second copy
+  ([#338](https://github.com/mgradwohl/MoTrack/issues/338)). A check blocked by an
   unresponsive share cannot be interrupted: closing the window stops the batch and ignores the check's
   late answer, but its worker waits for the file system.
 - **Problems and notices.** Missing files, folders, web links, failed opens and unreadable archive member
@@ -429,8 +431,10 @@ of an archive. An entry is rewritten only when its relative path no longer finds
 example after the tabset moved alone. Entries whose files are not open keep their place: a file that failed to open,
 was not found, was not opened because an open was canceled or the window closed, or names an archive member (#325)
 stays listed, and the summary says so. Only entries of files the user closed are removed, unless a tabset opened
-since then lists the file again; a repeat that does not follow its file's entry is removed too, since each file opens
-once. The summary names every removed entry. A nested tabset whose files are open stays one entry. Saving an
+since then lists the file again. A file id names a file only while it exists, so the window keeps each closed file's
+name and id from the moment it closed, and an entry is removed only while its file still has both: a later file given
+a deleted file's id, or a file another program saved over by renaming a new one into place, keeps its entry. A repeat
+that does not follow its file's entry is removed too, since each file opens once. The summary names every removed entry. A nested tabset whose files are open stays one entry. Saving an
 unchanged set therefore leaves the file byte for byte, except entries whose relative path no longer finds their file,
 which are repaired. Otherwise only the changed paths, removed entries and new entries differ; new entries follow the
 kept ones, and other properties and line breaks stay. Entries that Tracker cannot read because of their index order are rewritten in order whenever
@@ -472,7 +476,7 @@ archive with selection and independent histories; locating and skipping missing 
 tabsets arriving together; a listed file that fails, with B1's diagnostic; a native file with reset Tracker links;
 canceling partway; destroying the window during a prompt; Yes/No/Cancel for unsaved changes; saving an unchanged set
 back byte for byte and adding a tab; keeping entries of files that failed to open or were not found and dropping one
-the user closed; listing a file as last saved; saving refused while any file opens, including one started during a
+the user closed, but not one saved over since it closed; listing a file as last saved; saving refused while any file opens, including one started during a
 save prompt; Tracker's `.trk` name; refusal to replace open project files, an unopened experiment or an unreadable
 tabset; unsupported sources; and saving then reopening after the whole folder moves. In Linux CI the pinned Tracker
 opens MoTrack's tabset through its normal loader after the folder is moved (so only relative paths resolve), must load
