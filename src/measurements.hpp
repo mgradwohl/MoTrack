@@ -77,7 +77,8 @@ struct LinearFit
 
 /// Checks a media-free constant timebase over original frames (0..500000), in milliseconds.
 /// Every frame must have a finite, strictly increasing time both in milliseconds and seconds.
-/// Adjacent absolute timestamps must retain the requested interval within relative 1e-9.
+/// Adjacent absolute timestamps must retain the requested interval within relative 1e-9. The rule belongs to the
+/// typed model (model::validConstantClipTiming), whose commands check it; this applies it to the legacy view.
 [[nodiscard]] bool validConstantClipTiming(const Clip& clip);
 
 /// Timing edits/history require media-free projects with no unverified model or data time source.

@@ -56,11 +56,11 @@ add_library(motrack_library STATIC src/library/collection.cpp src/library/compad
 target_include_directories(motrack_library PUBLIC src)
 target_link_libraries(motrack_library PUBLIC motrack_osp)
 
-# The typed Tracker document (docs/tracker-document.md): typed loaders, source edits, families, descriptors, identities
-# and the unit and name codecs. Public headers are standard-only; Qt Core is linked privately for the codecs' QChar
+# The typed Tracker document (docs/tracker-document.md): typed loaders, source edits, families, descriptors, identities,
+# ID-addressed commands and history, and the unit and name codecs. Public headers are standard-only; Qt Core is linked privately for the codecs' QChar
 # classification only.
-add_library(motrack_model STATIC src/model/codecs.cpp src/model/descriptors.cpp src/model/families.cpp src/model/source_edits.cpp
-    src/model/tracker_document.cpp src/model/tracker_loaders.cpp)
+add_library(motrack_model STATIC src/model/codecs.cpp src/model/commands.cpp src/model/descriptors.cpp src/model/document_history.cpp
+    src/model/families.cpp src/model/source_edits.cpp src/model/tracker_document.cpp src/model/tracker_loaders.cpp)
 target_include_directories(motrack_model PUBLIC src)
 target_link_libraries(motrack_model PUBLIC motrack_osp motrack_dependencies PRIVATE Qt6::Core)
 
@@ -315,6 +315,7 @@ if(BUILD_TESTING)
         tests/osp_java_text_test.cpp tests/osp_source_test.cpp tests/source_edits_test.cpp tests/osp_render_test.cpp tests/osp_corpus_test.cpp
         tests/science/ode_solver_test.cpp tests/science/data_analysis_test.cpp tests/science/fft_test.cpp tests/science/analysis_reference_test.cpp
         tests/model/dependency_graph_test.cpp tests/model/name_binding_test.cpp tests/model/tracker_document_test.cpp tests/model/legacy_view_parity_test.cpp
+        tests/model/commands_test.cpp tests/model/history_parity_test.cpp tests/model/command_sequence_test.cpp
         tests/library_paths_test.cpp tests/library_collection_test.cpp tests/library_compadre_test.cpp tests/library_limits_test.cpp)
     target_link_libraries(motrack_tests PRIVATE motrack_osp motrack_library motrack_model motrack_project motrack_dependencies motrack_java_math motrack_expression motrack_ode motrack_analysis
         motrack_image_package GTest::gtest_main motrack_archive Qt6::Xml Qt6::Gui)

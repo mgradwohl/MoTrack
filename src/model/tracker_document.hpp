@@ -59,7 +59,8 @@ enum class AllocationRange : std::uint8_t
 inline constexpr std::uint32_t CURRENT_READER_REVISION = 2;
 
 /// The first countdown identity; also the low-water mark of a document that has handed out none below it.
-inline constexpr std::uint64_t COUNTDOWN_START = std::numeric_limits<std::uint64_t>::max();
+// Parenthesized so that a function-like `max` macro of <windows.h> (libarchive's headers include it) cannot expand.
+inline constexpr std::uint64_t COUNTDOWN_START = (std::numeric_limits<std::uint64_t>::max)();
 
 /// One addressable object.
 struct ObjectSlot
@@ -130,6 +131,9 @@ struct DocumentError
     bool operator==(const DocumentError&) const = default;
 };
 
+/// The commands' access to a document's parts and derived state (commands.cpp); nothing else writes a document.
+class DocumentEditor;
+
 // The implicit move constructor can throw with MSVC's STL, whose std::map allocates a sentinel when moved.
 class TrackerDocument // NOLINT(bugprone-exception-escape)
 {
@@ -173,7 +177,16 @@ class TrackerDocument // NOLINT(bugprone-exception-escape)
     /// and media extension; never the graph, which is derived.
     friend bool operator==(const TrackerDocument& left, const TrackerDocument& right);
 
+    /// Exchanges two documents member by member without allocating, so that a prepared command commits atomically.
+    void swap(TrackerDocument& other) noexcept;
+    friend void swap(TrackerDocument& left, TrackerDocument& right) noexcept
+    {
+        left.swap(right);
+    }
+
   private:
+    friend class DocumentEditor;
+
     explicit TrackerDocument(DocumentParts parts);
     [[nodiscard]] std::expected<void, DocumentError> derive();
 
@@ -195,5 +208,26 @@ struct PathStep
 /// The path from the root object to a node, through the properties that contain it; it generalizes native v4's
 /// `sourceIndex` and is stable across parses of the same bytes.
 [[nodiscard]] std::vector<PathStep> baselinePath(const osp::Source& source, osp::NodeId node);
+
+/// The object's label in the dependency graph: a typed track's saved name, an Unknown object's TTrack name, or none
+/// (a singleton, or a track without a readable name).
+[[nodiscard]] std::optional<std::string> graphLabel(const ObjectSlot& object);
+
+/// The live typed object of a singleton role among `objects`, else its live Unknown object; null when there is none.
+[[nodiscard]] const ObjectSlot* findSingleton(std::span<const ObjectSlot> objects, Role role);
+
+/// B1's frame duration in milliseconds: an image sequence or media-free clip takes its clip control's positive
+/// `delta_t`, else the video's; without a video, Tracker's stepper keeps 100 ms unless the clip control replaces it with
+/// a non-zero value (#214). Movies have none here; their decoder times them.
+[[nodiscard]] std::optional<double> loadedFrameDuration(const ObjectSlot* video, const ObjectSlot* control);
+
+/// The clip of these objects and media extension as B1's import policy presents it (the legacy view's clip).
+[[nodiscard]] ClipTimeline clipTimeline(std::span<const ObjectSlot> objects, const MediaExtension& media);
+[[nodiscard]] ClipTimeline clipTimeline(const TrackerDocument& document);
+
+/// The point mass that a bound object's baseline node reads as with this build's import policy: its marks by Tracker's
+/// loaded frame and its saved key frames, which B1's key rule compares edits with. Nothing for an unbound object, one
+/// that is not a point mass, or a document without known associations. Reads the object's frames again: O(marks).
+[[nodiscard]] std::optional<PointMassState> baselinePointMass(const TrackerDocument& document, ObjectId id);
 
 } // namespace motrack::model

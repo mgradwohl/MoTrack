@@ -10,7 +10,9 @@
 #include "library/resource.hpp"
 #include "measurements.hpp"
 #include "media_vectors.hpp"
+#include "model/command_json.hpp"
 #include "model/descriptors.hpp"
+#include "model/document_history.hpp"
 #include "model/tracker_document.hpp"
 #include "movie_authoring.hpp"
 #include "osp/java_text.hpp"
@@ -659,6 +661,46 @@ QJsonObject stateSnapshot(const motrack::model::TrackerDocument& document)
             {"panel", panel}};
 }
 
+/// The MoTrack side of oracle O6 (docs/tracker-document.md §5): applies an operations file (tests/model/command_json.hpp)
+/// to the typed document of a Tracker file through one history and returns the state snapshot of the result, in the
+/// schema of `--state`. An operation whose outcome differs from its `expect` fails the run.
+QJsonObject applySnapshot(const QString& operationsPath, const std::filesystem::path& input)
+{
+    auto document = readTrackerProjectWithParity(input).second;
+    QFile file(operationsPath);
+    if (!file.open(QIODevice::ReadOnly))
+    {
+        throw motrack::ProjectError("Could not read the operations file.");
+    }
+    QJsonParseError parsed{};
+    const auto json = QJsonDocument::fromJson(file.readAll(), &parsed);
+    if (parsed.error != QJsonParseError::NoError || !json.isObject() || json["schema_version"].toInt() != 1 ||
+        !json["operations"].isArray())
+    {
+        throw motrack::ProjectError("Expected an operations file of schema version 1.");
+    }
+    motrack::model::DocumentHistory history;
+    const auto operations = json["operations"].toArray();
+    for (qsizetype index = 0; index < operations.size(); ++index)
+    {
+        const auto operation = operations[index].toObject();
+        const auto expect = operation["expect"].toString("applied");
+        if (expect != "applied" && expect != "refused")
+        {
+            throw motrack::ProjectError("Operation " + std::to_string(index) + " expects neither applied nor refused.");
+        }
+        const auto result = operation.contains("undo")   ? history.undo(document)
+                            : operation.contains("redo") ? history.redo(document)
+                                                         : history.apply(document, motrack::test::decodeCommand(operation));
+        if (result.has_value() != (expect == "applied"))
+        {
+            throw motrack::ProjectError("Operation " + std::to_string(index) +
+                                        (result ? " applied but was expected to be refused." : " was refused: " + result.error().message));
+        }
+    }
+    return stateSnapshot(document);
+}
+
 /// Summarizes one experiment prepared through the desktop open path, without measurements.
 QJsonObject openedExperiment(const motrack::WorkspaceDocument& document)
 {
@@ -1156,6 +1198,14 @@ try
         if (!output.open(QIODevice::WriteOnly) || output.write(QJsonDocument(items).toJson()) < 0 || !output.commit())
             throw motrack::ProjectError("Could not write the tabset report.");
         return EXIT_SUCCESS;
+    }
+    if (args.size() == 5 && args[1] == "--apply")
+    {
+        const auto bytes = QJsonDocument(applySnapshot(args[2], motrack::toFilesystemPath(args[3]))).toJson();
+        QSaveFile output(args[4]);
+        if (!output.open(QIODevice::WriteOnly) || output.write(bytes) != bytes.size() || !output.commit())
+            throw motrack::ProjectError("Could not write corpus snapshot.");
+        return 0;
     }
     if (args.size() == 4 && args[1] == "--osp-dump")
     {
@@ -2042,6 +2092,7 @@ try
     if (args.size() != 3 && !flagged)
     {
         std::fputs("Usage: motrack_corpus_probe [--references|--timing|--state|--osp-dump] input.trk output.json"
+                   " | --apply operations.json input.trk output.json"
                    " | --open input.trk|.trz output.json | --library-dump kind input output.json"
                    " | --export-<case> input.trk output.trk\n",
                    stderr);
