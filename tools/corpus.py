@@ -2685,6 +2685,133 @@ def check_archive_tabs(case, manifest, cache, java, classes, jar, output, displa
     print(f"{label}: passed ({level}; all loaded tabs saved and individually reopened)")
 
 
+def tracker_tabset_session(manifest, cache, java, classes, tabset, session, display, groups):
+    """Actual Tracker opens ``tabset`` through its normal loader; check every tab against independent expectations.
+
+    ``groups`` lists, per tabset entry in order, whether it is an archive and the (title, paths, case) of each tab it
+    opens. Tracker's AsyncLoader opens the entries in order, but loadTRZ appends an archive's member projects to the
+    end of its pending paths (``paths.addAll(trkFiles)``), so they open after every entry listed later; the members
+    themselves follow the archive's load order.
+    """
+    order, pending = [], list(groups)
+    while pending:
+        archive, group = pending.pop(0)
+        if archive:
+            pending.append((False, group))
+        else:
+            order.append(group)
+    expected = [tab for group in order for tab in group]
+    home = session.with_name(session.name + "-home")
+    home.mkdir(parents=True)
+    try:
+        run([str(java), f"-Duser.home={home}", f"-Djava.io.tmpdir={home}", "-Duser.language=en", "-Duser.country=US", "-Xmx256m",
+             "-cp", java_classpath(manifest, cache, classes=classes), "TrackerTabsetReference",
+             str(tabset), str(session), str(len(expected))], display=display)
+    except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+        raise ValueError(f"tabset: Tracker reference failed: {error}") from error
+    report = json.loads((session / "tabset-session.json").read_text(encoding="utf-8"))
+    if report.get("reference_version") != manifest["reference"]["version"] or report.get("verification_level") != "tracker_tabset_session":
+        raise ValueError("Unexpected Tracker tabset session")
+    tabs = report.get("tabs")
+    if not isinstance(tabs, list) or len(tabs) != len(expected):
+        raise ValueError("Tracker did not load every tabset experiment")
+    titles, position = [tab.get("title") for tab in tabs], 0
+    for group in order:
+        if sorted(titles[position:position + len(group)]) != sorted(name for name, _, _ in group):
+            raise ValueError(f"Unexpected Tracker tab order: {titles}")
+        position += len(group)
+    for name, paths, case in expected:
+        tab = next(tab for tab in tabs if tab.get("title") == name)
+        if Path(tab.get("path", "")).resolve() not in {path.resolve() for path in paths}:
+            raise ValueError(f"{name}: Tracker loaded {tab.get('path')} instead of the referenced copy")
+        masses = json.loads(expected_path(case).read_text(encoding="utf-8"))["project"]["point_masses"]
+        desired = [{"name": mass["name"], "mass": mass["mass"], "samples": len(mass["samples"])} for mass in masses]
+        if tab.get("point_masses") != desired:
+            raise ValueError(f"{name}: Tracker point masses {tab.get('point_masses')} differ from {desired}")
+    return report
+
+
+def motrack_tabset_files(probe, tabset, report):
+    """The files MoTrack resolves from ``tabset``; only resolved entries and silent repeats are allowed."""
+    run([str(Path(probe).resolve()), "--read-tabset", str(tabset), str(report)])
+    items = json.loads(report.read_text(encoding="utf-8"))
+    if any(item["status"] not in {0, 2} for item in items):
+        raise ValueError(f"MoTrack did not resolve every entry of {tabset.name}: {items}")
+    return items, [Path(item["file"]).resolve() for item in items if item["status"] == 0]
+
+
+def check_tabset(manifest, cache, java, classes, root, display, probe):
+    """Actual Tracker opens a MoTrack tabset in order; MoTrack reads and resaves the tabset Tracker writes; Tracker
+    reopens a tabset MoTrack edited."""
+    by_id = {item["id"]: item for item in manifest["cases"]}
+    archive_case, linked_case, secondary_case = by_id["multitab-images"], by_id["linked-images"], by_id["secondary-images"]
+    output = root / "tabset"
+    lesson = output / "input" / "lesson é"
+    # Copy the pinned experiments with their images so Tracker resolves media beside them, not the fixtures.
+    shutil.copytree(local_fixture_path(linked_case).parent, lesson)
+    linked, archive, secondary = (lesson / case["file"] for case in (linked_case, archive_case, secondary_case))
+    for path, case in ((linked, linked_case), (archive, archive_case), (secondary, secondary_case)):
+        verify_file(path, case)
+    tabset = output / "input" / "sets" / "lesson.trk"
+    tabset.parent.mkdir(parents=True)
+    run([str(Path(probe).resolve()), "--write-tabset", str(tabset), str(linked), str(archive)])
+    # Move the whole folder so the recorded absolute paths are stale and only MoTrack's relative paths resolve.
+    relocated = output / "relocated-input"
+    (output / "input").rename(relocated)
+    tabset, linked, archive, secondary = (relocated / path.relative_to(output / "input") for path in (tabset, linked, archive, secondary))
+    # Independent expectations: the linked experiment, then each archive member in its pinned order.
+    def tabs_of(path):
+        if path == archive:
+            return True, [(tab["member"].removesuffix(".trk"), [archive], by_id[tab["case"]]) for tab in archive_case["session_archive_tabs"]]
+        # Tracker titles a standalone experiment's tab with its file name, and an archive member's without ".trk".
+        return False, [(path.name, [path], linked_case if path == linked else secondary_case)]
+    session = output / "tracker"
+    report = tracker_tabset_session(manifest, cache, java, classes, tabset, session, display, [tabs_of(linked), tabs_of(archive)])
+    # MoTrack opens Tracker's own tabset after the whole tree moves again, so only Tracker's relative paths resolve.
+    # Tracker lists the archive once per member tab.
+    moved = output.with_name(output.name + "-moved")
+    output.rename(moved)
+    session, tabset, linked, archive, secondary = (moved / path.relative_to(output) for path in (session, tabset, linked, archive, secondary))
+    tracker_tabset = session / "tracker-tabset.trk"
+    items, resolved = motrack_tabset_files(probe, tracker_tabset, moved / "motrack-read.json")
+    if resolved != [linked.resolve(), archive.resolve()]:
+        raise ValueError(f"MoTrack did not resolve Tracker's tabset to the same experiments: {items}")
+    # Saving the same experiments over Tracker's tabset keeps every byte, including the archive's repeated entry.
+    written = tracker_tabset.read_bytes()
+    run([str(Path(probe).resolve()), "--save-tabset", str(tracker_tabset), str(linked), str(archive)])
+    if tracker_tabset.read_bytes() != written:
+        raise ValueError("MoTrack changed Tracker's tabset when saving the same experiments over it")
+    # MoTrack edits its own tabset in place (the archive first, then another experiment). A property Tracker ignores
+    # must keep its bytes, which a rewrite would drop, and the edited lines must keep the file's layout.
+    lines = tabset.read_text(encoding="utf-8").split("\n")
+    root_line = next((index for index, line in enumerate(lines) if "<object class=" in line), None)
+    if root_line is None:
+        raise ValueError("Unexpected MoTrack tabset")
+    note = '    <property name="note" type="string">kept as written</property>'
+    tabset.write_text("\n".join(lines[:root_line + 1] + [note] + lines[root_line + 1:]), encoding="utf-8")
+    before = tabset.read_text(encoding="utf-8")
+    run([str(Path(probe).resolve()), "--save-tabset", str(tabset), str(archive), str(linked), str(secondary)])
+    after = tabset.read_text(encoding="utf-8")
+    if after.split("\n")[:root_line + 2] != before.split("\n")[:root_line + 2]:
+        raise ValueError("MoTrack rewrote its tabset instead of editing the changed entries")
+    # Move everything again, so that the new entry's absolute path is stale too and only relative paths resolve.
+    again = moved.with_name(moved.name + "-again")
+    moved.rename(again)
+    tabset, linked, archive, secondary = (again / path.relative_to(moved) for path in (tabset, linked, archive, secondary))
+    # Actual Tracker must load every tab of the edited set, and MoTrack must read it back.
+    edited = tracker_tabset_session(manifest, cache, java, classes, tabset, again / "tracker-edited", display,
+                                    [tabs_of(archive), tabs_of(linked), tabs_of(secondary)])
+    edited_items, edited_files = motrack_tabset_files(probe, tabset, again / "motrack-read-edited.json")
+    if edited_files != [archive.resolve(), linked.resolve(), secondary.resolve()]:
+        raise ValueError(f"MoTrack did not reread its edited tabset: {edited_items}")
+    (cache / "reports" / "tabset-roundtrip.json").write_text(
+        json.dumps({"verification_level": "motrack_tabset_roundtrip", "tracker_session": report, "motrack_read": items,
+                    "tracker_edited_session": edited, "motrack_read_edited": edited_items},
+                   indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print("tabset: passed (relocated MoTrack tabset opened in order by Tracker; relocated Tracker tabset reopened and "
+          "resaved byte for byte by MoTrack; MoTrack's edited tabset reopened with every tab by Tracker)")
+
+
 def check_sessions(manifest, cache, java, probe=None):
     if sys.platform != "linux":
         raise ValueError("Session checks currently require Linux with Xvfb")
@@ -2770,12 +2897,16 @@ def check_sessions(manifest, cache, java, probe=None):
         run([str(javac), "-encoding", "UTF-8", "-cp", java_classpath(manifest, cache, dependencies=[
                  item["file"] for item in manifest["reference"].get("runtime_dependencies", [])]), "-d", str(classes),
              str(ROOT / "tools/reference/TrackerReference.java"),
-             str(ROOT / "tools/reference/TrackerSessionReference.java"), str(ROOT / "tools/reference/VectorFixture.java"),
+             str(ROOT / "tools/reference/TrackerSessionReference.java"), str(ROOT / "tools/reference/TrackerTabsetReference.java"),
+             str(ROOT / "tools/reference/VectorFixture.java"),
              str(ROOT / "tools/reference/TrackerSessionDiagnosticsTest.java")])
         diagnostic_home = root / "diagnostic-home"
         diagnostic_home.mkdir()
         run([str(java_path), "-Djava.awt.headless=true", f"-Duser.home={diagnostic_home}", "-Xmx256m",
              "-cp", java_classpath(manifest, cache, classes=classes), "TrackerSessionDiagnosticsTest"])
+        # Reduced manifests in harness tests may omit the pinned tabset experiments.
+        if probe and {"multitab-images", "linked-images", "secondary-images"} <= {case["id"] for case in manifest["cases"]}:
+            check_tabset(manifest, cache, java_path, classes, root, display, probe)
         for case, mode in cases:
             case_classpath = java_classpath(manifest, cache, classes=classes, dependencies=case.get("reference_dependencies", []))
             if probe and case.get("session_known_issue"):

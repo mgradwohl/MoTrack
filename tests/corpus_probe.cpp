@@ -19,6 +19,7 @@
 #include "track_edits.hpp"
 #include "tracker_archive.hpp"
 #include "tracker_references.hpp"
+#include "tracker_tabset.hpp"
 #include "tracker_writer.hpp"
 #include "video_reader.hpp"
 #include "workspace_document.hpp"
@@ -645,10 +646,8 @@ QJsonObject openedExperiment(const motrack::WorkspaceDocument& document)
 
 /// Opens a .trk or .trz exactly as the workspace does (bounded archive reader, every archive member,
 /// media resolution and movie indexing), then reports what was prepared. Rejection exits nonzero.
-QJsonObject openSnapshot(const QString& path)
+void appendOpened(QJsonArray& experiments, const motrack::PreparedWorkspaceInput& prepared)
 {
-    auto prepared = motrack::prepareWorkspaceInput(path);
-    QJsonArray experiments;
     if (prepared.group)
     {
         for (const auto id : prepared.group->memberIds())
@@ -660,7 +659,48 @@ QJsonObject openSnapshot(const QString& path)
     {
         experiments.append(openedExperiment(prepared.document->document));
     }
-    return {{"experiments", experiments}};
+}
+
+QJsonObject openSnapshot(const QString& path)
+{
+    auto prepared = motrack::prepareWorkspaceInput(path);
+    QJsonArray experiments;
+    if (!prepared.tabset)
+    {
+        appendOpened(experiments, prepared);
+        return {{"experiments", experiments}};
+    }
+    // A tabset opens each file it lists, as the workspace does but without asking to locate missing files.
+    QStringList problems;
+    for (const auto& item : *prepared.tabset)
+    {
+        const auto listed = QString::fromStdString(item.entry.relative);
+        if (item.status == motrack::TabsetItemStatus::Duplicate)
+        {
+            continue;
+        }
+        if (item.status != motrack::TabsetItemStatus::Resolved)
+        {
+            problems.push_back(listed + (item.status == motrack::TabsetItemStatus::Missing ? ": not found" : ": not opened"));
+            continue;
+        }
+        try
+        {
+            const auto suffix = QFileInfo(item.file).suffix().toLower();
+            const bool project = suffix == "trk" || suffix == "trz" || suffix == "motrack";
+            appendOpened(experiments, project ? motrack::prepareWorkspaceInput(item.file) : motrack::prepareWorkspaceMediaFile(item.file));
+        }
+        catch (const motrack::ProjectError& error)
+        {
+            problems.push_back(listed + ": " + QString::fromUtf8(error.what()));
+        }
+    }
+    if (experiments.isEmpty())
+    {
+        throw motrack::ProjectError("No file listed in this Tracker tabset could be opened" +
+                                    (problems.isEmpty() ? std::string(".") : " (" + problems.front().toStdString() + ")."));
+    }
+    return {{"experiments", experiments}, {"tabset_problems", QJsonArray::fromStringList(problems)}};
 }
 
 void saveAndRecoverPair(const QString& path, const motrack::WorkspaceDocument& document, const QString& mediaPath)
@@ -1044,6 +1084,46 @@ try
     const QCoreApplication application(argc, argv);
     motrack::configureProcessLocale();
     const auto args = application.arguments();
+    if (args.size() >= 4 && args[1] == "--write-tabset")
+    {
+        // MoTrack's tabset writer, with paths relative to the destination's directory.
+        const auto directory = QFileInfo(QFileInfo(args[2]).absoluteFilePath()).path();
+        std::vector<motrack::TabsetEntry> entries;
+        for (const auto& file : args.sliced(3))
+            entries.push_back(motrack::tabsetEntry(QFileInfo(file).canonicalFilePath(), directory));
+        if (const auto written = motrack::saveTrackerTabset(args[2], entries); !written)
+            throw motrack::ProjectError(written.error());
+        return EXIT_SUCCESS;
+    }
+    if (args.size() >= 4 && args[1] == "--save-tabset")
+    {
+        // Save tabset as… after its prompts: the window's file work (saveTrackerTabsetFiles) with the canonical
+        // destination localProjectPath gives it, so an existing tabset at the destination is edited in place.
+        std::vector<QString> files;
+        for (const auto& file : args.sliced(3))
+            files.push_back(QFileInfo(file).canonicalFilePath());
+        const QFileInfo destination(args[2]);
+        const auto folder = QFileInfo(destination.absolutePath()).canonicalFilePath();
+        const auto tabset = folder.isEmpty() ? destination.absoluteFilePath() : QDir(folder).filePath(destination.fileName());
+        const auto saved = motrack::saveTrackerTabsetFiles(tabset, files, QDir::currentPath());
+        if (saved.status != motrack::TabsetSave::Status::Saved)
+            throw motrack::ProjectError(saved.diagnostic.empty() ? std::string("The destination is not a tabset.") : saved.diagnostic);
+        return EXIT_SUCCESS;
+    }
+    if (args.size() == 4 && args[1] == "--read-tabset")
+    {
+        QJsonArray items;
+        for (const auto& item : motrack::expandTrackerTabset(args[2], QDir::currentPath()))
+            items.push_back(
+                QJsonObject{{"status", static_cast<int>(std::to_underlying(item.status))},
+                            {"file", item.file},
+                            {"relative", QString::fromStdString(item.entry.relative)},
+                            {"absolute", item.entry.absolute ? QJsonValue(QString::fromStdString(*item.entry.absolute)) : QJsonValue()}});
+        QSaveFile output(args[3]);
+        if (!output.open(QIODevice::WriteOnly) || output.write(QJsonDocument(items).toJson()) < 0 || !output.commit())
+            throw motrack::ProjectError("Could not write the tabset report.");
+        return EXIT_SUCCESS;
+    }
     if (args.size() == 4 && args[1] == "--osp-dump")
     {
         const auto input = motrack::toFilesystemPath(args[2]);
