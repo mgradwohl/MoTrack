@@ -151,7 +151,8 @@ The internal writer rejects edits to any project containing a vector sum, even a
 member samples are removed. Native saving still retains the exact original source; an unchanged
 standard-file copy is also preserved byte-for-byte and is not advertised as repaired Tracker behavior.
 
-This is not a complete dependency graph or an export eligibility check.
+This is not a complete dependency graph or an export eligibility check. The separate [dependency graph](dependency-graph.md)
+library binds names with the same classification but is not yet connected to this index or the writer.
 No malformed paths does not mean a rename is safe.
 The `referenceframe` scalar is indexed, but moving-coordinate behavior still lacks application cases.
 
