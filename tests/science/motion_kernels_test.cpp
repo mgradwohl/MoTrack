@@ -274,12 +274,12 @@ TEST(MotionKernels, TrackerStencilsAssumeEqualStepIntervals)
         EXPECT_NEAR(present(motion.velocity[k]).x, 2.0, 1e-12);
         EXPECT_NEAR(present(motion.velocity[k]).y, -1.0, 1e-12);
     }
-    const auto& a = motion.acceleration[3];
-    ASSERT_TRUE(a.has_value());
+    ASSERT_TRUE(motion.acceleration[3].has_value());
+    const auto& a = present(motion.acceleration[3]);
     const double stencil = 2 * times[1] - times[2] - 2 * times[3] - times[4] + 2 * times[5];
     const double interval = (times[5] - times[1]) / 4;
-    EXPECT_NEAR(a->x, 2.0 * stencil / 7 / (interval * interval), 1e-9);
-    EXPECT_GT(std::fabs(a->x), 1.0); // a constant velocity "accelerates" at over 1 m/s^2
+    EXPECT_NEAR(a.x, 2.0 * stencil / 7 / (interval * interval), 1e-9);
+    EXPECT_GT(std::fabs(a.x), 1.0); // a constant velocity "accelerates" at over 1 m/s^2
 }
 
 TEST(MotionKernels, MissingTimesAndInvalidInputsAreRejectedOrMissing)
@@ -690,8 +690,9 @@ TEST(MotionKernels, FilteredPositionsShareGapsAndReportRmsDeviation)
     EXPECT_NEAR(present(filtered[1]).y, 1.0 / 3.0, 1e-15); // (1 - 1 + 1) / 3
     const auto deviation = science::filterRmsDeviation(positions, filtered);
     ASSERT_TRUE(deviation.has_value());
-    EXPECT_GT(deviation->y, 0.5);
-    EXPECT_NEAR(deviation->combined, std::hypot(deviation->x, deviation->y), 1e-15);
+    const auto& rms = present(deviation);
+    EXPECT_GT(rms.y, 0.5);
+    EXPECT_NEAR(rms.combined, std::hypot(rms.x, rms.y), 1e-15);
     // Identical positions deviate by zero; no common step is no measurement at all, not zero.
     EXPECT_EQ(present(science::filterRmsDeviation(positions, positions)).combined, 0.0);
     const std::vector<std::optional<PlanarValue>> none(positions.size());
