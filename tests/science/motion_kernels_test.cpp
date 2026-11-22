@@ -348,17 +348,21 @@ TEST(MotionKernels, BounceDetectionFindsAVelocityReversal)
         const double x = t < WALL ? 2.0 * t : 2.0 * WALL - 3.0 * (t - WALL);
         positions.emplace_back(PlanarValue{.x = x, .y = 1.0});
     }
-    const auto bounce = science::stepDerivatives(DerivativeAlgorithm::BounceDetection, lattice(COUNT), positions);
-    const auto finite = science::stepDerivatives(DerivativeAlgorithm::FiniteDifference, lattice(COUNT), positions);
-    for (int k = 0; k < COUNT; ++k)
+    // Tracker 6.3.5 throws for a stride above 1 (#204); MoTrack finds the same reversal on any stride.
+    for (const int stride : {1, 2, 3})
     {
-        const auto step = static_cast<std::size_t>(k);
-        ASSERT_TRUE(bounce.first[step].has_value()) << k;
-        EXPECT_NEAR(present(bounce.first[step]).x, k < WALL ? 2.0 : -3.0, 1e-9) << k;
-        EXPECT_NEAR(present(bounce.first[step]).y, 0.0, 1e-12) << k;
-        // The velocity change appears as one acceleration pulse at the step nearest the impact.
-        EXPECT_NEAR(present(bounce.second[step]).x, k == 9 ? -5.0 : 0.0, 1e-9) << k;
+        const auto bounce = science::stepDerivatives(DerivativeAlgorithm::BounceDetection, lattice(COUNT, 5, stride), positions);
+        for (int k = 0; k < COUNT; ++k)
+        {
+            const auto step = static_cast<std::size_t>(k);
+            ASSERT_TRUE(bounce.first[step].has_value()) << stride << " " << k;
+            EXPECT_NEAR(present(bounce.first[step]).x, k < WALL ? 2.0 : -3.0, 1e-9) << stride << " " << k;
+            EXPECT_NEAR(present(bounce.first[step]).y, 0.0, 1e-12) << stride << " " << k;
+            // The velocity change appears as one acceleration pulse at the step nearest the impact.
+            EXPECT_NEAR(present(bounce.second[step]).x, k == 9 ? -5.0 : 0.0, 1e-9) << stride << " " << k;
+        }
     }
+    const auto finite = science::stepDerivatives(DerivativeAlgorithm::FiniteDifference, lattice(COUNT), positions);
     // Finite differences smear the same reversal over the steps around it.
     EXPECT_NEAR(present(finite.first[9]).x, (present(positions[10]).x - present(positions[8]).x) / 2, 1e-12);
     EXPECT_GT(present(finite.first[9]).x, -3.0);
@@ -437,8 +441,9 @@ TEST(MotionKernels, BounceDetectionOnAStrideEqualsTheSameStepsAtStrideOne)
             ASSERT_EQ(strided.first[k].has_value(), reference.first[k].has_value()) << stride << " " << k;
             if (reference.first[k])
             {
-                EXPECT_NEAR(present(strided.first[k]).x, present(reference.first[k]).x, 1e-9) << stride << " " << k;
-                EXPECT_NEAR(present(strided.second[k]).y, present(reference.second[k]).y, 1e-9) << stride << " " << k;
+                // Bit for bit: the step search runs on the same virtual stride-1 frames.
+                EXPECT_EQ(present(strided.first[k]), present(reference.first[k])) << stride << " " << k;
+                EXPECT_EQ(present(strided.second[k]), present(reference.second[k])) << stride << " " << k;
             }
         }
     }

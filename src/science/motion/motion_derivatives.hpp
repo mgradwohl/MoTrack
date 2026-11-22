@@ -73,7 +73,7 @@ struct StepDerivatives
 /// vectors only there. The finite differences need every step of their window. Bounce Detection fits a
 /// seven-step window, shifting it away from missing steps, so it can also estimate a step at a clip edge
 /// or next to a gap. The clip lattice matters only to Bounce Detection, whose step search Tracker writes
-/// in frame units; for a stride above 1 (where Tracker 6.3.5 throws) MoTrack evaluates it in step units.
+/// in frame units; for a stride above 1 (where Tracker 6.3.5 throws) MoTrack gives Tracker's stride-1 result.
 /// Throws std::invalid_argument for an invalid lattice or a size mismatch.
 [[nodiscard]] StepDerivatives
 stepDerivatives(DerivativeAlgorithm algorithm, const ClipLattice& clip, std::span<const std::optional<PlanarValue>> positions);

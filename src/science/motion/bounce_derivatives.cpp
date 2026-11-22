@@ -11,7 +11,7 @@
 
 // A port of Tracker 6.3.5's BounceDerivatives, BounceModel, BounceParameters and the QR solver of
 // BounceMatrix (Kevin Karplus, 2011). Each expression keeps Java's operand order; the library is
-// compiled with -ffp-contract=off, so for a stride of 1 the results equal Tracker's bit for bit.
+// compiled with -ffp-contract=off, so the results equal Tracker's stride-1 results bit for bit.
 
 namespace motrack::science::motion_detail
 {
@@ -449,10 +449,12 @@ StepDerivatives bounceStepDerivatives(const ClipLattice& clip, std::span<const s
         at(stepFit, c) = fitUnknownStep(unknownStep, data);
     }
 
-    // How much each candidate step reduces the squared error of the windows around it.
+    // How much each candidate step reduces the squared error of the windows around it. Tracker writes this
+    // search in frame units (i_step_time) and, for a stride above 1, visits frames between clip steps and
+    // throws. MoTrack evaluates it on virtual frames start + c, which is Tracker's arithmetic for a stride
+    // of 1, so every stride gives Tracker's stride-1 result for the same samples bit for bit.
     const int start = clip.firstFrame;
-    const int stride = clip.stepSize;
-    const int lastFrame = count == 0 ? start : start + stride * (count - 1);
+    const int lastFrame = count == 0 ? start : start + (count - 1);
     std::vector<double> stepValue(positions.size(), 0.0);
     for (int c = 0; c < count; ++c)
     {
@@ -461,25 +463,12 @@ StepDerivatives bounceStepDerivatives(const ClipLattice& clip, std::span<const s
         {
             continue;
         }
-        const int frame = start + stride * c;
-        // Tracker locates the step in frame units: i_step_time.
-        const double frameStepTime = frame + stride * (candidate.modelStepAt - at(centre, c));
+        const int frame = start + c;
+        // i_step_time = i + index_step * (step time - c_at) with index_step = 1 (multiplying by 1 is exact).
+        const double frameStepTime = frame + (candidate.modelStepAt - at(centre, c));
         const Sample size = stepSize(candidate);
-        int low = 0;
-        int high = 0;
-        if (stride == 1)
-        {
-            low = std::max(start, javaDoubleToInt(frameStepTime - 0.5 * (WINDOW - 1) + 0.999)) - start;
-            high = std::min(lastFrame, javaDoubleToInt(frameStepTime + 0.5 * (WINDOW - 1) + 0.001)) - start;
-        }
-        else
-        {
-            // Tracker iterates every frame here and fails on the first one between clip steps. MoTrack
-            // keeps the same +/-3 window in clip steps, which reproduces Tracker on a stride-1 clip.
-            const double clipStepTime = (frameStepTime - start) / stride;
-            low = std::max(0, javaDoubleToInt(clipStepTime - 0.5 * (WINDOW - 1) + 0.999));
-            high = std::min(count - 1, javaDoubleToInt(clipStepTime + 0.5 * (WINDOW - 1) + 0.001));
-        }
+        const int low = std::max(start, javaDoubleToInt(frameStepTime - 0.5 * (WINDOW - 1) + 0.999)) - start;
+        const int high = std::min(lastFrame, javaDoubleToInt(frameStepTime + 0.5 * (WINDOW - 1) + 0.001)) - start;
         for (int windowStep = low; windowStep <= high; ++windowStep)
         {
             const Fit& polynomial = at(polynomialFit, windowStep);
@@ -487,10 +476,9 @@ StepDerivatives bounceStepDerivatives(const ClipLattice& clip, std::span<const s
             {
                 continue;
             }
-            const int windowFrame = start + stride * windowStep;
+            const int windowFrame = start + windowStep;
             const int windowCentre = at(centre, windowStep);
-            const Fit refit =
-                fitWithStep(quadratic, window(windowStep - windowCentre), (frameStepTime - windowFrame) / stride + windowCentre, size);
+            const Fit refit = fitWithStep(quadratic, window(windowStep - windowCentre), (frameStepTime - windowFrame) + windowCentre, size);
             if (refit.exists)
             {
                 at(stepValue, c) += polynomial.squareError - refit.squareError;

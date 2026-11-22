@@ -49,7 +49,10 @@ The reference is the Tracker 6.3.5 JAR and its source candidate `dc064f92` (`Poi
   (MoTrack #87).
 - **Angular data.** `getRotationData` accumulates the change of `atan2(y, x)`, wrapped into [−π, π],
   across missing steps; θ is in radians (the display can convert). ω and α always use the spill-1
-  difference and the spill-2 parabola with the same time scaling.
+  difference and the spill-2 parabola with the same time scaling. At the origin (r = 0) the angle is
+  undefined; like Tracker, the kernel uses `atan2(0, 0)` = 0 (±π when x is −0), so θ there and the ω
+  and α of every window containing that step are not meaningful. Whether to flag such steps or treat
+  them as missing is a C2 decision (MoTrack #205).
 - **Vectors.** Tracker stores velocity and acceleration as image-space vectors and converts them back to
   world components for the table, which can change the last bits (see [C2](#driving-the-kernels-from-c2)).
 
@@ -90,9 +93,9 @@ on a unit-scale signal), as in Tracker.
 ## Deliberate differences and upstream findings
 
 - **Bounce Detection on strides above 1 (fixed, MoTrack #204).** Tracker's step search walks frames, not
-  clip steps, and throws `NullPointerException` on the first frame between steps. MoTrack searches clip
-  steps: bit-identical for a stride of 1, and for a larger stride equal (within 1e-9) to Tracker's
-  result for the same samples at stride 1.
+  clip steps, and throws `NullPointerException` on the first frame between steps. MoTrack runs the search
+  on virtual frames (first frame + step index), which is Tracker's own arithmetic for a stride of 1, so
+  every stride gives Tracker's stride-1 result for the same samples, bit for bit.
 - **Bounce Detection overflow (fixed, #204).** Beyond about 1e154 the dv² weights overflow and Tracker
   recurses until `StackOverflowError`; MoTrack skips the non-finite step-time estimate.
 - **Evaluated range.** Tracker limits Bounce Detection to `(array length − start) / stride` steps, where
@@ -145,7 +148,7 @@ Agreement with the fixture:
 | Butterworth | 1e-12 of the largest input: an ulp in `tan`/`sin`/`cos` moves each pole by ~1e-16 and the response's pole sensitivity stays under 1e3 for fc/fs ≥ 0.002; observed 8e-16 | 1e-12 relative (JDK intrinsics) |
 | θ, ω, α | 64 ulps of the largest angle for θ, divided by dt for ω and by dt²/8 for α (fdlibm `atan2` against the C++ library); observed under 2% of that | exact (StrictMath) |
 | x log x sin x cos x differences | 8 ulps of the largest function value times the stencil weight, over the stencil's step power; the benchmark sum 1e-8 (the bound if every term erred alike); observed 2e-13 | 1e-12 relative |
-| Bounce Detection, stride above 1 | Tracker's stride-1 values within 1e-9 (frame-unit rounding of step times) | Tracker's exception class |
+| Bounce Detection, stride above 1 | Tracker's stride-1 values for the same samples, exact | Tracker's exception class |
 
 Independent tests guard against a port that is consistently wrong: Tracker's FilterSelfTest (all six
 checks), exact free fall from a nonzero time origin on a stride, the analytic response of each stencil to

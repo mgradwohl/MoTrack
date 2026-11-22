@@ -284,26 +284,12 @@ TEST(MotionReference, DerivativesMatchTrackerExactly)
             const auto second = points(result["second"]);
             if (compacted)
             {
-                // MoTrack's stride-independent Bounce Detection equals Tracker's on the same samples at
-                // stride 1, up to the rounding of Tracker's frame-unit step times (about 1e-14 steps).
+                // MoTrack's Bounce Detection on a stride equals Tracker's on the same samples at stride 1,
+                // bit for bit.
                 ASSERT_TRUE(stridedBounce.has_value()) << where;
                 const auto& strided = present(stridedBounce);
-                for (std::size_t step = 0; step < first.size(); ++step)
-                {
-                    ASSERT_EQ(strided.first[step].has_value(), first[step].has_value()) << where << " [" << step << "]";
-                    ASSERT_EQ(strided.second[step].has_value(), second[step].has_value()) << where << " [" << step << "]";
-                    const auto near = [&](const std::optional<PlanarValue>& actual, const std::optional<PlanarValue>& expected)
-                    {
-                        if (expected)
-                        {
-                            const auto& want = present(expected);
-                            EXPECT_NEAR(present(actual).x, want.x, 1e-9 * (1 + std::fabs(want.x))) << where << " [" << step << "]";
-                            EXPECT_NEAR(present(actual).y, want.y, 1e-9 * (1 + std::fabs(want.y))) << where << " [" << step << "]";
-                        }
-                    };
-                    near(strided.first[step], first[step]);
-                    near(strided.second[step], second[step]);
-                }
+                expectSame(strided.first, first, where + ".strided.first");
+                expectSame(strided.second, second, where + ".strided.second");
                 // The stride-1 evaluation itself is Tracker's, bit for bit.
             }
             expectSame(steps.first, first, where + ".first");
