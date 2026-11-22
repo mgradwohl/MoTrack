@@ -43,7 +43,8 @@ It is not used, because it does not fully load data:
   are `NaN` artifacts rather than Tracker results. A dump built that way would be misleading.
 - Particle models evaluate only from their draw path, which also needs the frame.
 
-The frame-requiring path is recorded as a reference-harness finding in
+The frame-requiring path (#203) and OSP's headless video initialization (#280) are recorded as reference-harness
+findings in
 [Tracker issue triage](upstream-issues.md#defects-discovered-by-the-reference-harness). Dumps are therefore
 generated only on Linux with Xvfb (`state-oracle`); the committed dumps let every platform compare without
 Java.
