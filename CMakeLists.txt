@@ -456,6 +456,27 @@ if(BUILD_TESTING)
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/native/baseline.trk" 300)
     endif()
 
+    # Windows loads Qt's and FFmpeg's DLLs from PATH. Prepend their directories for every test, so CTest also
+    # works outside an activated developer shell: without them a test cannot start (STATUS_DLL_NOT_FOUND), and
+    # an executable started directly stops at a modal loader dialog ("Qt6Guid.dll was not found"). Child
+    # processes the tests start inherit the PATH.
+    # Keep this block after the last add_test: it applies to the tests defined so far.
+    if(WIN32)
+        # Starts from a PATH with neither directory (ENVIRONMENT applies before ENVIRONMENT_MODIFICATION), so it
+        # passes only if the modification below supplies both: the executable needs Qt's and FFmpeg's DLLs to load.
+        file(TO_CMAKE_PATH "$ENV{SystemRoot}/System32" motrack_system32)
+        add_test(NAME test_runtime_path COMMAND motrack_workspace_tests --gtest_list_tests)
+        set_tests_properties(test_runtime_path PROPERTIES
+            ENVIRONMENT "PATH=${motrack_system32};QT_QPA_PLATFORM=offscreen" TIMEOUT 15)
+        get_property(motrack_all_tests DIRECTORY PROPERTY TESTS)
+        set(motrack_test_path "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+        if(MOTRACK_FFMPEG_ROOT)
+            file(TO_CMAKE_PATH "${MOTRACK_FFMPEG_ROOT}/bin" motrack_ffmpeg_bin)
+            list(APPEND motrack_test_path "PATH=path_list_prepend:${motrack_ffmpeg_bin}")
+        endif()
+        set_property(TEST ${motrack_all_tests} APPEND PROPERTY ENVIRONMENT_MODIFICATION ${motrack_test_path})
+    endif()
+
     if(MOTRACK_COVERAGE)
         file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/coverage-objects.txt"
             CONTENT "$<TARGET_FILE:motrack>\n$<TARGET_FILE:motrack_tests>\n$<TARGET_FILE:motrack_workspace_tests>\n$<TARGET_FILE:motrack_media_tests>\n$<TARGET_FILE:motrack_matching_tests>\n$<TARGET_FILE:motrack_locale_tests>\n")
