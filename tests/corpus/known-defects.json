@@ -86,9 +86,9 @@
       "path": null,
       "issue": "https://github.com/mgradwohl/MoTrack/issues/140",
       "upstream": null,
-      "summary": "Tracker 6.3.5 does not register AVI for archive extraction and Xuggle cannot open the jar URL. The archived experiment is byte-identical to linked-movie, whose Tracker state is the independent expectation. The loader never completes, so the 30 s deadline expires. The loader never completes, so the 30 s deadline expires.",
+      "summary": "Tracker 6.3.5 does not register AVI for archive extraction and Xuggle cannot open the jar URL. The archived experiment is byte-identical to linked-movie, whose Tracker state is the independent expectation. Loading the clip blocks in VideoIO.handleUnsupportedVideo (the unsupported-video dialog), so the 30 s deadline expires.",
       "expected": {"state_of": "linked-movie", "project_sha256": "57da7df15a0ce7d1feeb3dec70d98af6b99ca923c282a394fa1fe792aa4d5e6b"},
-      "tracker": {"load_failure": ["waiting=application loader callback", "Tracker state loading timed out: application loader callback"]}
+      "tracker": {"load_failure": ["waiting=application loader callback", "org.opensourcephysics.media.core.VideoIO.handleUnsupportedVideo", "org.opensourcephysics.media.core.VideoClip$Loader.loadObject"]}
     },
     {
       "id": "table-owners-subset-track-columns",
