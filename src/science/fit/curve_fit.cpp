@@ -16,7 +16,8 @@
 // fitter fits a "test function" whose fixed parameters are substituted, minimizes through an objective
 // that writes every evaluated parameter vector into that function, and then reads the function's
 // parameters: the last vector evaluated, which is not always the minimizer's result. `Curve` carries
-// that state.
+// that state. The Corrected dialect keeps each minimizer's best vector instead and treats a vector for
+// which the model is undefined at a valid point as undefined rather than as zero deviations.
 
 namespace motrack::science
 {
@@ -26,10 +27,15 @@ namespace
 using fit_detail::evaluatePolynomial;
 
 constexpr double NOT_A_NUMBER = std::numeric_limits<double>::quiet_NaN();
-/// Dataset.append keeps at most the last 16 * 1024 rows (Dataset.defaultMaxPoints).
-constexpr std::size_t TRACKER_DATASET_CAPACITY = std::size_t{16} * 1024;
+/// Dataset.append keeps at most the last Dataset.defaultMaxPoints (16 * 1024) rows times
+/// Dataset.maxPointsMultiplier, which Tracker.start sets to 32: 524288 rows, a deliberate capacity limit.
+constexpr std::size_t TRACKER_DATASET_CAPACITY = std::size_t{16} * 1024 * 32;
 /// getUncertainties widens or narrows its parameter step at most ten times.
 constexpr int UNCERTAINTY_TRIES = 10;
+/// getUncertainties aims for 0.001 <= chi2(p - delta) + chi2(p + delta) - 2 chi2_min <= 2.
+constexpr double SMALLEST_CURVATURE = 0.001;
+/// Model evaluations between two calls of the cancellation callback.
+constexpr std::size_t CANCEL_POLL_EVALUATIONS = 4096;
 
 struct Points
 {
@@ -187,6 +193,12 @@ struct Session
     /// fitEvaluatedToNaN after the latest getDevSquared.
     bool nonReal = false;
     bool stopped = false;
+    std::size_t sincePoll = 0;
+
+    [[nodiscard]] bool corrected() const noexcept
+    {
+        return dialect == FitDialect::Corrected;
+    }
 
     bool cancel()
     {
@@ -195,6 +207,18 @@ struct Session
             stopped = true;
         }
         return stopped;
+    }
+
+    /// Counts `evaluations` model evaluations and calls the cancellation callback every CANCEL_POLL_EVALUATIONS.
+    bool poll(std::size_t evaluations)
+    {
+        sincePoll += evaluations;
+        if (sincePoll < CANCEL_POLL_EVALUATIONS)
+        {
+            return stopped;
+        }
+        sincePoll = 0;
+        return cancel();
     }
 };
 
@@ -223,6 +247,12 @@ struct UserFitOutcome
 
 /// The UserFunction branch of fit(): HessianMinimize, then LevenbergMarquardt from the Hessian result
 /// when that is worse than the start, restoring the start when neither improves.
+///
+/// Tracker compares and keeps the last vector each minimizer evaluated, often one it rejected, and counts
+/// an undefined model value as zero deviation. Corrected keeps each minimizer's best vector, makes a vector
+/// undefined anywhere on the data undefined, falls back to LevenbergMarquardt whenever Newton stopped short
+/// of its tolerance or did not lower the deviation, and keeps a result only when it lowered the deviation
+/// or LevenbergMarquardt's shrinking steps found nothing lower around the start (a minimum already).
 UserFitOutcome minimizeUserFunction(Curve& curve, double previousDeviation, Session& session)
 {
     const std::size_t count = curve.free().size();
@@ -232,21 +262,46 @@ UserFitOutcome minimizeUserFunction(Curve& curve, double previousDeviation, Sess
     }
     std::vector<double> params = curve.freeValues();
     const std::vector<double> previous = params;
-    const Points& points = session.points;
     // MinimizeUserFunction: writes the parameters into the function, NaN values count as 0.
-    const MultiVarObjective objective = [&curve, &points](std::span<const double> values)
+    const MultiVarObjective objective = [&curve, &session](std::span<const double> values)
     {
         curve.setFreeValues(values);
-        bool ignored = false;
+        const Points& points = session.points;
+        // Once cancelled every vector is undefined, which ends both minimizers within a few evaluations.
+        if (session.poll(points.size()))
+        {
+            return NOT_A_NUMBER;
+        }
+        bool undefined = false;
         double sum = 0.0;
         for (std::size_t i = 0; i < points.size(); ++i)
         {
-            const double deviation = points.y[i] - curve.value(points.x[i], ignored);
+            const double deviation = points.y[i] - curve.value(points.x[i], undefined);
             sum += deviation * deviation;
         }
-        return sum;
+        return session.corrected() && undefined ? NOT_A_NUMBER : sum;
     };
-    hessianMinimize(objective, params, TRACKER_FIT_ITERATIONS, TRACKER_FIT_TOLERANCE);
+    const HessianMinimizeResult hessian = hessianMinimize(objective, params, TRACKER_FIT_ITERATIONS, TRACKER_FIT_TOLERANCE);
+    if (session.corrected())
+    {
+        curve.setFreeValues(params);
+        double deviation = deviationSquared(curve, session);
+        bool usedLevenbergMarquardt = false;
+        bool stationary = false;
+        if (!hessian.reachedTolerance || !(deviation < previousDeviation))
+        {
+            usedLevenbergMarquardt = true;
+            stationary = levenbergMarquardtMinimize(objective, params, TRACKER_FIT_ITERATIONS, TRACKER_FIT_TOLERANCE).reachedTolerance;
+            curve.setFreeValues(params);
+            deviation = deviationSquared(curve, session);
+        }
+        if (deviation < previousDeviation || (deviation == previousDeviation && stationary))
+        {
+            return {.deviation = deviation, .skipped = false, .restored = false, .levenbergMarquardt = usedLevenbergMarquardt};
+        }
+        curve.setFreeValues(previous);
+        return {.deviation = previousDeviation, .skipped = false, .restored = true, .levenbergMarquardt = usedLevenbergMarquardt};
+    }
     double deviation = deviationSquared(curve, session);
     bool success = true;
     bool usedLevenbergMarquardt = false;
@@ -286,9 +341,26 @@ struct Uncertainties
     std::vector<std::vector<double>> band;
 };
 
+/// No sigma (0, undetermined) for each free parameter and NaN for each fixed one, where Tracker would estimate them.
+std::optional<Uncertainties> undeterminedUncertainties(const Curve& fitted, const Session& session)
+{
+    if (fitted.free().empty() || session.points.size() <= fitted.free().size())
+    {
+        return std::nullopt;
+    }
+    Uncertainties result{.sigmas = std::vector<double>(fitted.values().size(), NOT_A_NUMBER), .band = {}};
+    for (const std::size_t index : fitted.free())
+    {
+        result.sigmas[index] = 0.0;
+    }
+    return result;
+}
+
 /// getUncertainties: sigma_i = delta * sqrt(2 / (chi2(p_i - delta) + chi2(p_i + delta) - 2 chi2_min)), with
 /// chi squared calibrated to N - free parameters at the best fit and the other parameters refitted at each
-/// shifted value (Bevington, Data Reduction and Error Analysis, eq. 8.13).
+/// shifted value (Bevington, Data Reduction and Error Analysis, eq. 8.13). Tracker accepts any positive
+/// curvature; Corrected leaves sigma undetermined unless the ten tries reached 0.001, since a smaller
+/// difference is rounding noise along a direction the data do not determine.
 std::optional<Uncertainties> curvatureUncertainties(const Curve& fitted, std::span<const double> original, Session& session)
 {
     const std::size_t fitCount = fitted.free().size();
@@ -313,13 +385,13 @@ std::optional<Uncertainties> curvatureUncertainties(const Curve& fitted, std::sp
         double delta = (std::abs(value) + 1.0) / 1e5;
         double twiceDeltaChiSquared = 0;
         int tries = 0;
-        while ((twiceDeltaChiSquared < 0.001 || twiceDeltaChiSquared > 2) && tries < UNCERTAINTY_TRIES)
+        while ((twiceDeltaChiSquared < SMALLEST_CURVATURE || twiceDeltaChiSquared > 2) && tries < UNCERTAINTY_TRIES)
         {
             if (session.cancel())
             {
                 return std::nullopt;
             }
-            if (twiceDeltaChiSquared < 0.001 && twiceDeltaChiSquared != 0)
+            if (twiceDeltaChiSquared < SMALLEST_CURVATURE && twiceDeltaChiSquared != 0)
             {
                 delta *= 10;
             }
@@ -337,10 +409,16 @@ std::optional<Uncertainties> curvatureUncertainties(const Curve& fitted, std::sp
             twiceDeltaChiSquared = chiSquared - (2 * minimumChiSquared);
             ++tries;
         }
-        if (twiceDeltaChiSquared > 0)
+        const bool determined = session.corrected() ? twiceDeltaChiSquared >= SMALLEST_CURVATURE && std::isfinite(twiceDeltaChiSquared)
+                                                    : twiceDeltaChiSquared > 0;
+        if (determined)
         {
             const double sigma = delta * std::sqrt(2 / twiceDeltaChiSquared);
             result.sigmas[i] = sigma;
+            if (session.cancel())
+            {
+                return std::nullopt;
+            }
             for (int j = 0; j < 2; ++j)
             {
                 const double shifted = j == 0 ? value - sigma : value + sigma;
@@ -684,6 +762,10 @@ FitResult fitCurve(const FitFunction& function, std::span<const double> x, std::
                     return cancelledResult();
                 }
                 const UserFitOutcome outcome = minimizeUserFunction(fitted, previousDeviation, session);
+                if (session.stopped)
+                {
+                    return cancelledResult();
+                }
                 deviation = outcome.deviation;
                 result.status = outcome.skipped ? FitStatus::TooFewPoints : outcome.restored ? FitStatus::NotImproved : FitStatus::Fitted;
                 result.method = outcome.skipped              ? FitMethod::None
@@ -691,8 +773,11 @@ FitResult fitCurve(const FitFunction& function, std::span<const double> x, std::
                                                              : FitMethod::Hessian;
             }
             // With nothing fixed the "original" function is the fitted one; otherwise it still holds the
-            // values from before the fit, which Tracker's band therefore uses.
-            uncertainties = curvatureUncertainties(fitted, anyFixed ? std::span<const double>(original) : fitted.values(), session);
+            // values from before the fit, which Tracker's band therefore uses. Corrected estimates no
+            // uncertainty around starting values the minimizers could not improve.
+            uncertainties = dialect == FitDialect::Corrected && result.status == FitStatus::NotImproved
+                                ? undeterminedUncertainties(fitted, session)
+                                : curvatureUncertainties(fitted, anyFixed ? std::span<const double>(original) : fitted.values(), session);
             if (session.stopped)
             {
                 return cancelledResult();

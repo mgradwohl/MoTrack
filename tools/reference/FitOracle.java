@@ -198,7 +198,9 @@ public final class FitOracle {
                             boolean autofit, boolean scratch, String agreement, Expect expect, String defect, String intendedFit) {}
 
     private static final List<CaseSpec> CASES = new ArrayList<>();
-    private static final int CAPACITY_ROWS = 16484;
+    /** Tracker.start sets Dataset.maxPointsMultiplier = 32, so Tracker's data sets keep 32 * 16384 rows. */
+    private static final double TRACKER_MAX_POINTS_MULTIPLIER = 32;
+    private static final int CAPACITY_ROWS = 32 * 16384 + 100;
     private static final int CAPACITY_HEAD = 100;
 
     private static BuiltIn builtIn(String id) {
@@ -241,7 +243,8 @@ public final class FitOracle {
     /** Agreement class: arithmetic-only fits are bitwise; Math.exp/sin/log/pow fits carry last-bit differences. */
     private static String agreement(String fit) {
         switch (fit) {
-            case "line": case "parabola": case "user-line": case "user-constant": return "exact";
+            // A/(1+((x-B)/C)^2) is arithmetic too: pow(u, 2) is u*u in fdlibm and HotSpot.
+            case "line": case "parabola": case "user-line": case "user-constant": case "user-lorentz": return "exact";
             case "cubic": return "polynomial";
             default: return "transcendental";
         }
@@ -360,15 +363,16 @@ public final class FitOracle {
         add("gaussian/infinite-x", "validity", "gaussian", infX, evaluate("gaussian", builtIn("gaussian").truth(), lx), null, null,
             true, true, null, "dataset-append-duplicates", null);
         add("line/empty", "validity", "line", new double[0], new double[0], null);
-        // More rows than Dataset keeps (16384): the first, deviating rows are dropped. Generated, not stored.
+        // More rows than Tracker's data sets keep (524288): the first, deviating rows are dropped. Generated, not
+        // stored, and evaluated with Autofit off (y = 2x + 1) so that the oracle stays fast.
         double[] longX = new double[CAPACITY_ROWS];
         double[] longY = new double[CAPACITY_ROWS];
         for (int i = 0; i < CAPACITY_ROWS; i++) {
             longX[i] = i;
             longY[i] = i < CAPACITY_HEAD ? 50.0 : 2.0 * i + 1.0;
         }
-        add("line/over-capacity", "validity", "line", longX, longY, null, null, true, true,
-            leastSquares("line", longX, longY, new double[] {2.0, 1.0}, null, LINEAR_UNCERTAINTY_RELATIVE), "dataset-capacity", null);
+        add("line/over-capacity", "validity", "line", longX, longY, new double[] {2.0, 1.0}, null, false, false, null,
+            "dataset-capacity", null);
         double[] constant = new double[8];
         Arrays.fill(constant, 1.25);
         add("line/constant-y", "degenerate", "line", grid(0, 0.5, 8), constant, null);
@@ -447,6 +451,10 @@ public final class FitOracle {
         double[] lx2 = grid(-1, 0.125, 25);
         double[] ly2 = noisy(evaluate("user-lorentz", new double[] {2.0, 0.6, 0.3}, lx2), 0.02, 62);
         add("user-lorentz/noisy", "user", "user-lorentz", lx2, ly2, null, null, true, true,
+            leastSquares("user-lorentz", lx2, ly2, new double[] {2.0, 0.6, 0.3}, null, NONLINEAR_UNCERTAINTY_RELATIVE), null, null);
+        // From this start Newton's last vector is worse than the start although its best is not, so Tracker falls
+        // back to Levenberg-Marquardt from Newton's best, which converges to the minimum: a bitwise LM path.
+        add("user-lorentz/levenberg-marquardt", "user", "user-lorentz", lx2, ly2, new double[] {0.5, 0, 1}, null, true, false,
             leastSquares("user-lorentz", lx2, ly2, new double[] {2.0, 0.6, 0.3}, null, NONLINEAR_UNCERTAINTY_RELATIVE), null, null);
         double[] cosTruth = {1.5, 2.2, 0.4};
         double[] oy = noisy(evaluate("user-cos", cosTruth, ux), 0.05, 63);
@@ -835,6 +843,8 @@ public final class FitOracle {
         double startValue = Double.NaN;
         /** The objective at the last vector the first fit evaluated, which the fitted function keeps. */
         double firstLastValue = Double.NaN;
+        /** The free parameters the first fit started from: the from-scratch guess or the current values. */
+        double[] startParameters;
 
         RecordingHessian(List<String> calls) {
             this.calls = calls;
@@ -843,6 +853,7 @@ public final class FitOracle {
         @Override
         public double minimize(MultiVarFunction f, double[] x, int max, double tol) {
             boolean first = calls.isEmpty();
+            if (first) startParameters = x.clone();
             calls.add("hessian");
             return super.minimize(p -> {
                 double value = f.evaluate(p);
@@ -872,7 +883,7 @@ public final class FitOracle {
 
     private record Result(int points, double[] validX, double[] parameters, double[] uncertainties, double[][] band,
                           String intendedBand, double rms, double correlation, boolean nonReal, String method, String[] formatted,
-                          boolean diverged) {}
+                          boolean diverged, double[] start, double startValue, boolean tied) {}
 
     /** Fits one case with OSP's DatasetCurveFitter. */
     private static Result run(CaseSpec spec, String fitId, double[] y) throws ReflectiveOperationException {
@@ -931,8 +942,13 @@ public final class FitOracle {
             formatted[i] = text == null ? null : text[0];
         }
         String intended = intendedBand(fitter, f, spec, values, sigmas);
+        // Tied: the main fit ended at the deviation it started from (to 1e-12), as when the start is already the
+        // minimum. Which minimizer's result Tracker then keeps is decided by last bits.
+        boolean minimized = method.equals("hessian") || method.equals("levenberg-marquardt") || method.equals("restored");
+        double finalValue = rms * rms * points;
+        boolean tied = minimized && Math.abs(finalValue - hessian.startValue) <= 1e-12 * hessian.startValue;
         return new Result(data.getValidXPoints().length, data.getValidXPoints(), values, sigmas, band, intended, rms, correlation,
-            nonReal, method, formatted, diverged);
+            nonReal, method, formatted, diverged, minimized ? hessian.startParameters : null, hessian.startValue, tied);
     }
 
     private static boolean anyTrue(boolean[] flags) {
@@ -954,6 +970,10 @@ public final class FitOracle {
         json.append(",\"correlation\":").append(number(r.correlation()));
         json.append(",\"non_real\":").append(r.nonReal());
         json.append(",\"formatted\":").append(strings(r.formatted()));
+        // Where the main fit minimized: the free parameters and deviation it started from.
+        json.append(",\"start\":").append(r.start() == null ? "null"
+            : "{\"parameters\":" + numbers(r.start()) + ",\"ssr\":" + number(r.startValue()) + "}");
+        json.append(",\"tied\":").append(r.tied());
         if (perturbed != null) {
             // How far OSP's own result moves when every y changes by one ulp: the last-bit noise that
             // separates Math.exp/sin/log/pow from <cmath> moves it similarly.
@@ -1105,6 +1125,8 @@ public final class FitOracle {
             if (args.length != 1) throw new IllegalArgumentException("Usage: FitOracle output.json");
             Locale.setDefault(Locale.US);
             if (!OSPRuntime.VERSION.equals("6.3.5")) throw new IllegalStateException("Expected Tracker 6.3.5");
+            // As Tracker.start does (Tracker 6.3.5), unlike a standalone OSP Data Tool.
+            Dataset.maxPointsMultiplier = TRACKER_MAX_POINTS_MULTIPLIER;
             restoreDefaults();
             curatedCases();
             randomCases();

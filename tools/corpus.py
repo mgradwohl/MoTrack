@@ -3053,9 +3053,9 @@ FIT_DEFECTS = {"duplicate-x-initial-guess", "dataset-append-duplicates", "datase
                "non-finite-initial-guess", "normal-equation-conditioning", "text-substitution"}
 FIT_HEADER_KEYS = ["schema_version", "reference_version", "fits", "user_fits", "minimizers", "format"]
 FIT_RESULT_KEYS = {"points", "valid_x", "method", "parameters", "uncertainties", "band", "intended_band", "rms", "correlation",
-                   "non_real", "formatted"}
+                   "non_real", "formatted", "start", "tied"}
 FIT_METHODS = {"none", "closed-form", "hessian", "levenberg-marquardt", "restored"}
-# Main-fit paths that minimize; from a start at the minimum, the choice among them ties to the last bits.
+# Main-fit paths that minimize; for a tied fit (ending at its starting deviation) last bits choose among them.
 FIT_MINIMIZER_PATHS = {"hessian", "levenberg-marquardt", "restored"}
 MAX_FIT_CASES = 1000
 # The agreement classes of tests/science/curve_fit_test.cpp (docs/curve-fitting.md#tolerances). Fits using
@@ -3173,16 +3173,24 @@ def compare_fit_result(case, expected, actual, location):
     tolerances = fit_result_tolerances(case, expected)
     for key in ["points", "valid_x", "correlation"]:
         compare_fit_values(expected[key], actual[key], FIT_EXACT, f"{location}.{key}")
+    # The start precedes any minimization: bitwise for arithmetic fits, a from-scratch guess otherwise.
+    if (expected["start"] is None) != (actual["start"] is None) and case["agreement"] != "chaotic":
+        raise ValueError(f"{location}.start: only one run minimized")
+    if expected["start"] is not None and actual["start"] is not None:
+        start = FIT_EXACT if case["agreement"] == "exact" else FIT_PARAMETER_TOLERANCE
+        compare_fit_values(expected["start"]["parameters"], actual["start"]["parameters"], start, f"{location}.start")
+        compare_fit_values(expected["start"]["ssr"], actual["start"]["ssr"], start, f"{location}.start.ssr")
     groups = {"parameters": ["parameters"], "rms": ["rms"], "uncertainties": ["uncertainties", "band", "intended_band"]}
     for group, keys in groups.items():
         if tolerances[group] is not None:
             for key in keys:
                 compare_fit_values(expected[key], actual[key], tolerances[group], f"{location}.{key}")
     if case["agreement"] != "chaotic":
-        # From a start already at the minimum, Newton's result, the Levenberg-Marquardt fallback and the restored
-        # start differ in the last bits, so a transcendental fit may take any of them that reaches the same values.
+        # A tied fit ends at the deviation it started from (a start already at the minimum): Newton's result, the
+        # Levenberg-Marquardt fallback and the restored start then differ in the last bits, so a transcendental fit
+        # may take any of them that reaches the same values. Every other path must match.
         tied = (case["agreement"] == "transcendental" and tolerances["parameters"] is not None
-                and {expected["method"], actual["method"]} <= FIT_MINIMIZER_PATHS)
+                and (expected["tied"] or actual["tied"]) and {expected["method"], actual["method"]} <= FIT_MINIMIZER_PATHS)
         for key in ["method", "non_real"]:
             if expected[key] != actual[key] and not (key == "method" and tied):
                 raise ValueError(f"{location}.{key}: expected {expected[key]!r}, got {actual[key]!r}")

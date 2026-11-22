@@ -11,6 +11,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 // Public-API behavior of the curve-fit kernel that the Java oracle (curve_fit_test.cpp) does not
@@ -437,17 +438,283 @@ TEST(CurveFit, CancellationStopsBeforeOrDuringTheFit)
     EXPECT_EQ(fitCurve(sine, x, y, never).status, FitStatus::Fitted);
 }
 
-TEST(CurveFit, NonRealValuesAreReported)
+TEST(CurveFit, CancellationIsPolledDuringAMinimization)
 {
-    // Power with negative x is undefined for a fractional exponent; OSP minimizes with those values as 0.
-    const auto x = grid(-1, 0.25, 12);
-    const auto y = wiggle(grid(-1.7, 0.4, 12), 0.05);
+    // A large damped-sine fit: once the callback returns true, the fit ends within a few thousand model
+    // evaluations rather than after the minimizer or the uncertainty refits finish.
+    const auto x = grid(0, 0.001, 5000);
+    const FitFunction damped = builtInFit(BuiltInFit::DampedSine);
+    const auto y = wiggle(evaluate(damped, std::vector<double>{2, 6, 0.3, 0.1, -0.8}, x), 0.05);
     for (const FitDialect dialect : DIALECTS)
     {
-        const FitResult result = fitCurve(builtInFit(BuiltInFit::Power), x, y, options(dialect));
-        EXPECT_TRUE(result.nonRealValues);
-        EXPECT_TRUE(std::isnan(result.rmsDeviation));
+        for (const std::size_t limit : {std::size_t{20'000}, std::size_t{200'000}, std::size_t{2'000'000}})
+        {
+            std::size_t evaluations = 0;
+            FitFunction counted = damped;
+            counted.model = [&evaluations, model = damped.model](double xi, std::span<const double> p)
+            {
+                ++evaluations;
+                return model(xi, p);
+            };
+            FitOptions stop = options(dialect);
+            stop.cancelled = [&evaluations, limit]
+            {
+                return evaluations > limit;
+            };
+            const FitResult result = fitCurve(counted, x, y, stop);
+            EXPECT_EQ(result.status, FitStatus::Cancelled) << limit;
+            EXPECT_LE(evaluations, limit + 4096 + (3 * x.size())) << limit;
+        }
     }
+}
+
+/// Whether the fitted model is defined at every x.
+bool definedEverywhere(const FitFunction& f, const FitResult& result, std::span<const double> x)
+{
+    return std::ranges::none_of(x, [&](double xi) { return std::isnan(f.model(xi, result.parameters)); });
+}
+
+TEST(CurveFit, NonRealValuesAreReported)
+{
+    // Power with negative x is undefined for a fractional exponent. OSP minimizes with those values as 0
+    // and reports the fit; Corrected rejects every exponent that leaves the model undefined on the data.
+    const auto x = grid(-1, 0.25, 12);
+    const auto y = wiggle(grid(-1.7, 0.4, 12), 0.05);
+    const FitFunction power = builtInFit(BuiltInFit::Power);
+    const FitResult tracker = fitCurve(power, x, y, options(FitDialect::Tracker));
+    EXPECT_EQ(tracker.status, FitStatus::Fitted);
+    EXPECT_TRUE(tracker.nonRealValues);
+    EXPECT_TRUE(std::isnan(tracker.rmsDeviation));
+    const FitResult corrected = fitCurve(power, x, y, options(FitDialect::Corrected));
+    EXPECT_TRUE(corrected.status == FitStatus::NotImproved || corrected.status == FitStatus::UndefinedAtStart);
+    EXPECT_EQ(corrected.nonRealValues, !definedEverywhere(power, corrected, x));
+    // A start that is defined everywhere stays defined.
+    const FitResult integer =
+        fitCurve(withValues(power, std::vector<double>{1, 2}), x, y, options(FitDialect::Corrected, FitStart::FromCurrent));
+    EXPECT_TRUE(definedEverywhere(power, integer, x));
+    EXPECT_FALSE(integer.nonRealValues);
+    EXPECT_FALSE(std::isnan(integer.rmsDeviation));
+}
+
+TEST(CurveFit, TrackerKeepsTrackersRowCapacity)
+{
+    // Tracker's data sets keep the last 32 * 16384 rows; Corrected keeps every row.
+    constexpr std::size_t CAPACITY = std::size_t{32} * 16384;
+    const auto x = grid(0, 1, CAPACITY + 10);
+    std::vector<double> y;
+    y.reserve(x.size());
+    for (const double xi : x)
+    {
+        y.push_back(xi < 10 ? 50.0 : (2 * xi) + 1);
+    }
+    const FitFunction line = withValues(builtInFit(BuiltInFit::Line), std::vector<double>{2, 1});
+    FitOptions manual = options(FitDialect::Tracker, FitStart::FromCurrent);
+    manual.autofit = false;
+    const FitResult tracker = fitCurve(line, x, y, manual);
+    EXPECT_EQ(tracker.status, FitStatus::Manual);
+    EXPECT_EQ(tracker.points, CAPACITY);
+    EXPECT_EQ(tracker.rmsDeviation, 0.0);
+    manual.dialect = FitDialect::Corrected;
+    const FitResult corrected = fitCurve(line, x, y, manual);
+    EXPECT_EQ(corrected.points, CAPACITY + 10);
+    EXPECT_GT(corrected.rmsDeviation, 0.0);
+}
+
+TEST(CurveFit, CorrectedNeverFitsIntoUndefinedValues)
+{
+    // A*sqrt(x-B) from (1, 0): every B above 1 leaves the first points undefined.
+    FitFunction root;
+    root.expression = "A*sqrt(x-B)";
+    root.parameters = {parameter("A", 1), parameter("B", 0)};
+    root.model = [](double x, std::span<const double> p)
+    {
+        return p[0] * std::sqrt(x - p[1]);
+    };
+    const auto x = grid(1, 0.5, 20);
+    const auto y = wiggle(grid(0.1, 0.2, 20), 0.02);
+    const FitResult tracker = fitCurve(root, x, y, options(FitDialect::Tracker, FitStart::FromCurrent));
+    EXPECT_EQ(tracker.status, FitStatus::Fitted);
+    EXPECT_FALSE(definedEverywhere(root, tracker, x));
+    EXPECT_TRUE(std::isnan(tracker.rmsDeviation));
+    const FitResult corrected = fitCurve(root, x, y, options(FitDialect::Corrected, FitStart::FromCurrent));
+    EXPECT_EQ(corrected.status, FitStatus::Fitted);
+    EXPECT_TRUE(definedEverywhere(root, corrected, x));
+    EXPECT_FALSE(corrected.nonRealValues);
+    EXPECT_LT(corrected.parameters[1], 1.0);
+    double sum = 0;
+    for (std::size_t i = 0; i < x.size(); ++i)
+    {
+        const double deviation = y[i] - root.model(x[i], corrected.parameters);
+        sum += deviation * deviation;
+    }
+    EXPECT_DOUBLE_EQ(corrected.rmsDeviation, std::sqrt(sum / static_cast<double>(x.size())));
+}
+
+/// Gauss-Newton least squares for A*exp(B*x)+C, solving the 3x3 normal equations by Cramer's rule.
+std::vector<double> exponentialLeastSquares(std::span<const double> x, std::span<const double> y, std::vector<double> p)
+{
+    for (int iteration = 0; iteration < 100; ++iteration)
+    {
+        std::array<std::array<double, 4>, 3> normal{};
+        for (std::size_t i = 0; i < x.size(); ++i)
+        {
+            const double e = std::exp(p[1] * x[i]);
+            const std::array<double, 3> gradient = {e, p[0] * x[i] * e, 1.0};
+            const double residual = y[i] - ((p[0] * e) + p[2]);
+            for (std::size_t r = 0; r < 3; ++r)
+            {
+                for (std::size_t c = 0; c < 3; ++c)
+                {
+                    normal[r][c] += gradient[r] * gradient[c];
+                }
+                normal[r][3] += gradient[r] * residual;
+            }
+        }
+        const auto determinant = [&normal](std::size_t replaced)
+        {
+            std::array<std::array<double, 3>, 3> m{};
+            for (std::size_t r = 0; r < 3; ++r)
+            {
+                for (std::size_t c = 0; c < 3; ++c)
+                {
+                    m[r][c] = normal[r][c == replaced ? 3 : c];
+                }
+            }
+            return (m[0][0] * ((m[1][1] * m[2][2]) - (m[1][2] * m[2][1]))) - (m[0][1] * ((m[1][0] * m[2][2]) - (m[1][2] * m[2][0]))) +
+                   (m[0][2] * ((m[1][0] * m[2][1]) - (m[1][1] * m[2][0])));
+        };
+        const double full = determinant(3);
+        for (std::size_t k = 0; k < 3; ++k)
+        {
+            p[k] += determinant(k) / full;
+        }
+    }
+    return p;
+}
+
+TEST(CurveFit, CorrectedKeepsEachMinimizersBestVector)
+{
+    // Exponential decay with N(0, 0.15) noise (mt19937_64 seeds 1004 and 1008, MSVC's normal_distribution),
+    // fitted from scratch. Tracker keeps the last vector Newton evaluated: for seed 1004 a rejected one with
+    // twice the deviation of Newton's best, for seed 1008 it restores the start although Newton improved it.
+    const std::vector<std::pair<int, std::vector<double>>> datasets = {
+        {1004,
+         {1.9946816534969869,  1.6306392391790667,  1.1207456988462838,  0.98078120911700117, 0.94618514437685608, 0.73758554128610043,
+          0.78467773244802841, 0.56986691816074264, 0.69963565729981103, 0.58437649497472333, 0.25548329339118536, 0.43175015851163023,
+          0.51059671799503292, 0.73526458205464951, 0.38419026203740936, 0.37086295563893912, 0.24353157075608994, 0.54896028791349594,
+          0.14204507279035641, 0.24177921201921659, 0.37305856464576354}},
+        {1008,
+         {1.8893983046132545,  1.4226391487150523,  1.2073537394716365,  1.1800108560899472,  1.0071897776340688,  0.84025666532458931,
+          0.88296205929575355, 0.44779481277851529, 0.68907246467601968, 0.6530300745917923,  0.54645470920045569, 0.33375085806001714,
+          0.20717174698185953, 0.41329035671084996, 0.57461282860075114, 0.10440996783372428, 0.56231074825176286, 0.54149173161255471,
+          0.15905831282811889, 0.33711862978386287, 0.11559963826003875}},
+    };
+    const FitFunction exponential = builtInFit(BuiltInFit::Exponential);
+    const auto x = grid(0, 0.1, 21);
+    for (const auto& [seed, y] : datasets)
+    {
+        SCOPED_TRACE(seed);
+        const std::vector<double> minimum = exponentialLeastSquares(x, y, {1.5, -2.0, 0.25});
+        const FitResult result = fitCurve(exponential, x, y, options(FitDialect::Corrected));
+        EXPECT_EQ(result.status, FitStatus::Fitted);
+        // The minimizers stop at Tracker's tolerances, close to the exact minimum.
+        expectNear(minimum, result.parameters, 1e-5);
+        ASSERT_EQ(result.uncertaintyStatus.size(), 3U);
+        EXPECT_TRUE(std::ranges::all_of(result.uncertaintyStatus, [](UncertaintyStatus s) { return s == UncertaintyStatus::Estimated; }));
+        // The reported deviation is that of the reported parameters.
+        double sum = 0;
+        for (std::size_t i = 0; i < x.size(); ++i)
+        {
+            const double deviation = y[i] - exponential.model(x[i], result.parameters);
+            sum += deviation * deviation;
+        }
+        EXPECT_DOUBLE_EQ(result.rmsDeviation, std::sqrt(sum / 21));
+        double minimumSum = 0;
+        for (std::size_t i = 0; i < x.size(); ++i)
+        {
+            const double deviation = y[i] - exponential.model(x[i], minimum);
+            minimumSum += deviation * deviation;
+        }
+        EXPECT_NEAR(sum, minimumSum, 1e-9 * minimumSum);
+        const FitResult tracker = fitCurve(exponential, x, y, options(FitDialect::Tracker));
+        EXPECT_GT(tracker.rmsDeviation, result.rmsDeviation * 1.1);
+    }
+}
+
+TEST(CurveFit, DegenerateDirectionsAreUndetermined)
+{
+    const auto x = grid(1, 1, 10);
+    std::vector<double> y;
+    y.reserve(x.size());
+    for (const double xi : x)
+    {
+        y.push_back(2 * xi);
+    }
+    y = wiggle(y, 0.1);
+    double sxy = 0;
+    double sxx = 0;
+    for (std::size_t i = 0; i < x.size(); ++i)
+    {
+        sxy += x[i] * y[i];
+        sxx += x[i] * x[i];
+    }
+    const double slope = sxy / sxx;
+    // B has no effect: Newton's Hessian is singular, Levenberg-Marquardt fits A, and B stays undetermined.
+    FitFunction unused;
+    unused.expression = "A*x+0*B";
+    unused.parameters = {parameter("A", 1), parameter("B", 1)};
+    unused.model = [](double xi, std::span<const double> p)
+    {
+        return (p[0] * xi) + (0 * p[1]);
+    };
+    const FitResult tracker = fitCurve(unused, x, y, options(FitDialect::Tracker, FitStart::FromCurrent));
+    EXPECT_EQ(tracker.status, FitStatus::Fitted);
+    EXPECT_EQ(tracker.parameters[0], 1.0);
+    const FitResult fitted = fitCurve(unused, x, y, options(FitDialect::Corrected, FitStart::FromCurrent));
+    EXPECT_EQ(fitted.status, FitStatus::Fitted);
+    EXPECT_NEAR(fitted.parameters[0], slope, 1e-9);
+    ASSERT_EQ(fitted.uncertaintyStatus.size(), 2U);
+    EXPECT_EQ(fitted.uncertaintyStatus[0], UncertaintyStatus::Estimated);
+    EXPECT_EQ(fitted.uncertaintyStatus[1], UncertaintyStatus::Undetermined);
+    double residuals = 0;
+    for (std::size_t i = 0; i < x.size(); ++i)
+    {
+        residuals += (y[i] - (slope * x[i])) * (y[i] - (slope * x[i]));
+    }
+    // The calibration counts B among the free parameters: sigma_y^2 = SSR / (N - 2).
+    EXPECT_NEAR(fitted.uncertainties[0], std::sqrt(residuals / 8 / sxx), 1e-3 * fitted.uncertainties[0]);
+    // Only A*B is determined: neither factor has an uncertainty.
+    FitFunction product;
+    product.expression = "A*B*x";
+    product.parameters = {parameter("A", 1), parameter("B", 1)};
+    product.model = [](double xi, std::span<const double> p)
+    {
+        return p[0] * p[1] * xi;
+    };
+    const FitResult factors = fitCurve(product, x, y, options(FitDialect::Corrected, FitStart::FromCurrent));
+    EXPECT_EQ(factors.status, FitStatus::Fitted);
+    EXPECT_NEAR(factors.parameters[0] * factors.parameters[1], slope, 1e-6);
+    EXPECT_EQ(factors.uncertaintyStatus,
+              (std::vector<UncertaintyStatus>{UncertaintyStatus::Undetermined, UncertaintyStatus::Undetermined}));
+    EXPECT_TRUE(factors.uncertaintyBand.empty());
+}
+
+TEST(CurveFit, CorrectedKeepsAnUnimprovableStartWithoutUncertainties)
+{
+    // Every move of the exponent leaves Power undefined at negative x, so nothing lowers the deviation.
+    const auto x = grid(-1, 0.25, 12);
+    const auto y = wiggle(grid(-1.7, 0.4, 12), 0.05);
+    FitFunction power = builtInFit(BuiltInFit::Power);
+    const FitResult result =
+        fitCurve(withValues(power, std::vector<double>{1, 2}), x, y, options(FitDialect::Corrected, FitStart::FromCurrent));
+    if (result.status != FitStatus::NotImproved)
+    {
+        GTEST_SKIP() << "the exponent found a defined improvement";
+    }
+    EXPECT_EQ(result.parameters, (std::vector<double>{1, 2}));
+    EXPECT_EQ(result.uncertainties, (std::vector<double>{0, 0}));
+    EXPECT_EQ(result.uncertaintyStatus, (std::vector<UncertaintyStatus>{UncertaintyStatus::Undetermined, UncertaintyStatus::Undetermined}));
+    EXPECT_TRUE(result.uncertaintyBand.empty());
 }
 
 TEST(CurveFit, SubstitutionCollisions)
@@ -512,7 +779,18 @@ TEST(CurveFit, MinimizersHandleEmptyAndUndefinedObjectives)
     };
     const auto result = motrack::science::hessianMinimize(undefined, x, 20, 1e-6);
     EXPECT_TRUE(std::isnan(result.error));
+    EXPECT_FALSE(result.reachedTolerance);
     EXPECT_EQ(x[0], 0.5);
+    // OSP's LevenbergMarquardt reports success after a NaN step; reachedTolerance does not.
+    const auto lm = motrack::science::levenbergMarquardtMinimize(undefined, x, 20, 1e-6);
+    EXPECT_TRUE(lm.converged);
+    EXPECT_FALSE(lm.reachedTolerance);
+    const auto bowl = [](std::span<const double> p)
+    {
+        return ((p[0] - 1) * (p[0] - 1)) + 1;
+    };
+    EXPECT_TRUE(motrack::science::hessianMinimize(bowl, x, 20, 1e-6).reachedTolerance);
+    EXPECT_TRUE(motrack::science::levenbergMarquardtMinimize(bowl, x, 20, 1e-6).reachedTolerance);
 }
 
 } // namespace

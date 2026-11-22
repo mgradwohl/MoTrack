@@ -23,6 +23,8 @@ struct HessianMinimizeResult
     /// singular Hessian).
     double error = 0.0;
     int iterations = 0;
+    /// The last Newton step met the tolerance (a NaN step, after a singular Hessian, does not).
+    bool reachedTolerance = false;
 };
 
 /// Ports `org.opensourcephysics.numerics.HessianMinimize.minimize` (OSP d56207b, Tracker 6.3.5).
@@ -36,10 +38,12 @@ HessianMinimizeResult hessianMinimize(const MultiVarObjective& objective, std::s
 
 struct LevenbergMarquardtResult
 {
-    /// OSP's return value: the last step met the tolerance. False leaves `x` at the best point
-    /// visited, without OSP's final comparison with the start.
+    /// OSP's return value: the loop did not end with a step above the tolerance, which includes a NaN
+    /// step. False leaves `x` at the best point visited, without OSP's final comparison with the start.
     bool converged = false;
     int iterations = 0;
+    /// The last step met the tolerance; unlike `converged`, false after a NaN step.
+    bool reachedTolerance = false;
 };
 
 /// Ports `org.opensourcephysics.numerics.LevenbergMarquardt.minimize` exactly, including its

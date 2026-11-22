@@ -3805,8 +3805,28 @@ class FitOracleTests(unittest.TestCase):
         document = copy.deepcopy(self.fixture)
         tied = self.case(document, "log/random-1")
         self.assertEqual(tied["java"]["method"], "hessian")
+        self.assertTrue(tied["java"]["tied"])
         tied["java"]["method"] = "levenberg-marquardt"
         self.check(document)
+        # A fit that lowered its deviation keeps its path, and its start compares too.
+        document = copy.deepcopy(self.fixture)
+        moved = self.case(document, "gaussian/noisy")
+        self.assertFalse(moved["java"]["tied"])
+        moved["java"]["method"] = "levenberg-marquardt"
+        with self.assertRaisesRegex(ValueError, "gaussian/noisy.java.method"):
+            self.check(document)
+        document = copy.deepcopy(self.fixture)
+        self.case(document, "gaussian/noisy")["java"]["start"]["parameters"][0] *= 1 + 1e-5
+        with self.assertRaisesRegex(ValueError, "gaussian/noisy.java.start"):
+            self.check(document)
+        document = copy.deepcopy(self.fixture)
+        lorentz = self.case(document, "user-lorentz/levenberg-marquardt")
+        self.assertEqual((lorentz["agreement"], lorentz["java"]["method"], lorentz["java"]["tied"]), ("exact", "levenberg-marquardt", False))
+        lorentz["java"]["start"]["ssr"] = math.nextafter(lorentz["java"]["start"]["ssr"], 0)
+        with self.assertRaisesRegex(ValueError, "user-lorentz/levenberg-marquardt.java.start.ssr"):
+            self.check(document)
+        document = copy.deepcopy(self.fixture)
+        tied = self.case(document, "log/random-1")
         tied["java"]["method"] = "none"
         with self.assertRaisesRegex(ValueError, "log/random-1.java.method"):
             self.check(document)

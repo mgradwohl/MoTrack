@@ -134,7 +134,9 @@ struct FitOptions
     /// uses the values the fit had at its first from-scratch fit in the session (OSP shares them between
     /// Data Tool tabs); empty means the built-in defaults.
     std::vector<double> scratchFallback;
-    /// Polled between minimizations; returning true stops the fit with `FitStatus::Cancelled`.
+    /// Called on the fitting thread every 4096 model evaluations and between uncertainty refits; returning
+    /// true stops the fit with `FitStatus::Cancelled`. Another thread usually requests cancellation, so it must
+    /// read thread-safe state, such as an `std::atomic<bool>` or an `std::stop_token`.
     std::function<bool()> cancelled;
 };
 
@@ -142,7 +144,9 @@ enum class FitStatus : std::uint8_t
 {
     /// Minimized (or solved in closed form) and kept.
     Fitted,
-    /// Neither minimizer reduced the deviation, so the starting values were kept, as in Tracker.
+    /// The starting values were kept. Tracker: the last vector the minimizers evaluated was worse than the
+    /// start. Corrected: no defined vector lowered the deviation and the start is not a minimum; there is
+    /// then no uncertainty estimate.
     NotImproved,
     /// Autofit is off: the given parameters were evaluated.
     Manual,
@@ -166,9 +170,10 @@ enum class FitMethod : std::uint8_t
     None,
     /// `PolynomialLeastSquareFit` normal equations (Corrected: scaled normal equations).
     ClosedForm,
-    /// `HessianMinimize`, kept because it did not increase the deviation.
+    /// `HessianMinimize` alone. Tracker: its last vector did not increase the deviation. Corrected: it
+    /// reached its tolerance with a lower deviation.
     Hessian,
-    /// `LevenbergMarquardt` from the Hessian result; with `FitStatus::NotImproved` it failed too.
+    /// `LevenbergMarquardt` from the Hessian result ran; with `FitStatus::NotImproved` it failed too.
     LevenbergMarquardt,
 };
 
@@ -177,7 +182,9 @@ enum class UncertaintyStatus : std::uint8_t
     Estimated,
     /// The parameter is fixed (Tracker's NaN).
     Fixed,
-    /// The chi-squared curvature was not positive (Tracker's 0, shown without an uncertainty).
+    /// The chi-squared curvature was not positive (Tracker's 0, shown without an uncertainty). Corrected also
+    /// leaves sigma undetermined for a curvature below 0.001 after ten tries, which is rounding noise along a
+    /// direction the data do not determine, and for every parameter of a `NotImproved` fit.
     Undetermined,
 };
 
@@ -217,7 +224,8 @@ fitCurve(const FitFunction& function, std::span<const double> x, std::span<const
 /// `DatasetCurveFitter.formatUncertainParameter`: "value PM sigma", PM being U+00B1 in UTF-8, with sigma rounded
 /// to one significant digit (plus `extraPlaces`) and both scaled by a shared power of ten, e.g. "(7.6 PM 0.4) E1". Nothing when
 /// sigma is NaN or not positive, or either value is not finite. Uses '.' as decimal separator; Tracker
-/// substitutes the locale's.
+/// substitutes the locale's. Rounds the shortest round-trip digits, where JDK 17's Double.toString can
+/// print one more, so a value exactly at a half-up boundary may rarely round differently.
 [[nodiscard]] std::optional<std::string> formatUncertainParameter(double value, double sigma, int extraPlaces = 0);
 
 /// Parameters for which Tracker computes a different fit from the same expression: Tracker fixes a

@@ -372,6 +372,7 @@ HessianMinimizeResult hessianMinimize(const MultiVarObjective& objective, std::s
     }
     keepBetter(objective, remembered, rememberedValue, x);
     result.error = error;
+    result.reachedTolerance = error <= threshold || relative <= threshold;
     return result;
 }
 
@@ -425,6 +426,7 @@ levenbergMarquardtMinimize(const MultiVarObjective& objective, std::span<double>
         error = std::sqrt(squared);
         relative = error / (norm + tolerance);
     }
+    result.reachedTolerance = error <= threshold || relative <= threshold;
     if (error > threshold && relative > threshold)
     {
         return result;

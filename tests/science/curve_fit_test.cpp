@@ -1,5 +1,6 @@
 #include "science/fit/curve_fit.hpp"
 
+#include "science/fit/fit_internal.hpp"
 #include "science/fit/minimizers.hpp"
 
 #include <QFile>
@@ -400,11 +401,25 @@ void expectMethod(const std::string& java, const FitResult& result, const std::s
     }
 }
 
+/// A fit reported as Fitted never ends above the deviation Java's minimization started from.
+void expectNoWorseThanTheStart(const QJsonObject& java, const FitResult& result, const std::string& id)
+{
+    const QJsonValue start = java[QStringLiteral("start")];
+    if (!start.isObject() || result.status != FitStatus::Fitted || !std::isfinite(result.rmsDeviation))
+    {
+        return;
+    }
+    const double startDeviation = number(start.toObject()[QStringLiteral("ssr")]);
+    const double deviation = result.rmsDeviation * result.rmsDeviation * static_cast<double>(result.points);
+    EXPECT_LE(deviation, (startDeviation * (1 + 1e-9)) + 1e-300) << id << " deviation above the start";
+}
+
 void expectJavaResult(const QJsonObject& c, const QJsonObject& java, const FitResult& result, const std::string& id)
 {
     const Agreement tolerance = agreement(c, java);
     EXPECT_EQ(static_cast<std::size_t>(java[QStringLiteral("points")].toInt()), result.points) << id;
     EXPECT_TRUE(close(number(java[QStringLiteral("correlation")]), result.correlation, EXACT)) << id << " correlation";
+    expectNoWorseThanTheStart(java, result, id);
     if (text(c[QStringLiteral("agreement")]) == "chaotic")
     {
         // Newton diverged in Java, so the Levenberg-Marquardt fallback's outcome depends on last bits; the
@@ -417,11 +432,13 @@ void expectJavaResult(const QJsonObject& c, const QJsonObject& java, const FitRe
     }
     if (tolerance.parameters)
     {
-        // The path is as reproducible as the parameters it produces, except that from a start already at the
-        // minimum Newton's result, the Levenberg-Marquardt fallback and the restored start tie to the last bits:
-        // a transcendental fit may take any of them that reaches the same parameters.
+        // The path is as reproducible as the parameters it produces, except for a tied fit, which ends at the
+        // deviation it started from (a start already at the minimum): Newton's result, the Levenberg-Marquardt
+        // fallback and the restored start then differ in the last bits, so a transcendental fit may take any of
+        // them that reaches the same parameters.
         const std::string method = text(java[QStringLiteral("method")]);
-        if (text(c[QStringLiteral("agreement")]) != "transcendental" || !minimizerPath(method) || !minimizerPath(result))
+        const bool tied = java[QStringLiteral("tied")].toBool() && text(c[QStringLiteral("agreement")]) == "transcendental";
+        if (!tied || !minimizerPath(method) || !minimizerPath(result))
         {
             expectMethod(method, result, id);
         }
@@ -550,9 +567,14 @@ TEST(CurveFitReference, CorrectedDialectMatchesIndependentExpectations)
         const Tolerance tolerance{.relative = parameterTolerance[QStringLiteral("relative")].toDouble(),
                                   .absolute = parameterTolerance[QStringLiteral("absolute")].toDouble()};
         const FitResult result = runCase(c, FitDialect::Corrected, text(c[QStringLiteral("fit")]));
+        EXPECT_EQ(result.status, FitStatus::Fitted);
         expectClose(numbers(expect[QStringLiteral("parameters")]), result.parameters, tolerance, id);
-        if (expect[QStringLiteral("uncertainties")].isArray() && !result.uncertainties.empty())
+        expectNoWorseThanTheStart(c[QStringLiteral("java")].toObject(), result, id);
+        if (expect[QStringLiteral("uncertainties")].isArray())
         {
+            EXPECT_TRUE(
+                std::ranges::none_of(result.uncertaintyStatus, [](UncertaintyStatus s) { return s == UncertaintyStatus::Undetermined; }))
+                << id;
             expectClose(numbers(expect[QStringLiteral("uncertainties")]),
                         result.uncertainties,
                         {.relative = expect[QStringLiteral("uncertainty_relative")].toDouble(), .absolute = 0.0},
@@ -619,6 +641,41 @@ TEST(CurveFitReference, SubstitutionDefectsComputeTheIntendedFit)
     EXPECT_EQ(checked, 3);
 }
 
+TEST(CurveFitReference, TrackerScratchGuessesMatchJava)
+{
+    // The values Java's first minimization started from: the from-scratch guess, or the defaults where
+    // there is none. Sinusoid's guess (zero crossings and extremes) is arithmetic and bitwise; the
+    // others take logarithms or exponentials.
+    int checked = 0;
+    for (const QJsonObject& c : cases())
+    {
+        const auto kind = builtInIds().find(text(c[QStringLiteral("fit")]));
+        const QJsonObject java = c[QStringLiteral("java")].toObject();
+        if (kind == builtInIds().end() || text(c[QStringLiteral("start")]) != "scratch" || c[QStringLiteral("fixed")].isArray() ||
+            !java[QStringLiteral("start")].isObject() || c.contains(QStringLiteral("generated")))
+        {
+            continue;
+        }
+        const CaseData data = caseData(c);
+        if (!std::ranges::all_of(data.x, [](double v) { return std::isfinite(v); }) ||
+            !std::ranges::all_of(data.y, [](double v) { return std::isfinite(v); }))
+        {
+            continue;
+        }
+        const std::string id = text(c[QStringLiteral("id")]);
+        SCOPED_TRACE(id);
+        const std::vector<double> defaults = motrack::science::fit_detail::builtInDefaults(kind->second);
+        const auto guess = motrack::science::fit_detail::initialGuess(kind->second, data.x, data.y, defaults, FitDialect::Tracker);
+        const Tolerance tolerance = kind->second == BuiltInFit::Sinusoid ? EXACT : TRANSCENDENTAL_PARAMETERS;
+        expectClose(numbers(java[QStringLiteral("start")].toObject()[QStringLiteral("parameters")]),
+                    guess.value_or(defaults),
+                    tolerance,
+                    id + " start");
+        ++checked;
+    }
+    EXPECT_GE(checked, 40);
+}
+
 TEST(CurveFitReference, MinimizersMatchJava)
 {
     const auto objective = [](const std::string& id) -> motrack::science::MultiVarObjective
@@ -657,6 +714,9 @@ TEST(CurveFitReference, MinimizersMatchJava)
             return p[0] < 1 ? ((p[0] - 2) * (p[0] - 2)) + (p[1] * p[1]) : NOT_A_NUMBER;
         };
     };
+    // The oracle runs both minimizers with Tracker's Data Tool settings.
+    static_assert(motrack::science::TRACKER_FIT_ITERATIONS == 20);
+    static_assert(motrack::science::TRACKER_FIT_TOLERANCE == 1e-6);
     const auto minimizers = reference()[QStringLiteral("minimizers")].toArray();
     ASSERT_EQ(minimizers.size(), 14);
     for (const auto& item : minimizers)
@@ -668,13 +728,15 @@ TEST(CurveFitReference, MinimizersMatchJava)
         const auto f = objective(text(m[QStringLiteral("objective")]));
         if (id.starts_with("hessian/"))
         {
-            const auto result = motrack::science::hessianMinimize(f, x, 20, 1e-6);
+            const auto result =
+                motrack::science::hessianMinimize(f, x, motrack::science::TRACKER_FIT_ITERATIONS, motrack::science::TRACKER_FIT_TOLERANCE);
             EXPECT_TRUE(close(number(m[QStringLiteral("result")]), result.error, EXACT));
             EXPECT_EQ(m[QStringLiteral("iterations")].toInt(), result.iterations);
         }
         else
         {
-            const auto result = motrack::science::levenbergMarquardtMinimize(f, x, 20, 1e-6);
+            const auto result = motrack::science::levenbergMarquardtMinimize(
+                f, x, motrack::science::TRACKER_FIT_ITERATIONS, motrack::science::TRACKER_FIT_TOLERANCE);
             EXPECT_EQ(m[QStringLiteral("result")].toBool(), result.converged);
             EXPECT_EQ(m[QStringLiteral("iterations")].toInt(), result.iterations);
         }
