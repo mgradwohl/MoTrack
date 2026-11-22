@@ -18,7 +18,7 @@ $pinned = Get-MoTrackToolchain
 foreach ($case in @(
         @{ Path = $null; Release = $null; Status = 'fail'; Fix = '*comes with LLVM 23.1.5*setup-dev.ps1*' }
         @{ Path = 'C:\LLVM\bin\clang.exe'; Release = $null; Status = 'fail'; Fix = '*printed no LLVM version*' }
-        @{ Path = 'C:\LLVM\bin\clang.exe'; Release = '22.1.8'; Status = 'fail'; Fix = '*is LLVM 22.1.8; MoTrack formats, analyzes and builds with LLVM 23 only*setup-dev.ps1*' }
+        @{ Path = 'C:\LLVM\bin\clang.exe'; Release = '22.1.8'; Status = 'fail'; Fix = '*is LLVM 22.1.8; MoTrack formats, analyzes and builds with LLVM 23 only*setup-dev.ps1 -ReplaceLlvm*' }
         @{ Path = 'C:\src\.dev-tools\windows\venv\Scripts\clang-format.exe'; Release = '18.1.8'; Status = 'fail'; Fix = '*PyPI clang-format*dev_sdk.py install removes it.' }
         @{ Path = 'C:\LLVM\bin\clang.exe'; Release = '23.1.6'; Status = 'warn'; Fix = 'CI installs LLVM 23.1.5*' }
         @{ Path = 'C:\LLVM\bin\clang.exe'; Release = '23.1.5'; Status = 'ok'; Fix = '' }

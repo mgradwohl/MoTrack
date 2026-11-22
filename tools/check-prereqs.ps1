@@ -55,7 +55,7 @@ function Get-LlvmToolRow {
         if ($Path -like '*\venv\Scripts\*') {
             $fix += " It is the PyPI clang-format older setups installed: python tools/dev_sdk.py install removes it."
         } else {
-            $fix += " $SetupHint"
+            $fix += ' Run tools/setup-dev.ps1 -ReplaceLlvm to replace it (preview with -DryRun -ReplaceLlvm), then open a new PowerShell and dot-source tools/dev-env.ps1.'
         }
         return New-PrereqRow $Name fail $Release $required $Path $fix
     }

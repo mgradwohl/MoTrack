@@ -95,7 +95,7 @@ check_libstdcxx() {
     fi
     if [[ -n "$dir" ]]; then args=("--gcc-install-dir=$dir"); fi
     selected="$({ clang++ ${args[@]+"${args[@]}"} -v -x c++ -E -o /dev/null /dev/null 2>&1 || true; } | sed -n 's/^Selected GCC installation: //p' | head -n 1)"
-    # <version> brings declarations along, so the answer is the line after a marker.
+    # <version> brings declarations along, so the answer is the value after a marker.
     release="$(printf '%s\n' '#include <version>' '#ifdef _LIBCPP_VERSION' 'MOTRACK_STDLIB=libc++' '#elif defined(_GLIBCXX_RELEASE)' \
         'MOTRACK_STDLIB=_GLIBCXX_RELEASE' '#endif' |
         { clang++ ${args[@]+"${args[@]}"} -std=c++23 -x c++ -E -P - 2>/dev/null || true; } | sed -n 's/^[[:space:]]*MOTRACK_STDLIB=[[:space:]]*\([^[:space:]]*\).*$/\1/p' | head -n 1)"

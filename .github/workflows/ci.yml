@@ -46,7 +46,7 @@ jobs:
           version: ${{ env.MOTRACK_QT_VERSION }}
       - name: Set up Windows SDK
         if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
         with:
           arch: x64
       - name: Select Windows LLVM
@@ -73,7 +73,7 @@ jobs:
           $reported
           $llvm | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
           "LLVM_BIN=$llvm" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-          choco install ccache --yes --no-progress
+          choco install ccache --version $env:MOTRACK_CCACHE_VERSION --yes --no-progress
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           "$env:ChocolateyInstall/bin" | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Install Linux LLVM, libstdc++ and Qt system libraries

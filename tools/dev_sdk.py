@@ -2,12 +2,14 @@
 
 Qt comes from aqtinstall (PyPI) when it is reachable. When PyPI or aqt fails, or with
 ``--qt-source direct``, the same essential archives aqt would install come straight from the Qt
-online repository: the package list and each archive's SHA-256 are read from download.qt.io itself
-(never through a mirror redirect), every archive is checked before it is extracted with a
-libarchive ``bsdtar`` (7z support), and the result is moved into the prefix ``qt-prefix`` prints.
+online repository: the package list is read from download.qt.io itself (never through a mirror
+redirect), every archive is checked against the SHA-256 pinned in tools/qt-archives.sha256 before it
+is extracted with a libarchive ``bsdtar`` (7z support), and the result is moved into the prefix
+``qt-prefix`` prints.
 """
 
 import argparse
+import datetime
 import hashlib
 import os
 from pathlib import Path
@@ -40,6 +42,21 @@ def toolchain():
 
 
 QT_VERSION = toolchain()["MOTRACK_QT_VERSION"]
+QT_ARCHIVE_PINS = ROOT / "tools" / "qt-archives.sha256"
+# Every platform's essential package, as (aqt arch, Qt directory, online-repository OS).
+QT_PACKAGES = (("win64_msvc2022_64", "msvc2022_64", "windows_x86"), ("linux_gcc_64", "gcc_64", "linux_x64"),
+               ("clang_64", "macos", "mac_x64"))
+
+
+def pinned_archives(path=QT_ARCHIVE_PINS):
+    """{'<repository OS>/<package>/<archive>': sha256} from tools/qt-archives.sha256."""
+    pins = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line and not line.startswith("#"):
+            if not (match := re.fullmatch(r"([0-9a-f]{64})  (\S+)", line)):
+                raise SystemExit(f"Malformed line in {path.name}: {line}")
+            pins[match[2]] = match[1]
+    return pins
 
 
 def platform_config():
@@ -150,15 +167,38 @@ def mark_open_source(prefix):
         qconfig.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def install_qt_direct(root, archive, directory, repository_os, version=QT_VERSION, extract=None):
-    """Install Qt's essential archives for archive (win64_msvc2022_64, ...) from download.qt.io."""
+def repository_archives(archive, directory, repository_os, version=QT_VERSION):
+    """(base URL, package, [(archive file name, target)]) from download.qt.io's current Updates.xml."""
     base = repository_url(repository_os, version)
     updates = fetch_trusted(base + "Updates.xml")
-    expected = published_sha256(base + "Updates.xml")
-    if hashlib.sha256(updates).hexdigest() != expected:
+    if hashlib.sha256(updates).hexdigest() != published_sha256(base + "Updates.xml"):
         raise SystemExit("Qt's Updates.xml does not match its published SHA-256.")
     package = f"qt.qt6.{version.replace('.', '')}.{archive}"
-    archives = essential_archives(updates, package, version, directory)
+    return base, package, essential_archives(updates, package, version, directory)
+
+
+def print_archive_checksums():
+    """Print a new tools/qt-archives.sha256 from download.qt.io's published checksums."""
+    lines = [line for line in QT_ARCHIVE_PINS.read_text(encoding="utf-8").splitlines() if line.startswith("#")]
+    lines = [re.sub(r"on \d{4}-\d{2}-\d{2}", f"on {datetime.date.today().isoformat()}", line) for line in lines]
+    for archive, directory, repository_os in QT_PACKAGES:
+        base, package, archives = repository_archives(archive, directory, repository_os)
+        lines += [f"{published_sha256(f'{base}{package}/{name}')}  {repository_os}/{package}/{name}" for name, _ in archives]
+    print("\n".join(lines))
+
+
+def install_qt_direct(root, archive, directory, repository_os, version=QT_VERSION, extract=None, pins=None):
+    """Install Qt's essential archives for archive (win64_msvc2022_64, ...) from download.qt.io."""
+    base, package, archives = repository_archives(archive, directory, repository_os, version)
+    pins = pinned_archives() if pins is None else pins
+    prefix_key = f"{repository_os}/{package}/"
+    listed = {prefix_key + name for name, _ in archives}
+    pinned = {key for key in pins if key.startswith(prefix_key)}
+    if listed != pinned:
+        names = ", ".join(sorted(key.removeprefix(prefix_key) for key in listed ^ pinned))
+        raise SystemExit(f"download.qt.io's {package} archives differ from tools/qt-archives.sha256 ({names}). "
+                         "If Qt republished them, review the change, then run python tools/dev_sdk.py "
+                         "qt-archive-checksums.")
     downloads = root / "qt-downloads"
     staging = root / "qt.partial"
     downloads.mkdir(parents=True, exist_ok=True)
@@ -166,14 +206,14 @@ def install_qt_direct(root, archive, directory, repository_os, version=QT_VERSIO
     tar = None if extract else find_bsdtar()
     for name, target in archives:
         url = f"{base}{package}/{name}"
-        checksum = published_sha256(url)
+        checksum = pins[prefix_key + name]
         path = downloads / name
         if not path.is_file() or sha256(path) != checksum:
             print(f"Downloading {name}", flush=True)
             download(url, path)
         if (actual := sha256(path)) != checksum:
             path.unlink()
-            raise SystemExit(f"{name} has SHA-256 {actual}, but download.qt.io publishes {checksum}.")
+            raise SystemExit(f"{name} has SHA-256 {actual}, but tools/qt-archives.sha256 pins {checksum}.")
         destination = staging / target
         destination.mkdir(parents=True, exist_ok=True)
         print(f"Extracting {name}", flush=True)
@@ -228,7 +268,7 @@ def install(root, host, archive, directory, repository_os, source):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=["install", "qt-prefix", "tools-root"])
+    parser.add_argument("command", choices=["install", "qt-prefix", "tools-root", "qt-archive-checksums"])
     parser.add_argument("--qt-source", choices=["auto", "aqt", "direct"],
                         default=os.environ.get("MOTRACK_QT_SOURCE", "auto"),
                         help="aqt, the verified download.qt.io archives, or aqt with that fallback (default; "
@@ -239,6 +279,8 @@ def main():
     prefix = root / "qt" / QT_VERSION / directory
     if args.command == "install":
         install(root, host, archive, directory, repository_os, args.qt_source)
+    elif args.command == "qt-archive-checksums":
+        print_archive_checksums()
     elif args.command == "qt-prefix":
         print(prefix)
     else:

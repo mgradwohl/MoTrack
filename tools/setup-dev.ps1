@@ -2,20 +2,25 @@
 .SYNOPSIS
 Installs the pinned MoTrack developer toolchain on Windows x64 and downloads the local Qt and media SDKs.
 .DESCRIPTION
-The versions come from tools/toolchain.env, the same pins CI uses. Visual Studio 2026 Build Tools, the
-Windows SDK 26100, Git, CMake, Ninja, ccache and Python install through WinGet at their pinned
-versions; a tool that is already present at or above MoTrack's floor is left alone. LLVM is the
-SHA-256-verified LLVM-<version>-win64.msi from LLVM's GitHub release, the same file Windows CI installs.
-Exactly one LLVM, of the pinned major, is left in C:\Program Files\LLVM: an install of another major is
-uninstalled first (all of its registrations, since side-by-side MSIs share that directory).
+The versions come from tools/toolchain.env, the same pins CI uses. The Windows SDK 26100, CMake, Ninja,
+ccache and Python install through WinGet at their pinned versions. Visual Studio Build Tools is
+WinGet's current Visual Studio 2026 (18.x) and Git its current release. A tool that is already present
+at or above MoTrack's floor is left alone. LLVM is the SHA-256-verified LLVM-<version>-win64.msi from
+LLVM's GitHub release, the same file Windows CI installs, into C:\Program Files\LLVM.
+An LLVM of another major in C:\Program Files\LLVM has to be uninstalled first, all of its installer
+registrations included, since side-by-side LLVM installers share that directory. Setup does that only
+with -ReplaceLlvm, after the new installer has been downloaded and verified. LLVM installed in any
+other directory is left alone.
 Run it from a normal PowerShell: the installers ask for administrator approval (UAC) themselves.
 .PARAMETER DryRun
 Prints every install, uninstall and download it would run, and runs none of them.
 .PARAMETER Build
 Configures, builds and tests MoTrack after setup.
+.PARAMETER ReplaceLlvm
+Allows setup to uninstall the LLVM installations in C:\Program Files\LLVM that are not the pinned major.
 #>
 [CmdletBinding()]
-param([switch]$DryRun, [switch]$Build)
+param([switch]$DryRun, [switch]$Build, [switch]$ReplaceLlvm)
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'dev-env.ps1') -NoActivate
@@ -150,8 +155,9 @@ function Get-MissingWindowsSdkFile {
 # -- LLVM: exactly one install, of the pinned major --------------------------------------------------
 # LLVM's MSIs install side by side, each registered with InstallLocation C:\Program Files\LLVM, and
 # older majors used an NSIS installer: the last one installed wins on disk, and uninstalling one can
-# remove files the others share. So when anything there is another major, every registration is
-# uninstalled before the pinned MSI is installed (TaskSmack's approach, #3041 there).
+# remove files the others share. So when anything there is another major, every registration in that
+# directory is uninstalled before the pinned MSI is installed (TaskSmack's approach, #3041 there), with
+# -ReplaceLlvm and only once the new MSI has been downloaded and verified.
 
 $LlvmUninstallKeys = @(
     'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
@@ -159,9 +165,28 @@ $LlvmUninstallKeys = @(
     'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
 )
 
-# Every installer registration of an LLVM in $LlvmDir, read from the uninstall keys.
+# A directory path in one spelling (environment variables expanded, no trailing separator), or $null.
+function ConvertTo-LlvmDirectory {
+    param([string]$Path)
+    if (-not $Path) { return $null }
+    try { return [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($Path.Trim())).TrimEnd('\') }
+    catch { return $null }
+}
+
+# The directory a registration installed into: its InstallLocation, else the directory of the uninstaller
+# its UninstallString runs. LLVM's NSIS installers (before LLVM 23) write no InstallLocation; their
+# uninstaller is <directory>\Uninstall.exe. $null when neither says, as for an MSI without InstallLocation.
+function Get-LlvmRegistrationDirectory {
+    param([string]$InstallLocation, [string]$UninstallString)
+    if ($InstallLocation) { return ConvertTo-LlvmDirectory $InstallLocation }
+    $exe = if ($UninstallString -match '^\s*"([^"]+)"') { $Matches[1] } elseif ($UninstallString -match '^\s*(.+?\.exe)(\s|$)') { $Matches[1] } else { $null }
+    if (-not $exe -or (Split-Path -Leaf $exe) -ieq 'msiexec.exe') { return $null }
+    return ConvertTo-LlvmDirectory (Split-Path -Parent $exe)
+}
+
+# Every installer registration of LLVM in the uninstall keys, wherever it is installed (Location; $null
+# when the registration does not say).
 function Get-InstalledLlvm {
-    $dir = $LlvmDir.TrimEnd('\')
     foreach ($root in $LlvmUninstallKeys) {
         foreach ($key in @(Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue)) {
             $item = Get-ItemProperty -LiteralPath $key.PSPath -ErrorAction SilentlyContinue
@@ -169,14 +194,13 @@ function Get-InstalledLlvm {
             $properties = $item.PSObject.Properties
             $value = { param($Name) if ($properties[$Name]) { "$($properties[$Name].Value)".Trim() } else { '' } }
             if ((& $value 'DisplayName') -notmatch '^LLVM(\s+v?\d[\d.]*)?$') { continue }
-            $location = (& $value 'InstallLocation').TrimEnd('\')
-            if ($location -and $location -ne $dir) { continue }
             $version = & $value 'DisplayVersion'
             $isMsi = (& $value 'WindowsInstaller') -eq '1' -and $key.PSChildName -match '^\{[0-9A-Fa-f-]{36}\}$'
             [pscustomobject]@{
                 Version              = $version
                 Major                = if ($version -match '^(\d+)') { [int]$Matches[1] } else { $null }
                 ProductCode          = if ($isMsi) { $key.PSChildName } else { $null }
+                Location             = Get-LlvmRegistrationDirectory -InstallLocation (& $value 'InstallLocation') -UninstallString (& $value 'UninstallString')
                 UninstallString      = & $value 'UninstallString'
                 QuietUninstallString = & $value 'QuietUninstallString'
                 Key                  = $key.PSPath
@@ -280,19 +304,16 @@ function Invoke-LlvmUninstall {
     }
 }
 
-# Download LLVM-<version>-win64.msi from LLVM's GitHub release, check its pinned SHA-256 and install it
-# into its default C:\Program Files\LLVM. msiexec /passive asks for administrator approval itself.
-function Install-LlvmMsi {
+# Download LLVM-<version>-win64.msi from LLVM's GitHub release and check its pinned SHA-256; returns its
+# path. Runs before anything is uninstalled, so an outage or a changed file leaves the current LLVM.
+function Get-LlvmMsi {
     $name = "LLVM-$LlvmVersion-win64.msi"
     $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-$LlvmVersion/$name"
     $directory = Join-Path ([IO.Path]::GetTempPath()) 'motrack-setup'
     $installer = Join-Path $directory $name
-    $log = Join-Path $directory "llvm-$LlvmVersion-msi.log"
-    $arguments = "/i `"$installer`" /passive /norestart /l*v `"$log`""
     if ($DryRun) {
         Write-Host "[dry-run] download $url (SHA-256 $LlvmSha256)"
-        Write-Host "[dry-run] msiexec.exe $arguments"
-        return
+        return $installer
     }
     New-Item -ItemType Directory -Force -Path $directory | Out-Null
     Write-Host "  Downloading $url"
@@ -300,7 +321,21 @@ function Install-LlvmMsi {
     $actual = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($actual -ne $LlvmSha256) {
         Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue
-        throw "$name has SHA-256 $actual, but tools/toolchain.env pins $LlvmSha256. Nothing was installed."
+        throw "$name has SHA-256 $actual, but tools/toolchain.env pins $LlvmSha256. Nothing was uninstalled or installed."
+    }
+    return $installer
+}
+
+# Install the verified MSI into its default C:\Program Files\LLVM. msiexec /passive asks for
+# administrator approval itself.
+function Install-LlvmMsi {
+    param([Parameter(Mandatory)][string]$Installer)
+    $name = Split-Path -Leaf $Installer
+    $log = Join-Path (Split-Path -Parent $Installer) "llvm-$LlvmVersion-msi.log"
+    $arguments = "/i `"$Installer`" /passive /norestart /l*v `"$log`""
+    if ($DryRun) {
+        Write-Host "[dry-run] msiexec.exe $arguments"
+        return
     }
     $process = Start-Process -FilePath msiexec.exe -ArgumentList $arguments -Wait -PassThru
     if (@(0, 1641, 3010) -notcontains $process.ExitCode) {
@@ -308,7 +343,7 @@ function Install-LlvmMsi {
         throw "Installing $name failed with msiexec exit code $($process.ExitCode) (log: $log)."
     }
     if ($process.ExitCode -ne 0) { Write-Warning "Windows needs a restart to finish installing LLVM $LlvmVersion (msiexec $($process.ExitCode))." }
-    Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $Installer -Force -ErrorAction SilentlyContinue
 }
 
 # The LLVM step: leave exactly one LLVM, of the pinned major, in $LlvmDir, or stop with an error.
@@ -316,13 +351,17 @@ function Install-PinnedLlvm {
     [CmdletBinding()]
     param()
     $byVersion = { $parsed = $null; if ([version]::TryParse($_.Version, [ref]$parsed)) { $parsed } else { [version]'0.0' } }
-    $installed = @(Get-InstalledLlvm | Sort-Object -Property Major, $byVersion)
+    $registrations = @(Get-InstalledLlvm | Sort-Object -Property Major, $byVersion)
+    $directory = ConvertTo-LlvmDirectory $LlvmDir
     $release = Get-LlvmClangRelease
     $clangMajor = if ($release -match '^(\d+)\.') { [int]$Matches[1] } else { $null }
-    foreach ($registration in $installed) {
+    foreach ($registration in $registrations) {
         $kind = if ($registration.ProductCode) { "MSI $($registration.ProductCode)" } else { 'NSIS .exe' }
-        Write-Host "  Registered: LLVM $($registration.Version) ($kind)"
+        $where = if ($registration.Location) { $registration.Location } else { 'an unrecorded directory' }
+        $note = if ($registration.Location -ieq $directory) { '' } else { "; leaving it (MoTrack uses only $LlvmDir)" }
+        Write-Host "  Registered: LLVM $($registration.Version) ($kind) in $where$note"
     }
+    $installed = @($registrations | Where-Object { $_.Location -and $_.Location -ieq $directory })
     if ($release) { Write-Host "  $LlvmDir\bin\clang.exe is LLVM $release" }
     $plan = Get-LlvmInstallPlan -Installed $installed -PinnedMajor $LlvmMajor -ClangMajor $clangMajor
     if ($plan.Note) { Write-Host "  $($plan.Note)" }
@@ -331,8 +370,19 @@ function Install-PinnedLlvm {
         Write-Host "  LLVM $LlvmMajor is already installed; leaving it.$pin"
         return
     }
-    foreach ($registration in $plan.Remove) { Invoke-LlvmUninstall -Registration $registration }
-    Install-LlvmMsi
+    $remove = @($plan.Remove)
+    if ($remove.Count -and -not $ReplaceLlvm) {
+        $list = ($remove | ForEach-Object { "LLVM $(if ($_.Version) { $_.Version } else { '(no version)' })" }) -join ', '
+        $message = "Installing LLVM $LlvmVersion in $LlvmDir first means uninstalling $list there. Rerun with -ReplaceLlvm to let setup do that (preview it with -DryRun -ReplaceLlvm), or uninstall them from Settings > Apps."
+        if ($DryRun) {
+            Write-Host "[dry-run] stop: $message"
+            return
+        }
+        throw $message
+    }
+    $installer = Get-LlvmMsi
+    foreach ($registration in $remove) { Invoke-LlvmUninstall -Registration $registration }
+    Install-LlvmMsi -Installer $installer
     $check = "$LlvmDir\bin\clang.exe --version"
     if ($DryRun) {
         Write-Host "[dry-run] $check (must report LLVM $LlvmVersion)"
