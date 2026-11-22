@@ -5,7 +5,7 @@
 #include "track_identity.hpp"
 #include "tracker_archive.hpp"
 #include "tracker_import.hpp"
-#include "tracker_loaders.hpp"
+#include "model/tracker_loaders.hpp"
 #include "workspace_document_codec.hpp"
 #include "workspace_storage.hpp"
 

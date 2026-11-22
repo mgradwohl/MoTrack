@@ -81,7 +81,8 @@ struct LinearFit
 [[nodiscard]] bool validConstantClipTiming(const Clip& clip);
 
 /// Timing edits/history require media-free projects with no unverified model or data time source.
-/// Point masses, independent vectors and retained axes/protractors are currently supported.
+/// Point masses, independent vectors and retained axes/protractors are currently supported. The guard itself
+/// belongs to the typed model (model::supportsConstantClipTimingEdits); this applies it to the legacy view.
 [[nodiscard]] bool supportsConstantClipTimingEdits(const LegacyProject& project);
 
 /// Exports the saved point-mass marks that fall inside the clip. Unknown world coordinates stay blank.

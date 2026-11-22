@@ -1,7 +1,7 @@
-#include "source_edits.hpp"
+#include "model/source_edits.hpp"
 
 #include "osp/value.hpp"
-#include "tracker_loaders.hpp"
+#include "model/tracker_loaders.hpp"
 
 #include <gtest/gtest.h>
 

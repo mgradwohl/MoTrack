@@ -1,8 +1,7 @@
+#include "corpus_documents.hpp"
 #include "osp/render.hpp"
 #include "osp/source.hpp"
 #include "osp/value.hpp"
-#include "utf8_path.hpp"
-#include "utf8_thread_locale.hpp"
 
 #include <gtest/gtest.h>
 
@@ -36,17 +35,11 @@ using motrack::osp::PropertyType;
 using motrack::osp::PropertyValue;
 using motrack::osp::Source;
 
-constexpr std::size_t MAX_MEMBER_BYTES = std::size_t{32} * 1024 * 1024;
 /// Quirk fixtures and fuzzed inputs include documents whose objects reach end of file (#243).
 constexpr motrack::osp::ParseLimits ACCEPT_TRUNCATED{.acceptTruncated = true};
 constexpr motrack::osp::ParseLimits FUZZ_LIMITS{.maxDepth = 64, .maxNodes = 100000, .acceptTruncated = true};
 
-struct Document
-{
-    std::string label;
-    std::string bytes;
-    bool quirk = false; ///< Synthetic reader fixture (tests/fixtures/osp) rather than a Tracker experiment.
-};
+using Document = motrack::test::CorpusDocument;
 
 /// SplitMix64: deterministic on every platform.
 class Random
@@ -82,109 +75,9 @@ class Random
     std::uint64_t m_State;
 };
 
-std::string readFile(const std::filesystem::path& path)
-{
-    std::ifstream stream(path, std::ios::binary);
-    return {std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
-}
-
-bool xmlName(std::string_view name)
-{
-    return name.ends_with(".trk") || name.ends_with(".xml");
-}
-
-/// XML members of a Tracker archive, read in memory with TrackerArchive's name rules: UTF-8 names whatever the
-/// C locale (#275), and a header warning, such as a name that is not UTF-8, fails instead of ending the list.
-std::vector<Document> archiveMembers(const std::string& label, const std::string& bytes)
-{
-    const motrack::ScopedUtf8ThreadLocale utf8Names;
-    const std::unique_ptr<archive, decltype(&archive_read_free)> reader(archive_read_new(), &archive_read_free);
-    if (!reader || archive_read_support_format_zip(reader.get()) != ARCHIVE_OK ||
-        archive_read_set_format_option(reader.get(), "zip", "hdrcharset", "UTF-8") != ARCHIVE_OK ||
-        archive_read_open_memory(reader.get(), bytes.data(), bytes.size()) != ARCHIVE_OK)
-    {
-        throw std::runtime_error("Could not open archive " + label);
-    }
-    std::vector<Document> members;
-    archive_entry* entry = nullptr;
-    for (auto status = archive_read_next_header(reader.get(), &entry); status != ARCHIVE_EOF;
-         status = archive_read_next_header(reader.get(), &entry))
-    {
-        const char* path = status == ARCHIVE_OK ? archive_entry_pathname_utf8(entry) : nullptr;
-        if (path == nullptr)
-        {
-            const char* error = archive_error_string(reader.get());
-            throw std::runtime_error("Could not read a member header of archive " + label + ": " + (error != nullptr ? error : "no name"));
-        }
-        const std::string name = path;
-        const auto size = archive_entry_size(entry);
-        if (!xmlName(name) || size < 0 || std::cmp_greater(size, MAX_MEMBER_BYTES))
-        {
-            continue;
-        }
-        std::string data(static_cast<std::size_t>(size), '\0');
-        if (std::cmp_not_equal(archive_read_data(reader.get(), data.data(), data.size()), data.size()))
-        {
-            throw std::runtime_error("Could not read an archive member of " + label);
-        }
-        auto memberLabel = label;
-        memberLabel += '!';
-        memberLabel += name;
-        members.push_back({.label = std::move(memberLabel), .bytes = std::move(data)});
-    }
-    return members;
-}
-
-/// Every distinct .trk/.xml under tests/fixtures and tests/corpus/fixtures, including members of .trz archives.
-/// Archive members that repeat a linked experiment byte for byte are checked once.
 const std::vector<Document>& corpus()
 {
-    static const std::vector<Document> documents = []
-    {
-        std::vector<Document> result;
-        std::set<std::string> seen;
-        const auto add = [&](Document document)
-        {
-            if (seen.insert(document.bytes).second)
-            {
-                result.push_back(std::move(document));
-            }
-        };
-        for (const auto* rootText : {MOTRACK_FIXTURES, MOTRACK_CORPUS_FIXTURES})
-        {
-            const auto root = motrack::utf8Path(rootText);
-            std::vector<std::filesystem::path> paths;
-            for (const auto& entry : std::filesystem::recursive_directory_iterator(root))
-            {
-                // library/ holds ComPADRE web-service responses for the library census (A2), which are
-                // plain XML rather than OSP XMLControl documents.
-                const auto relative = motrack::genericUtf8String(std::filesystem::relative(entry.path(), root));
-                if (entry.is_regular_file() && !relative.starts_with("library/"))
-                {
-                    paths.push_back(entry.path());
-                }
-            }
-            std::ranges::sort(paths);
-            for (const auto& path : paths)
-            {
-                const auto label = motrack::genericUtf8String(std::filesystem::relative(path, root));
-                const auto name = motrack::utf8String(path.filename());
-                if (xmlName(name))
-                {
-                    add({.label = label, .bytes = readFile(path), .quirk = path.parent_path().filename() == "osp"});
-                }
-                else if (name.ends_with(".trz"))
-                {
-                    for (auto& member : archiveMembers(label, readFile(path)))
-                    {
-                        add(std::move(member));
-                    }
-                }
-            }
-        }
-        return result;
-    }();
-    return documents;
+    return motrack::test::corpusDocuments();
 }
 
 std::string replaceAll(std::string text, std::string_view from, std::string_view to)

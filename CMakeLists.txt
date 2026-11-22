@@ -56,11 +56,19 @@ add_library(motrack_library STATIC src/library/collection.cpp src/library/compad
 target_include_directories(motrack_library PUBLIC src)
 target_link_libraries(motrack_library PUBLIC motrack_osp)
 
-add_library(motrack_project STATIC src/archive_group.cpp src/archive_group_session.cpp src/document_session.cpp src/legacy_project.cpp src/local_media_path.cpp src/paired_save.cpp src/save_state.cpp src/save_observation.cpp src/measurements.cpp src/source_edits.cpp src/track_edits.cpp src/track_identity.cpp
-    src/tracker_archive.cpp src/tracker_archive_writer.cpp src/tracker_loaders.cpp src/tracker_references.cpp src/tracker_rename.cpp src/tracker_writer.cpp src/workspace_document.cpp src/workspace_session.cpp src/workspace_storage.cpp)
+# The typed Tracker document (docs/tracker-document.md): typed loaders, source edits, families, descriptors, identities
+# and the unit and name codecs. Public headers are standard-only; Qt Core is linked privately for the codecs' QChar
+# classification only.
+add_library(motrack_model STATIC src/model/codecs.cpp src/model/descriptors.cpp src/model/families.cpp src/model/source_edits.cpp
+    src/model/tracker_document.cpp src/model/tracker_loaders.cpp)
+target_include_directories(motrack_model PUBLIC src)
+target_link_libraries(motrack_model PUBLIC motrack_osp motrack_dependencies PRIVATE Qt6::Core)
+
+add_library(motrack_project STATIC src/archive_group.cpp src/archive_group_session.cpp src/document_session.cpp src/legacy_project.cpp src/legacy_view.cpp src/local_media_path.cpp src/paired_save.cpp src/save_state.cpp src/save_observation.cpp src/measurements.cpp src/track_edits.cpp src/track_identity.cpp
+    src/tracker_archive.cpp src/tracker_archive_writer.cpp src/tracker_references.cpp src/tracker_rename.cpp src/tracker_writer.cpp src/workspace_document.cpp src/workspace_session.cpp src/workspace_storage.cpp)
 target_include_directories(motrack_project PUBLIC src)
 # Tracker import/export reads and patches XML through motrack_osp only; QtXml is a test diagnostic dependency.
-target_link_libraries(motrack_project PUBLIC Qt6::Core motrack_osp PRIVATE motrack_archive motrack_motion)
+target_link_libraries(motrack_project PUBLIC Qt6::Core motrack_osp motrack_model PRIVATE motrack_archive motrack_motion)
 
 # Package validation decodes staged images/movies without adding codecs to the project model.
 add_library(motrack_image_package STATIC src/tracker_image_package.cpp)
@@ -222,7 +230,7 @@ if(MOTRACK_STAGE_DESKTOP)
     install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/motrack)
 endif()
 
-set(motrack_targets motrack_dependencies motrack_osp motrack_library motrack_expression motrack_ode motrack_fit motrack_analysis motrack_motion motrack_project motrack_input motrack_image_package motrack_media motrack_capture motrack_workspace motrack_locale motrack motrack_java_math)
+set(motrack_targets motrack_dependencies motrack_osp motrack_model motrack_library motrack_expression motrack_ode motrack_fit motrack_analysis motrack_motion motrack_project motrack_input motrack_image_package motrack_media motrack_capture motrack_workspace motrack_locale motrack motrack_java_math)
 if(MOTRACK_BUILD_BENCHMARKS)
     add_executable(motrack_import_benchmark benchmarks/import_benchmark.cpp)
     target_link_libraries(motrack_import_benchmark PRIVATE motrack_project)
@@ -286,9 +294,9 @@ if(BUILD_TESTING)
         tests/science/decimal_conversion_test.cpp tests/science/expression_reference_test.cpp tests/science/expression_test.cpp tests/science/java_math_test.cpp
         tests/osp_java_text_test.cpp tests/osp_source_test.cpp tests/source_edits_test.cpp tests/osp_render_test.cpp tests/osp_corpus_test.cpp
         tests/science/ode_solver_test.cpp tests/science/data_analysis_test.cpp tests/science/fft_test.cpp tests/science/analysis_reference_test.cpp
-        tests/model/dependency_graph_test.cpp tests/model/name_binding_test.cpp
+        tests/model/dependency_graph_test.cpp tests/model/name_binding_test.cpp tests/model/tracker_document_test.cpp tests/model/legacy_view_parity_test.cpp
         tests/library_paths_test.cpp tests/library_collection_test.cpp tests/library_compadre_test.cpp tests/library_limits_test.cpp)
-    target_link_libraries(motrack_tests PRIVATE motrack_osp motrack_library motrack_project motrack_dependencies motrack_java_math motrack_expression motrack_ode motrack_analysis
+    target_link_libraries(motrack_tests PRIVATE motrack_osp motrack_library motrack_model motrack_project motrack_dependencies motrack_java_math motrack_expression motrack_ode motrack_analysis
         motrack_image_package GTest::gtest_main motrack_archive Qt6::Xml Qt6::Gui)
     target_compile_definitions(motrack_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
