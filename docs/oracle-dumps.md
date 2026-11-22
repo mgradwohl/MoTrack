@@ -149,9 +149,9 @@ derivative classes as well (see [motion kernels](motion-kernels.md)).
   central differences divide rounded position differences by Δt and Δt², so differentiating world positions
   instead of image displacements differs by rounding amplified by those factors. They do not cover an algorithm
   difference, such as the three-point acceleration MoTrack used before it adopted Tracker's five-point fit
-  (#207). Both are exercised by the finite rows above; in `finite-derivatives` MoTrack differs from Tracker by at
-  most 6e-15 m/s in velocity and 1.4e-14 m/s² in acceleration. These bounds are for this oracle, not a universal rule for future fits,
-  tracking or solvers.
+  (#207). Both are exercised by the finite rows above; in `finite-derivatives` MoTrack differs from Tracker
+  by at most 9e-15 m/s in velocity and 2e-14 m/s² in acceleration. These bounds are for this oracle, not a
+  universal rule for future fits, tracking or solvers.
 - Data rows are matched by their `frame` column and clip steps by their index, so missing, extra and remapped
   rows or steps are reported individually.
 

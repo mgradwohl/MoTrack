@@ -4338,8 +4338,9 @@ class TrackerStateTests(unittest.TestCase):
                          corpus.gap_baseline_text(corpus.gap_baseline(baseline)))
 
     def test_finite_derivatives_dump_matches_independent_closed_forms(self):
-        # FiniteDerivativesFixture.java's marks are cubic in the clip step k, so Tracker's stencils have closed forms:
-        # velocity b + 2ck + 3dk² + d px per step and acceleration 2c + 6dk px per step². Step times are
+        # FiniteDerivativesFixture.java's marks are polynomials in the clip step k (quartic in x, cubic in y), so
+        # Tracker's stencils have closed forms: a + bk + ck² + dk³ + ek⁴ gives b + 2ck + 3dk² + d + e(4k³ + 4k) px per
+        # step and, from (2, −1, −2, −1, 2)/7, 2c + 6dk + e(12k² + 62/7) px per step². Step times are
         # k · duration · step size + start (StepperClipControl, VideoPlayer); world components undo the fixed
         # calibration (125 and 100 px per m, 30°). Windows that include the missing step 8 stay blank (#332).
         dump = corpus.read_state(corpus.state_path("finite-derivatives"), self.manifest)
@@ -4357,17 +4358,23 @@ class TrackerStateTests(unittest.TestCase):
         def time(k):
             return (k * (1000.0 / 30) * 3 + 400) / 1000
 
+        def acceleration(k, quartic):
+            # quartic is the stencil's response to k⁴: Tracker 12k² + 62/7, three-point 12k² + 2, the
+            # (−1, 16, −30, 16, −1)/12 central difference 12k². All three give 2c + 6dk on the cubic part.
+            dt2 = ((time(k + 2) - time(k - 2)) / 4) ** 2
+            return [value / dt2 for value in world(1.5 - 0.375 * k + quartic / 256, 5 + 0.1875 * k)]
+
         compared = {"v_{x}": 0, "a_{x}": 0}
         for k in marked:
             row, expected = rows[4 + 3 * k], {"t": time(k), "step": k}
             if {k - 1, k + 1} <= set(marked):
                 dt = (time(k + 1) - time(k - 1)) / 2
-                vx, vy = (value / dt for value in world(15.9375 + 1.5 * k - 0.1875 * k * k, -39.96875 + 5 * k + 0.09375 * k * k))
-                expected.update({"v_{x}": vx, "v_{y}": vy, "p_{x}": 0.75 * vx, "p_{y}": 0.75 * vy, "K": 0.375 * (vx * vx + vy * vy)})
+                vx, vy = (value / dt for value in world(15.9375 + 1.5 * k - 0.1875 * k * k + (4 * k ** 3 + 4 * k) / 256,
+                                                        -39.96875 + 5 * k + 0.09375 * k * k))
+                expected.update({"v_{x}": vx, "v_{y}": vy, "p_{x}": 0.75 * vx, "p_{y}": 0.75 * vy,
+                                 "K": 0.375 * (vx * vx + vy * vy)})
             if set(range(k - 2, k + 3)) <= set(marked):
-                dt2 = ((time(k + 2) - time(k - 2)) / 4) ** 2
-                ax, ay = (value / dt2 for value in world(1.5 - 0.375 * k, 5 + 0.1875 * k))
-                expected.update({"a_{x}": ax, "a_{y}": ay})
+                expected["a_{x}"], expected["a_{y}"] = acceleration(k, 12 * k * k + 62 / 7)
             for name in ["v_{x}", "v_{y}", "a_{x}", "a_{y}", "K"]:
                 if name not in expected:
                     self.assertEqual(row[name], "NaN", (k, name))
@@ -4375,6 +4382,10 @@ class TrackerStateTests(unittest.TestCase):
                 compared[name] = compared.get(name, 0) + 1
                 self.assertAlmostEqual(row[name], value, delta=1e-9 * max(1.0, abs(value)), msg=(k, name))
         self.assertEqual((compared["v_{x}"], compared["a_{x}"]), (11, 7))
+        # At k = 2 the stencils give 871/896, 121/128 and 15/16 px per step² on x: the dump holds Tracker's own,
+        # far outside the 1e-7 acceleration tolerance from the other two.
+        for quartic in [12 * 2 * 2 + 2, 12 * 2 * 2]:
+            self.assertGreater(abs(rows[10]["a_{x}"] - acceleration(2, quartic)[0]), 0.01, quartic)
 
     def test_state_diff_command_compares_two_files_and_rejects_misuse(self):
         expected, actual = self.root / "tracker.json", self.root / "motrack.json"

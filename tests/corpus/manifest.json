@@ -4601,8 +4601,8 @@
       "id": "finite-derivatives",
       "local_file": "fixtures/finite-derivatives.trk",
       "file": "finite-derivatives.trk",
-      "bytes": 9387,
-      "sha256": "b6d99425d5614e7942e0fc256a5c4ffb67ea27f7bbd4a151d6aa08503d12c90c",
+      "bytes": 9431,
+      "sha256": "e956862952d175accaac19baed133330377ae6dbec207614e3a84d4f25716925",
       "tracker_version": "6.3.5",
       "features": [
         "finite-velocity",
@@ -4623,7 +4623,7 @@
         "R14"
       ],
       "expected": "expected/finite-derivatives.json",
-      "provenance": "Authored by tools/reference/FiniteDerivativesFixture.java with checksum-pinned Tracker 6.3.5 serializers (trailing null elements omitted as TrackerPanel's saver does): a 16-step media-free clip from frame 4 with step size 3, 30 fps and a 400 ms start time, a fixed 30-degree calibration and 15 dyadic cubic marks with step 8 missing (#332); reproduced byte-for-byte; no MoTrack output used."
+      "provenance": "Authored by tools/reference/FiniteDerivativesFixture.java with checksum-pinned Tracker 6.3.5 serializers (trailing null elements omitted as TrackerPanel's saver does): a 16-step media-free clip from frame 4 with step size 3, 30 fps and a 400 ms start time, a fixed 30-degree calibration and 15 dyadic marks, quartic in x and cubic in y, with step 8 missing (#332); reproduced byte-for-byte; no MoTrack output used."
     },
     {
       "id": "center-of-mass",

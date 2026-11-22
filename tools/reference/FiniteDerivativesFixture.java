@@ -18,10 +18,11 @@ import org.opensourcephysics.media.core.VideoClip;
 /** Authors the media-free finite-derivative case (MoTrack #332) through the pinned Java serializers.
  * A calibrated point mass has 15 marks on a 16-step clip (start frame 4, step size 3, 30 fps, start time 400 ms)
  * with step 8 (frame 28) missing, so Tracker's own refreshData yields finite velocities and five-point
- * accelerations on both sides of a one-step gap. Image positions are cubic in the step number k with dyadic
+ * accelerations on both sides of a one-step gap. Image positions are polynomials in the step number k with dyadic
  * coefficients, so the saved marks are exact and the image-space stencils have closed forms:
- * x = 100 + 16k + 0.75k² − 0.0625k³ and y = 400 − 40k + 2.5k² + 0.03125k³ pixels. The fixed calibration has its
- * origin at (252.5, 318.75), a 30° angle and 125 and 100 pixels per metre on x and y.
+ * x = 100 + 16k + 0.75k² − 0.0625k³ + k⁴/256 and y = 400 − 40k + 2.5k² + 0.03125k³ pixels. The quartic term tells
+ * Tracker's five-point acceleration apart from three-point and five-point central differences, which agree on a
+ * cubic. The fixed calibration has its origin at (252.5, 318.75), a 30° angle and 125 and 100 pixels per metre.
  */
 public final class FiniteDerivativesFixture {
     static final int START_FRAME = 4;
@@ -65,7 +66,8 @@ public final class FiniteDerivativesFixture {
             mass.setMass(0.75);
             for (int k = 0; k < STEP_COUNT; k++) {
                 if (k == MISSING_STEP) continue;
-                mass.createStep(START_FRAME + k * STEP_SIZE, 100 + 16 * k + 0.75 * k * k - 0.0625 * k * k * k,
+                mass.createStep(START_FRAME + k * STEP_SIZE,
+                    100 + 16 * k + 0.75 * k * k - 0.0625 * k * k * k + k * k * k * k / 256.0,
                     400 - 40 * k + 2.5 * k * k + 0.03125 * k * k * k);
             }
             XMLControlElement root = new XMLControlElement(TrackerPanel.class);
