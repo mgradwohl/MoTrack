@@ -57,6 +57,15 @@ struct WorkspaceDocument
     /// Runtime: opening dropped source bindings that no longer name the preserved source's tracks, so standard
     /// export is unavailable until the original Tracker file is imported again. Never serialized.
     bool trackerBindingsReset = false;
+    /// The reading of `trackerSource` that the typed values follow, serialized as `trackerReading`. A native file
+    /// that saves none was written by TrackerReading::SavedIndices; opening migrates it when that is safe.
+    TrackerReading trackerReading = CURRENT_TRACKER_READING;
+    /// Runtime: the typed values follow an earlier reading of the source and could not be migrated without overwriting
+    /// edits or losing marks, so standard export is unavailable (#313/#314). Re-derived on every open.
+    bool trackerReadingOutdated = false;
+    /// Runtime: opening migrated values of an earlier reading to the current one and so changed measurements; a native
+    /// save records the current reading. Never serialized.
+    bool trackerReadingMigrated = false;
     std::shared_ptr<const MovieTimeline> movieTimeline = {};
 };
 

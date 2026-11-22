@@ -305,7 +305,7 @@ metadata replaces the reduced model:
 | --- | --- |
 | `format`, `version` | `"MoTrack"`, 7 |
 | `requires` | Feature names that a reader must implement; empty in B2 |
-| `readerRevision` | The loader revision of the writer. MoTrack advances it whenever a loader change can read an unchanged baseline differently; v1–v6 count as revision 0 |
+| `readerRevision` | The loader revision of the writer. MoTrack advances it whenever a loader change can read an unchanged baseline differently. A version-5 body, standalone or in a v6 group, has the same number as its `trackerReading` ([native format](native-format.md#tracker-reading-revisions): absent is 0, #330 writes 2); v1–v4 count as revision 0 |
 | `nextObjectId`, `countdownLowWater` | The counter and the countdown low-water mark, as decimal strings |
 | `baseline` | `null`, `{"xmlBase64": …}`, or `{"archiveMember": …}` when the bytes are that member of `tracker/source.trz`, so archive groups stop storing each member twice. The 32 MiB XML limit applies to both forms; `archiveMember` requires the container payload and must name one of its project members |
 | `associations` | `none`, `known`, `unknown` or `stale`; `stale` keeps earlier bindings verbatim in `staleBindings` |
@@ -362,23 +362,33 @@ reduced model is a function of B2.1, used by the native reader from B2.4a.
 | 5 | XML or an archive member | As version 4 | As version 4 |
 | 6 | A group of version-5 bodies | As version 4, for each member | As version 4 |
 
-The reduced JSON of v4–v6 was written with the reader before #313–#315, so applying it as edits would turn
-that reader's misreadings into edits. The loader-fidelity PR adds explicit transforms to the current native
-reader, and B2.1's conversion consumes its output:
+The reduced JSON of v4–v6 follows the reader revision its `trackerReading` names, and every file written before
+#330 follows revision 0, the reader before #313/#314. Applying it as edits would turn that reader's misreadings into
+edits, so the current v5 native reader migrates it on open
+([native format](native-format.md#tracker-reading-revisions)). B2.1's conversion consumes that reader's output and
+takes the body's (migrated) `trackerReading` as its `readerRevision`. It must not transform the values again: a
+migrated body already holds the current reading, and an outdated one keeps its earlier values on purpose.
 
-- **`frameshift`:** stored frame numbers are file frames. Each frame array is transformed as Tracker's
-  `adjustFrameData` treats the baseline's array: an array of more than one element loses its first `frameshift`
-  elements, so its values move by −`frameshift`; an array no longer than the shift loads empty; a one-element
-  array, such as a single calibration key, is unchanged. A stored value that falls among the dropped elements
-  stays as native-only data of its object, never dropped, and export refuses while any remains. The prerequisite
-  PR settles, with a Tracker reference case, how values of objects created in MoTrack map.
-- **Duplicate keys (#314):** a calibration that the old reader dropped takes the baseline's reading; a calibration
-  created in MoTrack stays an edit.
-- **Empty `mass_unit` (#315):** a stored `kg` where the file saved an empty label is the old default, not an edit,
-  and becomes empty.
-- **Inputs Java cannot load (#315):** the baseline is refused, and the document opens native-only from its JSON
-  with associations stale. B1 refuses to open such a file today.
-
+- **`frameshift` (#313, revision 1):** Tracker's `adjustFrameData` moves track `framedata` only. An array of Java
+  length 1 is unchanged, an array no longer than the shift loads empty, and otherwise saved index *n* loads at frame
+  *n* − `frameshift`. Coordinate keys never shift, single or multi-key, because `TrackerPanel` loads `coords` without
+  the adjuster; a negative shift moves only the clip start.
+- **Duplicate keys (#314, revision 1):** a calibration that revision 0 dropped takes the baseline's reading.
+- **Track slots (part of #315, revision 2):** track arrays take Java's slots, so the last of duplicate indices wins, a
+  null one included.
+- **Migration rule:** all or nothing per document. A body migrates only when every stored value these fixes cover
+  equals its revision's reading of the baseline, every track is bound and none was created or deleted, the
+  shift drops no stored sample and moves none off its clip step, and the calibration (where #314 applies) is absent in
+  both. Otherwise no stored value changes and none becomes native-only. The associations are dropped, export
+  refuses, the note persists, and `trackerReading` keeps the earlier revision; a calibration created in MoTrack
+  for such a source is handled the same way, not kept as an edit. Export of changed or new samples of a shifted
+  source is refused until [#328](https://github.com/mgradwohl/MoTrack/issues/328) decides how frames map back to
+  saved indices, including for objects created in MoTrack.
+- **Empty `mass_unit` (#315):** planned as revision 3. A stored `kg` where the file saved an empty label is the old
+  default, not an edit, and becomes empty.
+- **Inputs Java cannot load (#315):** still read as before #330. Coordinate arrays whose indices Java cannot place
+  import without calibration, and such track arrays keep file order. B2 proposes refusing the baseline and opening the
+  document native-only from its JSON with associations stale.
 Loader defaults (#214) and the time-unit recovery apply as they do now. Documents without known associations
 keep native-only editing and refuse standard export with the re-import note.
 
@@ -445,9 +455,9 @@ Order: the loader-fidelity prerequisite, B2.1, then B2.2 and B2.3 in parallel, t
 parallel. Each slice depends on merged slices only, so no stack is more than one PR deep. Each slice updates the
 R02–R04 rows of the migration plan and the status line of this document.
 
-**Prerequisite — loader fidelity** (in progress, based on `train-3`)
-- Fixes #313 and #314, with #315 in the same PR or before B2.1, and adds the v≤6 transforms of §3 to the
-  current native reader.
+**Prerequisite — loader fidelity** ([#330](https://github.com/mgradwohl/MoTrack/pull/330), in review)
+- Fixes #313, #314 and #315's track slots, and adds the v≤6 migrations of §3 to the current native reader as
+  `trackerReading` revisions 1 and 2. #315's empty `mass_unit` (revision 3) and its refusals follow before B2.1.
 
 **B2.1 — Typed document** (first)
 - Content: `motrack_model`; `TrackerDocument`, families, descriptors and reference-only descriptors; identities,
@@ -534,8 +544,9 @@ R02–R04 rows of the migration plan and the status line of this document.
    content still refers to removed objects, and a value edited and later restored would not get its original text
    back. The current XML is a deterministic render of baseline and state. The table row is marked proposed;
    B2.5 updates it.
-2. **Where do #313–#315 land?** Decided: in the loader-fidelity PR before B2.1, which also ships the v≤6
-   transforms, so B2.1's parity baseline includes the fixes and no migration turns an old misreading into an edit.
+2. **Where do #313–#315 land?** Decided: before B2.1. #330 lands #313, #314 and #315's track slots with the v≤6
+   migrations, so B2.1's parity baseline includes the fixes and no migration turns an old misreading into an edit;
+   #315's remaining parts follow before B2.1.
 3. **Should removing a referenced object be refused?** Recommended: no. Allow it in the native document with
    export refused while references dangle, as today; the families add explicit cleanup edits.
 4. **Should untyped classes get graph edges in B2?** Recommended: yes, through reference-only descriptors that

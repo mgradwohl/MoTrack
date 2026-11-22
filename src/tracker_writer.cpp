@@ -913,6 +913,30 @@ void sortTracks(LegacyProject& project)
     std::ranges::sort(project.vectors, {}, &VectorTrack::id);
 }
 
+/// Tracker's loader subtracts a positive clip frame shift from every track's saved `framedata` index (#313), so the
+/// imported frames are not the saved indices the frame writers patch. Until the writer maps frames back to saved
+/// indices, refuse changed or new samples rather than write them at other frames; other edits keep the indices.
+void requireUnchangedShiftedSamples(const LegacyProject& expected, const LegacyProject& baseline)
+{
+    const auto refuse = []
+    {
+        throw ProjectError("Tracker export cannot yet save changed marks or vectors in a project whose video clip has a frame shift "
+                           "(MoTrack issue #328).");
+    };
+    for (const auto& track : expected.pointMasses)
+    {
+        const auto original = std::ranges::find(baseline.pointMasses, track.id, &PointMass::id);
+        if (original == baseline.pointMasses.end() ? !track.marks.empty() : original->marks != track.marks)
+            refuse();
+    }
+    for (const auto& track : expected.vectors)
+    {
+        const auto original = std::ranges::find(baseline.vectors, track.id, &VectorTrack::id);
+        if (original == baseline.vectors.end() ? !track.samples.empty() : original->samples != track.samples)
+            refuse();
+    }
+}
+
 bool retainsVectorComponent(double tail, double component)
 {
     // Tracker stores endpoints internally, then reconstructs components by subtraction on save.
@@ -1186,6 +1210,8 @@ std::string renderTrackerProjectImpl(const LegacyProject& project,
     remapIds(baseline, mapping, project.nextTrackId);
     auto expected = project;
     sortTracks(expected);
+    if (imported.trackFrameShift > 0)
+        requireUnchangedShiftedSamples(expected, baseline);
     const bool membershipChanged = !std::ranges::equal(expected.pointMasses, baseline.pointMasses, {}, &PointMass::id, &PointMass::id) ||
                                    !std::ranges::equal(expected.vectors, baseline.vectors, {}, &VectorTrack::id, &VectorTrack::id);
     std::unordered_set<TrackId> liveIds;
@@ -1471,6 +1497,9 @@ std::string prepareTrackerDocument(const QString& path, const WorkspaceDocument&
 {
     if (!document.trackerSource)
         throw ProjectError("Tracker export requires its original source.");
+    if (document.trackerReadingOutdated)
+        throw ProjectError("Tracker export is unavailable: an earlier MoTrack saved these measurements without the Tracker file's frame "
+                           "shift or duplicate calibration keys, and they could not be updated safely. Import the Tracker file again.");
     const auto& source = *document.trackerSource;
     require(!document.useDisplayOrientation && !document.archivePayload && !document.archiveMember && document.archiveReference.empty());
     require(document.movie ? document.alignMovieToClip && !document.movieFrameTimes.empty() : document.movieFrameTimes.empty());
