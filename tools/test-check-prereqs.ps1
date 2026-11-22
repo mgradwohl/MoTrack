@@ -87,7 +87,7 @@ try {
     Assert-True ((Get-QtMultimediaRow -Qt $null).Status -eq 'fail') 'Qt Multimedia without Qt'
     $multimedia = Join-Path $qt 'lib\cmake\Qt6Multimedia'
     New-Item -ItemType Directory -Force -Path $multimedia | Out-Null
-    Set-Content -LiteralPath (Join-Path $multimedia 'Qt6MultimediaConfig.cmake') -Value ''
+    Set-Content -LiteralPath (Join-Path $multimedia 'Qt6MultimediaConfig.cmake') -Value '' -Encoding utf8
     $row = Get-QtMultimediaRow -Qt $prefix
     Assert-True ($row.Status -eq 'ok' -and $row.Version -eq '6.8.3' -and $row.Fix -eq '') "Qt with Multimedia: $($row.Status)"
 } finally {

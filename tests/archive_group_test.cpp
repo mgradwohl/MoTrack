@@ -16,6 +16,8 @@
 
 #include <functional>
 #include <limits>
+#include <memory>
+#include <optional>
 
 namespace
 {
@@ -277,6 +279,56 @@ TEST(ArchiveGroup, RejectsAlteredExtractedSourceEvenWhenMetadataMatchesIt)
     member.document.trackerSource->xml = modifiedXml.toStdString();
     EXPECT_THROW(motrack::writeArchiveGroup(path, snapshot), motrack::ProjectError);
     EXPECT_EQ(readBytes(path), before);
+}
+
+TEST(ArchiveGroup, NormalizesNfdMemberNamesSavedBeforeNfcIdentities)
+{
+    // Companions written on macOS before #308 stored libarchive's NFD spelling of a member name. Reopened, they must
+    // name the same member as a fresh import: no duplicate membership, and the standard save still finds it.
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/keyed-calibration.trk");
+    const auto nfc = QString::fromUtf8("expérience.trk");
+    const auto nfd = nfc.normalized(QString::NormalizationForm_D);
+    ASSERT_NE(nfc, nfd);
+    const auto nfcName = nfc.toUtf8();
+    const auto source = temporary.filePath("source.trz");
+    ASSERT_TRUE(motrack::test::writeArchive(source, {{.name = nfcName.constData(), .bytes = xml}, {.name = "second.trk", .bytes = xml}}));
+    const auto archive = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(source));
+    const auto member = nfc.toStdString();
+    auto original = motrack::makeArchiveGroup(document(archive, member.c_str()));
+    const auto path = temporary.filePath("saved.motrack");
+    motrack::writeArchiveGroup(path, original);
+
+    // Rewrite the companion as the earlier macOS build would have saved it.
+    const auto storage = motrack::readWorkspaceStorage(path, nullptr);
+    auto metadata = QJsonDocument::fromJson(storage.json).object();
+    auto members = metadata.value("members").toArray();
+    auto saved = members.at(0).toObject();
+    ASSERT_EQ(saved.value("member").toString(), nfc);
+    saved.insert("member", nfd);
+    auto nested = saved.value("document").toObject();
+    ASSERT_EQ(nested.value("archiveMember").toString(), nfc);
+    nested.insert("archiveMember", nfd);
+    saved.insert("document", nested);
+    members.replace(0, saved);
+    metadata.insert("members", members);
+    ASSERT_TRUE(motrack::test::writeArchive(
+        path, {{"project.json", QJsonDocument(metadata).toJson()}, {"tracker/source.trz", readBytes(storage.archive->sourcePath())}}));
+
+    auto reopened = motrack::readArchiveGroup(path);
+    ASSERT_EQ(reopened.members.size(), 1U);
+    EXPECT_EQ(reopened.members.front().member, member);
+    EXPECT_EQ(reopened.members.front().document.archiveMember, std::optional(member));
+    EXPECT_THROW((void)motrack::appendArchiveGroupDocument(reopened, document(reopened.archive, member.c_str())), motrack::ProjectError);
+    EXPECT_NO_THROW((void)motrack::appendArchiveGroupDocument(reopened, document(reopened.archive, "second.trk")));
+    motrack::TrackEdits edits;
+    ASSERT_TRUE(edits.setPointMassValue(reopened.members.front().document.project, 0, 4.5));
+    const auto standard = temporary.filePath("standard.trz");
+    motrack::writeTrackerArchiveDocument(standard, reopened.members.front().document);
+    const auto exported = motrack::TrackerArchive::open(standard);
+    EXPECT_EQ(exported.projects(), (QStringList{nfc, "second.trk"}));
+    EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(exported.projectPath(nfd)).project.pointMasses.front().mass, 4.5);
 }
 
 TEST(ArchiveGroup, RejectsAmbiguousGroupMetadataAndMissingPayload)

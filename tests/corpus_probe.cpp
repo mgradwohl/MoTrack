@@ -1,5 +1,7 @@
+#include "app_locale.hpp"
 #include "archive_group.hpp"
 #include "archive_group_session.hpp"
+#include "filesystem_path.hpp"
 #include "legacy_project.hpp"
 #include "library/collection.hpp"
 #include "library/compadre.hpp"
@@ -868,14 +870,11 @@ try
     _CrtSetReportHook2(_CRT_RPTHOOK_INSTALL, reportCrtFailure);
 #endif
     const QCoreApplication application(argc, argv);
+    motrack::configureProcessLocale();
     const auto args = application.arguments();
     if (args.size() == 4 && args[1] == "--osp-dump")
     {
-#ifdef _WIN32
-        const std::filesystem::path input(args[2].toStdWString());
-#else
-        const std::filesystem::path input(args[2].toStdString());
-#endif
+        const auto input = motrack::toFilesystemPath(args[2]);
         const auto bytes = QJsonDocument(ospDump(input)).toJson(QJsonDocument::Compact);
         QSaveFile output(args[3]);
         if (!output.open(QIODevice::WriteOnly) || output.write(bytes) != bytes.size() || !output.commit())
@@ -884,11 +883,7 @@ try
     }
     if (args.size() == 5 && args[1] == "--library-dump")
     {
-#ifdef _WIN32
-        const std::filesystem::path input(args[3].toStdWString());
-#else
-        const std::filesystem::path input(args[3].toStdString());
-#endif
+        const auto input = motrack::toFilesystemPath(args[3]);
         const auto bytes = QJsonDocument(libraryDump(args[2], input)).toJson(QJsonDocument::Compact);
         QSaveFile output(args[4]);
         if (!output.open(QIODevice::WriteOnly) || output.write(bytes) != bytes.size() || !output.commit())
@@ -1768,11 +1763,7 @@ try
         return 1;
     }
     const auto& inputArgument = args[flagged ? 2 : 1];
-#ifdef _WIN32
-    const std::filesystem::path input(inputArgument.toStdWString());
-#else
-    const std::filesystem::path input(inputArgument.toStdString());
-#endif
+    const auto input = motrack::toFilesystemPath(inputArgument);
     const auto report = [&]() -> QJsonObject
     {
         if (open)

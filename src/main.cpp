@@ -1,3 +1,4 @@
+#include "app_locale.hpp"
 #include "ui_translations.hpp"
 #include "workspace_window.hpp"
 
@@ -14,6 +15,9 @@ int main(int argc, char** argv)
 try
 {
     QApplication app(argc, argv);
+    // QApplication sets the C locale from the environment on Unix: put LC_NUMERIC back to "C" before anything
+    // parses or prints a number.
+    motrack::configureProcessLocale();
     const motrack::UiTranslations translations(QLocale{});
     const auto args = app.arguments();
     motrack::WorkspaceWindow window;

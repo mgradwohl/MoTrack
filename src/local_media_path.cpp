@@ -1,5 +1,7 @@
 #include "local_media_path.hpp"
 
+#include "filesystem_path.hpp"
+
 #include <QDir>
 #include <QFileInfo>
 
@@ -15,7 +17,7 @@ QString followFileAliases(const QString& path)
 {
     // Resolve each ancestor before canonicalization: a dangling directory alias still has a
     // meaningful target, and some canonical-path implementations return the input for loops.
-    std::filesystem::path remaining(path.toStdU16String());
+    auto remaining = toFilesystemPath(path);
     for (int depth = 0; depth < 128; ++depth)
     {
         auto prefix = remaining.root_path();
@@ -32,10 +34,10 @@ QString followFileAliases(const QString& path)
                 continue;
 #ifdef Q_OS_WIN
             // Qt resolves Windows reparse-point targets without the MSVC bitmask analyzer false positive.
-            const auto targetName = QFileInfo(QString::fromStdU16String(prefix.u16string())).symLinkTarget();
+            const auto targetName = QFileInfo(fromFilesystemPath(prefix)).symLinkTarget();
             if (targetName.isEmpty())
                 return {};
-            std::filesystem::path target(targetName.toStdU16String());
+            auto target = toFilesystemPath(targetName);
 #else
             auto target = std::filesystem::read_symlink(prefix, error);
             if (error)
@@ -50,7 +52,7 @@ QString followFileAliases(const QString& path)
             break;
         }
         if (!followed)
-            return QString::fromStdU16String(remaining.u16string());
+            return fromFilesystemPath(remaining);
     }
     return {};
 }
@@ -100,7 +102,7 @@ QString physicalLocalFilePath(QString path)
         return existing;
     // Preserve the physical base even when a missing image is restored after its project directory
     // is removed. Resolve existing prefixes before normalizing '..', including directory aliases.
-    const std::filesystem::path nativePath(path.toStdU16String());
+    const auto nativePath = toFilesystemPath(path);
     std::error_code error;
     static_cast<void>(std::filesystem::status(nativePath, error));
     // Some standard libraries discard a failing ancestor status in weakly_canonical. Missing files
@@ -109,14 +111,13 @@ QString physicalLocalFilePath(QString path)
         return {};
     error.clear();
     const auto normalized = std::filesystem::weakly_canonical(nativePath, error);
-    return error ? QString{} : QString::fromStdU16String(normalized.u16string());
+    return error ? QString{} : fromFilesystemPath(normalized);
 }
 
 bool sameLocalFile(const QString& first, const QString& second)
 {
     std::error_code error;
-    bool equivalent =
-        std::filesystem::equivalent(std::filesystem::path(first.toStdU16String()), std::filesystem::path(second.toStdU16String()), error);
+    bool equivalent = std::filesystem::equivalent(toFilesystemPath(first), toFilesystemPath(second), error);
 #ifdef Q_OS_WIN
     if (error)
     {
@@ -130,7 +131,7 @@ bool sameLocalFile(const QString& first, const QString& second)
                 return std::filesystem::path{};
             if (!canonical.startsWith(R"(\\?\)"))
                 canonical = canonical.startsWith(R"(\\)") ? R"(\\?\UNC\)" + canonical.mid(2) : R"(\\?\)" + canonical;
-            return std::filesystem::path(canonical.toStdU16String());
+            return toFilesystemPath(canonical);
         };
         const auto left = extendedPath(first);
         const auto right = extendedPath(second);

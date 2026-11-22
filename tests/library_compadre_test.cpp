@@ -2,6 +2,7 @@
 #include "library/compadre.hpp"
 #include "library/resource.hpp"
 #include "library/xml_dom.hpp"
+#include "utf8_path.hpp"
 
 #include <gtest/gtest.h>
 
@@ -25,7 +26,7 @@ using library::ResourceType;
 
 std::string readFixture(std::string_view name)
 {
-    std::ifstream stream(std::filesystem::path(MOTRACK_FIXTURES) / "library" / "compadre" / name, std::ios::binary);
+    std::ifstream stream(motrack::utf8Path(MOTRACK_FIXTURES) / "library" / "compadre" / name, std::ios::binary);
     if (!stream)
     {
         throw std::runtime_error("missing fixture " + std::string(name));

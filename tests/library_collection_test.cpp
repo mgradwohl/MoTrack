@@ -2,6 +2,7 @@
 #include "library/library.hpp"
 #include "library/resource.hpp"
 #include "osp/source.hpp"
+#include "utf8_path.hpp"
 
 #include <gtest/gtest.h>
 
@@ -26,7 +27,7 @@ using library::SaveError;
 
 std::filesystem::path fixturePath(std::string_view name)
 {
-    return std::filesystem::path(MOTRACK_FIXTURES) / "library" / name;
+    return motrack::utf8Path(MOTRACK_FIXTURES) / "library" / name;
 }
 
 std::string readFixture(std::string_view name)
@@ -421,14 +422,14 @@ TEST(LibraryCollection, UneditedSavesAreByteIdentical)
             }
             if (const auto document = library::loadCollection(variant))
             {
-                EXPECT_EQ(saved(*document), variant) << path.filename().string();
+                EXPECT_EQ(saved(*document), variant) << motrack::utf8String(path.filename());
                 ++checked;
             }
             else if (const auto libraryDocument = library::loadLibrary(variant))
             {
                 const auto output = library::saveLibrary(*libraryDocument);
-                ASSERT_TRUE(output) << path.filename().string();
-                EXPECT_EQ(*output, variant) << path.filename().string();
+                ASSERT_TRUE(output) << motrack::utf8String(path.filename());
+                EXPECT_EQ(*output, variant) << motrack::utf8String(path.filename());
                 ++checked;
             }
         }

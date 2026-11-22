@@ -231,7 +231,8 @@ def find_bsdtar():
         candidates = [shutil.which("bsdtar"), "/usr/bin/tar" if sys.platform == "darwin" else None]
     for candidate in filter(None, candidates):
         try:
-            version = subprocess.run([candidate, "--version"], capture_output=True, text=True, check=False).stdout
+            version = subprocess.run([candidate, "--version"], capture_output=True, text=True, encoding="utf-8",
+                                     errors="replace", check=False).stdout
         except OSError:
             continue
         if "bsdtar" in version:

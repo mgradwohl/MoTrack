@@ -2767,7 +2767,7 @@ def check_sessions(manifest, cache, java, probe=None):
         classes = root / "classes"
         classes.mkdir()
         jar = cache / manifest["reference"]["file"]
-        run([str(javac), "-cp", java_classpath(manifest, cache, dependencies=[
+        run([str(javac), "-encoding", "UTF-8", "-cp", java_classpath(manifest, cache, dependencies=[
                  item["file"] for item in manifest["reference"].get("runtime_dependencies", [])]), "-d", str(classes),
              str(ROOT / "tools/reference/TrackerReference.java"),
              str(ROOT / "tools/reference/TrackerSessionReference.java"), str(ROOT / "tools/reference/VectorFixture.java"),

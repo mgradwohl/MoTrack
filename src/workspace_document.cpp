@@ -1,5 +1,6 @@
 #include "workspace_document.hpp"
 
+#include "filesystem_path.hpp"
 #include "local_media_path.hpp"
 #include "track_identity.hpp"
 #include "tracker_archive.hpp"
@@ -372,7 +373,7 @@ void refreshWorkspaceMediaLocations(WorkspaceDocument& document, const QString& 
 
 WorkspaceDocument importTrackerDocument(const QString& path)
 {
-    auto imported = readTrackerProject(std::filesystem::path(path.toStdU16String()));
+    auto imported = readTrackerProject(toFilesystemPath(path));
     return {.project = std::move(imported.project), .movieFrameTimes = {}, .trackerSource = std::move(imported.source)};
 }
 
@@ -395,7 +396,8 @@ WorkspaceDocument detail::decodeWorkspaceDocument(const QJsonObject& input, std:
         const auto member = input.value("archiveMember");
         if (!member.isNull())
         {
-            result.archiveMember = string(member);
+            // Companions saved before #308 may hold macOS's NFD spelling; member identities are NFC.
+            result.archiveMember = archiveMemberKey(string(member));
         }
     }
     else

@@ -275,6 +275,7 @@
     <name>TrackerArchive</name>
     <message><source>This Tracker archive contains a project with an unsafe member name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
     <message><source>This Tracker project refers to an archive member with an unsafe name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
+    <message><source>A member name in this Tracker archive is not valid UTF-8 text, so the archive cannot be opened. Tracker cannot open it either.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">שם של פריט בארכיון Tracker זה אינו טקסט UTF-8 תקין, ולכן לא ניתן לפתוח את הארכיון. גם Tracker אינו יכול לפתוח אותו.</translation></message>
   </context>
   <context>
     <name>motrack::QtCameraSource</name>

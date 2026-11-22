@@ -1,6 +1,7 @@
 #include "tracker_archive.hpp"
 
 #include "archive_fixture.hpp"
+#include "utf8_thread_locale.hpp"
 
 #include <QDir>
 #include <QDirIterator>
@@ -11,6 +12,7 @@
 #include <QUuid>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <clocale>
 #include <initializer_list>
@@ -37,6 +39,7 @@ QString fixturePath(const QString& name)
 
 void writeArchive(const QString& path, std::initializer_list<const char*> names)
 {
+    const motrack::ScopedUtf8ThreadLocale utf8Names; // as the production writers do
     const std::unique_ptr<archive, decltype(&archive_write_free)> writer(archive_write_new(), &archive_write_free);
     ASSERT_NE(writer, nullptr);
     ASSERT_EQ(archive_write_set_format_zip(writer.get()), ARCHIVE_OK);
@@ -301,6 +304,83 @@ TEST(TrackerArchive, OpensAnArchiveWithAUnicodeFilename)
     ASSERT_TRUE(QFile::copy(fixturePath("archive.trz"), path));
     const auto archive = motrack::TrackerArchive::open(path);
     EXPECT_EQ(archive.projects(), QStringList{"image-sequence.trk"});
+}
+
+/// An archive holding experiment.trk and a member named by the raw bytes @p name with the ZIP UTF-8 flag (bit 11)
+/// clear, as Info-ZIP and older archivers write UTF-8 or code-page names. libarchive writes an ASCII placeholder of
+/// the same length, which is then replaced in the local and central headers; ZIP checksums do not cover names.
+void writeUnflaggedArchive(const QString& path, const QByteArray& name)
+{
+    auto placeholder = name;
+    std::ranges::replace_if(placeholder, [](char byte) { return static_cast<unsigned char>(byte) >= 0x80; }, '#');
+    const auto ascii = placeholder.toStdString();
+    const QTemporaryDir staging;
+    ASSERT_TRUE(staging.isValid());
+    const auto staged = staging.filePath("staged.trz");
+    writeArchive(staged, {"experiment.trk", ascii.c_str()});
+    QFile input(staged);
+    ASSERT_TRUE(input.open(QIODevice::ReadOnly));
+    auto bytes = input.readAll();
+    ASSERT_EQ(bytes.count(placeholder), 2);
+    bytes.replace(placeholder, name);
+    QFile output(path);
+    ASSERT_TRUE(output.open(QIODevice::WriteOnly));
+    ASSERT_EQ(output.write(bytes), bytes.size());
+}
+
+TEST(TrackerArchive, ReadsUnflaggedUtf8MemberNamesAsUtf8LikeTracker)
+{
+    // Java's ZipInputStream and ZipFile, which Tracker reads archives with, decode every name as UTF-8 whatever
+    // the flag says. MoTrack must not decode it through the process's C locale or code page instead (#275).
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto path = temporary.filePath("legacy.trz");
+    ASSERT_NO_FATAL_FAILURE(writeUnflaggedArchive(path, "vid\xC3\xA9o/\xE5\xB8\xA7 \xF0\x9F\x98\x80.png"));
+    const auto archive = motrack::TrackerArchive::open(path);
+    const auto member = QString::fromUtf8("vidéo/帧 😀.png");
+    EXPECT_TRUE(QFileInfo(archive.root() + '/' + member).isFile());
+    EXPECT_TRUE(archive.memberMatchesSource(member));
+}
+
+TEST(TrackerArchive, RefusesUnflaggedMemberNamesThatAreNotUtf8LikeTracker)
+{
+    // 0x82 is "é" in IBM code page 437. Java refuses the whole archive ("invalid CEN header (bad entry name)");
+    // so does MoTrack, rather than guessing a legacy code page.
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto path = temporary.filePath("cp437.trz");
+    ASSERT_NO_FATAL_FAILURE(writeUnflaggedArchive(path, "vid\x82o.png"));
+    try
+    {
+        std::ignore = motrack::TrackerArchive::open(path);
+        ADD_FAILURE() << "A CP437 member name was accepted.";
+    }
+    catch (const motrack::ProjectError& error)
+    {
+        // The user learns why, not libarchive's "cannot be converted ... to current locale".
+        EXPECT_NE(std::string(error.what()).find("not valid UTF-8"), std::string::npos) << error.what();
+    }
+}
+
+TEST(TrackerArchive, NamesOnlyNameConversionWarningsAsNonUtf8Names)
+{
+    // libarchive's ZIP reader texts for a name hdrcharset=UTF-8 cannot convert; anything else keeps the generic message.
+    EXPECT_TRUE(motrack::detail::isNameConversionWarning("Pathname cannot be converted from UTF-8 to current locale."));
+    EXPECT_TRUE(motrack::detail::isNameConversionWarning("Symlink cannot be converted from UTF-8 to current locale."));
+    EXPECT_FALSE(motrack::detail::isNameConversionWarning("ZIP bad CRC: 0x1234 should be 0x5678"));
+    EXPECT_FALSE(motrack::detail::isNameConversionWarning("Truncated ZIP file header"));
+    EXPECT_FALSE(motrack::detail::isNameConversionWarning("Inconsistent uncompressed size: 4 in central directory, 5 in local header"));
+    EXPECT_FALSE(motrack::detail::isNameConversionWarning(""));
+}
+
+TEST(TrackerArchive, MemberKeysAreNfc)
+{
+    const auto nfc = QString::fromUtf8("expérience/帧.trk").toStdString();
+    const auto nfd = QString::fromStdString(nfc).normalized(QString::NormalizationForm_D).toStdString();
+    ASSERT_NE(nfc, nfd);
+    EXPECT_EQ(motrack::archiveMemberKey(nfd), nfc);
+    EXPECT_EQ(motrack::archiveMemberKey(nfc), nfc);
+    EXPECT_EQ(motrack::archiveMemberKey("experiment.trk"), "experiment.trk");
 }
 
 TEST(TrackerArchive, CancelsExtraction)
