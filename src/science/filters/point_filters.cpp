@@ -140,7 +140,10 @@ void GrayScaleFilter::setWeights(double red, double green, double blue) noexcept
 
 void GrayScaleFilter::render(const FilterImage& input, FilterImage& output, int /*videoFrame*/)
 {
-    const auto [red, green, blue] = m_Weights;
+    // Named copies, not structured bindings: clang-analyzer 18 misreads bindings captured by a lambda.
+    const double red = m_Weights[0];
+    const double green = m_Weights[1];
+    const double blue = m_Weights[2];
     std::ranges::transform(input.pixels(),
                            output.pixels().begin(),
                            [&](std::uint32_t pixel)

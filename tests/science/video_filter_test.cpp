@@ -153,7 +153,7 @@ FilterImage generate(const FrameSpec& frame)
 std::string sha256(const FilterImage& image)
 {
     QByteArray bytes;
-    bytes.reserve(static_cast<qsizetype>(image.pixels().size() * 3));
+    bytes.reserve(static_cast<qsizetype>(image.pixels().size()) * 3);
     for (const std::uint32_t pixel : image.pixels())
     {
         bytes.append(static_cast<char>((pixel >> 16U) & 0xffU));
