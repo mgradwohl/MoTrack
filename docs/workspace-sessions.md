@@ -273,7 +273,8 @@ unknown timing, and every other file is a movie whose indexer reports unsupporte
 - **Order and the input bound.** One requested file prepares at a time, so tabs appear in request order
   while a menu open can still use the other slot. When menu opens hold both slots, the batch waits
   for a completion instead of reporting a busy workspace. Requests arriving during a batch join it,
-  up to 256 files.
+  up to 256 files. A requested `.trk` tabset expands through the tabset queue above, and the batch waits
+  until its files have opened, so they keep the tabset's place; Save tabset waits for requested files.
 - **File checks off the GUI thread.** Before opening, `checkRequestedFile` runs on the services' single
   request worker, because an offline share or sleeping NAS can block any file query: existence, folders
   and file-system identity (`std::filesystem::equivalent`, so case variants and aliases match where the
