@@ -80,6 +80,9 @@ on a unit-scale signal), as in Tracker.
 - `stepDerivatives(algorithm, clip, positions)` returns per-step derivatives; `pointMassDerivatives(...,
   stepTimesSeconds)` returns velocity and acceleration in world units per second; `pointMassAngularMotion`
   returns θ, ω and α. `firstStepDifference` and `secondStepDifference` expose the 1-D stencils.
+- `measuredTimeDerivatives(clip, positions, stepTimesSeconds, timeResolutionSeconds)` is MoTrack's
+  extension for measured (decoded) step times; `evenlySpacedWindow`, `quadraticSlope` and
+  `leastSquaresCurvature` are its parts (see [workspace measurements](#workspace-measurements)).
 - `MovingAverageFilter`, `ButterworthFilter` and `SavitzkyGolayFilter` normalize their parameters like
   Tracker's setters; `applyMotionFilter`, `filterPositions` and `filterRmsDeviation` apply them.
   `butterworthSampleRateHz` is the dialog's rate rule.
@@ -178,29 +181,62 @@ Time scaling depends on where the times come from:
   start is 0. Otherwise they agree within the rounding of those absolute times, which MoTrack avoids so that
   a large time origin cannot distort them. Image sequences are timed through the video in Tracker, which
   agrees within rounding. Plotted times still include the start time.
-- **Decoded movie frame times** (seconds per original frame). Where the intervals in a window are equal within
-  the decoder's whole-nanosecond rounding (2 ns, plus a few ulps of the timestamps), Tracker's stencils apply
-  as above. Where they are not, MoTrack keeps its earlier **time-aware** estimates: the first and second
-  derivatives, at the step's time, of the quadratic through the step and its two neighbours. Velocity at such
-  steps is unchanged from earlier MoTrack versions and differs from Tracker's secant
-  (x[k+1] − x[k−1]) / (t[k+1] − t[k−1]). Acceleration still needs Tracker's five-step window, so it is blank
-  wherever Tracker's table is blank. Which estimate is right depends on what the timestamps mean (#87):
-  - **True variable frame rate** (positions sampled at the recorded times): the time-aware estimates are exact
-    for constant acceleration at any spacing. Tracker's uniform stencils report a spurious acceleration for
-    constant velocity, for example −0.26 m/s² at 2 m/s on 0, 33, 67, 100, 133 ms.
-  - **Constant-rate capture with coarse timestamps** (positions sampled at the true, evenly spaced times; the
-    timestamps are rounded, as with the 1 ms time base of Matroska/WebM): the time-aware estimates are the
-    ones that invent acceleration, because the 33/34 ms intervals count as unequal. For steady 2 m/s motion
-    over one second they report a maximum |a| of 1.77 m/s² at 30 fps, 1.78 at 29.97 fps and 7.43 at 60 fps,
-    with velocity errors of 1.0%, 1.1% and 2.0%. Tracker's stencils give about 1e-13. This predates #207:
-    earlier versions used the time-aware estimates for all decoded times.
-    `MeasurementPlot.ConstantRateCaptureWithMillisecondTimestampsKeepsTheTimeAwareError` pins these values
-    until #87 is resolved.
+- **Decoded movie frame times** (`measuredTimeDerivatives`, #331). These are seconds from the movie's first
+  frame, per original frame number. The decoder takes them from the stream's time base (the tick of its
+  timestamps, for example 1/1000 s in Matroska/WebM or 1/600 s in many phone recordings) and rescales them to
+  whole nanoseconds. The index records that time base, and the native document saves it with the times.
+  - **Evenly spaced windows** get Tracker's stencils above, bit for bit with Tracker on the same times.
+    A window counts as evenly spaced when every interior time lies within the timestamp resolution of the
+    evenly spaced grid between its end times: max(time base, 1 ns), plus 1 ns for the rescaling and 8 ulps.
+    That is the most that rounding the timestamps of a constant rate can move a time, so constant-rate video
+    is never mistaken for variable timing. For velocity's three steps this says the two intervals agree within
+    2 × max(time base, 1 ns) (+2 ns). For five steps it checks each time against the grid rather than only the
+    spread of the intervals. The interval spread would leave a frame two ticks late exactly on the boundary,
+    and nanosecond rounding would then decide.
+  - **Other windows** use time-aware estimates. Velocity is the slope at the step's time of the quadratic
+    through the step and its two neighbours (`quadraticSlope`). Acceleration is 2c of the least-squares
+    parabola x ≈ a + b (t − tₖ) + c (t − tₖ)² over steps k−2..k+2 (`leastSquaresCurvature`). Both are exact
+    for constant acceleration at any spacing.
+  - **Continuity:** at equal spacing the parabola is Tracker's (2, −1, −2, −1, 2) / (7Δ²); the derivation is
+    in `motion_derivatives.cpp`. So acceleration is a five-point fit everywhere, and its noise does not change
+    where the estimator does. Windows, edges and gaps are Tracker's, so values are blank exactly where Tracker's
+    table is.
+  - **What the timestamps mean decides the remaining difference from Tracker** (#87):
+    - *Constant-rate capture with coarse timestamps:* positions follow the true, evenly spaced times. With
+      their 1/1000 s time base the 33/34 ms intervals of 30 fps (and the intervals at 29.97 and 60 fps) are
+      evenly spaced. The values are therefore Tracker's: no acceleration for steady motion (|a| < 1e-9; Tracker's
+      stencil gives about 1e-13). Before #331 the time-aware three-point estimates reported up to 1.77, 1.78
+      and 7.43 m/s² there for 2 m/s. Velocity is Tracker's secant, which keeps the rounding of its two
+      timestamps: about 1% here, as in Tracker.
+    - *True variable frame rate:* positions follow the recorded times. Beyond one tick from the grid the
+      time-aware estimates are exact, where Tracker's stencils invent acceleration for steady motion, for
+      example −0.26 m/s² at 2 m/s on 0, 33, 67, 100, 133 ms with a nanosecond time base. Within one tick the
+      timestamps cannot tell jitter from rounding, so Tracker's stencils apply, within the resolution such
+      timestamps allow:
+      - *Per sample:* one sample displaced by up to one tick moves the acceleration by at most
+        (2/7) v × tick / Δ² (the largest stencil weight).
+      - *Per window:* all three interior samples can be displaced by a tick at once, for example intervals of
+        21, 20, 20 and 19 ticks. The window's acceleration then moves by up to (4/7) v × tick / Δ², the sum of
+        the interior weights.
+      - At 3.3 m/s that is 1.4 and 2.8 m/s² for 1/600 s ticks at 30 fps, and 0.009 and 0.019 m/s² for
+        1/90000 s.
+    - *Unknown time base* (a document saved before #331, until its movie is indexed again, which happens on
+      opening): nanosecond resolution is assumed. Constant-rate video with coarse timestamps then gets the
+      five-point fit on its rounded times: up to 0.26 m/s² at 30 fps and 1.0 m/s² at 60 fps for 2 m/s.
+    - *A declared time base finer than the timestamps:* MKV or WebM remuxed to MP4 without re-encoding (for
+      example by OBS) declares 1/16000 s while its timestamps stay whole milliseconds. The 33/34 ms intervals
+      then count as unequal, with the same 0.26 and 1.0 m/s² as above. Detecting the real precision is #335.
+  - **Tests:** `MeasurementPlot.ConstantRateCaptureWithMillisecondTimestampsUsesTrackersStencils` and
+    `MeasurementPlot.AMixedClipOnACoarseTimeBaseHasNoEstimatorDiscontinuity`. The mixed clip is 30 fps on
+    1/600 s with free fall and ±1 mm noise, one frame one to three ticks late. It stays within the five-point
+    noise band (±0.51 m/s²) when the frame is two or three ticks late, including where the estimator changes;
+    the three-point estimates swung by ±3.6 m/s² there. One tick late, it stays within the per-sample bound
+    above.
 
 `MotionReference.MeasurementPlotMatchesTrackersDefaultDerivatives` checks `measurementPlot` against every
 Finite Difference case of the fixture. With decoded times it equals Tracker bit for bit, and with constant
-timing too when the clip starts at 0 ms (within 1e-12 relative otherwise). In the variable-time case it gives
-the analytic derivatives where Tracker does not. The fixture's uniform cases use strides 1 and 2, where both
+timing too when the clip starts at 0 ms (within 1e-12 relative otherwise). In the variable-time case (steps 89
+to 107 ms apart) it gives the analytic derivatives through the time-aware estimates, where Tracker does not. The fixture's uniform cases use strides 1 and 2, where both
 operand orders agree, so `MeasurementPlot.ConstantTimingOnAStrideUsesTrackersStepTimeOperandOrder` covers a
 stride of 3.
 
@@ -213,8 +249,8 @@ direction, momentum, kinetic energy and path length follow from those columns (w
 A filtered clone applies `filterPositions` with the saved filter (a new Butterworth filter uses
 `butterworthSampleRateHz` of the mean step duration), then differentiates the filtered positions and
 reports `filterRmsDeviation`. C2 also decides whether to replicate Tracker's image-space vector round trip
-(last-bit differences), and settles the treatment of unequal frame intervals described under
-[workspace measurements](#workspace-measurements) (#87).
+(last-bit differences), and whether to offer Tracker's uniform stencils for unequal frame intervals as an
+option beside the time-aware estimates described under [workspace measurements](#workspace-measurements) (#87).
 Saved filter windows are unbounded (the dialog stops at 99) and Savitzky-Golay edge weights cost
 O(window² × order²), as in Tracker, so C2 bounds or flags implausible loaded windows before filtering. The
 kernels are pure functions of a snapshot, so C2 evaluates them off the GUI thread per document revision

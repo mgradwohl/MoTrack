@@ -1,5 +1,7 @@
 #include "position_plot.hpp"
 
+#include "display_locale.hpp"
+
 #include <QLocale>
 #include <QMouseEvent>
 #include <QPainter>
@@ -97,14 +99,15 @@ void PositionPlot::paintEvent(QPaintEvent* /*event*/)
     }
 
     const auto area = plotArea();
+    const auto locale = dataDisplayLocale();
     painter.drawText(QRectF(0, 0, width(), area.top()), Qt::AlignCenter, m_VerticalLabel);
     painter.drawText(QRectF(0, height() - 20, width(), 20), Qt::AlignCenter, m_HorizontalLabel);
-    painter.drawText(QRectF(2, area.top() - 8, 50, 16), Qt::AlignRight, QString::number(m_Bounds.top, 'g', 5));
-    painter.drawText(QRectF(2, area.bottom() - 8, 50, 16), Qt::AlignRight, QString::number(m_Bounds.bottom, 'g', 5));
-    painter.drawText(QRectF(area.left(), area.bottom() + 2, area.width(), 16), Qt::AlignLeft, QString::number(m_Bounds.left, 'g', 5));
+    painter.drawText(QRectF(2, area.top() - 8, 50, 16), Qt::AlignRight, locale.toString(m_Bounds.top, 'g', 5));
+    painter.drawText(QRectF(2, area.bottom() - 8, 50, 16), Qt::AlignRight, locale.toString(m_Bounds.bottom, 'g', 5));
+    painter.drawText(QRectF(area.left(), area.bottom() + 2, area.width(), 16), Qt::AlignLeft, locale.toString(m_Bounds.left, 'g', 5));
     if (m_Bounds.left != m_Bounds.right)
     {
-        painter.drawText(QRectF(area.left(), area.bottom() + 2, area.width(), 16), Qt::AlignRight, QString::number(m_Bounds.right, 'g', 5));
+        painter.drawText(QRectF(area.left(), area.bottom() + 2, area.width(), 16), Qt::AlignRight, locale.toString(m_Bounds.right, 'g', 5));
     }
     painter.setPen(palette().mid().color());
     painter.drawRect(area);

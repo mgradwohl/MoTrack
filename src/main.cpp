@@ -1,3 +1,4 @@
+#include "app_locale.hpp"
 #include "desktop_launch.hpp"
 #include "ui_translations.hpp"
 #include "workspace_window.hpp"
@@ -25,6 +26,9 @@ int main(int argc, char** argv)
 try
 {
     QApplication app(argc, argv);
+    // QApplication sets the C locale from the environment on Unix: put LC_NUMERIC back to "C" before anything
+    // parses or prints a number.
+    motrack::configureProcessLocale();
     // macOS can deliver Finder and Dock open requests as soon as events are processed; keep them until the window exists.
     motrack::FileOpenRequests openRequests;
     app.installEventFilter(&openRequests);

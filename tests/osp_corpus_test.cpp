@@ -1,6 +1,8 @@
 #include "osp/render.hpp"
 #include "osp/source.hpp"
 #include "osp/value.hpp"
+#include "utf8_path.hpp"
+#include "utf8_thread_locale.hpp"
 
 #include <gtest/gtest.h>
 
@@ -91,21 +93,30 @@ bool xmlName(std::string_view name)
     return name.ends_with(".trk") || name.ends_with(".xml");
 }
 
-/// XML members of a Tracker archive, read in memory.
+/// XML members of a Tracker archive, read in memory with TrackerArchive's name rules: UTF-8 names whatever the
+/// C locale (#275), and a header warning, such as a name that is not UTF-8, fails instead of ending the list.
 std::vector<Document> archiveMembers(const std::string& label, const std::string& bytes)
 {
+    const motrack::ScopedUtf8ThreadLocale utf8Names;
     const std::unique_ptr<archive, decltype(&archive_read_free)> reader(archive_read_new(), &archive_read_free);
     if (!reader || archive_read_support_format_zip(reader.get()) != ARCHIVE_OK ||
+        archive_read_set_format_option(reader.get(), "zip", "hdrcharset", "UTF-8") != ARCHIVE_OK ||
         archive_read_open_memory(reader.get(), bytes.data(), bytes.size()) != ARCHIVE_OK)
     {
         throw std::runtime_error("Could not open archive " + label);
     }
     std::vector<Document> members;
     archive_entry* entry = nullptr;
-    while (archive_read_next_header(reader.get(), &entry) == ARCHIVE_OK)
+    for (auto status = archive_read_next_header(reader.get(), &entry); status != ARCHIVE_EOF;
+         status = archive_read_next_header(reader.get(), &entry))
     {
-        const char* path = archive_entry_pathname(entry);
-        const std::string name = path != nullptr ? path : "";
+        const char* path = status == ARCHIVE_OK ? archive_entry_pathname_utf8(entry) : nullptr;
+        if (path == nullptr)
+        {
+            const char* error = archive_error_string(reader.get());
+            throw std::runtime_error("Could not read a member header of archive " + label + ": " + (error != nullptr ? error : "no name"));
+        }
+        const std::string name = path;
         const auto size = archive_entry_size(entry);
         if (!xmlName(name) || size < 0 || std::cmp_greater(size, MAX_MEMBER_BYTES))
         {
@@ -139,14 +150,15 @@ const std::vector<Document>& corpus()
                 result.push_back(std::move(document));
             }
         };
-        for (const auto* root : {MOTRACK_FIXTURES, MOTRACK_CORPUS_FIXTURES})
+        for (const auto* rootText : {MOTRACK_FIXTURES, MOTRACK_CORPUS_FIXTURES})
         {
+            const auto root = motrack::utf8Path(rootText);
             std::vector<std::filesystem::path> paths;
             for (const auto& entry : std::filesystem::recursive_directory_iterator(root))
             {
                 // library/ holds ComPADRE web-service responses for the library census (A2), which are
                 // plain XML rather than OSP XMLControl documents.
-                const auto relative = std::filesystem::relative(entry.path(), root).generic_string();
+                const auto relative = motrack::genericUtf8String(std::filesystem::relative(entry.path(), root));
                 if (entry.is_regular_file() && !relative.starts_with("library/"))
                 {
                     paths.push_back(entry.path());
@@ -155,8 +167,8 @@ const std::vector<Document>& corpus()
             std::ranges::sort(paths);
             for (const auto& path : paths)
             {
-                const auto label = std::filesystem::relative(path, root).generic_string();
-                const auto name = path.filename().string();
+                const auto label = motrack::genericUtf8String(std::filesystem::relative(path, root));
+                const auto name = motrack::utf8String(path.filename());
                 if (xmlName(name))
                 {
                     add({.label = label, .bytes = readFile(path), .quirk = path.parent_path().filename() == "osp"});

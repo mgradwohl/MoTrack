@@ -49,6 +49,7 @@ void prepareMovieMetadata(WorkspaceDocument& document, const QString& mediaProje
     document.movieTimeline =
         retainMovieTimeline(path, document.useDisplayOrientation ? VideoOrientation::Display : VideoOrientation::Encoded, index);
     document.movieFrameTimes = std::move(index.frameTimes);
+    document.movieTimeBase = index.timeBase;
     // Match desktop index adoption: retain the saved clip and never shrink its source-frame extent.
     const auto steps = clip.stepCount.value_or(0);
     const auto last = static_cast<std::int64_t>(clip.firstFrame) + static_cast<std::int64_t>(steps - 1) * clip.stepSize;
@@ -170,6 +171,7 @@ PreparedWorkspaceInput prepareWorkspaceMovie(const QString& path, const std::ato
     document.useDisplayOrientation = true;
     document.movieTimeline = retainMovieTimeline(physical, VideoOrientation::Display, index);
     document.movieFrameTimes = std::move(index.frameTimes);
+    document.movieTimeBase = index.timeBase;
     document.project.clip.stepCount = index.frameCount;
     document.project.clip.sourceFrameCount = index.frameCount;
     document.project.clip.mediaReferences.push_back(QFileInfo(physical).fileName().toStdString());

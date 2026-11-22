@@ -15,6 +15,7 @@
 #include <numbers>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <vector>
 
 namespace
@@ -251,6 +252,16 @@ TEST(MeasurementPlot, DifferentiatesAtTheCenterOfUnevenFrameTimes)
     EXPECT_NEAR(energy.samples.front().vertical, 16.0, 1e-12);
 }
 
+/// The value of an optional that the test requires to be present; a missing value fails the test.
+template <typename T> const T& present(const std::optional<T>& value)
+{
+    if (!value)
+    {
+        throw std::logic_error("expected a value");
+    }
+    return *value;
+}
+
 /// The plotted samples of a series by original frame.
 std::map<int, double> valuesByFrame(const motrack::PlotSeries& series)
 {
@@ -418,12 +429,12 @@ TEST(MeasurementPlot, ClipEdgesAndMarksOutsideTheClipLeaveDerivativesBlank)
     }
 }
 
-TEST(MeasurementPlot, KeepsTimeAwareEstimatesForUnequalDecodedFrameIntervals)
+TEST(MeasurementPlot, UsesTimeAwareEstimatesForUnequalDecodedFrameIntervals)
 {
-    // Decoded frame times 0, 1, 3, 4, 6 s and x = t², y = 2t. For unequal intervals MoTrack keeps the
-    // derivatives of the quadratic through each step and its neighbours (#87), exact here: v_x = 2t and
-    // a_x = 2. Tracker's uniform stencils would report v_x = 3, 5, 9 and a_x = (37/7) / 1.5² ≈ 2.35.
-    // Acceleration still needs Tracker's five-step window, so only step 2 has one.
+    // Decoded frame times 0, 1, 3, 4, 6 s and x = t², y = 2t. For unequal intervals velocity is the slope of
+    // the quadratic through each step and its neighbours, and acceleration the five-point least-squares
+    // parabola (#87, #331), both exact here: v_x = 2t and a_x = 2. Tracker's uniform stencils would report
+    // v_x = 3, 5, 9 and a_x = (37/7) / 1.5² ≈ 2.35. Acceleration needs Tracker's five-step window: step 2 only.
     const std::array times{0.0, 1.0, 3.0, 4.0, 6.0};
     motrack::LegacyProject project;
     motrack::PointMass mass{.name = "A"};
@@ -448,10 +459,10 @@ TEST(MeasurementPlot, KeepsTimeAwareEstimatesForUnequalDecodedFrameIntervals)
     ASSERT_EQ(accelerationX.samples.size(), 1u);
     EXPECT_EQ(accelerationX.samples.front().frame, 2);
     EXPECT_DOUBLE_EQ(accelerationX.samples.front().horizontal, 3.0);
-    EXPECT_DOUBLE_EQ(accelerationX.samples.front().vertical, 2.0);
+    EXPECT_NEAR(accelerationX.samples.front().vertical, 2.0, 1e-12);
     const auto accelerationY = motrack::measurementPlot(project, 0, motrack::PlotQuantity::AccelerationY, times);
     ASSERT_EQ(accelerationY.samples.size(), 1u);
-    EXPECT_EQ(accelerationY.samples.front().vertical, 0.0);
+    EXPECT_NEAR(accelerationY.samples.front().vertical, 0.0, 1e-12);
 
     // True variable frame rate: steady motion captured at the recorded, unevenly spaced times (positions follow
     // those times, x = 2t). The time-aware estimate gives no acceleration, where Tracker's stencil reports about
@@ -475,24 +486,22 @@ TEST(MeasurementPlot, KeepsTimeAwareEstimatesForUnequalDecodedFrameIntervals)
     }
 }
 
-TEST(MeasurementPlot, ConstantRateCaptureWithMillisecondTimestampsKeepsTheTimeAwareError)
+TEST(MeasurementPlot, ConstantRateCaptureWithMillisecondTimestampsUsesTrackersStencils)
 {
-    // KNOWN LIMITATION, pinned so that the #87 follow-up notices the change. Constant-rate capture whose
-    // decoded times are whole milliseconds (the Matroska/WebM time base): positions follow the true times,
-    // x = 2 m/s × k / rate, but the 33/34 ms intervals count as unequal, so MoTrack's time-aware estimates
-    // turn the timestamp rounding into acceleration and a 1–2% velocity error. Tracker's uniform stencils,
-    // given the same inputs, are accurate to about 1e-13. Values over one second (31 frames, steady 2 m/s).
+    // Constant-rate capture whose decoded times are whole milliseconds (the Matroska/WebM time base): positions
+    // follow the true times, x = 2 m/s × k / rate, while the 33/34 ms (or 16/17 ms) intervals only reflect the
+    // rounding. With the stream's 1/1000 s time base every window is evenly spaced within its resolution, so
+    // the values are Tracker's: no acceleration (Tracker's stencil is accurate to about 1e-13) and Tracker's
+    // velocity. Before #331 the time-aware three-point estimates reported up to 1.77, 1.78 and 7.43 m/s² here.
+    // Without the time base the five-point fit still sees the rounding as jitter (0.26 to 1.0 m/s²).
     struct Rate
     {
         double numerator;
         double denominator;
-        double maximumAcceleration;
-        double maximumVelocityError;
     };
-    for (const auto& rate :
-         {Rate{.numerator = 1.0, .denominator = 30.0, .maximumAcceleration = 1.773663, .maximumVelocityError = 0.010101},
-          Rate{.numerator = 1001.0, .denominator = 30000.0, .maximumAcceleration = 1.775437, .maximumVelocityError = 0.011111},
-          Rate{.numerator = 1.0, .denominator = 60.0, .maximumAcceleration = 7.427213, .maximumVelocityError = 0.019608}})
+    for (const auto& rate : {Rate{.numerator = 1.0, .denominator = 30.0},
+                             Rate{.numerator = 1001.0, .denominator = 30000.0},
+                             Rate{.numerator = 1.0, .denominator = 60.0}})
     {
         constexpr int FRAMES = 31;
         std::vector<double> times;
@@ -507,29 +516,107 @@ TEST(MeasurementPlot, ConstantRateCaptureWithMillisecondTimestampsKeepsTheTimeAw
             positions.emplace_back(motrack::science::PlanarValue{.x = 2.0 * t, .y = 0.0});
         }
         project.pointMasses.push_back(mass);
-        double acceleration = 0.0;
-        for (const auto& sample : motrack::measurementPlot(project, 0, motrack::PlotQuantity::AccelerationX, times).samples)
+        constexpr motrack::FrameTimeBase MILLISECONDS{.numerator = 1, .denominator = 1000};
+        const auto acceleration = motrack::measurementPlot(project, 0, motrack::PlotQuantity::AccelerationX, times, 0.0, MILLISECONDS);
+        ASSERT_EQ(acceleration.samples.size(), static_cast<std::size_t>(FRAMES - 4)) << rate.denominator;
+        for (const auto& sample : acceleration.samples)
         {
-            acceleration = std::max(acceleration, std::abs(sample.vertical));
+            EXPECT_LT(std::abs(sample.vertical), 1e-9) << rate.denominator << " frame " << sample.frame;
         }
-        double velocityError = 0.0;
-        for (const auto& sample : motrack::measurementPlot(project, 0, motrack::PlotQuantity::VelocityX, times).samples)
-        {
-            velocityError = std::max(velocityError, std::abs(sample.vertical - 2.0) / 2.0);
-        }
-        EXPECT_NEAR(acceleration, rate.maximumAcceleration, 1e-5) << rate.denominator;
-        EXPECT_NEAR(velocityError, rate.maximumVelocityError, 1e-5) << rate.denominator;
-
         const auto tracker = motrack::science::pointMassDerivatives(motrack::science::TRACKER_DEFAULT_DERIVATIVE_ALGORITHM,
                                                                     {.firstFrame = 0, .stepSize = 1, .stepCount = FRAMES},
                                                                     positions,
                                                                     times);
-        for (const auto& value : tracker.acceleration)
+        const auto velocity =
+            valuesByFrame(motrack::measurementPlot(project, 0, motrack::PlotQuantity::VelocityX, times, 0.0, MILLISECONDS));
+        ASSERT_EQ(velocity.size(), static_cast<std::size_t>(FRAMES - 2));
+        for (const auto& [frame, value] : velocity)
         {
-            if (value)
+            EXPECT_EQ(value, present(tracker.velocity.at(static_cast<std::size_t>(frame))).x) << rate.denominator << " frame " << frame;
+        }
+
+        double unknownBase = 0.0;
+        for (const auto& sample : motrack::measurementPlot(project, 0, motrack::PlotQuantity::AccelerationX, times).samples)
+        {
+            unknownBase = std::max(unknownBase, std::abs(sample.vertical));
+        }
+        EXPECT_GT(unknownBase, 0.2) << rate.denominator;
+    }
+}
+
+TEST(MeasurementPlot, AMixedClipOnACoarseTimeBaseHasNoEstimatorDiscontinuity)
+{
+    // 30 fps on a 1/600 s time base (20 ticks per frame), free fall with ±1 mm alternating noise and positions at
+    // the recorded times; frame 10 is one, two or three ticks late. The noise alone moves Tracker's five-point
+    // estimate by ±(4/7) ε / dt² = ±0.51 m/s², where a three-point estimate would move it by ±3.6 m/s².
+    constexpr double STEP = 1.0 / 30.0;
+    constexpr double NOISE = 0.001;
+    constexpr double GRAVITY = -9.8;
+    constexpr int FRAMES = 21;
+    constexpr motrack::FrameTimeBase PHONE{.numerator = 1, .denominator = 600};
+    const double band = (4.0 / 7.0) * NOISE / (STEP * STEP);
+    struct Recording
+    {
+        motrack::LegacyProject project;
+        std::vector<double> times;
+        std::vector<std::optional<motrack::science::PlanarValue>> positions;
+    };
+    const auto clip = [&](int lateTicks)
+    {
+        Recording result;
+        motrack::PointMass ball{.name = "ball"};
+        for (int frame = 0; frame < FRAMES; ++frame)
+        {
+            const auto ticks = 20 * frame + (frame == 10 ? lateTicks : 0);
+            // Decoded times are whole nanoseconds of the tick times.
+            const double t = static_cast<double>(std::llround(ticks * 1e9 / 600.0)) / 1e9;
+            const double y = 2.0 - 4.9 * t * t + (frame % 2 == 0 ? NOISE : -NOISE);
+            result.times.push_back(t);
+            result.positions.emplace_back(motrack::science::PlanarValue{.x = 0.0, .y = y});
+            ball.marks.push_back({.frame = frame, .x = 0.0, .y = y});
+        }
+        result.project.pointMasses.push_back(ball);
+        return result;
+    };
+
+    // One tick late: every window lies within one tick of its evenly spaced grid, which is the resolution of
+    // these timestamps, so all values are Tracker's. Treating that tick as rounding moves the steps whose
+    // window holds frame 10 by at most (2/7) v tb / dt² = 1.4 m/s² at v = 3.3 m/s, never by the 3.6 m/s² noise
+    // burst of a three-point estimate.
+    {
+        const auto oneTick = clip(1);
+        const auto tracker = motrack::science::pointMassDerivatives(motrack::science::TRACKER_DEFAULT_DERIVATIVE_ALGORITHM,
+                                                                    {.firstFrame = 0, .stepSize = 1, .stepCount = FRAMES},
+                                                                    oneTick.positions,
+                                                                    oneTick.times);
+        const auto plotted =
+            valuesByFrame(motrack::measurementPlot(oneTick.project, 0, motrack::PlotQuantity::AccelerationY, oneTick.times, 0.0, PHONE));
+        ASSERT_EQ(plotted.size(), static_cast<std::size_t>(FRAMES - 4));
+        for (const auto& [frame, value] : plotted)
+        {
+            EXPECT_EQ(value, present(tracker.acceleration.at(static_cast<std::size_t>(frame))).y) << frame;
+            EXPECT_LT(std::abs(value - GRAVITY), band + 1.45) << frame;
+        }
+    }
+
+    // Two and three ticks late: the windows that hold frame 10 (steps 8 to 12) are not evenly spaced, so they
+    // use the time-aware five-point fit, which is exact for the free fall; the others are Tracker's. Every value
+    // stays within the noise band, so nothing jumps where the estimator changes (steps 7/8 and 12/13).
+    for (const auto lateTicks : {2, 3})
+    {
+        const auto late = clip(lateTicks);
+        const auto plotted =
+            valuesByFrame(motrack::measurementPlot(late.project, 0, motrack::PlotQuantity::AccelerationY, late.times, 0.0, PHONE));
+        ASSERT_EQ(plotted.size(), static_cast<std::size_t>(FRAMES - 4));
+        std::optional<double> previous;
+        for (const auto& [frame, value] : plotted)
+        {
+            EXPECT_LT(std::abs(value - GRAVITY), band + 0.05) << lateTicks << " ticks, frame " << frame;
+            if (previous)
             {
-                EXPECT_LT(std::abs(value->x), 1e-11) << rate.denominator;
+                EXPECT_LT(std::abs(value - *previous), 2.0 * band + 0.1) << lateTicks << " ticks, frame " << frame;
             }
+            previous = value;
         }
     }
 }
@@ -585,8 +672,9 @@ TEST(MeasurementPlot, ConstantTimingOnAStrideUsesTrackersStepTimeOperandOrder)
 
 TEST(MeasurementPlot, ARepeatedFrameTimeOrAnOverflowLeavesDerivativesMissing)
 {
-    // Frames 1 and 2 share a time. Steps next to that zero interval have no velocity, and the acceleration
-    // whose three-point stencil spans it is missing rather than infinite. x = frame, so every value is 1 or 0.
+    // Frames 1 and 2 share a time. Steps next to that zero interval have no velocity, and every acceleration
+    // whose five-step window spans it (steps 2 and 3) is missing rather than infinite. x = frame, so every
+    // value is 1 or 0.
     const std::array times{0.0, 1.0, 1.0, 2.0, 3.0, 4.0, 5.0};
     motrack::LegacyProject project;
     motrack::PointMass mass{.name = "A"};
@@ -598,7 +686,7 @@ TEST(MeasurementPlot, ARepeatedFrameTimeOrAnOverflowLeavesDerivativesMissing)
     const auto velocity = valuesByFrame(motrack::measurementPlot(project, 0, motrack::PlotQuantity::VelocityX, times));
     EXPECT_EQ(velocity, (std::map<int, double>{{3, 1.0}, {4, 1.0}, {5, 1.0}}));
     const auto acceleration = valuesByFrame(motrack::measurementPlot(project, 0, motrack::PlotQuantity::AccelerationX, times));
-    EXPECT_EQ(acceleration, (std::map<int, double>{{3, 0.0}, {4, 0.0}}));
+    EXPECT_EQ(acceleration, (std::map<int, double>{{4, 0.0}}));
 
     // A difference that overflows on unequal intervals is missing too, never infinite.
     const std::array uneven{0.0, 1.0, 3.0};

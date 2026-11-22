@@ -111,10 +111,12 @@ class WorkspaceSession
     /// View identity/revision only; writes still require whole-source beginSave/completeSave routing.
     [[nodiscard]] DocumentSession::SaveCheckpoint documentCheckpoint(QUuid document) const;
     /// Adopt derived media metadata only for the current index job; never clears edit history.
+    /// `timeBase` is the stream time base the frame times were quantized to (unknown when not reported).
     [[nodiscard]] bool applyMovieIndex(const WorkspaceJobToken& token,
                                        std::vector<double> frameTimes,
                                        int frameCount,
-                                       std::shared_ptr<const MovieTimeline> timeline = {});
+                                       std::shared_ptr<const MovieTimeline> timeline = {},
+                                       FrameTimeBase timeBase = {});
     [[nodiscard]] bool isModified(QUuid source) const;
     [[nodiscard]] bool requiresPairedSave(QUuid source) const;
     [[nodiscard]] const QString& nativeSavePath(QUuid source) const;

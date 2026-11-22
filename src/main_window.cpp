@@ -1,5 +1,6 @@
 #include "main_window.hpp"
 
+#include "display_locale.hpp"
 #include "local_media_path.hpp"
 #include "measurements.hpp"
 #include "movie_worker.hpp"
@@ -1025,7 +1026,7 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
                             const auto timeline = retainMovieTimeline(
                                 path, viewDocument().useDisplayOrientation ? VideoOrientation::Display : VideoOrientation::Encoded, index);
                             if (m_Workspace->session().applyMovieIndex(
-                                    *m_IndexJob, std::move(index.frameTimes), index.frameCount, timeline))
+                                    *m_IndexJob, std::move(index.frameTimes), index.frameCount, timeline, index.timeBase))
                                 m_MovieTimeline = timeline;
                             (void)m_Workspace->session().finishJob(*m_IndexJob);
                             m_IndexJob.reset();
@@ -1033,6 +1034,7 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
                         else if (!index.frameTimes.empty())
                         {
                             m_Session.document.movieFrameTimes = std::move(index.frameTimes);
+                            m_Session.document.movieTimeBase = index.timeBase;
                             auto& clip = viewProject().clip;
                             const auto steps = clip.stepCount.value_or(0);
                             const auto last =
@@ -1077,6 +1079,7 @@ void MainWindow::scheduleMovieIndex(const QString& path, bool standalone)
                     m_Session.document.alignMovieToClip = false;
                     m_MoviePresentationTimes = std::move(index.presentationTimes);
                     m_Session.document.movieFrameTimes = std::move(index.frameTimes);
+                    m_Session.document.movieTimeBase = index.timeBase;
                     activateProject(path);
                     statusBar()->showMessage(tr("Opened video with %1 frames.").arg(index.frameCount));
                 });
@@ -1319,9 +1322,13 @@ void MainWindow::refreshPlot()
     const auto offset = viewDocument().alignMovieToClip && first < viewDocument().movieFrameTimes.size()
                             ? viewProject().clip.startTimeMs / 1000.0 - viewDocument().movieFrameTimes.at(first)
                             : 0.0;
-    auto series = track >= 0
-                      ? measurementPlot(viewProject(), static_cast<std::size_t>(track), quantity, viewDocument().movieFrameTimes, offset)
-                      : PlotSeries{};
+    auto series = track >= 0 ? measurementPlot(viewProject(),
+                                               static_cast<std::size_t>(track),
+                                               quantity,
+                                               viewDocument().movieFrameTimes,
+                                               offset,
+                                               viewDocument().movieTimeBase)
+                             : PlotSeries{};
     const auto timeUnit = QString::fromStdString(series.timeUnit);
     const auto horizontal = series.timed ? tr("Time (%1)").arg(timeUnit) : tr("Frame");
     auto unit = series.calibrated ? QString::fromStdString(viewProject().lengthUnit) : tr("px");
@@ -2231,6 +2238,7 @@ bool MainWindow::saveCsv(const QString& path, const std::string& csv)
 void MainWindow::displayMarks()
 {
     const auto& project = viewProject();
+    const auto locale = dataDisplayLocale();
     m_Marks->setRowCount(0);
     for (const auto& track : project.pointMasses)
     {
@@ -2239,14 +2247,14 @@ void MainWindow::displayMarks()
             const auto row = m_Marks->rowCount();
             m_Marks->insertRow(row);
             m_Marks->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(track.name)));
-            m_Marks->setItem(row, 1, new QTableWidgetItem(QString::number(mark.frame)));
-            m_Marks->setItem(row, 2, new QTableWidgetItem(QString::number(mark.x, 'g', 12)));
-            m_Marks->setItem(row, 3, new QTableWidgetItem(QString::number(mark.y, 'g', 12)));
+            m_Marks->setItem(row, 1, new QTableWidgetItem(locale.toString(mark.frame)));
+            m_Marks->setItem(row, 2, new QTableWidgetItem(locale.toString(mark.x, 'g', 12)));
+            m_Marks->setItem(row, 3, new QTableWidgetItem(locale.toString(mark.y, 'g', 12)));
             const auto world = project.calibration ? worldPosition(*project.calibration, mark) : std::nullopt;
             if (world)
             {
-                m_Marks->setItem(row, 4, new QTableWidgetItem(QString::number(world->x, 'g', 12)));
-                m_Marks->setItem(row, 5, new QTableWidgetItem(QString::number(world->y, 'g', 12)));
+                m_Marks->setItem(row, 4, new QTableWidgetItem(locale.toString(world->x, 'g', 12)));
+                m_Marks->setItem(row, 5, new QTableWidgetItem(locale.toString(world->y, 'g', 12)));
             }
         }
     }

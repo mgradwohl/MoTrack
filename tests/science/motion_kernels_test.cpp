@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstddef>
 #include <functional>
+#include <initializer_list>
 #include <limits>
 #include <numbers>
 #include <optional>
@@ -303,6 +304,144 @@ TEST(MotionKernels, MissingTimesAndInvalidInputsAreRejectedOrMissing)
         std::invalid_argument);
     EXPECT_THROW((void)science::stepDerivatives(DerivativeAlgorithm::BounceDetection, lattice(6, 0, 0), positions), std::invalid_argument);
     EXPECT_THROW((void)science::pointMassAngularMotion(positions, std::span(valid).first(4)), std::invalid_argument);
+}
+
+// ------------------------------------------------------------------------------------------------
+// Measured step times (MoTrack's extension for decoded movie times, #331)
+
+TEST(MotionKernels, LeastSquaresCurvatureIsTrackersStencilAtEqualSpacing)
+{
+    // The derivation in motion_derivatives.cpp: at equal spacing Δ, 2c = (2x0 - x1 - 2x2 - x3 + 2x4) / (7 Δ²).
+    for (const double start : {0.0, -3.25, 1234.5})
+    {
+        for (const double interval : {1.0 / 30.0, 0.04, 2.5})
+        {
+            const std::array times{start, start + interval, start + 2 * interval, start + 3 * interval, start + 4 * interval};
+            const std::array values{0.3, -1.2, 2.5, 0.7, 1.9};
+            const double mean = (times[4] - times[0]) / 4;
+            const double tracker = (2 * values[0] - values[1] - 2 * values[2] - values[3] + 2 * values[4]) / 7 / (mean * mean);
+            const auto fit = science::leastSquaresCurvature(times, values);
+            ASSERT_TRUE(fit.has_value());
+            EXPECT_NEAR(present(fit), tracker, 1e-9 * std::fabs(tracker)) << start << " " << interval;
+        }
+    }
+}
+
+TEST(MotionKernels, TimeAwareEstimatesAreExactForConstantAccelerationAtAnySpacing)
+{
+    // x = 1 + 2t - 4.9t² at unequal, increasing times (also far from the time origin): a = -9.8 and, at the
+    // middle sample, v = 2 - 9.8 t.
+    for (const double origin : {0.0, 0.25, 3600.0})
+    {
+        const std::array offsets{0.0, 0.07, 0.21, 0.26, 0.41};
+        std::array<double, 5> times{};
+        std::array<double, 5> values{};
+        for (std::size_t i = 0; i < 5; ++i)
+        {
+            times.at(i) = origin + offsets.at(i);
+            const double t = offsets.at(i);
+            values.at(i) = 1.0 + 2.0 * t - 4.9 * t * t;
+        }
+        EXPECT_NEAR(present(science::leastSquaresCurvature(times, values)), -9.8, 1e-9 * (1.0 + origin)) << origin;
+        const double middle = offsets[2];
+        EXPECT_NEAR(present(science::quadraticSlope(std::span(times).subspan(1).first<3>(), std::span(values).subspan(1).first<3>())),
+                    2.0 - 9.8 * middle,
+                    1e-9 * (1.0 + origin))
+            << origin;
+    }
+    // At equal spacing the slope is Tracker's secant.
+    const std::array even{0.0, 0.5, 1.0};
+    const std::array values{3.0, 4.0, 7.0};
+    EXPECT_DOUBLE_EQ(present(science::quadraticSlope(even, values)), (7.0 - 3.0) / 1.0);
+}
+
+TEST(MotionKernels, TimeAwareEstimatesNeedIncreasingFiniteSamples)
+{
+    const std::array values{0.0, 1.0, 2.0, 3.0, 4.0};
+    EXPECT_FALSE(science::leastSquaresCurvature(std::array{0.0, 1.0, 1.0, 2.0, 3.0}, values).has_value());
+    EXPECT_FALSE(science::leastSquaresCurvature(std::array{0.0, 2.0, 1.0, 3.0, 4.0}, values).has_value());
+    EXPECT_FALSE(science::leastSquaresCurvature(std::array{0.0, 1.0, NOT_A_NUMBER, 3.0, 4.0}, values).has_value());
+    EXPECT_FALSE(science::leastSquaresCurvature(std::array{0.0, 1.0, 2.0, 3.0, 4.0}, std::array{0.0, INFINITE, 2.0, 3.0, 4.0}).has_value());
+    EXPECT_FALSE(science::quadraticSlope(std::array{0.0, 0.0, 1.0}, std::array{0.0, 1.0, 2.0}).has_value());
+    EXPECT_FALSE(science::quadraticSlope(std::array{0.0, 1.0, 2.0}, std::array{0.0, 1e308, -1e308}).has_value()); // Overflow.
+}
+
+TEST(MotionKernels, EvenlySpacedWindowsAllowOneTickOfTimestampRounding)
+{
+    // 1/600 s ticks at 30 fps (20 ticks per frame), rescaled to whole nanoseconds like decoded times.
+    constexpr double TICK = 1.0 / 600.0;
+    const auto times = [](std::initializer_list<int> ticks)
+    {
+        std::vector<double> result;
+        for (const auto tick : ticks)
+        {
+            result.push_back(static_cast<double>(std::llround(tick * 1e9 / 600.0)) / 1e9);
+        }
+        return result;
+    };
+    // A frame one tick late lies within one tick of the grid in every window that holds it, even at the
+    // exact boundary (residual of one tick, plus nanosecond rescaling).
+    for (const auto& window : {times({0, 20, 41, 60, 80}), times({0, 21, 40, 60, 80}), times({0, 20, 40, 60, 81})})
+    {
+        EXPECT_TRUE(science::evenlySpacedWindow(window, 2, 2, TICK));
+    }
+    // Two ticks late is beyond the rounding in every window: 2 ticks at the middle, 1.5 at an end.
+    for (const auto& window : {times({0, 20, 42, 60, 80}), times({0, 20, 40, 60, 82}), times({2, 20, 40, 60, 80})})
+    {
+        EXPECT_FALSE(science::evenlySpacedWindow(window, 2, 2, TICK));
+    }
+    // Three steps: the two intervals agree within 2 ticks (plus the nanosecond rescaling) and no further.
+    EXPECT_TRUE(science::evenlySpacedWindow(times({0, 21, 40}), 1, 1, TICK));
+    EXPECT_FALSE(science::evenlySpacedWindow(times({0, 22, 40}), 1, 1, TICK));
+    // Without a known time base, nanosecond rounding is the only allowance; decreasing or unknown times never
+    // count as evenly spaced, and nor does a window that leaves the clip.
+    for (const double unknown : {0.0, -1.0, NOT_A_NUMBER})
+    {
+        EXPECT_TRUE(science::evenlySpacedWindow(std::array{0.0, 0.033333333, 0.066666667}, 1, 1, unknown));
+        EXPECT_FALSE(science::evenlySpacedWindow(std::array{0.0, 0.0333334, 0.0666667}, 1, 1, unknown));
+    }
+    EXPECT_FALSE(science::evenlySpacedWindow(std::array{0.0, 0.2, 0.1}, 1, 1, 1.0));
+    EXPECT_FALSE(science::evenlySpacedWindow(std::array{0.0, NOT_A_NUMBER, 0.2}, 1, 1, 1.0));
+    EXPECT_FALSE(science::evenlySpacedWindow(std::array{0.0, 0.1, 0.2}, 0, 1, 1.0));
+    EXPECT_FALSE(science::evenlySpacedWindow(std::array{0.0, 0.1, 0.2}, 1, 2, 1.0));
+}
+
+TEST(MotionKernels, MeasuredTimeDerivativesAreTrackersWhereEvenlySpaced)
+{
+    // Evenly spaced decoded times give Tracker's values bit for bit; a gap leaves the same windows missing.
+    const auto times = stepTimes(12, 0.0, 1000.0 / 30.0);
+    auto positions = trajectory(times, [](double t) { return PlanarValue{.x = 0.5 + 1.25 * t, .y = 2.0 - 4.9 * t * t}; });
+    positions[7].reset();
+    const auto tracker = science::pointMassDerivatives(DerivativeAlgorithm::FiniteDifference, lattice(12), positions, times);
+    const auto measured = science::measuredTimeDerivatives(lattice(12), positions, times, 1.0 / 90000.0);
+    EXPECT_EQ(measured.velocity, tracker.velocity);
+    EXPECT_EQ(measured.acceleration, tracker.acceleration);
+    // Unequal times switch to the time-aware estimates, with the same missing windows and exact values.
+    std::vector<double> uneven = times;
+    uneven[3] += 0.004;
+    for (std::size_t k = 0; k < positions.size(); ++k)
+    {
+        if (positions[k])
+        {
+            positions[k] = PlanarValue{.x = 0.5 + 1.25 * uneven[k], .y = 2.0 - 4.9 * uneven[k] * uneven[k]};
+        }
+    }
+    const auto timeAware = science::measuredTimeDerivatives(lattice(12), positions, uneven, 1.0 / 90000.0);
+    for (std::size_t k = 0; k < positions.size(); ++k)
+    {
+        EXPECT_EQ(timeAware.acceleration[k].has_value(), tracker.acceleration[k].has_value()) << k;
+        EXPECT_EQ(timeAware.velocity[k].has_value(), tracker.velocity[k].has_value()) << k;
+        if (timeAware.acceleration[k])
+        {
+            EXPECT_NEAR(present(timeAware.acceleration[k]).y, -9.8, 1e-9) << k;
+            EXPECT_NEAR(present(timeAware.acceleration[k]).x, 0.0, 1e-9) << k;
+        }
+        if (timeAware.velocity[k])
+        {
+            EXPECT_NEAR(present(timeAware.velocity[k]).y, -9.8 * uneven[k], 1e-9) << k;
+        }
+    }
+    EXPECT_THROW((void)science::measuredTimeDerivatives(lattice(11), positions, uneven, 0.0), std::invalid_argument);
 }
 
 // ------------------------------------------------------------------------------------------------

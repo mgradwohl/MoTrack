@@ -106,6 +106,7 @@ TEST(DecimalConversion, RoundTripsSeventeenDigitText)
         const auto exponent = static_cast<std::uint64_t>(i % 2047);
         const auto value = std::bit_cast<double>(pattern | (exponent << 52U));
         std::array<char, 64> text{};
+        // text-api: allowed (an independent formatter; the next line normalizes the C locale's decimal mark)
         std::snprintf(text.data(), text.size(), "%.17g", value);
         std::string decimal(text.data());
         std::ranges::replace(decimal, ',', '.'); // Locale-independent: the converter only accepts '.'.

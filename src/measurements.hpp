@@ -1,5 +1,6 @@
 #pragma once
 
+#include "frame_time_base.hpp"
 #include "legacy_project.hpp"
 
 #include <cstddef>
@@ -86,20 +87,27 @@ struct LinearFit
 /// Exports the saved point-mass marks that fall inside the clip. Unknown world coordinates stay blank.
 [[nodiscard]] std::string measurementsCsv(const LegacyProject& project);
 
-/// Frame times are seconds indexed by original frame number. Saved constant timing is the fallback.
+/// Plots one quantity of a point mass against time (seconds, or frame numbers when untimed).
+///
+/// `frameTimes` are decoded movie times in seconds from the movie's first frame, indexed by original frame
+/// number, and `frameTimeBase` is the stream time base they were quantized to. Without frame times the saved
+/// constant timing applies. Positions are world coordinates in the project's length unit (image pixels when
+/// uncalibrated), velocity is per second, acceleration per second squared, momentum and kinetic energy use
+/// the point mass's mass. Sample frames are original frame numbers; horizontal values include
+/// `presentationOffsetSeconds` for decoded times.
 ///
 /// Derived quantities follow Tracker's default Finite Difference algorithm on the clip steps: velocity
 /// (x[k+1] - x[k-1]) / 2 and acceleration (2x[k-2] - x[k-1] - 2x[k] - x[k+1] + 2x[k+2]) / 7 per step, scaled
 /// by the mean step interval (motrack_motion's pointMassDerivatives). A value needs every clip step of its
-/// window (three for velocity, five for acceleration); missing values stay absent, never zero. Decoded frame
-/// times whose intervals are unequal (beyond nanosecond rounding) keep MoTrack's time-aware three-point
-/// estimates instead, within the same windows. Those are exact for true variable frame rates but misread
-/// coarse timestamps of constant-rate video, such as whole milliseconds, as jitter (#87; docs/motion-kernels.md).
+/// window (three for velocity, five for acceleration); missing values stay absent, never zero. Where decoded
+/// times are not evenly spaced within the time base, velocity is the time-aware three-point slope and
+/// acceleration the time-aware five-point least-squares fit (measuredTimeDerivatives; #87, #331).
 [[nodiscard]] PlotSeries measurementPlot(const LegacyProject& project,
                                          std::size_t track,
                                          PlotQuantity quantity,
                                          std::span<const double> frameTimes = {},
-                                         double presentationOffsetSeconds = 0.0);
+                                         double presentationOffsetSeconds = 0.0,
+                                         FrameTimeBase frameTimeBase = {});
 
 /// Exports the exact samples displayed in a plot, including the source frame.
 [[nodiscard]] std::string plotCsv(const PlotSeries& series, std::string_view quantity);
