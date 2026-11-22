@@ -61,7 +61,14 @@ target_link_libraries(motrack_input PUBLIC motrack_project PRIVATE motrack_media
 target_link_libraries(motrack_workspace PUBLIC motrack_project motrack_input Qt6::Widgets PRIVATE motrack_media motrack_image_package Qt6::Concurrent)
 target_link_libraries(motrack PRIVATE motrack_workspace)
 qt_add_translations(motrack
-    TS_FILES translations/motrack_de.ts translations/motrack_es.ts translations/motrack_fr.ts
+    TS_FILES translations/motrack_ar.ts translations/motrack_ca.ts translations/motrack_cs.ts translations/motrack_da.ts
+        translations/motrack_de.ts translations/motrack_el.ts translations/motrack_es.ts translations/motrack_fi.ts
+        translations/motrack_fr.ts translations/motrack_he.ts translations/motrack_hu.ts translations/motrack_id.ts
+        translations/motrack_it.ts translations/motrack_ja.ts translations/motrack_ko.ts translations/motrack_lv.ts
+        translations/motrack_ms.ts translations/motrack_nl.ts translations/motrack_pl.ts translations/motrack_pt.ts
+        translations/motrack_pt_BR.ts translations/motrack_ru.ts translations/motrack_sk.ts translations/motrack_sl.ts
+        translations/motrack_sv.ts translations/motrack_th.ts translations/motrack_tr.ts translations/motrack_uk.ts
+        translations/motrack_vi.ts translations/motrack_zh_CN.ts translations/motrack_zh_TW.ts
     SOURCES src/main_window.cpp src/bound_workspace.cpp src/workspace_window.cpp src/position_plot.cpp src/tracker_image_package.cpp
     RESOURCE_PREFIX "/i18n"
 )

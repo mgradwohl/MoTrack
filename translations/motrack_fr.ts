@@ -19,7 +19,7 @@
     <message><source>Another save is using this destination. Wait for it to finish and retry, or save a copy elsewhere.</source><translation type="unfinished"></translation></message>
     <message><source>An interrupted save needs recovery before continuing.</source><translation type="unfinished"></translation></message>
     <message><source>Both files were saved. Recovery cleanup remains.</source><translation type="unfinished"></translation></message>
-    <message><source>Cancel</source><translation type="unfinished"></translation></message>
+    <message><source>Cancel</source><translatorcomment>Tracker exact: tracker_fr.properties Dialog.Button.Cancel</translatorcomment><translation>Annuler</translation></message>
     <message><source>Canceling save…</source><translation type="unfinished"></translation></message>
     <message><source>Choose a %1 filename for an imported Tracker project.</source><translation type="unfinished"></translation></message>
     <message><source>Could not finish the interrupted save: %1</source><translation type="unfinished"></translation></message>
@@ -281,11 +281,13 @@
     </message>
     <message>
         <source>&amp;File</source>
-        <translation type="unfinished" />
+        <translatorcomment>Tracker exact: tracker_fr.properties TMenuBar.Menu.File</translatorcomment>
+        <translation>&amp;Fichier</translation>
     </message>
     <message>
         <source>&amp;Experiments</source>
-        <translation type="unfinished" />
+        <translatorcomment>Tracker exact: tools_fr.properties MenuItem.Experiments</translatorcomment>
+        <translation>&amp;Expériences</translation>
     </message>
     <message>
         <source>Workspace</source>

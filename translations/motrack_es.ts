@@ -281,11 +281,13 @@
     </message>
     <message>
         <source>&amp;File</source>
-        <translation type="unfinished" />
+        <translatorcomment>Tracker exact: tracker_es.properties TMenuBar.Menu.File</translatorcomment>
+        <translation>&amp;Archivo</translation>
     </message>
     <message>
         <source>&amp;Experiments</source>
-        <translation type="unfinished" />
+        <translatorcomment>Tracker exact: tools_es.properties MenuItem.Experiments</translatorcomment>
+        <translation>E&amp;xperimentos</translation>
     </message>
     <message>
         <source>Workspace</source>
