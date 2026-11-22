@@ -406,7 +406,7 @@ class Renderer
         return {};
     }
 
-    Expected<void, RenderError> requireProperty(NodeId id) const
+    [[nodiscard]] Expected<void, RenderError> requireProperty(NodeId id) const
     {
         if (!m_Source.contains(id) || node(id).kind != NodeKind::Property)
         {

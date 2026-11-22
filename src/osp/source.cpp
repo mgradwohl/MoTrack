@@ -1,6 +1,7 @@
 #include "osp/source.hpp"
 
 #include <algorithm>
+#include <ranges>
 #include <stdexcept>
 #include <utility>
 
@@ -337,7 +338,7 @@ class SourceParser
             if (contains(content, OBJECT_END))
             {
                 // "</object>" also discards the following line, normally the parent's "</property>".
-                at(*id).closeLine = *current;
+                at(*id).closeLine = current;
                 at(*id).lastLine = readLine().value_or(*current);
                 return id;
             }
@@ -447,7 +448,7 @@ class SourceParser
         {
             return fail(ParseError::Code::UnterminatedArray, line + 1, "End of file inside an array or collection.");
         }
-        at(id).closeLine = *current;
+        at(id).closeLine = current;
         at(id).lastLine = *current;
         return id;
     }
@@ -1084,11 +1085,11 @@ std::vector<PropertyView> ObjectView::properties() const
 std::optional<PropertyView> ObjectView::property(std::string_view name) const
 {
     const auto& children = node().children;
-    for (auto child = children.rbegin(); child != children.rend(); ++child)
+    for (const auto child : std::views::reverse(children))
     {
-        if (m_Source->node(*child).name == name)
+        if (m_Source->node(child).name == name)
         {
-            return PropertyView(*m_Source, *child);
+            return PropertyView(*m_Source, child);
         }
     }
     return std::nullopt;
@@ -1097,9 +1098,9 @@ std::optional<PropertyView> ObjectView::property(std::string_view name) const
 std::optional<ObjectView> ObjectView::child(std::string_view name) const
 {
     const auto& children = node().children;
-    for (auto child = children.rbegin(); child != children.rend(); ++child)
+    for (const auto child : std::views::reverse(children))
     {
-        const auto& item = m_Source->node(*child);
+        const auto& item = m_Source->node(child);
         if (item.name == name && item.type == PropertyType::Object && !item.children.empty())
         {
             return ObjectView(*m_Source, item.children.front());

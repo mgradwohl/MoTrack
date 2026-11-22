@@ -286,9 +286,9 @@ std::set<std::size_t> structuralLines(const Source& source)
     {
         const auto& node = source.node(static_cast<NodeId>(index));
         lines.insert(node.firstLine);
-        if (node.closeLine)
+        if (const auto close = node.closeLine)
         {
-            lines.insert(*node.closeLine);
+            lines.insert(*close);
         }
     }
     return lines;
@@ -309,9 +309,9 @@ std::set<std::size_t> ignorablePositions(const Source& source)
         {
             lines.insert(source.node(child).firstLine);
         }
-        if (node.closeLine)
+        if (const auto close = node.closeLine)
         {
-            lines.insert(*node.closeLine);
+            lines.insert(*close);
         }
     }
     return lines;
