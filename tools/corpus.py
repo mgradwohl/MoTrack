@@ -27,7 +27,7 @@ CORPUS = ROOT / "tests/corpus"
 MAX_XML_BYTES = 32 * 1024 * 1024
 
 # Commands that check the reference corpus; kernel oracles register themselves below with @kernel_oracle.
-CORPUS_COMMANDS = ["fetch", "verify", "reference", "check", "session", "roundtrip", "xml-oracle", "library-oracle",
+CORPUS_COMMANDS = ["fetch", "verify", "reference", "check", "session", "roundtrip", "compose-check", "xml-oracle", "library-oracle",
                    "state-oracle", "state-check", "state-diff"]
 # Kernel oracle commands -> the name of their check function. Each oracle is defined as
 # `check_<x>_oracle(manifest, cache, java, *, record=False)` and registered where it is defined, so a new
@@ -2812,9 +2812,140 @@ def check_tabset(manifest, cache, java, classes, root, display, probe):
           "resaved byte for byte by MoTrack; MoTrack's edited tabset reopened with every tab by Tracker)")
 
 
-def check_sessions(manifest, cache, java, probe=None):
-    if sys.platform != "linux":
-        raise ValueError("Session checks currently require Linux with Xvfb")
+RENAME_MODES = {"name", "unselected-name", "vector-name", "plot-owner-name", "plot-guest-name", "center-member-name",
+                "attachment-first-name", "attachment-last-name", "model-booster-name"}
+# Round-trip modes whose MoTrack input only Tracker's own resave or authoring produces; the round trip covers them.
+JAVA_AUTHORED_MODES = {"first-mark", "first-vector", "clip-boundary"}
+COMPOSE_REPORT = "MOTRACK_COMPOSE_REPORT"
+
+
+def rename_source(project, output, mode):
+    """The rename modes' input: the pinned original with a non-reference note, keeping OSP's line-oriented XML layout,
+    so blind text substitution cannot pass."""
+    text = project.read_text(encoding="utf-8")
+    before, after = text.rsplit("</object>", 1)
+    source = output / "rename-source.trk"
+    prefix = "vector" if mode == "vector-name" else "mass"
+    selection = ('<property name="selectedtrack" type="string">vector B</property>\n'
+                 '<property name="selected_track_views" type="string">'
+                 'vector B,null;null,vector B;null,null;null,null</property>\n') if mode == "vector-name" else ""
+    source.write_text(before + selection + '<property name="description" type="string"><![CDATA['
+                      + prefix + ' A and ' + prefix + ' B are words in this note.]]></property>\n</object>' + after,
+                      encoding="utf-8")
+    return source
+
+
+@contextmanager
+def composition_report(path):
+    """While active, every probe export also composes with the descriptors (B2.3) and appends the comparison to `path`."""
+    if path is None:
+        yield
+        return
+    path.unlink(missing_ok=True)
+    previous = os.environ.get(COMPOSE_REPORT)
+    os.environ[COMPOSE_REPORT] = str(path)
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(COMPOSE_REPORT, None)
+        else:
+            os.environ[COMPOSE_REPORT] = previous
+
+
+def read_composition_report(path, label, *, required=True):
+    """The comparisons a probe reported; a different decision, or different bytes where both export, fails. A run whose
+    probe exported nothing (a reduced manifest) reports nothing unless compositions are `required`."""
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    comparisons = [json.loads(line) for line in lines if line.strip()]
+    if not comparisons:
+        if required:
+            raise ValueError(f"{label}: the probe reported no compositions")
+        return comparisons
+    different = [item for item in comparisons if not item.get("equivalent")]
+    if different:
+        raise ValueError(f"{label}: the descriptor composition differs from B1's in {len(different)} of {len(comparisons)} exports: "
+                         + "; ".join(f"{item.get('command')}: {item.get('description')}" for item in different[:10]))
+    exported = sum(1 for item in comparisons if item.get("exported"))
+    reasons = sum(1 for item in comparisons if not item.get("identical"))
+    print(f"{label}: the descriptor composition makes B1's decision in all {len(comparisons)} exports ({exported} exported with "
+          f"equal bytes, {len(comparisons) - exported} refused, {reasons} of them for another reason)")
+    return comparisons
+
+
+def roundtrip_export(probe, manifest, cache, case, mode, output):
+    """The round trip's MoTrack export of one case and mode, without Tracker: the same input and probe command."""
+    output.mkdir(parents=True)
+    probe = str(Path(probe).resolve())
+    file = local_fixture_path(case) if "local_file" in case else cache / "fixtures" / case["file"]
+    vector_scenario = mode.split("-", 4)[4] if mode.startswith("media-vectors-") else None
+    if case.get("session_archive_tabs"):
+        by_id = {item["id"]: item for item in manifest["cases"]}
+        template = by_id[case["session_archive_tabs"][0]["case"]]
+        movie = template.get("session_media", {}).get("class") == "org.opensourcephysics.media.xuggle.XuggleVideo"
+        grouped = mode in {"archive-group-forward", "archive-group-reverse"}
+        export_mode = mode if movie or vector_scenario or grouped else "multitab-archive-images"
+        run([probe, "--export-" + export_mode, str(file), str(output / "motrack-export.trz")])
+        return
+    project = project_path(case, cache)
+    if mode in RENAME_MODES:
+        project = rename_source(project, output, mode)
+    if mode in {"archive-images", "paired-archive-images", "archive-image-clip"}:
+        run([probe, "--export-" + mode, str(file), str(output / "motrack-export.trz")])
+        return
+    if mode.startswith("snap-"):
+        run([probe, "--export-" + mode, str(project), str(output / "rejected-destination.trk")])
+        return
+    packaged = mode.startswith("packaged-") or bool(vector_scenario and mode.split("-")[3] == "packaged")
+    run([probe, "--export-" + mode, str(project), str(output / ("motrack-export.trz" if packaged else "motrack-export.trk"))])
+
+
+def check_compositions(manifest, cache, probe):
+    """B2.3's comparison of the descriptor composition with B1's, without Java: every edit scenario of every corpus case
+    (tests/compose_scenarios.hpp), then every MoTrack export of the round trip whose input exists without Tracker."""
+    for path, artifact in artifacts(manifest, cache):
+        if artifact is not manifest["reference"] and artifact not in manifest["reference"].get("runtime_dependencies", []):
+            verify_file(path, artifact)
+    scenarios = 0
+    exported = 0
+    reasons = 0
+    different = []
+    skipped = []
+    with tempfile.TemporaryDirectory(prefix="compose-", dir=cache) as temporary:
+        root = Path(temporary)
+        for case in manifest["cases"]:
+            report = root / (case["id"] + "-scenarios.json")
+            run([str(Path(probe).resolve()), "--compose-scenarios", str(project_path(case, cache)), str(report)], timeout=300)
+            for item in json.loads(report.read_text(encoding="utf-8"))["scenarios"]:
+                scenarios += 1
+                exported += bool(item["exported"])
+                reasons += not item["identical"]
+                if not item["equivalent"]:
+                    different.append(f"{case['id']}/{item['scenario']} ({item['route']}): {item['description']}")
+        if different:
+            raise ValueError(f"compose-check: the descriptor composition differs from B1's in {len(different)} of {scenarios} "
+                             "scenarios: " + "; ".join(different[:10]))
+        print(f"compose-check: the descriptor composition makes B1's decision in all {scenarios} scenarios of "
+              f"{len(manifest['cases'])} cases ({exported} exported with equal bytes, {scenarios - exported} refused, "
+              f"{reasons} of them for another reason)")
+        compositions = root / "compositions.jsonl"
+        with composition_report(compositions):
+            for case, mode in roundtrip_cases(manifest):
+                if mode in JAVA_AUTHORED_MODES:
+                    skipped.append(f"{case['id']}/{mode}")
+                    continue
+                try:
+                    roundtrip_export(probe, manifest, cache, case, mode, root / (case["id"] + "-" + mode))
+                except ValueError as error:
+                    raise ValueError(f"{case['id']}/{mode}: {error}") from error
+        read_composition_report(compositions, "compose-check")
+    if skipped:
+        print(f"compose-check: {len(skipped)} round-trip exports need Tracker's resave or authoring and run in the round trip: "
+              + ", ".join(skipped))
+
+
+def roundtrip_cases(manifest):
+    """The (case, mode) pairs of the edited round trip: each probe export mode of a case that opts into it."""
     modes = [("linked-movie", "native_linked_movie_roundtrip"),
              ("archive-group-forward", "native_archive_group_roundtrip"),
              ("archive-group-reverse", "native_archive_group_roundtrip"),
@@ -2866,21 +2997,25 @@ def check_sessions(manifest, cache, java, probe=None):
              ("center-member-name", "native_center_name_roundtrip"),
              ("attachment-first-name", "native_attachment_name_roundtrip"),
              ("attachment-last-name", "native_attachment_name_roundtrip"),
-             ("model-booster-name", "native_model_name_roundtrip")] if probe else [("session", "session_tracks")]
-    if probe:
-        modes.extend((prefix + "-movie-tracks-" + scenario, flag)
-                     for prefix, flag in [("linked", "native_movie_tracks_roundtrip"),
-                                          ("packaged", "native_movie_tracks_package_roundtrip"),
-                                          ("archive", "native_movie_tracks_archive_roundtrip"),
-                                          ("paired-archive", "native_movie_tracks_archive_roundtrip")]
-                     for scenario in MOVIE_TRACK_SCENARIOS)
-    cases = [(case, mode) for case in manifest["cases"] if "session_tracks" in case
-             for mode, flag in modes if case.get(flag)]
-    if probe:
-        cases.extend((case, f"media-vectors-{case['media_vector_kind']}-{route}-{scenario}")
-                     for case in manifest["cases"] if case.get("native_media_vector_roundtrip") or case.get("native_media_vector_archive_roundtrip")
-                     for route in (["archive", "paired"] if case.get("native_media_vector_archive_roundtrip") else ["linked", "packaged"])
-                     for scenario in media_vector_scenarios(case))
+             ("model-booster-name", "native_model_name_roundtrip")]
+    modes.extend((prefix + "-movie-tracks-" + scenario, flag)
+                 for prefix, flag in [("linked", "native_movie_tracks_roundtrip"),
+                                      ("packaged", "native_movie_tracks_package_roundtrip"),
+                                      ("archive", "native_movie_tracks_archive_roundtrip"),
+                                      ("paired-archive", "native_movie_tracks_archive_roundtrip")]
+                 for scenario in MOVIE_TRACK_SCENARIOS)
+    cases = [(case, mode) for case in manifest["cases"] if "session_tracks" in case for mode, flag in modes if case.get(flag)]
+    cases.extend((case, f"media-vectors-{case['media_vector_kind']}-{route}-{scenario}")
+                 for case in manifest["cases"] if case.get("native_media_vector_roundtrip") or case.get("native_media_vector_archive_roundtrip")
+                 for route in (["archive", "paired"] if case.get("native_media_vector_archive_roundtrip") else ["linked", "packaged"])
+                 for scenario in media_vector_scenarios(case))
+    return cases
+
+
+def check_sessions(manifest, cache, java, probe=None):
+    if sys.platform != "linux":
+        raise ValueError("Session checks currently require Linux with Xvfb")
+    cases = roundtrip_cases(manifest) if probe else [(case, "session") for case in manifest["cases"] if case.get("session_tracks")]
     if not cases:
         raise ValueError("No applicable Tracker session cases")
     for path, artifact in artifacts(manifest, cache):
@@ -2889,7 +3024,9 @@ def check_sessions(manifest, cache, java, probe=None):
     javac = java_path.with_name("javac")
     reports = cache / "reports"
     reports.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="session-", dir=cache) as temporary, private_display() as display:
+    compositions = reports / "roundtrip-compositions.jsonl"
+    with (tempfile.TemporaryDirectory(prefix="session-", dir=cache) as temporary, private_display() as display,
+          composition_report(compositions if probe else None)):
         root = Path(temporary)
         classes = root / "classes"
         classes.mkdir()
@@ -2919,20 +3056,8 @@ def check_sessions(manifest, cache, java, probe=None):
                 continue
             project = project_path(case, cache)
             archive_input = (local_fixture_path(case) if "local_file" in case else cache / "fixtures" / case["file"]) if case.get("session_archive") else None
-            if mode in {"name", "unselected-name", "vector-name", "plot-owner-name", "plot-guest-name", "center-member-name",
-                        "attachment-first-name", "attachment-last-name", "model-booster-name"}:
-                # Preserve the pinned original. Add a non-reference note to the temporary source,
-                # keeping OSP's line-oriented XML layout, so blind text substitution cannot pass.
-                text = project.read_text(encoding="utf-8")
-                before, after = text.rsplit("</object>", 1)
-                project = output / "rename-source.trk"
-                prefix = "vector" if mode == "vector-name" else "mass"
-                selection = ('<property name="selectedtrack" type="string">vector B</property>\n'
-                             '<property name="selected_track_views" type="string">'
-                             'vector B,null;null,vector B;null,null;null,null</property>\n') if mode == "vector-name" else ""
-                project.write_text(before + selection + '<property name="description" type="string"><![CDATA['
-                                   + prefix + ' A and ' + prefix + ' B are words in this note.]]></property>\n</object>' + after,
-                                   encoding="utf-8")
+            if mode in RENAME_MODES:
+                project = rename_source(project, output, mode)
             if mode == "first-mark":
                 project = root / (case["id"] + "-empty-marks") / "tracker-resaved.trk"
             elif mode == "first-vector":
@@ -3203,6 +3328,8 @@ def check_sessions(manifest, cache, java, probe=None):
                 print(f"{case['id']}: passed (Tracker application load/save/reopen; MoTrack export untested)")
             (reports / (case["id"] + suffix)).write_text(
                 json.dumps(saved_report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if probe:
+        read_composition_report(compositions, "roundtrip", required=False)
 
 
 # Loaded-state oracle (O3/O4) and the known-defect registry. The schema, comparison rules, gap baseline
@@ -5774,7 +5901,7 @@ def main():
     parser.add_argument("--java", help="Java 17+ JDK executable (reference, session, roundtrip, state-oracle and *-oracle "
                                        "commands; optional for library-census)")
     parser.add_argument("--probe", help="Built motrack_corpus_probe executable "
-                                        "(check/roundtrip/xml-oracle/state-check/library-census commands)")
+                                        "(check/roundtrip/compose-check/xml-oracle/state-check/library-census commands)")
     parser.add_argument("--record", action="store_true", help="Explicitly replace committed Java baselines for review")
     parser.add_argument("--reports", type=Path, help="Report directory for xml-oracle/library-oracle (default: CACHE/reports/COMMAND)")
     parser.add_argument("--library-extra", type=Path, help="Directory of further documents for library-oracle (not committed)")
@@ -5792,7 +5919,7 @@ def main():
         parser.error("--library-extra is only valid for the library-oracle command")
     if args.o2_only and args.command != "xml-oracle":
         parser.error("--o2-only is only valid for the xml-oracle command")
-    if args.command in {"check", "roundtrip", "xml-oracle", "library-oracle", "state-check", "library-census"} and not args.probe:
+    if args.command in {"check", "roundtrip", "compose-check", "xml-oracle", "library-oracle", "state-check", "library-census"} and not args.probe:
         parser.error(f"{args.command} requires --probe")
     if (args.command == "state-diff") != bool(args.dumps) or (args.dumps and len(args.dumps) != 2):
         parser.error("state-diff takes exactly two dump files; other commands take none")
@@ -5825,6 +5952,8 @@ def main():
         globals()[KERNEL_ORACLES[args.command]](manifest, cache, args.java, record=args.record)
     elif args.command in {"session", "roundtrip"}:
         check_sessions(manifest, cache, args.java, args.probe if args.command == "roundtrip" else None)
+    elif args.command == "compose-check":
+        check_compositions(manifest, cache, args.probe)
     elif args.command == "xml-oracle":
         check_xml_oracle(manifest, cache, args.java, args.probe, args.reports, args.o2_only)
     elif args.command == "library-oracle":

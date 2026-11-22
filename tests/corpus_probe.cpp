@@ -1,6 +1,7 @@
 #include "app_locale.hpp"
 #include "archive_group.hpp"
 #include "archive_group_session.hpp"
+#include "compose_scenarios.hpp"
 #include "filesystem_path.hpp"
 #include "legacy_project.hpp"
 #include "legacy_view.hpp"
@@ -19,6 +20,7 @@
 #include "paired_save.hpp"
 #include "track_edits.hpp"
 #include "tracker_archive.hpp"
+#include "tracker_compose.hpp"
 #include "tracker_references.hpp"
 #include "tracker_tabset.hpp"
 #include "tracker_writer.hpp"
@@ -58,6 +60,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #if defined(_WIN32) && defined(_DEBUG)
@@ -1106,6 +1109,37 @@ QJsonObject libraryDump(const QString& kind, const std::filesystem::path& input)
     }
     throw motrack::ProjectError("Unknown library dump kind.");
 }
+/// Where B2.3's comparison of each export with the descriptor composition is reported (MOTRACK_COMPOSE_REPORT), and the
+/// probe command it belongs to.
+QString& compositionReport()
+{
+    static QString path;
+    return path;
+}
+
+QString& compositionCommand()
+{
+    static QString command;
+    return command;
+}
+
+/// Composes every production (B1) export of this run again with the descriptors and appends one JSON line describing
+/// the comparison; `corpus.py compose-check` reads them. The export itself is unchanged.
+void reportComposition(const motrack::LegacyProject& project,
+                       const motrack::TrackerSource& source,
+                       const motrack::ExportMedia& media,
+                       const motrack::detail::CompositionOutcome& outcome)
+{
+    const auto comparison = motrack::detail::compareWithDescriptorComposition(project, source, media, outcome);
+    const QJsonObject line{{"command", compositionCommand()},
+                           {"exported", std::holds_alternative<std::string>(comparison.legacy)},
+                           {"equivalent", comparison.equivalent()},
+                           {"identical", comparison.identical()},
+                           {"description", QString::fromStdString(comparison.describe())}};
+    QFile file(compositionReport());
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Append) || file.write(QJsonDocument(line).toJson(QJsonDocument::Compact) + '\n') < 0)
+        throw motrack::ProjectError("Could not write the composition report.");
+}
 } // namespace
 
 int main(int argc, char** argv)
@@ -1117,6 +1151,12 @@ try
     const QCoreApplication application(argc, argv);
     motrack::configureProcessLocale();
     const auto args = application.arguments();
+    if (const auto report = qEnvironmentVariable("MOTRACK_COMPOSE_REPORT"); !report.isEmpty())
+    {
+        compositionReport() = report;
+        compositionCommand() = args.size() > 1 ? args[1] : QString();
+        motrack::detail::setCompositionObserver(&reportComposition);
+    }
     if (args.size() >= 4 && args[1] == "--write-tabset")
     {
         // MoTrack's tabset writer, with paths relative to the destination's directory.
@@ -1156,6 +1196,44 @@ try
         if (!output.open(QIODevice::WriteOnly) || output.write(QJsonDocument(items).toJson()) < 0 || !output.commit())
             throw motrack::ProjectError("Could not write the tabset report.");
         return EXIT_SUCCESS;
+    }
+    if (args.size() == 4 && args[1] == "--compose-scenarios")
+    {
+        // B2.3's corpus comparison: every edit of tests/compose_scenarios.hpp exported by B1's composition and by the
+        // descriptor composition. A file B1 refuses to import reports no scenarios.
+        QJsonArray scenarios;
+        std::optional<motrack::ImportedTrackerProject> imported;
+        QString refused;
+        try
+        {
+            imported = motrack::readTrackerProject(motrack::toFilesystemPath(args[2]));
+        }
+        catch (const motrack::ProjectError& error)
+        {
+            refused = QString::fromStdString(error.what());
+        }
+        if (imported)
+        {
+            for (const auto& [scenario, route, comparison] :
+                 motrack::test::compareScenarios(*imported, motrack::importTypedTracker(imported->source.xml)))
+            {
+                scenarios.append(QJsonObject{{"scenario", QString::fromUtf8(scenario.data(), static_cast<qsizetype>(scenario.size()))},
+                                             {"route",
+                                              route == motrack::LinkedMedia::None     ? "media-free"
+                                              : route == motrack::LinkedMedia::Images ? "linked-images"
+                                                                                      : "linked-movie"},
+                                             {"exported", std::holds_alternative<std::string>(comparison.legacy)},
+                                             {"equivalent", comparison.equivalent()},
+                                             {"identical", comparison.identical()},
+                                             {"description", QString::fromStdString(comparison.describe())}});
+            }
+        }
+        const auto bytes =
+            QJsonDocument(QJsonObject{{"imported", imported.has_value()}, {"refused", refused}, {"scenarios", scenarios}}).toJson();
+        QSaveFile output(args[3]);
+        if (!output.open(QIODevice::WriteOnly) || output.write(bytes) != bytes.size() || !output.commit())
+            throw motrack::ProjectError("Could not write the composition comparison.");
+        return 0;
     }
     if (args.size() == 4 && args[1] == "--osp-dump")
     {
