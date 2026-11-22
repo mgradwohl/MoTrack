@@ -51,6 +51,13 @@ publication (R27) are outside the current completion contract; local staging rem
 that Tracker ships is in scope: catalogs are seeded from Tracker's own translations where strings
 correspond, remaining strings are machine-translated and marked `unfinished` for later human review.
 
+**Maintainer decisions of 2026-11-22.** Machine-translated strings ship visible, without a label; they stay
+`unfinished` in the catalogs for review, so builds must not pass `-nounfinished`. The interface keeps every
+Tracker capability but may modernize its layout: menus, toolbars and panels can be reorganized where a
+cleaner design helps, and the user guide maps each Tracker command to its MoTrack location. Where MoTrack
+corrects a Tracker defect, the user guide lists the difference and an opened experiment shows a quiet,
+non-blocking indicator (status or diagnostics, no pop-up) naming the corrections that apply to it.
+
 ## Current status
 
 Snapshot **2026-11-21**, main at [`b22029b`](https://github.com/mgradwohl/MoTrack/commit/b22029b4e1bdf9eb5911d3a2ca53d3b779fb3edc)
@@ -149,7 +156,7 @@ and platform evidence before it can be marked complete.
 | R13 | RGB region and line-profile tracks, shapes/widths, changing image statistics, spatial/time data, and persistence | Missing; define sampling relative to the filter pipeline first. | 6–7 |
 | R14 | Complete motion data and derivative choices, gaps/interpolation, motion smoothing, filtered clones, and correct units | Partial: translational quantities with gap handling. The K4 [motion kernels](motion-kernels.md) ([PR #223](https://github.com/mgradwohl/MoTrack/pull/223)) port Tracker's derivative algorithms, angular derivatives and motion filters, and fix #204. Remaining: data columns, interpolation, derivative options and filtered clones in the model and UI (C2), #205–#207, and the variable-frame-timing decision (#87). | 5, 8 |
 | R15 | Plot/table parity: selectable axes/columns, synchronized plots, comparisons, ranges, selection, sorting, formatting, text columns, clipboard, and data refresh | Partial: one selected series and a basic marks table; saved table/plot owners, guests and formats are preserved, indexed and safely renamed/removed. Remaining: native plot/table editing and saved views, media-backed dataset behavior, #64, text columns (#80). | 4, 8, 10 |
-| R16 | Data Builder expressions, parameters, custom variables, saved function sets, and autoloading | Missing; needs a compatible expression engine and dependency tracking (#74). | 8 |
+| R16 | Data Builder expressions, parameters, custom variables, saved function sets, and autoloading | Partial: Qt-free [expression kernel](expression-engine.md) (K1, #191) with Tracker and corrected dialects; corrects Tracker's precedence, log and inverse-hyperbolic defects (#185–#188, #200). Remaining: binding, dependency tracking (#74), Data Builder UI, persistence and autoloading. | 8 |
 | R17 | Data Tool and Fit Builder workflows: statistics, automatic/manual/custom fits, uncertainty, residuals, integration and Fourier analysis, saved analysis state | Partial: straight-line slope/intercept/R² only. Inventory the bundled OSP tool and match its exposed operations. | 1, 8 |
 | R18 | Analytic/kinematic particle models, parameter editing/synchronization, initial conditions, model overlays, and stamping | Missing. | 8–9 |
 | R19 | Cartesian/polar dynamic particles and interacting two-body systems, numerical solvers, launch conditions, and model data | Missing natively; boosters and system members are preserved/indexed with a Java reference case. Kernel K2 ports every OSP solver Tracker can instantiate ([ODE solvers](ode-solvers.md)), checked against the pinned JAR by a Java oracle; it corrects the reference's Adams6 predictor ([#178](https://github.com/mgradwohl/MoTrack/issues/178)) and backward multistep loop ([#179](https://github.com/mgradwohl/MoTrack/issues/179)). Native models, polar/interacting dynamics (including the two-body external-force defect, [#192](https://github.com/mgradwohl/MoTrack/issues/192)), model editing and broader export remain. | 8–9 |
