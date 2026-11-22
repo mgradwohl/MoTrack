@@ -82,8 +82,8 @@ The baseline tabset workflow is now tracked explicitly in [MoTrack #150](https:/
 
 No matching upstream filing was identified in the initial audit for its first two observations. Neither has been filed
 in Tracker by this work. The three ODE-solver observations (found by the K2 kernel oracle on 2026-11-21) were
-reported upstream as linked in their rows. The seven curve-fitting observations (K3 kernel oracle, 2026-11-21)
-have not been filed upstream yet. The later AVI/archive issue search also found no matching filing; #140 records its source link and separate reproduction. Tracker #14 is a momentum-analysis request, not the vector-sum reload defect.
+reported upstream as linked in their rows. The seven curve-fitting observations (K3 kernel oracle,
+[PR #260](https://github.com/mgradwohl/MoTrack/pull/260), 2026-11-21) have not been filed upstream yet. The later AVI/archive issue search also found no matching filing; #140 records its source link and separate reproduction. Tracker #14 is a momentum-analysis request, not the vector-sum reload defect.
 The native issues record the evidence and must be linked to an upstream report if one is subsequently
 published. The [corpus](../tests/corpus/README.md) remains the authority for pinned bytes, procedures,
 tolerances and deliberately unaccepted reference results.
