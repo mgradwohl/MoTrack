@@ -1,4 +1,6 @@
 #include "archive_group.hpp"
+#include "filesystem_path.hpp"
+#include "local_media_path.hpp"
 #include "main_window.hpp"
 #include "tracker_archive.hpp"
 #include "tracker_tabset.hpp"
@@ -29,9 +31,11 @@
 #include <QTimer>
 #include <gtest/gtest.h>
 
+#include <filesystem>
 #include <functional>
 #include <ranges>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -847,6 +851,44 @@ TEST(WorkspaceTabset, AFileClosedEarlierStaysInASetThatListsItEvenIfItThenFailsT
     // Saving the set back keeps the movie's entry: listing it again undid the earlier close.
     ASSERT_TRUE(window.saveTabset(set));
     box = problems(window);
+    ASSERT_NE(box, nullptr);
+    EXPECT_TRUE(box->informativeText().contains("clip.mov: not open, so the tabset still lists it as before."))
+        << box->informativeText().toStdString();
+    dismiss(window, box);
+    EXPECT_EQ(readBytes(set), bytes);
+}
+
+TEST(WorkspaceTabset, AFileSavedOverAfterItWasClosedKeepsItsEntry)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto clip = temporary.filePath("clip.mov");
+    ASSERT_TRUE(QFile::copy(fixture("linked-mov/constant-rate.mov"), clip));
+    ASSERT_TRUE(QFile::setPermissions(clip, QFileDevice::ReadOwner | QFileDevice::WriteOwner));
+    const auto set = temporary.filePath("set.trk");
+    writeTabset(set, {listedEntry(clip, set), listedEntry(fixture("linked-images/linked-images.trk"), set)});
+    const auto bytes = readBytes(set);
+    motrack::WorkspaceWindow window;
+    window.show();
+    ASSERT_TRUE(openTabset(window, set, 2));
+    auto& session = window.context()->session();
+    const auto open = session.sources();
+    const auto movie = std::ranges::find_if(open, [&](QUuid source) { return session.sourcePath(source).endsWith("clip.mov"); });
+    ASSERT_NE(movie, open.end());
+    const auto before = motrack::localFileIdentity(clip);
+    ASSERT_TRUE(window.closeSource(*movie));
+    // Another program saves over the closed movie by renaming a new file into place, as atomic saves do.
+    const auto replacement = temporary.filePath("replacement.mov");
+    ASSERT_TRUE(QFile::copy(fixture("linked-mov/constant-rate.mov"), replacement));
+    std::error_code error;
+    std::filesystem::rename(motrack::toFilesystemPath(replacement), motrack::toFilesystemPath(clip), error);
+    ASSERT_FALSE(error) << error.message();
+    if (!before)
+        GTEST_SKIP() << "This file system answers no file ids.";
+    ASSERT_NE(motrack::localFileIdentity(clip), before);
+    // The file the user closed is gone; the new one keeps the entry rather than being dropped unseen.
+    ASSERT_TRUE(window.saveTabset(set));
+    auto* box = problems(window);
     ASSERT_NE(box, nullptr);
     EXPECT_TRUE(box->informativeText().contains("clip.mov: not open, so the tabset still lists it as before."))
         << box->informativeText().toStdString();

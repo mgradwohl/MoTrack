@@ -1,6 +1,7 @@
 #include "tracker_tabset.hpp"
 
 #include "legacy_project.hpp"
+#include "local_media_path.hpp"
 #include "osp/render.hpp"
 #include "osp/value.hpp"
 #include "source_edits.hpp"
@@ -328,7 +329,7 @@ class Expansion
 
 } // namespace
 
-QString tabsetIdentityKey(const QString& canonical)
+QString tabsetNameKey(const QString& canonical)
 {
     // NTFS compares names case-insensitively by default; macOS volumes may be case-sensitive, where folding would
     // silently drop a distinct file, so only Windows folds.
@@ -337,6 +338,18 @@ QString tabsetIdentityKey(const QString& canonical)
 #else
     return canonical;
 #endif
+}
+
+TabsetFileKeys tabsetFileKeys(const QString& canonical)
+{
+    // The file system's own identity, as sameLocalFile compares files: case variants, hard links and short names
+    // of one file agree on every volume. A missing file keys by its name.
+    return {.name = tabsetNameKey(canonical), .identity = localFileIdentity(canonical)};
+}
+
+QString tabsetIdentityKey(const QString& canonical)
+{
+    return tabsetFileKeys(canonical).key();
 }
 
 bool isTrackerTabset(std::string_view xml)
@@ -553,17 +566,18 @@ std::vector<TabsetEntry> tabsetEntries(std::span<const QString> files,
                                        const QString& tabsetPath,
                                        const QString& workingDirectory,
                                        const TrackerTabset* existing,
-                                       std::span<const QString> closed,
+                                       std::span<const TabsetFileKeys> closed,
                                        TabsetChanges* changes)
 {
     const auto base = existing ? tabsetBase(*existing, tabsetPath) : QFileInfo(tabsetPath).absolutePath();
     QSet<QString> listed;
     for (const auto& file : files)
         listed.insert(tabsetIdentityKey(file));
-    const QSet<QString> dropped(closed.begin(), closed.end());
     // The file each existing entry names now, in Tracker's search order, and which listed files a nested tabset that
     // is kept opens: those stay represented by the nested tabset's entry instead of getting entries of their own.
     std::vector<QString> named;
+    // Whether an entry names a file the user closed: one that has both its name and its identity.
+    std::vector<bool> dropped;
     std::vector<bool> nested;
     QSet<QString> throughNested;
     // An entry naming the tabset itself is a cycle, not a nested tabset.
@@ -572,10 +586,12 @@ std::vector<TabsetEntry> tabsetEntries(std::span<const QString> files,
         for (const auto& entry : existing->entries)
         {
             const auto file = resolveTabsetEntry(entry, base, workingDirectory);
-            named.push_back(file.transform(tabsetIdentityKey).value_or(QString{}));
+            const auto keys = file.transform(tabsetFileKeys);
+            named.push_back(keys.transform(&TabsetFileKeys::key).value_or(QString{}));
+            dropped.push_back(keys && std::ranges::contains(closed, *keys));
             nested.push_back(false);
-            if (!file || named.back() == self || !isTrackerXmlFile(*file) || listed.contains(named.back()) ||
-                dropped.contains(named.back()) || !isTrackerTabsetFile(*file))
+            if (!file || named.back() == self || !isTrackerXmlFile(*file) || listed.contains(named.back()) || dropped.back() ||
+                !isTrackerTabsetFile(*file))
                 continue;
             try
             {
@@ -597,7 +613,7 @@ std::vector<TabsetEntry> tabsetEntries(std::span<const QString> files,
     // was not found, or was left unopened by a canceled open stays in the tabset, as an unchanged file would.
     const auto retained = [&](std::size_t index)
     {
-        return !listed.contains(named[index]) && !dropped.contains(named[index]);
+        return !listed.contains(named[index]) && !dropped[index];
     };
     std::vector<TabsetEntry> result;
     // New entries wait for the next kept entry, so that unopened entries before it keep their positions.
@@ -672,7 +688,7 @@ std::vector<TabsetEntry> tabsetEntries(std::span<const QString> files,
     if (changes)
         for (std::size_t index = 0; index < named.size(); ++index)
             if (!used[index])
-                (dropped.contains(named[index]) ? changes->closed : changes->repeated).push_back(existing->entries[index]);
+                (dropped[index] ? changes->closed : changes->repeated).push_back(existing->entries[index]);
     return result;
 }
 
@@ -689,7 +705,7 @@ QString trackerTabsetPath(const QString& path)
 TabsetSave saveTrackerTabsetFiles(const QString& path,
                                   std::span<const QString> files,
                                   const QString& workingDirectory,
-                                  std::span<const QString> closed)
+                                  std::span<const TabsetFileKeys> closed)
 {
     TabsetSave result;
     std::optional<TrackerTabset> existing;

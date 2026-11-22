@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- MoTrack's macOS bundle Info.plist: Qt 6.8's default application template plus the camera usage
-     string macOS requires before an app may ask for camera access (Capture from camera). CMake fills
-     the ${...} values; non-bundle builds embed the same keys from MoTrackEmbeddedInfo.plist.in. -->
+     string macOS requires before an app may ask for camera access (Capture from camera), and the file
+     types Finder, Open With and the Dock may send (#68). CMake fills the ${...} and @...@ values;
+     non-bundle builds embed the camera keys from MoTrackEmbeddedInfo.plist.in. -->
 <plist version="1.0">
 <dict>
 	<key>CFBundleInfoDictionaryVersion</key>
@@ -24,8 +25,9 @@
 	<key>CFBundleLongVersionString</key>
 	<string>${MACOSX_BUNDLE_LONG_VERSION_STRING}</string>
 
+	<!-- The deployment target, or the SDK version Clang targets when none is set (CMakeLists.txt). -->
 	<key>LSMinimumSystemVersion</key>
-	<string>${CMAKE_OSX_DEPLOYMENT_TARGET}</string>
+	<string>${MOTRACK_MACOS_MINIMUM}</string>
 
 	<key>CFBundleGetInfoString</key>
 	<string>${MACOSX_BUNDLE_INFO_STRING}</string>
@@ -43,10 +45,131 @@
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 
+	<key>NSHighResolutionCapable</key>
+	<true/>
 	<key>NSSupportsAutomaticGraphicsSwitching</key>
 	<true/>
 
 	<key>NSCameraUsageDescription</key>
 	<string>@MOTRACK_CAMERA_USAGE@</string>
+
+	<!-- MoTrack owns .motrack. Tracker owns .trk/.trz; MoTrack is an ordinary (Default-rank) editor, so an
+	     installed Tracker that claims ownership stays the default. Movies and images are Alternate so Open With
+	     and Dock drops work without taking over their usual viewer. -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>MoTrack Project</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.github.mgradwohl.motrack.project</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Tracker Experiment</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Default</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>org.opensourcephysics.tracker.trk</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Tracker Experiment Archive</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Default</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>org.opensourcephysics.tracker.trz</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Video or Image</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.movie</string>
+				<string>public.image</string>
+			</array>
+		</dict>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.github.mgradwohl.motrack.project</string>
+			<key>UTTypeDescription</key>
+			<string>MoTrack Project</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+				<string>public.content</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>motrack</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+	<!-- Tracker 6.3.5's source does not publish type identifiers. Imported declarations yield to any exported
+	     one, so these OSP-namespaced identifiers only apply when no installed app declares the type. Neither
+	     conforms to XML or ZIP, so generic XML editors and archive tools do not become their default opener. -->
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>org.opensourcephysics.tracker.trk</string>
+			<key>UTTypeDescription</key>
+			<string>Tracker Experiment</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+				<string>public.content</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>trk</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>org.opensourcephysics.tracker.trz</string>
+			<key>UTTypeDescription</key>
+			<string>Tracker Experiment Archive</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+				<string>public.content</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>trz</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 </dict>
 </plist>

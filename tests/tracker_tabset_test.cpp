@@ -1,5 +1,6 @@
 #include "tracker_tabset.hpp"
 
+#include "filesystem_path.hpp"
 #include "legacy_project.hpp"
 #include "osp_layout.hpp"
 
@@ -9,9 +10,11 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <format>
 #include <ranges>
 #include <string>
+#include <system_error>
 #include <vector>
 
 namespace
@@ -613,6 +616,57 @@ TEST(TrackerTabset, ExpansionFailuresThrowOnlyForTheRequestedTabset)
     EXPECT_FALSE(motrack::isTrackerTabsetFile(base + "/missing.trk"));
 }
 
+TEST(TrackerTabset, DropsAClosedFilesEntryOnlyWhileItsFileKeepsBothItsNameAndItsIdentity)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const auto base = canonical(directory.path());
+    writeFile(base + "/a.trk", PANEL);
+    writeFile(base + "/b.trk", PANEL);
+    const auto a = canonical(base + "/a.trk");
+    const auto b = canonical(base + "/b.trk");
+    const auto set = base + "/set.trk";
+    const std::vector<TabsetEntry> saved{relativeEntry("a.trk"), relativeEntry("b.trk")};
+    writeTabset(set, saved);
+    const auto existing = motrack::readTrackerTabset(set);
+    ASSERT_TRUE(existing.has_value()) << existing.error();
+    // The keys the window takes when the user closes a.trk.
+    const auto closedA = motrack::tabsetFileKeys(a);
+    const auto keysOfB = motrack::tabsetFileKeys(b);
+    if (!closedA.identity || !keysOfB.identity)
+        GTEST_SKIP() << "This file system answers no file ids.";
+    motrack::TabsetChanges changes;
+    const auto save = [&](const motrack::TabsetFileKeys& closed)
+    {
+        changes = {};
+        return motrack::tabsetEntries(std::vector<QString>{}, set, {}, &*existing, std::vector{closed}, &changes);
+    };
+    // The closed file, unchanged, leaves the set.
+    EXPECT_EQ(save(closedA), std::vector{saved[1]});
+    EXPECT_EQ(changes.closed, std::vector{saved[0]});
+    // Any disagreement keeps the entry: a name alone does not match a file that has an id now.
+    EXPECT_EQ(save({.name = closedA.name}), saved);
+    EXPECT_TRUE(changes.closed.empty());
+    // Saved over by renaming a new file into place, as atomic saves do, the closed file has another id. Whether the
+    // user meant to drop the new file is not known, so its entry stays.
+    writeFile(base + "/replacement.trk", PANEL);
+    std::error_code error;
+    std::filesystem::rename(motrack::toFilesystemPath(base + "/replacement.trk"), motrack::toFilesystemPath(a), error);
+    ASSERT_FALSE(error) << error.message();
+    const auto replaced = motrack::tabsetFileKeys(a);
+    ASSERT_EQ(replaced.name, closedA.name);
+    ASSERT_NE(replaced.identity, closedA.identity);
+    EXPECT_EQ(save(closedA), saved);
+    EXPECT_TRUE(changes.closed.empty());
+    EXPECT_EQ(changes.unopened, saved);
+    // Deleted, the closed file's id can be given to a later file. That file keeps its entry: only an identity taken
+    // with the same name drops one.
+    ASSERT_TRUE(QFile::remove(a));
+    EXPECT_EQ(save({.name = closedA.name, .identity = keysOfB.identity}), saved);
+    EXPECT_TRUE(changes.closed.empty());
+    EXPECT_EQ(changes.unopened, saved);
+}
+
 TEST(TrackerTabset, KeepsEntriesThatStillNameTheirFiles)
 {
     QTemporaryDir directory;
@@ -654,7 +708,7 @@ TEST(TrackerTabset, KeepsEntriesThatStillNameTheirFiles)
     EXPECT_EQ(motrack::tabsetEntries(std::vector{b}, set, {}, &*existing, {}, &changes), saved);
     EXPECT_EQ(changes.unopened, std::vector{saved[0]});
     EXPECT_TRUE(changes.closed.empty() && changes.repeated.empty());
-    const auto closed = std::vector{motrack::tabsetIdentityKey(a)};
+    const auto closed = std::vector{motrack::tabsetFileKeys(a)};
     changes = {};
     EXPECT_EQ(motrack::tabsetEntries(std::vector{b}, set, {}, &*existing, closed, &changes), (std::vector{saved[1], saved[2]}));
     EXPECT_EQ(changes.closed, std::vector{saved[0]});
