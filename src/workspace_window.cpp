@@ -7,6 +7,10 @@
 #include <QCloseEvent>
 #include <QCollator>
 #include <QDir>
+#include <QDragEnterEvent>
+#include <QDragLeaveEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QImageReader>
@@ -66,6 +70,14 @@ QMessageBox::StandardButton askQuestion(QWidget* parent,
     return choice;
 }
 
+/// A file manager deletes the original after a reported move, so a drop only ever copies or links.
+Qt::DropAction safeDropAction(Qt::DropActions possible)
+{
+    if (possible.testFlag(Qt::CopyAction))
+        return Qt::CopyAction;
+    return possible.testFlag(Qt::LinkAction) ? Qt::LinkAction : Qt::IgnoreAction;
+}
+
 } // namespace
 
 WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
@@ -94,6 +106,15 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
     cancelOpen->hide();
     layout->addWidget(cancelOpen);
     setCentralWidget(central);
+    // Experiment views ignore file drags (their QMainWindow base takes only dock-widget drags), so Qt offers
+    // files dropped on them to this window too.
+    setAcceptDrops(true);
+    m_DropOverlay = new QLabel(central);
+    m_DropOverlay->setObjectName("workspaceDropOverlay");
+    m_DropOverlay->setAlignment(Qt::AlignCenter);
+    m_DropOverlay->setWordWrap(true);
+    m_DropOverlay->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_DropOverlay->hide();
     connect(cancelOpen,
             &QPushButton::clicked,
             this,
@@ -260,7 +281,7 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
             this,
             [this](QUuid request, const QString& diagnostic)
             {
-                finishOpen(request);
+                finishOpen(request, diagnostic);
                 statusBar()->showMessage(tr("Could not open: %1").arg(diagnostic));
             });
     connect(m_Context.get(),
@@ -268,7 +289,7 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
             this,
             [this](QUuid request)
             {
-                finishOpen(request);
+                finishOpen(request, {}, true);
                 statusBar()->showMessage(tr("Opening canceled."));
             });
     QList<QUuid> visible;
@@ -333,10 +354,189 @@ std::optional<QUuid> WorkspaceWindow::openImages(const QStringList& paths, doubl
     return trackOpen(m_Context->openImages(paths, frameRate), tr("%n images", nullptr, static_cast<int>(paths.size())));
 }
 
-void WorkspaceWindow::finishOpen(QUuid request)
+void WorkspaceWindow::finishOpen(QUuid request, const QString& problem, bool cancelled)
 {
     delete m_Opening.take(request);
     m_Pending->setVisible(m_Pending->count() > 0);
+    if (!m_Requested)
+        return;
+    if (auto& batch = *m_Requested; batch.request == request)
+    {
+        batch.request.reset();
+        if (!problem.isEmpty())
+            batch.problems.push_back(tr("%1 could not be opened: %2").arg(batch.current, problem));
+        // Canceling one requested file stops its batch, which is otherwise not visible to cancel.
+        if (cancelled && !batch.files.isEmpty())
+        {
+            batch.problems.push_back(
+                tr("Opening was canceled; %n remaining file(s) were not opened.", nullptr, static_cast<int>(batch.files.size())));
+            batch.files.clear();
+        }
+    }
+    // Any completion may free the input slot the batch is waiting for; continue after this notification returns.
+    QTimer::singleShot(0, this, &WorkspaceWindow::continueRequestedFiles);
+}
+
+void WorkspaceWindow::openFiles(RequestedFiles requested)
+{
+    constexpr qsizetype MAX_REQUESTED_FILES = 256;
+    if (!m_Requested)
+        m_Requested.emplace();
+    auto& batch = *m_Requested;
+    for (const auto& link : requested.remote)
+        batch.problems.push_back(tr("%1 is not a local file. Download it, then open the downloaded copy.").arg(link));
+    for (auto& file : requested.files)
+    {
+        if (batch.accepted == MAX_REQUESTED_FILES)
+        {
+            batch.problems.push_back(tr(
+                "Only %n files can be requested at a time; the others were not opened.", nullptr, static_cast<int>(MAX_REQUESTED_FILES)));
+            ++batch.accepted;
+        }
+        if (batch.accepted > MAX_REQUESTED_FILES)
+            continue;
+        batch.files.push_back(std::move(file));
+        ++batch.accepted;
+    }
+    // Start after the caller returns: a drop or file-open event finishes before any summary is shown.
+    QTimer::singleShot(0, this, &WorkspaceWindow::continueRequestedFiles);
+}
+
+void WorkspaceWindow::continueRequestedFiles()
+{
+    if (!m_Requested || m_Requested->request)
+        return;
+    auto& batch = *m_Requested;
+    while (!batch.files.isEmpty())
+    {
+        if (!m_Context->canOpen())
+            return; // Menu opens hold both slots; their completion resumes this batch in order.
+        const auto path = batch.files.takeFirst();
+        const QFileInfo file(path);
+        const auto shown = QDir::toNativeSeparators(path);
+        if (!file.exists())
+        {
+            batch.problems.push_back(tr("%1 was not found.").arg(shown));
+            continue;
+        }
+        if (file.isDir())
+        {
+            batch.problems.push_back(tr("%1 is a folder. Use Open images… to choose its images.").arg(shown));
+            continue;
+        }
+        // As in Tracker, one batch opens each file once; aliases of an already requested file are skipped.
+        const auto identity = file.canonicalFilePath();
+        if (batch.listed.contains(identity))
+            continue;
+        batch.listed.insert(identity);
+        const auto name = file.fileName();
+        std::optional<QUuid> request;
+        switch (launchFileKind(path))
+        {
+        case LaunchFileKind::Project:
+            request = m_Context->openProject(path);
+            break;
+        case LaunchFileKind::Image:
+            request = m_Context->openImages({path}, 0.0);
+            break;
+        case LaunchFileKind::Movie:
+            request = m_Context->openMovie(path);
+            break;
+        }
+        batch.request = trackOpen(request, name);
+        batch.current = name;
+        return;
+    }
+    auto finished = std::move(batch);
+    m_Requested.reset();
+    if (!finished.problems.isEmpty() && isVisible())
+    {
+        constexpr qsizetype MAX_LISTED = 20;
+        auto listed = finished.problems.first(std::min(finished.problems.size(), MAX_LISTED));
+        if (const auto more = static_cast<int>(finished.problems.size() - MAX_LISTED); more > 0)
+            listed.push_back(tr("…and %n more problem(s).", nullptr, more));
+        // Window-modal without a nested event loop: later requests and completions continue independently.
+        auto* box =
+            new QMessageBox(QMessageBox::Warning, tr("Open files"), tr("Some requested files were not opened."), QMessageBox::Ok, this);
+        box->setObjectName("workspaceRequestedFileProblems");
+        box->setInformativeText(listed.join('\n'));
+        box->setAttribute(Qt::WA_DeleteOnClose);
+        box->open();
+    }
+    Q_EMIT filesOpened(finished.problems);
+}
+
+RequestedFiles WorkspaceWindow::acceptDrag(QDropEvent* event)
+{
+    auto dropped = event->mimeData() ? droppedFiles(*event->mimeData()) : RequestedFiles{};
+    const auto action = safeDropAction(event->possibleActions());
+    if (action == Qt::IgnoreAction || dropped.files.isEmpty())
+    {
+        event->ignore();
+        dropped.files.clear();
+        return dropped;
+    }
+    event->setDropAction(action);
+    event->accept();
+    return dropped;
+}
+
+void WorkspaceWindow::dragEnterEvent(QDragEnterEvent* event)
+{
+    const auto dropped = acceptDrag(event);
+    if (dropped.files.isEmpty())
+    {
+        if (!dropped.remote.isEmpty())
+            statusBar()->showMessage(tr("Only local files can be dropped here. Download a linked file first."));
+        return;
+    }
+    auto text = tr("Drop to open %n file(s)", nullptr, static_cast<int>(dropped.files.size()));
+    if (!dropped.remote.isEmpty())
+        text += '\n' + tr("%n link(s) to files that are not local will be skipped.", nullptr, static_cast<int>(dropped.remote.size()));
+    // Follow the current palette, including a theme change since the last drag.
+    const auto accent = palette().color(QPalette::Highlight);
+    auto fill = palette().color(QPalette::Base);
+    fill.setAlpha(230);
+    m_DropOverlay->setStyleSheet(QStringLiteral("QLabel#workspaceDropOverlay { border: 3px dashed %1; border-radius: 12px; "
+                                                "background-color: rgba(%2, %3, %4, %5); padding: 24px; }")
+                                     .arg(accent.name())
+                                     .arg(fill.red())
+                                     .arg(fill.green())
+                                     .arg(fill.blue())
+                                     .arg(fill.alpha()));
+    auto overlayFont = font();
+    if (overlayFont.pointSizeF() > 0)
+        overlayFont.setPointSizeF(overlayFont.pointSizeF() * 1.4);
+    m_DropOverlay->setFont(overlayFont);
+    m_DropOverlay->setText(text);
+    m_DropOverlay->setGeometry(centralWidget()->rect().adjusted(12, 12, -12, -12));
+    m_DropOverlay->raise();
+    m_DropOverlay->show();
+}
+
+void WorkspaceWindow::dragMoveEvent(QDragMoveEvent* event)
+{
+    // The enter event already examined the data; keep its decision and only refuse a move-only drag.
+    if (m_DropOverlay->isVisible() && safeDropAction(event->possibleActions()) != Qt::IgnoreAction)
+    {
+        event->setDropAction(safeDropAction(event->possibleActions()));
+        event->accept();
+    }
+    else
+        event->ignore();
+}
+
+void WorkspaceWindow::dragLeaveEvent(QDragLeaveEvent* event)
+{
+    m_DropOverlay->hide();
+    event->accept();
+}
+
+void WorkspaceWindow::dropEvent(QDropEvent* event)
+{
+    m_DropOverlay->hide();
+    if (auto dropped = acceptDrag(event); !dropped.files.isEmpty())
+        openFiles(std::move(dropped));
 }
 
 std::optional<QUuid> WorkspaceWindow::currentDocument() const
@@ -700,6 +900,13 @@ void WorkspaceWindow::closeEvent(QCloseEvent* event)
     event->ignore();
     if (m_Busy)
         return;
+    // Requested files must not start opens while the close prompts run, even if the close is then canceled.
+    if (m_Requested && !m_Requested->files.isEmpty())
+    {
+        m_Requested->problems.push_back(
+            tr("Closing the window stopped %n requested file(s) from opening.", nullptr, static_cast<int>(m_Requested->files.size())));
+        m_Requested->files.clear();
+    }
     for (auto request = m_Opening.cbegin(); request != m_Opening.cend(); ++request)
         (void)m_Context->cancelOpen(request.key());
     const auto context = m_Context;

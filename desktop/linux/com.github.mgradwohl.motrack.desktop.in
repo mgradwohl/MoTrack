@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=MoTrack
+GenericName=Video Motion Analysis
+Comment=Measure motion in videos and compare it with models
+Exec=@MOTRACK_DESKTOP_EXEC@ %F
+TryExec=@MOTRACK_DESKTOP_TRY_EXEC@
+Terminal=false
+Categories=Education;Science;Physics;
+Keywords=Tracker;video;motion;physics;
+MimeType=application/x-tracker-project;application/x-tracker-archive;application/x-motrack-project;
+StartupNotify=true

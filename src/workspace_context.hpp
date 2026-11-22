@@ -32,6 +32,8 @@ class WorkspaceContext final : public QObject
     [[nodiscard]] std::optional<QUuid>
     openImages(const QStringList& paths, double frameRate, WorkspaceActivation activation = WorkspaceActivation::SelectNew);
     [[nodiscard]] bool cancelOpen(QUuid request);
+    /// Whether another input can start now without exceeding the two-input bound.
+    [[nodiscard]] bool canOpen() const;
     [[nodiscard]] WorkspaceSession& session();
     [[nodiscard]] const std::shared_ptr<WorkspaceServices>& services() const;
     /// One experiment editor per record. Additional plot/table views use that editor's model.

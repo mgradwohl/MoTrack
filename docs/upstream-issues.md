@@ -58,6 +58,12 @@ native dispositions from those refreshes:
   [MoTrack #69](https://github.com/mgradwohl/MoTrack/issues/69) is closed with regression evidence from
   the workspace shell (#160–#164): tracking survives another tab's switch, reorder and close, and
   cancelled or replaced jobs reject late results. This does not claim an upstream fix.
+- Tracker #6 (file-manager paths split at spaces): refreshed 2026-11-21, still open with no new
+  discussion. Native command-line, drop and macOS open-request opening keeps each path intact,
+  including spaces, Unicode, relative and long Windows paths, through real child launches and CI's
+  LaunchServices/GLib desktop launches ([workspace guide](workspace-sessions.md#opening-from-the-desktop)).
+  [MoTrack #68](https://github.com/mgradwohl/MoTrack/issues/68) stays open for interactive file-manager
+  acceptance on each platform and installer registration (R27). This does not claim an upstream fix.
 
 The baseline tabset workflow is now tracked explicitly in [MoTrack #150](https://github.com/mgradwohl/MoTrack/issues/150); moving reference frames discovered in the real Diabolo archive are tracked in [MoTrack #148](https://github.com/mgradwohl/MoTrack/issues/148). Neither discovery is an accepted full round trip.
 

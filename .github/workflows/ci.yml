@@ -184,6 +184,16 @@ jobs:
             export QT_QPA_PLATFORM=offscreen
           fi
           PATH=/usr/bin:/bin "$app" --smoke-test tests/fixtures/image-sequence.trk
+      - name: Check staged document types and desktop launch
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            sudo apt-get install -y --no-install-recommends desktop-file-utils shared-mime-info libglib2.0-bin
+          fi
+          # macOS delivers Finder-style opens only to the Cocoa platform; the Linux launch selects offscreen itself.
+          unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH QT_QPA_PLATFORM LD_LIBRARY_PATH DYLD_LIBRARY_PATH DYLD_FRAMEWORK_PATH
+          python tools/check_desktop_types.py launch build/stage/installed
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ matrix.os }}

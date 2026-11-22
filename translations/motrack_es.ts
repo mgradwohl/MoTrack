@@ -208,6 +208,64 @@
 <context>
     <name>motrack::WorkspaceWindow</name>
     <message>
+        <source>%1 could not be opened: %2</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1 is not a local file. Download it, then open the downloaded copy.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1 was not found.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1 is a folder. Use Open images… to choose its images.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Open files</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Some requested files were not opened.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Only local files can be dropped here. Download a linked file first.</source>
+        <translation type="unfinished" />
+    </message>
+    <message numerus="yes">
+        <source>Opening was canceled; %n remaining file(s) were not opened.</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message numerus="yes">
+        <source>Only %n files can be requested at a time; the others were not opened.</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message numerus="yes">
+        <source>…and %n more problem(s).</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message numerus="yes">
+        <source>Drop to open %n file(s)</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message numerus="yes">
+        <source>%n link(s) to files that are not local will be skipped.</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message numerus="yes">
+        <source>Closing the window stopped %n requested file(s) from opening.</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message>
         <source>Open a project, video, or image sequence to begin.</source>
         <translation type="unfinished" />
     </message>

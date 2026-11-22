@@ -1,8 +1,12 @@
 #pragma once
 
+#include "desktop_launch.hpp"
 #include "workspace_context.hpp"
 
 #include <QMainWindow>
+#include <QSet>
+
+#include <optional>
 
 class QAction;
 class QLabel;
@@ -35,9 +39,23 @@ class WorkspaceWindow final : public QMainWindow
     bool revertDocument(QUuid document);
     bool saveAll();
     bool closeSource(QUuid source);
+    /// Open files from the command line, a drop or the operating system in the given order, through the same
+    /// entry points as the menus (see launchFileKind). One requested file prepares at a time, so tabs keep this
+    /// order while a menu open may use the other input slot. Requests arriving during a batch join it; a file
+    /// already requested in the batch opens once. Missing, unsupported, remote and failed requests are reported
+    /// together when the batch finishes.
+    void openFiles(RequestedFiles requested);
+
+  Q_SIGNALS:
+    /// Every file of the batch has opened, failed or been skipped. Problems are user-visible sentences.
+    void filesOpened(const QStringList& problems);
 
   protected:
     void closeEvent(QCloseEvent* event) override;
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dragMoveEvent(QDragMoveEvent* event) override;
+    void dragLeaveEvent(QDragLeaveEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
 
   private:
     void addDocuments(const QList<QUuid>& documents);
@@ -48,7 +66,10 @@ class WorkspaceWindow final : public QMainWindow
     void rebuildExperimentsMenu();
     [[nodiscard]] QString documentLabel(QUuid document) const;
     [[nodiscard]] std::optional<QUuid> trackOpen(std::optional<QUuid> request, const QString& label);
-    void finishOpen(QUuid request);
+    void finishOpen(QUuid request, const QString& problem = {}, bool cancelled = false);
+    void continueRequestedFiles();
+    /// Accept a drag of local files as a copy or link; a refused drag returns no files, only its remote links.
+    [[nodiscard]] RequestedFiles acceptDrag(QDropEvent* event);
     bool saveSource(QUuid source);
     [[nodiscard]] std::optional<WorkspaceDiscard> confirmSourceClose(QUuid source);
     bool releaseSource(QUuid source, WorkspaceDiscard discard);
@@ -68,6 +89,18 @@ class WorkspaceWindow final : public QMainWindow
     QHash<QUuid, MainWindow*> m_Views; // Qt parent-owned; views hold their own shared context lease.
     QHash<QUuid, QWidget*> m_Pages;    // Lightweight placeholders until an experiment is first selected.
     QHash<QUuid, QListWidgetItem*> m_Opening;
+    /// Files requested from outside the menus, opened one at a time in their requested order.
+    struct RequestedBatch
+    {
+        QStringList files;    // QList moves without throwing.
+        QSet<QString> listed; // Canonical identities started in this batch.
+        qsizetype accepted = 0;
+        std::optional<QUuid> request;
+        QString current;
+        QStringList problems;
+    };
+    std::optional<RequestedBatch> m_Requested;
+    QLabel* m_DropOverlay = nullptr;
     bool m_Busy = false;
 };
 

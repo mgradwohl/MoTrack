@@ -58,6 +58,25 @@ A pending save, unresolved recovery or divergent Tracker/native pair prevents re
 paired save establishes a common state. Cancel keeps the current editor and edits. Revert does not
 reload externally changed files.
 
+### Open files from the desktop
+
+Pass files on the command line (`motrack "My experiment.trk" clip.mov`), drop them anywhere on the
+workspace window, including an open experiment, or open them from Finder on macOS. `.trk`, `.trz`
+and `.motrack` files open as projects, image files as one-image sequences with unknown timing, and
+anything else as a video. Files open one at a time in the given order, each in its own tab; the last
+one is selected. Paths may contain spaces and any Unicode characters, and Windows paths may exceed
+260 characters. Missing, unsupported and failed files, folders and web links are listed together
+afterward, and the others still open. **Cancel selected open** stops the remaining requested files.
+Dropping a file never moves or deletes it. A file requested twice in one batch opens once.
+
+Unlike Tracker, a single video dropped on an experiment opens in a new tab instead of replacing that
+experiment's video ([#257](https://github.com/mgradwohl/MoTrack/issues/257)), and an image opens alone
+instead of offering its numbered sequence ([#256](https://github.com/mgradwohl/MoTrack/issues/256));
+use **Open images…** for a sequence. MoTrack has no single-instance mode, as in Tracker: on Windows and
+Linux each double-clicked file starts another MoTrack window, while macOS sends it to the running one.
+Separate windows never share edits. Saves are serialized and atomic, but the later save of the same
+project replaces the earlier one ([#255](https://github.com/mgradwohl/MoTrack/issues/255)).
+
 Choose Tracks → New vector to create an independent vector track, or select an imported vector in the toolbar. Shift-click the tail, then Shift-click the tip to create or replace its arrow on the current frame and advance one clip step. Escape cancels a pending tail; switching frames, tracks, or tools also cancels it. Shift+Enter copies the preceding arrow to the current frame. Rename track, Delete track, Delete mark on this frame, and Undo/Redo work with vectors as well as point masses. Vector tails and components are saved in image pixels and survive reopening a `.motrack` project. Motion plots and measurement CSV export still cover point masses; dependent vector sums are not yet supported.
 
 New Tracker imports also keep their original XML inside the saved `.motrack` file, including settings MoTrack cannot yet edit. Supported imported projects can also be saved back to standard Tracker files as described below; full interchange coverage remains unfinished. Standalone movies and images still use external files. Older native projects still open; archive-backed ones need their original `.trz` until resaved with this version. Data discarded by earlier versions cannot be recovered. See [native document compatibility](docs/native-format.md).
@@ -136,6 +155,26 @@ cmake --install build/stage --prefix "$PWD/build/stage/installed"
 ```
 
 Launch `motrack.app` from the install directory on macOS or run `bin/motrack` (`bin/motrack.exe` on Windows). This is a local deployment for development and smoke testing.
+
+The staged build declares MoTrack's file types; no installer registers them yet (deferred with
+release packaging, R27):
+
+- **macOS:** the bundle declares `.motrack` as its own type, Tracker `.trk`/`.trz` with ordinary editor rank
+  (an installed Tracker that claims them as their owner stays the default) and videos and images for
+  Open With and Dock drops only. macOS registers the bundle once Finder has shown or launched it. To make
+  MoTrack the default for Tracker files, choose **Get Info → Open with → MoTrack → Change All…**.
+- **Linux:** register the staged desktop entry and MIME types for the current user, then choose MoTrack
+  in the file manager's **Open With** dialog. Delete the two files and rerun both update commands to undo it.
+
+  ```sh
+  install -Dm644 build/stage/installed/share/applications/com.github.mgradwohl.motrack.desktop -t ~/.local/share/applications
+  install -Dm644 build/stage/installed/share/mime/packages/com.github.mgradwohl.motrack.xml -t ~/.local/share/mime/packages
+  update-mime-database ~/.local/share/mime
+  update-desktop-database ~/.local/share/applications
+  ```
+- **Windows:** right-click a `.trk`, `.trz` or `.motrack` file, choose **Open with → Choose another app**,
+  browse to the staged `bin\motrack.exe` and select **Always**. Windows then quotes each path, so spaces
+  and Unicode names are passed intact.
 
 ## License
 

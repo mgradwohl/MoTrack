@@ -48,7 +48,8 @@ target_link_libraries(motrack_image_package PUBLIC motrack_project PRIVATE Qt6::
 
 qt_add_executable(motrack src/main.cpp)
 add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp src/movie_worker.cpp src/position_plot.cpp
-    src/video_canvas.cpp src/workspace_services.cpp src/workspace_context.cpp src/bound_workspace.cpp src/workspace_window.cpp)
+    src/video_canvas.cpp src/workspace_services.cpp src/workspace_context.cpp src/bound_workspace.cpp src/workspace_window.cpp
+    src/desktop_launch.cpp)
 set_target_properties(motrack_workspace PROPERTIES AUTOMOC ON)
 add_library(motrack_media STATIC src/template_tracker.cpp src/video_reader.cpp)
 target_include_directories(motrack_media PUBLIC src)
@@ -70,10 +71,13 @@ if(MOTRACK_STAGE_DESKTOP)
     include(GNUInstallDirs)
     if(APPLE)
         # macdeployqt uses the SDK runpath to locate frameworks and rewrites it for the bundle.
+        # The bundle's Info.plist declares the project types Finder, Open With and the Dock may send (#68).
         set_target_properties(motrack PROPERTIES
             MACOSX_BUNDLE TRUE
+            MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/desktop/macos/Info.plist.in"
             MACOSX_BUNDLE_BUNDLE_NAME MoTrack
             MACOSX_BUNDLE_GUI_IDENTIFIER com.github.mgradwohl.motrack
+            MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
             MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
             INSTALL_RPATH "@executable_path/../Frameworks;${QT6_INSTALL_PREFIX}/${QT6_INSTALL_LIBS}")
     elseif(WIN32)
@@ -91,6 +95,13 @@ if(MOTRACK_STAGE_DESKTOP)
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         set_target_properties(motrack PROPERTIES INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
         qt_import_plugins(motrack INCLUDE Qt6::QXcbIntegrationPlugin Qt6::QOffscreenIntegrationPlugin)
+        # Desktop entry and shared-mime-info types for per-user registration of this staged build (#68).
+        # The entry names the installed binary, so it is written for the prefix chosen at install time.
+        install(FILES desktop/linux/com.github.mgradwohl.motrack.xml DESTINATION ${CMAKE_INSTALL_DATADIR}/mime/packages)
+        install(CODE "set(MOTRACK_DESKTOP_TEMPLATE [==[${CMAKE_CURRENT_SOURCE_DIR}/desktop/linux/com.github.mgradwohl.motrack.desktop.in]==])
+            set(MOTRACK_DESKTOP_OUTPUT [==[${CMAKE_INSTALL_DATADIR}/applications/com.github.mgradwohl.motrack.desktop]==])
+            set(MOTRACK_DESKTOP_BINARY [==[${CMAKE_INSTALL_BINDIR}/motrack]==])")
+        install(SCRIPT cmake/MoTrackDesktopEntry.cmake)
     endif()
     install(TARGETS motrack BUNDLE DESTINATION . RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     if(APPLE)
@@ -163,6 +174,7 @@ if(BUILD_TESTING)
     target_compile_definitions(motrack_tests PRIVATE MOTRACK_CORPUS_PROBE="$<TARGET_FILE:motrack_corpus_probe>")
     target_link_libraries(motrack_corpus_probe PRIVATE motrack_project motrack_input motrack_image_package motrack_media)
     add_executable(motrack_workspace_tests
+        tests/desktop_launch_test.cpp
         tests/workspace_shell_test.cpp
         tests/workspace_input_test.cpp
         tests/bound_workspace_test.cpp
@@ -176,10 +188,13 @@ if(BUILD_TESTING)
     add_dependencies(motrack_workspace_tests motrack)
     target_compile_definitions(motrack_workspace_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
-        MOTRACK_TRANSLATIONS="${CMAKE_CURRENT_BINARY_DIR}")
+        MOTRACK_TRANSLATIONS="${CMAKE_CURRENT_BINARY_DIR}"
+        MOTRACK_EXECUTABLE="$<TARGET_FILE:motrack>")
     # Keep every case while bounding UI saving, persistence and session groups independently.
     add_test(NAME workspace COMMAND motrack_workspace_tests
-        "--gtest_filter=-PairedWorkspace.*:DocumentSession.*:WorkspaceDocument.*:ImagePackageWorkspace.*")
+        "--gtest_filter=-PairedWorkspace.*:DocumentSession.*:WorkspaceDocument.*:ImagePackageWorkspace.*:DesktopLaunch.*")
+    # Command-line, drop and operating-system opening, including child launches of the real executable.
+    add_test(NAME desktop_launch COMMAND motrack_workspace_tests --gtest_filter=DesktopLaunch.*)
     add_test(NAME workspace_saving COMMAND motrack_workspace_tests
         "--gtest_filter=PairedWorkspace.*:ImagePackageWorkspace.*")
     add_test(NAME workspace_document COMMAND motrack_workspace_tests --gtest_filter=WorkspaceDocument.*)
@@ -187,7 +202,7 @@ if(BUILD_TESTING)
     # Real-file journal matrices can exhaust a shared 60-second budget on slower CI storage (#137).
     add_test(NAME document_session COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*-DocumentSession.*Journal*")
     add_test(NAME document_session_journals COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*Journal*")
-    set_tests_properties(workspace workspace_saving workspace_document document_session document_session_journals PROPERTIES TIMEOUT 60)
+    set_tests_properties(workspace desktop_launch workspace_saving workspace_document document_session document_session_journals PROPERTIES TIMEOUT 60)
     add_executable(motrack_media_tests tests/template_tracker_test.cpp tests/video_reader_test.cpp)
     target_link_libraries(motrack_media_tests PRIVATE motrack_media GTest::gtest_main)
     target_compile_definitions(motrack_media_tests PRIVATE
@@ -197,7 +212,7 @@ if(BUILD_TESTING)
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/point-mass.trk")
     add_test(NAME desktop_invalid_project COMMAND motrack --smoke-test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/missing.trk")
-    set_tests_properties(workspace workspace_saving workspace_document document_session document_session_journals desktop_smoke desktop_invalid_project PROPERTIES
+    set_tests_properties(workspace desktop_launch workspace_saving workspace_document document_session document_session_journals desktop_smoke desktop_invalid_project PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     set_tests_properties(desktop_invalid_project PROPERTIES WILL_FAIL TRUE)
     if(MOTRACK_BUILD_BENCHMARKS)

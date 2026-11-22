@@ -264,6 +264,54 @@ interrupted-save refusal; appended/replaced members; desktop Cancel/Discard, hid
 modal destruction; preserved movie extent; and an older save callback arriving after recovery.
 Merged in [#165](https://github.com/mgradwohl/MoTrack/pull/165).
 
+## Opening from the desktop
+
+Command-line arguments, drops and macOS `QFileOpenEvent`s all call `WorkspaceWindow::openFiles`, which
+uses the same context entry points as the menus. `launchFileKind` routes by suffix on the owner thread:
+`.trk`/`.trz`/`.motrack` in any case are projects, suffixes Qt can read are one-image sequences with
+unknown timing, and every other file is a movie whose indexer reports unsupported formats.
+
+- **Order and the input bound.** One requested file prepares at a time, so tabs appear in request order
+  while a menu open can still use the other slot. When menu opens hold both slots, the batch waits
+  for a completion instead of reporting a busy workspace. Requests arriving during a batch join it,
+  up to 256 files; a canonical identity already started in the batch is skipped, as in Tracker.
+- **Problems.** Missing files, folders, web links and failed opens are collected and shown together
+  in one window-modal summary after the batch, without a nested event loop. Canceling a requested
+  open stops its remaining files. Closing the window stops queued files before the close prompts run,
+  and a hidden window shows no summary.
+- **Paths.** Arguments are not split or canonicalized. Relative paths use the launch directory, local
+  `file:` URLs become paths, and Windows `\\?\` and `\\?\UNC\` prefixes are removed because Qt adds its
+  own prefix to long paths. Other URLs are reported, never fetched, and their user information is omitted.
+  `--` ends option parsing, unknown options are reported on standard error and the legacy macOS `-psn_`
+  argument is ignored.
+- **Drops.** A drag needs at least one local file and a copy or link action. The window always reports a
+  copy (or link), never a move, because a file manager deletes the source after a move. A dashed
+  overlay in the current palette shows how many files will open and links will be skipped.
+  Experiment views do not take file drags: their `QMainWindow` base accepts only dock-widget drags,
+  so Qt offers the drag to the workspace window.
+- **macOS open requests.** `FileOpenRequests` is installed as an application event filter right after
+  `QApplication` is created. It keeps requests in order until a window is attached, including those
+  delivered while launching, and again after that window is destroyed.
+- **Instances.** There is no single-instance mode, as in Tracker. Each process has independent records
+  and unique archive extraction directories. Saves keep the destination lock and atomic replacement,
+  so two processes never interleave a file, but a later save replaces an earlier one without warning
+  ([#255](https://github.com/mgradwohl/MoTrack/issues/255)).
+- **Smoke tests.** `--smoke-test FILE…` prints `opened<TAB>path` for each tab after the batch, and exits
+  with 0 only if every file opened. With no files it waits for an operating-system open request.
+
+Staged builds declare the file types: the macOS bundle uses `desktop/macos/Info.plist.in`, and Linux
+installs a desktop entry with `Exec=… %F` and a shared-mime-info package. The desktop entry quotes the
+binary path chosen at install time following the Desktop Entry Specification. Installers that register
+the types, including Windows ProgIDs, are deferred with R27.
+
+Tests: `DesktopLaunch.*` covers parsing, routing, request order within the input bound, duplicates,
+missing/folder/failed/remote problems, the 256-file bound, cancel and close, drops on the workspace and
+an experiment view through Qt's propagation, refused drags, file-open events before and after a window,
+child launches with spaces, Unicode, relative and long (Windows `\\?\`) paths, and a second process opening
+a file that the first is editing. CI's staged check validates the plist and desktop files, asks
+LaunchServices and GIO which application opens each type, and opens a file through `open -a` and GLib's
+desktop-entry expansion, including a prefix that needs every Exec escape.
+
 ## Saving and recovery
 
 `beginSave(document)` captures an owned snapshot and checkpoint of its source. For a group member,
