@@ -8,6 +8,7 @@
 #include <span>
 #include <string>
 #include <variant>
+#include <vector>
 
 /// Composition of standard Tracker exports (docs/tracker-document.md, "From state to SourceEdits", slice B2.3).
 ///
@@ -34,6 +35,11 @@ struct ExportMedia
     std::span<const double> frameTimes{};
 };
 
+/// The order in which the live elements of `tracks` are exported, which is B1's: bound objects in baseline order, then
+/// created point masses and created vectors, each in ascending identity. It is derived, not stored; the track list's
+/// presentation order is separate.
+[[nodiscard]] std::vector<model::ObjectId> exportOrder(const model::TrackerDocument& document);
+
 /// The standard export of a typed document with known associations: its baseline with the edits its state implies.
 /// The media extension holds the references as the destination spells them. Throws ProjectError with the reason an
 /// export is refused; returns the baseline's bytes when nothing changed.
@@ -41,6 +47,11 @@ struct ExportMedia
 
 namespace detail
 {
+
+/// The broad reference rule the composition applies after a label change, a creation or a removal: every saved reference
+/// of the document (typed reference fields and slots of untyped owners) renders `Faithful`, so that Tracker binds each name
+/// it reloads to the same object, or to the same unresolved candidates. Throws ProjectError naming the owner, field and name.
+void requireFaithfulReferences(const model::TrackerDocument& document);
 
 /// B1's composition (production export until B2.4b; B3 deletes it): the reduced project diffed against a fresh import
 /// of its source, sharing the admission checks and patchers of the descriptor composition. Throws ProjectError.

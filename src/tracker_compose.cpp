@@ -18,6 +18,7 @@
 #include <charconv>
 #include <cmath>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <numbers>
@@ -1624,9 +1625,899 @@ std::string detail::composeLegacyExport(const LegacyProject& project, const Trac
     return std::move(rendered.xml);
 }
 
-std::string composeTrackerExport(const model::TrackerDocument& /*document*/, const ExportMedia& /*media*/)
+// The descriptor composition (docs/tracker-document.md, "From state to SourceEdits").
+
+namespace
 {
-    throw ProjectError("not yet");
+
+using model::ObjectSlot;
+using model::Role;
+
+template <typename State> const State* stateOf(const ObjectSlot* object)
+{
+    return object ? std::get_if<State>(object->value.get()) : nullptr;
 }
 
+template <typename T> bool sameValues(const model::FrameSeries<T>& left, const model::FrameSeries<T>& right)
+{
+    if (left.sharesChunksWith(right))
+    {
+        return true;
+    }
+    if (left.size() != right.size())
+    {
+        return false;
+    }
+    const auto a = left.entries();
+    const auto b = right.entries();
+    return std::ranges::equal(a, b, [](const auto& x, const auto& y) { return x.first == y.first && x.second.value == y.second.value; });
+}
+
+// The frame-array patcher works on the reduced samples of a frame-keyed field.
+
+std::vector<Mark> reducedMarks(const model::FrameSeries<model::Mark>& series)
+{
+    std::vector<Mark> result;
+    result.reserve(series.size());
+    series.forEach([&](std::int32_t frame, const model::FrameElement<model::Mark>& mark)
+                   { result.push_back({.frame = frame, .x = mark.value.x, .y = mark.value.y}); });
+    return result;
+}
+
+std::vector<VectorSample> reducedSamples(const model::FrameSeries<model::VectorSample>& series)
+{
+    std::vector<VectorSample> result;
+    result.reserve(series.size());
+    series.forEach(
+        [&](std::int32_t frame, const model::FrameElement<model::VectorSample>& sample)
+        {
+            result.push_back({.frame = frame,
+                              .tailX = sample.value.xTail,
+                              .tailY = sample.value.yTail,
+                              .componentX = sample.value.xComponent,
+                              .componentY = sample.value.yComponent});
+        });
+    return result;
+}
+
+std::vector<CalibrationKey> reducedKeys(const model::FrameSeries<model::CoordKey>& series)
+{
+    std::vector<CalibrationKey> result;
+    result.reserve(series.size());
+    series.forEach(
+        [&](std::int32_t frame, const model::FrameElement<model::CoordKey>& key)
+        {
+            result.push_back({.frame = frame,
+                              .originX = key.value.xOrigin,
+                              .originY = key.value.yOrigin,
+                              .angleDegrees = key.value.angle,
+                              .scaleX = key.value.xScale,
+                              .scaleY = key.value.yScale});
+        });
+    return result;
+}
+
+/// The same accessor result; doubles by their bits, so that a saved NaN reads as the same value again.
+template <typename T> bool same(const model::Read<T>& left, const model::Read<T>& right)
+{
+    if constexpr (std::is_same_v<T, double>)
+    {
+        if (left && right)
+        {
+            return std::bit_cast<std::uint64_t>(*left) == std::bit_cast<std::uint64_t>(*right);
+        }
+    }
+    return left == right;
+}
+
+bool same(const model::FieldValue& left, const model::FieldValue& right)
+{
+    const auto* a = std::get_if<double>(&left);
+    const auto* b = std::get_if<double>(&right);
+    return a && b ? std::bit_cast<std::uint64_t>(*a) == std::bit_cast<std::uint64_t>(*b) : left == right;
+}
+
+/// Equal typed states as an export reproduces them: frame elements by value, since reimported frames have new nodes, and
+/// the panel without its selected track, a view reference that B1's audited cleanup rewrites and that the view checks
+/// cover instead.
+bool sameExportedState(const model::TypedValue& left, const model::TypedValue& right)
+{
+    if (left.index() != right.index())
+    {
+        return false;
+    }
+    return std::visit(
+        [&](const auto& state)
+        {
+            using State = std::decay_t<decltype(state)>;
+            const auto& other = std::get<State>(right);
+            if constexpr (std::is_same_v<State, model::PanelState>)
+            {
+                auto copy = state;
+                copy.selectedTrack = other.selectedTrack;
+                return copy == other;
+            }
+            else if constexpr (std::is_same_v<State, model::ClipState>)
+            {
+                return state.startFrame == other.startFrame && state.stepSize == other.stepSize && state.stepCount == other.stepCount &&
+                       state.frameCount == other.frameCount && state.frameShift == other.frameShift &&
+                       same(state.startTime, other.startTime);
+            }
+            else if constexpr (std::is_same_v<State, model::VideoState>)
+            {
+                return state.path == other.path && state.paths == other.paths && same(state.deltaT, other.deltaT);
+            }
+            else if constexpr (std::is_same_v<State, model::ClipControlState>)
+            {
+                return same(state.rate, other.rate) && same(state.deltaT, other.deltaT) && state.frame == other.frame &&
+                       state.looping == other.looping;
+            }
+            else if constexpr (std::is_same_v<State, model::CoordinatesState>)
+            {
+                return state.fixedOrigin == other.fixedOrigin && state.fixedAngle == other.fixedAngle &&
+                       state.fixedScale == other.fixedScale && state.locked == other.locked && sameValues(state.keys, other.keys);
+            }
+            else if constexpr (std::is_same_v<State, model::PointMassState>)
+            {
+                return state.name == other.name && same(state.mass, other.mass) && state.keyFrames == other.keyFrames &&
+                       sameValues(state.marks, other.marks);
+            }
+            else if constexpr (std::is_same_v<State, model::VectorState>)
+            {
+                return state.name == other.name && sameValues(state.samples, other.samples);
+            }
+            else
+            {
+                return state == other;
+            }
+        },
+        left);
+}
+
+/// A field's value as Tracker's loader leaves it: the saved value, or the descriptor's loader default (#214) when the file
+/// saves none. A batch writes it in full.
+template <typename T> T loadedOrDefault(const model::Read<T>& value, model::Family family, std::string_view id)
+{
+    if (value)
+    {
+        return *value;
+    }
+    const auto* field = model::findField(family, id);
+    require(field != nullptr && !field->loaderDefault.empty() && value.error() == osp::DecodeError::Missing);
+    const auto text = field ? field->loaderDefault : std::string_view{};
+    if constexpr (std::is_same_v<T, double>)
+    {
+        return required(javaDouble(text));
+    }
+    else
+    {
+        return required(javaInt(text));
+    }
+}
+
+/// A typed field's value differs between the state and its baseline reading.
+bool differs(const model::TypedValue& now, const model::TypedValue& before, const model::FieldDescriptor& field)
+{
+    if (field.kind == model::FieldKind::Scalar)
+    {
+        return !same(model::scalarValue(now, field), model::scalarValue(before, field));
+    }
+    if (const auto* coords = std::get_if<model::CoordinatesState>(&now))
+    {
+        return !sameValues(coords->keys, std::get<model::CoordinatesState>(before).keys);
+    }
+    if (const auto* mass = std::get_if<model::PointMassState>(&now))
+    {
+        return !sameValues(mass->marks, std::get<model::PointMassState>(before).marks);
+    }
+    return !sameValues(std::get<model::VectorState>(now).samples, std::get<model::VectorState>(before).samples);
+}
+
+/// A created track as its family's saver writes it (PointMass: `mass`, then TTrack's `name` and appearance, then
+/// `framedata` and `keyFrames`; Vector: the same without `mass` and `keyFrames`), checked against Tracker's saver by
+/// oracle O7. Tracker's saver writes no frame arrays for a track without frames.
+osp::PropertyValue createdTrack(const ObjectSlot& object)
+{
+    auto properties = model::saverProperties(*object.value);
+    const auto kind = object.family() == model::Family::PointMass ? TrackKind::PointMass : TrackKind::Vector;
+    const auto* mass = std::get_if<model::PointMassState>(object.value.get());
+    const bool framed = mass ? !mass->marks.empty() : !std::get<model::VectorState>(*object.value).samples.empty();
+    if (!framed)
+    {
+        std::erase_if(properties,
+                      [](const osp::PropertyValue& property) { return property.name == "framedata" || property.name == "keyFrames"; });
+    }
+    const auto name = std::ranges::find(properties, std::optional<std::string>("name"), &osp::PropertyValue::name);
+    require(name != properties.end());
+    auto appearance = appearanceDefaults(kind);
+    properties.insert(std::next(name), std::make_move_iterator(appearance.begin()), std::make_move_iterator(appearance.end()));
+    return osp::objectProperty(
+        "item", osp::ObjectValue{.className = object.className, .version = std::nullopt, .properties = std::move(properties)});
+}
+
+std::string loadedTrackName(const model::TypedValue& value)
+{
+    if (const auto* mass = std::get_if<model::PointMassState>(&value))
+    {
+        return model::loadedName(mass->name);
+    }
+    return model::loadedName(std::get<model::VectorState>(value).name);
+}
+
+bool typedTrack(const ObjectSlot& object)
+{
+    return object.role == Role::Track && (object.family() == model::Family::PointMass || object.family() == model::Family::Vector);
+}
+
+/// B1's reading of the baseline with the document's track identities, sorted as B1 sorts the expected project.
+LegacyProject boundBaseline(const detail::ImportedTracker& imported, const TrackerSource& source, TrackId nextTrackId)
+{
+    require(source.bindings.has_value());
+    std::unordered_map<std::size_t, TrackId> sourceIds;
+    for (const auto& binding : source.bindings.value_or(std::vector<TrackSourceBinding>{}))
+    {
+        sourceIds.emplace(binding.sourceIndex, binding.trackId);
+    }
+    std::unordered_map<TrackId, TrackId> mapping;
+    for (const auto& binding : imported.bindings)
+    {
+        mapping.emplace(binding.trackId, sourceIds.at(binding.sourceIndex));
+    }
+    auto baseline = imported.project;
+    remapIds(baseline, mapping, nextTrackId);
+    return baseline;
+}
+
+template <typename Track> const Track& reducedTrack(const std::vector<Track>& tracks, model::ObjectId id)
+{
+    const auto found = std::ranges::find(tracks, id.value, &Track::id);
+    require(found != tracks.end());
+    return *found;
+}
+
+/// The reference descriptor a graph dependency of this owner class came from.
+const model::ReferenceDescriptor* referenceField(std::string_view ownerClass, const model::Dependency& dependency)
+{
+    for (const auto& field : model::referenceDescriptors())
+    {
+        if (field.kind == dependency.kind && std::ranges::contains(field.ownerClasses, ownerClass) && dependency.slot >= field.slotBase &&
+            dependency.slot - field.slotBase < field.maxSlots)
+        {
+            return &field;
+        }
+    }
+    return nullptr;
+}
+
+std::string_view renderStatusName(model::RenderStatus status)
+{
+    switch (status)
+    {
+    case model::RenderStatus::Faithful:
+        return "faithful";
+    case model::RenderStatus::Ambiguous:
+        return "ambiguous";
+    case model::RenderStatus::Unclassified:
+        return "unclassified";
+    case model::RenderStatus::Rebinds:
+        return "would bind another track";
+    case model::RenderStatus::Lost:
+        return "would bind nothing";
+    case model::RenderStatus::Dangling:
+        return "refers to a removed track";
+    case model::RenderStatus::Unnamed:
+        break;
+    }
+    return "refers to a track without a name";
+}
+
+/// The broad rule of B2.3: after a label change, a creation or a removal, every saved reference must render faithfully,
+/// so that Tracker binds each name it reloads to the same object or to the same unresolved candidates.
+void checkFaithfulReferences(const model::TrackerDocument& document)
+{
+    const auto& graph = document.graph();
+    auto index = model::NameIndex::fromGraph(graph);
+    for (const auto owner : graph.objects())
+    {
+        const auto* info = graph.object(owner);
+        for (const auto facet : {model::Facet::Definition, model::Facet::Geometry, model::Facet::Data})
+        {
+            for (const auto& dependency : graph.dependencies({.object = owner, .facet = facet}))
+            {
+                const auto* field = referenceField(info->className, dependency);
+                require(field != nullptr);
+                const auto rendered = model::renderName(graph, dependency, index, field->filter);
+                require(rendered.hasValue());
+                if (rendered->status != model::RenderStatus::Faithful)
+                {
+                    const auto label = info->label.value_or(info->className);
+                    throw ProjectError("Tracker export cannot keep the reference to '" + dependency.savedName + "' in " +
+                                       std::string(field->id) + " of '" + label + "': it " +
+                                       std::string(renderStatusName(rendered->status)) + ".");
+                }
+            }
+        }
+    }
+}
+
+/// What the export intends each object to read after a reload: its typed state, with the values a batch writes in full
+/// (Tracker's loader defaults of a clip range or timing field the file did not save) and the media references the
+/// destination spells.
+class IntendedState
+{
+  public:
+    void set(const ObjectSlot& object, model::TypedValue value)
+    {
+        m_Values.insert_or_assign(object.id, std::move(value));
+    }
+
+    [[nodiscard]] const model::TypedValue& value(const ObjectSlot& object) const
+    {
+        const auto found = m_Values.find(object.id);
+        return found == m_Values.end() ? *object.value : found->second;
+    }
+
+    template <typename State, typename Change> void update(const ObjectSlot& object, Change change)
+    {
+        auto state = std::get<State>(value(object));
+        change(state);
+        set(object, std::move(state));
+    }
+
+  private:
+    std::unordered_map<model::ObjectId, model::TypedValue> m_Values;
+};
+
+/// The live elements of `tracks` in export order: bound objects in baseline order, then created point masses and created
+/// vectors, each in ascending identity.
+std::vector<const ObjectSlot*> exportedTracks(const model::TrackerDocument& document)
+{
+    std::vector<const ObjectSlot*> bound;
+    std::vector<const ObjectSlot*> masses;
+    std::vector<const ObjectSlot*> vectors;
+    for (const auto& object : document.objects())
+    {
+        if (object.role != Role::Track || object.state != model::ObjectState::Live)
+        {
+            continue;
+        }
+        if (object.binding)
+        {
+            bound.push_back(&object);
+        }
+        else if (object.family() == model::Family::PointMass)
+        {
+            masses.push_back(&object);
+        }
+        else if (object.family() == model::Family::Vector)
+        {
+            vectors.push_back(&object);
+        }
+    }
+    // Node identities follow the order of the source, in which the reader built them.
+    std::ranges::sort(bound, {}, [](const ObjectSlot* object) { return std::to_underlying(object->binding.value_or(NodeId{})); });
+    std::ranges::sort(masses, {}, &ObjectSlot::id);
+    std::ranges::sort(vectors, {}, &ObjectSlot::id);
+    bound.insert(bound.end(), masses.begin(), masses.end());
+    bound.insert(bound.end(), vectors.begin(), vectors.end());
+    return bound;
+}
+
+/// The reimport check: the typed load of the output, matched with the intended objects through the export order (bound
+/// objects in baseline order, then created point masses and created vectors in ascending identity), reads every intended
+/// state, and the output's media references are the destination's.
+void checkReimport(const model::TrackerDocument& document,
+                   const IntendedState& intended,
+                   const model::TrackerDocument& output,
+                   std::span<const ObjectSlot* const> exportOrder)
+{
+    require(output.media().references == document.media().references);
+    for (const auto role : {Role::Panel, Role::Clip, Role::Video, Role::ClipControl, Role::Coordinates})
+    {
+        const auto* expected = document.singleton(role);
+        const auto* actual = output.singleton(role);
+        require((expected == nullptr) == (actual == nullptr));
+        if (expected)
+        {
+            require(expected->className == actual->className && sameExportedState(intended.value(*expected), *actual->value));
+        }
+    }
+    std::vector<const ObjectSlot*> tracks;
+    for (const auto& object : output.objects())
+    {
+        if (object.role == Role::Track && object.state == model::ObjectState::Live)
+        {
+            tracks.push_back(&object);
+        }
+    }
+    require(tracks.size() == exportOrder.size());
+    for (std::size_t position = 0; position < tracks.size(); ++position)
+    {
+        require(tracks[position]->className == exportOrder[position]->className &&
+                sameExportedState(intended.value(*exportOrder[position]), *tracks[position]->value));
+    }
+}
+
+} // namespace
+
+std::vector<model::ObjectId> exportOrder(const model::TrackerDocument& document)
+{
+    std::vector<model::ObjectId> ids;
+    for (const auto* object : exportedTracks(document))
+    {
+        ids.push_back(object->id);
+    }
+    return ids;
+}
+
+std::string composeTrackerExport(const model::TrackerDocument& document, const ExportMedia& exportMedia)
+{
+    const auto media = exportMedia.kind;
+    const auto movie = media == LinkedMedia::Movie;
+    const auto& baselineSource = document.baseline();
+    if (!baselineSource)
+    {
+        throw ProjectError("Tracker export requires its original source.");
+    }
+    const auto& xml = *baselineSource;
+    // Admission on the legacy view and the baseline, in B1's order: the view is what B1's checks encode Tracker's
+    // behavior on, and the source view carries the bindings its reference index validates.
+    const auto view = legacyProject(document);
+    const auto source = trackerSourceView(document).value_or(TrackerSource{});
+    require(media != LinkedMedia::None || view.clip.mediaReferences.empty());
+    auto imported = detail::validatedTrackerSource(source, view);
+    if (document.associations() != model::Associations::Known || !source.bindings)
+    {
+        throw ProjectError("Tracker export requires original object associations.");
+    }
+    const auto baseline = boundBaseline(imported, source, view.nextTrackId);
+    auto expected = view;
+    sortTracks(expected);
+    if (imported.trackFrameShift > 0)
+        requireUnchangedShiftedSamples(expected, baseline);
+
+    // The baseline's typed reading, by bound node: what every bound object read before any edit.
+    const auto reading = model::TrackerDocument::importBaseline(baselineSource);
+    if (!reading)
+    {
+        throw ProjectError(reading.error().message);
+    }
+    std::map<NodeId, const ObjectSlot*> before;
+    for (const auto& object : reading->objects())
+    {
+        if (object.binding)
+        {
+            before.emplace(*object.binding, &object);
+        }
+    }
+    const auto baselineOf = [&](const ObjectSlot& object) -> const ObjectSlot*
+    {
+        if (!object.binding)
+        {
+            return nullptr;
+        }
+        const auto found = before.find(*object.binding);
+        return found == before.end() ? nullptr : found->second;
+    };
+
+    std::vector<const ObjectSlot*> createdMasses;
+    std::vector<const ObjectSlot*> createdVectors;
+    std::vector<const ObjectSlot*> removedTracks;
+    std::vector<const ObjectSlot*> liveMasses;
+    std::vector<const ObjectSlot*> liveVectors;
+    std::set<TrackId> liveIds;
+    for (const auto& object : document.objects())
+    {
+        if (!typedTrack(object))
+        {
+            continue;
+        }
+        if (object.state == model::ObjectState::Removed)
+        {
+            if (object.binding)
+            {
+                removedTracks.push_back(&object);
+            }
+            continue;
+        }
+        liveIds.insert(object.id.value);
+        const bool pointMass = object.family() == model::Family::PointMass;
+        (pointMass ? liveMasses : liveVectors).push_back(&object);
+        if (!object.binding)
+        {
+            (pointMass ? createdMasses : createdVectors).push_back(&object);
+        }
+    }
+    const auto byIdentity = [](const ObjectSlot* left, const ObjectSlot* right)
+    {
+        return left->id < right->id;
+    };
+    std::ranges::sort(createdMasses, byIdentity);
+    std::ranges::sort(createdVectors, byIdentity);
+    std::ranges::sort(liveMasses, byIdentity);
+    std::ranges::sort(liveVectors, byIdentity);
+    const bool membershipChanged = !createdMasses.empty() || !createdVectors.empty() || !removedTracks.empty();
+    const auto panel = tracker::loadPanel(xml);
+
+    SourceEdits edits(baselineSource);
+    IntendedState intended;
+    bool changed = false;
+
+    // Media references for the destination: the media adapters' path patches.
+    if (media != LinkedMedia::None)
+    {
+        const auto video =
+            movie ? checkLinkedMovie(xml, expected, baseline, exportMedia.frameTimes) : checkLinkedImages(xml, expected, baseline);
+        const auto& references = document.media().references;
+        if (references != reading->media().references)
+        {
+            if (movie)
+            {
+                patchString(edits, video, "path", references.front());
+            }
+            else
+            {
+                patchLinkedImagePaths(edits, video, references);
+            }
+            const auto* object = document.singleton(Role::Video);
+            require(object && object->binding == video);
+            intended.update<model::VideoState>(*object,
+                                               [&](model::VideoState& state)
+                                               {
+                                                   state.path = references.front();
+                                                   if (state.paths)
+                                                   {
+                                                       state.paths = references;
+                                                   }
+                                               });
+            changed = true;
+        }
+    }
+    bool auditFinalSchema = media != LinkedMedia::None;
+    bool massCoordinatesChecked = false;
+
+    // Created tracks: appended with their family's saver.
+    if (membershipChanged)
+    {
+        validateTrackerTrackMembership(xml, expected, source, movie);
+        auditFinalSchema = true;
+        require(expected.calibration || !lastProperty(xml, xml.root(), "coords"));
+        if (expected.calibration)
+            requireTrackerCoordinates(expected, *expected.calibration);
+        massCoordinatesChecked = true;
+        const auto collection = required(panel.tracks);
+        require(node(xml, collection).type == PropertyType::Collection && node(xml, collection).className == "java.util.ArrayList");
+        std::size_t createdFrameSlots = 0;
+        for (const auto* object : createdMasses)
+        {
+            checkCreatedPointMass(reducedTrack(expected.pointMasses, object->id), createdFrameSlots);
+            edits.append(collection, createdTrack(*object));
+        }
+        for (const auto* object : createdVectors)
+        {
+            checkCreatedVector(expected, reducedTrack(expected.vectors, object->id));
+            edits.append(collection, createdTrack(*object));
+        }
+        changed = true;
+    }
+
+    // Renamed tracks and every reference that names them.
+    std::map<TrackId, std::string> renamed;
+    for (const auto& object : document.objects())
+    {
+        if (typedTrack(object) && object.state == model::ObjectState::Live)
+        {
+            if (const auto* original = baselineOf(object); original && loadedTrackName(*object.value) != loadedTrackName(*original->value))
+            {
+                renamed.emplace(object.id.value, loadedTrackName(*object.value));
+            }
+        }
+    }
+    const auto names = planTrackerNames(xml, renamed, liveIds, source, movie);
+    if (names)
+    {
+        applyTrackerNames(edits, *names);
+        changed = true;
+        auditFinalSchema = true;
+    }
+
+    // Removed tracks: their elements go after the name and view-reference patches, so ordinal paths stay valid.
+    if (membershipChanged)
+    {
+        patchTrackerDeletedReferences(edits, expected, source);
+        for (const auto* object : removedTracks)
+        {
+            const auto element = node(xml, *object->binding).parent;
+            require(element.has_value());
+            edits.remove(element.value_or(NodeId{}));
+        }
+    }
+
+    // Calibration keys through the frame-array patcher.
+    const auto* coords = document.singleton(Role::Coordinates);
+    const auto* coordsState = stateOf<model::CoordinatesState>(coords);
+    const auto* coordsBefore = coords ? baselineOf(*coords) : nullptr;
+    const auto* coordsReading = stateOf<model::CoordinatesState>(coordsBefore);
+    if (coordsState && (!coordsReading || !sameExportedState(*coords->value, *coordsBefore->value)))
+    {
+        if (!coordsReading || !expected.calibration || !baseline.calibration)
+        {
+            require(false); // Creating/removing coordinate systems is not covered by this writer slice.
+        }
+        else
+        {
+            const auto object = checkCalibration(xml, *baseline.calibration, *expected.calibration, expected);
+            require(object == coords->binding);
+            patchCalibrationKeys(edits, object, reducedKeys(coordsReading->keys), reducedKeys(coordsState->keys));
+            massCoordinatesChecked = true;
+            changed = true;
+        }
+    }
+
+    // The panel's unit labels, in B1's order: the descriptor's typed setter, or an append when the file did not save one.
+    const auto* panelObject = document.singleton(Role::Panel);
+    const auto* panelBefore = panelObject ? baselineOf(*panelObject) : nullptr;
+    require(panelObject && panelBefore && panelObject->family() == model::Family::Panel);
+    for (const auto id : {std::string_view("length_unit"), std::string_view("mass_unit"), std::string_view("time_unit")})
+    {
+        const auto& field = *model::findField(model::Family::Panel, id);
+        const auto value = model::scalarValue(*panelObject->value, field);
+        if (value != model::scalarValue(*panelBefore->value, field))
+        {
+            const auto* label = std::get_if<std::string>(&value);
+            require(label != nullptr);
+            patchUnit(edits, field.property, label ? *label : std::string{});
+            changed = true;
+        }
+    }
+
+    // The clip range is one batch: when one of its fields differs, all three are written with Tracker's loaded values.
+    const auto* clip = document.singleton(Role::Clip);
+    const auto* clipState = stateOf<model::ClipState>(clip);
+    const auto* clipBefore = clip ? baselineOf(*clip) : nullptr;
+    const auto clipReading = clipBefore ? std::get<model::ClipState>(*clipBefore->value) : model::ClipState{};
+    if (clipState && (!same(clipState->startFrame, clipReading.startFrame) || !same(clipState->stepSize, clipReading.stepSize) ||
+                      !same(clipState->stepCount, clipReading.stepCount)))
+    {
+        const auto object = checkClipRange(xml, expected.clip, media);
+        require(object == clip->binding);
+        const auto start = loadedOrDefault(clipState->startFrame, model::Family::Clip, "startframe");
+        const auto step = loadedOrDefault(clipState->stepSize, model::Family::Clip, "stepsize");
+        const auto count = loadedOrDefault(clipState->stepCount, model::Family::Clip, "stepcount");
+        patchClipRange(edits, object, start, step, count);
+        intended.update<model::ClipState>(*clip,
+                                          [&](model::ClipState& state)
+                                          {
+                                              state.startFrame = start;
+                                              state.stepSize = step;
+                                              state.stepCount = count;
+                                          });
+        changed = true;
+    }
+
+    // Clip timing is one batch too: the clip's start time and the clip control's frame duration.
+    const auto* control = document.singleton(Role::ClipControl);
+    const auto* controlState = stateOf<model::ClipControlState>(control);
+    const auto* controlBefore = control ? baselineOf(*control) : nullptr;
+    const auto* controlReading = stateOf<model::ClipControlState>(controlBefore);
+    if ((clipState && !same(clipState->startTime, clipReading.startTime)) ||
+        (controlState && (!controlReading || !same(controlState->deltaT, controlReading->deltaT))))
+    {
+        const auto objects = checkClipTiming(xml, expected);
+        require(clip && control && objects.clip == clip->binding && objects.control == control->binding && controlState);
+        const auto startTime =
+            loadedOrDefault(clipState ? clipState->startTime : model::missing<double>(), model::Family::Clip, "starttime");
+        const auto frameDuration = required(controlState ? model::finiteValue(controlState->deltaT) : std::nullopt);
+        patchClipTiming(edits, objects, startTime, frameDuration);
+        intended.update<model::ClipState>(*clip, [&](model::ClipState& state) { state.startTime = startTime; });
+        intended.update<model::ClipControlState>(*control, [&](model::ClipControlState& state) { state.deltaT = frameDuration; });
+        changed = true;
+    }
+
+    // Point masses in identity order: the mass through its typed setter, marks through the frame-array patcher and the
+    // key frames with them.
+    for (const auto* object : liveMasses)
+    {
+        const auto& current = reducedTrack(expected.pointMasses, object->id);
+        require(std::isfinite(current.mass) && current.mass >= MIN_POINT_MASS);
+        const auto* original = baselineOf(*object);
+        if (!original)
+        {
+            continue;
+        }
+        const auto& state = std::get<model::PointMassState>(*object->value);
+        const auto& reading = std::get<model::PointMassState>(*original->value);
+        const auto element = *object->binding;
+        if (!same(state.mass, reading.mass))
+        {
+            require(state.mass.has_value());
+            patchDouble(edits, element, model::findField(model::Family::PointMass, "mass")->property, state.mass.value_or(0.0));
+            changed = true;
+        }
+        const bool keysChanged = state.keyFrames != reading.keyFrames;
+        if (!sameValues(state.marks, reading.marks) || keysChanged)
+        {
+            if (!massCoordinatesChecked)
+            {
+                require(expected.calibration || !lastProperty(xml, xml.root(), "coords"));
+                if (expected.calibration)
+                    requireTrackerCoordinates(expected, *expected.calibration);
+                massCoordinatesChecked = true;
+            }
+            const auto originalMarks = reducedMarks(reading.marks);
+            auto keys = readKeys(xml, element, originalMarks);
+            if (keysChanged)
+            {
+                require(state.keyFrames.has_value());
+                keys = state.keyFrames ? std::set<int>(state.keyFrames->begin(), state.keyFrames->end()) : std::set<int>{};
+            }
+            static_cast<void>(patchMarkFrames(edits, element, originalMarks, reducedMarks(state.marks)));
+            checkKeyFrames(keys, !state.marks.empty());
+            if (keysChanged)
+            {
+                patchKeyFrames(edits, element, keys);
+            }
+            changed = true;
+        }
+    }
+
+    // Vectors in identity order: samples through the frame-array patcher.
+    for (const auto* object : liveVectors)
+    {
+        const auto* original = baselineOf(*object);
+        if (!original)
+        {
+            continue;
+        }
+        const auto& state = std::get<model::VectorState>(*object->value);
+        const auto& reading = std::get<model::VectorState>(*original->value);
+        if (!sameValues(state.samples, reading.samples))
+        {
+            patchVectorFrames(edits, *object->binding, reducedSamples(reading.samples), reducedSamples(state.samples));
+            changed = true;
+        }
+    }
+
+    // Never produce a superficially valid file that silently omits an edit: every other difference is one no command
+    // makes, or one no descriptor composes (a created singleton, a removed or changed untyped object).
+    for (const auto& object : document.objects())
+    {
+        if (object.state == model::ObjectState::Removed)
+        {
+            require(typedTrack(object) && object.binding.has_value());
+            continue;
+        }
+        const auto* original = baselineOf(object);
+        if (!original)
+        {
+            require(typedTrack(object) && !object.binding);
+            continue;
+        }
+        require(original->className == object.className && original->family() == object.family());
+        if (object.family() == model::Family::Unknown)
+        {
+            require(*original->value == *object.value);
+            continue;
+        }
+        for (const auto& field : model::fieldDescriptors(object.family()))
+        {
+            require(field.commandEdits || !differs(*object.value, *original->value, field));
+        }
+    }
+    if (!changed)
+    {
+        return std::string(xml.bytes());
+    }
+
+    // Admission on the composed output, before anything is written.
+    auto rendered = renderEdits(edits);
+    const auto output = model::TrackerDocument::importBaseline(rendered.source);
+    if (!output)
+    {
+        throw ProjectError(output.error().message);
+    }
+    const auto& emitted = *rendered.source;
+    checkEmittedViews(emitted, expected, media);
+    const auto exportOrder = exportedTracks(document);
+    std::vector<const ObjectSlot*> emittedTracks;
+    for (const auto& object : output->objects())
+    {
+        if (typedTrack(object) && object.state == model::ObjectState::Live)
+        {
+            emittedTracks.push_back(&object);
+        }
+    }
+    std::vector<const ObjectSlot*> intendedTracks;
+    std::ranges::copy_if(exportOrder, std::back_inserter(intendedTracks), [](const ObjectSlot* object) { return typedTrack(*object); });
+    require(emittedTracks.size() == intendedTracks.size());
+    std::unordered_map<TrackId, NodeId> emittedObjects;
+    for (std::size_t position = 0; position < emittedTracks.size(); ++position)
+    {
+        emittedObjects.emplace(intendedTracks[position]->id.value, emittedTracks[position]->binding.value_or(NodeId{}));
+    }
+    checkEmittedTracks(emitted, expected, media, auditFinalSchema, emittedObjects, rendered.xml.size());
+    checkReimport(document, intended, *output, exportOrder);
+    if (membershipChanged || names)
+    {
+        checkFaithfulReferences(document);
+    }
+    return std::move(rendered.xml);
+}
+
+namespace detail
+{
+
+void requireFaithfulReferences(const model::TrackerDocument& document)
+{
+    checkFaithfulReferences(document);
+}
+
+bool CompositionComparison::sameDecision() const noexcept
+{
+    return legacy.index() == descriptor.index();
+}
+
+bool CompositionComparison::equivalent() const noexcept
+{
+    if (!sameDecision())
+    {
+        return false;
+    }
+    const auto* exported = std::get_if<std::string>(&legacy);
+    const auto* other = std::get_if<std::string>(&descriptor);
+    return !exported || (other && *exported == *other);
+}
+
+bool CompositionComparison::identical() const noexcept
+{
+    return equivalent() && legacy == descriptor;
+}
+
+std::string CompositionComparison::describe() const
+{
+    const auto* legacyXml = std::get_if<std::string>(&legacy);
+    const auto* descriptorXml = std::get_if<std::string>(&descriptor);
+    if (legacyXml && descriptorXml)
+    {
+        if (*legacyXml == *descriptorXml)
+        {
+            return "both export the same " + std::to_string(legacyXml->size()) + " bytes";
+        }
+        const auto [first, second] = std::ranges::mismatch(*legacyXml, *descriptorXml);
+        return "the exports differ from byte " + std::to_string(first - legacyXml->begin()) + " (B1 " + std::to_string(legacyXml->size()) +
+               " bytes, descriptors " + std::to_string(descriptorXml->size()) + ")";
+    }
+    if (legacyXml)
+    {
+        return "B1 exports, the descriptors refuse: " + std::get<CompositionRefusal>(descriptor).message;
+    }
+    const auto& refusal = std::get<CompositionRefusal>(legacy).message;
+    if (descriptorXml)
+    {
+        return "B1 refuses (" + refusal + "), the descriptors export";
+    }
+    const auto& other = std::get<CompositionRefusal>(descriptor).message;
+    return refusal == other ? "both refuse: " + refusal : "both refuse, B1: " + refusal + " Descriptors: " + other;
+}
+
+CompositionComparison compareWithDescriptorComposition(const LegacyProject& project,
+                                                       const TrackerSource& source,
+                                                       const ExportMedia& media,
+                                                       CompositionOutcome legacy)
+{
+    CompositionComparison comparison{.legacy = std::move(legacy), .descriptor = CompositionRefusal{}};
+    try
+    {
+        // The typed document a B2.4a session would hold for this reduced project and source.
+        const auto document = typedDocumentFromReduced(project, source);
+        comparison.descriptor = composeTrackerExport(document, media);
+    }
+    catch (const ProjectError& error)
+    {
+        comparison.descriptor = CompositionRefusal{.message = error.what()};
+    }
+    return comparison;
+}
+
+} // namespace detail
 } // namespace motrack

@@ -30,7 +30,8 @@ namespace motrack
 /// siblings and the parts of an edited node around its edited content stay byte-identical, except where a
 /// removal or an insertion changes a gap by the rule `osp::render` follows (docs/osp-xmlcontrol.md, "Editing and
 /// writing"). No Qt dependency.
-class SourceEdits
+// The implicit move constructor can throw with MSVC's STL, whose std::map allocates a sentinel when moved.
+class SourceEdits // NOLINT(bugprone-exception-escape)
 {
   public:
     explicit SourceEdits(std::shared_ptr<const osp::Source> source);

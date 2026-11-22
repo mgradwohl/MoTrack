@@ -27,7 +27,8 @@ void validateTrackerEditSchema(const osp::Source& xml);
 void validateTrackerMovieEditSchema(const osp::Source& xml);
 
 /// A validated rename of live tracks: the new names by `tracks` ordinal and the saved references they rewrite.
-struct TrackerNamePlan
+// The implicit move constructor can throw with MSVC's STL, whose std::map allocates a sentinel when moved.
+struct TrackerNamePlan // NOLINT(bugprone-exception-escape)
 {
     struct Rewrite
     {
