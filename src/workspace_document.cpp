@@ -583,7 +583,7 @@ WorkspaceDocument detail::decodeWorkspaceDocument(const QJsonObject& input, std:
         // Version 1 did not preserve source XML. Never imply its lost content can be recovered.
         require(!input.contains("trackerSource"));
     }
-    // Files written before the reading revision was recorded hold values of the first reading (#313/#314).
+    // Files written before the reading revision was recorded hold values of revision 0, the reader before #313/#314.
     if (const auto reading = input.value("trackerReading"); !reading.isUndefined())
     {
         const auto revision = integer(reading, static_cast<int>(TrackerReading::SavedIndices));

@@ -582,7 +582,7 @@ TEST(WorkspaceDocument, MigratesValuesTheFirstReaderSavedForFrameShiftsAndDuplic
     // A native save records the current reading, so its values are taken as they are on the next open.
     const auto native = temporary.filePath("migrated.motrack");
     motrack::writeWorkspaceDocument(native, document);
-    EXPECT_EQ(QJsonDocument::fromJson(readBytes(native)).object().value("trackerReading"), 2);
+    EXPECT_EQ(QJsonDocument::fromJson(readBytes(native)).object().value("trackerReading"), 1);
     const auto reopened = motrack::readWorkspaceDocument(native);
     EXPECT_EQ(reopened.project, project);
     EXPECT_FALSE(reopened.trackerReadingOutdated);
@@ -632,7 +632,7 @@ TEST(WorkspaceDocument, KeepsEditedOrLossyFirstReadingValuesAndExplainsWhy)
     // The note persists: a native save keeps the earlier reading, and every open explains it again.
     const auto resaved = temporary.filePath("resaved.motrack");
     motrack::writeWorkspaceDocument(resaved, document);
-    EXPECT_EQ(QJsonDocument::fromJson(readBytes(resaved)).object().value("trackerReading"), 1);
+    EXPECT_EQ(QJsonDocument::fromJson(readBytes(resaved)).object().value("trackerReading"), 0);
     const auto reopened = motrack::readWorkspaceDocument(resaved);
     EXPECT_TRUE(reopened.trackerReadingOutdated);
     EXPECT_EQ(reopened.project, document.project);
@@ -821,7 +821,7 @@ TEST(WorkspaceDocument, KeepsEditsOfTheCurrentReadingAndRejectsUnknownReadings)
     EXPECT_TRUE(reopened.trackerSource && reopened.trackerSource->bindings);
 
     const auto root = QJsonDocument::fromJson(readBytes(native)).object();
-    for (const auto& invalid : {QJsonValue(0), QJsonValue(3), QJsonValue("2"), QJsonValue(1.5)})
+    for (const auto& invalid : {QJsonValue(-1), QJsonValue(2), QJsonValue("1"), QJsonValue(1.5)})
     {
         auto changed = root;
         changed.insert("trackerReading", invalid);

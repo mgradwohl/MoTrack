@@ -159,8 +159,17 @@ saying so, and the native file is left unchanged.
 
 ### Tracker reading revisions
 
-Typed values are stored as MoTrack read the preserved source. The optional version-5 integer `trackerReading`
-names that reading; a file without it was written by reading 1. Reading 2 (#313, #314) applies Tracker 6.3.5's loader:
+Typed values are stored as MoTrack read the preserved source. The optional version-5 integer `trackerReading` names
+that reader's revision. It is the version-5 predecessor of native version 7's `readerRevision` (B2,
+[PR #324](https://github.com/mgradwohl/MoTrack/pull/324), `docs/tracker-document.md` §3): same meaning and numbering, so
+B2.5's reader of version-5 bodies takes `trackerReading` as their reader revision.
+
+| `trackerReading` | Reader |
+| --- | --- |
+| 0, or absent | Before #313/#314: track frames at their saved indices and no calibration for duplicate coordinate keys. Every file written before this field. |
+| 1 | Tracker 6.3.5's loader for both (below). |
+
+Revision 1 applies Tracker 6.3.5's loader:
 
 - **Frame shift.** A saved `VideoClip` `frameshift` stays only in the preserved XML; native marks, vector samples and
   the clip's first frame hold the frames Tracker shows. Tracker subtracts the shift from the start frame (never below
@@ -172,21 +181,21 @@ names that reading; a file without it was written by reading 1. Reading 2 (#313,
   last index Java cannot read stays unshifted, as before #313. [MoTrack #327](https://github.com/mgradwohl/MoTrack/issues/327)
   records how this differs from the property's pre-2016 meaning.
 - **Duplicate coordinate keys.** The last `[n]` element wins, a null one included, as OSP's array loader assigns slots.
-  Reading 1 stored no calibration for such a source.
+  Revision 0 stored no calibration for such a source.
 
-Opening a reading-1 file compares its stored values with both readings of the preserved source and takes the current
+Opening a revision-0 file compares its stored values with both readings of the preserved source and takes the current
 reading's values, all or nothing, when both conditions hold where the readings differ:
 
-- **Frames:** the clip's first frame and every bound track's samples still equal reading 1 exactly, every track is
+- **Frames:** the clip's first frame and every bound track's samples still equal revision 0 exactly, every track is
   bound and none was created or deleted, and the shift drops no sample and moves none off its clip step. A clip start
   held at frame 0 and a negative shift both move samples off their steps, so such documents are not migrated.
-- **Calibration:** reading 1 and the stored document both have none.
+- **Calibration:** revision 0 and the stored document both have none.
 
-A native file cannot tell an edit from an unedited reading-1 value, so anything else keeps every stored value: nothing
+A native file cannot tell an edit from an unedited revision-0 value, so anything else keeps every stored value: nothing
 is shifted, dropped or overwritten. The source associations are then dropped as for stale bindings, so
-standard export refuses, and the window shows a persistent note. The document keeps `trackerReading: 1`, so every
+standard export refuses, and the window shows a persistent note. The document keeps `trackerReading: 0`, so every
 later open explains it again; importing the original Tracker file again gives Tracker's values. A migrated document
-is saved with the current reading and is never migrated again, edited or not.
+is saved with the current revision and is never migrated again, edited or not.
 
 Standard export keeps the `frameshift` property and the saved indices. With a positive shift it refuses changed or
 new marks and vector samples, which the frame writers would place at other frames

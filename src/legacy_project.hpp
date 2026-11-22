@@ -123,14 +123,15 @@ struct TrackSourceBinding
     bool operator==(const TrackSourceBinding&) const = default;
 };
 
-/// Revisions of MoTrack's reading of a Tracker source. Native documents record the revision their typed values follow.
+/// Revisions of MoTrack's reading of a Tracker source. Native documents record the revision their typed values follow
+/// as `trackerReading`, numbered like the `readerRevision` of native version 7 (docs/tracker-document.md §3).
 enum class TrackerReading : std::uint8_t
 {
     /// Before #313/#314: track frames at their saved indices, ignoring a clip frame shift, and a coordinate system
     /// with a duplicate key read as no calibration. Kept only to recognize values saved by that reader.
-    SavedIndices = 1,
+    SavedIndices = 0,
     /// Tracker 6.3.5's loader: the clip frame shift applies and the last of duplicate coordinate keys wins.
-    FrameShift = 2,
+    FrameShift = 1,
 };
 inline constexpr auto CURRENT_TRACKER_READING = TrackerReading::FrameShift;
 
