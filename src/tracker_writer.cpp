@@ -2,26 +2,31 @@
 
 #include "local_media_path.hpp"
 #include "measurements.hpp"
+#include "osp/java_text.hpp"
+#include "osp/value.hpp"
+#include "source_edits.hpp"
 #include "tracker_archive.hpp"
 #include "tracker_archive_writer.hpp"
+#include "tracker_import.hpp"
 #include "tracker_rename.hpp"
 #include "workspace_document.hpp"
 
-#include <QByteArray>
 #include <QDir>
-#include <QDomDocument>
 #include <QFile>
 #include <QFileInfo>
 #include <QSaveFile>
-#include <QStringList>
+#include <QString>
 
 #include <algorithm>
 #include <array>
+#include <bit>
+#include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <limits>
 #include <map>
 #include <numbers>
+#include <ranges>
 #include <set>
 #include <span>
 #include <unordered_map>
@@ -33,6 +38,9 @@ namespace motrack
 namespace
 {
 
+using osp::NodeId;
+using osp::PropertyType;
+
 void require(bool valid)
 {
     if (!valid)
@@ -41,92 +49,126 @@ void require(bool valid)
     }
 }
 
-QDomElement uniqueProperty(const QDomElement& object, const QString& name)
+[[nodiscard]] const osp::Node& node(const osp::Source& xml, NodeId id)
 {
-    QDomElement result;
-    for (auto child = object.firstChildElement("property"); !child.isNull(); child = child.nextSiblingElement("property"))
+    return xml.node(id);
+}
+
+/// The value of an optional the export requires.
+template <typename T> T required(const std::optional<T>& value)
+{
+    require(value.has_value());
+    return value.value_or(T{});
+}
+
+/// XMLControlElement's lookup: the last property with this name, if any.
+std::optional<NodeId> lastProperty(const osp::Source& xml, NodeId owner, std::string_view name)
+{
+    const auto& children = node(xml, owner).children;
+    for (const auto child : std::views::reverse(children))
     {
-        if (child.attribute("name") == name)
+        if (node(xml, child).name == name)
         {
-            require(result.isNull());
+            return child;
+        }
+    }
+    return std::nullopt;
+}
+
+/// The only property with this name, for the explicitly audited schemas that refuse duplicates.
+std::optional<NodeId> uniqueProperty(const osp::Source& xml, NodeId owner, std::string_view name)
+{
+    std::optional<NodeId> result;
+    for (const auto child : node(xml, owner).children)
+    {
+        if (node(xml, child).name == name)
+        {
+            require(!result);
             result = child;
         }
     }
     return result;
 }
 
-void patchScalar(QDomDocument& xml, QDomElement object, const QString& name, const QString& type, const QString& value)
+/// The object of an object property, if it is not null.
+std::optional<NodeId> objectOf(const osp::Source& xml, std::optional<NodeId> property)
 {
-    auto property = uniqueProperty(object, name);
-    if (property.isNull())
+    if (!property || node(xml, *property).type != PropertyType::Object || node(xml, *property).children.empty())
     {
-        property = xml.createElement("property");
-        property.setAttribute("name", name);
-        property.setAttribute("type", type);
-        // Added fields need their own lines for OSP's reader; leave every existing text node alone.
-        object.appendChild(xml.createTextNode("\n"));
-        object.appendChild(property);
-        object.appendChild(xml.createTextNode("\n"));
+        return std::nullopt;
     }
-    require(property.attribute("type") == type && property.firstChildElement().isNull());
-    // OSP requires the CDATA terminator immediately before </property>. It does not decode
-    // entities in ordinary strings, and preserving adjacent comments can make its reader hang.
-    if (type == "string")
+    return node(xml, *property).children.front();
+}
+
+std::string uniqueText(const osp::Source& xml, NodeId owner, std::string_view name)
+{
+    const auto property = uniqueProperty(xml, owner, name);
+    return property ? node(xml, *property).content : std::string{};
+}
+
+std::optional<double> javaDouble(std::string_view text)
+{
+    const auto value = osp::parseJavaDouble(text);
+    return value ? std::optional(*value) : std::nullopt;
+}
+
+std::optional<std::int32_t> javaInt(std::string_view text)
+{
+    const auto value = osp::parseJavaInt(text);
+    return value ? std::optional(*value) : std::nullopt;
+}
+
+/// Sets an existing typed scalar (Tracker reads the last duplicate) or appends a new one in OSP's writer layout.
+/// A value that already decodes to the intended one keeps its original text.
+void patchDouble(SourceEdits& edits, NodeId object, std::string_view name, double value)
+{
+    if (const auto property = lastProperty(edits.source(), object, name))
     {
-        for (auto child = property.firstChild(); !child.isNull(); child = child.nextSibling())
-        {
-            require(child.isText() || child.isCDATASection());
-        }
+        require(node(edits.source(), *property).type == PropertyType::Double);
+        if (const auto current = javaDouble(node(edits.source(), *property).content);
+            !current || std::bit_cast<std::uint64_t>(*current) != std::bit_cast<std::uint64_t>(value))
+            edits.setDouble(*property, value);
     }
-    const auto scalar = [&]() -> QDomNode
+    else
     {
-        if (type == "string")
-        {
-            require(!value.contains("]]>"));
-            return xml.createCDATASection(value);
-        }
-        return xml.createTextNode(value);
-    };
-    // Preserve comments and processing instructions within numeric scalar properties.
-    bool written = false;
-    for (auto child = property.firstChild(); !child.isNull();)
-    {
-        const auto next = child.nextSibling();
-        if (child.isText() || child.isCDATASection())
-        {
-            if (!written)
-            {
-                property.replaceChild(scalar(), child);
-                written = true;
-            }
-            else
-            {
-                property.removeChild(child);
-            }
-        }
-        child = next;
-    }
-    if (!written)
-    {
-        property.appendChild(scalar());
+        edits.append(object, osp::doubleProperty(std::string(name), value));
     }
 }
 
-void patchDouble(QDomDocument& xml, const QDomElement& object, const QString& name, double value)
+void patchInt(SourceEdits& edits, NodeId object, std::string_view name, std::int32_t value)
 {
-    patchScalar(xml, object, name, "double", QString::number(value, 'g', 17));
+    if (const auto property = lastProperty(edits.source(), object, name))
+    {
+        require(node(edits.source(), *property).type == PropertyType::Int);
+        if (javaInt(node(edits.source(), *property).content) != value)
+            edits.setInt(*property, value);
+    }
+    else
+    {
+        edits.append(object, osp::intProperty(std::string(name), value));
+    }
 }
 
-void patchUnit(QDomDocument& xml, const QString& name, const std::string& unit)
+void patchString(SourceEdits& edits, NodeId object, std::string_view name, const std::string& value)
 {
-    const auto label = QString::fromStdString(unit);
-    require(!label.isEmpty() && label.size() <= 256 && label == label.trimmed() && label.toStdString() == unit);
-    for (const auto codePoint : label.toUcs4())
+    // OSP cannot represent "]]></property>" or a nested CDATA marker; MoTrack's labels exclude "]]>" altogether.
+    require(value.find("]]>") == std::string::npos);
+    if (const auto property = lastProperty(edits.source(), object, name))
     {
-        const auto category = QChar::category(codePoint);
-        require(category != QChar::Other_Control && category != QChar::Other_Format && !QChar::isDigit(codePoint));
+        require(node(edits.source(), *property).type == PropertyType::String);
+        if (const auto current = osp::PropertyView(edits.source(), *property).stringValue(); !current || *current != value)
+            edits.setString(*property, value);
     }
-    patchScalar(xml, xml.documentElement(), name, "string", label);
+    else
+    {
+        edits.append(object, osp::stringProperty(std::string(name), value));
+    }
+}
+
+void patchUnit(SourceEdits& edits, std::string_view name, const std::string& unit)
+{
+    require(isTrackerUnitLabel(unit));
+    patchString(edits, edits.source().root(), name, unit);
 }
 
 enum class LinkedMedia : std::uint8_t
@@ -136,8 +178,18 @@ enum class LinkedMedia : std::uint8_t
     Movie
 };
 
-void patchClipRange(QDomDocument& xml, const Clip& clip, LinkedMedia media)
+/// The panel's VideoClip object, audited as the only clip representation the writers patch.
+NodeId videoClipObject(const osp::Source& xml)
 {
+    const auto property = lastProperty(xml, xml.root(), "videoclip");
+    const auto object = required(objectOf(xml, property));
+    require(node(xml, object).className == tracker::VIDEO_CLIP_CLASS);
+    return object;
+}
+
+void patchClipRange(SourceEdits& edits, const Clip& clip, LinkedMedia media)
+{
+    const auto& xml = edits.source();
     if (clip.frameDurationMs)
     {
         auto timing = clip;
@@ -154,154 +206,131 @@ void patchClipRange(QDomDocument& xml, const Clip& clip, LinkedMedia media)
     // of start + count * stride. Reject values its Java int arithmetic cannot retain.
     require(end <= 500000 && end + clip.stepSize <= std::numeric_limits<int>::max());
     require(!clip.sourceFrameCount || end < *clip.sourceFrameCount);
-    const auto property = uniqueProperty(xml.documentElement(), "videoclip");
-    const auto object = property.firstChildElement("object");
-    require(property.attribute("type") == "object" && object.attribute("class") == "org.opensourcephysics.media.core.VideoClip" &&
-            object.nextSiblingElement().isNull());
-    require(uniqueProperty(object, "frameshift").isNull());
+    const auto object = videoClipObject(xml);
+    require(!lastProperty(xml, object, "frameshift"));
     if (media != LinkedMedia::None)
     {
         // The media schema, complete frame inventory/index and optional saved count were
         // checked before patching. Trimming changes only the clip, never the source media.
-        require(uniqueProperty(object, "video").firstChildElement("object").attribute("class") ==
-                (media == LinkedMedia::Images ? "org.opensourcephysics.media.core.ImageVideo"
-                                              : "org.opensourcephysics.media.xuggle.XuggleVideo"));
+        const auto video = required(objectOf(xml, lastProperty(xml, object, "video")));
+        require(node(xml, video).className == (media == LinkedMedia::Images ? tracker::IMAGE_VIDEO_CLASS : tracker::XUGGLE_VIDEO_CLASS));
     }
     else
-        require(uniqueProperty(object, "video").isNull() && uniqueProperty(object, "video_framecount").isNull());
-    patchScalar(xml, object, "startframe", "int", QString::number(clip.firstFrame));
-    patchScalar(xml, object, "stepsize", "int", QString::number(clip.stepSize));
-    patchScalar(xml, object, "stepcount", "int", QString::number(count));
+        require(!lastProperty(xml, object, "video") && !lastProperty(xml, object, "video_framecount"));
+    patchInt(edits, object, "startframe", clip.firstFrame);
+    patchInt(edits, object, "stepsize", clip.stepSize);
+    patchInt(edits, object, "stepcount", count);
 }
 
-void patchClipTiming(QDomDocument& xml, const LegacyProject& project)
+void patchClipTiming(SourceEdits& edits, const LegacyProject& project)
 {
+    const auto& xml = edits.source();
     const auto& clip = project.clip;
     require(validConstantClipTiming(clip));
     // Data tracks can supply their own time source; models require independent trajectory checks.
     require(supportsConstantClipTimingEdits(project));
-    const auto clipProperty = uniqueProperty(xml.documentElement(), "videoclip");
-    const auto clipObject = clipProperty.firstChildElement("object");
-    require(clipProperty.attribute("type") == "object" && clipObject.attribute("class") == "org.opensourcephysics.media.core.VideoClip" &&
-            clipObject.nextSiblingElement().isNull());
-    const QStringList clipFields{"startframe", "stepsize", "stepcount", "starttime", "readout", "playallsteps"};
-    for (auto field = clipObject.firstChildElement(); !field.isNull(); field = field.nextSiblingElement())
+    const auto clipObject = videoClipObject(xml);
+    const std::set<std::string_view> clipFields{"startframe", "stepsize", "stepcount", "starttime", "readout", "playallsteps"};
+    std::set<std::string> seen;
+    for (const auto field : node(xml, clipObject).children)
     {
-        const auto name = field.attribute("name");
-        require(field.tagName() == "property" && clipFields.contains(name) && field.firstChildElement().isNull());
-        require(!uniqueProperty(clipObject, name).isNull());
+        const auto& item = node(xml, field);
+        const auto name = required(item.name);
+        require(clipFields.contains(name) && seen.insert(name).second);
         if (name == "starttime")
         {
-            bool valid = false;
-            const auto value = field.text().toDouble(&valid);
-            require(field.attribute("type") == "double" && valid && std::isfinite(value));
+            const auto value = javaDouble(item.content);
+            require(item.type == PropertyType::Double && value && std::isfinite(*value));
         }
         else if (name == "readout")
         {
-            require(field.attribute("type") == "string");
+            require(item.type == PropertyType::String);
         }
         else if (name == "playallsteps")
         {
-            require(field.attribute("type") == "boolean" && (field.text() == "true" || field.text() == "false"));
+            require(item.type == PropertyType::Boolean && (item.content == "true" || item.content == "false"));
         }
         else
         {
-            bool valid = false;
-            const auto value = field.text().toInt(&valid);
-            require(field.attribute("type") == "int" && valid && value >= (name == "startframe" ? 0 : 1));
+            const auto value = javaInt(item.content);
+            require(item.type == PropertyType::Int && value && *value >= (name == "startframe" ? 0 : 1));
         }
     }
-    const auto controlProperty = uniqueProperty(xml.documentElement(), "clipcontrol");
-    const auto control = controlProperty.firstChildElement("object");
-    require(controlProperty.attribute("type") == "object" &&
-            control.attribute("class") == "org.opensourcephysics.media.core.StepperClipControl" && control.nextSiblingElement().isNull());
-    const QStringList controlFields{"rate", "delta_t", "frame", "looping"};
-    for (auto field = control.firstChildElement(); !field.isNull(); field = field.nextSiblingElement())
+    const auto control = required(objectOf(xml, lastProperty(xml, xml.root(), "clipcontrol")));
+    require(node(xml, control).className == tracker::STEPPER_CLIP_CONTROL_CLASS);
+    const std::set<std::string_view> controlFields{"rate", "delta_t", "frame", "looping"};
+    seen.clear();
+    for (const auto field : node(xml, control).children)
     {
-        const auto name = field.attribute("name");
-        require(field.tagName() == "property" && controlFields.contains(name) && field.firstChildElement().isNull());
-        require(!uniqueProperty(control, name).isNull());
+        const auto& item = node(xml, field);
+        const auto name = required(item.name);
+        require(controlFields.contains(name) && seen.insert(name).second);
         if (name == "looping")
         {
-            require(field.attribute("type") == "boolean" && (field.text() == "true" || field.text() == "false"));
+            require(item.type == PropertyType::Boolean && (item.content == "true" || item.content == "false"));
         }
         else if (name == "frame")
         {
-            bool valid = false;
-            const auto frame = field.text().toInt(&valid);
-            require(field.attribute("type") == "int" && valid && frame >= 0 && frame <= 500000);
+            const auto frame = javaInt(item.content);
+            require(item.type == PropertyType::Int && frame && *frame >= 0 && *frame <= 500000);
         }
         else
         {
-            bool valid = false;
-            const auto number = field.text().toDouble(&valid);
-            require(field.attribute("type") == "double" && valid && std::isfinite(number) && number > 0.0);
+            const auto number = javaDouble(item.content);
+            require(item.type == PropertyType::Double && number && std::isfinite(*number) && *number > 0.0);
         }
     }
-    require(!uniqueProperty(control, "rate").isNull() && !uniqueProperty(control, "delta_t").isNull());
-    patchDouble(xml, clipObject, "starttime", clip.startTimeMs);
-    if (!clip.frameDurationMs)
-    {
-        require(false);
-        return;
-    }
-    patchDouble(xml, control, "delta_t", *clip.frameDurationMs);
+    require(seen.contains("rate") && seen.contains("delta_t"));
+    patchDouble(edits, clipObject, "starttime", clip.startTimeMs);
+    patchDouble(edits, control, "delta_t", required(clip.frameDurationMs));
 }
 
-QDomElement arrayProperty(QDomDocument& xml, QDomElement object, const QString& name, const QString& type)
+std::optional<int> frameIndex(const std::optional<std::string>& name)
 {
-    auto array = uniqueProperty(object, name);
-    if (array.isNull())
+    if (!name || name->size() < 3 || name->front() != '[' || name->back() != ']')
     {
-        array = xml.createElement("property");
-        array.setAttribute("name", name);
-        array.setAttribute("type", "array");
-        object.appendChild(xml.createTextNode("\n"));
-        object.appendChild(array);
-        object.appendChild(xml.createTextNode("\n"));
+        return std::nullopt;
     }
-    require(array.attribute("type") == "array" && (array.attribute("class").isEmpty() || array.attribute("class") == type));
-    array.setAttribute("class", type);
+    const auto index = osp::parseJavaInt(std::string_view(*name).substr(1, name->size() - 2));
+    return index && *index >= 0 ? std::optional<int>(*index) : std::nullopt;
+}
+
+int requireFrameIndex(const osp::Source& xml, NodeId item)
+{
+    const auto index = frameIndex(node(xml, item).name);
+    require(index.has_value());
+    return index.value_or(0);
+}
+
+/// The audited object array, or none when the object does not save it.
+std::optional<NodeId> frameArray(const osp::Source& xml, NodeId object, std::string_view name, std::string_view className)
+{
+    const auto array = lastProperty(xml, object, name);
+    if (array)
+    {
+        require(node(xml, *array).type == PropertyType::Array && node(xml, *array).className == className);
+    }
     return array;
 }
 
-int frameIndex(const QString& name)
-{
-    require(name.startsWith('[') && name.endsWith(']'));
-    bool valid = false;
-    const auto frame = name.mid(1, name.size() - 2).toInt(&valid);
-    require(valid && frame >= 0);
-    return frame;
-}
-
-std::set<int> readKeys(const QDomElement& object, const std::vector<Mark>& original)
+std::set<int> readKeys(const osp::Source& xml, NodeId object, const std::vector<Mark>& original)
 {
     std::set<int> result;
-    const auto keys = uniqueProperty(object, "keyFrames");
-    if (!keys.isNull())
+    if (const auto keys = lastProperty(xml, object, "keyFrames"))
     {
-        require(keys.attribute("type") == "array" && keys.attribute("class") == "[I");
-        const auto array = uniqueProperty(keys, "array");
-        if (array.isNull())
+        const auto& container = node(xml, *keys);
+        require(container.type == PropertyType::Array && container.className == "[I");
+        if (!container.children.empty())
         {
-            require(keys.firstChildElement().isNull()); // Tracker's zero-length int array has no child.
-        }
-        else
-        {
-            require(array.attribute("type") == "string" && array.firstChildElement().isNull());
-            const auto text = array.text().trimmed();
-            require(text.startsWith('{') && text.endsWith('}'));
-            const auto values = text.mid(1, text.size() - 2).trimmed();
-            require(!values.isEmpty()); // A compact empty token is not a valid OSP int-array encoding.
-            if (!values.isEmpty())
+            // OSP writes a nonempty int array as one compact string; a zero-length array has no element.
+            const auto& values = node(xml, container.children.front());
+            require(container.children.size() == 1 && values.name == "array" && values.type == PropertyType::String);
+            const auto decoded = osp::parseCompactArray(values.content, "[I");
+            require(decoded && decoded->kind == osp::CompactArray::Kind::Int && !decoded->ints.empty());
+            for (const auto frame : decoded->ints)
             {
-                for (const auto& value : values.split(','))
-                {
-                    bool valid = false;
-                    const auto frame = value.trimmed().toInt(&valid);
-                    require(valid && frame >= 0);
-                    result.insert(frame);
-                }
+                require(frame >= 0);
+                result.insert(frame);
             }
         }
     }
@@ -316,20 +345,54 @@ std::set<int> readKeys(const QDomElement& object, const std::vector<Mark>& origi
     return result;
 }
 
+osp::PropertyValue keyFramesValue(const std::set<int>& keys)
+{
+    osp::CompactArray values{.kind = osp::CompactArray::Kind::Int};
+    values.ints.assign(keys.begin(), keys.end());
+    auto property = osp::primitiveArrayProperty("keyFrames", "[I", values);
+    require(property.has_value());
+    return property ? std::move(*property) : osp::PropertyValue{};
+}
+
 struct FrameChanges
 {
     std::vector<int> updated;
     std::vector<int> removed;
 };
 
-template <typename Sample, typename Update>
-FrameChanges patchFrameData(QDomDocument& xml,
-                            const QDomElement& object,
+/// A new `[frame]` element holding a FrameData object with the given properties, as OSP writes it.
+osp::PropertyValue frameElement(int frame, std::string_view className, std::vector<osp::PropertyValue> properties)
+{
+    return osp::objectProperty(
+        "[" + std::to_string(frame) + "]",
+        osp::ObjectValue{.className = std::string(className), .version = std::nullopt, .properties = std::move(properties)});
+}
+
+/// The complete frame array of samples, as OSP writes a FrameData[] (no null elements are needed).
+template <typename Sample, typename Fill>
+osp::PropertyValue frameArrayValue(std::string_view name, std::string_view className, const std::vector<Sample>& samples, Fill fill)
+{
+    osp::PropertyValue array{.name = std::string(name), .typeName = "array", .className = "[L" + std::string(className) + ";"};
+    int previous = -1;
+    for (const auto& sample : samples)
+    {
+        require(sample.frame > previous);
+        previous = sample.frame;
+        array.elements.push_back(frameElement(sample.frame, className, fill(sample)));
+    }
+    return array;
+}
+
+template <typename Sample, typename Fill, typename Update>
+FrameChanges patchFrameData(SourceEdits& edits,
+                            NodeId object,
                             const std::vector<Sample>& original,
                             const std::vector<Sample>& current,
-                            const QString& className,
+                            std::string_view className,
+                            Fill fill,
                             Update update)
 {
+    const auto& xml = edits.source();
     std::map<int, const Sample*> marks;
     int previous = -1;
     for (const auto& mark : current)
@@ -339,13 +402,26 @@ FrameChanges patchFrameData(QDomDocument& xml,
         previous = mark.frame;
     }
     FrameChanges changes;
-    const auto data = arrayProperty(xml, object, "framedata", "[L" + className + ';');
-    std::map<int, QDomElement> entries;
-    int lastEntry = -1;
-    for (auto item = data.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"))
+    const auto arrayClass = "[L" + std::string(className) + ";";
+    const auto data = frameArray(xml, object, "framedata", arrayClass);
+    if (!data)
     {
-        const auto frame = frameIndex(item.attribute("name"));
-        require(frame > lastEntry && entries.emplace(frame, item).second);
+        require(original.empty());
+        for (const auto& [frame, mark] : marks)
+        {
+            changes.updated.push_back(frame);
+        }
+        edits.append(object, frameArrayValue("framedata", className, current, fill));
+        return changes;
+    }
+    // Map indices to the element ordinals that insertions refer to.
+    std::map<int, std::pair<NodeId, std::size_t>> entries;
+    int lastEntry = -1;
+    const auto& children = node(xml, *data).children;
+    for (std::size_t ordinal = 0; ordinal < children.size(); ++ordinal)
+    {
+        const auto frame = requireFrameIndex(xml, children[ordinal]);
+        require(frame > lastEntry && entries.emplace(frame, std::pair(children[ordinal], ordinal)).second);
         lastEntry = frame;
     }
     for (const auto& mark : original)
@@ -353,8 +429,7 @@ FrameChanges patchFrameData(QDomDocument& xml,
         const auto found = marks.find(mark.frame);
         if (found == marks.end())
         {
-            auto parent = data;
-            parent.removeChild(entries.at(mark.frame));
+            edits.remove(entries.at(mark.frame).first);
             entries.erase(mark.frame);
             changes.removed.push_back(mark.frame);
         }
@@ -365,103 +440,51 @@ FrameChanges patchFrameData(QDomDocument& xml,
     }
     for (const auto& [frame, mark] : marks)
     {
-        auto item = entries.contains(frame) ? entries.at(frame) : QDomElement{};
-        if (item.isNull())
+        if (const auto entry = entries.find(frame); entry != entries.end())
         {
-            item = xml.createElement("property");
-            item.setAttribute("name", QString("[%1]").arg(frame));
-            item.setAttribute("type", "object");
-            auto parent = data;
-            const auto next = entries.upper_bound(frame);
-            if (next == entries.end())
+            const auto [item, ordinal] = entry->second;
+            require(node(xml, item).type == PropertyType::Object);
+            if (const auto step = objectOf(xml, item))
             {
-                parent.appendChild(item);
+                require(node(xml, *step).className == className);
+                update(edits, *step, *mark);
             }
             else
             {
-                parent.insertBefore(item, next->second);
+                // A null placeholder becomes the sample's object in the same array position.
+                edits.remove(item);
+                edits.insert(*data, ordinal, frameElement(frame, className, fill(*mark)));
             }
-            entries.emplace(frame, item);
-        }
-        require(item.attribute("type") == "object");
-        auto step = item.firstChildElement("object");
-        if (step.isNull())
-        {
-            require(item.firstChildElement().isNull());
-            // A null array placeholder may contain text; replace only that known scalar representation.
-            for (auto node = item.firstChild(); !node.isNull();)
-            {
-                const auto next = node.nextSibling();
-                if (node.isText() || node.isCDATASection())
-                {
-                    item.removeChild(node);
-                }
-                else
-                {
-                    require(false); // A comment before the new object would stop OSP's object reader.
-                }
-                node = next;
-            }
-            item.setAttribute("type", "object");
-            step = xml.createElement("object");
-            item.appendChild(xml.createTextNode("\n"));
-            item.appendChild(step);
-            item.appendChild(xml.createTextNode("\n"));
-        }
-        require(step.nextSiblingElement("object").isNull() && (step.attribute("class").isEmpty() || step.attribute("class") == className));
-        step.setAttribute("class", className);
-        update(xml, step, *mark);
-        changes.updated.push_back(frame);
-    }
-    // OSP's array reader consumes consecutive property lines. Deleting an entry can leave a blank
-    // line in preserved formatting that makes it stop early. Format only this known structural array,
-    // while the whole document is serialized without adding whitespace to unknown content.
-    auto array = data;
-    for (auto ancestor = QDomNode(array); !ancestor.isNull(); ancestor = ancestor.parentNode())
-    {
-        const auto space = ancestor.toElement().attribute("xml:space");
-        if (!space.isEmpty())
-        {
-            require(space != "preserve");
-            break;
-        }
-    }
-    for (auto node = array.firstChild(); !node.isNull();)
-    {
-        const auto next = node.nextSibling();
-        if (node.isText())
-        {
-            require(std::ranges::all_of(node.nodeValue(),
-                                        [](QChar value) { return value == ' ' || value == '\t' || value == '\r' || value == '\n'; }));
-            array.removeChild(node);
         }
         else
         {
-            require(node.isElement() && node.nodeName() == "property");
+            const auto next = entries.upper_bound(frame);
+            const auto position = next == entries.end() ? children.size() : next->second.second;
+            edits.insert(*data, position, frameElement(frame, className, fill(*mark)));
         }
-        node = next;
-    }
-    for (auto item = array.firstChildElement(); !item.isNull(); item = item.nextSiblingElement())
-    {
-        array.insertBefore(xml.createTextNode("\n"), item);
-    }
-    if (array.hasChildNodes())
-    {
-        array.appendChild(xml.createTextNode("\n"));
+        changes.updated.push_back(frame);
     }
     return changes;
 }
 
-void patchMarks(QDomDocument& xml, const QDomElement& object, const std::vector<Mark>& original, const std::vector<Mark>& current)
+std::vector<osp::PropertyValue> markProperties(const Mark& mark)
 {
-    auto keys = readKeys(object, original);
+    require(std::isfinite(mark.x) && std::isfinite(mark.y));
+    return {osp::doubleProperty("x", mark.x), osp::doubleProperty("y", mark.y)};
+}
+
+void patchMarks(SourceEdits& edits, NodeId object, const std::vector<Mark>& original, const std::vector<Mark>& current)
+{
+    const auto& xml = edits.source();
+    auto keys = readKeys(xml, object, original);
     const auto oldKeys = keys;
-    const auto changes = patchFrameData(xml,
+    const auto changes = patchFrameData(edits,
                                         object,
                                         original,
                                         current,
-                                        "org.opensourcephysics.cabrillo.tracker.PointMass$FrameData",
-                                        [](auto& document, const auto& step, const Mark& mark)
+                                        tracker::POINT_MASS_FRAME_CLASS,
+                                        markProperties,
+                                        [](SourceEdits& document, NodeId step, const Mark& mark)
                                         {
                                             require(std::isfinite(mark.x) && std::isfinite(mark.y));
                                             patchDouble(document, step, "x", mark.x);
@@ -475,42 +498,36 @@ void patchMarks(QDomDocument& xml, const QDomElement& object, const std::vector<
     // An empty key list makes Tracker promote every remaining automatic mark to a manual key.
     // Until that distinction is in the editable model, reject edits that cannot retain it.
     require(!keys.empty() || current.empty());
-    if (keys != oldKeys)
+    if (keys == oldKeys)
     {
-        auto container = arrayProperty(xml, object, "keyFrames", "[I");
-        auto values = uniqueProperty(container, "array");
-        if (keys.empty())
+        return;
+    }
+    const auto container = lastProperty(xml, object, "keyFrames");
+    if (!container)
+    {
+        edits.append(object, keyFramesValue(keys));
+        return;
+    }
+    const auto& elements = node(xml, *container).children;
+    if (keys.empty())
+    {
+        // OSP cannot decode the compact string "{}" as a zero-length int array; an empty array has no element.
+        for (const auto element : elements)
         {
-            if (!values.isNull())
-            {
-                container.removeChild(values);
-            }
-            return; // OSP cannot decode the compact string "{}" as a zero-length int array.
+            edits.remove(element);
         }
-        if (values.isNull())
-        {
-            values = xml.createElement("property");
-            values.setAttribute("name", "array");
-            values.setAttribute("type", "string");
-            container.appendChild(xml.createTextNode("\n"));
-            container.appendChild(values);
-            container.appendChild(xml.createTextNode("\n"));
-        }
-        for (auto node = values.firstChild(); !node.isNull();)
-        {
-            const auto next = node.nextSibling();
-            if (node.isText() || node.isCDATASection())
-            {
-                values.removeChild(node);
-            }
-            node = next;
-        }
-        QStringList text;
-        for (const auto key : keys)
-        {
-            text.append(QString::number(key));
-        }
-        values.appendChild(xml.createTextNode('{' + text.join(',') + '}'));
+        return;
+    }
+    osp::CompactArray values{.kind = osp::CompactArray::Kind::Int};
+    values.ints.assign(keys.begin(), keys.end());
+    const auto text = osp::formatCompactArray(values);
+    if (elements.empty())
+    {
+        edits.append(*container, osp::stringProperty("array", text));
+    }
+    else
+    {
+        edits.setString(elements.front(), text);
     }
 }
 
@@ -567,19 +584,34 @@ std::array<double, 6> trackerInverse(const CalibrationKey& key)
     return inverse;
 }
 
-void requireBoundedMassFrames(const QDomDocument& xml)
+/// Every object node of the class in the document, in file order.
+std::vector<NodeId> objectsOfClass(const osp::Source& xml, std::string_view className)
+{
+    std::vector<NodeId> result;
+    for (std::size_t index = 0; index < xml.nodeCount(); ++index)
+    {
+        const auto id = static_cast<NodeId>(index);
+        if (node(xml, id).kind == osp::NodeKind::Object && node(xml, id).className == className)
+        {
+            result.push_back(id);
+        }
+    }
+    return result;
+}
+
+void requireBoundedMassFrames(const osp::Source& xml)
 {
     std::size_t frameSlots = 0;
-    const auto properties = xml.elementsByTagName("property");
-    for (int index = 0; index < properties.size(); ++index)
+    const auto arrayClass = "[L" + std::string(tracker::POINT_MASS_FRAME_CLASS) + ";";
+    for (std::size_t index = 0; index < xml.nodeCount(); ++index)
     {
-        const auto data = properties.at(index).toElement();
-        if (data.attribute("type") != "array" || data.attribute("class") != "[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;")
+        const auto& data = node(xml, static_cast<NodeId>(index));
+        if (data.kind != osp::NodeKind::Property || data.type != PropertyType::Array || data.className != arrayClass)
             continue;
         int lastFrame = -1;
-        for (auto item = data.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"))
+        for (const auto item : data.children)
         {
-            const auto frame = frameIndex(item.attribute("name"));
+            const auto frame = requireFrameIndex(xml, item);
             require(frame <= 500000);
             lastFrame = std::max(lastFrame, frame);
         }
@@ -590,17 +622,22 @@ void requireBoundedMassFrames(const QDomDocument& xml)
     }
 }
 
-void requireStableTableColumns(const QDomDocument& xml, const LegacyProject& project, bool movie)
+/// The only `[n]` cell of a string-array row, or none.
+std::optional<std::string> cell(const osp::Source& xml, NodeId row, int index)
+{
+    const auto property = uniqueProperty(xml, row, "[" + std::to_string(index) + "]");
+    return property ? std::optional(node(xml, *property).content) : std::nullopt;
+}
+
+void requireStableTableColumns(const osp::Source& xml, const LegacyProject& project, bool movie)
 {
     std::unordered_set<std::string> massNames;
     for (const auto& mass : project.pointMasses)
         massNames.insert(mass.name);
-    const auto objects = xml.elementsByTagName("object");
-    for (int index = 0; index < objects.size(); ++index)
+    const auto masses = objectsOfClass(xml, tracker::POINT_MASS_CLASS);
+    for (const auto object : masses)
     {
-        const auto object = objects.at(index).toElement();
-        if (object.attribute("class") == "org.opensourcephysics.cabrillo.tracker.PointMass" &&
-            !uniqueProperty(object, "number_formats").isNull())
+        if (uniqueProperty(xml, object, "number_formats"))
         {
             // This newly supported metadata requires the audited format grammar even for a
             // mass-only edit, which otherwise permits opaque source content to pass through.
@@ -616,57 +653,53 @@ void requireStableTableColumns(const QDomDocument& xml, const LegacyProject& pro
         return ((variable == "frame" || variable == "step") && pattern == "0") || (variable == "t" && pattern == "0.000") ||
                pattern.empty();
     };
-    for (int index = 0; index < objects.size(); ++index)
+    for (const auto object : masses)
     {
-        const auto object = objects.at(index).toElement();
-        if (object.attribute("class") != "org.opensourcephysics.cabrillo.tracker.PointMass")
+        const auto owner = uniqueText(xml, object, "name");
+        const auto formats = uniqueProperty(xml, object, "number_formats");
+        if (!formats)
             continue;
-        const auto owner = uniqueProperty(object, "name").text().toStdString();
-        for (auto cell = uniqueProperty(object, "number_formats").firstChildElement(); !cell.isNull();)
+        const auto& cells = node(xml, *formats).children;
+        for (std::size_t index = 0; index < cells.size(); index += 2)
         {
-            const auto variable = cell.text().toStdString();
-            cell = cell.nextSiblingElement();
-            require(!cell.isNull());
-            if (!defaultPattern(variable, cell.text().toStdString()))
+            require(index + 1 < cells.size());
+            if (!defaultPattern(node(xml, cells[index]).content, node(xml, cells[index + 1]).content))
                 throw ProjectError("Tracker cannot retain custom number formats for '" + owner + "' (MoTrack issue #64).");
-            cell = cell.nextSiblingElement();
         }
     }
-    for (int index = 0; index < objects.size(); ++index)
+    for (const auto object : objectsOfClass(xml, "org.opensourcephysics.cabrillo.tracker.TableTView"))
     {
-        const auto object = objects.at(index).toElement();
-        if (object.attribute("class") != "org.opensourcephysics.cabrillo.tracker.TableTView")
-            continue;
-        const auto columns = uniqueProperty(object, "track_columns");
-        for (auto row = columns.firstChildElement("property"); !row.isNull(); row = row.nextSiblingElement("property"))
+        if (const auto columns = uniqueProperty(xml, object, "track_columns"))
         {
-            const auto owner = uniqueProperty(row, "[0]").text().toStdString();
-            if (!massNames.contains(owner) || uniqueProperty(row, "[1]").text() != "t")
-                continue;
-            const auto second = uniqueProperty(row, "[2]").text();
-            const auto third = uniqueProperty(row, "[3]");
-            const bool subset = second == "x" && third.isNull();
-            const bool defaults =
-                uniqueProperty(row, "[4]").isNull() && ((second == "x" && third.text() == "y") || (second == "y" && third.text() == "x"));
-            // Pinned 6.3.5 can serialize t,x as null columns, or omit a default-column view's
-            // custom formats/order. Preserve these source rows natively until a safe reference
-            // workflow has evidence; do not let a changed standard save imply fidelity.
-            const bool reordered =
-                second == "y" && third.text() == "x" && uniqueProperty(row, "[4]").text() == "frame" && uniqueProperty(row, "[5]").isNull();
-            if (subset || defaults || reordered)
-                throw ProjectError("Tracker cannot safely resave the table columns for '" + owner + "' (MoTrack issue #64).");
-        }
-        for (auto group = uniqueProperty(object, "column_formats").firstChildElement(); !group.isNull(); group = group.nextSiblingElement())
-        {
-            for (auto row = group.firstChildElement(); !row.isNull(); row = row.nextSiblingElement())
+            for (const auto row : node(xml, *columns).children)
             {
-                const auto owner = uniqueProperty(row, "[0]").text().toStdString();
-                if (!massNames.contains(owner))
+                const auto owner = cell(xml, row, 0).value_or(std::string{});
+                if (!massNames.contains(owner) || cell(xml, row, 1) != "t")
                     continue;
-                const auto variable = uniqueProperty(row, "[1]").text().toStdString();
-                const auto pattern = uniqueProperty(row, "[2]").text().toStdString();
-                if (!defaultPattern(variable, pattern))
-                    throw ProjectError("Tracker cannot retain custom table formats for '" + owner + "' (MoTrack issue #64).");
+                const auto second = cell(xml, row, 2).value_or(std::string{});
+                const auto third = cell(xml, row, 3);
+                const bool subset = second == "x" && !third;
+                const bool defaults = !cell(xml, row, 4) && ((second == "x" && third == "y") || (second == "y" && third == "x"));
+                // Pinned 6.3.5 can serialize t,x as null columns, or omit a default-column view's
+                // custom formats/order. Preserve these source rows natively until a safe reference
+                // workflow has evidence; do not let a changed standard save imply fidelity.
+                const bool reordered = second == "y" && third == "x" && cell(xml, row, 4) == "frame" && !cell(xml, row, 5);
+                if (subset || defaults || reordered)
+                    throw ProjectError("Tracker cannot safely resave the table columns for '" + owner + "' (MoTrack issue #64).");
+            }
+        }
+        if (const auto formats = uniqueProperty(xml, object, "column_formats"))
+        {
+            for (const auto group : node(xml, *formats).children)
+            {
+                for (const auto row : node(xml, group).children)
+                {
+                    const auto owner = cell(xml, row, 0).value_or(std::string{});
+                    if (!massNames.contains(owner))
+                        continue;
+                    if (!defaultPattern(cell(xml, row, 1).value_or(std::string{}), cell(xml, row, 2).value_or(std::string{})))
+                        throw ProjectError("Tracker cannot retain custom table formats for '" + owner + "' (MoTrack issue #64).");
+                }
             }
         }
     }
@@ -758,18 +791,22 @@ void requireTrackerCoordinates(const LegacyProject& project, const Calibration& 
     }
 }
 
-void requireBoundedCoordinateUpdates(const QDomDocument& xml, const Calibration& current, const LegacyProject& project)
+void requireBoundedCoordinateUpdates(const osp::Source& xml, const Calibration& current, const LegacyProject& project)
 {
     require(!current.keyframes.empty());
-    const auto object = uniqueProperty(xml.documentElement(), "coords").firstChildElement("object");
-    const auto data = uniqueProperty(object, "framedata");
     int lastFrame = current.keyframes.back().frame;
     require(lastFrame >= 0 && lastFrame <= 500000);
-    for (auto item = data.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"))
+    if (const auto object = objectOf(xml, lastProperty(xml, xml.root(), "coords")))
     {
-        const auto frame = frameIndex(item.attribute("name"));
-        require(frame <= 500000); // Includes null entries in OSP's dense array allocation.
-        lastFrame = std::max(lastFrame, frame);
+        if (const auto data = lastProperty(xml, *object, "framedata"))
+        {
+            for (const auto item : node(xml, *data).children)
+            {
+                const auto frame = requireFrameIndex(xml, item);
+                require(frame <= 500000); // Includes null entries in OSP's dense array allocation.
+                lastFrame = std::max(lastFrame, frame);
+            }
+        }
     }
     if (!(current.fixedOrigin && current.fixedAngle && current.fixedScale) || current.keyframes.size() > 1)
     {
@@ -796,16 +833,14 @@ void requireBoundedCoordinateUpdates(const QDomDocument& xml, const Calibration&
             }
         }
         // Retained null vector entries are absent from native samples, but still size OSP arrays.
-        const auto objects = xml.elementsByTagName("object");
-        for (int index = 0; index < objects.size(); ++index)
+        for (const auto vector : objectsOfClass(xml, tracker::VECTOR_CLASS))
         {
-            const auto vector = objects.at(index).toElement();
-            if (vector.attribute("class") != "org.opensourcephysics.cabrillo.tracker.Vector")
+            const auto data = uniqueProperty(xml, vector, "framedata");
+            if (!data)
                 continue;
-            for (auto item = uniqueProperty(vector, "framedata").firstChildElement("property"); !item.isNull();
-                 item = item.nextSiblingElement("property"))
+            for (const auto item : node(xml, *data).children)
             {
-                const auto frame = frameIndex(item.attribute("name"));
+                const auto frame = requireFrameIndex(xml, item);
                 require(frame <= 500000);
                 lastFrame = std::max(lastFrame, frame);
             }
@@ -824,8 +859,18 @@ void requireBoundedCoordinateUpdates(const QDomDocument& xml, const Calibration&
     }
 }
 
-void patchCalibration(QDomDocument& xml, const Calibration& original, const Calibration& current, const LegacyProject& project)
+std::vector<osp::PropertyValue> keyProperties(const CalibrationKey& key)
 {
+    return {osp::doubleProperty("xorigin", key.originX),
+            osp::doubleProperty("yorigin", key.originY),
+            osp::doubleProperty("angle", key.angleDegrees),
+            osp::doubleProperty("xscale", key.scaleX),
+            osp::doubleProperty("yscale", key.scaleY)};
+}
+
+void patchCalibration(SourceEdits& edits, const Calibration& original, const Calibration& current, const LegacyProject& project)
+{
+    const auto& xml = edits.source();
     const bool fixed = original.fixedOrigin && original.fixedAngle && original.fixedScale && current.fixedOrigin && current.fixedAngle &&
                        current.fixedScale && original.keyframes.size() == 1 && current.keyframes.size() == 1 &&
                        original.keyframes.front().frame == 0 && current.keyframes.front().frame == 0;
@@ -839,19 +884,19 @@ void patchCalibration(QDomDocument& xml, const Calibration& original, const Cali
     {
         require(std::ranges::binary_search(current.keyframes, key.frame, {}, &CalibrationKey::frame));
     }
-    const auto property = uniqueProperty(xml.documentElement(), "coords");
-    const auto object = property.firstChildElement("object");
-    require(property.attribute("type") == "object" && object.attribute("class") == "org.opensourcephysics.media.core.ImageCoordSystem" &&
-            object.nextSiblingElement().isNull());
-    const auto locked = uniqueProperty(object, "locked");
-    require(locked.isNull() ||
-            (locked.attribute("type") == "boolean" && locked.firstChildElement().isNull() && locked.text().trimmed() == "false"));
-    patchFrameData(xml,
+    const auto object = required(objectOf(xml, lastProperty(xml, xml.root(), "coords")));
+    require(node(xml, object).className == tracker::COORD_SYSTEM_CLASS);
+    if (const auto locked = lastProperty(xml, object, "locked"))
+    {
+        require(node(xml, *locked).type == PropertyType::Boolean && osp::javaTrim(node(xml, *locked).content) == "false");
+    }
+    patchFrameData(edits,
                    object,
                    original.keyframes,
                    current.keyframes,
-                   "org.opensourcephysics.media.core.ImageCoordSystem$FrameData",
-                   [](auto& document, const auto& frame, const CalibrationKey& key)
+                   tracker::COORD_FRAME_CLASS,
+                   keyProperties,
+                   [](SourceEdits& document, NodeId frame, const CalibrationKey& key)
                    {
                        patchDouble(document, frame, "xorigin", key.originX);
                        patchDouble(document, frame, "yorigin", key.originY);
@@ -877,7 +922,18 @@ bool retainsVectorComponent(double tail, double component)
     return std::isfinite(tip) && std::isfinite(reconstructed) && std::abs(reconstructed - component) <= tolerance;
 }
 
-void requireStableVectors(const LegacyProject& project, const std::unordered_map<TrackId, QDomElement>& objects)
+std::vector<osp::PropertyValue> vectorProperties(const VectorSample& sample)
+{
+    require(std::isfinite(sample.tailX) && std::isfinite(sample.tailY) && std::isfinite(sample.componentX) &&
+            std::isfinite(sample.componentY) && retainsVectorComponent(sample.tailX, sample.componentX) &&
+            retainsVectorComponent(sample.tailY, sample.componentY));
+    return {osp::doubleProperty("xtail", sample.tailX),
+            osp::doubleProperty("ytail", sample.tailY),
+            osp::doubleProperty("xcomponent", sample.componentX),
+            osp::doubleProperty("ycomponent", sample.componentY)};
+}
+
+void requireStableVectors(const osp::Source& xml, const LegacyProject& project, const std::unordered_map<TrackId, NodeId>& objects)
 {
     std::vector<const VectorSample*> samples;
     std::size_t frameSlots = 0;
@@ -886,12 +942,15 @@ void requireStableVectors(const LegacyProject& project, const std::unordered_map
         // OSP allocates a dense Java array through the highest XML index, even for null entries.
         // Bound individual indices and the sum across tracks before any destination is opened.
         int lastFrame = -1;
-        const auto data = uniqueProperty(objects.at(vector.id), "framedata");
-        for (auto item = data.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"))
+        const auto object = objects.at(vector.id);
+        if (const auto data = uniqueProperty(xml, object, "framedata"))
         {
-            const auto frame = frameIndex(item.attribute("name"));
-            require(frame <= 500000);
-            lastFrame = std::max(lastFrame, frame);
+            for (const auto item : node(xml, *data).children)
+            {
+                const auto frame = requireFrameIndex(xml, item);
+                require(frame <= 500000);
+                lastFrame = std::max(lastFrame, frame);
+            }
         }
         for (const auto& sample : vector.samples)
         {
@@ -904,7 +963,7 @@ void requireStableVectors(const LegacyProject& project, const std::unordered_map
         require(frameSlots <= 500001);
         if (!vector.samples.empty())
         {
-            const auto footprint = uniqueProperty(objects.at(vector.id), "footprint").text();
+            const auto footprint = uniqueText(xml, object, "footprint");
             require(footprint == "Footprint.Arrow" || footprint == "Footprint.BoldArrow");
         }
     }
@@ -915,8 +974,7 @@ void requireStableVectors(const LegacyProject& project, const std::unordered_map
     // Until dependencies and display scaling are modeled, only audit ordinary independent arrows
     // with no other tracks that could supply visible vector snap targets.
     require(project.pointMasses.empty() &&
-            std::ranges::all_of(project.unsupportedTrackTypes,
-                                [](const auto& type) { return type == "org.opensourcephysics.cabrillo.tracker.CoordAxes"; }));
+            std::ranges::all_of(project.unsupportedTrackTypes, [](const auto& type) { return type == tracker::COORD_AXES_CLASS; }));
     if (!project.calibration || project.calibration->keyframes.empty())
     {
         require(false);
@@ -954,41 +1012,28 @@ void requireStableVectors(const LegacyProject& project, const std::unordered_map
     }
 }
 
-QDomElement appendNewTrack(QDomDocument& xml, QDomElement tracks, TrackKind kind, const std::string& name)
+/// A new independent track as Tracker's PointMass/Vector loaders save it: PointMass writes `mass` before
+/// TTrack's name, color, footprint, visible and trail (`locked` only when true), then its frame arrays.
+/// Native appearance is not yet persisted; these are the audited interchange defaults.
+osp::PropertyValue newTrack(TrackKind kind, const std::string& name, double mass, std::vector<osp::PropertyValue> arrays)
 {
-    // Native appearance is not yet persisted. Use explicit audited interchange defaults.
     const bool vector = kind == TrackKind::Vector;
-    auto item = xml.createElement("property");
-    item.setAttribute("name", "item");
-    item.setAttribute("type", "object");
-    auto object = xml.createElement("object");
-    object.setAttribute("class",
-                        vector ? "org.opensourcephysics.cabrillo.tracker.Vector" : "org.opensourcephysics.cabrillo.tracker.PointMass");
-    patchScalar(xml, object, "name", "string", QString::fromStdString(name));
+    require(name.find("]]>") == std::string::npos);
+    osp::ObjectValue object{.className = std::string(vector ? tracker::VECTOR_CLASS : tracker::POINT_MASS_CLASS)};
     if (!vector)
-        patchDouble(xml, object, "mass", 1.0);
-    patchScalar(xml, object, "visible", "boolean", "true");
-    patchScalar(xml, object, "trail", "boolean", "true");
-    patchScalar(xml, object, "locked", "boolean", "false");
-    patchScalar(xml, object, "footprint", "string", vector ? "Footprint.BoldArrow" : "Footprint.Diamond");
-    auto colorProperty = xml.createElement("property");
-    colorProperty.setAttribute("name", "color");
-    colorProperty.setAttribute("type", "object");
-    auto color = xml.createElement("object");
-    color.setAttribute("class", "java.awt.Color");
+        object.properties.push_back(osp::doubleProperty("mass", mass));
+    object.properties.push_back(osp::stringProperty("name", name));
+    osp::ObjectValue color{.className = "java.awt.Color"};
     for (const auto& [channel, value] :
          std::array<std::pair<const char*, int>, 4>{{{"red", 255}, {"green", 0}, {"blue", vector ? 255 : 0}, {"alpha", 255}}})
-        patchScalar(xml, color, channel, "int", QString::number(value));
-    colorProperty.appendChild(xml.createTextNode("\n"));
-    colorProperty.appendChild(color);
-    colorProperty.appendChild(xml.createTextNode("\n"));
-    object.appendChild(colorProperty);
-    object.appendChild(xml.createTextNode("\n"));
-    item.appendChild(xml.createTextNode("\n"));
-    item.appendChild(object);
-    item.appendChild(xml.createTextNode("\n"));
-    tracks.appendChild(item);
-    return object;
+        color.properties.push_back(osp::intProperty(channel, value));
+    object.properties.push_back(osp::objectProperty("color", std::move(color)));
+    object.properties.push_back(osp::stringProperty("footprint", vector ? "Footprint.BoldArrow" : "Footprint.Diamond"));
+    object.properties.push_back(osp::booleanProperty("visible", true));
+    object.properties.push_back(osp::booleanProperty("trail", true));
+    for (auto& array : arrays)
+        object.properties.push_back(std::move(array));
+    return osp::objectProperty("item", std::move(object));
 }
 
 void remapIds(LegacyProject& project, const std::unordered_map<TrackId, TrackId>& mapping, TrackId nextId)
@@ -1005,11 +1050,11 @@ void remapIds(LegacyProject& project, const std::unordered_map<TrackId, TrackId>
     sortTracks(project);
 }
 
-bool patchLinkedImagePaths(QDomDocument& xml, const LegacyProject& project, LegacyProject& baseline)
+bool patchLinkedImagePaths(SourceEdits& edits, const LegacyProject& project, LegacyProject& baseline)
 {
+    const auto& xml = edits.source();
     validateTrackerEditSchema(xml);
-    require(std::ranges::all_of(project.unsupportedTrackTypes,
-                                [](const auto& type) { return type == "org.opensourcephysics.cabrillo.tracker.CoordAxes"; }));
+    require(std::ranges::all_of(project.unsupportedTrackTypes, [](const auto& type) { return type == tracker::COORD_AXES_CLASS; }));
     const auto count = project.clip.mediaReferences.size();
     require(count > 0 && count <= 10000 && count == baseline.clip.mediaReferences.size());
     auto expectedClip = project.clip;
@@ -1029,36 +1074,38 @@ bool patchLinkedImagePaths(QDomDocument& xml, const LegacyProject& project, Lega
     for (const auto& vector : project.vectors)
         for (const auto& sample : vector.samples)
             require(sample.frame >= 0 && std::cmp_less(sample.frame, count));
-    const auto clipObject = uniqueProperty(xml.documentElement(), "videoclip").firstChildElement("object");
-    const auto video = uniqueProperty(clipObject, "video").firstChildElement("object");
-    require(video.attribute("class") == "org.opensourcephysics.media.core.ImageVideo");
-    const auto frameCount = uniqueProperty(clipObject, "video_framecount");
-    if (!frameCount.isNull())
+    const auto clipObject = videoClipObject(xml);
+    const auto video = required(objectOf(xml, uniqueProperty(xml, clipObject, "video")));
+    require(node(xml, video).className == tracker::IMAGE_VIDEO_CLASS);
+    if (const auto frameCount = uniqueProperty(xml, clipObject, "video_framecount"))
     {
-        bool valid = false;
-        const auto saved = frameCount.text().toUInt(&valid);
-        require(valid && saved == count);
+        const auto saved = required(javaInt(node(xml, *frameCount).content));
+        require(saved >= 0 && std::cmp_equal(saved, count));
     }
-    bool valid = false;
-    const double duration = uniqueProperty(video, "delta_t").text().toDouble(&valid);
-    require(valid && std::isfinite(duration) && duration > 0.0 && clip.frameDurationMs == duration);
-    require(uniqueProperty(video, "path").text().toStdString() == baseline.clip.mediaReferences.front());
+    const auto duration = required(javaDouble(uniqueText(xml, video, "delta_t")));
+    require(std::isfinite(duration) && duration > 0.0 && clip.frameDurationMs == duration);
+    require(uniqueText(xml, video, "path") == baseline.clip.mediaReferences.front());
     if (project.clip.mediaReferences == baseline.clip.mediaReferences)
         return false;
-    const auto paths = uniqueProperty(video, "paths");
+    const auto paths = required(uniqueProperty(xml, video, "paths"));
     for (std::size_t index = 0; index < count; ++index)
-        patchScalar(xml, paths, "[" + QString::number(index) + "]", "string", QString::fromStdString(clip.mediaReferences[index]));
-    patchScalar(xml, video, "path", "string", QString::fromStdString(clip.mediaReferences.front()));
+    {
+        const auto entry = required(uniqueProperty(xml, paths, "[" + std::to_string(index) + "]"));
+        require(node(xml, entry).type == PropertyType::String && clip.mediaReferences[index].find("]]>") == std::string::npos);
+        if (const auto current = osp::PropertyView(xml, entry).stringValue(); !current || *current != clip.mediaReferences[index])
+            edits.setString(entry, clip.mediaReferences[index]);
+    }
+    patchString(edits, video, "path", clip.mediaReferences.front());
     baseline.clip.mediaReferences = project.clip.mediaReferences;
     return true;
 }
 
-bool patchLinkedMoviePath(QDomDocument& xml, const LegacyProject& project, LegacyProject& baseline, std::span<const double> frameTimes)
+bool patchLinkedMoviePath(SourceEdits& edits, const LegacyProject& project, LegacyProject& baseline, std::span<const double> frameTimes)
 {
+    const auto& xml = edits.source();
     validateTrackerMovieEditSchema(xml);
     require(project.clip.mediaReferences.size() == 1 && baseline.clip.mediaReferences.size() == 1 &&
-            std::ranges::all_of(project.unsupportedTrackTypes,
-                                [](const auto& type) { return type == "org.opensourcephysics.cabrillo.tracker.CoordAxes"; }));
+            std::ranges::all_of(project.unsupportedTrackTypes, [](const auto& type) { return type == tracker::COORD_AXES_CLASS; }));
     // Movie edits retain original timing. Clip ranges and marks keep source frame numbers.
     // Existing calibration uses the shared coordinate writer and its numerical checks below.
     auto unchanged = project;
@@ -1079,25 +1126,23 @@ bool patchLinkedMoviePath(QDomDocument& xml, const LegacyProject& project, Legac
     unchanged.pointMasses = baseline.pointMasses;
     unchanged.vectors = baseline.vectors;
     require(unchanged == baseline);
-    const auto clip = uniqueProperty(xml.documentElement(), "videoclip").firstChildElement("object");
-    const auto video = uniqueProperty(clip, "video").firstChildElement("object");
-    const auto control = uniqueProperty(xml.documentElement(), "clipcontrol").firstChildElement("object");
-    require(video.attribute("class") == "org.opensourcephysics.media.xuggle.XuggleVideo" &&
-            control.attribute("class") == "org.opensourcephysics.media.core.VideoClipControl" &&
-            uniqueProperty(video, "path").text().toStdString() == baseline.clip.mediaReferences.front());
-    bool valid = false;
-    const auto duration = uniqueProperty(control, "delta_t").text().toDouble(&valid);
-    require(valid && std::isfinite(duration) && duration > 0.0 && !frameTimes.empty() && frameTimes.size() <= 2000000);
+    const auto clip = videoClipObject(xml);
+    const auto video = required(objectOf(xml, uniqueProperty(xml, clip, "video")));
+    const auto control = required(objectOf(xml, uniqueProperty(xml, xml.root(), "clipcontrol")));
+    require(node(xml, video).className == tracker::XUGGLE_VIDEO_CLASS &&
+            node(xml, control).className == tracker::VIDEO_CLIP_CONTROL_CLASS &&
+            uniqueText(xml, video, "path") == baseline.clip.mediaReferences.front());
+    const auto duration = required(javaDouble(uniqueText(xml, control, "delta_t")));
+    require(std::isfinite(duration) && duration > 0.0 && !frameTimes.empty() && frameTimes.size() <= 2000000);
     for (std::size_t frame = 0; frame < frameTimes.size(); ++frame)
     {
         const auto expected = static_cast<double>(frame) * duration / 1000.0;
         require(std::isfinite(expected) && std::isfinite(frameTimes[frame]) && std::abs(frameTimes[frame] - expected) <= 1e-6);
     }
-    const auto count = uniqueProperty(clip, "video_framecount");
-    if (!count.isNull())
+    if (const auto count = uniqueProperty(xml, clip, "video_framecount"))
     {
-        const auto saved = count.text().toUInt(&valid);
-        require(valid && saved == frameTimes.size());
+        const auto saved = required(javaInt(node(xml, *count).content));
+        require(saved >= 0 && std::cmp_equal(saved, frameTimes.size()));
     }
     const auto steps = project.clip.stepCount.value_or(0);
     const auto last = static_cast<std::int64_t>(project.clip.firstFrame) + (static_cast<std::int64_t>(steps) - 1) * project.clip.stepSize;
@@ -1110,7 +1155,7 @@ bool patchLinkedMoviePath(QDomDocument& xml, const LegacyProject& project, Legac
             require(sample.frame >= 0 && std::cmp_less(sample.frame, frameTimes.size()));
     if (project.clip.mediaReferences == baseline.clip.mediaReferences)
         return false;
-    patchScalar(xml, video, "path", "string", QString::fromStdString(project.clip.mediaReferences.front()));
+    patchString(edits, video, "path", project.clip.mediaReferences.front());
     baseline.clip.mediaReferences = project.clip.mediaReferences;
     return true;
 }
@@ -1121,28 +1166,27 @@ std::string renderTrackerProjectImpl(const LegacyProject& project,
                                      std::span<const double> frameTimes = {})
 {
     require(media != LinkedMedia::None || project.clip.mediaReferences.empty());
-    validateTrackerSource(source, project);
-    auto baseline = parseTrackerProject(source.xml);
-    if (!source.bindings || !baseline.source.bindings)
+    auto imported = detail::validatedTrackerSource(source, project);
+    if (!source.bindings)
     {
         throw ProjectError("Tracker export requires original object associations.");
     }
+    auto& baseline = imported.project;
     std::unordered_map<std::size_t, TrackId> sourceIds;
     for (const auto& binding : *source.bindings)
     {
         sourceIds.emplace(binding.sourceIndex, binding.trackId);
     }
     std::unordered_map<TrackId, TrackId> mapping;
-    for (const auto& binding : *baseline.source.bindings)
+    for (const auto& binding : imported.bindings)
     {
         mapping.emplace(binding.trackId, sourceIds.at(binding.sourceIndex));
     }
-    remapIds(baseline.project, mapping, project.nextTrackId);
+    remapIds(baseline, mapping, project.nextTrackId);
     auto expected = project;
     sortTracks(expected);
-    const bool membershipChanged =
-        !std::ranges::equal(expected.pointMasses, baseline.project.pointMasses, {}, &PointMass::id, &PointMass::id) ||
-        !std::ranges::equal(expected.vectors, baseline.project.vectors, {}, &VectorTrack::id, &VectorTrack::id);
+    const bool membershipChanged = !std::ranges::equal(expected.pointMasses, baseline.pointMasses, {}, &PointMass::id, &PointMass::id) ||
+                                   !std::ranges::equal(expected.vectors, baseline.vectors, {}, &VectorTrack::id, &VectorTrack::id);
     std::unordered_set<TrackId> liveIds;
     for (const auto& track : expected.pointMasses)
         liveIds.insert(track.id);
@@ -1152,22 +1196,22 @@ std::string renderTrackerProjectImpl(const LegacyProject& project,
     mapping.clear();
     TrackId nextParsedId = 1;
 
-    QDomDocument xml;
-    require(static_cast<bool>(xml.setContent(QByteArray::fromStdString(source.xml), QDomDocument::ParseOption::PreserveSpacingOnlyNodes)));
-    auto tracks = uniqueProperty(xml.documentElement(), "tracks");
-    std::unordered_map<TrackId, QDomElement> objects;
-    std::size_t position = 0;
-    for (auto item = tracks.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"), ++position)
+    SourceEdits edits(imported.source);
+    const auto& xml = edits.source();
+    const auto tracks = imported.panel.tracks;
+    std::unordered_map<TrackId, NodeId> objects;
+    for (const auto& item : imported.panel.trackItems)
     {
-        if (const auto found = sourceIds.find(position); found != sourceIds.end())
+        if (const auto found = sourceIds.find(item.ordinal); found != sourceIds.end())
         {
-            objects.emplace(found->second, item.firstChildElement("object"));
+            require(item.object.has_value());
+            objects.emplace(found->second, item.object.value_or(NodeId{}));
             if (liveIds.contains(found->second))
                 mapping.emplace(nextParsedId++, found->second);
         }
     }
-    bool changed = media == LinkedMedia::Images  ? patchLinkedImagePaths(xml, expected, baseline.project)
-                   : media == LinkedMedia::Movie ? patchLinkedMoviePath(xml, expected, baseline.project, frameTimes)
+    bool changed = media == LinkedMedia::Images  ? patchLinkedImagePaths(edits, expected, baseline)
+                   : media == LinkedMedia::Movie ? patchLinkedMoviePath(edits, expected, baseline, frameTimes)
                                                  : false;
     bool auditFinalSchema = media != LinkedMedia::None;
     bool massCoordinatesChecked = false;
@@ -1175,24 +1219,12 @@ std::string renderTrackerProjectImpl(const LegacyProject& project,
     {
         validateTrackerTrackMembership(xml, expected, source, media == LinkedMedia::Movie);
         auditFinalSchema = true;
-        require(expected.calibration || uniqueProperty(xml.documentElement(), "coords").isNull());
+        require(expected.calibration || !lastProperty(xml, xml.root(), "coords"));
         if (expected.calibration)
             requireTrackerCoordinates(expected, *expected.calibration);
         massCoordinatesChecked = true;
-        require(tracks.attribute("type") == "collection" && tracks.attribute("class") == "java.util.ArrayList");
-        // OSP reads consecutive property lines. Normalize only collection whitespace, never old objects.
-        for (auto node = tracks.firstChild(); !node.isNull();)
-        {
-            const auto next = node.nextSibling();
-            if (node.isText())
-            {
-                require(node.nodeValue().trimmed().isEmpty());
-                tracks.removeChild(node);
-            }
-            else
-                require(node.isElement() && node.nodeName() == "property");
-            node = next;
-        }
+        const auto collection = required(tracks);
+        require(node(xml, collection).type == PropertyType::Collection && node(xml, collection).className == "java.util.ArrayList");
         std::size_t createdFrameSlots = 0;
         for (const auto& current : expected.pointMasses)
         {
@@ -1200,108 +1232,116 @@ std::string renderTrackerProjectImpl(const LegacyProject& project,
                 continue;
             // New native tracks have no source metadata to copy. Use the audited independent-mass defaults.
             require(std::ranges::all_of(current.marks, [](const auto& mark) { return mark.frame >= 0 && mark.frame <= 500000; }));
+            require(std::isfinite(current.mass) && current.mass >= MIN_POINT_MASS);
+            std::vector<osp::PropertyValue> arrays;
             if (!current.marks.empty())
             {
                 const auto last = std::ranges::max(current.marks, {}, &Mark::frame).frame;
                 createdFrameSlots += static_cast<std::size_t>(last) + 1;
                 require(createdFrameSlots <= 1000000);
+                arrays.push_back(frameArrayValue("framedata", tracker::POINT_MASS_FRAME_CLASS, current.marks, markProperties));
+                std::set<int> keys;
+                for (const auto& mark : current.marks)
+                    keys.insert(mark.frame);
+                arrays.push_back(keyFramesValue(keys));
             }
-            const auto object = appendNewTrack(xml, tracks, TrackKind::PointMass, current.name);
-            objects.emplace(current.id, object);
+            edits.append(collection, newTrack(TrackKind::PointMass, current.name, current.mass, std::move(arrays)));
             mapping.emplace(nextParsedId++, current.id);
-            baseline.project.pointMasses.push_back({.name = current.name, .marks = {}, .id = current.id});
+            baseline.pointMasses.push_back(current);
         }
         for (const auto& current : expected.vectors)
         {
             if (objects.contains(current.id))
                 continue;
-            require(expected.pointMasses.empty() &&
-                    std::ranges::all_of(expected.unsupportedTrackTypes,
-                                        [](const auto& type) { return type == "org.opensourcephysics.cabrillo.tracker.CoordAxes"; }));
-            const auto object = appendNewTrack(xml, tracks, TrackKind::Vector, current.name);
-            objects.emplace(current.id, object);
+            require(
+                expected.pointMasses.empty() &&
+                std::ranges::all_of(expected.unsupportedTrackTypes, [](const auto& type) { return type == tracker::COORD_AXES_CLASS; }));
+            std::vector<osp::PropertyValue> arrays;
+            if (!current.samples.empty())
+                arrays.push_back(frameArrayValue("framedata", tracker::VECTOR_FRAME_CLASS, current.samples, vectorProperties));
+            edits.append(collection, newTrack(TrackKind::Vector, current.name, 1.0, std::move(arrays)));
             mapping.emplace(nextParsedId++, current.id);
-            baseline.project.vectors.push_back({.name = current.name, .samples = {}, .id = current.id});
+            baseline.vectors.push_back(current);
         }
-        std::erase_if(baseline.project.pointMasses, [&](const auto& track) { return !liveIds.contains(track.id); });
-        std::erase_if(baseline.project.vectors, [&](const auto& track) { return !liveIds.contains(track.id); });
-        sortTracks(baseline.project);
+        std::erase_if(baseline.pointMasses, [&](const auto& track) { return !liveIds.contains(track.id); });
+        std::erase_if(baseline.vectors, [&](const auto& track) { return !liveIds.contains(track.id); });
+        sortTracks(baseline);
         changed = true;
     }
-    const bool renamed = patchTrackerNames(xml, expected, baseline.project, source, media == LinkedMedia::Movie);
+    const bool renamed = patchTrackerNames(edits, expected, baseline, source, media == LinkedMedia::Movie);
     changed = renamed || changed;
     auditFinalSchema = auditFinalSchema || renamed;
-    // Name patching uses original source ordinals, so erase nodes only after its reference updates.
+    // Name patching uses original source ordinals, so remove nodes only after its reference updates.
     if (membershipChanged)
     {
-        patchTrackerDeletedReferences(xml, expected, source);
+        patchTrackerDeletedReferences(edits, expected, source);
         for (const auto& [id, object] : objects)
         {
             if (!liveIds.contains(id))
-                tracks.removeChild(object.parentNode());
+            {
+                const auto item = node(xml, object).parent;
+                require(item.has_value());
+                edits.remove(item.value_or(NodeId{}));
+            }
         }
-        for (auto item = tracks.firstChildElement(); !item.isNull(); item = item.nextSiblingElement())
-            tracks.insertBefore(xml.createTextNode("\n"), item);
-        tracks.appendChild(xml.createTextNode("\n"));
     }
-    if (expected.calibration != baseline.project.calibration)
+    if (expected.calibration != baseline.calibration)
     {
-        if (!expected.calibration || !baseline.project.calibration)
+        if (!expected.calibration || !baseline.calibration)
         {
             require(false); // Creating/removing coordinate systems is not covered by this writer slice.
         }
         else
         {
-            patchCalibration(xml, *baseline.project.calibration, *expected.calibration, expected);
+            patchCalibration(edits, *baseline.calibration, *expected.calibration, expected);
             massCoordinatesChecked = true;
-            baseline.project.calibration = expected.calibration;
+            baseline.calibration = expected.calibration;
             changed = true;
         }
     }
-    if (expected.lengthUnit != baseline.project.lengthUnit)
+    if (expected.lengthUnit != baseline.lengthUnit)
     {
         // A unit is a label; any requested rescaling belongs to the reversible calibration edit.
-        patchUnit(xml, "length_unit", expected.lengthUnit);
-        baseline.project.lengthUnit = expected.lengthUnit;
+        patchUnit(edits, "length_unit", expected.lengthUnit);
+        baseline.lengthUnit = expected.lengthUnit;
         changed = true;
     }
-    if (expected.massUnit != baseline.project.massUnit)
+    if (expected.massUnit != baseline.massUnit)
     {
-        patchUnit(xml, "mass_unit", expected.massUnit);
-        baseline.project.massUnit = expected.massUnit;
+        patchUnit(edits, "mass_unit", expected.massUnit);
+        baseline.massUnit = expected.massUnit;
         changed = true;
     }
-    if (expected.timeUnit != baseline.project.timeUnit)
+    if (expected.timeUnit != baseline.timeUnit)
     {
-        patchUnit(xml, "time_unit", expected.timeUnit);
-        baseline.project.timeUnit = expected.timeUnit;
+        patchUnit(edits, "time_unit", expected.timeUnit);
+        baseline.timeUnit = expected.timeUnit;
         changed = true;
     }
-    if (expected.clip.firstFrame != baseline.project.clip.firstFrame || expected.clip.stepSize != baseline.project.clip.stepSize ||
-        expected.clip.stepCount != baseline.project.clip.stepCount)
+    if (expected.clip.firstFrame != baseline.clip.firstFrame || expected.clip.stepSize != baseline.clip.stepSize ||
+        expected.clip.stepCount != baseline.clip.stepCount)
     {
-        patchClipRange(xml, expected.clip, media);
-        baseline.project.clip.firstFrame = expected.clip.firstFrame;
-        baseline.project.clip.stepSize = expected.clip.stepSize;
-        baseline.project.clip.stepCount = expected.clip.stepCount;
+        patchClipRange(edits, expected.clip, media);
+        baseline.clip.firstFrame = expected.clip.firstFrame;
+        baseline.clip.stepSize = expected.clip.stepSize;
+        baseline.clip.stepCount = expected.clip.stepCount;
         changed = true;
     }
-    if (expected.clip.frameDurationMs != baseline.project.clip.frameDurationMs ||
-        expected.clip.startTimeMs != baseline.project.clip.startTimeMs)
+    if (expected.clip.frameDurationMs != baseline.clip.frameDurationMs || expected.clip.startTimeMs != baseline.clip.startTimeMs)
     {
-        patchClipTiming(xml, expected);
-        baseline.project.clip.frameDurationMs = expected.clip.frameDurationMs;
-        baseline.project.clip.startTimeMs = expected.clip.startTimeMs;
+        patchClipTiming(edits, expected);
+        baseline.clip.frameDurationMs = expected.clip.frameDurationMs;
+        baseline.clip.startTimeMs = expected.clip.startTimeMs;
         changed = true;
     }
     for (std::size_t index = 0; index < expected.pointMasses.size(); ++index)
     {
         const auto& current = expected.pointMasses[index];
-        auto& original = baseline.project.pointMasses[index];
+        auto& original = baseline.pointMasses[index];
         require(current.id == original.id && std::isfinite(current.mass) && current.mass >= MIN_POINT_MASS);
         if (current.mass != original.mass)
         {
-            patchDouble(xml, objects.at(current.id), "mass", current.mass);
+            patchDouble(edits, objects.at(current.id), "mass", current.mass);
             original.mass = current.mass;
             changed = true;
         }
@@ -1309,12 +1349,12 @@ std::string renderTrackerProjectImpl(const LegacyProject& project,
         {
             if (!massCoordinatesChecked)
             {
-                require(expected.calibration || uniqueProperty(xml.documentElement(), "coords").isNull());
+                require(expected.calibration || !lastProperty(xml, xml.root(), "coords"));
                 if (expected.calibration)
                     requireTrackerCoordinates(expected, *expected.calibration);
                 massCoordinatesChecked = true;
             }
-            patchMarks(xml, objects.at(current.id), original.marks, current.marks);
+            patchMarks(edits, objects.at(current.id), original.marks, current.marks);
             original.marks = current.marks;
             changed = true;
         }
@@ -1322,20 +1362,19 @@ std::string renderTrackerProjectImpl(const LegacyProject& project,
     for (std::size_t index = 0; index < expected.vectors.size(); ++index)
     {
         const auto& current = expected.vectors[index];
-        auto& original = baseline.project.vectors[index];
+        auto& original = baseline.vectors[index];
         require(current.id == original.id);
         if (current.samples != original.samples)
         {
-            patchFrameData(xml,
+            patchFrameData(edits,
                            objects.at(current.id),
                            original.samples,
                            current.samples,
-                           "org.opensourcephysics.cabrillo.tracker.Vector$FrameData",
-                           [](auto& document, const auto& step, const VectorSample& sample)
+                           tracker::VECTOR_FRAME_CLASS,
+                           vectorProperties,
+                           [](SourceEdits& document, NodeId step, const VectorSample& sample)
                            {
-                               require(std::isfinite(sample.tailX) && std::isfinite(sample.tailY) && std::isfinite(sample.componentX) &&
-                                       std::isfinite(sample.componentY) && retainsVectorComponent(sample.tailX, sample.componentX) &&
-                                       retainsVectorComponent(sample.tailY, sample.componentY));
+                               static_cast<void>(vectorProperties(sample)); // Same finite/reconstruction audit as new samples.
                                patchDouble(document, step, "xtail", sample.tailX);
                                patchDouble(document, step, "ytail", sample.tailY);
                                patchDouble(document, step, "xcomponent", sample.componentX);
@@ -1346,45 +1385,51 @@ std::string renderTrackerProjectImpl(const LegacyProject& project,
         }
     }
     // Never produce a superficially valid file that silently omits an unsupported edit.
-    require(baseline.project == expected);
+    require(baseline == expected);
     if (!changed)
     {
         return source.xml;
     }
-    requireStableTableColumns(xml, expected, media == LinkedMedia::Movie);
+    // Render through motrack_osp: untouched bytes are copied verbatim and O8 is checked on the output.
+    auto rendered = edits.render();
+    if (!rendered)
+    {
+        throw ProjectError("This Tracker export cannot preserve all edits or source associations (" + rendered.error() + ").");
+    }
+    auto output = detail::importTracker(rendered->source);
+    const auto& emitted = *output.source;
+    // Guards below audit the emitted document, including appended metadata and patched samples.
+    requireStableTableColumns(emitted, expected, media == LinkedMedia::Movie);
     // Pinned Tracker 6.3.5 never initializes saved VectorSum members and loses their names on resave.
     // Do not let clearing all independent samples bypass the nonempty-vector safeguards below.
     require(std::ranges::find(expected.unsupportedTrackTypes, "org.opensourcephysics.cabrillo.tracker.VectorSum") ==
             expected.unsupportedTrackTypes.end());
-    requireStableVectors(expected, objects);
+    require(output.bindings.size() == mapping.size());
+    std::unordered_map<TrackId, NodeId> emittedObjects;
+    for (const auto& binding : output.bindings)
+    {
+        const auto& item = output.panel.trackItems.at(binding.sourceIndex);
+        emittedObjects.emplace(mapping.at(binding.trackId), item.object.value_or(NodeId{}));
+    }
+    requireStableVectors(emitted, expected, emittedObjects);
     // Count the emitted state after all removals/patches. Calibration still loads when the last
     // vector is deleted, and an unchanged calibration cannot exempt another edit from its budget.
     if (expected.calibration)
-        requireBoundedCoordinateUpdates(xml, *expected.calibration, expected);
-    requireBoundedMassFrames(xml);
+        requireBoundedCoordinateUpdates(emitted, *expected.calibration, expected);
+    requireBoundedMassFrames(emitted);
     if (auditFinalSchema)
     {
         // Include appended metadata and patched samples in the reimport/edit budget.
         if (media == LinkedMedia::Movie)
-            validateTrackerMovieEditSchema(xml);
+            validateTrackerMovieEditSchema(emitted);
         else
-            validateTrackerEditSchema(xml);
+            validateTrackerEditSchema(emitted);
     }
-    // QDom emits UTF-8 bytes; do not retain an input declaration for a different encoding.
-    for (auto node = xml.firstChild(); !node.isNull(); node = node.nextSibling())
-    {
-        if (node.isProcessingInstruction() && node.nodeName() == "xml")
-        {
-            node.setNodeValue(R"(version="1.0" encoding="UTF-8")");
-        }
-    }
-    // A nonnegative indent inserts newlines even inside untouched scalar/mixed/xml:space content.
-    auto output = xml.toByteArray(-1).toStdString();
-    require(output.size() <= MAX_TRACKER_XML_BYTES);
-    auto reparsed = parseLegacyProject(output);
+    require(rendered->xml.size() <= MAX_TRACKER_XML_BYTES);
+    auto reparsed = std::move(output.project);
     remapIds(reparsed, mapping, project.nextTrackId);
     require(reparsed == expected);
-    return output;
+    return std::move(rendered->xml);
 }
 
 void writeXml(const QString& path, const std::string& xml)
@@ -1449,7 +1494,8 @@ std::string prepareTrackerDocument(const QString& path, const WorkspaceDocument&
                 throw ProjectError("Linked media is missing or unreadable: " + resolved.toStdString());
             reference = QDir::fromNativeSeparators(targetDirectory.relativeFilePath(resolved)).toStdString();
             requireLocalReference(reference); // Rebasing can introduce a forbidden marker from a parent directory.
-            require(resolveLocalMediaPath(path, reference) == resolved);
+            // Compare file identity: a destination spelled with another case on Windows keeps its spelling (#297).
+            require(sameLocalFile(resolveLocalMediaPath(path, reference), resolved));
         }
         // Native frame bounds are runtime metadata, not an edit to the preserved standard clip.
         if (project.clip.sourceFrameCount)

@@ -1,6 +1,8 @@
+#Requires -Version 7
 # Tests for tools/check-prereqs.ps1, adapted from TaskSmack's tools/test-check-prereqs.ps1. The checker
 # is dot-sourced (it returns before its checks then) so its row functions run on chosen inputs; then it
-# runs whole with -ToolsOnly, and its table has to agree with its exit code.
+# runs whole with -ToolsOnly from a linked worktree, where it must report the main checkout's Qt, and
+# from this checkout, where its table has to agree with its exit code.
 # Run with: pwsh -NoProfile -File tools/test-check-prereqs.ps1
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -62,7 +64,7 @@ try {
     $qt = Join-Path $root 'Qt\6.8.3\msvc2022_64'
     $config = Join-Path $qt 'lib\cmake\Qt6'
     New-Item -ItemType Directory -Force -Path $config | Out-Null
-    Set-Content -LiteralPath (Join-Path $config 'Qt6ConfigVersionImpl.cmake') -Value 'set(PACKAGE_VERSION "6.8.3")'
+    Set-Content -LiteralPath (Join-Path $config 'Qt6ConfigVersionImpl.cmake') -Value 'set(PACKAGE_VERSION "6.8.3")' -Encoding utf8
     Remove-Item Env:Qt6_DIR, Env:QT_ROOT_DIR -ErrorAction SilentlyContinue
     $env:CMAKE_PREFIX_PATH = "C:\missing;$qt"
     $env:Path = "$env:SystemRoot\System32"
@@ -76,6 +78,18 @@ try {
     Assert-True ((Find-QtPrefix).Prefix -eq [IO.Path]::GetFullPath($qt)) 'Qt from QT_ROOT_DIR'
     Remove-Item Env:QT_ROOT_DIR
     Assert-True ($null -eq (Find-QtPrefix)) 'no Qt'
+
+    # Qt Multimedia: present, missing (fails, or warns with -Optional), or no Qt at all.
+    $prefix = [pscustomobject]@{ Prefix = $qt; Version = '6.8.3' }
+    $row = Get-QtMultimediaRow -Qt $prefix
+    Assert-True ($row.Status -eq 'fail' -and $row.Fix -like '*dev_sdk.py install adds Qt Multimedia*') "Qt without Multimedia: $($row.Status) [$($row.Fix)]"
+    Assert-True ((Get-QtMultimediaRow -Qt $prefix -Optional).Status -eq 'warn') 'Qt without Multimedia, tools only'
+    Assert-True ((Get-QtMultimediaRow -Qt $null).Status -eq 'fail') 'Qt Multimedia without Qt'
+    $multimedia = Join-Path $qt 'lib\cmake\Qt6Multimedia'
+    New-Item -ItemType Directory -Force -Path $multimedia | Out-Null
+    Set-Content -LiteralPath (Join-Path $multimedia 'Qt6MultimediaConfig.cmake') -Value ''
+    $row = Get-QtMultimediaRow -Qt $prefix
+    Assert-True ($row.Status -eq 'ok' -and $row.Version -eq '6.8.3' -and $row.Fix -eq '') "Qt with Multimedia: $($row.Status)"
 } finally {
     foreach ($key in $saved.Keys) {
         if ($null -ne $saved[$key]) { Set-Item -LiteralPath "Env:$key" -Value $saved[$key] } else { Remove-Item -LiteralPath "Env:$key" -ErrorAction SilentlyContinue }
@@ -83,13 +97,54 @@ try {
     Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# The checker as a script: one row per tool, and exit 1 exactly when a row failed.
 $pwsh = (Get-Process -Id $PID).Path
+
+# From a linked worktree without a .dev-tools, the checker reports the main checkout's Qt: a scratch
+# MoTrack checkout with a fake Qt and a linked worktree of it, both with a copy of the checker and the
+# tools it runs (tools/scratch-git.ps1). As in a git hook, GIT_DIR, GIT_WORK_TREE and GIT_INDEX_FILE point
+# at a decoy repository, which nothing may change.
+if (-not (Get-Command git -CommandType Application -ErrorAction SilentlyContinue)) {
+    Write-Warning 'git is not on PATH; skipping the worktree check.'
+} else {
+    . (Join-Path $PSScriptRoot 'scratch-git.ps1')
+    $work = Join-Path ([IO.Path]::GetTempPath()) "motrack-check-prereqs-worktree-$([guid]::NewGuid().ToString('N'))"
+    $savedEnv = Save-ScratchEnvironment 'MOTRACK_DEV_TOOLS', 'CMAKE_PREFIX_PATH', 'Qt6_DIR', 'QT_ROOT_DIR', 'VCToolsInstallDir', 'WindowsSdkDir', 'VSCMD_ARG_TGT_ARCH'
+    try {
+        New-Item -ItemType Directory -Path $work | Out-Null
+        Initialize-ScratchGit -Root $work
+        Remove-Item Env:MOTRACK_DEV_TOOLS, Env:CMAKE_PREFIX_PATH, Env:Qt6_DIR, Env:QT_ROOT_DIR -ErrorAction SilentlyContinue
+        # Only the Qt row is under test, so Visual Studio's developer shell is skipped.
+        $env:VCToolsInstallDir = 'C:\stub\'
+        $env:WindowsSdkDir = 'C:\stub\'
+        $env:VSCMD_ARG_TGT_ARCH = 'x64'
+        $decoy = Join-Path $work 'decoy'
+        $decoyState = Set-HookGitEnvironment -Decoy $decoy
+        $scratch = New-ScratchWorktree -Root $work -Tools 'check-prereqs.ps1', 'dev-env.ps1', 'dev_sdk.py', 'media_sdk.py', 'toolchain.env'
+        $qtVersion = $pinned.MOTRACK_QT_VERSION
+        $config = Join-Path $scratch.Main ".dev-tools\windows\qt\$qtVersion\msvc2022_64\lib\cmake\Qt6"
+        New-Item -ItemType Directory -Force -Path $config | Out-Null
+        Set-Content -LiteralPath (Join-Path $config 'Qt6Config.cmake') -Value '' -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $config 'Qt6ConfigVersionImpl.cmake') -Value "set(PACKAGE_VERSION `"$qtVersion`")" -Encoding utf8
+        $output = & $pwsh -NoProfile -File (Join-Path $scratch.Linked 'tools\check-prereqs.ps1') -ToolsOnly 2>&1 | Out-String
+        # Two spaces end a padded name, so the Qt Multimedia row is not counted as a Qt row.
+        $qtRows = @($output -split '\r?\n' | Where-Object { $_ -match '^\S Qt\s\s' })
+        Assert-True ($qtRows.Count -eq 1 -and $qtRows[0] -like "* Qt *$qtVersion *\main\.dev-tools\windows\qt\$qtVersion\msvc2022_64") "worktree: Qt row is not the main checkout's:`n$output"
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $scratch.Linked '.dev-tools'))) 'check-prereqs.ps1 created a .dev-tools in the worktree'
+        $after = Get-ScratchRepositoryState $decoy
+        Assert-True ($after -eq $decoyState) "the scratch git commands changed the repository GIT_DIR named: $decoyState, then $after"
+    } finally {
+        Restore-ScratchEnvironment $savedEnv
+        if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
+    }
+}
+
+# The checker as a script: one row per tool, and exit 1 exactly when a row failed.
 $output = & $pwsh -NoProfile -File $checker -ToolsOnly 2>&1 | Out-String
 $exit = $LASTEXITCODE
 $lines = $output -split '\r?\n'
-foreach ($name in 'clang', 'clang\+\+', 'clang-format', 'clang-tidy', 'llvm-cov', 'llvm-profdata', 'MSVC toolset', 'Windows SDK', 'cmake', 'ninja', 'ccache', 'python', 'git', 'Qt') {
-    Assert-True (@($lines | Where-Object { $_ -match "^\S $name\s" }).Count -eq 1) "Expected one $name row:`n$output"
+foreach ($name in 'clang', 'clang\+\+', 'clang-format', 'clang-tidy', 'llvm-cov', 'llvm-profdata', 'MSVC toolset', 'Windows SDK', 'cmake', 'ninja', 'ccache', 'python', 'git', 'Qt', 'Qt Multimedia') {
+    # Names are padded to 15 columns, so two spaces end a name ("Qt" is not "Qt Multimedia").
+    Assert-True (@($lines | Where-Object { $_ -match "^\S $name\s{2}" }).Count -eq 1) "Expected one $name row:`n$output"
 }
 Assert-True (@($lines | Where-Object { $_ -match '^\S clang\s' -and $_ -match '\(= 23\)' }).Count -eq 1) "clang row lacks the pinned major:`n$output"
 Assert-True (@($lines | Where-Object { $_ -match '^\S MSVC toolset\s' -and $_ -match ([regex]::Escape("(>= $($pinned.MOTRACK_MSVC_TOOLSET_MIN))")) }).Count -eq 1) "MSVC row lacks the floor:`n$output"

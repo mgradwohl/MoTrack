@@ -3,7 +3,7 @@
   "verification_level": "xml_and_coordinate_api",
   "project": {
     "source_version": "6.3.5",
-    "length_unit": "",
+    "length_unit": "m",
     "mass_unit": "kg",
     "time_unit": "s",
     "clip": {

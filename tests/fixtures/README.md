@@ -1,6 +1,8 @@
 # Test fixtures
 
-`point-mass.trk` and `image-sequence.trk` are small, synthetic Tracker-format projects.
+`point-mass.trk`, `image-sequence.trk` and `movie.trk` are small, synthetic Tracker-format projects. They follow
+OSP's line layout (one property per line, each object on its own line with its class, array classes), because
+Tracker's reader is line-oriented and MoTrack reads them the same way.
 
 `archive.trz` is a ZIP fixture containing `image-sequence.trk`, `frames/frame00.ppm`, and `frames/frame02.ppm`. The saved clip skips the missing middle image.
 

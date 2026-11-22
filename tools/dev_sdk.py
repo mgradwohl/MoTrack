@@ -6,6 +6,14 @@ online repository: the package list is read from download.qt.io itself (never th
 redirect), every archive is checked against the SHA-256 pinned in tools/qt-archives.sha256 before it
 is extracted with a libarchive ``bsdtar`` (7z support), and the result is moved into the prefix
 ``qt-prefix`` prints.
+
+Both ways also install the add-on modules in ``QT_MODULES`` (Qt Multimedia, for camera capture), whose
+archives are pinned the same way. A prefix installed before a module was added gets just that module:
+its pinned archives are added without replacing or deleting any file already in the prefix
+(``--qt-source aqt`` uses aqt's ``--noarchives`` amendment instead).
+
+Everything goes in the ``.dev-tools`` directory ``dev_tools_root`` picks (``dev-tools`` prints it), which a
+checkout shares with its linked git worktrees; tools/media_sdk.py uses it too.
 """
 
 import argparse
@@ -32,6 +40,80 @@ QT_HOST = "download.qt.io"
 TIMEOUT = 120
 
 
+# The per-platform directories platform_config names inside .dev-tools.
+PLATFORM_DIRECTORIES = ("windows", "macos", "linux")
+
+
+def git_paths(directory, git, *options):
+    """The resolved paths `git -C directory rev-parse --path-format=absolute <options>` prints, or None.
+
+    None when git is missing, older than 2.31 (no --path-format), finds no repository or prints anything
+    but one absolute path per option. GIT_DIR and the like are dropped, so the answer is about directory.
+    """
+    environment = {key: value for key, value in os.environ.items()
+                   if key not in {"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR"}}
+    try:
+        result = subprocess.run([git, "-c", "core.quotePath=false", "-C", str(directory), "rev-parse",
+                                 "--path-format=absolute", *options], capture_output=True, env=environment,
+                                check=False, timeout=TIMEOUT)
+        paths = [Path(os.fsdecode(line)) for line in result.stdout.splitlines()]
+    except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
+        return None
+    if result.returncode != 0 or len(paths) != len(options) or not all(path.is_absolute() for path in paths):
+        return None
+    return [path.resolve() for path in paths]
+
+
+def main_checkout(checkout, git="git"):
+    """The MoTrack main checkout whose .dev-tools the linked worktree checkout shares, or None.
+
+    checkout must be the top of a linked worktree whose repository's common directory is <main>/.git, the
+    git directory of the main working tree <main>, which must be a MoTrack checkout (tools/dev_sdk.py).
+    Every other layout gets None: a worktree of a bare or --separate-git-dir repository or of a submodule,
+    MoTrack files inside another repository, the main checkout itself, a plain directory, or no usable git.
+    """
+    checkout = Path(checkout).resolve()
+    linked = git_paths(checkout, git, "--show-toplevel", "--git-dir", "--git-common-dir")
+    if linked is None:
+        return None
+    top, git_dir, common = linked
+    if top != checkout or git_dir == common or common.name != ".git":
+        return None
+    main = common.parent
+    own_git_directory = (main / ".git").is_dir() and (main / ".git").resolve() == common
+    if not own_git_directory or not (main / "tools" / "dev_sdk.py").is_file():
+        return None
+    return main if git_paths(main, git, "--show-toplevel", "--git-dir") == [main, common] else None
+
+
+def holds_sdk(dev_tools):
+    """Whether setup installed an SDK in dev_tools: a platform's Qt or the vcpkg checkout.
+
+    Other contents, such as a corpus cache, macOS tool links or a stray file, do not count.
+    """
+    qt = any((dev_tools / name / "qt").is_dir() for name in PLATFORM_DIRECTORIES)
+    return qt or (dev_tools / "vcpkg" / ".git").exists()
+
+
+def dev_tools_root(checkout=None, environ=None, git="git"):
+    """The .dev-tools directory holding the SDKs, one for a checkout and all of its linked worktrees.
+
+    MOTRACK_DEV_TOOLS when it is set (a relative path is relative to checkout, so setup and activation
+    agree whatever the working directory); else checkout's own .dev-tools when it holds an SDK; else, in a
+    linked worktree of a MoTrack main checkout, that checkout's .dev-tools, even before setup has created
+    it, so setup installs there; else checkout's own. Nothing is created, linked or moved.
+    """
+    checkout = ROOT if checkout is None else Path(checkout)
+    environ = os.environ if environ is None else environ
+    if override := environ.get("MOTRACK_DEV_TOOLS"):
+        return Path(os.path.abspath(checkout / Path(override).expanduser()))
+    local = checkout / ".dev-tools"
+    if holds_sdk(local):
+        return local
+    main = main_checkout(checkout, git)
+    return main / ".dev-tools" if main else local
+
+
 def toolchain():
     """The KEY=value pins in tools/toolchain.env."""
     pins = {}
@@ -43,7 +125,10 @@ def toolchain():
 
 QT_VERSION = toolchain()["MOTRACK_QT_VERSION"]
 QT_ARCHIVE_PINS = ROOT / "tools" / "qt-archives.sha256"
-# Every platform's essential package, as (aqt arch, Qt directory, online-repository OS).
+# Qt add-on modules beyond the essentials, by aqt module name, with the CMake package each provides.
+# Qt Multimedia supplies cameras and their frames; it bundles its own FFmpeg (docs/camera-capture.md).
+QT_MODULES = {"qtmultimedia": "lib/cmake/Qt6Multimedia/Qt6MultimediaConfig.cmake"}
+# Every platform's packages (essentials and QT_MODULES), as (aqt arch, Qt directory, online-repository OS).
 QT_PACKAGES = (("win64_msvc2022_64", "msvc2022_64", "windows_x86"), ("linux_gcc_64", "gcc_64", "linux_x64"),
                ("clang_64", "macos", "mac_x64"))
 
@@ -167,14 +252,30 @@ def mark_open_source(prefix):
         qconfig.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def repository_archives(archive, directory, repository_os, version=QT_VERSION):
-    """(base URL, package, [(archive file name, target)]) from download.qt.io's current Updates.xml."""
+class QtPrefixConflict(SystemExit):
+    """A module archive would replace a file in the installed prefix; nothing was added."""
+
+
+def missing_modules(prefix):
+    """The QT_MODULES whose CMake package the Qt prefix lacks, in QT_MODULES order."""
+    return [module for module, config in QT_MODULES.items() if not (Path(prefix) / config).is_file()]
+
+
+def qt_packages(archive, version=QT_VERSION, modules=tuple(QT_MODULES), essentials=True):
+    """The essential package for archive and its add-on module packages (qt.qt6.683.addons.<module>.<arch>)."""
+    compact = version.replace(".", "")
+    return ([f"qt.qt6.{compact}.{archive}"] if essentials else []) + \
+        [f"qt.qt6.{compact}.addons.{module}.{archive}" for module in modules]
+
+
+def repository_archives(archive, directory, repository_os, version=QT_VERSION, modules=tuple(QT_MODULES), essentials=True):
+    """(base URL, [(package, [(archive file name, target)])]) from download.qt.io's current Updates.xml."""
     base = repository_url(repository_os, version)
     updates = fetch_trusted(base + "Updates.xml")
     if hashlib.sha256(updates).hexdigest() != published_sha256(base + "Updates.xml"):
         raise SystemExit("Qt's Updates.xml does not match its published SHA-256.")
-    package = f"qt.qt6.{version.replace('.', '')}.{archive}"
-    return base, package, essential_archives(updates, package, version, directory)
+    return base, [(package, essential_archives(updates, package, version, directory))
+                  for package in qt_packages(archive, version, modules, essentials)]
 
 
 def print_archive_checksums():
@@ -182,63 +283,142 @@ def print_archive_checksums():
     lines = [line for line in QT_ARCHIVE_PINS.read_text(encoding="utf-8").splitlines() if line.startswith("#")]
     lines = [re.sub(r"on \d{4}-\d{2}-\d{2}", f"on {datetime.date.today().isoformat()}", line) for line in lines]
     for archive, directory, repository_os in QT_PACKAGES:
-        base, package, archives = repository_archives(archive, directory, repository_os)
-        lines += [f"{published_sha256(f'{base}{package}/{name}')}  {repository_os}/{package}/{name}" for name, _ in archives]
+        base, packages = repository_archives(archive, directory, repository_os)
+        for package, archives in packages:
+            lines += [f"{published_sha256(f'{base}{package}/{name}')}  {repository_os}/{package}/{name}" for name, _ in archives]
     print("\n".join(lines))
 
 
-def install_qt_direct(root, archive, directory, repository_os, version=QT_VERSION, extract=None, pins=None):
-    """Install Qt's essential archives for archive (win64_msvc2022_64, ...) from download.qt.io."""
-    base, package, archives = repository_archives(archive, directory, repository_os, version)
+def stage_packages(root, archive, directory, repository_os, version, extract, pins, modules, essentials):
+    """Download, check and extract the packages' archives under root/qt.partial; the archive count.
+
+    Each package's archive list must equal its entries in tools/qt-archives.sha256, and every archive
+    must match its pinned SHA-256, before anything is extracted from it.
+    """
+    base, packages = repository_archives(archive, directory, repository_os, version, modules, essentials)
     pins = pinned_archives() if pins is None else pins
-    prefix_key = f"{repository_os}/{package}/"
-    listed = {prefix_key + name for name, _ in archives}
-    pinned = {key for key in pins if key.startswith(prefix_key)}
-    if listed != pinned:
-        names = ", ".join(sorted(key.removeprefix(prefix_key) for key in listed ^ pinned))
-        raise SystemExit(f"download.qt.io's {package} archives differ from tools/qt-archives.sha256 ({names}). "
-                         "If Qt republished them, review the change, then run python tools/dev_sdk.py "
-                         "qt-archive-checksums.")
+    for package, archives in packages:
+        prefix_key = f"{repository_os}/{package}/"
+        listed = {prefix_key + name for name, _ in archives}
+        pinned = {key for key in pins if key.startswith(prefix_key)}
+        if listed != pinned:
+            names = ", ".join(sorted(key.removeprefix(prefix_key) for key in listed ^ pinned))
+            raise SystemExit(f"download.qt.io's {package} archives differ from tools/qt-archives.sha256 ({names}). "
+                             "If Qt republished them, review the change, then run python tools/dev_sdk.py "
+                             "qt-archive-checksums.")
     downloads = root / "qt-downloads"
     staging = root / "qt.partial"
     downloads.mkdir(parents=True, exist_ok=True)
     shutil.rmtree(staging, ignore_errors=True)
     tar = None if extract else find_bsdtar()
-    for name, target in archives:
-        url = f"{base}{package}/{name}"
-        checksum = pins[prefix_key + name]
-        path = downloads / name
-        if not path.is_file() or sha256(path) != checksum:
-            print(f"Downloading {name}", flush=True)
-            download(url, path)
-        if (actual := sha256(path)) != checksum:
-            path.unlink()
-            raise SystemExit(f"{name} has SHA-256 {actual}, but tools/qt-archives.sha256 pins {checksum}.")
-        destination = staging / target
-        destination.mkdir(parents=True, exist_ok=True)
-        print(f"Extracting {name}", flush=True)
-        if extract:
-            extract(path, destination)
-        else:
-            subprocess.run([tar, "-xf", path, "-C", destination], check=True)
+    count = 0
+    for package, archives in packages:
+        for name, target in archives:
+            url = f"{base}{package}/{name}"
+            checksum = pins[f"{repository_os}/{package}/{name}"]
+            path = downloads / name
+            if not path.is_file() or sha256(path) != checksum:
+                print(f"Downloading {name}", flush=True)
+                download(url, path)
+            if (actual := sha256(path)) != checksum:
+                path.unlink()
+                raise SystemExit(f"{name} has SHA-256 {actual}, but tools/qt-archives.sha256 pins {checksum}.")
+            destination = staging / target
+            destination.mkdir(parents=True, exist_ok=True)
+            print(f"Extracting {name}", flush=True)
+            if extract:
+                extract(path, destination)
+            else:
+                subprocess.run([tar, "-xf", path, "-C", destination], check=True)
+            count += 1
+    return count
+
+
+def install_qt_direct(root, archive, directory, repository_os, version=QT_VERSION, extract=None, pins=None,
+                      modules=tuple(QT_MODULES)):
+    """Install Qt's essential archives and modules for archive (win64_msvc2022_64, ...) from download.qt.io."""
+    count = stage_packages(root, archive, directory, repository_os, version, extract, pins, modules, True)
+    staging = root / "qt.partial"
     staged = staging / version / directory
-    if not (staged / "lib/cmake/Qt6/Qt6Config.cmake").is_file():
-        raise SystemExit(f"The Qt archives did not provide lib/cmake/Qt6/Qt6Config.cmake under {staged}.")
+    for config in ["lib/cmake/Qt6/Qt6Config.cmake"] + [QT_MODULES[module] for module in modules]:
+        if not (staged / config).is_file():
+            raise SystemExit(f"The Qt archives did not provide {config} under {staged}.")
     mark_open_source(staged)
     prefix = root / "qt" / version / directory
     shutil.rmtree(prefix, ignore_errors=True)
     prefix.parent.mkdir(parents=True, exist_ok=True)
     staged.replace(prefix)
     shutil.rmtree(staging, ignore_errors=True)
-    shutil.rmtree(downloads, ignore_errors=True)
-    print(f"Installed Qt {version} ({len(archives)} verified archives) in {prefix}", flush=True)
+    shutil.rmtree(root / "qt-downloads", ignore_errors=True)
+    print(f"Installed Qt {version} ({count} verified archives) in {prefix}", flush=True)
 
 
-def install_qt_aqt(python, root, host, archive):
+def add_qt_modules_direct(root, archive, directory, repository_os, modules, version=QT_VERSION, extract=None, pins=None):
+    """Add modules' pinned archives to an installed prefix without replacing or deleting its files.
+
+    A staged file that already exists in the prefix with other content stops the amendment before
+    anything is added; identical files are left as they are.
+    """
+    count = stage_packages(root, archive, directory, repository_os, version, extract, pins, modules, False)
+    prefix = root / "qt" / version / directory
+    staging = root / "qt.partial"
+    staged = staging / version / directory
+    for module in modules:
+        if not (staged / QT_MODULES[module]).is_file():
+            raise SystemExit(f"The Qt archives did not provide {QT_MODULES[module]} under {staged}.")
+    # Links (macOS framework Versions/Current, Linux library sonames) move as links, never followed.
+    entries = []
+    for directory_path, directories, files in os.walk(staged):
+        entries += [Path(directory_path) / name for name in files]
+        entries += [Path(directory_path) / name for name in directories if (Path(directory_path) / name).is_symlink()]
+    additions = []
+    for source in sorted(entries):
+        target = prefix / source.relative_to(staged)
+        if target.is_symlink() or target.exists():
+            same_link = source.is_symlink() and target.is_symlink() and os.readlink(source) == os.readlink(target)
+            same_file = not source.is_symlink() and not target.is_symlink() and target.is_file() and sha256(target) == sha256(source)
+            if same_link or same_file:
+                continue
+            raise QtPrefixConflict(f"{target} already exists with other content; the {', '.join(modules)} archives were not added.")
+        additions.append((source, target))
+    for source, target in additions:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source.replace(target)
+    shutil.rmtree(staging, ignore_errors=True)
+    shutil.rmtree(root / "qt-downloads", ignore_errors=True)
+    print(f"Added {', '.join(modules)} ({count} verified archives, {len(additions)} new files) to {prefix}", flush=True)
+
+
+def install_qt_aqt(python, root, host, archive, modules=tuple(QT_MODULES), amend=False):
+    """aqt install-qt with the modules; amend adds only the modules to an existing prefix (--noarchives)."""
     subprocess.run([python, "-m", "pip", "install", "--disable-pip-version-check", f"aqtinstall=={AQT_VERSION}"],
                    check=True)
-    subprocess.run([python, "-m", "aqt", "install-qt", host, "desktop", QT_VERSION, archive, "-O", root / "qt"],
-                   cwd=root, check=True)
+    command = [python, "-m", "aqt", "install-qt", host, "desktop", QT_VERSION, archive, "-O", root / "qt"]
+    if modules:
+        command += ["-m", *modules]
+    if amend:
+        command.append("--noarchives")
+    subprocess.run(command, cwd=root, check=True)
+
+
+def amend(python, root, host, archive, directory, repository_os, source, prefix):
+    """Add the modules an existing prefix lacks: pinned add-only archives first (aqt with --qt-source aqt)."""
+    modules = missing_modules(prefix)
+    if not modules:
+        return
+    print(f"Adding {', '.join(modules)} to {prefix}", flush=True)
+    if source == "aqt":
+        install_qt_aqt(python, root, host, archive, modules, amend=True)
+        return
+    try:
+        add_qt_modules_direct(root, archive, directory, repository_os, modules)
+    except QtPrefixConflict:
+        raise
+    except (OSError, SystemExit) as error:
+        if source == "direct":
+            raise
+        print(f"The download.qt.io amendment failed ({error}); trying aqtinstall instead.", flush=True)
+        install_qt_aqt(python, root, host, archive, modules, amend=True)
 
 
 def install(root, host, archive, directory, repository_os, source):
@@ -252,30 +432,36 @@ def install(root, host, archive, directory, repository_os, source):
     prefix = root / "qt" / QT_VERSION / directory
     qt_config = prefix / "lib/cmake/Qt6/Qt6Config.cmake"
     if qt_config.is_file():
-        return
-    if source in {"auto", "aqt"}:
-        try:
-            install_qt_aqt(python, root, host, archive)
-        except subprocess.CalledProcessError as error:
-            if source == "aqt":
-                raise
-            print(f"aqtinstall failed ({error}); installing Qt from download.qt.io instead.", flush=True)
-    if not qt_config.is_file():
-        install_qt_direct(root, archive, directory, repository_os)
+        amend(python, root, host, archive, directory, repository_os, source, prefix)
+    else:
+        if source in {"auto", "aqt"}:
+            try:
+                install_qt_aqt(python, root, host, archive)
+            except subprocess.CalledProcessError as error:
+                if source == "aqt":
+                    raise
+                print(f"aqtinstall failed ({error}); installing Qt from download.qt.io instead.", flush=True)
+        if not qt_config.is_file() or missing_modules(prefix):
+            install_qt_direct(root, archive, directory, repository_os)
     if not qt_config.is_file():
         raise SystemExit(f"Qt installation is missing {qt_config}.")
+    if modules := missing_modules(prefix):
+        raise SystemExit(f"Qt installation in {prefix} is missing {', '.join(modules)}.")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=["install", "qt-prefix", "tools-root", "qt-archive-checksums"])
+    parser.add_argument("command", choices=["install", "qt-prefix", "tools-root", "dev-tools", "qt-archive-checksums"])
     parser.add_argument("--qt-source", choices=["auto", "aqt", "direct"],
                         default=os.environ.get("MOTRACK_QT_SOURCE", "auto"),
                         help="aqt, the verified download.qt.io archives, or aqt with that fallback (default; "
                              "MOTRACK_QT_SOURCE overrides it)")
     args = parser.parse_args()
+    if args.command == "dev-tools":
+        print(dev_tools_root())
+        return
     name, host, archive, directory, repository_os = platform_config()
-    root = ROOT / ".dev-tools" / name
+    root = dev_tools_root() / name
     prefix = root / "qt" / QT_VERSION / directory
     if args.command == "install":
         install(root, host, archive, directory, repository_os, args.qt_source)

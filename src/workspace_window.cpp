@@ -117,7 +117,15 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
     openMovieAction->setObjectName("workspaceOpenMovie");
     auto* openImagesAction = new QAction(tr("Open &images…"), this);
     openImagesAction->setObjectName("workspaceOpenImages");
-    m_OpenActions = {openProjectAction, openMovieAction, openImagesAction};
+    auto* captureAction = new QAction(tr("Capture from &camera…"), this);
+    captureAction->setObjectName("workspaceCaptureCamera");
+    captureAction->setToolTip(tr("Record a clip with a camera and open it as a new experiment."));
+    m_OpenActions = {openProjectAction, openMovieAction, openImagesAction, captureAction};
+    m_CameraSources = []
+    {
+        return std::make_unique<QtCameraSource>();
+    };
+    connect(captureAction, &QAction::triggered, this, [this] { (void)captureFromCamera(); });
     connect(openProjectAction,
             &QAction::triggered,
             this,
@@ -285,6 +293,8 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
 
 WorkspaceWindow::~WorkspaceWindow()
 {
+    // Stops a recording and removes its temporary file before the window's other children go.
+    delete m_Capture;
     disconnect(m_Tabs, nullptr, this, nullptr);
     disconnect(m_Tabs->tabBar(), nullptr, this, nullptr);
     disconnect(m_Context.get(), nullptr, this, nullptr);
@@ -332,6 +342,41 @@ std::optional<QUuid> WorkspaceWindow::openProject(const QString& path)
 std::optional<QUuid> WorkspaceWindow::openMovie(const QString& path)
 {
     return trackOpen(m_Context->openMovie(path), QFileInfo(path).fileName());
+}
+
+void WorkspaceWindow::setCameraSourceFactory(CameraSourceFactory factory)
+{
+    m_CameraSources = std::move(factory);
+}
+
+CaptureDialog* WorkspaceWindow::captureFromCamera()
+{
+    if (m_Capture)
+    {
+        m_Capture->raise();
+        m_Capture->activateWindow();
+        return m_Capture;
+    }
+    if (!m_CameraSources)
+        return nullptr;
+    auto* dialog = new CaptureDialog(m_CameraSources(), this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    connect(dialog,
+            &CaptureDialog::recordingSaved,
+            this,
+            [this](const QString& path)
+            {
+                const auto name = QDir::toNativeSeparators(path);
+                if (openMovie(path))
+                    statusBar()->showMessage(tr("Recording saved as %1. Opening it as a new experiment…").arg(name));
+                else
+                    statusBar()->showMessage(
+                        tr("Recording saved as %1. Open it with Open video once the current files finish opening.").arg(name));
+            });
+    m_Capture = dialog;
+    // Not modal: the workspace stays usable, and macOS shows a window rather than a sheet.
+    dialog->show();
+    return dialog;
 }
 
 std::optional<QUuid> WorkspaceWindow::openImages(const QStringList& paths, double frameRate)
@@ -756,6 +801,26 @@ void WorkspaceWindow::closeEvent(QCloseEvent* event)
     event->ignore();
     if (m_Busy)
         return;
+    if (m_Capture && (m_Capture->hasUnsavedRecording() || m_Capture->state() == CaptureDialog::State::Saving))
+    {
+        // A camera recording that is not saved yet is asked about first. Keeping it cancels this close:
+        // the clip is saved and opened as an experiment, which the user then sees.
+        m_Busy = true;
+        bool alive = true;
+        QObject lifetime;
+        connect(this, &QObject::destroyed, &lifetime, [&] { alive = false; });
+        const bool close = m_Capture->confirmClose();
+        if (!alive)
+            return;
+        m_Busy = false;
+        if (!close)
+        {
+            using enum CaptureDialog::State;
+            if (m_Capture && (m_Capture->state() == Finishing || m_Capture->state() == Saving))
+                statusBar()->showMessage(tr("The camera recording is kept: it opens as a new experiment once it is saved."));
+            return;
+        }
+    }
     for (auto request = m_Opening.cbegin(); request != m_Opening.cend(); ++request)
         (void)m_Context->cancelOpen(request.key());
     const auto context = m_Context;
@@ -814,6 +879,9 @@ void WorkspaceWindow::closeEvent(QCloseEvent* event)
             return;
         }
     m_Busy = false;
+    // The recording was confirmed for discarding above; its window removes the temporary file.
+    if (m_Capture)
+        m_Capture->discardAndClose();
     event->accept();
 }
 

@@ -1,5 +1,6 @@
 #include <QApplication>
 #include <QDomDocument>
+#include <QVideoFrameFormat>
 
 #include <version>
 
@@ -22,5 +23,7 @@ int main(int argc, char** argv)
 {
     const QApplication app(argc, argv);
     const QDomDocument xml;
-    return xml.isNull() && avformat_version() > 0 && archive_version_number() > 0 ? 0 : 1;
+    // Qt Multimedia links (camera capture) without loading a media backend.
+    const QVideoFrameFormat format;
+    return xml.isNull() && !format.isValid() && avformat_version() > 0 && archive_version_number() > 0 ? 0 : 1;
 }
