@@ -383,6 +383,14 @@ inline constexpr double MINIMUM_POINT_MASS = 1e-30;
 /// PointMass.Loader's key frames (a TreeSet): the saved `keyFrames` when it lists any, otherwise every loaded mark,
 /// since "early pointmass xml" saved none. Ascending and unique.
 [[nodiscard]] std::vector<std::int32_t> loadedKeyFrames(const PointMassState& state);
+/// VideoClip.Loader's `frameshift` (#313): the saved value, or 0 when Java ignores it (missing, unreadable, another type
+/// or Integer.MIN_VALUE).
+[[nodiscard]] std::int32_t clipFrameShift(const Read<std::int32_t>& frameShift);
+/// The clip's first frame as VideoClip.Loader sets it: the saved `startframe` minus the frame shift in Java's wrapping
+/// int arithmetic, kept at or after frame 0; absent when the file saves no start frame.
+[[nodiscard]] std::optional<std::int32_t> loadedStartFrame(const ClipState& clip);
+/// How many slots Tracker's loader shifts every track's `framedata` by: the positive frame shift, or 0.
+[[nodiscard]] std::int32_t trackFrameShift(const ClipState& clip);
 /// TTrack's name as B1 presents it: the saved string, or empty.
 [[nodiscard]] std::string loadedName(const Read<std::string>& name);
 /// A finite saved double, or nothing (Java's NaN for a missing or unreadable value, and infinities).

@@ -53,6 +53,11 @@ enum class AllocationRange : std::uint8_t
 
 [[nodiscard]] std::string_view allocationRangeName(AllocationRange range) noexcept;
 
+/// The loader revision this build reads Tracker sources with (native v5's `trackerReading`, v7's `readerRevision`):
+/// 1 applies Tracker's clip frame shift and the last of duplicate coordinate keys (#313, #314), 2 also takes Java's
+/// slots for track frames (part of #315). Native versions 1 to 4 count as revision 0.
+inline constexpr std::uint32_t CURRENT_READER_REVISION = 2;
+
 /// The first countdown identity; also the low-water mark of a document that has handed out none below it.
 inline constexpr std::uint64_t COUNTDOWN_START = std::numeric_limits<std::uint64_t>::max();
 
@@ -113,6 +118,9 @@ struct DocumentParts
     /// The lowest countdown identity handed out; it never rises.
     std::uint64_t countdownLowWater = COUNTDOWN_START;
     MediaExtension media{};
+    /// The loader revision the typed values follow. A document imported by this build follows the current one; one
+    /// converted from a native file keeps the revision that file records, never transformed again.
+    std::uint32_t readerRevision = CURRENT_READER_REVISION;
 };
 
 struct DocumentError
@@ -151,6 +159,7 @@ class TrackerDocument // NOLINT(bugprone-exception-escape)
     /// Whether creation can still take a counter identity: the counter stays below the countdown low-water mark.
     [[nodiscard]] bool hasCounterCapacity() const noexcept;
     [[nodiscard]] const MediaExtension& media() const noexcept;
+    [[nodiscard]] std::uint32_t readerRevision() const noexcept;
     [[nodiscard]] const DependencyGraph& graph() const noexcept;
     [[nodiscard]] const std::shared_ptr<const DependencyGraph>& sharedGraph() const noexcept;
     [[nodiscard]] std::span<const ReferenceIssue> referenceIssues() const noexcept;
@@ -158,8 +167,8 @@ class TrackerDocument // NOLINT(bugprone-exception-escape)
     [[nodiscard]] std::vector<std::string> unknownTrackClasses() const;
     [[nodiscard]] const DocumentParts& parts() const noexcept;
 
-    /// Compares the baseline (pointer first, then bytes), associations, objects, track order, counters and media
-    /// extension; never the graph, which is derived.
+    /// Compares the baseline (pointer first, then bytes), associations, reader revision, objects, track order, counters
+    /// and media extension; never the graph, which is derived.
     friend bool operator==(const TrackerDocument& left, const TrackerDocument& right);
 
   private:

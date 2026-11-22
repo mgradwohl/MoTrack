@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <ranges>
 #include <set>
 #include <stdexcept>
@@ -80,53 +81,127 @@ template <typename T> FrameSeries<T> series(Indexed<T> frames, std::string_view 
     return result;
 }
 
-PointMassState pointMass(const tracker::PointMassLoad& loaded)
+/// How many leading slots Tracker's application loader removes from a track's `framedata` before the track reads it,
+/// or none when it removes the whole array (#313; see legacy_project.cpp): TrackerIO's adjustFrameData drops the
+/// first `shift` slots (when positive) of every track array of Java length above 1, so saved index n loads at frame
+/// n - shift. An array no longer than the shift loads no frames, and one of length 1 is unchanged. An array whose last
+/// index Java cannot read stays unshifted, as before #313.
+template <typename Data> std::optional<std::int32_t> droppedSlots(const tracker::FrameArray<Data>& array, std::int32_t shift)
 {
-    PointMassState state{.name = loaded.name, .mass = loaded.mass, .marks = {}, .keyFrames = loaded.keyFrames};
-    Indexed<Mark> marks;
-    if (loaded.frames)
+    const auto last = array.frames.empty() ? Read<std::int32_t>(0) : array.frames.back().element.index;
+    if (shift <= 0 || !last || *last < 0)
     {
-        for (const auto& frame : loaded.frames->frames)
+        return 0;
+    }
+    const auto length = std::int64_t{*last} + 1;
+    if (length <= 1)
+    {
+        return 0;
+    }
+    return shift >= length ? std::nullopt : std::optional(shift);
+}
+
+/// A track's object elements as Java's array loader keeps them (reading revision 2): in index order, a later element
+/// of an index replacing an earlier one, a null one included. Where Java cannot place the indices, every object element
+/// in file order, as MoTrack read them before (#315 decides refusals).
+template <typename Data>
+std::vector<const tracker::Frame<Data>*> trackFrames(const osp::Source& source, const tracker::FrameArray<Data>& array)
+{
+    std::vector<const tracker::Frame<Data>*> result;
+    if (const auto indexed = osp::PropertyView(source, array.property).indexedElements())
+    {
+        std::map<osp::NodeId, const tracker::Frame<Data>*> decoded;
+        for (const auto& frame : array.frames)
         {
-            if (frame.element.object)
+            decoded.emplace(frame.element.property, &frame);
+        }
+        for (const auto& element : indexed->elements | std::views::values)
+        {
+            if (const auto* frame = decoded.at(element.id()); frame->element.object)
             {
-                const auto number = arrayIndex(frame.element);
-                const auto x = coordinate(frame.data.x);
-                const auto y = coordinate(frame.data.y);
-                marks.emplace_back(number, FrameElement<Mark>{.value = {.x = x, .y = y}, .node = frame.element.property});
+                result.push_back(frame);
             }
         }
+        return result;
     }
-    state.marks = series(std::move(marks), "Duplicate Tracker point mass frame.");
+    for (const auto& frame : array.frames)
+    {
+        if (frame.element.object)
+        {
+            result.push_back(&frame);
+        }
+    }
+    return result;
+}
+
+/// The loaded frame of a saved track element, or none when Tracker drops its slot.
+std::optional<std::int32_t> loadedFrame(const tracker::ArrayElement& element, std::optional<std::int32_t> dropped)
+{
+    const auto index = arrayIndex(element);
+    return dropped && index >= *dropped ? std::optional(index - *dropped) : std::nullopt;
+}
+
+/// A track's frames by Tracker's loaded frame number; `decode` reads one kept frame's value.
+template <typename T, typename Data, typename Decode>
+FrameSeries<T> trackSeries(
+    const osp::Source& source, const tracker::FrameArray<Data>& array, std::int32_t shift, Decode decode, std::string_view duplicate)
+{
+    Indexed<T> elements;
+    const auto dropped = droppedSlots(array, shift);
+    for (const auto* frame : trackFrames(source, array))
+    {
+        if (const auto number = loadedFrame(frame->element, dropped))
+        {
+            elements.emplace_back(*number, FrameElement<T>{.value = decode(frame->data), .node = frame->element.property});
+        }
+    }
+    return series(std::move(elements), duplicate);
+}
+
+PointMassState pointMass(const osp::Source& source, const tracker::PointMassLoad& loaded, std::int32_t shift)
+{
+    PointMassState state{.name = loaded.name, .mass = loaded.mass, .marks = {}, .keyFrames = loaded.keyFrames};
+    if (loaded.frames)
+    {
+        state.marks = trackSeries<Mark>(
+            source,
+            *loaded.frames,
+            shift,
+            [](const tracker::PointMassFrameData& data)
+            {
+                const auto x = coordinate(data.x);
+                return Mark{.x = x, .y = coordinate(data.y)};
+            },
+            "Duplicate Tracker point mass frame.");
+    }
     return state;
 }
 
-VectorState vector(const tracker::VectorLoad& loaded)
+VectorState vector(const osp::Source& source, const tracker::VectorLoad& loaded, std::int32_t shift)
 {
     VectorState state{.name = loaded.name, .samples = {}};
-    Indexed<VectorSample> samples;
     if (loaded.frames)
     {
-        for (const auto& frame : loaded.frames->frames)
-        {
-            if (frame.element.object)
+        state.samples = trackSeries<VectorSample>(
+            source,
+            *loaded.frames,
+            shift,
+            [](const tracker::VectorFrameData& data)
             {
-                const auto number = arrayIndex(frame.element);
-                const VectorSample sample{.xTail = coordinate(frame.data.xtail),
-                                          .yTail = coordinate(frame.data.ytail),
-                                          .xComponent = coordinate(frame.data.xcomponent),
-                                          .yComponent = coordinate(frame.data.ycomponent)};
-                samples.emplace_back(number, FrameElement<VectorSample>{.value = sample, .node = frame.element.property});
-            }
-        }
+                return VectorSample{.xTail = coordinate(data.xtail),
+                                    .yTail = coordinate(data.ytail),
+                                    .xComponent = coordinate(data.xcomponent),
+                                    .yComponent = coordinate(data.ycomponent)};
+            },
+            "Duplicate Tracker vector frame.");
     }
-    state.samples = series(std::move(samples), "Duplicate Tracker vector frame.");
     return state;
 }
 
 /// The coordinate system as B1 presents it, or nothing where B1 imports no calibration: another class, a reference
-/// frame, no usable keys, or a duplicate key.
-std::optional<CoordinatesState> coordinates(const tracker::PanelLoad& panel)
+/// frame, no usable keys, or indices Java cannot place. Keys take Java's slots, so the last of duplicate keys wins
+/// (#314), and never shift: TrackerPanel loads `coords` without the frame adjuster.
+std::optional<CoordinatesState> coordinates(const osp::Source& source, const tracker::PanelLoad& panel)
 {
     if (!panel.coords || panel.coords->className != tracker::COORD_SYSTEM_CLASS || !loadedName(panel.referenceFrame).empty())
     {
@@ -138,30 +213,38 @@ std::optional<CoordinatesState> coordinates(const tracker::PanelLoad& panel)
                            .fixedScale = coords.fixedScale,
                            .locked = coords.locked,
                            .keys = {}};
-    try
+    if (coords.frames)
     {
-        Indexed<CoordKey> keys;
-        if (coords.frames)
+        const auto indexed = osp::PropertyView(source, coords.frames->property).indexedElements();
+        if (!indexed)
         {
-            for (const auto& frame : coords.frames->frames)
+            return std::nullopt;
+        }
+        std::map<osp::NodeId, const tracker::Frame<tracker::CoordFrameData>*> decoded;
+        for (const auto& frame : coords.frames->frames)
+        {
+            decoded.emplace(frame.element.property, &frame);
+        }
+        try
+        {
+            for (const auto& [index, element] : indexed->elements)
             {
-                if (frame.element.object)
+                if (const auto* frame = decoded.at(element.id()); frame->element.object)
                 {
-                    const auto number = arrayIndex(frame.element);
-                    const CoordKey key{.xOrigin = coordinate(frame.data.xorigin),
-                                       .yOrigin = coordinate(frame.data.yorigin),
-                                       .angle = coordinate(frame.data.angle),
-                                       .xScale = coordinate(frame.data.xscale),
-                                       .yScale = coordinate(frame.data.yscale)};
-                    keys.emplace_back(number, FrameElement<CoordKey>{.value = key, .node = frame.element.property});
+                    const auto& data = frame->data;
+                    const CoordKey key{.xOrigin = coordinate(data.xorigin),
+                                       .yOrigin = coordinate(data.yorigin),
+                                       .angle = coordinate(data.angle),
+                                       .xScale = coordinate(data.xscale),
+                                       .yScale = coordinate(data.yscale)};
+                    state.keys.set(static_cast<std::int32_t>(index), {.value = key, .node = frame->element.property});
                 }
             }
         }
-        state.keys = series(std::move(keys), "Duplicate calibration key.");
-    }
-    catch (const Refusal&)
-    {
-        return std::nullopt;
+        catch (const Refusal&)
+        {
+            return std::nullopt;
+        }
     }
     if (state.keys.empty())
     {
@@ -169,7 +252,6 @@ std::optional<CoordinatesState> coordinates(const tracker::PanelLoad& panel)
     }
     return state;
 }
-
 /// ImageVideo `paths` in index order, refused as B1 refuses an image sequence it cannot present.
 std::optional<std::vector<std::string>> videoPaths(const tracker::VideoLoad& video)
 {
@@ -339,6 +421,14 @@ std::expected<void, DocumentError> validate(const DocumentParts& parts)
     if (parts.nextObjectId == 0 || parts.countdownLowWater == 0)
     {
         return invalid("Invalid document identity counter.");
+    }
+    if (parts.readerRevision > CURRENT_READER_REVISION)
+    {
+        return invalid("A newer MoTrack read this document's Tracker source.");
+    }
+    if (parts.associations == Associations::Known && parts.readerRevision != CURRENT_READER_REVISION)
+    {
+        return invalid("Known associations follow the current reader.");
     }
     if ((parts.associations == Associations::None) == static_cast<bool>(parts.baseline))
     {
@@ -523,7 +613,7 @@ std::expected<TrackerDocument, DocumentError> TrackerDocument::importBaseline(st
         }
         if (panel.coords)
         {
-            if (auto coords = coordinates(panel))
+            if (auto coords = coordinates(source, panel))
             {
                 objects.push_back(slot(Role::Coordinates, panel.coords->className, panel.coords->object, std::move(*coords)));
             }
@@ -532,6 +622,8 @@ std::expected<TrackerDocument, DocumentError> TrackerDocument::importBaseline(st
                 objects.push_back(slot(Role::Coordinates, panel.coords->className, panel.coords->object, UnknownState{}));
             }
         }
+        // Tracker's application loader shifts every track's frames by the clip's positive frame shift (#313).
+        const auto shift = panel.videoClip ? std::max(clipFrameShift(panel.videoClip->frameShift), 0) : 0;
         for (const auto& item : panel.trackItems)
         {
             if (!item.object)
@@ -541,13 +633,15 @@ std::expected<TrackerDocument, DocumentError> TrackerDocument::importBaseline(st
             const auto label = savedLabel(source, *item.object);
             if (item.className == tracker::POINT_MASS_CLASS)
             {
-                objects.push_back(slot(Role::Track, item.className, *item.object, pointMass(tracker::loadPointMass(source, *item.object))));
+                objects.push_back(slot(
+                    Role::Track, item.className, *item.object, pointMass(source, tracker::loadPointMass(source, *item.object), shift)));
             }
             else if (item.className == tracker::VECTOR_CLASS)
             {
                 try
                 {
-                    objects.push_back(slot(Role::Track, item.className, *item.object, vector(tracker::loadVector(source, *item.object))));
+                    objects.push_back(
+                        slot(Role::Track, item.className, *item.object, vector(source, tracker::loadVector(source, *item.object), shift)));
                 }
                 catch (const Refusal&)
                 {
@@ -757,6 +851,11 @@ const MediaExtension& TrackerDocument::media() const noexcept
     return m_Parts.media;
 }
 
+std::uint32_t TrackerDocument::readerRevision() const noexcept
+{
+    return m_Parts.readerRevision;
+}
+
 const DependencyGraph& TrackerDocument::graph() const noexcept
 {
     return *m_Graph;
@@ -796,8 +895,9 @@ bool operator==(const TrackerDocument& left, const TrackerDocument& right)
     const auto& a = left.m_Parts;
     const auto& b = right.m_Parts;
     const bool sameBaseline = a.baseline == b.baseline || (a.baseline && b.baseline && a.baseline->bytes() == b.baseline->bytes());
-    return sameBaseline && a.associations == b.associations && a.objects == b.objects && a.trackOrder == b.trackOrder &&
-           a.nextObjectId == b.nextObjectId && a.countdownLowWater == b.countdownLowWater && a.media == b.media;
+    return sameBaseline && a.associations == b.associations && a.readerRevision == b.readerRevision && a.objects == b.objects &&
+           a.trackOrder == b.trackOrder && a.nextObjectId == b.nextObjectId && a.countdownLowWater == b.countdownLowWater &&
+           a.media == b.media;
 }
 
 std::vector<PathStep> baselinePath(const osp::Source& source, osp::NodeId node)

@@ -10,6 +10,9 @@
 
 namespace motrack
 {
+static_assert(model::CURRENT_READER_REVISION == std::to_underlying(CURRENT_TRACKER_READING),
+              "The typed document and the legacy import read Tracker sources the same way.");
+
 namespace
 {
 
@@ -300,7 +303,13 @@ void overlaySingletons(model::DocumentParts& parts, const LegacyProject& project
     auto* clipObject = findRole(objects, Role::Clip, model::Family::Clip);
     const model::ClipState clipReading = clipObject ? std::get<model::ClipState>(*clipObject->value) : model::ClipState{};
     auto clip = clipReading;
-    setIfChanged(clip.startFrame, clipReading.startFrame.value_or(0), stored.firstFrame);
+    if (model::loadedStartFrame(clipReading).value_or(0) != stored.firstFrame)
+    {
+        // The saved start that loads at the stored first frame (VideoClip.Loader subtracts the frame shift).
+        const auto saved = std::int64_t{stored.firstFrame} + model::clipFrameShift(clipReading.frameShift);
+        clip.startFrame = std::in_range<std::int32_t>(saved) ? model::Read<std::int32_t>(static_cast<std::int32_t>(saved))
+                                                             : model::Read<std::int32_t>(stored.firstFrame);
+    }
     setIfChanged(clip.stepSize, clipReading.stepSize.value_or(1), stored.stepSize);
     setIfChanged(clip.stepCount, clipReading.stepCount ? std::optional<int>(*clipReading.stepCount) : std::nullopt, stored.stepCount);
     setIfChanged(clip.startTime, model::finiteValue(clipReading.startTime).value_or(0.0), stored.startTimeMs);
@@ -500,7 +509,7 @@ LegacyProject legacyProject(const model::TrackerDocument& document)
     auto& clip = project.clip;
     if (const auto* state = stateOf<model::ClipState>(document.singleton(Role::Clip)))
     {
-        clip.firstFrame = state->startFrame.value_or(clip.firstFrame);
+        clip.firstFrame = model::loadedStartFrame(*state).value_or(clip.firstFrame);
         clip.stepSize = state->stepSize.value_or(clip.stepSize);
         if (state->stepCount)
         {
@@ -566,11 +575,15 @@ model::TrackerDocument importTypedTracker(std::string_view xml)
     return std::move(*document);
 }
 
-model::TrackerDocument
-typedDocumentFromReduced(const LegacyProject& project, const std::optional<TrackerSource>& source, bool bindingsReset)
+model::TrackerDocument typedDocumentFromReduced(const LegacyProject& project,
+                                                const std::optional<TrackerSource>& source,
+                                                bool associationsDropped,
+                                                TrackerReading reading)
 {
     model::DocumentParts parts;
-    if (source && source->bindings)
+    // Bindings bind typed objects to this build's reading of the baseline, so only values of that reading keep them.
+    const bool known = source && source->bindings && !associationsDropped && reading == CURRENT_TRACKER_READING;
+    if (known)
     {
         parts = boundObjects(project, source->xml, *source->bindings);
     }
@@ -579,10 +592,11 @@ typedDocumentFromReduced(const LegacyProject& project, const std::optional<Track
         if (source)
         {
             parts.baseline = detail::parseTrackerXml(source->xml);
-            parts.associations = bindingsReset ? model::Associations::Stale : model::Associations::Unknown;
+            parts.associations = associationsDropped || source->bindings ? model::Associations::Stale : model::Associations::Unknown;
         }
         nativeObjects(parts, project);
     }
+    parts.readerRevision = std::to_underlying(reading);
     parts.trackOrder.clear();
     for (const auto& track : project.pointMasses)
     {
@@ -599,7 +613,7 @@ typedDocumentFromReduced(const LegacyProject& project, const std::optional<Track
         throw ProjectError("The native project cannot be read as a typed document: " + document.error().message);
     }
     auto expectedSource = source;
-    if (expectedSource && bindingsReset)
+    if (expectedSource && !known)
     {
         expectedSource->bindings.reset();
     }

@@ -407,7 +407,10 @@ QByteArray nativeExport(const motrack::WorkspaceDocument& document)
 
 QByteArray documentGolden(const motrack::WorkspaceDocument& document)
 {
-    const auto typed = motrack::typedDocumentFromReduced(document.project, document.trackerSource, document.trackerBindingsReset);
+    const auto typed = motrack::typedDocumentFromReduced(document.project,
+                                                         document.trackerSource,
+                                                         document.trackerBindingsReset || document.trackerReadingOutdated,
+                                                         document.trackerReading);
     return QByteArray::fromStdString(motrack::test::documentDumpText(typed));
 }
 
@@ -481,12 +484,13 @@ TEST(LegacyViewParity, NativeFixturesOpenToTheirDocumentDumpsAndExports)
 // the same writer's output reduced to the documented older schemas (docs/native-format.md).
 
 /// The documented schema of an older standalone version: v5 added the container fields and the optional
-/// `timeUnit` and `movieTimeBase` (#331); v4 added source bindings; v3 added track and counter identities; v2 added
-/// the preserved source; v1 stored independent vectors nowhere.
+/// `timeUnit`, `movieTimeBase` (#331) and `trackerReading` (#330; older files count as revision 0); v4 added source
+/// bindings; v3 added track and counter identities; v2 added the preserved source; v1 stored independent vectors
+/// nowhere.
 QJsonObject downgrade(QJsonObject object, int version)
 {
     object.insert("version", version);
-    for (const auto* key : {"embeddedArchive", "archiveMember", "timeUnit", "movieTimeBase"})
+    for (const auto* key : {"embeddedArchive", "archiveMember", "timeUnit", "movieTimeBase", "trackerReading"})
     {
         object.remove(key);
     }
@@ -626,13 +630,19 @@ TEST(LegacyViewParity, WriteNativeFixtures)
         "<object class=\"org.opensourcephysics.cabrillo.tracker.CoordAxes\">");
     ASSERT_NE(refused, baselineXml);
     write("v4-refused-baseline.motrack", withBaseline(current4, refused));
-    // Sources whose reading the loader-fidelity fixes change (#313-#315), saved as the reader of the time read them.
+    // Sources whose reading the loader-fidelity fixes change (#313-#315), saved as the reader before them (revision 0)
+    // read them: unedited imports, which the current reader migrates where that is safe.
     const auto variant = [&](const QString& name, const QByteArray& xml)
     {
         ASSERT_NE(xml, baselineXml);
-        const auto imported = importBaseline(xml);
+        auto earlier =
+            motrack::detail::importTracker(motrack::detail::parseTrackerXml(xml.toStdString()), motrack::TrackerReading::SavedIndices);
+        motrack::WorkspaceDocument document;
+        document.project = std::move(earlier.project);
+        document.trackerSource = motrack::TrackerSource{.xml = xml.toStdString(), .bindings = std::move(earlier.bindings)};
+        document.trackerReading = motrack::TrackerReading::SavedIndices;
         write(name,
-              QJsonDocument(downgrade(QJsonDocument::fromJson(nativeJson(imported, scratch)).object(), 4)).toJson(QJsonDocument::Compact));
+              QJsonDocument(downgrade(QJsonDocument::fromJson(nativeJson(document, scratch)).object(), 4)).toJson(QJsonDocument::Compact));
     };
     auto shifted = baselineXml;
     shifted.replace(R"(            <property name="startframe" type="int">0</property>)",

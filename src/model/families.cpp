@@ -1,6 +1,7 @@
 #include "model/families.hpp"
 
 #include <cmath>
+#include <limits>
 
 namespace motrack::model
 {
@@ -74,6 +75,27 @@ std::vector<std::int32_t> loadedKeyFrames(const PointMassState& state)
         state.marks.forEach([&](std::int32_t frame, const FrameElement<Mark>& /*mark*/) { keys.push_back(frame); });
     }
     return keys;
+}
+
+std::int32_t clipFrameShift(const Read<std::int32_t>& frameShift)
+{
+    return frameShift && *frameShift != std::numeric_limits<std::int32_t>::min() ? *frameShift : 0;
+}
+
+std::optional<std::int32_t> loadedStartFrame(const ClipState& clip)
+{
+    if (!clip.startFrame)
+    {
+        return std::nullopt;
+    }
+    const auto start = static_cast<std::int32_t>(static_cast<std::uint32_t>(*clip.startFrame) -
+                                                 static_cast<std::uint32_t>(clipFrameShift(clip.frameShift)));
+    return std::max<std::int32_t>(start, 0);
+}
+
+std::int32_t trackFrameShift(const ClipState& clip)
+{
+    return std::max(clipFrameShift(clip.frameShift), 0);
 }
 
 std::string loadedName(const Read<std::string>& name)

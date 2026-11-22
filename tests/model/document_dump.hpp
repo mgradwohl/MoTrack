@@ -216,6 +216,7 @@ inline QJsonObject documentDump(const motrack::model::TrackerDocument& document)
     return {
         {"associations", QString::fromUtf8(associationsName(document.associations()).data())},
         {"baselineBytes", document.baseline() ? QJsonValue(static_cast<qint64>(document.baseline()->bytes().size())) : QJsonValue::Null},
+        {"readerRevision", static_cast<qint64>(document.readerRevision())},
         {"nextObjectId", dumpId(document.nextObjectId())},
         {"countdownLowWater", dumpId(document.countdownLowWater())},
         {"trackOrder", order},

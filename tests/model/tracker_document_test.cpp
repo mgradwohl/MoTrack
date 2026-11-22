@@ -307,7 +307,6 @@ TEST(TrackerDocument, PresentsWhatB1CannotReadAsUnknownObjects)
                                         "<property name='framedata' type='array' class='[L" + cls("Vector$FrameData") + ";'>" +
                                             vectorFrame(0, "NaN") + "</property>");
     for (const auto& [label, xml] : std::vector<std::pair<std::string, std::string>>{
-             {"duplicate key", panel(coords(coordKey(0) + coordKey(0, "3.0")))},
              {"no keys", panel(coords(""))},
              {"unreadable key", panel(coords(coordKey(-1)))},
              {"reference frame", panel(coords(coordKey(0)) + text("referenceframe", "origin"))},
@@ -330,6 +329,45 @@ TEST(TrackerDocument, PresentsWhatB1CannotReadAsUnknownObjects)
     EXPECT_EQ(document.unknownTrackClasses(), std::vector<std::string>{cls("Vector")});
     EXPECT_EQ(document.nextObjectId(), 1u);
     EXPECT_TRUE(document.trackOrder().empty());
+}
+
+TEST(TrackerDocument, ReadsTrackersFrameShiftAndJavasArraySlots)
+{
+    // A saved frame shift moves track frames (dropping the first `frameshift` slots of arrays longer than one), not the
+    // coordinate keys; the last of duplicate keys and track indices wins (#313, #314, part of #315).
+    const auto clip = "<property name='videoclip' type='object'><object class='org.opensourcephysics.media.core.VideoClip'>" +
+                      number("startframe", "3", "int") + number("frameshift", "2", "int") + "</object></property>";
+    const auto document = import(panel(
+        clip + coords(coordKey(0) + coordKey(4, "5.0") + coordKey(4, "6.0")) +
+        "<property name='tracks' type='collection' class='java.util.ArrayList'>" +
+        track(
+            "PointMass", "shifted", marks(mark(0, "1.0", "1.0") + mark(1, "2.0", "2.0") + mark(3, "3.0", "3.0") + mark(3, "4.0", "4.0"))) +
+        track("PointMass", "single", marks(mark(0, "5.0", "5.0"))) + track("PointMass", "short", marks(mark(1, "6.0", "6.0"))) +
+        "</property>"));
+    const auto& clipState = std::get<motrack::model::ClipState>(*document.singleton(Role::Clip)->value);
+    EXPECT_EQ(motrack::model::loadedStartFrame(clipState), 1);
+    EXPECT_EQ(motrack::model::trackFrameShift(clipState), 2);
+    const auto marksOf = [&](std::size_t occurrence)
+    {
+        std::vector<std::pair<std::int32_t, double>> result;
+        std::get<motrack::model::PointMassState>(*named(document, cls("PointMass"), occurrence).value)
+            .marks.forEach([&](std::int32_t frame, const motrack::model::FrameElement<Mark>& element)
+                           { result.emplace_back(frame, element.value.x); });
+        return result;
+    };
+    EXPECT_EQ(marksOf(0), (std::vector<std::pair<std::int32_t, double>>{{1, 4.0}}));
+    EXPECT_EQ(marksOf(1), (std::vector<std::pair<std::int32_t, double>>{{0, 5.0}}));
+    EXPECT_TRUE(marksOf(2).empty());
+    const auto& keys = std::get<motrack::model::CoordinatesState>(*document.singleton(Role::Coordinates)->value).keys;
+    ASSERT_EQ(keys.size(), 2u);
+    EXPECT_EQ(keys.find(4)->value.xScale, 6.0);
+    // Without a readable shift, nothing moves; a negative shift moves only the clip start.
+    EXPECT_EQ(motrack::model::clipFrameShift(motrack::model::Read<std::int32_t>(std::numeric_limits<std::int32_t>::min())), 0);
+    const motrack::model::ClipState negative{.startFrame = 3, .frameShift = -2};
+    EXPECT_EQ(motrack::model::loadedStartFrame(negative), 5);
+    EXPECT_EQ(motrack::model::trackFrameShift(negative), 0);
+    EXPECT_FALSE(motrack::model::loadedStartFrame(motrack::model::ClipState{}));
+    EXPECT_EQ(document.readerRevision(), motrack::model::CURRENT_READER_REVISION);
 }
 
 TEST(TrackerDocument, RefusesWithB1sMessagesWhereB1RefusesTheFile)
@@ -364,8 +402,11 @@ TEST(TrackerDocument, RefusesWithB1sMessagesWhereB1RefusesTheFile)
     };
     EXPECT_EQ(refusal(mass(mark(-2, "1.0", "1.0"))), "Invalid Tracker array entry.");
     EXPECT_EQ(refusal(mass(mark(0, "Infinity", "1.0"))), "Invalid Tracker numeric property.");
-    EXPECT_EQ(refusal(mass(mark(0, "1.0", "1.0") + mark(0, "2.0", "2.0"))), "Duplicate Tracker point mass frame.");
+    // Java's slots: the last of duplicate indices wins. Where Java cannot place the indices, file order applies, and a
+    // repeated frame is refused there as before.
+    EXPECT_EQ(refusal(mass(mark(0, "1.0", "1.0") + mark(0, "2.0", "2.0"))), "accepted");
     EXPECT_EQ(refusal(mass(mark(3, "1.0", "1.0") + mark(1, "2.0", "2.0"))), "accepted");
+    EXPECT_EQ(refusal(mass(mark(3, "1.0", "1.0") + mark(1, "2.0", "2.0") + mark(1, "3.0", "3.0"))), "Duplicate Tracker point mass frame.");
     EXPECT_FALSE(TrackerDocument::importBaseline(nullptr));
 }
 

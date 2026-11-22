@@ -64,9 +64,23 @@
         {
             "binding": "/4:coords/0:",
             "class": "org.opensourcephysics.media.core.ImageCoordSystem",
-            "family": "unknown",
+            "family": "coordinates",
             "fields": {
-                "label": null
+                "fixedangle": true,
+                "fixedorigin": true,
+                "fixedscale": true,
+                "framedata": [
+                    [
+                        0,
+                        150,
+                        120,
+                        0,
+                        50,
+                        50,
+                        "bound"
+                    ]
+                ],
+                "locked": false
             },
             "id": "18446744073709551612",
             "range": "countdown",
@@ -160,6 +174,7 @@
             "state": "live"
         }
     ],
+    "readerRevision": 2,
     "referenceIssues": [
     ],
     "trackOrder": [

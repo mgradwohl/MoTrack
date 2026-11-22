@@ -286,7 +286,10 @@ std::pair<motrack::ImportedTrackerProject, motrack::model::TrackerDocument> read
 motrack::WorkspaceDocument reopenNative(const QString& path)
 {
     auto document = motrack::readWorkspaceDocument(path);
-    static_cast<void>(motrack::typedDocumentFromReduced(document.project, document.trackerSource, document.trackerBindingsReset));
+    static_cast<void>(motrack::typedDocumentFromReduced(document.project,
+                                                        document.trackerSource,
+                                                        document.trackerBindingsReset || document.trackerReadingOutdated,
+                                                        document.trackerReading));
     return document;
 }
 
@@ -296,7 +299,10 @@ motrack::ArchiveGroup reopenGroup(const QString& path)
     for (const auto& member : group.members)
     {
         const auto& document = member.document;
-        static_cast<void>(motrack::typedDocumentFromReduced(document.project, document.trackerSource, document.trackerBindingsReset));
+        static_cast<void>(motrack::typedDocumentFromReduced(document.project,
+                                                            document.trackerSource,
+                                                            document.trackerBindingsReset || document.trackerReadingOutdated,
+                                                            document.trackerReading));
     }
     return group;
 }

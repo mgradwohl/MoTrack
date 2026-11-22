@@ -25,15 +25,21 @@ namespace motrack
 /// Imports Tracker XML as a typed document, with B1's size bound, parse diagnostics and refusals. Throws ProjectError.
 [[nodiscard]] model::TrackerDocument importTypedTracker(std::string_view xml);
 
-/// Converts the reduced model a native file of versions 1–6 holds into a typed document, for B2.4a's native reader:
-/// without a source, native-only objects; with a source but no bindings, the baseline preserved but not indexed
-/// (associations unknown, or stale when `bindingsReset` says opening dropped them); with bindings, the baseline's
-/// typed import with the stored identities, the stored values of edited fields, created tracks unbound and bound
-/// tracks missing from the model removed. A field whose stored value equals the baseline's reading keeps that
-/// reading, so no migration turns it into an edit. Throws ProjectError when the result's legacy view would differ
-/// from `project`, so a conversion never loses or changes data silently.
-[[nodiscard]] model::TrackerDocument
-typedDocumentFromReduced(const LegacyProject& project, const std::optional<TrackerSource>& source, bool bindingsReset = false);
+/// Converts the reduced model a native file of versions 1–6 holds, as the native reader returns it (migrated to the
+/// current reading where that is safe, docs/native-format.md), into a typed document, for B2.4a's native reader.
+/// `reading` is the reading the values follow (the body's `trackerReading`; versions 1–4 count as revision 0) and
+/// becomes the document's reader revision; the values are never transformed again. Without a source: native-only
+/// objects. With a source but no bindings, or with `associationsDropped` (opening dropped stale bindings or kept an
+/// outdated reading), or with values of an earlier reading: the baseline preserved but not indexed (associations
+/// unknown, or stale when dropped). Otherwise the baseline's typed import with the stored identities, the stored
+/// values of edited fields, created tracks unbound and bound tracks missing from the model removed; a field whose
+/// stored value equals the baseline's reading keeps that reading, so no conversion turns it into an edit. Throws
+/// ProjectError when the result's legacy view would differ from `project`, so a conversion never changes data
+/// silently.
+[[nodiscard]] model::TrackerDocument typedDocumentFromReduced(const LegacyProject& project,
+                                                              const std::optional<TrackerSource>& source,
+                                                              bool associationsDropped = false,
+                                                              TrackerReading reading = CURRENT_TRACKER_READING);
 
 /// The key of an owner's caches: the live owner's runtime identity and its document revision, which also advances on
 /// every update outside history and every assignment, so a restored or replaced value never matches an old view.

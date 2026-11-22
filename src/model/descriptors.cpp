@@ -223,7 +223,7 @@ std::optional<SavedReferences> readArray(const osp::Source& source, osp::NodeId 
         {
             return malformedReferences();
         }
-        result.names[index] = std::move(*name);
+        result.names[index] = std::move(name);
     }
     return result;
 }
@@ -248,7 +248,7 @@ std::optional<SavedReferences> readCollection(const osp::Source& source, const N
         {
             return malformedReferences();
         }
-        result.names.emplace_back(std::move(*name));
+        result.names.push_back(std::move(name));
     }
     return result;
 }
@@ -474,7 +474,7 @@ std::optional<SavedReferences> readReferences(const osp::Source& source, osp::No
     {
         return malformedReferences();
     }
-    return SavedReferences{.names = {std::move(*name)}, .malformed = false};
+    return SavedReferences{.names = {std::move(name)}, .malformed = false};
 }
 
 std::optional<std::string> savedLabel(const osp::Source& source, osp::NodeId object)
