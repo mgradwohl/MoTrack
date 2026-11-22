@@ -115,14 +115,19 @@ one; Tracker itself will compute the old values from the same text. Parenthesize
 
 The defects also apply in the export direction: a corrected expression such as `x^-2` or `2--3` written to a
 `.trk` file as typed computes the old value when Tracker reopens it. `trackerText()` renders the compiled
-operations fully parenthesized, with every sign around its operand (`(x^(-2))`, `(2-(-3))`), and Tracker parses
-that text into the same operations; `ExpressionReference.TrackerTextKeepsCorrectedValuesInTracker` checks this for
-every oracle case through the validated Tracker dialect. Only `log`, `asinh`, `acosh` and `atanh` keep Tracker's
+operations fully parenthesized, with every sign around its operand (`(x^(-2))`, `(2-(-3))`, `(-(!(c)))`) and
+literals without a `+` exponent sign (`1e5`: `UserFunction` space-pads names and turns `1e+5` into a parse error
+that silently becomes `0`, [#215](https://github.com/mgradwohl/MoTrack/issues/215),
+[osp#19](https://github.com/OpenSourcePhysics/osp/issues/19)), and Tracker parses
+that text into the same operations. `ExpressionReference.TrackerTextKeepsCorrectedValuesInTracker` checks this for
+every oracle case and `Expression.TrackerTextRoundTripsRandomExpressions` for 4000 seeded random expressions, both
+through the validated Tracker dialect. Only `log`, `asinh`, `acosh` and `atanh` keep Tracker's
 own implementations, so those expressions still need a warning, and the explicit negations can push a near-limit
 expression past 99 codes (`trackerCodeSize()` counts what Tracker compiles for the original text; parse the
 rendering with the Tracker dialect to check it). The binding rule for C5/C8/I4/I5 (#172, #173): store the
 user's text, write `trackerText()` to Tracker files whenever `trackerDifferences()` reports a precedence
-construct, and warn when an unavoidable function difference or the code limit remains.
+construct or the text has a `+` exponent sign, and warn when an unavoidable function difference or the code limit
+remains.
 
 Deliberately kept: the division trap, `int` as `rint`, `mod` as IEEE remainder, the boolean grouping and
 relation restrictions, and identifier shadowing. These are consistent OSP rules that saved

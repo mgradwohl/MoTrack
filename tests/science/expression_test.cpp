@@ -307,12 +307,120 @@ TEST(Expression, TrackerTextIsFullyParenthesized)
     EXPECT_EQ(rendered("!(x<1)&(y>=2)|(x<>y)"), "(!((x<1))&((y>=2)|(x<>y)))");
     EXPECT_EQ(rendered("if(x<=0,if(y=1,1,2),sqr(v_{x}))"), "if((x<=0),if((y=1),1,2),sqr(v_{x}))");
     EXPECT_EQ(rendered("\xCE\xB8/x"), "(\xCE\xB8/x)");
+    EXPECT_EQ(rendered("-(!(1<2))"), "(-(!((1<2))))");
+    EXPECT_EQ(rendered("if(-(!(x<1)),1,2)"), "if((-(!((x<1)))),1,2)");
+    EXPECT_EQ(rendered("1e+5*2.5E+3-1e-2"), "((1e5*2.5E3)-1e-2)");
+    for (const std::string_view text : {"-(!(1<2))", "if(-(!(x<1)),1,2)", "1e+5*2.5E+3-1e-2"})
+    {
+        const auto tracker = parseExpression(rendered(text), NAMES, TRACKER);
+        ASSERT_TRUE(tracker.hasValue()) << text;
+        EXPECT_EQ(tracker->evaluate(std::array{0.0, 0.0, 0.0, 0.0}), compiled(text, NAMES).evaluate(std::array{0.0, 0.0, 0.0, 0.0}));
+    }
     // A Tracker-dialect expression renders its own (defective) operations, which Tracker then reproduces.
     EXPECT_EQ(compiled("2^-3", NO_VARIABLES, TRACKER).trackerText(), "(-(2^3))");
     const auto exported = parseExpression(rendered("x--y*2+2^-x"), NAMES, TRACKER);
     ASSERT_TRUE(exported.hasValue());
     EXPECT_FALSE(exported->trackerDifferences().any());
     EXPECT_EQ(exported->evaluate(std::array{3.0, 2.0, 0.0, 0.0}), compiled("x--y*2+2^-x", NAMES).evaluate(std::array{3.0, 2.0, 0.0, 0.0}));
+}
+
+/// Seeded random expressions over the whole grammar: trackerText() must make Tracker compute the corrected value.
+class ExpressionGenerator
+{
+  public:
+    explicit ExpressionGenerator(std::uint64_t seed) : m_State(seed)
+    {}
+
+    std::string value(int depth)
+    {
+        static constexpr std::array<std::string_view, 9> ATOMS{"1", "2", "0.5", "3", "1e+2", "2.5E-1", ".5", "x", "y"};
+        static constexpr std::array<std::string_view, 9> UNARY{"abs", "sqr", "sin", "cos", "sqrt", "round", "frac", "sign", "step"};
+        static constexpr std::array<std::string_view, 3> BINARY{"max", "min", "mod"};
+        static constexpr std::array<std::string_view, 4> OPERATORS{"+", "-", "*", "/"};
+        if (depth <= 0 || pick(5) == 0)
+        {
+            return std::string(ATOMS[pick(ATOMS.size())]);
+        }
+        switch (pick(9))
+        {
+        case 0:
+            return "-" + value(depth - 1);
+        case 1:
+            return value(depth - 1) + std::string(OPERATORS[pick(OPERATORS.size())]) + value(depth - 1);
+        case 2:
+            return value(depth - 1) + "^" + (pick(2) == 0 ? "-" : "") + value(depth - 1);
+        case 3:
+            return "(" + value(depth - 1) + ")";
+        case 4:
+            return std::string(UNARY[pick(UNARY.size())]) + "(" + value(depth - 1) + ")";
+        case 5:
+            return std::string(BINARY[pick(BINARY.size())]) + "(" + value(depth - 1) + "," + value(depth - 1) + ")";
+        case 6:
+            return "if(" + condition(depth - 1) + "," + value(depth - 1) + "," + value(depth - 1) + ")";
+        case 7:
+            return "if(" + condition(depth - 1) + ",-(!(" + condition(depth - 1) + ")),--" + value(depth - 1) + ")";
+        default:
+            return value(depth - 1) + " " + std::string(OPERATORS[pick(OPERATORS.size())]) + " -" + value(depth - 1);
+        }
+    }
+
+  private:
+    std::string condition(int depth)
+    {
+        static constexpr std::array<std::string_view, 6> RELATIONS{"<", ">", "<=", ">=", "=", "<>"};
+        switch (depth <= 0 ? 2 : pick(3))
+        {
+        case 0:
+            return "(" + condition(depth - 1) + ")&(" + condition(depth - 1) + ")";
+        case 1:
+            return "!(" + condition(depth - 1) + ")";
+        default:
+            return value(depth - 1) + std::string(RELATIONS[pick(RELATIONS.size())]) + value(depth - 1);
+        }
+    }
+
+    std::size_t pick(std::size_t count)
+    {
+        m_State += 0x9E3779B97F4A7C15ULL; // SplitMix64
+        std::uint64_t mixed = (m_State ^ (m_State >> 30U)) * 0xBF58476D1CE4E5B9ULL;
+        mixed = (mixed ^ (mixed >> 27U)) * 0x94D049BB133111EBULL;
+        return static_cast<std::size_t>((mixed ^ (mixed >> 31U)) % count);
+    }
+
+    std::uint64_t m_State;
+};
+
+TEST(Expression, TrackerTextRoundTripsRandomExpressions)
+{
+    ExpressionGenerator generator(20261122);
+    const std::array points{std::array{0.5, -2.0}, std::array{3.0, 0.0}, std::array{-1.5, 4.0}};
+    int compared = 0;
+    for (int i = 0; i < 4000; ++i)
+    {
+        const auto text = generator.value(4);
+        const auto corrected = parseExpression(text, XY);
+        if (!corrected || !corrected->fitsTrackerLimits())
+        {
+            continue; // Rejected text, or too long for Tracker itself.
+        }
+        const auto exported = parseExpression(corrected->trackerText(), XY, TRACKER);
+        if (!exported && exported.error().code == ExpressionErrorCode::TrackerCodeLimit && corrected->trackerDifferences().droppedNegation)
+        {
+            continue; // The explicit negations Tracker would drop can exceed its limit.
+        }
+        ASSERT_TRUE(exported.hasValue()) << text << " -> " << corrected->trackerText() << ": error "
+                                         << static_cast<int>(exported.error().code) << " at " << exported.error().position;
+        for (const auto& point : points)
+        {
+            const double expected = corrected->evaluate(point);
+            const double actual = exported->evaluate(point);
+            ASSERT_TRUE((std::isnan(expected) && std::isnan(actual)) ||
+                        std::bit_cast<std::uint64_t>(expected) == std::bit_cast<std::uint64_t>(actual))
+                << text << " -> " << corrected->trackerText();
+        }
+        ++compared;
+    }
+    EXPECT_GT(compared, 1000);
 }
 
 TEST(Expression, ReportsOspErrorPositions)

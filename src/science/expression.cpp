@@ -754,6 +754,8 @@ void Compiler::scanNumber()
         m_Position = m_Start;
         throw ParseStop(ExpressionErrorCode::SyntaxError);
     }
+    // UserFunction.padNames splits `1e+5` into `1e +5`; an exported literal never needs the plus sign.
+    std::erase(text, '+');
     m_Literals.push_back(std::move(text));
     emit({.op = OpCode::Number, .operand = static_cast<std::uint32_t>(m_Literals.size() - 1), .value = *value});
 }
@@ -1201,7 +1203,8 @@ std::string Expression::Program::render(std::size_t begin, std::size_t end) cons
             operands.push_back(variableNames[instruction.operand]);
             break;
         case OpCode::Negate:
-            operands.back() = "(-" + operands.back() + ")";
+            // OSP recognizes `!` only before any sign, so a negated !(...) needs its own parentheses.
+            operands.back() = operands.back().starts_with('!') ? "(-(" + operands.back() + "))" : "(-" + operands.back() + ")";
             break;
         case OpCode::Not:
             operands.back() = "!(" + operands.back() + ")";
