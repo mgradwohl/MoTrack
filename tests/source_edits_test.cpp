@@ -169,8 +169,11 @@ TEST(TrackerLoaders, ReadPointMassKeysAndFramesLikeTrackersLoaders)
                                          "    </property>\n");
         EXPECT_EQ(*mass.name, "mass");
         EXPECT_EQ(*mass.mass, 2.5);
-        ASSERT_TRUE(mass.frames);
-        const auto& frames = mass.frames.value().frames;
+        if (!mass.frames)
+        {
+            FAIL() << "The framedata array was not read.";
+        }
+        const auto& frames = mass.frames->frames;
         ASSERT_EQ(frames.size(), 2u);
         EXPECT_EQ(*frames[0].element.index, 1);
         EXPECT_EQ(*frames[0].data.x, 3.0);
