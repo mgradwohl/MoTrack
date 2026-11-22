@@ -62,7 +62,7 @@ Temporal filters advance on **every evaluation**, not on frame numbers:
   the current state with whatever frame it is given.
 - Re-evaluating the same frame advances the state again: a ghost or strobe trail fades one more step. Tracker
   evaluates after each frame change and after any filter property change (each fires `PROPERTY_FILTER_IMAGE`), so
-  dragging an unrelated filter's slider fades trails. That makes results depend on repaint cadence
+  dragging an unrelated filter's slider fades trails (plain repaints reuse the cached image). That makes results depend on UI activity
   ([#282](https://github.com/mgradwohl/MoTrack/issues/282)); C6 decides when to evaluate, and the kernel only defines one step.
 - `SumFilter` adds the input of the first evaluation after each `stepChanged()` (`addNextImage`). Tracker calls it on
   every step-number change, forward or backward, even while the filter is disabled; repeated evaluations of a frame
@@ -166,7 +166,7 @@ an internal value probed for diagnosis, is compared within 4 ulps. These helpers
   `VideoAdapter` does), then evaluate one `VideoFilterStack` per video off the GUI thread with the video frame number.
   Keep the stack on one worker at a time and marshal parameter changes to it. For a seek that may be cancelled,
   evaluate a `clone()` and keep it only if the result is used, because each evaluation advances temporal state.
-- Choose evaluation points deliberately: Tracker's repaint-driven evaluation makes trails depend on UI activity. A
+- Choose evaluation points deliberately: Tracker's invalidation-driven evaluation makes trails depend on UI activity. A
   cache of filtered frames is valid only for stacks without temporal filters (`isTemporalVideoFilter`), keyed by
   the frame, the stack's parameters and its revision.
 - Load and save Tracker's filter XML through the property names in the table, preserving unknown properties and classes

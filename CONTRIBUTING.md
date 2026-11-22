@@ -236,7 +236,7 @@ Use a focused branch and the [PR template](.github/pull_request_template.md). Le
 
 For C++ changes, run formatting, relevant static analysis, and tests before opening the PR. For documentation-only changes, validate content and relative links; a local C++ rebuild is unnecessary. Report the platforms actually tested and link CI evidence when available. Do not mark unchecked platforms as passing. Merge only with the user's authorization, repository protections satisfied, required checks passing on the current revision, and blocking review discussions addressed.
 
-Use the [issue templates](.github/ISSUE_TEMPLATE/) for reproducible defects and compatibility requests. Search existing issues first. Include a minimal fixture and numerical units/reference behavior where relevant; avoid uploading private experiment data.
+Use the [issue templates](.github/ISSUE_TEMPLATE/) for reproducible defects and compatibility requests. Search existing issues first. Include a minimal fixture and numerical units/reference behavior where relevant; avoid uploading private experiment data. When updating the [Tracker issue triage](docs/upstream-issues.md), run `python -I -X utf8 tools/check_triage_links.py` (it needs `gh` and the network) to list each "Filed upstream as" comment whose upstream issue the triage row does not link.
 
 The shared agent workflow and ongoing cleanup policy live in [AGENTS.md](AGENTS.md). Claude Code and Copilot entry points link to that guide and the one review checklist, rather than duplicating their contents. This adopts TaskSmack's documentation structure without assuming its release branches, labels, pre-commit hooks, or platform-specific rendering architecture exist in MoTrack.
 
