@@ -147,6 +147,12 @@ class LibraryTests(unittest.TestCase):
             "License": {"statement": "This material is released under a Creative Commons Attribution-Noncommercial-Share Alike 3.0 license.",
                         "links": ["http://creativecommons.org/licenses/by-nc-sa/3.0/"]},
             "Rights Holder": {"statement": "Aaron Titus"}})
+        # Line breaks separate words as the page renders them (ComPADRE items 13020 and 13021).
+        page = (b'<dl><dt>Access Rights:</dt><dd><i>Free access</i> and<br /><i>Available by subscription</i></dd>'
+                b'<dt>Restriction:</dt><dd>&copy; 2013 Paulo  Sime\xc3\xa3o Carvalho<br /></dd></dl>')
+        self.assertEqual(library.parse_compadre_rights(page), {
+            "Access Rights": {"statement": "Free access and Available by subscription"},
+            "Restriction": {"statement": "\u00a9 2013 Paulo Sime\u00e3o Carvalho"}})
 
     def test_osp_collections_resolve_inherited_base_paths_and_keep_only_tracker_files(self):
         library_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
@@ -307,6 +313,15 @@ class LibraryTests(unittest.TestCase):
                                         "sha256": f"{index:064x}"})
         with self.assertRaisesRegex(ValueError, "total size"):
             library.validate_library_manifest(many)
+        known = {"issue": 211, "summary": "heap overflow", "experiments": ["compadre-1-2"]}
+        library.validate_library_manifest({**self.manifest(), "known_issues": [known]})
+        self.assertEqual(library.known_issues({**self.manifest(), "known_issues": [known]}), {"compadre-1-2": 211})
+        for broken in [{**known, "issue": "211"}, {**known, "experiments": []}, {**known, "experiments": ["compadre-9-9"]},
+                       {key: value for key, value in known.items() if key != "summary"}]:
+            with self.subTest(known=broken), self.assertRaises(ValueError):
+                library.validate_library_manifest({**self.manifest(), "known_issues": [broken]})
+        with self.assertRaises(ValueError):
+            library.validate_library_manifest({**self.manifest(), "known_issues": [known, {**known, "issue": 212}]})
 
     def test_committed_manifest_and_census_are_valid_and_consistent(self):
         manifest = library.load_library_manifest()
@@ -327,18 +342,47 @@ class LibraryTests(unittest.TestCase):
         manifest["experiments"].append({**manifest["experiments"][0], "id": "compadre-1-3", "file": "compadre-1-3.trz",
                                         "url": "https://www.compadre.org/osp/document/ServeFile.cfm?ID=1&DocID=3",
                                         "sha256": hashlib.sha256(b"other!!").hexdigest()})
-        files = library.library_files(self.root)
+        first, second = (library.cache_path(self.root, entry) for entry in manifest["experiments"])
+        self.assertEqual(first.name, f"compadre-1-2-{hashlib.sha256(data).hexdigest()[:12]}.trz")
         client = self.client({manifest["experiments"][0]["url"]: data, manifest["experiments"][1]["url"]: b"other!!"})
         self.assertEqual(library.fetch(manifest, self.root, client=client, log=lambda _: None), (2, 2))
         self.assertEqual(library.fetch(manifest, self.root, client=self.client({}), log=lambda _: None), (2, 0))
-        (files / "compadre-1-2.trz").write_bytes(b"x" * len(data))
-        (files / "compadre-1-3.trz").unlink()
-        client = self.client({manifest["experiments"][1]["url"]: b"changed"})
-        with self.assertRaisesRegex(ValueError, "(?s)compadre-1-2: Checksum mismatch.*compadre-1-3: Checksum mismatch"):
+        # A corrupt cached copy is deleted and downloaded again; only verified bytes are published.
+        first.write_bytes(b"x" * len(data))
+        second.unlink()
+        client = self.client({manifest["experiments"][0]["url"]: data, manifest["experiments"][1]["url"]: b"changed"})
+        with self.assertRaisesRegex(ValueError, "(?s)compadre-1-3: Checksum mismatch") as raised:
             library.fetch(manifest, self.root, client=client, log=lambda _: None)
-        self.assertEqual((files / "compadre-1-2.trz").read_bytes(), b"x" * len(data))
-        self.assertFalse((files / "compadre-1-3.trz").exists())
-        self.assertEqual([path.name for path in files.iterdir()], ["compadre-1-2.trz"])
+        self.assertNotIn("compadre-1-2:", str(raised.exception))
+        self.assertEqual(first.read_bytes(), data)
+        self.assertEqual(sorted(path.name for path in first.parent.iterdir()), [first.name])
+
+    def test_a_repinned_file_is_fetched_under_its_new_name_and_stale_files_are_pruned(self):
+        data, replacement = b"tracker", b"tracker, version 2"
+        old = self.manifest()
+        files = library.library_files(self.root)
+        files.mkdir(parents=True)
+        stale = library.cache_path(self.root, old["experiments"][0])
+        stale.write_bytes(data)
+        (files / "unlisted.trz").write_bytes(b"left over")
+        (files / "compadre-1-2-0123.trz.abc.part").write_bytes(b"partial")
+        repinned = self.manifest(bytes=len(replacement), sha256=hashlib.sha256(replacement).hexdigest())
+        client = self.client({repinned["experiments"][0]["url"]: replacement})
+        self.assertEqual(library.fetch(repinned, self.root, client=client, log=lambda _: None), (1, 1))
+        current = library.cache_path(self.root, repinned["experiments"][0])
+        self.assertNotEqual(current, stale)
+        self.assertEqual([path.name for path in files.iterdir()], [current.name])
+        self.assertEqual(current.read_bytes(), replacement)
+        # A verified copy under the old ``<id>.<ext>`` cache name is adopted without a download.
+        current.replace(files / "compadre-1-2.trz")
+        self.assertEqual(library.fetch(repinned, self.root, client=self.client({}), log=lambda _: None), (1, 0))
+        self.assertEqual([path.name for path in files.iterdir()], [current.name])
+        # A wrong legacy copy is never adopted; the pinned bytes are downloaded and the stray is pruned.
+        current.unlink()
+        (files / "compadre-1-2.trz").write_bytes(b"x" * len(replacement))
+        client = self.client({repinned["experiments"][0]["url"]: replacement})
+        self.assertEqual(library.fetch(repinned, self.root, client=client, log=lambda _: None), (1, 1))
+        self.assertEqual([path.name for path in files.iterdir()], [current.name])
 
     def discovery_routes(self, project_zip):
         rest = (FIXTURES / "compadre-tracker-sample.xml").read_bytes()
@@ -374,7 +418,7 @@ class LibraryTests(unittest.TestCase):
         detail_requests = [call for call in self.network.calls if "detail.cfm" in call[0]]
         self.assertEqual(len(detail_requests), len({candidate["information_url"] for candidate in candidates}))
         files = sorted(path.name for path in library.library_files(self.root).iterdir())
-        self.assertEqual(files, sorted(entry["file"] for entry in manifest["experiments"]))
+        self.assertEqual(files, sorted(library.cache_path(self.root, entry).name for entry in manifest["experiments"]))
 
         # Refreshing reuses verified pins (no file downloads) and records experiments that disappeared upstream.
         previous = copy.deepcopy(manifest)
@@ -384,7 +428,8 @@ class LibraryTests(unittest.TestCase):
         legacy = previous["experiments"][0]
         legacy.update(id="legacy-10311", file="legacy-10311.trz")
         files = library.library_files(self.root)
-        (files / "compadre-10311-1797.trz").replace(files / "legacy-10311.trz")
+        current = library.cache_path(self.root, first)
+        current.replace(files / "legacy-10311.trz")
         routes, _ = self.discovery_routes(project_zip)
         for candidate in candidates:
             routes.pop(candidate["url"])
@@ -400,22 +445,35 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual(refreshed["withdrawn"], [{"id": "compadre-1-1", "url": gone, "sha256": "1" * 64,
                                                    "withdrawn": "2026-12-01"}])
         self.assertEqual(refreshed["experiments"][0]["id"], "compadre-10311-1797")
-        self.assertTrue((files / "compadre-10311-1797.trz").is_file())
+        self.assertTrue(current.is_file())
         self.assertFalse((files / "legacy-10311.trz").exists())
         self.assertFalse(any("ServeFile" in call[0] and "TrackerSet" in call[0] and "11617" not in call[0]
                              and "16833" not in call[0] for call in self.network.calls))
 
+        # A failed forced refresh keeps the previous verified pin instead of excluding the experiment.
+        routes, _ = self.discovery_routes(project_zip)
+        for candidate in candidates:
+            routes[candidate["url"]] = self.http_error(404)
+        kept = library.discover(self.root, sources={"compadre-tracker"}, client=self.client(routes, retries=0),
+                                today="2026-12-02", previous=refreshed, redownload=True, log=lambda _: None)
+        self.assertEqual([entry["sha256"] for entry in kept["experiments"]],
+                         [entry["sha256"] for entry in refreshed["experiments"]])
+        self.assertTrue(current.is_file())
+
     def test_archive_projects_are_read_without_extraction_and_with_bounds(self):
         path = self.root / "sample.trz"
-        path.write_bytes(archive({"../escape.trk": b"<object/>", "nested/b.trk": b"<object/>", "video.mp4": b"v"}))
+        path.write_bytes(archive({"../escape.trk": b"<object/>", "nested/b.trk": b"<object/>", "video.mp4": b"v",
+                                  "__MACOSX/nested/._b.trk": b"\0\5\26\7", "._top.trk": b"\0"}))
         self.assertEqual(library.archive_projects(path), ["../escape.trk", "nested/b.trk"])
         self.assertEqual(list(library.read_projects(path)), [("../escape.trk", b"<object/>"), ("nested/b.trk", b"<object/>")])
         self.assertFalse((self.root.parent / "escape.trk").exists())
-        self.assertEqual(library.archive_file_types(path), {"mp4": 1, "trk": 2})
+        self.assertEqual(library.archive_file_types(path), {"(appledouble)": 2, "mp4": 1, "trk": 2})
         with self.assertRaisesRegex(ValueError, "size limit"):
             list(library.read_projects(path, limit=3))
         with patch.object(library, "MAX_ARCHIVE_MEMBERS", 2), self.assertRaisesRegex(ValueError, "too many"):
             library.archive_projects(path)
+        self.assertTrue(library.is_appledouble("__MACOSX/x/._y.trk") and library.is_appledouble("._y.trk"))
+        self.assertFalse(library.is_appledouble("macosx/y.trk"))
 
     def test_library_projects_materialize_unique_experiments_for_oracles(self):
         manifest = self.manifest()
@@ -425,13 +483,21 @@ class LibraryTests(unittest.TestCase):
                                         "duplicate_of": "compadre-1-2"})
         files = library.library_files(self.root)
         files.mkdir(parents=True)
-        (files / "compadre-1-2.trz").write_bytes(data)
+        cached = library.cache_path(self.root, manifest["experiments"][0])
+        cached.write_bytes(data)
         items = library.library_projects(manifest, self.root)
         self.assertEqual([(item["experiment"], item["member"]) for item in items], [("compadre-1-2", "a.trk"), ("compadre-1-2", "b.trk")])
         self.assertEqual(Path(items[1]["path"]).read_bytes(), tracker_project(("Vector",)))
         self.assertEqual(items[1]["sha256"], hashlib.sha256(tracker_project(("Vector",))).hexdigest())
-        (files / "compadre-1-2.trz").write_bytes(data[:-1] + b"!")
+        cached.write_bytes(data[:-1] + b"!")
         with self.assertRaisesRegex(ValueError, "Checksum"):
+            library.library_projects(manifest, self.root)
+        # An unreadable archive names its experiment and cached path.
+        broken = b"PK\3\4 not really a zip"
+        manifest["experiments"][0].update(bytes=len(broken), sha256=hashlib.sha256(broken).hexdigest())
+        broken_path = library.cache_path(self.root, manifest["experiments"][0])
+        broken_path.write_bytes(broken)
+        with self.assertRaisesRegex(library.ArchiveError, "compadre-1-2 .*BadZipFile"):
             library.library_projects(manifest, self.root)
 
     def test_project_analysis_reports_versions_tracks_media_filters_models_and_functions(self):
@@ -461,6 +527,7 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual(library.analyze_project(tabset)["tabset_tabs"], 2)
 
     def test_native_and_reference_outcomes_are_platform_neutral(self):
+        crt_text = "HEAP CORRUPTION DETECTED: after Normal block (#1) at 0x1.\nCRT detected that the application wrote"
         cache = Path(tempfile.gettempdir()) / "motrack-cache"
         output = self.root / "open.json"
         with patch.object(library, "run_tool", return_value=(1, f"warning\nCould not read {cache}/library/x.trz from C:\\Users\\a\\b.trz")):
@@ -472,6 +539,10 @@ class LibraryTests(unittest.TestCase):
                 {"movie": True, "unsupported_tracks": [library.TRACKER + "CoordAxes", library.TRACKER + "TapeMeasure"]},
                 {"movie": False, "unsupported_tracks": [library.TRACKER + "CoordAxes"]}]}), encoding="utf-8")
             return 0, ""
+        for code, text, status in [(None, "timed out after 180 s", "timed_out"), (3, crt_text, "crashed"),
+                                   (3221225477, "", "crashed"), (-11, "", "crashed"), (1, "Invalid Tracker XML.", "rejected")]:
+            with self.subTest(code=code), patch.object(library, "run_tool", return_value=(code, text)):
+                self.assertEqual(library.native_open("probe", "x.trz", output, cache)["status"], status)
         with patch.object(library, "run_tool", side_effect=opened):
             self.assertEqual(library.native_open("probe", "x.trz", output, cache),
                              {"status": "opened", "experiments": 2, "movies": 1,
@@ -507,14 +578,17 @@ class LibraryTests(unittest.TestCase):
         files = library.library_files(self.root)
         files.mkdir(parents=True)
         payloads = {"compadre-1-2.trz": archive({"one.trk": tracker_project(), "videos/a.mp4": b"v"}),
-                    "osp-sampler-a1b2c3d4.zip": archive({"x.trk": tracker_project(("Vector",)), "y.trk": tracker_project()})}
+                    "osp-sampler-a1b2c3d4.zip": archive({"x.trk": tracker_project(("Vector",)), "y.trk": tracker_project(),
+                                                         "__MACOSX/._x.trk": b"\0\5\26\7"}),
+                    "compadre-9-9.trz": b"not an archive"}
         entries = []
         for name, data in payloads.items():
-            (files / name).write_bytes(data)
             identifier = name.rsplit(".", 1)[0]
             entries.append({"id": identifier, "source": "compadre-tracker", "file": name, "bytes": len(data),
                             "sha256": hashlib.sha256(data).hexdigest()})
+            library.cache_path(self.root, entries[-1]).write_bytes(data)
         entries.append({**entries[0], "id": "compadre-1-3", "file": "compadre-1-3.trz", "duplicate_of": "compadre-1-2"})
+        names = {entry["id"]: library.cache_path(self.root, entry).name for entry in entries}
         opened = []
 
         def tool(command, timeout):
@@ -526,10 +600,17 @@ class LibraryTests(unittest.TestCase):
                                          encoding="utf-8")
             return 0, ""
         with patch.object(library, "run_tool", side_effect=tool), patch.object(library, "platform_key", return_value="linux"):
-            report = library.census({"refreshed": "2026-11-21", "experiments": entries}, self.root, "probe", jobs=2,
-                                    log=lambda _: None)
-        self.assertEqual(sorted(opened), ["compadre-1-2.trz", "osp-sampler-a1b2c3d4.trz", "osp-sampler-a1b2c3d4.zip"])
-        self.assertEqual([record["id"] for record in report["experiments"]], ["compadre-1-2", "osp-sampler-a1b2c3d4"])
+            report = library.census({"refreshed": "2026-11-21", "experiments": entries,
+                                     "known_issues": [{"issue": 211, "summary": "x", "experiments": ["compadre-1-2"]}]},
+                                    self.root, "probe", jobs=2, log=lambda _: None)
+        self.assertEqual(sorted(opened), sorted([names["compadre-1-2"], names["compadre-9-9"], "osp-sampler-a1b2c3d4.trz",
+                                                 names["osp-sampler-a1b2c3d4"]]))
+        self.assertEqual([record["id"] for record in report["experiments"]], ["compadre-1-2", "osp-sampler-a1b2c3d4", "compadre-9-9"])
+        self.assertEqual(report["experiments"][0]["native"]["linux"]["known_issue"], 211)
+        broken = report["experiments"][2]
+        self.assertRegex(broken["archive_error"], r"^compadre-9-9 \(<cache>.*\): BadZipFile")
+        self.assertEqual((broken["projects"], broken["tabs"], report["aggregate"]["archive_errors"]), ([], 0, 1))
+        self.assertEqual(report["aggregate"]["native"]["linux"]["open"], {"known issue #211": 1, "opened": 1, "rejected": 1})
         self.assertEqual(report["duplicates_skipped"], 1)
         zipped = report["experiments"][1]
         self.assertEqual(zipped["native"], {"linux": {"status": "rejected", "message": "Choose a Tracker or MoTrack project file.",
@@ -537,6 +618,7 @@ class LibraryTests(unittest.TestCase):
                                                                  "unsupported_tracks": {}}}})
         self.assertEqual(([project["member"] for project in zipped["projects"]], zipped["tabs"]), (["x.trk", "y.trk"], 2))
         self.assertEqual(report["experiments"][0]["archive_file_types"], {"mp4": 1, "trk": 1})
+        self.assertEqual(zipped["archive_file_types"], {"(appledouble)": 1, "trk": 2})
         self.assertFalse(any(path.suffix == ".trz" for path in (self.root / "library" / "reports").iterdir()))
         with self.assertRaises(ValueError):
             library.census({"refreshed": "2026-11-21", "experiments": []}, self.root, "probe", jobs=0)
@@ -583,6 +665,56 @@ class LibraryTests(unittest.TestCase):
         stripped = library.without_platform(merged, "windows")
         self.assertEqual([record["native"] for record in stripped["experiments"]], [{"linux": {"status": "opened"}}, {}])
         self.assertEqual(list(stripped["aggregate"]["native"]), ["linux"])
+
+    def census_check(self, report, committed, *, java=None, platform="linux"):
+        census_file, readme = self.root / "census.json", self.root / "README.md"
+        readme.write_text("intro\n" + library.census_markdown(committed) + "\noutro\n", encoding="utf-8")
+        library.write_json(census_file, committed)
+        args = type("Args", (), {"check": True, "probe": "probe", "java": java, "jobs": 1})()
+        with patch.object(library, "LIBRARY_CENSUS", census_file), patch.object(library, "README", readme), \
+                patch.object(library, "platform_key", return_value=platform), \
+                patch.object(library, "census", return_value=copy.deepcopy(report)), \
+                patch("builtins.print"):
+            library.census_main({"refreshed": "2026-11-21", "experiments": []}, self.root, args)
+
+    def test_census_check_compares_the_committed_report_and_publishes_a_new_platform_baseline(self):
+        def record(identifier, status, **extra):
+            return {"id": identifier, "sha256": identifier * 64, "bytes": 1, "archive_file_types": {"trk": 1}, "tabs": 1,
+                    "projects": [{"root": "TrackerPanel", "version": "4.92"}],
+                    "native": {"linux": {"status": status, **extra}}}
+        committed = library.census_report({"refreshed": "2026-11-21", "experiments": []},
+                                          [record("a", "opened"), record("b", "crashed", message="memory error", known_issue=211)], None)
+        self.census_check(committed, committed)
+        # A known issue's raw outcome may flap (undefined behaviour) without failing the check.
+        flapped = copy.deepcopy(committed)
+        flapped["experiments"][1]["native"]["linux"] = {"status": "opened", "experiments": 1, "known_issue": 211}
+        flapped["aggregate"] = library.aggregate(flapped["experiments"])
+        self.census_check(flapped, committed)
+        drifted = copy.deepcopy(committed)
+        drifted["experiments"][0]["native"]["linux"] = {"status": "rejected", "message": "Invalid Tracker XML."}
+        drifted["aggregate"] = library.aggregate(drifted["experiments"])
+        with self.assertRaisesRegex(ValueError, r"census.experiments\[a\].native.linux"):
+            self.census_check(drifted, committed)
+        # No committed baseline for this platform: everything else is still compared.
+        windows = copy.deepcopy(committed)
+        for item in windows["experiments"]:
+            item["native"] = {"windows": item["native"]["linux"]}
+        windows["aggregate"] = library.aggregate(windows["experiments"])
+        merged = copy.deepcopy(windows)
+        for item, linux in zip(merged["experiments"], committed["experiments"]):
+            item["native"]["linux"] = linux["native"]["linux"]
+        merged["aggregate"] = library.aggregate(merged["experiments"])
+        self.census_check(merged, windows)
+        changed = copy.deepcopy(merged)
+        changed["experiments"][0]["tabs"] = 2
+        changed["aggregate"] = library.aggregate(changed["experiments"])
+        with self.assertRaisesRegex(ValueError, "tabs"):
+            self.census_check(changed, windows)
+        # A census recorded with the Java reference can only be checked with it.
+        with_java = {**committed, "java_reference": "Tracker 6.3.5 TrackerReference (xml_and_coordinate_api)"}
+        with self.assertRaisesRegex(ValueError, "pass --java"):
+            self.census_check(with_java, with_java)
+        self.census_check(with_java, with_java, java="java")
 
     def test_memory_errors_are_classified_without_addresses(self):
         crt = ("HEAP CORRUPTION DETECTED: after Normal block (#71854) at 0x000001DB0B867070.\n"

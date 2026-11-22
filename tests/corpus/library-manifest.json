@@ -1537,7 +1537,7 @@
       },
       "rights": {
         "Access Rights": {
-          "statement": "Free access andAvailable by subscription"
+          "statement": "Free access and Available by subscription"
         },
         "Restriction": {
           "statement": "© 2013 Paulo Simeão Carvalho"
@@ -1580,7 +1580,7 @@
       },
       "rights": {
         "Access Rights": {
-          "statement": "Free access andAvailable by subscription"
+          "statement": "Free access and Available by subscription"
         },
         "Restriction": {
           "statement": "© 2013 Marcelo Rodrigues"
@@ -6109,7 +6109,7 @@
       },
       "bytes": 84180,
       "sha256": "181e9b17cc3020f7981d62a047ba21627f704652b5953f59b237ff5dec11d67e",
-      "projects": 2,
+      "projects": 1,
       "discovered": "2026-11-21"
     },
     {
@@ -12192,7 +12192,7 @@
       },
       "bytes": 97854,
       "sha256": "8ea7ad5d7bd820ff0b74cc5e011d7d4176cca28ab9a60e9d476b08041fdeb990",
-      "projects": 2,
+      "projects": 1,
       "discovered": "2026-11-21"
     },
     {
@@ -12537,7 +12537,7 @@
       },
       "bytes": 1615785,
       "sha256": "ab729b5afdb2bd1879ea0c543d2ce16bc10e2908ba4bc59098fe5f9e054a2c35",
-      "projects": 2,
+      "projects": 1,
       "discovered": "2026-11-21"
     },
     {
@@ -12583,7 +12583,7 @@
       },
       "bytes": 447902,
       "sha256": "56ef6bd5b9d1737153dada8c3eea3698f4f0c4a46979b0ce3a46c94a757dd9da",
-      "projects": 2,
+      "projects": 1,
       "discovered": "2026-11-21"
     },
     {
@@ -14402,5 +14402,25 @@
     }
   ],
   "excluded": [],
-  "withdrawn": []
+  "withdrawn": [],
+  "known_issues": [
+    {
+      "issue": 211,
+      "summary": "Movie indexing writes past the converted frame buffer for H.264 widths that are not multiples of 16. This is undefined behaviour: the Windows debug CRT stops the probe, while other builds and platforms may open the file or fail differently, so drift checks compare only this marker.",
+      "experiments": [
+        "compadre-15439-5288",
+        "compadre-15439-5289",
+        "compadre-16203-5666",
+        "osp-resources-cab-experiments-balltoss-01d80ef5",
+        "osp-resources-cab-experiments-tab-video-internal-html-7e85f7e9",
+        "osp-resources-cab-experiments-tab-video-pdf-b70d2105",
+        "iwant2study-02-newtonianmechanics-2kinematics-trz-toycarslope-4904968c",
+        "iwant2study-02-newtonianmechanics-3dynamics-trz-threeslopespeed-d6d28681",
+        "iwant2study-ketballgreenballcollisionmodelyi-chongwen-greenballmodel-2dfa3cea",
+        "iwant2study-trz-basketballcollisionmodelyi-chongwen-basketballmodel-43bf9b2f",
+        "iwant2study-trz-toycargentleslopefirst-a2b62dac",
+        "iwant2study-trz-toycarsteepslopefirst-5ac8ffbf"
+      ]
+    }
+  ]
 }

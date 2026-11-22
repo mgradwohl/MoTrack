@@ -116,16 +116,26 @@ python tools/corpus.py library-projects                                # every p
 python tools/corpus.py library-census --probe build/dev/motrack_corpus_probe [--java JAVA] [--jobs N] [--check]
 ```
 
-Downloads go to the ignored `<cache>/library/files/<id>.<ext>`, which `--cache` places with the other
-reference downloads. A refresh reuses a verified pin when its URL and listed size are unchanged, and
-re-downloads it otherwise.
+Downloads go to the ignored `<cache>/library/files/<id>-<first 12 SHA-256 digits>.<ext>`, which `--cache`
+places with the other reference downloads. Content-addressed names keep a stale or restored cache from
+blocking a re-pinned file:
+
+- `fetch-library` deletes a cached copy whose bytes do not match its pin and downloads it again; new bytes
+  are published only after they match.
+- A verified copy under an older name is adopted without a download.
+- Every file the manifest no longer names, including partial downloads, is pruned.
+
+A refresh reuses a verified pin when its URL and listed size are unchanged. Otherwise it downloads to a
+staging name. If that download fails, the previous verified pin is kept.
 
 **Request limits:**
 
 - Requests are made one at a time, at least one second apart, with the generic user agent `MoTrack-corpus/1.0`.
-- Throttling (429), 5xx and network errors are retried three times with exponential backoff.
+- Throttling (429), 5xx and network or TLS errors, including errors while reading the body, are retried
+  three times with exponential backoff.
 - Size caps are 64 MiB per file, 1.5 GiB in total and 16 MiB per metadata response.
-- Every request must be plain HTTPS, and every redirect hop is checked against the allowlist.
+- Every request must be plain HTTPS. Every redirect hop is checked against the hosts that request may reach;
+  for file downloads, that is only the download allowlist.
 - Experiment files come only from `www.compadre.org`, `opensourcephysics.github.io` and `iwant2study.org`.
   Metadata may also come from `api.github.com`, for the OSP resources license, and from the Shared Library's
   other collection hosts.
@@ -135,6 +145,11 @@ re-downloads it otherwise.
 **Untrusted files:**
 
 - Archives are read member by member with the 32 MiB XML bound, and member names never become paths.
+  macOS AppleDouble companions (`__MACOSX/…` and `._name`) are not projects; the census counts them under
+  `(appledouble)`.
+- An archive that Python cannot read is recorded as that experiment's `archive_error`, naming its ID and
+  cached path, and the census continues.
+- `TrackerReference` instantiates no saved class except `ImageCoordSystem`.
 - XML with document type or entity declarations is refused.
 - Nothing downloaded is executed. The probes and Java run on private copies with offscreen Qt and a private Java home.
 
@@ -148,32 +163,46 @@ re-downloads it otherwise.
 
 The census ([library-census.json](library-census.json)) records the following:
 
-- **Per experiment:** the archive member types and the number of tabs.
+- **Per experiment:** the archive member types and the number of tabs (TrackerPanel projects, plus the tabs
+  a tabset lists).
 - **Per project:** the root class, `semantic_version`/`version`, track classes, models, data functions,
   video class and file type, filters, reference frame, Data Tool tabs and custom views. These fields are
   read structurally from the XML.
 - **MoTrack's desktop open path, per platform:** `motrack_corpus_probe --open` runs the bounded archive
-  reader, opens every member, resolves media and indexes movies.
+  reader, opens every member, resolves media and indexes movies. The result is `opened`, `rejected`,
+  `crashed` (memory error, signal or Windows exception) or `timed_out`.
 - **With `--java`:** the pinned Tracker 6.3.5 XML/coordinate reference (`TrackerReference.java`, as in
   `corpus.py reference`) compared with MoTrack's import snapshot of each project.
 
 The census is a report, not acceptance evidence.
 
-`--check` regenerates the report and fails on any difference. A platform with no committed native results
-is the one exception: its results are written to `<cache>/library/library-census.json`, which CI uploads,
-so the maintainer can commit them as that platform's baseline.
+`--check` regenerates the report and fails on any difference, with two exceptions:
+
+- A platform with no committed native results publishes them instead. They are written to
+  `<cache>/library/library-census.json`, which CI uploads, so the maintainer can commit them as that platform's
+  baseline.
+- Experiments listed under the manifest's `known_issues` are compared only by their marker, because their
+  outcome is undefined behaviour that may differ between runs. They are the 12 experiments affected by #211.
+
+Give `--check` the same options the committed census was recorded with; a census recorded with `--java`
+cannot be checked without it.
+
+A fix for #211, #212, #224 or #229 changes the committed Windows results. Regenerate the census locally on
+Windows with `--java` in the same PR, and drop fixed experiments from `known_issues`.
 
 `corpus_library.library_projects(manifest, cache)` and the `library-projects` index give each project's
 experiment ID, archive member, private path, size and SHA-256, so corpus oracles such as A1's O1/O2 checks
 can run over every library file without touching the archives.
 
-[library-corpus.yml](../../.github/workflows/library-corpus.yml) runs weekly and on manual dispatch:
+[library-corpus.yml](../../.github/workflows/library-corpus.yml) runs monthly and on manual dispatch, so it
+does not fetch about 0.83 GB from the source hosts every week:
 
 1. It runs the unit tests.
-2. It restores downloads cached by manifest hash with the SHA-pinned `actions/cache`, saving them only after
-   a fully verified fetch.
-3. It fetches, builds the probe and runs `library-census --check` with Java 17.
-4. It uploads the regenerated census.
+2. It restores the most recent download cache with the SHA-pinned `actions/cache`.
+3. It fetches and verifies the pins, which also prunes unpinned files. Whenever the set of verified files
+   changed, it saves a new cache entry, even after a partial fetch.
+4. It builds the probe and runs `library-census --check` with Java 17.
+5. It uploads the regenerated census.
 
 Ordinary PR CI runs only the network-free unit tests in `test_corpus_library.py`.
 
@@ -183,6 +212,8 @@ Findings from the first census:
   buffer for H.264 widths that are not multiples of 16. The Windows debug CRT reports heap corruption.
 - [#212](https://github.com/mgradwohl/MoTrack/issues/212): archives that Tracker's own export filled with
   absolute-path members, or that contain macOS `Icon\r` or `__MACOSX/._*.trk` AppleDouble files, are rejected as a whole.
+  The census excludes AppleDouble files from project and tab counts, which leaves 11 experiments with 2–4
+  real projects and 507 TrackerPanel projects.
 - [#213](https://github.com/mgradwohl/MoTrack/issues/213): Tracker's Library Browser cannot reach ComPADRE
   `Source Code` TRZ attachments (OSP reference defect).
 - [#224](https://github.com/mgradwohl/MoTrack/issues/224): `.zip` experiments open in Tracker but are rejected
@@ -200,8 +231,9 @@ Findings from the first census:
   Tracker files.
 
 The committed census was generated on Windows 11 with the `dev` (debug) build, so it holds only the
-`windows` native baseline. The first scheduled Linux run publishes the `linux` baseline. The memory errors
-are detected only by the debug CRT, so other builds and platforms may report the affected files as opened.
+`windows` native baseline. The first Linux run of the workflow publishes the `linux` baseline. Only the
+debug CRT detects the #211 memory errors, so other builds and platforms may report the affected files as
+opened. Those experiments are therefore listed as known issues.
 
 <!-- library-census:start -->
 
@@ -209,21 +241,21 @@ Generated from manifest refresh 2026-11-21 by `python tools/corpus.py library-ce
 
 | Census | Result |
 | --- | --- |
-| Experiments / projects / bytes | 492 / 514 / 783,645,678 |
-| Tracker versions (projects) | 5.0.0 (57), 4.87 (55), 4.91 (47), 4.85 (45), 4.92 (42), (not recorded) (35), 4.80 (32), 6.1.6 (27), … 34 more |
+| Experiments / projects (TrackerPanel) / bytes | 492 / 510 (507) / 783,645,678 |
+| Tracker versions (projects) | 5.0.0 (57), 4.87 (55), 4.91 (47), 4.85 (45), 4.92 (42), 4.80 (32), (not recorded) (31), 6.1.6 (27), … 34 more |
 | Track classes (projects using) | CoordAxes (506), TapeMeasure (459), PointMass (430), DynamicParticle (206), AnalyticParticle (75), Calibration (39), LineProfile (34), Protractor (28), DynamicParticlePolar (24), CenterOfMass (12), PerspectiveTrack (5), Vector (4), … 6 more |
-| Video classes (projects) | xuggle.XuggleVideo (398), ImageVideo (95), (none) (12), gif.GifVideo (7), quicktime.QTVideo (2) |
-| Video file types (projects) | mp4 (371), jpg (89), mov (23), (none) (12), gif (7), png (6), avi (2), flv (2), … 1 more |
+| Video classes (projects) | xuggle.XuggleVideo (398), ImageVideo (95), (none) (8), gif.GifVideo (7), quicktime.QTVideo (2) |
+| Video file types (projects) | mp4 (371), jpg (89), mov (23), (none) (8), gif (7), png (6), avi (2), flv (2), … 1 more |
 | Video filters (projects) | RotateFilter (6), DeinterlaceFilter (5), GhostFilter (3), PerspectiveFilter (3), BrightnessFilter (2), BaselineFilter (1) |
 | Models (projects) | DynamicParticle (206), AnalyticParticle (75), DynamicParticlePolar (24), DynamicSystem (1), ParticleDataTrack (1) |
 | Data functions | 1057 in 133 projects |
 | Archive member types (experiments) | trk (492), html (295), png (295), mp4 (245), pdf (77), jpg (63), mov (13), docx (8), … 13 more |
-| Tabs per experiment (experiments) | 1 (477), 2 (10), 3 (3), 4 (2) |
-| MoTrack desktop open, windows (experiments) | opened (434), rejected (58) |
-| MoTrack open rejections, windows | Choose a Tracker or MoTrack project file. (33), memory error: HEAP CORRUPTION DETECTED: after Normal block (&lt;n&gt;) at &lt;n&gt;. (11), Invalid or unsupported Tracker archive. (6), Invalid Tracker XML. (4), Expected a TrackerPanel project. (2), Invalid Tracker numeric property. (2) |
+| Tabs per experiment (experiments) | 1 (480), 2 (6), 3 (3), 4 (2), 0 (1) |
+| MoTrack desktop open, windows (experiments) | opened (434), rejected (46), known issue #211 (12) |
+| MoTrack open failures, windows (excluding known issues) | Choose a Tracker or MoTrack project file. (32), Invalid or unsupported Tracker archive. (6), Invalid Tracker XML. (4), Expected a TrackerPanel project. (2), Invalid Tracker numeric property. (2) |
 | Unsupported tracks reported, windows (experiments) | CoordAxes (433), TapeMeasure (397), DynamicParticle (188), AnalyticParticle (74), Protractor (26), DynamicParticlePolar (23), Calibration (21), LineProfile (18), CenterOfMass (7), PerspectiveTrack (5), … 5 more |
-| ZIP experiments renamed .trz, windows | opened (32), rejected (1) |
-| Java 6.3.5 XML/coordinate vs MoTrack import (projects) | match (491), differs (14), both_rejected (8), native_rejected (1) |
+| ZIP experiments renamed .trz, windows | opened (32) |
+| Java 6.3.5 XML/coordinate vs MoTrack import (projects) | match (491), differs (14), both_rejected (4), native_rejected (1) |
 
 <!-- library-census:end -->
 

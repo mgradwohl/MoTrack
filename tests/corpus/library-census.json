@@ -6,7 +6,9 @@
   "duplicates_skipped": 22,
   "aggregate": {
     "experiments": 492,
-    "projects": 514,
+    "projects": 510,
+    "trackerpanel_projects": 507,
+    "archive_errors": 0,
     "bytes": 783645678,
     "tracker_versions": {
       "5.0.0": 57,
@@ -14,8 +16,8 @@
       "4.91": 47,
       "4.85": 45,
       "4.92": 42,
-      "(not recorded)": 35,
       "4.80": 32,
+      "(not recorded)": 31,
       "6.1.6": 27,
       "5.0.7": 24,
       "4.86": 21,
@@ -129,7 +131,7 @@
     "video_classes": {
       "xuggle.XuggleVideo": 398,
       "ImageVideo": 95,
-      "(none)": 12,
+      "(none)": 8,
       "gif.GifVideo": 7,
       "quicktime.QTVideo": 2
     },
@@ -137,7 +139,7 @@
       "mp4": 371,
       "jpg": 89,
       "mov": 23,
-      "(none)": 12,
+      "(none)": 8,
       "gif": 7,
       "png": 6,
       "avi": 2,
@@ -172,13 +174,13 @@
       "jpg": 63,
       "mov": 13,
       "docx": 8,
-      "(none)": 7,
+      "(appledouble)": 5,
       "doc": 4,
       "gif": 4,
+      "(none)": 3,
       "wmv": 2,
       "avi": 1,
       "css": 1,
-      "ds_store": 1,
       "flv": 1,
       "pptx": 1,
       "py": 1,
@@ -187,20 +189,21 @@
       "xlsm": 1
     },
     "tabs": {
-      "1": 477,
-      "2": 10,
+      "1": 480,
+      "2": 6,
       "3": 3,
-      "4": 2
+      "4": 2,
+      "0": 1
     },
     "native": {
       "windows": {
         "open": {
           "opened": 434,
-          "rejected": 58
+          "rejected": 46,
+          "known issue #211": 12
         },
         "rejections": {
-          "Choose a Tracker or MoTrack project file.": 33,
-          "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>.": 11,
+          "Choose a Tracker or MoTrack project file.": 32,
           "Invalid or unsupported Tracker archive.": 6,
           "Invalid Tracker XML.": 4,
           "Expected a TrackerPanel project.": 2,
@@ -224,15 +227,14 @@
           "RGBRegion": 1
         },
         "zip_as_trz": {
-          "opened": 32,
-          "rejected": 1
+          "opened": 32
         }
       }
     },
     "reference": {
       "match": 491,
       "differs": 14,
-      "both_rejected": 8,
+      "both_rejected": 4,
       "native_rejected": 1
     }
   },
@@ -3487,8 +3489,9 @@
       ],
       "native": {
         "windows": {
-          "status": "rejected",
-          "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>."
+          "status": "crashed",
+          "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>.",
+          "known_issue": 211
         }
       },
       "tabs": 1
@@ -3533,8 +3536,9 @@
       ],
       "native": {
         "windows": {
-          "status": "rejected",
-          "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>."
+          "status": "crashed",
+          "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>.",
+          "known_issue": 211
         }
       },
       "tabs": 1
@@ -3891,8 +3895,9 @@
       ],
       "native": {
         "windows": {
-          "status": "rejected",
-          "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>."
+          "status": "crashed",
+          "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>.",
+          "known_issue": 211
         }
       },
       "tabs": 1
@@ -4372,9 +4377,10 @@
           "status": "rejected",
           "message": "Choose a Tracker or MoTrack project file.",
           "as_trz": {
-            "status": "rejected",
+            "status": "crashed",
             "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>."
-          }
+          },
+          "known_issue": 211
         }
       },
       "tabs": 1
@@ -5770,8 +5776,9 @@
       ],
       "native": {
         "windows": {
-          "status": "rejected",
-          "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>."
+          "status": "crashed",
+          "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>.",
+          "known_issue": 211
         }
       },
       "tabs": 1
@@ -5814,8 +5821,9 @@
       ],
       "native": {
         "windows": {
-          "status": "rejected",
-          "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>."
+          "status": "crashed",
+          "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>.",
+          "known_issue": 211
         }
       },
       "tabs": 1
@@ -8620,11 +8628,11 @@
       "file_type": "trz",
       "bytes": 84180,
       "archive_file_types": {
-        "(none)": 3,
-        "html": 2,
-        "mp4": 2,
-        "png": 2,
-        "trk": 2
+        "(appledouble)": 7,
+        "html": 1,
+        "mp4": 1,
+        "png": 1,
+        "trk": 1
       },
       "projects": [
         {
@@ -8651,14 +8659,6 @@
           "reference": {
             "status": "match"
           }
-        },
-        {
-          "member": "__MACOSX/BallTossOut/._tossout.trk",
-          "xml_error": "not well-formed (invalid token): line 1, column 0",
-          "reference": {
-            "status": "both_rejected",
-            "native": "Invalid Tracker XML."
-          }
         }
       ],
       "native": {
@@ -8667,7 +8667,7 @@
           "message": "Invalid Tracker XML."
         }
       },
-      "tabs": 2
+      "tabs": 1
     },
     {
       "id": "iwant2study-02-newtonianmechanics-2kinematics-trz-bosstossup-699987b1",
@@ -9084,8 +9084,9 @@
       ],
       "native": {
         "windows": {
-          "status": "rejected",
-          "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>."
+          "status": "crashed",
+          "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>.",
+          "known_issue": 211
         }
       },
       "tabs": 1
@@ -9349,10 +9350,10 @@
       "file_type": "trz",
       "bytes": 491464,
       "archive_file_types": {
+        "(appledouble)": 2,
         "(none)": 1,
-        "ds_store": 1,
         "html": 1,
-        "mp4": 2,
+        "mp4": 1,
         "png": 1,
         "trk": 1
       },
@@ -10136,8 +10137,9 @@
       ],
       "native": {
         "windows": {
-          "status": "rejected",
-          "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>."
+          "status": "crashed",
+          "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>.",
+          "known_issue": 211
         }
       },
       "tabs": 1
@@ -13471,7 +13473,7 @@
           "message": "Expected a TrackerPanel project."
         }
       },
-      "tabs": 1
+      "tabs": 0
     },
     {
       "id": "iwant2study-journalpaper-0031-9120-50-4-436tossuptrackerbosstossup-5ed50142",
@@ -13623,8 +13625,9 @@
       ],
       "native": {
         "windows": {
-          "status": "rejected",
-          "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>."
+          "status": "crashed",
+          "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>.",
+          "known_issue": 211
         }
       },
       "tabs": 1
@@ -17122,8 +17125,9 @@
       ],
       "native": {
         "windows": {
-          "status": "rejected",
-          "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>."
+          "status": "crashed",
+          "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>.",
+          "known_issue": 211
         }
       },
       "tabs": 1
@@ -21483,11 +21487,11 @@
       "file_type": "trz",
       "bytes": 97854,
       "archive_file_types": {
-        "(none)": 3,
-        "html": 2,
-        "mp4": 2,
-        "png": 2,
-        "trk": 2
+        "(appledouble)": 7,
+        "html": 1,
+        "mp4": 1,
+        "png": 1,
+        "trk": 1
       },
       "projects": [
         {
@@ -21514,14 +21518,6 @@
           "reference": {
             "status": "match"
           }
-        },
-        {
-          "member": "__MACOSX/Projectile_Bouncing_Model/._Projectile_Bouncing_Model.trk",
-          "xml_error": "not well-formed (invalid token): line 1, column 0",
-          "reference": {
-            "status": "both_rejected",
-            "native": "Invalid Tracker XML."
-          }
         }
       ],
       "native": {
@@ -21530,7 +21526,7 @@
           "message": "Invalid Tracker XML."
         }
       },
-      "tabs": 2
+      "tabs": 1
     },
     {
       "id": "iwant2study-trz-projectile-bouncing-model-projectile-bouncing-model-b8581ddf",
@@ -22232,12 +22228,12 @@
       "file_type": "trz",
       "bytes": 1615785,
       "archive_file_types": {
-        "(none)": 3,
-        "docx": 4,
-        "html": 2,
-        "mp4": 2,
-        "png": 2,
-        "trk": 2
+        "(appledouble)": 9,
+        "docx": 2,
+        "html": 1,
+        "mp4": 1,
+        "png": 1,
+        "trk": 1
       },
       "projects": [
         {
@@ -22262,14 +22258,6 @@
             "status": "both_rejected",
             "native": "Invalid Tracker numeric property."
           }
-        },
-        {
-          "member": "__MACOSX/RVhimnokkinematics01/._RVhimnokkinematics01.trk",
-          "xml_error": "not well-formed (invalid token): line 1, column 0",
-          "reference": {
-            "status": "both_rejected",
-            "native": "Invalid Tracker XML."
-          }
         }
       ],
       "native": {
@@ -22278,7 +22266,7 @@
           "message": "Invalid Tracker numeric property."
         }
       },
-      "tabs": 2
+      "tabs": 1
     },
     {
       "id": "iwant2study-trz-rvhimnokkinematics01-rvhimnokkinematics01-c39d9e99",
@@ -22329,12 +22317,12 @@
       "file_type": "trz",
       "bytes": 447902,
       "archive_file_types": {
-        "(none)": 3,
-        "docx": 4,
-        "html": 2,
-        "mp4": 2,
-        "png": 2,
-        "trk": 2
+        "(appledouble)": 9,
+        "docx": 2,
+        "html": 1,
+        "mp4": 1,
+        "png": 1,
+        "trk": 1
       },
       "projects": [
         {
@@ -22362,14 +22350,6 @@
             "status": "differs",
             "detail": "project.point_masses[0].samples[0].world: expected a list, got null"
           }
-        },
-        {
-          "member": "__MACOSX/RVhimnokkinematics05/._RVhimnokkinematics05.trk",
-          "xml_error": "not well-formed (invalid token): line 1, column 0",
-          "reference": {
-            "status": "both_rejected",
-            "native": "Invalid Tracker XML."
-          }
         }
       ],
       "native": {
@@ -22378,7 +22358,7 @@
           "message": "Invalid Tracker XML."
         }
       },
-      "tabs": 2
+      "tabs": 1
     },
     {
       "id": "iwant2study-trz-salingsamanthayom-26-312offsetorigindone-e9568748",
@@ -23729,8 +23709,9 @@
       ],
       "native": {
         "windows": {
-          "status": "rejected",
-          "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>."
+          "status": "crashed",
+          "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>.",
+          "known_issue": 211
         }
       },
       "tabs": 1
@@ -23869,8 +23850,9 @@
       ],
       "native": {
         "windows": {
-          "status": "rejected",
-          "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>."
+          "status": "crashed",
+          "message": "memory error: HEAP CORRUPTION DETECTED: after Normal block (<n>) at <n>.",
+          "known_issue": 211
         }
       },
       "tabs": 1

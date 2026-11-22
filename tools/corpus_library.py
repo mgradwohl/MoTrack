@@ -30,6 +30,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
+import zlib
 
 import corpus
 
@@ -105,13 +106,21 @@ class PoliteClient:
             raise ValueError("Library requests need at least a one-second delay and bounded retries")
         self.hosts = frozenset(hosts)
         self.delay, self.retries, self.backoff, self.timeout = delay, retries, backoff, timeout
-        self.open_url = opener or urllib.request.build_opener(_RedirectGuard(self.hosts)).open
+        self.opener, self.openers = opener, {}
         self.sleep, self.clock = sleep, clock
         self.last = None
         self.requests = 0
 
+    def open_url(self, request, hosts):
+        """Open with a redirect guard limited to exactly the hosts this request may reach."""
+        if self.opener:
+            return self.opener(request, timeout=self.timeout)
+        if hosts not in self.openers:
+            self.openers[hosts] = urllib.request.build_opener(_RedirectGuard(hosts)).open
+        return self.openers[hosts](request, timeout=self.timeout)
+
     def request(self, url, consume, hosts=None):
-        hosts = self.hosts if hosts is None else self.hosts & hosts
+        hosts = self.hosts if hosts is None else self.hosts & frozenset(hosts)
         check_url(url, hosts)
         for attempt in range(self.retries + 1):
             if self.last is not None and (remaining := self.last + self.delay - self.clock()) > 0:
@@ -120,14 +129,15 @@ class PoliteClient:
             try:
                 self.requests += 1
                 request = urllib.request.Request(quote_url(url), headers={"User-Agent": USER_AGENT})
-                with self.open_url(request, timeout=self.timeout) as response:
+                with self.open_url(request, hosts) as response:
                     check_url(response.geturl(), hosts)
                     return consume(response)
             except urllib.error.HTTPError as error:
                 if error.code not in RETRY_STATUS or attempt == self.retries:
                     raise ValueError(f"HTTP {error.code} for {url[:200]}") from error
                 retry_after = error.headers.get("Retry-After") if error.headers else None
-            except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException) as error:
+            # OSError covers URLError, timeouts, resets and ssl.SSLError raised while the body is read.
+            except (OSError, http.client.HTTPException) as error:
                 if attempt == self.retries:
                     raise ValueError(f"Request failed for {url[:200]}: {str(error)[:200]}") from error
             finally:
@@ -272,6 +282,9 @@ def parse_compadre(data):
     return len(records), sorted(documents.values(), key=lambda entry: (entry["compadre"]["item"], entry["compadre"]["document"]))
 
 
+LINE_BREAK_TAGS = {"br", "p", "div", "li", "ul", "ol", "tr", "td", "table", "hr"}
+
+
 class _RightsParser(html.parser.HTMLParser):
     """Collect <dt>/<dd> pairs from the ComPADRE item detail list (text and links, tags dropped)."""
 
@@ -288,8 +301,12 @@ class _RightsParser(html.parser.HTMLParser):
             href = dict(attributes).get("href")
             if href:
                 self.links.append(href)
+        elif tag in LINE_BREAK_TAGS and self.capture:
+            self.current.append(" ")  # "and<br />Available" reads as two words, as rendered
 
     def handle_endtag(self, tag):
+        if tag in LINE_BREAK_TAGS and self.capture:
+            self.current.append(" ")
         if tag == self.capture:
             text = " ".join("".join(self.current).split())
             if tag == "dt":
@@ -438,17 +455,71 @@ def discover_osp(client, source, log):
     return {"collections": len(collections), "skipped": skipped}, sorted(found.values(), key=lambda entry: entry["id"])
 
 
+class ArchiveError(ValueError):
+    """A library file that cannot be read as an archive; the message names the experiment and path."""
+
+
+ARCHIVE_ERRORS = (zipfile.BadZipFile, zipfile.LargeZipFile, NotImplementedError, RuntimeError, EOFError, zlib.error,
+                  OSError, ValueError)
+
+
+def is_appledouble(name):
+    """macOS resource-fork companions (``__MACOSX/...`` or ``._name``) are never Tracker projects."""
+    path = PurePosixPath(name)
+    return "__MACOSX" in path.parts or path.name.startswith("._")
+
+
 def archive_projects(path):
-    """Names of Tracker project members in a ZIP/TRZ, bounded; never extracts."""
+    """Names of Tracker project members in a ZIP/TRZ, bounded; never extracts. AppleDouble files are skipped."""
     with zipfile.ZipFile(path) as archive:
         entries = archive.infolist()
         if len(entries) > MAX_ARCHIVE_MEMBERS:
             raise ValueError("Archive has too many members")
-        return [entry.filename for entry in entries if not entry.is_dir() and _suffix(entry.filename) == ".trk"]
+        return [entry.filename for entry in entries
+                if not entry.is_dir() and _suffix(entry.filename) == ".trk" and not is_appledouble(entry.filename)]
 
 
 def library_files(cache):
     return cache / "library" / "files"
+
+
+def cache_path(cache, entry):
+    """Content-addressed cache name, so a re-pinned file never collides with the stale bytes of its old pin."""
+    return library_files(cache) / f"{entry['id']}-{entry['sha256'][:12]}{_suffix(entry['file'])}"
+
+
+def verified_copy(cache, entry, *, legacy=()):
+    """Return a cached copy holding ``entry``'s pinned bytes under its content-addressed name, or None.
+
+    A verified copy under an older name (``<id>.<ext>`` or a previous identifier) is moved into place;
+    unverified bytes are never adopted.
+    """
+    target = cache_path(cache, entry)
+    for candidate in [target, *legacy]:
+        if candidate.is_file():
+            try:
+                corpus.verify_file(candidate, entry)
+            except ValueError:
+                continue
+            if candidate != target:
+                candidate.replace(target)
+            return target
+    return None
+
+
+def prune(manifest, cache, log=print):
+    """Delete cached files that no pinned entry names: stale re-pins, legacy names and partial downloads."""
+    directory = library_files(cache)
+    keep = {cache_path(cache, entry).name for entry in manifest["experiments"]}
+    removed = 0
+    if directory.is_dir():
+        for path in directory.iterdir():
+            if path.name not in keep and (path.is_file() or path.is_symlink()):
+                path.unlink()
+                removed += 1
+    if removed:
+        log(f"Removed {removed} cached files that the manifest no longer pins")
+    return removed
 
 
 def discover(cache, *, sources=SOURCE_IDS, client=None, today=None, previous=None, redownload=False, log=print):
@@ -463,7 +534,8 @@ def discover(cache, *, sources=SOURCE_IDS, client=None, today=None, previous=Non
                            "min_request_delay_seconds": MIN_REQUEST_DELAY_SECONDS},
                 "redistribution": "Experiment files are fetched unchanged into the ignored cache; none are committed. "
                                   "Rights statements are copied verbatim from their source without interpretation.",
-                "sources": [], "experiments": [], "excluded": [], "withdrawn": []}
+                "sources": [], "experiments": [], "excluded": [], "withdrawn": [],
+                "known_issues": previous.get("known_issues", [])}
     candidates = []
     for source in SOURCES:
         if source["id"] not in sources:
@@ -486,34 +558,44 @@ def discover(cache, *, sources=SOURCE_IDS, client=None, today=None, previous=Non
         old = pinned.get(candidate["id"])
         if old is None or old["url"] != candidate["url"]:
             old = pinned_urls.get(candidate["url"], old)
-        path = directory / candidate["file"]
-        if old and old["id"] != candidate["id"] and (directory / old["file"]).is_file() and not path.exists():
-            # Same URL under a revised identifier: keep the verified bytes (checked below) under the new name.
-            (directory / old["file"]).replace(path)
+        same_source = old is not None and old["url"] == candidate["url"] and "sha256" in old
+        # The previous pin's bytes, adopted under this candidate's identifier (which may have changed).
+        previous_pin = {**candidate, "bytes": old["bytes"], "sha256": old["sha256"]} if same_source else None
+        kept = previous_pin and verified_copy(cache, previous_pin, legacy=(
+            cache_path(cache, old), directory / old["file"], directory / candidate["file"]))
         # A changed listed size means the upstream file changed; otherwise keep the verified pin.
-        reuse = (not redownload and old and old["url"] == candidate["url"] and "sha256" in old
-                 and candidate.get("listed_bytes") == old.get("listed_bytes"))
+        reuse = same_source and not redownload and candidate.get("listed_bytes") == old.get("listed_bytes")
         try:
             if reuse:
-                if not path.exists():
-                    client.download(candidate["url"], path, expected=old)
-                corpus.verify_file(path, old)
+                path = kept or cache_path(cache, previous_pin)
+                if not kept:
+                    client.download(candidate["url"], path, expected=previous_pin)
                 pin = {"bytes": old["bytes"], "sha256": old["sha256"]}
             else:
-                path.unlink(missing_ok=True)
-                pin = client.download(candidate["url"], path)
+                # Stage under a temporary name; a failed refresh leaves the previous verified copy alone.
+                staging = directory / f"{candidate['id']}.download{_suffix(candidate['file'])}"
+                pin = client.download(candidate["url"], staging)
+                path = cache_path(cache, {**candidate, **pin})
+                staging.replace(path)
             projects = archive_projects(path) if candidate["file"].endswith((".trz", ".zip")) else [candidate["original_name"]]
         except (ValueError, zipfile.BadZipFile, OSError) as error:
-            manifest["excluded"].append({"id": candidate["id"], "source": candidate["source"], "url": candidate["url"], "reason": str(error)[:240]})
-            log(f"excluded {candidate['id']}: {str(error)[:120]}")
-            continue
+            if kept and not reuse:
+                log(f"kept the previous pin of {candidate['id']}: refresh failed ({str(error)[:120]})")
+                path, pin = kept, {"bytes": old["bytes"], "sha256": old["sha256"]}
+                projects = archive_projects(path) if candidate["file"].endswith((".trz", ".zip")) else [candidate["original_name"]]
+            else:
+                manifest["excluded"].append({"id": candidate["id"], "source": candidate["source"], "url": candidate["url"],
+                                             "reason": str(error)[:240]})
+                log(f"excluded {candidate['id']}: {str(error)[:120]}")
+                continue
         if not projects:
             manifest["excluded"].append({"id": candidate["id"], "source": candidate["source"], "url": candidate["url"],
                                          "reason": "Archive contains no Tracker project (.trk) member"})
             path.unlink(missing_ok=True)
             continue
         if total + pin["bytes"] > MAX_TOTAL_BYTES:
-            manifest["excluded"].append({"id": candidate["id"], "source": candidate["source"], "url": candidate["url"], "reason": "Total size limit reached"})
+            manifest["excluded"].append({"id": candidate["id"], "source": candidate["source"], "url": candidate["url"],
+                                         "reason": "Total size limit reached"})
             path.unlink(missing_ok=True)
             continue
         total += pin["bytes"]
@@ -530,7 +612,12 @@ def discover(cache, *, sources=SOURCE_IDS, client=None, today=None, previous=Non
     for old in previous.get("experiments", []):
         if old["url"] not in listed:
             manifest["withdrawn"].append({"id": old["id"], "url": old["url"], "sha256": old["sha256"], "withdrawn": today})
+    current = {entry["id"] for entry in manifest["experiments"]}
+    for item in manifest["known_issues"]:
+        item["experiments"] = [identifier for identifier in item["experiments"] if identifier in current]
+    manifest["known_issues"] = [item for item in manifest["known_issues"] if item["experiments"]]
     validate_library_manifest(manifest)
+    prune(manifest, cache, log)
     return manifest
 
 
@@ -550,7 +637,7 @@ def validate_library_manifest(manifest):
         seen.add(identifier)
         suffix = _suffix(entry.get("file", ""))
         if entry.get("file") != identifier + suffix or suffix not in EXPERIMENT_SUFFIXES:
-            raise ValueError(f"{identifier}: cache file must be the ID plus a Tracker suffix")
+            raise ValueError(f"{identifier}: file must be the ID plus a Tracker suffix")
         check_url(entry.get("url", ""), DOWNLOAD_HOSTS)
         if entry.get("source") not in sources:
             raise ValueError(f"{identifier}: unknown source")
@@ -569,7 +656,19 @@ def validate_library_manifest(manifest):
         total += entry["bytes"]
     if total > MAX_TOTAL_BYTES:
         raise ValueError("Library corpus exceeds its total size limit")
+    known = set()
+    for item in manifest.get("known_issues", []):
+        if (not isinstance(item, dict) or type(item.get("issue")) is not int or item["issue"] < 1
+                or not isinstance(item.get("summary"), str) or not isinstance(item.get("experiments"), list)
+                or not item["experiments"] or not set(item["experiments"]) <= seen or known & set(item["experiments"])):
+            raise ValueError("Known library issues need an issue number, a summary and distinct pinned experiments")
+        known |= set(item["experiments"])
     return manifest
+
+
+def known_issues(manifest):
+    """Experiment ID → MoTrack issue for native outcomes that are known defects (excluded from drift checks)."""
+    return {identifier: item["issue"] for item in manifest.get("known_issues", []) for identifier in item["experiments"]}
 
 
 def load_library_manifest(path=LIBRARY_MANIFEST):
@@ -581,24 +680,26 @@ def write_json(path, value):
 
 
 def fetch(manifest, cache, *, client=None, sources=None, log=print):
-    """Download missing pinned files and verify every present one; existing files are never replaced."""
+    """Download missing pins and verify present ones. A cached copy with the wrong bytes is deleted and
+    downloaded again; new bytes are published only after they match the pin. Unpinned files are pruned."""
     client = client or PoliteClient(DOWNLOAD_HOSTS)
-    directory = library_files(cache)
     verified = downloaded = 0
     failures = []
     for entry in manifest["experiments"]:
         if sources and entry["source"] not in sources:
             continue
-        path = directory / entry["file"]
+        path = cache_path(cache, entry)
         try:
-            if path.exists():
-                corpus.verify_file(path, entry)
-            else:
+            if verified_copy(cache, entry, legacy=(library_files(cache) / entry["file"],)) is None:
+                if path.exists():
+                    log(f"{entry['id']}: replacing a cached copy that does not match its pin")
+                    path.unlink()
                 client.download(entry["url"], path, expected=entry)
                 downloaded += 1
             verified += 1
         except (ValueError, OSError) as error:
             failures.append(f"{entry['id']}: {str(error)[:200]}")
+    prune(manifest, cache, log)
     log(f"Verified {verified} library experiments ({downloaded} downloaded)")
     if failures:
         raise ValueError("Library fetch failed:\n" + "\n".join(failures))
@@ -606,7 +707,9 @@ def fetch(manifest, cache, *, client=None, sources=None, log=print):
 
 
 def read_projects(path, limit=corpus.MAX_XML_BYTES):
-    """Yield (member, bytes) for each Tracker project in a .trk/.trz/.zip; bounded, never extracted."""
+    """Yield (member, bytes) for each Tracker project in a .trk/.trz/.zip; bounded, never extracted.
+
+    AppleDouble companions are skipped; ``appledouble_projects`` counts them."""
     if _suffix(path.name) == ".trk":
         if path.stat().st_size > limit:
             raise ValueError("Project exceeds the XML size limit")
@@ -618,7 +721,7 @@ def read_projects(path, limit=corpus.MAX_XML_BYTES):
             raise ValueError("Archive has too many members")
         names = [entry.filename for entry in entries]
         for entry in entries:
-            if entry.is_dir() or _suffix(entry.filename) != ".trk":
+            if entry.is_dir() or _suffix(entry.filename) != ".trk" or is_appledouble(entry.filename):
                 continue
             if names.count(entry.filename) != 1:
                 raise ValueError(f"Ambiguous archive member: {entry.filename[:120]}")
@@ -631,28 +734,37 @@ def read_projects(path, limit=corpus.MAX_XML_BYTES):
             yield entry.filename, data
 
 
+def materialize(entry, cache):
+    """Write one experiment's projects as private .trk files; archive failures name the experiment and path."""
+    source = cache_path(cache, entry)
+    corpus.verify_file(source, entry)
+    target = cache / "library" / "projects" / entry["id"]
+    if target.exists():
+        shutil.rmtree(target)
+    target.mkdir(parents=True)
+    items = []
+    try:
+        for index, (member, data) in enumerate(read_projects(source)):
+            path = target / f"{index:03d}.trk"
+            path.write_bytes(data)
+            items.append({"experiment": entry["id"], "member": member, "path": str(path), "bytes": len(data),
+                          "sha256": hashlib.sha256(data).hexdigest()})
+    except ARCHIVE_ERRORS as error:
+        raise ArchiveError(f"{entry['id']} ({source}): {type(error).__name__}: {str(error)[:200]}") from error
+    return items
+
+
 def library_projects(manifest, cache, *, include_duplicates=False):
     """Materialize every library project as a private .trk under ``<cache>/library/projects/<id>/``.
 
     This is the entry point for corpus oracles (for example the A1 O1/O2 XMLControl checks): each item
     names its experiment, original archive member, written path, size and SHA-256 of the exact bytes.
     """
-    directory = cache / "library" / "projects"
     items = []
     for entry in manifest["experiments"]:
         if entry.get("duplicate_of") and not include_duplicates:
             continue
-        source = library_files(cache) / entry["file"]
-        corpus.verify_file(source, entry)
-        target = directory / entry["id"]
-        if target.exists():
-            shutil.rmtree(target)
-        target.mkdir(parents=True)
-        for index, (member, data) in enumerate(read_projects(source)):
-            path = target / f"{index:03d}.trk"
-            path.write_bytes(data)
-            items.append({"experiment": entry["id"], "member": member, "path": str(path), "bytes": len(data),
-                          "sha256": hashlib.sha256(data).hexdigest()})
+        items.extend(materialize(entry, cache))
     return items
 
 
@@ -727,13 +839,16 @@ def analyze_project(data):
 
 
 def archive_file_types(path):
+    """Member counts by extension; AppleDouble companions are counted separately as ``(appledouble)``."""
     if _suffix(path.name) == ".trk":
         return {"trk": 1}
     with zipfile.ZipFile(path) as archive:
         entries = archive.infolist()
         if len(entries) > MAX_ARCHIVE_MEMBERS:
             raise ValueError("Archive has too many members")
-        types = collections.Counter(_suffix(entry.filename).lstrip(".") or "(none)" for entry in entries if not entry.is_dir())
+        types = collections.Counter("(appledouble)" if is_appledouble(entry.filename)
+                                    else _suffix(entry.filename).lstrip(".") or "(none)"
+                                    for entry in entries if not entry.is_dir())
     return dict(sorted(types.items()))
 
 
@@ -761,6 +876,15 @@ def _diagnostic(text, cache, code):
     return _sanitize(lines[-1] if lines else f"exit {code}", cache)
 
 
+def failure_status(code, text):
+    """``timed_out``, ``crashed`` (memory error, signal or Windows exception code) or an ordinary ``rejected``."""
+    if code is None:
+        return "timed_out"
+    if MEMORY_ERROR.search(text) or code < 0 or code >= 0xC0000000:
+        return "crashed"
+    return "rejected"
+
+
 def run_tool(command, timeout):
     """Run a probe without a shell; return (exit code, combined output). Untrusted inputs are arguments only."""
     environment = {**os.environ, "QT_QPA_PLATFORM": "offscreen"}
@@ -776,7 +900,7 @@ def native_open(probe, path, output, cache):
     output.unlink(missing_ok=True)
     code, text = run_tool([str(probe), "--open", str(path), str(output)], 180)
     if code != 0 or not output.is_file():
-        return {"status": "rejected", "message": _diagnostic(text, cache, code)}
+        return {"status": failure_status(code, text), "message": _diagnostic(text, cache, code)}
     experiments = json.loads(output.read_text(encoding="utf-8"))["experiments"]
     unsupported = collections.Counter(_short(name) for item in experiments for name in item["unsupported_tracks"])
     return {"status": "opened", "experiments": len(experiments),
@@ -830,7 +954,8 @@ def census(manifest, cache, probe, java=None, *, jobs=1, log=print):
     """Per-experiment Tracker feature use plus MoTrack's (and optionally Java's) handling of each file.
 
     ``jobs`` experiments are processed concurrently (local processes only; no network). Results keep
-    manifest order, and every output file and Java home is private to its experiment.
+    manifest order, and every output file and Java home is private to its experiment. An archive that
+    cannot be read is recorded as ``archive_error`` for that experiment instead of ending the census.
     """
     if not 1 <= jobs <= 16:
         raise ValueError("Census jobs must be between 1 and 16")
@@ -839,16 +964,19 @@ def census(manifest, cache, probe, java=None, *, jobs=1, log=print):
     if reports.exists():
         shutil.rmtree(reports)
     reports.mkdir(parents=True)
-    projects = collections.defaultdict(list)
-    for item in library_projects(manifest, cache):
-        projects[item["experiment"]].append(item)
     reference = compile_reference(java, cache) if java else None
+    known = known_issues(manifest)
 
     def experiment(entry):
-        path = library_files(cache) / entry["file"]
+        path = cache_path(cache, entry)
         record = {"id": entry["id"], "source": entry["source"], "sha256": entry["sha256"],
                   "file_type": _suffix(entry["file"]).lstrip("."), "bytes": entry["bytes"],
-                  "archive_file_types": archive_file_types(path), "projects": []}
+                  "archive_file_types": {}, "projects": []}
+        try:
+            items = materialize(entry, cache)
+            record["archive_file_types"] = archive_file_types(path)
+        except ARCHIVE_ERRORS as error:
+            items, record["archive_error"] = [], _sanitize(str(error), cache)
         native = native_open(probe, path, reports / (entry["id"] + "-open.json"), cache)
         if record["file_type"] == "zip":
             # Tracker opens ZIP experiments like TRZ (ResourceLoader.isJarZipTrz); MoTrack only accepts .trz.
@@ -856,15 +984,21 @@ def census(manifest, cache, probe, java=None, *, jobs=1, log=print):
             shutil.copyfile(path, renamed)
             native["as_trz"] = native_open(probe, renamed, reports / (entry["id"] + "-open-trz.json"), cache)
             renamed.unlink()
+        if entry["id"] in known:
+            # Undefined behaviour (for example #211) may flap between runs; checks compare only the marker.
+            native["known_issue"] = known[entry["id"]]
         # Media decoding and memory-error detection are platform dependent; keep each platform's outcome.
         record["native"] = {platform_key(): native}
-        for item in projects[entry["id"]]:
+        for item in items:
             project = {"member": item["member"], **analyze_project(Path(item["path"]).read_bytes())}
             if reference:
                 project["reference"] = reference_compare(java, reference[1], probe, Path(item["path"]),
                                                          reports, cache, reference[0])
             record["projects"].append(project)
-        record["tabs"] = sum(project.get("tabset_tabs", 1) for project in record["projects"])
+        # A tab per TrackerPanel (including one Python's strict XML parser refuses but OSP reads), plus the
+        # tabs a TFrame tabset lists; other root classes are not Tracker experiments.
+        record["tabs"] = sum(project.get("tabset_tabs", 1) for project in record["projects"]
+                             if "xml_error" in project or project.get("root") in {"TrackerPanel", "TFrame"})
         log(f"{entry['id']}: {native['status']}, {len(record['projects'])} projects")
         return record
 
@@ -880,6 +1014,10 @@ def census_report(manifest, experiments, java):
             "java_reference": "Tracker 6.3.5 TrackerReference (xml_and_coordinate_api)" if java else None,
             "duplicates_skipped": sum(1 for entry in manifest["experiments"] if entry.get("duplicate_of")),
             "aggregate": aggregate(experiments), "experiments": experiments}
+
+
+def native_status(result):
+    return f"known issue #{result['known_issue']}" if "known_issue" in result else result["status"]
 
 
 def aggregate(experiments):
@@ -905,12 +1043,16 @@ def aggregate(experiments):
     native = {}
     for platform in sorted({key for record in experiments for key in record["native"]}):
         results = [record["native"][platform] for record in experiments if platform in record["native"]]
+        settled = [result for result in results if "known_issue" not in result]
         native[platform] = {
-            "open": ordered(collections.Counter(result["status"] for result in results)),
-            "rejections": ordered(collections.Counter(result["message"] for result in results if result["status"] == "rejected")),
-            "unsupported_tracks": ordered(collections.Counter(name for result in results for name in result.get("unsupported_tracks", {}))),
-            "zip_as_trz": ordered(collections.Counter(result["as_trz"]["status"] for result in results if "as_trz" in result))}
-    return {"experiments": len(experiments), "projects": len(projects), "bytes": sum(record["bytes"] for record in experiments),
+            "open": ordered(collections.Counter(native_status(result) for result in results)),
+            "rejections": ordered(collections.Counter(result["message"] for result in settled if result["status"] != "opened")),
+            "unsupported_tracks": ordered(collections.Counter(name for result in settled for name in result.get("unsupported_tracks", {}))),
+            "zip_as_trz": ordered(collections.Counter(result["as_trz"]["status"] for result in settled if "as_trz" in result))}
+    return {"experiments": len(experiments), "projects": len(projects),
+            "trackerpanel_projects": sum(1 for project in projects if project.get("root") == "TrackerPanel"),
+            "archive_errors": sum(1 for record in experiments if "archive_error" in record),
+            "bytes": sum(record["bytes"] for record in experiments),
             "tracker_versions": ordered(versions),
             "track_classes": {name: {"projects": tracks[name], "instances": instances[name]} for name in ordered(tracks)},
             "video_classes": ordered(videos), "video_types": ordered(types), "filters": ordered(filters),
@@ -931,7 +1073,8 @@ def census_markdown(report):
         return shown + (f", … {len(items) - limit} more" if len(items) > limit else "") if items else "none"
 
     rows = [
-        ("Experiments / projects / bytes", f"{total['experiments']} / {total['projects']} / {total['bytes']:,}"),
+        ("Experiments / projects (TrackerPanel) / bytes",
+         f"{total['experiments']} / {total['projects']} ({total['trackerpanel_projects']}) / {total['bytes']:,}"),
         ("Tracker versions (projects)", top(total["tracker_versions"])),
         ("Track classes (projects using)", top(total["track_classes"], 12)),
         ("Video classes (projects)", top(total["video_classes"])),
@@ -942,9 +1085,11 @@ def census_markdown(report):
         ("Archive member types (experiments)", top(total["archive_file_types"])),
         ("Tabs per experiment (experiments)", top(total["tabs"])),
     ]
+    if total["archive_errors"]:
+        rows.append(("Unreadable archives", str(total["archive_errors"])))
     for platform, native in total["native"].items():
         rows += [(f"MoTrack desktop open, {platform} (experiments)", top(native["open"])),
-                 (f"MoTrack open rejections, {platform}", top(native["rejections"], 6)),
+                 (f"MoTrack open failures, {platform} (excluding known issues)", top(native["rejections"], 6)),
                  (f"Unsupported tracks reported, {platform} (experiments)", top(native["unsupported_tracks"], 10))]
         if native["zip_as_trz"]:
             rows.append((f"ZIP experiments renamed .trz, {platform}", top(native["zip_as_trz"])))
@@ -979,9 +1124,24 @@ def without_platform(report, platform):
     return stripped
 
 
+def masked(report):
+    """Known-issue native outcomes reduced to their marker, so undefined behaviour cannot fail a check."""
+    value = copy.deepcopy(report)
+    for record in value["experiments"]:
+        for platform, result in record["native"].items():
+            if "known_issue" in result:
+                record["native"][platform] = {"known_issue": result["known_issue"]}
+    return value
+
+
 def census_main(manifest, cache, args):
     platform = platform_key()
     committed = json.loads(LIBRARY_CENSUS.read_text(encoding="utf-8")) if LIBRARY_CENSUS.exists() else None
+    if args.check:
+        if committed is None:
+            raise ValueError("No committed library census to check")
+        if committed.get("java_reference") and not args.java:
+            raise ValueError("The committed census includes the Java reference; pass --java to check it")
     report = merge_platforms(census(manifest, cache, args.probe, args.java, jobs=args.jobs), committed, platform)
     readme = README.read_text(encoding="utf-8")
     if CENSUS_START not in readme or CENSUS_END not in readme:
@@ -991,16 +1151,15 @@ def census_main(manifest, cache, args):
         return readme[:readme.index(CENSUS_START)] + census_markdown(value) + readme[readme.index(CENSUS_END) + len(CENSUS_END):]
 
     # Keep the regenerated report beside the cache for review (CI uploads it as an artifact).
+    (cache / "library").mkdir(parents=True, exist_ok=True)
     write_json(cache / "library" / "library-census.json", report)
     if args.check:
-        if committed is None:
-            raise ValueError("No committed library census to check")
-        expected, actual = committed, report
+        actual = report
         if not any(platform in record.get("native", {}) for record in committed["experiments"]):
             # No baseline for this platform yet: check everything else and publish this platform's results.
             actual = without_platform(report, platform)
             print(f"No committed {platform} native baseline; its results are in {cache / 'library' / 'library-census.json'}")
-        differences = list(diff(expected, actual))[:40]
+        differences = list(diff(masked(committed), masked(actual)))[:40]
         if differences or with_table(actual) != readme:
             raise ValueError("Library census differs from the committed report:\n" + "\n".join(differences or ["README table"]))
         print(f"Library census matches ({report['aggregate']['experiments']} experiments)")
@@ -1044,7 +1203,7 @@ def main(args):
     elif args.command == "verify-library":
         selected = [entry for entry in manifest["experiments"] if entry["source"] in sources]
         for entry in selected:
-            corpus.verify_file(library_files(cache) / entry["file"], entry)
+            corpus.verify_file(cache_path(cache, entry), entry)
         print(f"Verified {len(selected)} library experiments")
     elif args.command == "library-projects":
         items = library_projects(manifest, cache)

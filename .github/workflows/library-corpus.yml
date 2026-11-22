@@ -1,10 +1,10 @@
 name: Library corpus
 # Real-world Tracker experiments from the Library Browser collections (tests/corpus/library-manifest.json).
-# Fetching ~0.8 GB from third-party hosts and indexing every movie is too slow for ordinary PRs, so this runs
-# weekly and on demand. The tooling's unit tests run in the normal CI workflow.
+# A cold cache fetches ~0.83 GB from third-party hosts and the census indexes every movie, so this runs
+# monthly and on demand, not on pull requests. The tooling's unit tests run in the normal CI workflow.
 on:
   schedule:
-    - cron: "23 5 * * 1"
+    - cron: "23 5 3 * *"
   workflow_dispatch:
 
 permissions:
@@ -18,30 +18,46 @@ jobs:
   library:
     name: Fetch and census library experiments
     runs-on: ubuntu-24.04
-    # A cold cache fetches ~0.8 GB at one request per second; the census indexes every movie.
+    # A cold cache fetches ~0.83 GB at one request per second; the census indexes every movie.
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
       - name: Test library corpus tooling
         run: python -m unittest discover -s tests -p 'test_corpus*.py'
+      # Cached files are named <id>-<sha256 prefix>.<ext> and verified on use, so an older cache restored by
+      # prefix is safe: re-pinned files get new names, wrong bytes are replaced and unpinned files are pruned.
       - name: Restore library downloads
         id: library-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .dev-tools/tracker-reference/library/files
-          key: tracker-library-v1-${{ hashFiles('tests/corpus/library-manifest.json') }}
-          restore-keys: tracker-library-v1-
+          key: tracker-library-v2-${{ hashFiles('tests/corpus/library-manifest.json') }}-${{ github.run_id }}
+          restore-keys: |
+            tracker-library-v2-${{ hashFiles('tests/corpus/library-manifest.json') }}-
+            tracker-library-v2-
+      - name: Record restored library files
+        run: ls -1 .dev-tools/tracker-reference/library/files 2>/dev/null | sort > "$RUNNER_TEMP/library-before.txt" || true
       - name: Fetch and verify pinned library experiments
-        id: library-fetch
         run: |
           python tools/corpus.py fetch
           python tools/corpus.py fetch-library
-      # Only fully verified pins are cached; a partial or changed upstream file fails above instead.
+      # The directory now holds only verified, pinned files (fetch-library prunes everything else), so a
+      # partial fetch is still worth keeping. Save a new entry only when its contents changed.
+      - name: Detect new library downloads
+        id: library-files
+        if: always()
+        run: |
+          ls -1 .dev-tools/tracker-reference/library/files 2>/dev/null | sort > "$RUNNER_TEMP/library-after.txt" || true
+          if [[ -s "$RUNNER_TEMP/library-after.txt" ]] && ! cmp -s "$RUNNER_TEMP/library-before.txt" "$RUNNER_TEMP/library-after.txt"; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Save library downloads
-        if: steps.library-fetch.outcome == 'success' && steps.library-cache.outputs.cache-hit != 'true'
+        if: always() && steps.library-files.outputs.changed == 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .dev-tools/tracker-reference/library/files
