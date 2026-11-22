@@ -3781,21 +3781,23 @@ class TrackerStateTests(unittest.TestCase):
         for gap, tracker_doc, motrack_doc, reason in [
                 ("track class CoordAxes", tracker, motrack, "unmodeled-class"),
                 ("PointMass.data.θ_{v}", tracker, motrack, "unmodeled-column"),
-                ("PointMass.data.v_{x}", tracker, untimed, "default-timing"),
                 ("PointMass.data.t", movie, untimed, "probe-media-timing"),
                 ("clip.steps.time", movie, untimed, "probe-media-timing"),
                 ("PointMass.data.x", tracker, uncalibrated, "uncalibrated"),
-                ("units.length", tracker, motrack, "default-length-unit"),
                 ("coords.frames after 12", tracker, motrack, "coords-range"),
                 ("known defect x-row.t", movie, untimed, "probe-media-timing"),
-                ("known defect x-step-11[2]", tracker, untimed, "default-timing"),
                 ("known defect x", tracker, motrack, "known-defect-unmodeled"),
-                ("views", tracker, motrack, "unmodeled-field")]:
-            with self.subTest(gap=gap):
+                ("views", tracker, motrack, "unmodeled-field"),
+                # MoTrack applies Tracker's media-free defaults (#214): losing them is not a probe limitation.
+                ("PointMass.data.v_{x}", tracker, untimed, "unmodeled-column"),
+                ("clip.steps.time", tracker, untimed, "unmodeled-field"),
+                ("units.length", tracker, motrack, "unmodeled-field"),
+                ("known defect x-step-11[2]", tracker, untimed, "known-defect-unmodeled")]:
+            with self.subTest(gap=gap, video=tracker_doc["panel"]["video"]):
                 self.assertEqual(corpus.classify_gap(gap, tracker_doc, motrack_doc), reason)
         self.assertEqual(set(corpus.STATE_GAP_REASONS), {"unmodeled-class", "unmodeled-field", "unmodeled-column",
-                                                         "probe-media-timing", "default-timing", "default-length-unit",
-                                                         "uncalibrated", "coords-range", "known-defect-unmodeled"})
+                                                         "probe-media-timing", "uncalibrated", "coords-range",
+                                                         "known-defect-unmodeled"})
 
     def registry(self, *entries):
         return {"schema_version": 1, "reference_version": "6.3.5", "entries": list(entries)}
@@ -4178,8 +4180,10 @@ class TrackerStateTests(unittest.TestCase):
         baseline = corpus.load_gap_baseline(self.manifest)
         self.assertEqual(set(baseline), {case["id"] for case in self.manifest["cases"]})
         self.assertEqual(baseline["ball-toss"]["PointMass.data.t"], "probe-media-timing")
-        self.assertEqual(baseline["center-of-mass"]["PointMass.data.t"], "default-timing")
-        self.assertEqual(baseline["independent-vectors"]["units.length"], "default-length-unit")
+        # Tracker's media-free default timing and length unit are compared (#214), as are derivatives (#207).
+        self.assertNotIn("PointMass.data.t", baseline["center-of-mass"])
+        self.assertNotIn("units.length", baseline["independent-vectors"])
+        self.assertNotIn("PointMass.data.a_{x}", baseline["attachments"])
         self.assertNotIn("PointMass.data.x", baseline["ball-toss"])  # Calibrated positions are compared.
         self.assertEqual(corpus.STATE_GAPS.read_bytes().decode("utf-8"),
                          corpus.gap_baseline_text(corpus.gap_baseline(baseline)))

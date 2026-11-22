@@ -87,6 +87,14 @@ struct LinearFit
 [[nodiscard]] std::string measurementsCsv(const LegacyProject& project);
 
 /// Frame times are seconds indexed by original frame number. Saved constant timing is the fallback.
+///
+/// Derived quantities follow Tracker's default Finite Difference algorithm on the clip steps: velocity
+/// (x[k+1] - x[k-1]) / 2 and acceleration (2x[k-2] - x[k-1] - 2x[k] - x[k+1] + 2x[k+2]) / 7 per step, scaled
+/// by the mean step interval (motrack_motion's pointMassDerivatives). A value needs every clip step of its
+/// window (three for velocity, five for acceleration); missing values stay absent, never zero. Decoded frame
+/// times whose intervals are unequal (beyond nanosecond rounding) keep MoTrack's time-aware three-point
+/// estimates instead, within the same windows. Those are exact for true variable frame rates but misread
+/// coarse timestamps of constant-rate video, such as whole milliseconds, as jitter (#87; docs/motion-kernels.md).
 [[nodiscard]] PlotSeries measurementPlot(const LegacyProject& project,
                                          std::size_t track,
                                          PlotQuantity quantity,
