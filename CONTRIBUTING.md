@@ -221,6 +221,10 @@ a 60-second timeout, and ordinary CTest/coverage collection runs all ten groups.
 real-file journal matrices whose cumulative runtime caused the intermittent Windows timeout in
 [#137](https://github.com/mgradwohl/MoTrack/issues/137), without retries or omitted cases.
 
+Run tests through CTest. On Windows every test prepends the Qt and FFmpeg `bin` directories to its `PATH`, so CTest
+works from any shell. A test executable started directly needs an activated developer shell; without one, Windows
+stops it at a modal "DLL was not found" dialog before any test runs.
+
 CI uses [workflow concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
 to cancel superseded or duplicate runs for the same pull request. Separate PRs retain independent
 checks, including forks with matching branch names. Main-branch pushes use unique run IDs and are
