@@ -2871,6 +2871,93 @@ def check_sessions(manifest, cache, java, probe=None):
                 json.dumps(saved_report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+EXPRESSION_REFERENCE = ROOT / "tests/science/expression-reference.json"
+EXPRESSION_ORACLE = ROOT / "tools/reference/ExpressionOracle.java"
+EXPRESSION_HEADER_KEYS = ["schema_version", "reference", "tolerance", "function_names", "error_messages"]
+EXPRESSION_CASE_KEYS = ["id", "group", "expression", "variables", "compare", "defect", "error", "exception"]
+
+
+def expression_value(bits):
+    if not isinstance(bits, str) or not re.fullmatch(r"[0-9a-f]{16}", bits):
+        raise ValueError("Invalid expression oracle value bits")
+    return struct.unpack(">d", bytes.fromhex(bits))[0]
+
+
+def expression_ulps(first, second):
+    """Distance in representable doubles; signed zeros are one value."""
+    def ordered(value):
+        bits = struct.unpack(">q", struct.pack(">d", value))[0]
+        return -(bits & 0x7FFFFFFFFFFFFFFF) if bits < 0 else bits
+    return abs(ordered(first) - ordered(second))
+
+
+def compare_expression_values(expected, actual, compare, ulps, location):
+    if not isinstance(actual, dict) or expected.keys() != actual.keys():
+        raise ValueError(f"{location}: evaluation fields differ")
+    for key, value in expected.items():
+        if key.endswith("_bits"):
+            want, got = expression_value(value), expression_value(actual[key])
+            if compare == "exact" or not math.isfinite(want) or not math.isfinite(got):
+                if value != actual[key] and not (math.isnan(want) and math.isnan(got)):
+                    raise ValueError(f"{location}.{key}: expected {want!r}, got {got!r}")
+            elif expression_ulps(want, got) > ulps:
+                raise ValueError(f"{location}.{key}: {got!r} is more than {ulps} ulp from {want!r}")
+        elif key in {"result", "intended"}:
+            # Display text follows the compared bits; within the ulp bound it may legitimately differ.
+            if expected[key + "_bits"] == actual[key + "_bits"] and value != actual[key]:
+                raise ValueError(f"{location}.{key}: display text differs for identical bits")
+        elif value != actual[key]:
+            raise ValueError(f"{location}.{key}: expected {value!r}, got {actual[key]!r}")
+
+
+def compare_expression_reference(expected, actual):
+    """Compares a regenerated Java expression report with the committed fixture.
+
+    Exact cases (IEEE arithmetic, exact functions and literals) must match bit for bit; cases using Java
+    transcendental functions or pow accept the fixture's declared ulp bound, since Math.sin/exp/log/pow
+    are only specified to within 1 ulp and their implementation varies by JVM and CPU.
+    """
+    if not isinstance(actual, dict) or expected.keys() != actual.keys():
+        raise ValueError("Expression oracle report fields differ")
+    for key in EXPRESSION_HEADER_KEYS:
+        if expected[key] != actual[key]:
+            raise ValueError(f"Expression oracle {key} differs")
+    ulps = expected["tolerance"]["ulp"]
+    if type(ulps) is not int or not 0 < ulps <= 16:
+        raise ValueError("Invalid expression ulp tolerance")
+    if len(expected["cases"]) != len(actual["cases"]):
+        raise ValueError("Expression oracle case count differs")
+    for want, got in zip(expected["cases"], actual["cases"]):
+        location = f"expression {want['id']}"
+        if want.keys() != got.keys() or any(want[key] != got[key] for key in EXPRESSION_CASE_KEYS):
+            raise ValueError(f"{location}: case definition, error or exception differs")
+        if want["compare"] not in {"exact", "ulp", "random"} or len(want["evaluations"]) != len(got["evaluations"]):
+            raise ValueError(f"{location}: evaluation count or comparison differs")
+        for index, evaluation in enumerate(want["evaluations"]):
+            compare_expression_values(evaluation, got["evaluations"][index], want["compare"], ulps, f"{location}[{index}]")
+
+
+def check_expression_oracle(manifest, cache, java, record=False):
+    """Regenerates the expression kernel oracle with the pinned Tracker JAR and diffs it with the fixture."""
+    verify_file(cache / manifest["reference"]["file"], manifest["reference"])
+    # The kernel oracle needs no corpus files; keep its JVM home and report out of the shared cache.
+    with tempfile.TemporaryDirectory(prefix="motrack-expression-oracle-") as directory:
+        home = Path(directory)
+        output = home / "expression-oracle.json"
+        run([java, "-Djava.awt.headless=true", f"-Duser.home={home}", f"-Djava.io.tmpdir={home}", "-Xmx256m",
+             "--class-path", java_classpath(manifest, cache), str(EXPRESSION_ORACLE), str(output)])
+        text = output.read_text(encoding="utf-8")
+    actual = json.loads(text)
+    if record:
+        EXPRESSION_REFERENCE.write_text(text, encoding="utf-8", newline="\n")
+        print(f"Recorded {len(actual['cases'])} expression cases from Tracker {actual['reference']['tracker_version']}")
+        return
+    compare_expression_reference(json.loads(EXPRESSION_REFERENCE.read_text(encoding="utf-8")), actual)
+    evaluations = sum(len(case["evaluations"]) for case in actual["cases"])
+    print(f"Expression oracle: {len(actual['cases'])} cases and {evaluations} evaluations match the fixture"
+          f" (SuryonoParser, Tracker {actual['reference']['tracker_version']})")
+
+
 ODE_REFERENCE = ROOT / "tests/science/ode-reference.json"
 # The same agreement classes as tests/science/ode_solver_test.cpp, which justifies them. Fixed-step
 # solvers are pure IEEE arithmetic and must be identical. Adaptive solvers call Math.pow, whose
@@ -2970,10 +3057,12 @@ LIBRARY_COMMANDS = ("discover-library", "fetch-library", "verify-library", "libr
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["fetch", "verify", "reference", "check", "session", "roundtrip", "ode-oracle",
-                                            *LIBRARY_COMMANDS])
+    parser.add_argument("command",
+                        choices=["fetch", "verify", "reference", "check", "session", "roundtrip", "expression-oracle",
+                                 "ode-oracle", *LIBRARY_COMMANDS])
     parser.add_argument("--cache", type=Path, default=ROOT / ".dev-tools/tracker-reference")
-    parser.add_argument("--java", help="Java 17+ JDK executable (reference/session/roundtrip/ode-oracle; optional for library-census)")
+    parser.add_argument("--java", help="Java 17+ JDK executable (reference/session/roundtrip/expression-oracle/ode-oracle; "
+                                       "optional for library-census)")
     parser.add_argument("--probe", help="Built motrack_corpus_probe executable (check/roundtrip/library-census commands)")
     parser.add_argument("--record", action="store_true", help="Explicitly replace committed Java baselines for review")
     parser.add_argument("--source", action="append", help="Limit library commands to this source ID (repeatable)")
@@ -2981,8 +3070,8 @@ def main():
     parser.add_argument("--check", action="store_true", help="library-census: compare with the committed census instead of writing it")
     parser.add_argument("--jobs", type=int, default=1, help="library-census: experiments processed concurrently (local only)")
     args = parser.parse_args()
-    if args.record and args.command not in {"reference", "ode-oracle"}:
-        parser.error("--record is only valid for the reference and ode-oracle commands")
+    if args.record and args.command not in {"reference", "expression-oracle", "ode-oracle"}:
+        parser.error("--record is only valid for the reference, expression-oracle and ode-oracle commands")
     if args.command in {"check", "roundtrip", "library-census"} and not args.probe:
         parser.error(f"{args.command} requires --probe")
     if args.source and args.command not in {"discover-library", "fetch-library", "verify-library"}:
@@ -3004,6 +3093,8 @@ def main():
         for path, artifact in artifacts(manifest, cache):
             (fetch_file if args.command == "fetch" and "local_file" not in artifact else verify_file)(path, artifact)
         print(f"Verified {len(manifest['cases'])} cases and Tracker {manifest['reference']['version']}")
+    elif args.command == "expression-oracle":
+        check_expression_oracle(manifest, cache, args.java, record=args.record)
     elif args.command in {"session", "roundtrip"}:
         check_sessions(manifest, cache, args.java, args.probe if args.command == "roundtrip" else None)
     elif args.command == "ode-oracle":
