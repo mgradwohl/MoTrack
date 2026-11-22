@@ -103,27 +103,28 @@ Result<Library> loadFields(const osp::Source& source)
     {
         return osp::makeUnexpected(paths.error());
     }
-    if (*paths)
+    if (const auto& pathArray = *paths)
     {
         auto names = stringArray(reader, root, "collection_names");
         if (!names)
         {
             return osp::makeUnexpected(names.error());
         }
+        const auto& nameArray = *names;
         std::map<std::string, std::string, JavaLess> pathToName;
         std::vector<std::string> pathList;
         // Null paths are skipped before their names are read.
-        for (const auto& [index, path] : (*paths)->present)
+        for (const auto& [index, path] : pathArray->present)
         {
-            if (!*names)
+            if (!nameArray)
             {
                 return detail::fail("root.collection_names", "missing collection names");
             }
-            if (index >= (*names)->length)
+            if (index >= nameArray->length)
             {
                 return detail::fail("root.collection_names", "fewer collection names than paths");
             }
-            const auto* collectionName = (*names)->at(index);
+            const auto* collectionName = nameArray->at(index);
             if (collectionName == nullptr)
             {
                 continue;
@@ -170,26 +171,28 @@ Result<Library> loadFields(const osp::Source& source)
     {
         return osp::makeUnexpected(recentNamesList.error());
     }
-    if (*recent)
+    const auto& recentArray = *recent;
+    const auto& namesArray = *recentNamesList;
+    if (recentArray)
     {
-        for (const auto& [index, path] : (*recent)->present)
+        for (const auto& [index, path] : recentArray->present)
         {
             addRecent(library, path, true);
         }
-        if (*recentNamesList)
+        if (namesArray)
         {
-            if ((*recentNamesList)->length > (*recent)->length)
+            if (namesArray->length > recentArray->length)
             {
                 return detail::fail("root.recently_opened_names", "more names than recently opened paths");
             }
             // HashMap.put(paths[i], names[i]) for every name; MoTrack has no null key, and the browser never reads one.
-            for (const auto& [index, path] : (*recent)->present)
+            for (const auto& [index, path] : recentArray->present)
             {
-                if (index >= (*recentNamesList)->length)
+                if (index >= namesArray->length)
                 {
                     break;
                 }
-                const auto* recentName = (*recentNamesList)->at(index);
+                const auto* recentName = namesArray->at(index);
                 library.pathNames.set(path, recentName != nullptr ? std::optional<std::string>(*recentName) : std::nullopt);
             }
         }
@@ -199,13 +202,13 @@ Result<Library> loadFields(const osp::Source& source)
     {
         return osp::makeUnexpected(noSearch.error());
     }
-    if (*noSearch)
+    if (const auto& searchArray = *noSearch)
     {
-        if ((*noSearch)->present.size() != (*noSearch)->length)
+        if (searchArray->present.size() != searchArray->length)
         {
             return detail::fail("root.no_search_paths", "null path");
         }
-        for (const auto& [index, path] : (*noSearch)->present)
+        for (const auto& [index, path] : searchArray->present)
         {
             const auto position = std::ranges::lower_bound(library.noSearchPaths, path, JavaLess{});
             if (position == library.noSearchPaths.end() || *position != path)

@@ -320,13 +320,14 @@ class RecordMapper
         {
             return osp::makeUnexpected(selected.error());
         }
-        if (!*selected)
+        const auto& chosen = *selected;
+        if (!chosen)
         {
             return std::size_t{0};
         }
         collection.children.push_back(makeResource(xml::childValue(&node, "title").value_or("")));
         auto& record = collection.children.back();
-        if (setRecord(record, node, **selected))
+        if (setRecord(record, node, *chosen))
         {
             setProperty(record, std::string(RELOAD_URL_PROPERTY), std::string(reloadUrl));
         }

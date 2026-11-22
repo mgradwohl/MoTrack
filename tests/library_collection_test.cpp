@@ -132,8 +132,7 @@ TEST(LibraryCollection, LoadsTheRepresentativeCollection)
     EXPECT_EQ(library::effectiveType(root.children[4]), ResourceType::Collection);
     EXPECT_EQ(root.children[5].name, "");
     EXPECT_EQ(root.children[5].type, ResourceType::Pdf);
-    ASSERT_TRUE(root.origin);
-    EXPECT_EQ(root.origin->source, document.source);
+    EXPECT_TRUE(root.origin && root.origin->source == document.source);
 }
 
 TEST(LibraryCollection, LoadsLikeOspInEdgeCases)
@@ -828,9 +827,10 @@ TEST(LibraryLibrary, LoadsAsLibraryLoaderDoes)
     EXPECT_EQ(library.pathNames.at(recent[1]), std::nullopt);
     const std::vector<std::string> noSearch = {"https://example.org/alpha.xml", "https://example.org/zeta.xml"};
     EXPECT_EQ(library.noSearchPaths, noSearch);
-    ASSERT_TRUE(library.openTabs);
-    EXPECT_EQ(library.openTabs->size(), 3U);
-    EXPECT_EQ((*library.openTabs)[1], std::nullopt);
+    ASSERT_TRUE(library.openTabs.has_value());
+    const auto tabs = library.openTabs.value_or(std::vector<std::optional<std::string>>{});
+    EXPECT_EQ(tabs.size(), 3U);
+    EXPECT_EQ(tabs[1], std::nullopt);
     EXPECT_EQ(library.chooserDirectory, "C:\\Users\\student\\Documents");
     EXPECT_EQ(library.subLibraryPaths, (std::vector<std::optional<std::string>>{"missing/sub_library.xml"}));
     EXPECT_FALSE(library.cache);

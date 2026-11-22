@@ -140,10 +140,10 @@ TEST(LibraryPaths, UrlAndArchiveForms)
     EXPECT_TRUE(library::isJarZipTrz("a.zip"));
     EXPECT_TRUE(library::isJarZipTrz("a.jar"));
     EXPECT_FALSE(library::isJarZipTrz("a.TRZ"));
-    const auto member = library::splitArchiveMember("C:/x/a.trz!/html/info.html");
-    ASSERT_TRUE(member);
-    EXPECT_EQ(member->archive, "C:/x/a.trz");
-    EXPECT_EQ(member->member, "html/info.html");
+    ASSERT_TRUE(library::splitArchiveMember("C:/x/a.trz!/html/info.html").has_value());
+    const auto member = library::splitArchiveMember("C:/x/a.trz!/html/info.html").value_or(library::ArchiveMember{});
+    EXPECT_EQ(member.archive, "C:/x/a.trz");
+    EXPECT_EQ(member.member, "html/info.html");
     EXPECT_FALSE(library::splitArchiveMember("a.trz!info.html"));
     EXPECT_EQ(library::nonUriPath("jar:file:/C:/Tracker%20Lib/a.trz!/b.html"), "C:/Tracker Lib/a.trz!/b.html");
     EXPECT_EQ(library::nonUriPath("file:/home/u/a&b?.trk"), "/home/u/a_b_.trk");

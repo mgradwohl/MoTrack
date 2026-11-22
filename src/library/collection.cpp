@@ -240,10 +240,10 @@ class Loader
         {
             return target.error();
         }
-        if (*target)
+        if (const auto& text = *target)
         {
             // The loader assigns the field directly: no trimming and no type from the extension.
-            resource.target = **target;
+            resource.target = *text;
         }
         auto htmlPath = reader.getString(object, "html_path", location);
         if (!htmlPath)
@@ -256,9 +256,9 @@ class Loader
         {
             return type.error();
         }
-        if (*type)
+        if (const auto& typeName = *type)
         {
-            if (const auto known = resourceTypeFromName(**type))
+            if (const auto known = resourceTypeFromName(*typeName))
             {
                 setType(resource, *known);
             }
@@ -284,11 +284,12 @@ class Loader
         {
             return rows.error();
         }
-        if (!*rows)
+        const auto& decoded = *rows;
+        if (!decoded)
         {
             return std::nullopt;
         }
-        const auto& matrix = **rows;
+        const auto& matrix = *decoded;
         // Java iterates every row of the array; a slot the file leaves empty is a null row.
         if (matrix.present.size() != matrix.length)
         {
@@ -321,11 +322,12 @@ class Loader
         {
             return rows.error();
         }
-        if (!*rows)
+        const auto& decoded = *rows;
+        if (!decoded)
         {
             return std::nullopt;
         }
-        const auto& matrix = **rows;
+        const auto& matrix = *decoded;
         if (matrix.present.size() != matrix.length)
         {
             return Failure{.location = here, .message = "null property entry"};
