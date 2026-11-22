@@ -447,7 +447,7 @@ Write-Host "==> LLVM $LlvmVersion (one LLVM $LlvmMajor in $LlvmDir)..."
 Install-PinnedLlvm
 
 if ($DryRun) {
-    Write-Host "[dry-run] python tools/dev_sdk.py install (Qt $($pins.MOTRACK_QT_VERSION) through aqtinstall, or verified archives from download.qt.io)"
+    Write-Host "[dry-run] python tools/dev_sdk.py install (Qt $($pins.MOTRACK_QT_VERSION) with Qt Multimedia through aqtinstall, or verified archives from download.qt.io)"
     Write-Host '[dry-run] python tools/media_sdk.py install (FFmpeg and libarchive through the pinned vcpkg)'
     Write-Host '[dry-run] tools/check-prereqs.ps1'
     if ($Build) { Write-Host '[dry-run] cmake --workflow --preset dev' }

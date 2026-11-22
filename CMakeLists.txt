@@ -34,7 +34,7 @@ if(MOTRACK_PGO_PROFILE AND NOT EXISTS "${MOTRACK_PGO_PROFILE}")
     message(FATAL_ERROR "Generate the PGO profile first: ${MOTRACK_PGO_PROFILE}")
 endif()
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Widgets LinguistTools Concurrent)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Widgets LinguistTools Concurrent Multimedia)
 include(cmake/MoTrackFFmpeg.cmake)
 include(cmake/MoTrackArchive.cmake)
 
@@ -97,10 +97,28 @@ target_compile_options(motrack_analysis PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
 target_link_libraries(motrack_analysis PRIVATE motrack_java_math)
 
 qt_add_executable(motrack src/main.cpp)
+if(APPLE)
+    # macOS refuses camera access to an app without a usage string. Bundles carry it in Info.plist;
+    # developer builds (no bundle) embed the same keys in the executable.
+    set(MOTRACK_BUNDLE_IDENTIFIER com.github.mgradwohl.motrack)
+    set(MOTRACK_CAMERA_USAGE "MoTrack uses the camera only when you choose Capture from camera, to record a clip for motion analysis.")
+    if(NOT MOTRACK_STAGE_DESKTOP)
+        configure_file(cmake/MoTrackEmbeddedInfo.plist.in "${CMAKE_CURRENT_BINARY_DIR}/motrack-Info.plist" @ONLY)
+        target_link_options(motrack PRIVATE "LINKER:-sectcreate,__TEXT,__info_plist,${CMAKE_CURRENT_BINARY_DIR}/motrack-Info.plist")
+        set_property(TARGET motrack APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/motrack-Info.plist")
+        # Qt's Darwin permission plugins are static, and Qt links them only into targets with a
+        # MACOSX_BUNDLE_INFO_PLIST (_qt_internal_darwin_permission_finalizer). Without the camera one,
+        # checkPermission reports Denied, so a developer build links it explicitly.
+        if(NOT TARGET Qt6::QDarwinCameraPermissionPlugin)
+            message(FATAL_ERROR "Qt's QDarwinCameraPermissionPlugin is missing; camera capture needs it.")
+        endif()
+        qt_import_plugins(motrack INCLUDE Qt6::QDarwinCameraPermissionPlugin)
+    endif()
+endif()
 add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp src/movie_worker.cpp src/position_plot.cpp
     src/video_canvas.cpp src/workspace_services.cpp src/workspace_context.cpp src/bound_workspace.cpp src/workspace_window.cpp src/ui_translations.cpp)
 set_target_properties(motrack_workspace PROPERTIES AUTOMOC ON)
-add_library(motrack_media STATIC src/template_tracker.cpp src/video_reader.cpp)
+add_library(motrack_media STATIC src/capture_encoder.cpp src/template_tracker.cpp src/video_reader.cpp)
 target_include_directories(motrack_media PUBLIC src)
 target_link_libraries(motrack_media PUBLIC Qt6::Gui PRIVATE motrack_ffmpeg)
 
@@ -127,7 +145,12 @@ add_library(motrack_filters STATIC src/science/filters/filter_image.cpp src/scie
 target_include_directories(motrack_filters PUBLIC src)
 target_compile_options(motrack_filters PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
 
-target_link_libraries(motrack_workspace PUBLIC motrack_project motrack_input Qt6::Widgets PRIVATE motrack_media motrack_image_package Qt6::Concurrent)
+# Camera capture: Qt Multimedia supplies cameras and frames; MoTrack's FFmpeg (motrack_media) records them.
+add_library(motrack_capture STATIC src/camera_source.cpp src/capture_dialog.cpp src/capture_pipeline.cpp)
+set_target_properties(motrack_capture PROPERTIES AUTOMOC ON)
+target_include_directories(motrack_capture PUBLIC src)
+target_link_libraries(motrack_capture PUBLIC Qt6::Widgets Qt6::Multimedia PRIVATE motrack_media Qt6::Concurrent)
+target_link_libraries(motrack_workspace PUBLIC motrack_project motrack_input motrack_capture Qt6::Widgets PRIVATE motrack_media motrack_image_package Qt6::Concurrent)
 target_link_libraries(motrack PRIVATE motrack_workspace)
 # One catalog per non-English locale in Tracker.getLocales(); tools/translations.py check verifies the list.
 set(motrack_ts_files
@@ -145,6 +168,7 @@ qt_add_translations(motrack
     PLURALS_TS_FILE translations/motrack_en.ts
     SOURCES src/main_window.cpp src/bound_workspace.cpp src/workspace_window.cpp src/position_plot.cpp src/tracker_image_package.cpp
             src/tracker_archive.cpp src/workspace_input.cpp
+            src/camera_source.cpp src/capture_dialog.cpp src/capture_pipeline.cpp
     RESOURCE_PREFIX "/i18n"
 )
 
@@ -155,8 +179,9 @@ if(MOTRACK_STAGE_DESKTOP)
         set_target_properties(motrack PROPERTIES
             MACOSX_BUNDLE TRUE
             MACOSX_BUNDLE_BUNDLE_NAME MoTrack
-            MACOSX_BUNDLE_GUI_IDENTIFIER com.github.mgradwohl.motrack
+            MACOSX_BUNDLE_GUI_IDENTIFIER "${MOTRACK_BUNDLE_IDENTIFIER}"
             MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+            MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/cmake/MoTrackInfo.plist.in"
             INSTALL_RPATH "@executable_path/../Frameworks;${QT6_INSTALL_PREFIX}/${QT6_INSTALL_LIBS}")
     elseif(WIN32)
         file(GLOB ffmpeg_runtime "${MOTRACK_FFMPEG_ROOT}/bin/avcodec-*.dll"
@@ -188,7 +213,7 @@ if(MOTRACK_STAGE_DESKTOP)
     install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/motrack)
 endif()
 
-set(motrack_targets motrack_dependencies motrack_osp motrack_library motrack_expression motrack_ode motrack_fit motrack_analysis motrack_motion motrack_project motrack_input motrack_image_package motrack_media motrack_workspace motrack motrack_java_math)
+set(motrack_targets motrack_dependencies motrack_osp motrack_library motrack_expression motrack_ode motrack_fit motrack_analysis motrack_motion motrack_project motrack_input motrack_image_package motrack_media motrack_capture motrack_workspace motrack motrack_java_math)
 if(MOTRACK_BUILD_BENCHMARKS)
     add_executable(motrack_import_benchmark benchmarks/import_benchmark.cpp)
     target_link_libraries(motrack_import_benchmark PRIVATE motrack_project)
@@ -307,7 +332,8 @@ if(BUILD_TESTING)
         tests/workspace_test.cpp
         tests/workspace_document_test.cpp
         tests/document_session_test.cpp
-        tests/ui_translations_test.cpp)
+        tests/ui_translations_test.cpp
+        tests/camera_capture_test.cpp)
     target_link_libraries(motrack_workspace_tests PRIVATE motrack_workspace GTest::gtest Qt6::Test motrack_archive)
     add_dependencies(motrack_workspace_tests motrack)
     target_compile_definitions(motrack_workspace_tests PRIVATE
@@ -316,9 +342,10 @@ if(BUILD_TESTING)
         MOTRACK_TS_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/translations")
     # Keep every case while bounding UI saving, persistence and session groups independently.
     add_test(NAME workspace COMMAND motrack_workspace_tests
-        "--gtest_filter=-PairedWorkspace.*:DocumentSession.*:WorkspaceDocument.*:ImagePackageWorkspace.*:WorkspaceShell.*:UiTranslations.*")
+        "--gtest_filter=-PairedWorkspace.*:DocumentSession.*:WorkspaceDocument.*:ImagePackageWorkspace.*:WorkspaceShell.*:UiTranslations.*:CameraCapture.*")
     # The shell's save/revert flows take seconds each and slow down most on loaded runners (#283).
     add_test(NAME workspace_shell COMMAND motrack_workspace_tests --gtest_filter=WorkspaceShell.*)
+    add_test(NAME camera_capture COMMAND motrack_workspace_tests --gtest_filter=CameraCapture.*)
     add_test(NAME workspace_saving COMMAND motrack_workspace_tests
         "--gtest_filter=PairedWorkspace.*:ImagePackageWorkspace.*")
     add_test(NAME workspace_document COMMAND motrack_workspace_tests --gtest_filter=WorkspaceDocument.*)
@@ -328,8 +355,9 @@ if(BUILD_TESTING)
     add_test(NAME document_session COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*-DocumentSession.*Journal*")
     add_test(NAME document_session_journals COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*Journal*")
     set_tests_properties(workspace workspace_shell workspace_saving workspace_document ui_translations document_session
-        document_session_journals PROPERTIES TIMEOUT 60)
-    add_executable(motrack_media_tests tests/template_tracker_test.cpp tests/video_frame_conversion_test.cpp tests/video_reader_test.cpp)
+        document_session_journals camera_capture PROPERTIES TIMEOUT 60)
+    add_executable(motrack_media_tests tests/capture_encoder_test.cpp tests/template_tracker_test.cpp tests/video_frame_conversion_test.cpp
+        tests/video_reader_test.cpp)
     # The tests encode synthetic movies and drive swscale with FFmpeg's own types.
     target_link_libraries(motrack_media_tests PRIVATE motrack_media motrack_ffmpeg GTest::gtest_main)
     target_compile_definitions(motrack_media_tests PRIVATE
@@ -354,7 +382,7 @@ if(BUILD_TESTING)
     add_test(NAME desktop_invalid_project COMMAND motrack --smoke-test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/missing.trk")
     set_tests_properties(workspace workspace_shell workspace_saving workspace_document ui_translations document_session
-        document_session_journals desktop_smoke desktop_invalid_project PROPERTIES
+        document_session_journals camera_capture desktop_smoke desktop_invalid_project PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     set_tests_properties(desktop_invalid_project PROPERTIES WILL_FAIL TRUE)
     if(MOTRACK_BUILD_BENCHMARKS)

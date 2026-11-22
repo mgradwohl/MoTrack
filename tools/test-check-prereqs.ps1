@@ -76,6 +76,18 @@ try {
     Assert-True ((Find-QtPrefix).Prefix -eq [IO.Path]::GetFullPath($qt)) 'Qt from QT_ROOT_DIR'
     Remove-Item Env:QT_ROOT_DIR
     Assert-True ($null -eq (Find-QtPrefix)) 'no Qt'
+
+    # Qt Multimedia: present, missing (fails, or warns with -Optional), or no Qt at all.
+    $prefix = [pscustomobject]@{ Prefix = $qt; Version = '6.8.3' }
+    $row = Get-QtMultimediaRow -Qt $prefix
+    Assert-True ($row.Status -eq 'fail' -and $row.Fix -like '*dev_sdk.py install adds Qt Multimedia*') "Qt without Multimedia: $($row.Status) [$($row.Fix)]"
+    Assert-True ((Get-QtMultimediaRow -Qt $prefix -Optional).Status -eq 'warn') 'Qt without Multimedia, tools only'
+    Assert-True ((Get-QtMultimediaRow -Qt $null).Status -eq 'fail') 'Qt Multimedia without Qt'
+    $multimedia = Join-Path $qt 'lib\cmake\Qt6Multimedia'
+    New-Item -ItemType Directory -Force -Path $multimedia | Out-Null
+    Set-Content -LiteralPath (Join-Path $multimedia 'Qt6MultimediaConfig.cmake') -Value ''
+    $row = Get-QtMultimediaRow -Qt $prefix
+    Assert-True ($row.Status -eq 'ok' -and $row.Version -eq '6.8.3' -and $row.Fix -eq '') "Qt with Multimedia: $($row.Status)"
 } finally {
     foreach ($key in $saved.Keys) {
         if ($null -ne $saved[$key]) { Set-Item -LiteralPath "Env:$key" -Value $saved[$key] } else { Remove-Item -LiteralPath "Env:$key" -ErrorAction SilentlyContinue }
@@ -88,8 +100,9 @@ $pwsh = (Get-Process -Id $PID).Path
 $output = & $pwsh -NoProfile -File $checker -ToolsOnly 2>&1 | Out-String
 $exit = $LASTEXITCODE
 $lines = $output -split '\r?\n'
-foreach ($name in 'clang', 'clang\+\+', 'clang-format', 'clang-tidy', 'llvm-cov', 'llvm-profdata', 'MSVC toolset', 'Windows SDK', 'cmake', 'ninja', 'ccache', 'python', 'git', 'Qt') {
-    Assert-True (@($lines | Where-Object { $_ -match "^\S $name\s" }).Count -eq 1) "Expected one $name row:`n$output"
+foreach ($name in 'clang', 'clang\+\+', 'clang-format', 'clang-tidy', 'llvm-cov', 'llvm-profdata', 'MSVC toolset', 'Windows SDK', 'cmake', 'ninja', 'ccache', 'python', 'git', 'Qt', 'Qt Multimedia') {
+    # Names are padded to 15 columns, so two spaces end a name ("Qt" is not "Qt Multimedia").
+    Assert-True (@($lines | Where-Object { $_ -match "^\S $name\s{2}" }).Count -eq 1) "Expected one $name row:`n$output"
 }
 Assert-True (@($lines | Where-Object { $_ -match '^\S clang\s' -and $_ -match '\(= 23\)' }).Count -eq 1) "clang row lacks the pinned major:`n$output"
 Assert-True (@($lines | Where-Object { $_ -match '^\S MSVC toolset\s' -and $_ -match ([regex]::Escape("(>= $($pinned.MOTRACK_MSVC_TOOLSET_MIN))")) }).Count -eq 1) "MSVC row lacks the floor:`n$output"

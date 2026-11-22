@@ -35,7 +35,17 @@ UPDATES = b"""<Updates>
   </Operations>
  </PackageUpdate>
  <PackageUpdate><Name>qt.qt6.683.addons.qtcharts.win64_msvc2022_64</Name><Version>x</Version></PackageUpdate>
+ <PackageUpdate>
+  <Name>qt.qt6.683.addons.qtmultimedia.win64_msvc2022_64</Name>
+  <Version>6.8.3-0-2</Version>
+  <DownloadableArchives>qtmultimedia.7z</DownloadableArchives>
+  <Operations>
+   <Operation name="Extract"><Argument>@TargetDir@/6.8.3/msvc2022_64</Argument><Argument>qtmultimedia.7z</Argument></Operation>
+  </Operations>
+ </PackageUpdate>
 </Updates>"""
+ESSENTIALS = "windows_x86/qt.qt6.683.win64_msvc2022_64/"
+MULTIMEDIA = "windows_x86/qt.qt6.683.addons.qtmultimedia.win64_msvc2022_64/"
 
 
 class ToolchainPinTests(unittest.TestCase):
@@ -92,6 +102,8 @@ class QtDirectInstallTests(unittest.TestCase):
             "6.8.3-0-1qtbase.7z": {"lib/cmake/Qt6/Qt6Config.cmake": "", "mkspecs/qconfig.pri": "QT_EDITION = Enterprise\nQT_LICHECK = licheck.exe\nQT_ARCH = x86_64\n"},
             "6.8.3-0-1d3d.7z": {"d3dcompiler_47.dll": "dll"},
             "6.8.3-0-1plain.7z": {"bin/Qt6Svg.dll": "svg"},
+            "6.8.3-0-2qtmultimedia.7z": {"lib/cmake/Qt6Multimedia/Qt6MultimediaConfig.cmake": "",
+                                         "bin/avcodec-61.dll": "ffmpeg", "bin/Qt6Multimedia.dll": "multimedia"},
         }
         self.checksums = {name: hashlib.sha256(name.encode()).hexdigest() for name in self.archives}
         self.downloads = []
@@ -116,11 +128,19 @@ class QtDirectInstallTests(unittest.TestCase):
             (destination / relative).parent.mkdir(parents=True, exist_ok=True)
             (destination / relative).write_text(content, encoding="utf-8")
 
+    def pins(self):
+        """The pins as tools/qt-archives.sha256 keys: the module archive under its add-on package."""
+        return {(MULTIMEDIA if "-0-2" in name else ESSENTIALS) + name: checksum for name, checksum in self.checksums.items()}
+
     def install(self):
-        pins = {f"windows_x86/qt.qt6.683.win64_msvc2022_64/{name}": checksum for name, checksum in self.checksums.items()}
         with patch.object(dev_sdk, "fetch_trusted", self.fetch), patch.object(dev_sdk, "download", self.download):
             dev_sdk.install_qt_direct(self.root, "win64_msvc2022_64", "msvc2022_64", "windows_x86", "6.8.3", self.extract,
-                                      pins)
+                                      self.pins())
+
+    def amend(self):
+        with patch.object(dev_sdk, "fetch_trusted", self.fetch), patch.object(dev_sdk, "download", self.download):
+            dev_sdk.add_qt_modules_direct(self.root, "win64_msvc2022_64", "msvc2022_64", "windows_x86", ["qtmultimedia"],
+                                          "6.8.3", self.extract, self.pins())
 
     def test_installs_verified_archives_into_the_prefix(self):
         stale = self.root / "qt/6.8.3/msvc2022_64/stale.txt"
@@ -134,8 +154,11 @@ class QtDirectInstallTests(unittest.TestCase):
         self.assertFalse(stale.exists())
         self.assertEqual((prefix / "mkspecs/qconfig.pri").read_text(encoding="utf-8"),
                          "QT_EDITION = OpenSource\nQT_LICHECK =\nQT_ARCH = x86_64\n")
-        self.assertEqual(len(self.downloads), 3)
-        self.assertTrue(all("/qt.qt6.683.win64_msvc2022_64/6.8.3-0-1" in url for url in self.downloads))
+        self.assertEqual(len(self.downloads), 4)
+        self.assertTrue(all("/qt.qt6.683.win64_msvc2022_64/6.8.3-0-1" in url for url in self.downloads[:3]))
+        self.assertIn("/qt.qt6.683.addons.qtmultimedia.win64_msvc2022_64/6.8.3-0-2qtmultimedia.7z", self.downloads[3])
+        self.assertTrue((prefix / "lib/cmake/Qt6Multimedia/Qt6MultimediaConfig.cmake").is_file())
+        self.assertEqual(dev_sdk.missing_modules(prefix), [])
         self.assertFalse((self.root / "qt-downloads").exists())
         self.assertFalse((self.root / "qt.partial").exists())
 
@@ -144,7 +167,7 @@ class QtDirectInstallTests(unittest.TestCase):
         downloads.mkdir()
         (downloads / "6.8.3-0-1qtbase.7z").write_bytes(b"6.8.3-0-1qtbase.7z")
         self.install()
-        self.assertEqual(len(self.downloads), 2)
+        self.assertEqual(len(self.downloads), 3)
 
     def test_a_checksum_mismatch_stops_before_anything_is_installed(self):
         self.checksums["6.8.3-0-1d3d.7z"] = "0" * 64
@@ -173,6 +196,9 @@ class QtDirectInstallTests(unittest.TestCase):
             self.assertTrue(names, repository_os)
             self.assertTrue(all(key.rsplit("/", 1)[1].startswith(dev_sdk.QT_VERSION + "-") for key in names), names)
             self.assertTrue(any("qtbase" in key for key in names), repository_os)
+            for module in dev_sdk.QT_MODULES:
+                prefix = f"{repository_os}/qt.qt6.{compact}.addons.{module}.{archive}/"
+                self.assertTrue(any(key.startswith(prefix) for key in pins), prefix)
         self.assertEqual(len(pins), sum(1 for line in dev_sdk.QT_ARCHIVE_PINS.read_text(encoding="utf-8").splitlines()
                                         if line and not line.startswith("#")))
 
@@ -181,6 +207,43 @@ class QtDirectInstallTests(unittest.TestCase):
             return b"0" * 64 if url.endswith("Updates.xml.sha256") else self.fetch(url)
         with patch.object(dev_sdk, "fetch_trusted", fetch), self.assertRaisesRegex(SystemExit, "Updates.xml"):
             dev_sdk.install_qt_direct(self.root, "win64_msvc2022_64", "msvc2022_64", "windows_x86", "6.8.3", self.extract)
+
+    def test_archives_without_a_module_package_are_not_installed(self):
+        del self.archives["6.8.3-0-2qtmultimedia.7z"]["lib/cmake/Qt6Multimedia/Qt6MultimediaConfig.cmake"]
+        with self.assertRaisesRegex(SystemExit, "Qt6MultimediaConfig.cmake"):
+            self.install()
+        self.assertFalse((self.root / "qt").exists())
+
+    def test_a_module_is_added_to_an_installed_prefix_without_replacing_its_files(self):
+        prefix = self.root / "qt/6.8.3/msvc2022_64"
+        (prefix / "bin").mkdir(parents=True)
+        (prefix / "bin/Qt6Core.dll").write_text("core", encoding="utf-8")
+        (prefix / "bin/Qt6Multimedia.dll").write_text("multimedia", encoding="utf-8")  # identical: kept
+        self.assertEqual(dev_sdk.missing_modules(prefix), ["qtmultimedia"])
+        self.amend()
+        self.assertEqual(dev_sdk.missing_modules(prefix), [])
+        self.assertEqual((prefix / "bin/Qt6Core.dll").read_text(encoding="utf-8"), "core")
+        self.assertEqual((prefix / "bin/avcodec-61.dll").read_text(encoding="utf-8"), "ffmpeg")
+        self.assertEqual(len(self.downloads), 1)  # Only the module archive; the essentials stay as installed.
+        self.assertFalse((self.root / "qt.partial").exists())
+
+    def test_a_module_file_that_differs_from_the_prefix_stops_the_amendment(self):
+        prefix = self.root / "qt/6.8.3/msvc2022_64"
+        (prefix / "bin").mkdir(parents=True)
+        (prefix / "bin/Qt6Multimedia.dll").write_text("another build", encoding="utf-8")
+        with self.assertRaisesRegex(SystemExit, "already exists with other content"):
+            self.amend()
+        self.assertEqual((prefix / "bin/Qt6Multimedia.dll").read_text(encoding="utf-8"), "another build")
+        self.assertFalse((prefix / "bin/avcodec-61.dll").exists())
+        self.assertEqual(dev_sdk.missing_modules(prefix), ["qtmultimedia"])
+
+    def test_a_module_checksum_mismatch_adds_nothing(self):
+        self.checksums["6.8.3-0-2qtmultimedia.7z"] = "0" * 64
+        prefix = self.root / "qt/6.8.3/msvc2022_64"
+        (prefix / "bin").mkdir(parents=True)
+        with self.assertRaisesRegex(SystemExit, "qtmultimedia.7z has SHA-256 .*pins 0{64}"):
+            self.amend()
+        self.assertFalse((prefix / "bin/avcodec-61.dll").exists())
 
     def test_archives_without_qt6config_are_not_installed(self):
         del self.archives["6.8.3-0-1qtbase.7z"]["lib/cmake/Qt6/Qt6Config.cmake"]
@@ -216,6 +279,39 @@ class AqtFallbackTests(unittest.TestCase):
                 with self.assertRaises(SystemExit):  # the mock installs nothing
                     dev_sdk.install(root, "windows", "win64_msvc2022_64", "msvc2022_64", "windows_x86", "auto")
                 direct.assert_called_once_with(root, "win64_msvc2022_64", "msvc2022_64", "windows_x86")
+
+    def test_aqt_installs_the_modules_and_amends_with_noarchives(self):
+        with patch.object(dev_sdk.subprocess, "run") as run:
+            dev_sdk.install_qt_aqt("python", Path("root"), "windows", "win64_msvc2022_64")
+            dev_sdk.install_qt_aqt("python", Path("root"), "windows", "win64_msvc2022_64", ["qtmultimedia"], amend=True)
+        full, amended = run.call_args_list[1].args[0], run.call_args_list[3].args[0]
+        self.assertEqual(full[-2:], ["-m", "qtmultimedia"])
+        self.assertEqual(amended[-3:], ["-m", "qtmultimedia", "--noarchives"])
+
+    def test_an_installed_prefix_without_a_module_is_amended_add_only_before_aqt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            python = root / "venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+            python.parent.mkdir(parents=True)
+            python.write_text("", encoding="utf-8")
+            prefix = root / "qt" / dev_sdk.QT_VERSION / "msvc2022_64"
+            (prefix / "lib/cmake/Qt6").mkdir(parents=True)
+            (prefix / "lib/cmake/Qt6/Qt6Config.cmake").write_text("", encoding="utf-8")
+            arguments = (root, "windows", "win64_msvc2022_64", "msvc2022_64", "windows_x86")
+            with patch.object(dev_sdk, "add_qt_modules_direct", side_effect=OSError("offline")) as direct, \
+                    patch.object(dev_sdk, "install_qt_aqt") as aqt:
+                with self.assertRaises(SystemExit):  # neither mock adds the module
+                    dev_sdk.install(*arguments, "auto")
+                direct.assert_called_once_with(root, "win64_msvc2022_64", "msvc2022_64", "windows_x86", ["qtmultimedia"])
+                aqt.assert_called_once_with(python, root, "windows", "win64_msvc2022_64", ["qtmultimedia"], amend=True)
+                aqt.reset_mock()
+                with self.assertRaises(OSError):
+                    dev_sdk.install(*arguments, "direct")
+                aqt.assert_not_called()
+            with patch.object(dev_sdk, "add_qt_modules_direct", side_effect=dev_sdk.QtPrefixConflict("differs")), \
+                    patch.object(dev_sdk, "install_qt_aqt") as aqt, self.assertRaisesRegex(SystemExit, "differs"):
+                dev_sdk.install(*arguments, "auto")
+            aqt.assert_not_called()
 
 
 @unittest.skipUnless(BASH, "needs Bash")
@@ -316,6 +412,17 @@ class BashScriptTests(unittest.TestCase):
                                 env={**os.environ, "PATH": os.pathsep.join((str(self.stubs), str(self.utilities)))})
         found = sorted(Path(line).name for line in result.stdout.splitlines())
         self.assertEqual(found, sorted(name for name, (_, expected) in cases.items() if expected))
+
+    def test_qt_must_include_qt_multimedia(self):
+        prefix = Path(self.directory.name) / "qt"
+        (prefix / "lib/cmake/Qt6Multimedia").mkdir(parents=True)
+        quoted = f"'{prefix.as_posix()}'"
+        rows = self.rows(f"check_qt_multimedia {quoted} 6.8.3; check_qt_multimedia /missing 6.8.3; "
+                         "check_qt_multimedia /missing 6.8.3 optional; check_qt_multimedia \"\" \"\"")
+        self.assertEqual([r[0] for r in rows], ["fail", "fail", "warn", "fail"])
+        self.assertIn("dev_sdk.py install adds Qt Multimedia", rows[0][5])
+        (prefix / "lib/cmake/Qt6Multimedia/Qt6MultimediaConfig.cmake").write_text("", encoding="utf-8")
+        self.assertEqual(self.rows(f"check_qt_multimedia {quoted} 6.8.3")[0][:3], ["ok", "Qt Multimedia", "6.8.3"])
 
     def test_minimum_versions(self):
         rows = self.rows("check_minimum a /a 3.25.0 3.25 fix; check_minimum b /b 3.24.9 3.25 fix; "

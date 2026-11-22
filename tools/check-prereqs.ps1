@@ -1,14 +1,15 @@
 <#
 .SYNOPSIS
-Checks the MoTrack developer tools against tools/toolchain.env and builds a small Qt, FFmpeg and libarchive probe.
+Checks the MoTrack developer tools against tools/toolchain.env and builds a small Qt (with Qt Multimedia), FFmpeg and libarchive probe.
 .DESCRIPTION
 Activates tools/dev-env.ps1, then reports each tool's path and version against what MoTrack needs:
 every LLVM tool (clang, clang++, clang-format, clang-tidy, llvm-cov, llvm-profdata) must be the pinned
 LLVM major, and a release other than the one CI installs is a warning; CMake, Ninja, Python, Git, the
-MSVC toolset and Qt must meet their floors; ccache is recommended. Each failure prints how to fix it.
+MSVC toolset and Qt must meet their floors, and Qt must include Qt Multimedia; ccache is recommended. Each failure
+prints how to fix it.
 Exits 1 when anything required is missing or out of range.
 .PARAMETER ToolsOnly
-Skips the probe build (and treats a missing Qt as a warning).
+Skips the probe build (and treats a missing Qt or Qt Multimedia as a warning).
 #>
 [CmdletBinding()]
 param([switch]$ToolsOnly)
@@ -109,6 +110,18 @@ function Find-QtPrefix {
     return $null
 }
 
+# Qt Multimedia (camera capture) in the Qt prefix CMake finds; -Optional makes a miss a warning.
+function Get-QtMultimediaRow {
+    param([object]$Qt, [switch]$Optional)
+    $bad = if ($Optional) { 'warn' } else { 'fail' }
+    $required = "Qt $($pins.MOTRACK_QT_MIN)+ module"
+    $fix = "python tools/dev_sdk.py install adds Qt Multimedia to the .dev-tools Qt; another Qt prefix needs its qtmultimedia module (aqt install-qt ... -m qtmultimedia)."
+    if (-not $Qt) { return New-PrereqRow 'Qt Multimedia' $bad '' $required '(no Qt)' $fix }
+    $config = Join-Path $Qt.Prefix 'lib\cmake\Qt6Multimedia\Qt6MultimediaConfig.cmake'
+    if (Test-Path -LiteralPath $config) { return New-PrereqRow 'Qt Multimedia' ok $Qt.Version $required (Split-Path -Parent $config) '' }
+    return New-PrereqRow 'Qt Multimedia' $bad '' $required "(not in $($Qt.Prefix))" $fix
+}
+
 function Write-PrereqRow {
     param([object]$Row)
     $mark, $color = switch ($Row.Status) { 'ok' { [char]0x2713, 'Green' } 'warn' { '!', 'Yellow' } default { [char]0x2717, 'Red' } }
@@ -158,6 +171,7 @@ $rows.Add((Get-MinimumRow -Name 'git' -Path $git -Version (Get-PrereqVersion $gi
 $qt = Find-QtPrefix
 $qtFix = "python tools/dev_sdk.py install puts Qt $($pins.MOTRACK_QT_VERSION) in .dev-tools; or add a Qt $($pins.MOTRACK_QT_MIN)+ prefix to CMAKE_PREFIX_PATH."
 $rows.Add((Get-MinimumRow -Name 'Qt' -Path $(if ($qt) { $qt.Prefix }) -Version $(if ($qt) { $qt.Version }) -Minimum $pins.MOTRACK_QT_MIN -Optional:$ToolsOnly -Fix $qtFix))
+$rows.Add((Get-QtMultimediaRow -Qt $qt -Optional:$ToolsOnly))
 
 Write-Host 'Tool           Version       Required          Path'
 Write-Host ('-' * 86)
