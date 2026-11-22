@@ -146,7 +146,7 @@ jobs:
       - name: Check Tracker reference corpus
         shell: bash
         run: |
-          python -m unittest discover -s tests -p test_corpus.py
+          python -m unittest discover -s tests -p 'test_corpus*.py'
           python tools/corpus.py fetch
           probe=build/coverage/motrack_corpus_probe
           if [[ "$RUNNER_OS" == Windows ]]; then probe="$probe.exe"; fi

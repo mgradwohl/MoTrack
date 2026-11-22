@@ -1,0 +1,106 @@
+name: Library corpus
+# Real-world Tracker experiments from the Library Browser collections (tests/corpus/library-manifest.json).
+# Fetching ~0.8 GB from third-party hosts and indexing every movie is too slow for ordinary PRs, so this runs
+# weekly and on demand. The tooling's unit tests run in the normal CI workflow.
+on:
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  library:
+    name: Fetch and census library experiments
+    runs-on: ubuntu-24.04
+    # A cold cache fetches ~0.8 GB at one request per second; the census indexes every movie.
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Test library corpus tooling
+        run: python -m unittest discover -s tests -p 'test_corpus*.py'
+      - name: Restore library downloads
+        id: library-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .dev-tools/tracker-reference/library/files
+          key: tracker-library-v1-${{ hashFiles('tests/corpus/library-manifest.json') }}
+          restore-keys: tracker-library-v1-
+      - name: Fetch and verify pinned library experiments
+        id: library-fetch
+        run: |
+          python tools/corpus.py fetch
+          python tools/corpus.py fetch-library
+      # Only fully verified pins are cached; a partial or changed upstream file fails above instead.
+      - name: Save library downloads
+        if: steps.library-fetch.outcome == 'success' && steps.library-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .dev-tools/tracker-reference/library/files
+          key: ${{ steps.library-cache.outputs.cache-primary-key }}
+      - uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
+        with:
+          version: "6.8.3"
+      - name: Install Linux LLVM and Qt system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 llvm-18 libgl1-mesa-dev libxkbcommon-dev
+          sudo apt-get install -y build-essential pkg-config autoconf automake libtool nasm patchelf libxcb-cursor0
+          echo /usr/lib/llvm-18/bin >> "$GITHUB_PATH"
+      - name: Restore pinned vcpkg bootstrap
+        id: vcpkg-bootstrap-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            .dev-tools/vcpkg
+            !.dev-tools/vcpkg/buildtrees/**
+            !.dev-tools/vcpkg/packages/**
+            !.dev-tools/vcpkg/installed/**
+            !.dev-tools/vcpkg/downloads/**
+            !.dev-tools/vcpkg/binary-cache/**
+          key: vcpkg-bootstrap-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/media_sdk.py') }}
+      - name: Verify and prepare pinned vcpkg bootstrap
+        run: python tools/media_sdk.py bootstrap
+      - name: Restore media library binaries
+        id: media-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .dev-tools/vcpkg-binary-cache
+          key: ffmpeg-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/media_sdk.py') }}
+          restore-keys: ffmpeg-sdk-${{ runner.os }}-${{ runner.arch }}-
+      - name: Set up pinned media libraries
+        id: media
+        run: |
+          python tools/media_sdk.py install
+          prefix="$(python tools/media_sdk.py prefix)"
+          echo "MOTRACK_FFMPEG_ROOT=$prefix" >> "$GITHUB_ENV"
+          if [[ -d "$prefix/bin" ]]; then echo "$prefix/bin" >> "$GITHUB_PATH"; fi
+      - name: Save media library binaries
+        if: steps.media.outcome == 'success' && steps.media-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .dev-tools/vcpkg-binary-cache
+          key: ${{ steps.media-cache.outputs.cache-primary-key }}
+      - name: Build the corpus probe
+        run: |
+          cmake --preset dev
+          cmake --build --preset dev --target motrack_corpus_probe
+      - name: Check the library census against MoTrack and the Java reference
+        run: >-
+          python tools/corpus.py library-census --check --jobs 3 --probe build/dev/motrack_corpus_probe
+          --java "$JAVA_HOME_17_X64/bin/java"
+      - name: Upload the regenerated census
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: library-census
+          path: .dev-tools/tracker-reference/library/library-census.json
+          if-no-files-found: ignore
