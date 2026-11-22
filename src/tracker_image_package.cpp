@@ -244,7 +244,8 @@ void writeTrackerMediaPackage(
         checkCancelled(cancelled);
         requireReadable(index.frameCount > 0,
                         workspaceMediaPath(document, mediaProjectPath, document.project.clip.mediaReferences.front()));
-        if (document.project.clip.sourceFrameCount != index.frameCount || index.frameTimes != document.movieFrameTimes)
+        if (document.project.clip.sourceFrameCount != index.frameCount || index.frameTimes != document.movieFrameTimes ||
+            (document.movieTimeBase.known() && index.timeBase != document.movieTimeBase))
             throw ProjectError(
                 QCoreApplication::translate("TrackerImagePackage", "The movie's frame count or timing no longer matches this document.")
                     .toStdString());

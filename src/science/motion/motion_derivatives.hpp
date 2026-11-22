@@ -3,6 +3,7 @@
 #include "science/motion/motion_types.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -97,6 +98,39 @@ struct MotionDerivatives
                                                      const ClipLattice& clip,
                                                      std::span<const std::optional<PlanarValue>> positions,
                                                      std::span<const double> stepTimesSeconds);
+
+// MoTrack's extension of the default Finite Difference algorithm to measured step times, such as decoded
+// movie timestamps, whose spacing Tracker's stencils assume to be even (#87, #331; docs/motion-kernels.md).
+
+/// True when times[step - spill .. step + spill] increase and every interior time lies within the timestamp
+/// resolution of the evenly spaced grid between the window's end times, which is what Tracker's stencils
+/// assume. The tolerance is max(timeResolutionSeconds, 1 ns) for the rounding of each timestamp to its time
+/// base, plus 1 ns for MoTrack's rescaling to whole nanoseconds and 8 ulps of the largest time. For three
+/// steps this says the two intervals agree within 2 max(resolution, 1 ns) + 2 ns. A non-positive or
+/// non-finite resolution counts as 1 ns.
+[[nodiscard]] bool evenlySpacedWindow(std::span<const double> times, std::size_t step, std::size_t spill, double timeResolutionSeconds);
+
+/// The derivative at times[1] of the quadratic through three samples, exact for constant acceleration at
+/// any spacing; for equal intervals it is Tracker's (x[2] - x[0]) / (t[2] - t[0]). Missing unless the times
+/// increase and every input and the result are finite.
+[[nodiscard]] std::optional<double> quadraticSlope(std::span<const double, 3> times, std::span<const double, 3> values);
+
+/// 2c of the least-squares parabola x ≈ a + b (t - times[2]) + c (t - times[2])² through five samples,
+/// exact for constant acceleration at any spacing. At equal spacing Δ it is Tracker's five-point
+/// (2x[0] - x[1] - 2x[2] - x[3] + 2x[4]) / (7 Δ²) (see the derivation in the source). Missing unless the
+/// times increase and every input and the result are finite.
+[[nodiscard]] std::optional<double> leastSquaresCurvature(std::span<const double, 5> times, std::span<const double, 5> values);
+
+/// Velocity and acceleration for measured step times (seconds, one per clip step). Wherever a window's
+/// times are evenly spaced within `timeResolutionSeconds` (evenlySpacedWindow), the values are Tracker's
+/// Finite Difference ones (pointMassDerivatives, bit for bit). Elsewhere velocity is quadraticSlope over
+/// steps k-1..k+1 and acceleration leastSquaresCurvature over k-2..k+2, so the acceleration estimator is a
+/// five-point fit everywhere. Windows and missing values follow Tracker: every step of a window must have a
+/// position. Throws std::invalid_argument for an invalid lattice or a size mismatch.
+[[nodiscard]] MotionDerivatives measuredTimeDerivatives(const ClipLattice& clip,
+                                                        std::span<const std::optional<PlanarValue>> positions,
+                                                        std::span<const double> stepTimesSeconds,
+                                                        double timeResolutionSeconds);
 
 /// Polar-angle motion of the position vector about the world origin.
 struct AngularMotion

@@ -10,7 +10,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QSemaphore>
 #include <QSet>
 #include <QSignalSpy>
@@ -20,6 +22,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <initializer_list>
 #include <span>
 #include <string>
@@ -518,6 +521,58 @@ TEST(WorkspaceInput, MovieMetadataIsPreparedWithoutViewsAndInvalidMoviesFailBefo
     const auto native = temporary.filePath("invalid.motrack");
     motrack::writeWorkspaceDocument(native, document);
     EXPECT_THROW((void)motrack::prepareWorkspaceInput(native), motrack::ProjectError);
+}
+
+TEST(WorkspaceInput, MovieTimeBaseIsIndexedAndSavedWithTheFrameTimes)
+{
+    // The index records the stream time base the decoded frame times were quantized to (#331), and the
+    // native document keeps it beside them. Documents saved before #331 open with it unknown.
+    QTemporaryDir temporary;
+    auto input = motrack::prepareWorkspaceInput(fixture("linked-mov/linked-movie.trk"));
+    ASSERT_TRUE(input.document);
+    const auto& indexed = input.document->document;
+    const auto timeBase = indexed.movieTimeBase;
+    ASSERT_TRUE(timeBase.known());
+    const double tick = timeBase.resolutionSeconds();
+    for (const auto time : indexed.movieFrameTimes)
+    {
+        EXPECT_NEAR(time, std::round(time / tick) * tick, 1e-9) << time; // Whole ticks.
+    }
+    const auto native = temporary.filePath("time-base.motrack");
+    motrack::writeWorkspaceDocument(native, indexed);
+    EXPECT_EQ(motrack::readWorkspaceDocument(native).movieTimeBase, timeBase);
+
+    const auto rewrite = [&native](const QJsonValue& value)
+    {
+        QFile file(native);
+        if (!file.open(QIODevice::ReadOnly))
+            return false;
+        auto object = QJsonDocument::fromJson(file.readAll()).object();
+        file.close();
+        if (value.isUndefined())
+            object.remove("movieTimeBase");
+        else
+            object.insert("movieTimeBase", value);
+        const auto bytes = QJsonDocument(object).toJson();
+        return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
+    };
+    ASSERT_TRUE(rewrite(QJsonValue::Undefined));
+    const auto earlier = motrack::readWorkspaceDocument(native);
+    EXPECT_FALSE(earlier.movieTimeBase.known());
+    EXPECT_EQ(earlier.movieFrameTimes, indexed.movieFrameTimes);
+    for (const auto& invalid :
+         {QJsonValue(QJsonArray{0, 600}), QJsonValue(QJsonArray{1}), QJsonValue(QJsonArray{1, -600}), QJsonValue("1/600")})
+    {
+        ASSERT_TRUE(rewrite(invalid));
+        EXPECT_THROW((void)motrack::readWorkspaceDocument(native), motrack::ProjectError);
+    }
+    // The time base describes frame times, so a document without them neither writes nor accepts one.
+    auto stale = indexed;
+    stale.movieFrameTimes.clear();
+    motrack::writeWorkspaceDocument(native, stale);
+    EXPECT_FALSE(motrack::readWorkspaceDocument(native).movieTimeBase.known());
+    ASSERT_TRUE(rewrite(QJsonArray{1, 600}));
+    EXPECT_THROW((void)motrack::readWorkspaceDocument(native), motrack::ProjectError);
 }
 
 TEST(WorkspaceInput, SavingAnImageMemberAlsoPreservesAnUnopenedMovieMember)
