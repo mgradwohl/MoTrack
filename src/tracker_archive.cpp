@@ -107,7 +107,12 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
     const auto restoreTextLocale = qScopeGuard([previousLocale] { uselocale(previousLocale); });
 #endif
     const std::unique_ptr<archive, decltype(&archive_read_free)> reader(archive_read_new(), &archive_read_free);
-    require(reader && archive_read_support_format_zip_seekable(reader.get()) == ARCHIVE_OK);
+    // Tracker reads archives with java.util.zip, which decodes every member name as UTF-8 whether or not the
+    // name's UTF-8 flag (general-purpose bit 11) is set, and refuses a name that is not UTF-8. libarchive would
+    // otherwise decode an unflagged name through the C locale or the OEM code page, which differ between motrack,
+    // the test binaries and the user's system (#275; CONTRIBUTING.md, "Tracker compatibility exceptions").
+    require(reader && archive_read_support_format_zip_seekable(reader.get()) == ARCHIVE_OK &&
+            archive_read_set_format_option(reader.get(), "zip", "hdrcharset", "UTF-8") == ARCHIVE_OK);
 #ifdef _WIN32
     require(archive_read_open_filename_w(
                 reader.get(), QDir::toNativeSeparators(result.sourcePath()).toStdWString().c_str(), READ_BLOCK_BYTES) == ARCHIVE_OK);

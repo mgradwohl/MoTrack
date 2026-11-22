@@ -37,6 +37,7 @@ endif()
 find_package(Qt6 6.8 REQUIRED COMPONENTS Widgets Xml LinguistTools Concurrent)
 include(cmake/MoTrackFFmpeg.cmake)
 include(cmake/MoTrackArchive.cmake)
+include(cmake/MoTrackTextEncoding.cmake)
 
 # Qt-free science kernels. The expression engine ports OSP's SuryonoParser (docs/expression-engine.md).
 add_library(motrack_expression STATIC src/science/decimal_conversion.cpp src/science/expression.cpp src/science/java_math.cpp)
@@ -64,6 +65,14 @@ target_compile_options(motrack_ode PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
 target_compile_options(motrack_expression PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
 
 qt_add_executable(motrack src/main.cpp)
+if(WIN32)
+    # The UTF-8 process code page (activeCodePage); the test binaries deliberately have no manifest.
+    target_sources(motrack PRIVATE src/motrack.manifest)
+endif()
+# The process locale setup every executable calls after constructing its Q*Application.
+add_library(motrack_locale STATIC src/app_locale.cpp)
+target_include_directories(motrack_locale PUBLIC src)
+target_link_libraries(motrack_locale PUBLIC Qt6::Core)
 add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp src/movie_worker.cpp src/position_plot.cpp
     src/video_canvas.cpp src/workspace_services.cpp src/workspace_context.cpp src/bound_workspace.cpp src/workspace_window.cpp)
 set_target_properties(motrack_workspace PROPERTIES AUTOMOC ON)
@@ -76,7 +85,7 @@ add_library(motrack_input STATIC src/workspace_input.cpp)
 target_include_directories(motrack_input PUBLIC src)
 target_link_libraries(motrack_input PUBLIC motrack_project PRIVATE motrack_media)
 target_link_libraries(motrack_workspace PUBLIC motrack_project motrack_input Qt6::Widgets PRIVATE motrack_media motrack_image_package Qt6::Concurrent)
-target_link_libraries(motrack PRIVATE motrack_workspace)
+target_link_libraries(motrack PRIVATE motrack_workspace motrack_locale)
 qt_add_translations(motrack
     TS_FILES translations/motrack_de.ts translations/motrack_es.ts translations/motrack_fr.ts
     SOURCES src/main_window.cpp src/bound_workspace.cpp src/workspace_window.cpp src/position_plot.cpp src/tracker_image_package.cpp
@@ -121,7 +130,7 @@ if(MOTRACK_STAGE_DESKTOP)
     install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/motrack)
 endif()
 
-set(motrack_targets motrack_expression motrack_ode motrack_project motrack_input motrack_image_package motrack_media motrack_workspace motrack)
+set(motrack_targets motrack_expression motrack_ode motrack_project motrack_input motrack_image_package motrack_media motrack_workspace motrack_locale motrack)
 if(MOTRACK_BUILD_BENCHMARKS)
     add_executable(motrack_import_benchmark benchmarks/import_benchmark.cpp)
     target_link_libraries(motrack_import_benchmark PRIVATE motrack_project)
@@ -129,6 +138,7 @@ if(MOTRACK_BUILD_BENCHMARKS)
 endif()
 
 foreach(target IN LISTS motrack_targets)
+    motrack_apply_text_encoding(${target})
     if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
         target_compile_options(${target} PRIVATE /W4)
     else()
@@ -186,7 +196,7 @@ if(BUILD_TESTING)
     add_executable(motrack_corpus_probe tests/corpus_probe.cpp)
     add_dependencies(motrack_tests motrack_corpus_probe)
     target_compile_definitions(motrack_tests PRIVATE MOTRACK_CORPUS_PROBE="$<TARGET_FILE:motrack_corpus_probe>")
-    target_link_libraries(motrack_corpus_probe PRIVATE motrack_project motrack_input motrack_image_package motrack_media)
+    target_link_libraries(motrack_corpus_probe PRIVATE motrack_project motrack_input motrack_image_package motrack_media motrack_locale)
     add_executable(motrack_workspace_tests
         tests/workspace_shell_test.cpp
         tests/workspace_input_test.cpp
@@ -196,35 +206,61 @@ if(BUILD_TESTING)
         tests/paired_workspace_test.cpp
         tests/workspace_test.cpp
         tests/workspace_document_test.cpp
-        tests/document_session_test.cpp)
-    target_link_libraries(motrack_workspace_tests PRIVATE motrack_workspace GTest::gtest Qt6::Test motrack_archive)
+        tests/document_session_test.cpp
+        tests/non_ascii_round_trip_test.cpp)
+    target_link_libraries(motrack_workspace_tests PRIVATE motrack_workspace motrack_locale GTest::gtest Qt6::Test motrack_archive)
     add_dependencies(motrack_workspace_tests motrack)
     target_compile_definitions(motrack_workspace_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
         MOTRACK_TRANSLATIONS="${CMAKE_CURRENT_BINARY_DIR}")
     # Keep every case while bounding UI saving, persistence and session groups independently.
     add_test(NAME workspace COMMAND motrack_workspace_tests
-        "--gtest_filter=-PairedWorkspace.*:DocumentSession.*:WorkspaceDocument.*:ImagePackageWorkspace.*")
+        "--gtest_filter=-PairedWorkspace.*:DocumentSession.*:WorkspaceDocument.*:ImagePackageWorkspace.*:NonAsciiRoundTrip.*:WorkspaceLocale.*")
     add_test(NAME workspace_saving COMMAND motrack_workspace_tests
         "--gtest_filter=PairedWorkspace.*:ImagePackageWorkspace.*")
+    # Non-ASCII paths and locale-dependent display, in their own time budget.
+    add_test(NAME workspace_text COMMAND motrack_workspace_tests "--gtest_filter=NonAsciiRoundTrip.*:WorkspaceLocale.*")
     add_test(NAME workspace_document COMMAND motrack_workspace_tests --gtest_filter=WorkspaceDocument.*)
     # Complementary filters retain every session case once, including future additions.
     # Real-file journal matrices can exhaust a shared 60-second budget on slower CI storage (#137).
     add_test(NAME document_session COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*-DocumentSession.*Journal*")
     add_test(NAME document_session_journals COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*Journal*")
-    set_tests_properties(workspace workspace_saving workspace_document document_session document_session_journals PROPERTIES TIMEOUT 60)
+    set_tests_properties(workspace workspace_saving workspace_document document_session document_session_journals workspace_text
+        PROPERTIES TIMEOUT 60)
     add_executable(motrack_media_tests tests/template_tracker_test.cpp tests/video_reader_test.cpp)
     target_link_libraries(motrack_media_tests PRIVATE motrack_media GTest::gtest_main)
     target_compile_definitions(motrack_media_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
     add_test(NAME video_reader COMMAND motrack_media_tests)
+    # The locale setup and comma-decimal formatting, in their own process: main() starts in a German or French
+    # environment where one is installed, and the cases change the process's locales.
+    add_executable(motrack_locale_tests tests/app_locale_test.cpp tests/locale_formats_test.cpp)
+    target_link_libraries(motrack_locale_tests PRIVATE motrack_locale motrack_project GTest::gtest)
+    target_compile_definitions(motrack_locale_tests PRIVATE
+        MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+    add_test(NAME locale COMMAND motrack_locale_tests)
+    foreach(target IN ITEMS motrack_tests motrack_corpus_probe motrack_workspace_tests motrack_media_tests motrack_locale_tests)
+        motrack_apply_text_encoding(${target})
+    endforeach()
     add_test(NAME desktop_smoke COMMAND motrack --smoke-test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/point-mass.trk")
     add_test(NAME desktop_invalid_project COMMAND motrack --smoke-test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/missing.trk")
-    set_tests_properties(workspace workspace_saving workspace_document document_session document_session_journals desktop_smoke desktop_invalid_project PROPERTIES
+    set_tests_properties(workspace workspace_saving workspace_document document_session document_session_journals workspace_text desktop_smoke desktop_invalid_project PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     set_tests_properties(desktop_invalid_project PROPERTIES WILL_FAIL TRUE)
+    # The application's own locale setup and, on Windows, its manifest's UTF-8 code page: the CI runners' system
+    # code page is 1252, so GetACP() is 65001 only when activeCodePage took effect. Any locale warning fails.
+    add_test(NAME desktop_locale COMMAND motrack --smoke-test "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/point-mass.trk")
+    if(WIN32)
+        set(motrack_expected_code_page "65001")
+    else()
+        set(motrack_expected_code_page "n/a")
+    endif()
+    set_tests_properties(desktop_locale PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_FORCE_STDERR_LOGGING=1;QT_LOGGING_RULES=motrack.locale.info=true;QT_MESSAGE_PATTERN=%{type} %{category}: %{message}"
+        PASS_REGULAR_EXPRESSION "info motrack\\.locale: Locale: GetACP\\(\\)=${motrack_expected_code_page} .* LC_NUMERIC=\"C\" C\\+\\+ global=\"C\""
+        FAIL_REGULAR_EXPRESSION "warning motrack\\.locale:")
     if(MOTRACK_BUILD_BENCHMARKS)
         add_test(NAME import_benchmark_smoke COMMAND motrack_import_benchmark
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/point-mass.trk")
@@ -232,6 +268,6 @@ if(BUILD_TESTING)
 
     if(MOTRACK_COVERAGE)
         file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/coverage-objects.txt"
-            CONTENT "$<TARGET_FILE:motrack>\n$<TARGET_FILE:motrack_tests>\n$<TARGET_FILE:motrack_workspace_tests>\n$<TARGET_FILE:motrack_media_tests>\n")
+            CONTENT "$<TARGET_FILE:motrack>\n$<TARGET_FILE:motrack_tests>\n$<TARGET_FILE:motrack_workspace_tests>\n$<TARGET_FILE:motrack_media_tests>\n$<TARGET_FILE:motrack_locale_tests>\n")
     endif()
 endif()

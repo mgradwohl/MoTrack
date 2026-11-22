@@ -173,7 +173,7 @@ class CorpusTests(unittest.TestCase):
                     self.assertEqual(len(set(homes)), 3)
                     label = (f"{case_id}-archive-group-forward-motrack_archive_tabs_roundtrip" if grouped
                              else f"{case_id}-tracker_archive_tabs_resave")
-                    report = json.loads((self.root / "reports" / f"{label}.json").read_text())
+                    report = json.loads((self.root / "reports" / f"{label}.json").read_text(encoding="utf-8"))
                     self.assertEqual([tab["member"] for tab in report["tabs"]], ["experiment.trk", "second.trk"])
                     self.assertTrue(all(set(tab["tracker_session"]["saved_media_inventories"]) == {"save", "reopen"}
                                         for tab in report["tabs"]))
@@ -1191,7 +1191,7 @@ class CorpusTests(unittest.TestCase):
     def check_media_session_oracle(self, case_id, clip_mode=None, *, calibrated=False, keyed=False):
         manifest = corpus.load_manifest()
         case = next(c for c in manifest["cases"] if c["id"] == case_id)
-        expected = json.loads(corpus.expected_path(case).read_text())["project"]
+        expected = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
         if clip_mode is not None:
             expected, case = corpus.linked_media_clip_expected(case, clip_mode == "single")
         if calibrated:

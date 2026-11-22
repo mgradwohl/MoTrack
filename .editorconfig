@@ -1,5 +1,6 @@
 root = true
 
+# UTF-8 without a BOM, LF and a final newline (CONTRIBUTING.md, "Text encoding and locale").
 [*]
 charset = utf-8
 end_of_line = lf
@@ -14,3 +15,18 @@ indent_size = 2
 [*.md]
 indent_size = 2
 trim_trailing_whitespace = false
+
+# Test inputs keep their exact bytes (.gitattributes): editors must not re-encode, re-end or trim them.
+[tests/{fixtures,corpus/fixtures}/**]
+charset = unset
+end_of_line = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset
+indent_style = unset
+indent_size = unset
+
+[*.{png,jpg,jpeg,gif,bmp,ico,webp,mov,mp4,avi,mkv,webm,zip,trz,qm,pdf}]
+charset = unset
+end_of_line = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset

@@ -1,3 +1,4 @@
+#include "app_locale.hpp"
 #include "archive_fixture.hpp"
 #include "image_sequence.hpp"
 #include "main_window.hpp"
@@ -314,6 +315,28 @@ TEST(Workspace, DisplaysWorldCoordinatesAndExportsMeasurements)
     EXPECT_FALSE(window.saveMeasurements(temporary.filePath("missing/measurements.csv")));
 }
 
+TEST(WorkspaceLocale, ShowsMarksInTheUserLocaleButExportsClassicNumbers)
+{
+    const auto previous = QLocale();
+    QLocale::setDefault(QLocale(QLocale::German, QLocale::Germany));
+    const auto restore = qScopeGuard([&previous] { QLocale::setDefault(previous); });
+    motrack::MainWindow window;
+    window.show();
+    auto* marks = window.findChild<QTableWidget*>("marksTable");
+    ASSERT_TRUE(marks);
+    ASSERT_TRUE(window.loadProject(fixturePath("image-sequence.trk")));
+    ASSERT_TRUE(marks->item(0, 2) && marks->item(0, 4) && marks->item(0, 5));
+    EXPECT_EQ(marks->item(0, 2)->text(), "1,5");
+    EXPECT_EQ(marks->item(0, 4)->text(), "0,75");
+    EXPECT_EQ(marks->item(0, 5)->text(), "0,625");
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    ASSERT_TRUE(window.saveMeasurements(temporary.filePath("measurements.csv")));
+    QFile csv(temporary.filePath("measurements.csv"));
+    ASSERT_TRUE(csv.open(QIODevice::ReadOnly));
+    EXPECT_TRUE(csv.readAll().contains("Ball,0,1.5,1.5,0.75,0.625,m\r\n"));
+}
+
 TEST(Workspace, PlotsPositionAndSeeksToASelectedMeasurement)
 {
     motrack::MainWindow window;
@@ -497,7 +520,7 @@ TEST(Workspace, CalibratesAFrameUsingTwoClickedEndpoints)
     EXPECT_TRUE(undo->isEnabled());
     EXPECT_TRUE(plot->accessibleName().contains("(cm)"));
     const auto pixelDistance = 4.0 * (second.x() - first.x()) / edge;
-    EXPECT_NEAR(marks->item(0, 4)->text().toDouble(), 3.0 / pixelDistance, 1e-8);
+    EXPECT_NEAR(QLocale().toDouble(marks->item(0, 4)->text()), 3.0 / pixelDistance, 1e-8);
     undo->trigger();
     EXPECT_EQ(marks->item(0, 4)->text(), "0.75");
 }
@@ -2380,6 +2403,9 @@ int main(int argc, char** argv)
 {
     QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     const QApplication app(argc, argv);
+    motrack::configureProcessLocale();
+    // Displayed numbers follow QLocale; pin it so the expectations do not depend on the machine's region.
+    QLocale::setDefault(QLocale(QLocale::English, QLocale::UnitedStates));
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

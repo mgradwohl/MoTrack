@@ -213,7 +213,7 @@ void writeWorkspaceStorage(const QString& path,
     require(metadata.open(QIODevice::ReadOnly) && output.open(QIODevice::WriteOnly));
     std::unique_ptr<archive, decltype(&archive_write_free)> writer(archive_write_new(), &archive_write_free);
     require(writer && archive_write_set_format_zip(writer.get()) == ARCHIVE_OK &&
-            archive_write_set_options(writer.get(), "zip:compression=store") == ARCHIVE_OK &&
+            archive_write_set_options(writer.get(), "zip:compression=store,zip:hdrcharset=UTF-8") == ARCHIVE_OK &&
             archive_write_open(writer.get(), &output, nullptr, &writeBlock, nullptr) == ARCHIVE_OK);
     writeMember(writer.get(), "project.json", metadata, json.size(), cancelled, progress);
     writeMember(writer.get(), "tracker/source.trz", payload, payloadSize, cancelled, progress, source->sourceDigest());

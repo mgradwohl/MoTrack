@@ -82,6 +82,9 @@ to it elsewhere. Do not describe planned functionality or unavailable tooling as
   under their account (2026-11-21): verify against the current upstream source, file in the
   OpenSourcePhysics repository with permalinks, a reproduction and a suggested fix, and link both ways.
   File one issue per root cause; group display-only or cosmetic quirks into one issue per class.
+- Follow the [text encoding and locale policy](CONTRIBUTING.md#text-encoding-and-locale), including its
+  Tracker compatibility exceptions: UTF-8 text, paths through `src/filesystem_path.hpp`, one locale setup,
+  classic machine-readable numbers and `QLocale` for displayed ones.
 - Document coordinate spaces, units, original frame numbers, clip steps, and timestamps. Changes to
   scientific results need explicit reasoning and numerical reference tests against the pinned Tracker
   behavior. Do not silently substitute zero for missing or unsupported measurements.

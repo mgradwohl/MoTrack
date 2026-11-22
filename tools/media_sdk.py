@@ -33,7 +33,7 @@ def bootstrap():
         subprocess.run(["git", "-c", "advice.detachedHead=false", "clone", "--depth", "1",
                         "--branch", VCPKG_RELEASE, "https://github.com/microsoft/vcpkg.git", ROOT],
                        check=True)
-    revision = subprocess.check_output(["git", "-C", ROOT, "rev-parse", "HEAD"], text=True).strip()
+    revision = subprocess.check_output(["git", "-C", ROOT, "rev-parse", "HEAD"], text=True, encoding="utf-8").strip()
     if revision != VCPKG_COMMIT:
         raise SystemExit(f"Unexpected vcpkg revision {revision}. Expected {VCPKG_COMMIT}.")
     if not binary.is_file():
@@ -55,7 +55,7 @@ def install(target):
            "VCPKG_DOWNLOADS": str(ROOT / "downloads"), "VCPKG_DISABLE_METRICS": "1"}
     if sys.platform == "darwin":
         env["SDKROOT"] = subprocess.check_output(
-            ["xcrun", "--sdk", "macosx", "--show-sdk-path"], text=True
+            ["xcrun", "--sdk", "macosx", "--show-sdk-path"], text=True, encoding="utf-8"
         ).strip()
         kept = env.get("VCPKG_KEEP_ENV_VARS", "")
         env["VCPKG_KEEP_ENV_VARS"] = ";".join(filter(None, (kept, "SDKROOT")))

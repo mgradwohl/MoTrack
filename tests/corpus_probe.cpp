@@ -1,3 +1,4 @@
+#include "app_locale.hpp"
 #include "archive_group.hpp"
 #include "archive_group_session.hpp"
 #include "legacy_project.hpp"
@@ -222,6 +223,7 @@ int main(int argc, char** argv)
 try
 {
     const QCoreApplication application(argc, argv);
+    motrack::configureProcessLocale();
     const auto args = application.arguments();
     if (args.size() == 4 && args[1] == "--interrupt-paired-save")
     {

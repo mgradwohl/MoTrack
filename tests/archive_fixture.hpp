@@ -20,14 +20,15 @@ struct ArchiveEntry
     bool symlink = false;
 };
 
-/// Small bounded archives, including deliberately invalid native storage, for persistence tests.
+/// Small bounded archives, including deliberately invalid native storage, for persistence tests. Names are UTF-8
+/// and a non-ASCII name gets the ZIP UTF-8 flag, as Tracker's java.util.zip writes them, whatever the C locale.
 inline bool writeArchive(const QString& path, const std::vector<ArchiveEntry>& members)
 {
     const std::unique_ptr<archive, decltype(&archive_write_free)> writer(archive_write_new(), &archive_write_free);
     QByteArray buffer(qsizetype{512} * 1024, Qt::Uninitialized);
     std::size_t used = 0;
     if (!writer || archive_write_set_format_zip(writer.get()) != ARCHIVE_OK ||
-        archive_write_set_options(writer.get(), "zip:compression=store") != ARCHIVE_OK ||
+        archive_write_set_options(writer.get(), "zip:compression=store,zip:hdrcharset=UTF-8") != ARCHIVE_OK ||
         archive_write_open_memory(writer.get(), buffer.data(), static_cast<std::size_t>(buffer.size()), &used) != ARCHIVE_OK)
     {
         return false;

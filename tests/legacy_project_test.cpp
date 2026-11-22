@@ -1,5 +1,7 @@
 #include "legacy_project.hpp"
 
+#include "filesystem_path.hpp"
+
 #include <QTemporaryFile>
 #include <gtest/gtest.h>
 
@@ -164,7 +166,7 @@ TEST(LegacyProject, RejectsOversizedProjectFilesBeforeReading)
     ASSERT_TRUE(file.open());
     ASSERT_TRUE(file.resize(32LL * 1024 * 1024 + 1));
     file.close();
-    EXPECT_THROW(motrack::readLegacyProject(std::filesystem::path(file.fileName().toStdU16String())), motrack::ProjectError);
+    EXPECT_THROW(motrack::readLegacyProject(motrack::toFilesystemPath(file.fileName())), motrack::ProjectError);
 }
 
 TEST(LegacyProject, ReadsCalibrationAndKeepsMarksWhenCalibrationIsUnsupported)
