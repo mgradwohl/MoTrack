@@ -141,6 +141,152 @@ TEST(SourceEdits, RefusesContentOspCannotReadBack)
     EXPECT_EQ(unchanged->xml, DOCUMENT);
 }
 
+/// A panel with bytes outside every node: a prolog comment, comments and blank lines between properties, text Tracker
+/// ignores after an end tag, mixed line endings and an epilog (#316).
+constexpr std::string_view GAPPED = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
+                                    "<!-- prolog -->\r\n"
+                                    "<object class=\"Panel\">\r\n"
+                                    "    <!-- first gap -->\r\n"
+                                    "    <property name=\"label\" type=\"string\">old</property> ignored\r\n"
+                                    "\r\n"
+                                    "    <property name=\"gone\" type=\"int\">2</property>\n"
+                                    "    <!-- after gone -->\r\n"
+                                    "    <property name=\"count\" type=\"int\">1</property>\r\n"
+                                    "    <property name=\"empty\" type=\"object\">\r\n"
+                                    "        <object class=\"Empty\"/>\r\n"
+                                    "    </property>\r\n"
+                                    "    <!-- last gap -->\r\n"
+                                    "</object>\r\n"
+                                    "<!-- epilog -->\r\n";
+
+/// The edits every doctoring test starts from: a value set, a removal, an insertion after a gap, an append and an
+/// insertion into a self-closing object.
+motrack::SourceEdits gappedEdits(const std::shared_ptr<const motrack::osp::Source>& source)
+{
+    motrack::SourceEdits edits(source);
+    const auto root = source->root();
+    edits.setString(named(*source, root, "label"), "new");
+    edits.remove(named(*source, root, "gone"));
+    edits.insert(root, 2, motrack::osp::intProperty("inserted", 3)); // Before "count", after the gap that precedes it.
+    edits.append(root, motrack::osp::booleanProperty("appended", true));
+    const auto empty = source->node(named(*source, root, "empty")).children.front();
+    edits.append(empty, motrack::osp::doubleProperty("x", 0.5));
+    return edits;
+}
+
+TEST(SourceEdits, KeepsEveryByteOutsideTheEditsAndFollowsTheRenderGapRule)
+{
+    const auto source = parsed(GAPPED);
+    const auto edits = gappedEdits(source);
+    const auto rendered = edits.render();
+    ASSERT_TRUE(rendered) << rendered.error();
+    // A removal deletes only the removed property's lines with its last line break, so the gaps on both sides stay;
+    // an insertion is written before the following property, after the gap that precedes it, or before the closing
+    // line when appending, in the file's line break (the first one, CRLF); a self-closing object is reopened.
+    EXPECT_EQ(rendered->xml,
+              "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
+              "<!-- prolog -->\r\n"
+              "<object class=\"Panel\">\r\n"
+              "    <!-- first gap -->\r\n"
+              "    <property name=\"label\" type=\"string\">new</property> ignored\r\n"
+              "\r\n"
+              "    <!-- after gone -->\r\n"
+              "    <property name=\"inserted\" type=\"int\">3</property>\r\n"
+              "    <property name=\"count\" type=\"int\">1</property>\r\n"
+              "    <property name=\"empty\" type=\"object\">\r\n"
+              "        <object class=\"Empty\">\r\n"
+              "            <property name=\"x\" type=\"double\">0.5</property>\r\n"
+              "        </object>\r\n"
+              "    </property>\r\n"
+              "    <!-- last gap -->\r\n"
+              "    <property name=\"appended\" type=\"boolean\">true</property>\r\n"
+              "</object>\r\n"
+              "<!-- epilog -->\r\n");
+    // The seam accepts the render itself.
+    EXPECT_TRUE(edits.verifyRendered(rendered->xml));
+}
+
+TEST(SourceEdits, RefusesEveryDoctoredOutput)
+{
+    const auto source = parsed(GAPPED);
+    const auto edits = gappedEdits(source);
+    const auto rendered = edits.render();
+    ASSERT_TRUE(rendered) << rendered.error();
+    const auto& xml = rendered->xml;
+    const auto doctored = [&](std::string_view from, std::string_view to)
+    {
+        const auto at = xml.find(from);
+        if (at == std::string::npos)
+        {
+            throw std::runtime_error("missing doctoring target");
+        }
+        auto copy = xml;
+        copy.replace(at, from.size(), to);
+        return copy;
+    };
+    const std::vector<std::pair<std::string, std::string>> cases{
+        {"prolog byte", doctored("<!-- prolog -->", "<!-- prolog!-->")},
+        {"prolog line break", doctored("<!-- prolog -->\r\n", "<!-- prolog -->\n")},
+        {"epilog byte", doctored("<!-- epilog -->", "<!-- epilog!-->")},
+        {"root line break", doctored("</object>\r\n<!--", "</object>\n<!--")},
+        {"first gap byte", doctored("first gap", "first gap!")},
+        {"gap after a removal", doctored("after gone", "after gone!")},
+        {"blank gap line removed", doctored("ignored\r\n\r\n", "ignored\r\n")},
+        {"gap line added", doctored("    <property name=\"count\"", "\r\n    <property name=\"count\"")},
+        {"last gap byte", doctored("last gap", "last gap!")},
+        {"unedited node byte", doctored(">1</property>", ">1 </property>")},
+        {"unedited node line break", doctored(">1</property>\r\n", ">1</property>\n")},
+        {"text after an edited value", doctored("</property> ignored", "</property> changed")},
+        {"edited container's opening line", doctored("<object class=\"Panel\">", "<object class=\"Panel\"> ")},
+        {"edited container's closing line", doctored("</object>\r\n<!-- epilog", "</object> \r\n<!-- epilog")},
+        {"reopened object's closing line", doctored("        </object>", "      </object>")},
+        {"inserted property's line break", doctored(">3</property>\r\n", ">3</property>\n")},
+        {"edited value", doctored(">new<", ">newer<")},
+    };
+    for (const auto& [label, output] : cases)
+    {
+        SCOPED_TRACE(label);
+        const auto checked = edits.verifyRendered(output);
+        ASSERT_FALSE(checked);
+        EXPECT_TRUE(checked.error().starts_with("O8: ") || checked.error().starts_with("The rendered Tracker XML does not parse"))
+            << checked.error();
+    }
+    EXPECT_FALSE(edits.verifyRendered("not osp"));
+}
+
+TEST(SourceEdits, RenamedAndRemovedPropertiesKeepTheGapsAroundThem)
+{
+    const auto source = parsed("<object class=\"Panel\">\n"
+                               "    <property name=\"values\" type=\"array\" class=\"[Ljava.lang.String;\">\n"
+                               "        <property name=\"[0]\" type=\"string\">a</property>\n"
+                               "        <property name=\"[1]\" type=\"string\">b</property>\n"
+                               "        <property name=\"[2]\" type=\"string\">c</property>\n"
+                               "    </property>\n"
+                               "    <!-- between -->\n"
+                               "    <property name=\"tail\" type=\"int\">1</property>\n"
+                               "</object>");
+    motrack::SourceEdits edits(source);
+    const auto values = named(*source, source->root(), "values");
+    edits.remove(named(*source, values, "[0]"));
+    edits.rename(named(*source, values, "[1]"), "[0]");
+    edits.rename(named(*source, values, "[2]"), "[1]");
+    edits.remove(named(*source, source->root(), "tail"));
+    const auto rendered = edits.render();
+    ASSERT_TRUE(rendered) << rendered.error();
+    // Removing the last property keeps the gap before it; the renamed elements are rewritten in place.
+    EXPECT_EQ(rendered->xml,
+              "<object class=\"Panel\">\n"
+              "    <property name=\"values\" type=\"array\" class=\"[Ljava.lang.String;\">\n"
+              "        <property name=\"[0]\" type=\"string\">b</property>\n"
+              "        <property name=\"[1]\" type=\"string\">c</property>\n"
+              "    </property>\n"
+              "    <!-- between -->\n"
+              "</object>");
+    auto doctored = rendered->xml;
+    doctored.replace(doctored.find("between"), 7, "betwixt");
+    EXPECT_FALSE(edits.verifyRendered(doctored));
+}
+
 TEST(TrackerLoaders, ReadPointMassKeysAndFramesLikeTrackersLoaders)
 {
     const auto document = [](std::string_view keys)

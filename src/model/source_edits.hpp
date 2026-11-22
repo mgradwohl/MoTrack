@@ -26,7 +26,10 @@ namespace motrack
 /// rendered as one replacement that carries the edits inside it. Reads (`content`, `children`) see the
 /// pending state. `render` re-parses the output and checks oracle O8: every node outside the edit set keeps
 /// its bytes and logical value, every edited value decodes to the intended one and new content reads back as
-/// written. No Qt dependency.
+/// written. O8 also covers every byte outside the nodes (#316): the prolog, the epilog, the gaps between
+/// siblings and the parts of an edited node around its edited content stay byte-identical, except where a
+/// removal or an insertion changes a gap by the rule `osp::render` follows (docs/osp-xmlcontrol.md, "Editing and
+/// writing"). No Qt dependency.
 class SourceEdits
 {
   public:
@@ -71,6 +74,9 @@ class SourceEdits
     };
     /// Renders the edits, re-parses the output and verifies O8. The message describes a failure.
     [[nodiscard]] osp::Expected<Rendered, std::string> render(const osp::ParseLimits& limits = {}) const;
+    /// Re-parses an output produced for these edits and verifies O8, as `render` verifies its own output. This is the
+    /// seam through which tests feed doctored output; every writer uses `render`.
+    [[nodiscard]] osp::Expected<Rendered, std::string> verifyRendered(std::string xml, const osp::ParseLimits& limits = {}) const;
 
   private:
     using Value = std::variant<std::string, std::int32_t, double, bool>;
@@ -86,10 +92,16 @@ class SourceEdits
     [[nodiscard]] osp::ObjectValue intendedObject(osp::NodeId object) const;
     [[nodiscard]] std::vector<osp::PropertyValue> intendedChildren(osp::NodeId parent) const;
     [[nodiscard]] osp::Expected<void, std::string> verify(const osp::Source& output) const;
+    /// An edited object, array or collection: its opening and closing lines, the gaps between its children and the
+    /// children themselves.
+    [[nodiscard]] osp::Expected<void, std::string>
+    verifyContainer(const osp::Source& output, osp::NodeId before, osp::NodeId after, const std::string& path) const;
     [[nodiscard]] osp::Expected<void, std::string>
     verifyChildren(const osp::Source& output, osp::NodeId before, osp::NodeId after, const std::string& path) const;
     [[nodiscard]] osp::Expected<void, std::string>
     verifyProperty(const osp::Source& output, osp::NodeId before, osp::NodeId after, const std::string& path) const;
+    /// The gaps `osp::render` leaves around the output children of an edited container that was not self-closing.
+    [[nodiscard]] std::vector<std::string> expectedGaps(osp::NodeId container) const;
 
     std::shared_ptr<const osp::Source> m_Source;
     std::map<osp::NodeId, Value> m_Values;
