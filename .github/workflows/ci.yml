@@ -89,7 +89,7 @@ jobs:
           "${apt[@]}" update
           "${apt[@]}" install -y ccache "clang-$MOTRACK_LLVM_MAJOR" "clang-format-$MOTRACK_LLVM_MAJOR" "clang-tidy-$MOTRACK_LLVM_MAJOR" \
             "llvm-$MOTRACK_LLVM_MAJOR" "libclang-rt-$MOTRACK_LLVM_MAJOR-dev" "g++-$MOTRACK_GCC_MAJOR" libgl1-mesa-dev libxkbcommon-dev \
-            libpulse0
+            libpulse0 libegl1 libxrandr2
           "${apt[@]}" install -y build-essential pkg-config autoconf automake libtool nasm patchelf libxcb-cursor0
           llvm="/usr/lib/llvm-$MOTRACK_LLVM_MAJOR/bin"
           echo "$llvm" >> "$GITHUB_PATH"
@@ -203,6 +203,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          # Camera capture: Qt Multimedia, its FFmpeg backend plugin and the FFmpeg DLLs Qt bundles for it.
+          foreach ($file in 'bin/Qt6Multimedia.dll', 'plugins/multimedia/ffmpegmediaplugin.dll') {
+            if (-not (Test-Path "build/stage/installed/$file")) { throw "$file was not staged" }
+          }
+          # MoTrack's FFmpeg and the different major Qt's backend links sit side by side.
+          if (@(Get-ChildItem build/stage/installed/bin -Filter 'avcodec-*.dll').Count -lt 2) { throw 'Qt''s FFmpeg DLLs were not staged' }
           $env:Path = "$env:SystemRoot\System32;$env:SystemRoot"
           Remove-Item Env:QT_PLUGIN_PATH,Env:QT_QPA_PLATFORM_PLUGIN_PATH,Env:QT_QPA_PLATFORM -ErrorAction SilentlyContinue
           & ./build/stage/installed/bin/motrack.exe --smoke-test tests/fixtures/image-sequence.trk
@@ -223,7 +229,10 @@ jobs:
             app="$bundle/MacOS/motrack"
           else
             test -f build/stage/installed/plugins/platforms/libqxcb.so
-            test -f build/stage/installed/plugins/multimedia/libffmpegmediaplugin.so
+            plugin=build/stage/installed/plugins/multimedia/libffmpegmediaplugin.so
+            test -f "$plugin"
+            # Every library the camera backend links must resolve from the staged lib directory or the system.
+            if ldd "$plugin" | grep "not found"; then exit 1; fi
             export QT_QPA_PLATFORM=offscreen
           fi
           PATH=/usr/bin:/bin "$app" --smoke-test tests/fixtures/image-sequence.trk
