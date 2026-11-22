@@ -39,8 +39,9 @@ bytes change only once, in B3.5, as §1 describes.
 - After B2.4a, edits pass through `TrackEdits`' index-based façade over B2.2's commands and the consumers in
   [What LegacyProject keeps until B3](tracker-document.md#what-legacyproject-keeps-until-b3) read `legacyView`.
   After B2.4b export composes from typed state, with B1's composition as a required comparison; after B2.5
-  native files are version 7, and versions 1–6 open through the reduced model. B2.1's `DocumentParts::trackOrder`
-  holds only the live point masses and vectors, point masses first.
+  native files are version 7, and versions 1–6 open through the reduced model. B2.4a removes B2.1's
+  `DocumentParts::trackOrder`; until then B2.2's commands keep it equal to the export order, so B2.5 never reads or
+  writes it.
 - Production code has had no QDom since B1 ([#294](https://github.com/mgradwohl/MoTrack/pull/294)). The "QDom
   writer" of the plan is B1's edit composition in `tracker_writer.cpp` and `tracker_rename.cpp`, which descends
   from it: it diffs a fresh `LegacyProject` import against the live one. QDom remains only in test snippet
@@ -63,22 +64,22 @@ Tracker itself appends a created track in creation order (`TActions.addTrack` �
 `addDrawable`), so during a session the lists differ when point masses and vectors are created alternately. B3.5
 switches export and rows together to ascending identity across families, which is creation order, as a documented
 change of the bytes exported for documents that create both kinds. No separate presentation order exists, so rows
-have one source: B3.2 removes `DocumentParts::trackOrder` and its validation from `model/tracker_document.*`, and
-the v1–6 conversion then compares each family's tracks by identity, so a stored list order that differs from the
-export order is not a conversion failure. Native v7 stores no presentation order either
-([B2 design](tracker-document.md#envelope)).
+have one source: B2.4a removes `DocumentParts::trackOrder` and its validation, and its v1–6 conversion compares
+each family's tracks by identity, so a stored list order that differs from the export order is not a conversion
+failure. Native v7 stores no presentation order either ([B2 design](tracker-document.md#envelope)).
 
 **Groups and kinds.** Rows are grouped as Tracker's Select menu groups them: user tracks, then the tracks that
 `TrackerPanel.getUserTracks` leaves out (the axes, calibration and measuring tools and perspective tracks), using
 a Qt-free class table in `track_rows.cpp`. In B3 only point masses and vectors are typed; every other row is
-preserved and can only be selected and inspected:
+preserved and can only be selected and inspected. The marks table and CSV export list every point mass whatever is
+selected, so they do not depend on the row kind:
 
 | Action | Typed point mass or vector | Preserved track or tool |
 | --- | --- | --- |
 | Select, inspect, open's `selectedtrack` | Yes | Yes |
 | Rename (F2, menu), inspector edits, Delete track | Yes | No; the inspector is read-only |
 | Shift-click marking, Repeat previous mark, Delete mark on this frame | Yes | No; the status bar says MoTrack does not edit this kind of track yet |
-| AutoTracker, plot, marks table and CSV | Point masses, as now | No; the plot says it has no data for the track |
+| AutoTracker and plot | Point masses, as now | No; the plot says it has no data for the track |
 
 `TrackListModel` (a `QAbstractListModel` in `motrack_workspace`) holds the rows with their runtime identity and
 `DocumentStamp`. `refresh(document, stamp)` does nothing for an unchanged stamp; otherwise it diffs the rows by
@@ -94,7 +95,8 @@ Each `MainWindow` owns a `TrackSelection` on the GUI thread: the document's runt
 count, and `std::optional<ObjectId> current`. The assignment count advances on every assignment of the document
 value (replacement in `applyProject`, Revert, a later in-place reimport that restarts identities at 1) and never on
 commands or non-edit updates; B3.2 adds it to the owner if B2.4a does not expose one. When either part changes,
-the model resets and the Open rule applies, so an `ObjectId` is never looked up in another document. Selection is
+the model resets and the Open rule applies, so an `ObjectId` is never looked up in another document. The runtime
+identity, assignment count and `ObjectId` together are a track's key. Selection is
 view state: never a command, never in history or the modified state, not saved in B3. The list view and the
 toolbar box are both driven from `TrackSelection`, not through a shared `QItemSelectionModel`, which a
 `QComboBox` does not reliably share.
@@ -122,17 +124,20 @@ the label), Delete track (`Remove`), Delete mark on this frame (`SetField` of th
 command refuses an empty name or one already in use anywhere in the document (open question 10). The New name
 generators therefore check every live row's label, exactly as the command compares it, so New never fails silently.
 
-Every deferred action captures what it acts on instead of re-reading the selection when it completes:
+Every deferred action captures the full key of what it acts on instead of re-reading the selection when it
+completes, and is dropped with a status message when the key no longer matches. A captured `before` alone is not
+enough: after a replacement, `ObjectId` 3 of the new document may be another track with the same default mass.
 
-- **Editors** capture the object, field, element key and `before` value when they are filled. A refresh never
+- **Editors** capture the key, field, element key and `before` value when they are filled. A refresh never
   overwrites uncommitted text, and the commit is a `SetField` with the captured `before`, which B2.2 refuses
-  when the state has changed meanwhile.
-- **AutoTracker** keeps the runtime identity, the `ObjectId` and the registry job token, and applies each match
-  as the family's mark edit with `before = absent`. A removed track or a frame marked meanwhile is refused and
-  stops the run with a message, instead of marking whichever track now has the stored index. Selecting another
-  track still stops it.
-- **Modal flows that remain** (calibration stick, axes, clip settings) keep `m_RequestGeneration` for the displayed
-  frame and add the captured `before` values to their commands.
+  when the state has changed meanwhile. A reset (a new runtime identity or assignment) discards uncommitted text
+  with a status message, so a later focus-out cannot commit into the new document.
+- **Row menus** capture the row's key when they open; **modal flows** (calibration stick, axes, clip settings)
+  capture the key and their `before` values before `exec` and recheck them after it, with `m_RequestGeneration`
+  still guarding the displayed frame; **plot requests** carry the key of the plotted track.
+- **AutoTracker** keeps the key and the registry job token, and applies each match as the family's mark edit with
+  `before = absent`. A changed key, a removed track or a frame marked meanwhile stops the run with a message,
+  instead of marking whichever track now has the stored index. Selecting another track still stops it.
 
 ## 2. Descriptor-driven inspector
 
@@ -260,9 +265,10 @@ in use by any track; number fields that commit on Enter or focus-out.
   new object and appends it at the end of the list ([#287](https://github.com/mgradwohl/MoTrack/issues/287)).
 - An undo or redo that restores a track selects it; Tracker's panel keeps its selection (its views select the
   restored track). Other undo and redo keep the selection and name the changed track in the status bar.
-- A zero, negative or smaller mass than 1E-30 is refused; Tracker takes the absolute value and raises it to
-  1E-30. A mass typed with another unit's suffix is refused; Tracker asks whether to change the mass unit, which
-  C1's Units dialog offers in MoTrack ([#342](https://github.com/mgradwohl/MoTrack/issues/342)).
+- A zero, negative or smaller mass than 1E-30 is refused; Tracker's mass field raises any typed value below its
+  `NumberField` minimum of 1E-30, negative ones included, to 1E-30 (`setMass` takes the absolute value only of
+  loaded or programmatic values). A mass typed with another unit's suffix is refused; Tracker asks whether to
+  change the mass unit, which C1's Units dialog offers in MoTrack ([#342](https://github.com/mgradwohl/MoTrack/issues/342)).
 - A blank name is refused with a message; Tracker ignores it but still records an empty undo step.
 - Created tracks are listed in B1's export order until B3.5 and in creation order after it; Tracker lists them in
   creation order.
@@ -298,12 +304,12 @@ instead of the step's go to C2, and the tape key-frame order in `commitMagField`
 ## 4. Removing `LegacyProject` and the QDom writer
 
 Uses that B2.4a already converts (sessions, groups, Revert and saved baselines, paired save, archive media
-resolution, image packaging, `WorkspaceWindow`'s media check) are not repeated here. What remains after B2.5:
+resolution, image packaging, `WorkspaceWindow`'s media check, `DocumentParts::trackOrder`) are not repeated here.
+What remains after B2.5:
 
 | Use | Files | Replacement | Slice |
 | --- | --- | --- | --- |
 | Index-based track list, actions, selection and AutoTracker; counter capacity; the name generators | `main_window.*` (`m_TrackPicker`, `selectedVector`, `refreshEditViews`, rename, mass, delete, mark, repeat, `AutoTrackSession`), `track_identity.*` | `TrackListModel`, `TrackSelection`, commands by `ObjectId`, `TrackerDocument::hasCounterCapacity`, document-wide default names | B3.2 |
-| Presentation order | `model/tracker_document.*` (`DocumentParts::trackOrder`) | Rows derived from the export order | B3.2 |
 | Rename and mass dialogs | `main_window.cpp` | Inspector editors | B3.3 |
 | Measurements, CSV and plots by track index; clip and calibration value types | `measurements.*` (`measurementPlot`, `measurementsCsv`, the legacy `supportsConstantClipTimingEdits`), `image_sequence.*` (`Clip`) | Two derived Qt-free views in `motrack_model` (clip frames and timing; the effective calibration from `CoordinatesState`) and a mark series by `ObjectId`; O4 still compares them until C2 | B3.4a |
 | Admission checks and the reference index | `tracker_writer.cpp` (table columns, coordinates, coordinate updates, shifted samples, vectors, mass frames), `tracker_rename.cpp` (membership, selection fallback), `tracker_references.*` | The same checks over the typed document; the reference index reads bindings and slots from it | B3.4b |
@@ -354,7 +360,9 @@ current row, the inspector's title, the history revision, an error label), never
   nothing reaches history; New finds a free default name when a preserved track or the other family holds it.
 - Stale results: an AutoTracker match that completes after its track was removed by undo applies nothing and
   stops with its message; a commit whose `before` no longer holds shows the refusal and changes nothing; a refresh
-  during typing keeps the typed text; Ctrl+Z in an unmodified editor undoes the document.
+  during typing keeps the typed text; replacing the document while an editor holds text discards it, and neither
+  its focus-out, an open row menu nor a pending modal flow edits the new document; Ctrl+Z in an unmodified editor
+  undoes the document.
 - The generic inspector test iterates families and fields from the descriptors and presentation table. For each
   editable field it sets a valid sample, commits with the keyboard, waits for one history entry and the value,
   undoes and checks the old value; an invalid sample must show the error with an accessible description and
@@ -381,12 +389,11 @@ Each PR depends on merged PRs only and updates the R04, R06, R21 and R25 rows an
 
 **B3.2 — ID-based track list and selection** (after B2.4a and B3.1; parallel with B2.4b and B2.5)
 - Content: `TrackListModel` and the list dock, `TrackSelection` with its keys and rules, the enablement table,
-  track commands by `ObjectId` without the façade, document-wide default names, AutoTracker by `ObjectId`, rows
-  in export order with `trackOrder` removed. The marks table, plot and canvas may still read the legacy view.
-- Files: new `src/track_list_model.*`; `src/model/tracker_document.*`, `src/legacy_view.cpp`, `src/main_window.*`,
-  `src/bound_workspace.cpp`, `src/document_session.*` (assignment count, if B2.4a has none), `CMakeLists.txt`,
-  `translations/*.ts`, `README.md`; new `tests/track_ui_test.cpp`; `tests/workspace_test.cpp`,
-  `tests/model/tracker_document_test.cpp`; `main_window.*` is the hot file.
+  track commands by `ObjectId` without the façade, document-wide default names, keyed captured actions and
+  AutoTracker, rows in export order. The marks table, plot and canvas may still read the legacy view.
+- Files: new `src/track_list_model.*`; `src/main_window.*`, `src/bound_workspace.cpp`, `src/document_session.*`
+  (assignment count, if B2.4a has none), `CMakeLists.txt`, `translations/*.ts`, `README.md`; new
+  `tests/track_ui_test.cpp`; `tests/workspace_test.cpp`; `main_window.*` is the hot file.
 - Exit: the workspace tests pass with only the track box's order and empty state updated; the selection, kind and
   stale-result tests pass; `MainWindow` turns no row index into a track outside the view glue.
 
@@ -431,8 +438,9 @@ The review of [PR #351](https://github.com/mgradwohl/MoTrack/pull/351) adopted t
 
 1. **Preserved (Unknown) tracks are rows**, read-only, grouped by the Qt-free class table and limited by the
    enablement table of §1. Tracker lists every track, and the plan asks MoTrack to show what it preserves.
-2. **Rows follow the export order**, with no separately stored presentation order; B1's created-track order
-   stays until B3.5, which switches export and rows to ascending identity as a documented byte change (§1).
+2. **Rows follow the export order**, with no separately stored presentation order: B2.4a removes
+   `DocumentParts::trackOrder`, and B1's created-track order stays until B3.5b, which switches export and rows to
+   ascending identity as a documented byte change (§1).
 3. **Undo and redo select a track only when they restore it**; otherwise the selection stays and the status bar
    names the changed track. Tracker's panel keeps its selection on undo; the difference is listed in §3.
 4. **The selection is not saved in B3**; export keeps B1's audited `selectedtrack` cleanup, and persistence belongs

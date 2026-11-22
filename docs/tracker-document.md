@@ -501,12 +501,17 @@ R02–R04 rows of the migration plan and the status line of this document.
 **B2.4a — Type switch** (after B2.2 and B2.3)
 - Content: `WorkspaceDocument::project` becomes `TrackerDocument`; the `TrackEdits` façade; sessions, groups and
   Revert on typed baselines with owner-held revisions; non-edit updates as document operations. Export still
-  runs B1's writer over the legacy view, and native files stay v5 and v6.
+  runs B1's writer over the legacy view, and native files stay v5 and v6. `DocumentParts::trackOrder` and its
+  validation are removed: the track list follows the export order ([track UI design](track-ui.md#rows)), which
+  B2.2's commands keep `trackOrder` equal to until then, and the v1–6 conversion compares each family's tracks by
+  identity.
 - Files: `src/workspace_document.*`, `src/document_session.*`, `src/archive_group_session.*`,
   `src/workspace_session.*`, `src/workspace_input.cpp`, `src/main_window.*`, `src/bound_workspace.cpp`,
   `src/track_edits.*`, `src/track_identity.*`, `src/tracker_archive.*`, `src/tracker_image_package.cpp`,
-  `src/paired_save.cpp`, `src/measurements.*`; `docs/workspace-sessions.md`. Existing tests change only where
-  they build a `LegacyProject` directly.
+  `src/paired_save.cpp`, `src/measurements.*`, `src/model/tracker_document.*`, `src/model/commands.*`,
+  `src/legacy_view.cpp`; `docs/workspace-sessions.md`. Existing tests change only where they build a
+  `LegacyProject` directly, and where `trackOrder` is dumped or checked: `tests/model/document_dump.hpp`, the
+  `tests/fixtures/native/*.document.json` dumps and `tests/model/legacy_view_parity_test.cpp`.
 - Exit: the full wave-1 gate on Windows, macOS and Linux CI with no user-visible change; the two-document
   isolation tests pass.
 
@@ -519,8 +524,8 @@ R02–R04 rows of the migration plan and the status line of this document.
 
 **B2.5 — Native version 7** (after B2.4a, parallel with B2.4b; its codec needs only B2.1)
 - Content: the v7 reader and writer for standalone documents and groups, `readerRevision` and `base` handling,
-  allocation ranges and the countdown low-water mark, #317. It writes no presentation order of `tracks`, which
-  B3.2 removes from `DocumentParts`.
+  allocation ranges and the countdown low-water mark, #317. It never reads or writes a presentation order of
+  `tracks`, which B2.4a has removed from `DocumentParts`.
 - Files: new `src/native_document.*`; `src/workspace_document.cpp`, `src/workspace_document_codec.hpp`,
   `src/archive_group.cpp`; `tests/workspace_document_test.cpp`, `tests/archive_group_test.cpp`; `tools/corpus.py`
   for the native route; `docs/native-format.md`, `docs/workspace-sessions.md`.
