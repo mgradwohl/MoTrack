@@ -4410,7 +4410,11 @@
       "tracker_version": "5.1.5",
       "features": ["point-mass", "calibration", "leading-unmarked-frames", "embedded-media", "unsupported-tape-measure"],
       "requirements": ["R02", "R05", "R06", "R09", "R10"],
-      "expected": "expected/ball-toss.json"
+      "expected": "expected/ball-toss.json",
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ]
     },
     {
       "id": "protractor",

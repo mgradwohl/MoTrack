@@ -2874,6 +2874,10 @@ def state_path(case_id):
     return STATE_DIR / (case_id + ".json")
 
 
+def shown_path(path):
+    return path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else str(path)
+
+
 def is_state_number(value):
     return (type(value) in (int, float) and math.isfinite(value)) or value in STATE_NONFINITE
 
@@ -3242,9 +3246,9 @@ def state_matches(expected, actual, tolerance):
     return type(expected) is type(actual) and expected == actual
 
 
-def load_known_defects(manifest, path=KNOWN_DEFECTS):
+def load_known_defects(manifest, path=None):
     """Validate the per-case registry of reference defects that MoTrack must not inherit."""
-    registry = json.loads(path.read_text(encoding="utf-8"))
+    registry = json.loads((path or KNOWN_DEFECTS).read_text(encoding="utf-8"))
     if (not isinstance(registry, dict) or set(registry) != {"schema_version", "reference_version", "entries"}
             or registry["schema_version"] != 1 or registry["reference_version"] != manifest["reference"]["version"]
             or not isinstance(registry["entries"], list) or len(registry["entries"]) > 1000):
@@ -3408,7 +3412,7 @@ def check_state_oracle(manifest, cache, java, *, record=False):
                 continue
             committed = state_path(case["id"])
             if not committed.is_file():
-                failures.append(f"{case['id']}: no committed dump {committed.relative_to(ROOT).as_posix()}")
+                failures.append(f"{case['id']}: no committed dump {shown_path(committed)}")
                 continue
             comparison = compare_state(read_state(committed, manifest), document, manifest, case["id"])
             if comparison.failures:
@@ -3431,9 +3435,9 @@ def check_state_oracle(manifest, cache, java, *, record=False):
             if document != STATE_LOAD_FAILURE:
                 state_path(case_id).write_text(state_text(document), encoding="utf-8", newline="\n")
         print(f"state-oracle: recorded {sum(d != STATE_LOAD_FAILURE for d in dumps.values())} Tracker dumps in "
-              f"{STATE_DIR.relative_to(ROOT).as_posix()}; review every change")
+              f"{shown_path(STATE_DIR)}; review every change")
         return
-    print(f"state-oracle: {compared} Tracker loaded-state dumps match {STATE_DIR.relative_to(ROOT).as_posix()}; "
+    print(f"state-oracle: {compared} Tracker loaded-state dumps match {shown_path(STATE_DIR)}; "
           f"{len(reproduced)} known defects reproduced")
 
 

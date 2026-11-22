@@ -411,8 +411,11 @@ public final class TrackerSessionReference {
             if (!(chooser[TView.VIEW_TABLE] instanceof TrackChooserTView table)) continue;
             for (List<String> row : stringRows(new XMLControlElement(table).getObject("track_columns"), 0)) {
                 List<TTrack> owners = panel.getTracks().stream().filter(track -> track.getName().equals(row.get(0))).toList();
-                if (owners.size() != 1 || !table.isShowing() || table.getSelectedTrack() == null)
+                if (owners.size() != 1 || !table.isShowing() || table.getSelectedTrack() == null) {
+                    // A state dump records a table Tracker does not show (or cannot select) as loaded.
+                    if (boundedTableVisits) continue;
                     throw new IllegalStateException("Reference needs a visible table with an unambiguous owner");
+                }
                 visits.add(new TableVisit(table, owners.get(0), table.getSelectedTrack()));
                 if (visits.size() > 10000) throw new IllegalStateException("Table visit limit exceeded");
             }

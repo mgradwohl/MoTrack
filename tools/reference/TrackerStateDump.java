@@ -172,6 +172,9 @@ public final class TrackerStateDump {
     static Map<String, Object> dumpPanel(TrackerPanel panel, Sanitizer sanitizer) {
         Map<String, Object> properties = canonicalControl(new XMLControlElement(panel), sanitizer);
         properties.keySet().removeAll(PANEL_EXCLUDED);
+        // The clip control saves the player's current frame, which the evaluation seek moved to the
+        // last clip step. It is preparation state, not loaded state.
+        if (properties.get("clipcontrol") instanceof Map<?, ?> control) control.remove("frame");
         List<TTrack> live = panel.getTracks();
         if (live.size() > LIMIT) throw new IllegalStateException("Track limit exceeded");
         List<Object> tracks = new ArrayList<>();
