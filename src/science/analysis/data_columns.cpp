@@ -90,6 +90,43 @@ double sampleStandardDeviation(std::span<const double> values, double mean)
     return std::ldexp(std::sqrt(variance), exponent);
 }
 
+std::optional<double> defined(double value)
+{
+    return std::isnan(value) ? std::nullopt : std::optional<double>(value);
+}
+
+/// DataToolStatsTable.getStatistics exactly, from its sums: what Tracker shows (#225).
+TrackerColumnStatistics trackerStatistics(double maximum, double minimum, double sum, double squareSum, std::size_t values)
+{
+    TrackerColumnStatistics tracker;
+    const auto count = static_cast<double>(values);
+    const double mean = sum / count;
+    const double sd = values < 2 ? std::numeric_limits<double>::quiet_NaN() : std::sqrt((squareSum - count * mean * mean) / (count - 1));
+    tracker.maximum = maximum == -std::numeric_limits<double>::max() ? std::nullopt : defined(maximum);
+    tracker.minimum = minimum == std::numeric_limits<double>::max() ? std::nullopt : defined(minimum);
+    tracker.mean = defined(mean);
+    tracker.standardDeviation = defined(sd);
+    tracker.standardError = defined(sd / std::sqrt(count));
+    return tracker;
+}
+
+bool differs(std::optional<double> corrected, std::optional<double> tracker)
+{
+    if (corrected.has_value() != tracker.has_value())
+    {
+        return true;
+    }
+    if (!corrected || !tracker || *corrected == *tracker)
+    {
+        return false;
+    }
+    if (!std::isfinite(*corrected) || !std::isfinite(*tracker))
+    {
+        return true;
+    }
+    return std::abs(*corrected - *tracker) > TRACKER_DIFFERENCE_TOLERANCE * std::max(std::abs(*corrected), std::abs(*tracker));
+}
+
 ColumnStatistics statisticsOf(std::span<const double> data)
 {
     ColumnStatistics result;
@@ -99,7 +136,10 @@ ColumnStatistics statisticsOf(std::span<const double> data)
     bool infinite = false;
     double maximum = 0.0;
     double minimum = 0.0;
+    double trackerMaximum = -std::numeric_limits<double>::max();
+    double trackerMinimum = std::numeric_limits<double>::max();
     double sum = 0.0;
+    double squareSum = 0.0;
     for (const double value : std::views::reverse(data))
     {
         if (std::isnan(value))
@@ -110,7 +150,10 @@ ColumnStatistics statisticsOf(std::span<const double> data)
         // from the first value gives the same result for every other column.
         maximum = values.empty() ? value : detail::javaMax(maximum, value);
         minimum = values.empty() ? value : detail::javaMin(minimum, value);
+        trackerMaximum = detail::javaMax(trackerMaximum, value);
+        trackerMinimum = detail::javaMin(trackerMinimum, value);
         sum += value;
+        squareSum += value * value;
         infinite = infinite || std::isinf(value);
         values.push_back(value);
     }
@@ -119,6 +162,7 @@ ColumnStatistics statisticsOf(std::span<const double> data)
     {
         return result;
     }
+    result.tracker = trackerStatistics(trackerMaximum, trackerMinimum, sum, squareSum, values.size());
     result.maximum = maximum;
     result.minimum = minimum;
     const auto count = static_cast<double>(values.size());
@@ -134,20 +178,19 @@ ColumnStatistics statisticsOf(std::span<const double> data)
         }
         mean = std::ldexp(scaledSum / count, exponent);
     }
-    if (!std::isnan(mean))
+    result.mean = defined(mean);
+    if (values.size() >= 2 && !infinite)
     {
-        result.mean = mean;
+        const double deviation = maximum == minimum ? 0.0 : sampleStandardDeviation(values, mean);
+        result.standardDeviation = deviation;
+        result.standardError = deviation / std::sqrt(count);
     }
-    if (values.size() < 2 || infinite)
-    {
-        return result;
-    }
-    const double deviation = maximum == minimum ? 0.0 : sampleStandardDeviation(values, mean);
-    result.standardDeviation = deviation;
-    result.standardError = deviation / std::sqrt(count);
+    const TrackerColumnStatistics& tracker = result.tracker;
+    result.correctedFromTracker = differs(result.maximum, tracker.maximum) || differs(result.minimum, tracker.minimum) ||
+                                  differs(result.mean, tracker.mean) || differs(result.standardDeviation, tracker.standardDeviation) ||
+                                  differs(result.standardError, tracker.standardError);
     return result;
 }
-
 } // namespace
 
 PlotData plotData(std::span<const double> x, std::span<const double> y)

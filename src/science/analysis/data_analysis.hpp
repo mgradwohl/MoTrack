@@ -61,17 +61,38 @@ struct PlotData
 /// unit except the count. The sample standard deviation divides by n - 1 and the standard error is
 /// sd / sqrt(n). Deliberate difference: OSP evaluates sqrt((sum d^2 - n mean^2) / (n - 1)), which
 /// cancels catastrophically (seven values of 0.1 give 1.5e-9; 1e8 + {0, 1, 2} gives 0, not 1) and
-/// overflows or underflows beyond about 1e154 and 1e-154. MoTrack uses a corrected two-pass sum with
-/// exact power-of-two scaling. A column whose values are all -Double.MAX_VALUE or -infinity (or the positive
-/// equivalents for the minimum) has an OSP maximum of NaN; MoTrack reports the value.
+/// overflows or underflows beyond about 1e154 and 1e-154 (#225). MoTrack uses a corrected two-pass sum
+/// with exact power-of-two scaling, and reports Tracker's values in `tracker` for an indicator. A column whose values are all
+/// -Double.MAX_VALUE or -infinity (or the positive equivalents for the minimum) has an OSP maximum of NaN; MoTrack reports the value. What
+/// Tracker 6.3.5 shows for the same values, bit for bit: OSP's one-pass sd and se, a sum that may overflow, and empty (NaN in OSP) where a
+/// -/+Double.MAX_VALUE sentinel survives.
+struct TrackerColumnStatistics
+{
+    std::optional<double> maximum;
+    std::optional<double> minimum;
+    std::optional<double> mean;
+    std::optional<double> standardDeviation;
+    std::optional<double> standardError;
+};
+
+/// Relative difference above which a corrected statistic counts as differing from Tracker's: far
+/// above the rounding differences of well-conditioned data (below 1e-12), and below the four
+/// significant digits Tracker's table shows, so every visible correction is flagged.
+inline constexpr double TRACKER_DIFFERENCE_TOLERANCE = 1e-6;
+
 struct ColumnStatistics
 {
     std::size_t count = 0;                   ///< values that are not NaN (OSP's "n")
     std::optional<double> maximum;           ///< empty without values
     std::optional<double> minimum;           ///< empty without values
     std::optional<double> mean;              ///< sum / n in OSP's order; empty if undefined (inf - inf)
-    std::optional<double> standardDeviation; ///< empty with fewer than two values or an infinite value
+    std::optional<double> standardDeviation; ///< empty with fewer than two values or an infinite value;
+                                             ///< infinite only if the true value exceeds the largest double
     std::optional<double> standardError;     ///< empty whenever the standard deviation is
+    TrackerColumnStatistics tracker;         ///< Tracker's values, for the correction indicator (#225)
+    /// A statistic is present in only one of the two, or differs by more than
+    /// TRACKER_DIFFERENCE_TOLERANCE relative: Tracker would show a different value here.
+    bool correctedFromTracker = false;
 };
 
 /// Statistics of a whole column.
@@ -87,11 +108,11 @@ struct ColumnStatistics
 
 /// The point the Coordinates and Slope tools measure for a plot x (`DataToolTab.findNearestXIndex`).
 ///
-/// `x` is clamped to the visible plot range [visibleMin, visibleMax]. The nearest point with a y
-/// value wins (the first on ties); if it lies left of the visible range the next index is taken,
-/// and the last index if that is past the end or right of the range, as in OSP (which assumes
-/// ascending x). Empty when no point has a y value or the inputs are NaN; OSP then throws an
-/// `ArrayIndexOutOfBoundsException`.
+/// `x` is clamped to the visible plot range [visibleMin, visibleMax]. The nearest visible point with
+/// a y value wins (the first on ties), or the nearest point overall when none is visible. Empty when
+/// no point has a y value or the inputs are NaN (OSP throws `ArrayIndexOutOfBoundsException`, #231).
+/// Deliberate difference (#267): OSP takes the nearest point overall and moves an off-screen one to
+/// the next or the last index, assuming ascending x, which can pick a point far outside the view.
 [[nodiscard]] std::optional<std::size_t>
 nearestPointIndex(std::span<const PlotPoint> points, double x, double visibleMin, double visibleMax);
 
@@ -122,23 +143,29 @@ struct AreaMeasurement
 /// Area tool on data (`DataToolPlotter.refreshArea`): the trapezoidal rule over the points whose x
 /// lies between the two limits (in either order, widened by 1/200000 of their distance so points
 /// on a limit are included) and whose y is present, in row order. Gaps are bridged by a straight
-/// line; points that go back in x subtract, giving the signed path integral of y dx. Deliberate
-/// difference: OSP reports 0 for fewer than two points.
+/// line; points that go back in x subtract, giving the signed path integral of y dx. Equal limits
+/// give exactly 0 (a zero-width integral). Deliberate difference: OSP also reports 0 for fewer than
+/// two points between distinct limits, where the area is empty here.
 [[nodiscard]] AreaMeasurement dataArea(std::span<const PlotPoint> points, double firstLimit, double secondLimit);
 
 /// Area tool on a fit: the trapezoidal rule with `intervals` equal intervals between the limits
 /// (Data Tool uses the number of screen pixels between them), bridging samples where the function
-/// is NaN. Deliberate difference: OSP samples `intervals` points from the widened lower limit and
-/// omits the last interval, so it misses about f(upper) (upper - lower) / intervals.
+/// is NaN. Zero intervals, a non-finite limit or fewer than two defined samples give an empty area;
+/// equal limits give 0. Deliberate difference: OSP samples `intervals` points from the widened lower
+/// limit and omits the last interval, so it misses about f(upper) (upper - lower) / intervals (#228).
 [[nodiscard]] AreaMeasurement functionArea(const ScalarFunction& function, double firstLimit, double secondLimit, std::size_t intervals);
 
 enum class FourierStatus : std::uint8_t
 {
     Ok,
     TooFewPoints,   ///< fewer than two points; OSP shows no spectrum
-    MissingValues,  ///< a point has no y value; every coefficient is NaN, as in OSP
+    MissingValues,  ///< a point has no y value; every coefficient and power is NaN, as in OSP
     InvalidSpacing, ///< the assumed spacing is zero or not finite; OSP shows infinite frequencies
 };
+
+/// `maximumSpacingError` above which I4 should warn that the spacing is not uniform. Frame times
+/// t0 + i dt round to about 1e-15 to 1e-12 of dt; one microsecond of jitter at 25 frames/s is 2.5e-5.
+inline constexpr double UNIFORM_SPACING_TOLERANCE = 1e-6;
 
 inline constexpr UnitPowers FREQUENCY_UNIT{.y = 0, .x = -1};
 inline constexpr UnitPowers FOURIER_COEFFICIENT_UNIT{.y = 1, .x = 0};
@@ -151,9 +178,14 @@ inline constexpr UnitPowers FOURIER_POWER_UNIT{.y = 2, .x = 0};
 /// is not corrected, only reported. Row k (k = 0..n/2) has frequency k / (n spacing) in cycles per
 /// x unit (Hz for seconds), angular frequency 2 pi times that, and coefficients a_k, b_k of
 /// y(x) = sum_k a_k cos(2 pi f_k x) + b_k sin(2 pi f_k x) relative to x = 0 (not to x[0]); power is
-/// a_k^2 + b_k^2 (y unit squared). Deliberate differences: OSP stops at k = n/2 - 1 and puts
-/// -X_{n/2}/n (the Nyquist term) in the k = 0 sine and power; MoTrack reports b_0 = 0 and a
-/// Nyquist row. MoTrack also uses the corrected real transform (see realFft).
+/// a_k^2 + b_k^2 (y unit squared). At the Nyquist frequency the samples fix only the amplitude
+/// A = X_{n/2}/n; splitting it as a = A cos(w x[0]), b = A sin(w x[0]) (the smallest a, b that
+/// reproduce the samples) is a convention. Deliberate differences: OSP stops at k = n/2 - 1 and puts
+/// -X_{n/2}/n (the Nyquist term) in the k = 0 sine and power (#227); MoTrack reports b_0 = 0 and a
+/// Nyquist row. MoTrack also uses the corrected real transform (#226, see realFft). For the
+/// correction indicator both follow from the result: Tracker lacks the Nyquist row and its 0 Hz sine
+/// and power differ whenever that row's power is nonzero, and its bins (n/2 - 1)/2 and (n/2 + 1)/2
+/// are wrong whenever pointCount / 2 is odd and pointCount >= 10.
 struct FourierSpectrum
 {
     FourierStatus status = FourierStatus::TooFewPoints;
@@ -161,7 +193,7 @@ struct FourierSpectrum
     bool droppedLastPoint = false;        ///< an odd count lost its last point, as in OSP
     double origin = 0.0;                  ///< x of the first point
     double spacing = 0.0;                 ///< the assumed uniform spacing (see above)
-    double maximumSpacingError = 0.0;     ///< max |x[i+1] - x[i] - spacing| / |spacing|; 0 if uniform
+    double maximumSpacingError = 0.0;     ///< max |x[i+1] - x[i] - spacing| / |spacing| (UNIFORM_SPACING_TOLERANCE)
     std::vector<double> frequency;        ///< FREQUENCY_UNIT, cycles per x unit
     std::vector<double> angularFrequency; ///< radians per x unit
     std::vector<double> cosine;           ///< FOURIER_COEFFICIENT_UNIT

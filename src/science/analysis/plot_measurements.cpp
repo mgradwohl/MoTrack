@@ -59,8 +59,13 @@ AreaMeasurement trapezoidArea(std::span<const PlotPoint> used)
 std::optional<std::size_t> nearestPointIndex(std::span<const PlotPoint> points, double x, double visibleMin, double visibleMax)
 {
     const double clamped = detail::javaMin(visibleMax, detail::javaMax(visibleMin, x));
-    std::optional<std::size_t> nearest;
-    double nearestDistance = std::numeric_limits<double>::max();
+    // OSP takes the nearest point overall and then moves an off-screen choice by one index or to the
+    // last index, assuming ascending x, which can land far outside the view (#267). MoTrack
+    // takes the nearest visible point and falls back to the nearest point when none is visible.
+    std::optional<std::size_t> nearestVisible;
+    std::optional<std::size_t> nearestOverall;
+    double visibleDistance = std::numeric_limits<double>::max();
+    double overallDistance = std::numeric_limits<double>::max();
     for (std::size_t i = 0; i < points.size(); ++i)
     {
         if (std::isnan(points[i].y))
@@ -68,26 +73,18 @@ std::optional<std::size_t> nearestPointIndex(std::span<const PlotPoint> points, 
             continue;
         }
         const double distance = std::abs(clamped - points[i].x);
-        if (distance < nearestDistance)
+        if (distance < overallDistance)
         {
-            nearestDistance = distance;
-            nearest = i;
+            overallDistance = distance;
+            nearestOverall = i;
+        }
+        if (points[i].x >= visibleMin && points[i].x <= visibleMax && distance < visibleDistance)
+        {
+            visibleDistance = distance;
+            nearestVisible = i;
         }
     }
-    if (!nearest)
-    {
-        return std::nullopt;
-    }
-    std::size_t index = *nearest;
-    if (points[index].x < visibleMin)
-    {
-        ++index;
-    }
-    if (index == points.size() || points[index].x > visibleMax)
-    {
-        index = points.size() - 1;
-    }
-    return index;
+    return nearestVisible ? nearestVisible : nearestOverall;
 }
 
 std::optional<PlotPoint> pointCoordinates(std::span<const PlotPoint> points, std::size_t index)
@@ -141,7 +138,12 @@ AreaMeasurement dataArea(std::span<const PlotPoint> points, double firstLimit, d
             used.push_back(point);
         }
     }
-    return trapezoidArea(used);
+    AreaMeasurement result = trapezoidArea(used);
+    if (lower == upper && std::isfinite(lower))
+    {
+        result.area = 0.0; // a zero-width integral is exactly zero, as OSP shows
+    }
+    return result;
 }
 
 AreaMeasurement functionArea(const ScalarFunction& function, double firstLimit, double secondLimit, std::size_t intervals)

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <numbers>
 #include <span>
 #include <vector>
@@ -110,6 +111,11 @@ FourierSpectrum fourierSpectrum(std::span<const PlotPoint> points)
         spectrum.cosine[k] = cosine;
         spectrum.sine[k] = sine;
         spectrum.power[k] = cosine * cosine + sine * sine;
+    }
+    if (missing)
+    {
+        // The zero-frequency sine is zero by definition, but a missing sample leaves no spectrum at all.
+        spectrum.sine[0] = std::numeric_limits<double>::quiet_NaN();
     }
     return spectrum;
 }

@@ -264,6 +264,8 @@ std::map<std::string, Corrected> correctedStatistics()
         {"negative-infinity", {.maximum = -infinity}},
         {"most-negative", {.maximum = -largest, .mean = -largest, .standardDeviation = 0.0}},
         {"most-positive", {.minimum = largest, .mean = largest, .standardDeviation = 0.0}},
+        {"subnormal", {.standardDeviation = std::numeric_limits<double>::denorm_min()}},
+        {"mixed-max", {.standardDeviation = largest}},
     };
 }
 
@@ -303,6 +305,14 @@ TEST(AnalysisReference, StatisticsTable)
         }
         EXPECT_EQ(statistics.count, static_cast<std::size_t>(item[QStringLiteral("count")].toInt()));
         const bool defect = !item[QStringLiteral("defect")].isNull();
+        // Tracker's own values are reproduced bit for bit, so the correction indicator is exact.
+        const TrackerColumnStatistics& tracker = statistics.tracker;
+        EXPECT_TRUE(same(orNaN(tracker.maximum), number(item[QStringLiteral("max")])));
+        EXPECT_TRUE(same(orNaN(tracker.minimum), number(item[QStringLiteral("min")])));
+        EXPECT_TRUE(same(orNaN(tracker.mean), number(item[QStringLiteral("mean")])));
+        EXPECT_TRUE(same(orNaN(tracker.standardDeviation), number(item[QStringLiteral("sd")])));
+        EXPECT_TRUE(same(orNaN(tracker.standardError), number(item[QStringLiteral("se")])));
+        EXPECT_EQ(statistics.correctedFromTracker, defect);
         const auto fix = corrected.find(column);
         ASSERT_EQ(defect, fix != corrected.end());
         const Corrected expected = defect ? fix->second : Corrected{};
@@ -338,10 +348,11 @@ TEST(AnalysisReference, StatisticsTable)
             continue;
         }
         ASSERT_TRUE(statistics.standardDeviation && statistics.standardError);
-        const double ours = statistics.standardDeviation.value();
-        if (ours == 0.0)
+        const double ours = statistics.standardDeviation.value_or(NOT_A_NUMBER);
+        if (ours == 0.0 || std::isinf(ours))
         {
-            EXPECT_EQ(javaSd, 0.0);
+            EXPECT_EQ(javaSd, ours); // equal values, or a true sd beyond the largest double
+            EXPECT_TRUE(same(statistics.standardError.value_or(NOT_A_NUMBER), javaSe));
             continue;
         }
         // OSP's one-pass sqrt((S - n m^2) / (n - 1)) has a rounding error of about n u (S + n m^2) / (n - 1)
@@ -359,7 +370,7 @@ TEST(AnalysisReference, StatisticsTable)
         const double mean = statistics.mean.value_or(NOT_A_NUMBER);
         const double bound = 4.0 * (n + 4.0) * UNIT_ROUNDOFF * ((squares + n * mean * mean) / ((n - 1.0) * ours) + ours);
         EXPECT_NEAR(ours, javaSd, bound);
-        EXPECT_NEAR(statistics.standardError.value(), javaSe, bound / std::sqrt(n) + 4.0 * UNIT_ROUNDOFF * javaSe);
+        EXPECT_NEAR(statistics.standardError.value_or(NOT_A_NUMBER), javaSe, bound / std::sqrt(n) + 4.0 * UNIT_ROUNDOFF * javaSe);
         ++compared;
     }
     EXPECT_GE(compared, 10U);
@@ -447,10 +458,11 @@ TEST(AnalysisReference, AreaTool)
         const auto count = static_cast<std::size_t>(item[QStringLiteral("points")].toInt());
         EXPECT_EQ(area.pointCount, count);
         const double javaArea = number(item[QStringLiteral("area")]);
-        if (count >= 2)
+        // A zero-width integral is zero; otherwise an area needs two points.
+        if (count >= 2 || (limits[0] == limits[1] && std::isfinite(limits[0])))
         {
             ASSERT_TRUE(area.area);
-            EXPECT_TRUE(same(area.area.value(), javaArea)) << area.area.value() << " vs Java " << javaArea;
+            EXPECT_TRUE(same(area.area.value_or(NOT_A_NUMBER), javaArea)) << area.area.value_or(NOT_A_NUMBER) << " vs Java " << javaArea;
         }
         else
         {
@@ -501,9 +513,30 @@ TEST(AnalysisReference, NearestMeasuredPoint)
             EXPECT_EQ(java.toString(), QStringLiteral("ArrayIndexOutOfBoundsException"));
             EXPECT_FALSE(ours);
         }
-        else
+        else if (item[QStringLiteral("defect")].isNull())
         {
             EXPECT_EQ(ours, static_cast<std::size_t>(java.toInt()));
+        }
+        else
+        {
+            // OSP moves an off-screen nearest point by index and lands outside the view (#267);
+            // MoTrack takes the nearest visible point.
+            const auto visibleAt = [&](std::size_t index)
+            {
+                return points[index].x >= visible[0] && points[index].x <= visible[1];
+            };
+            const auto javaIndex = static_cast<std::size_t>(java.toInt());
+            EXPECT_FALSE(visibleAt(javaIndex)) << "OSP now picks a visible point";
+            ASSERT_TRUE(ours.has_value());
+            EXPECT_TRUE(visibleAt(ours.value_or(0)));
+            const double cursor = std::clamp(number(item[QStringLiteral("x")]), visible[0], visible[1]);
+            for (std::size_t i = 0; i < points.size(); ++i)
+            {
+                if (visibleAt(i) && !std::isnan(points[i].y))
+                {
+                    EXPECT_LE(std::abs(points[ours.value_or(0)].x - cursor), std::abs(points[i].x - cursor)) << i;
+                }
+            }
         }
     }
 }
@@ -561,7 +594,7 @@ TEST(AnalysisReference, AreaToolOnAFitOmitsTheLastIntervalInOsp)
         const double bound = (upper - lower) * h * h * curvature / 12.0 + 1e-12 * std::abs(exact);
         const AreaMeasurement ours = functionArea(function, limits[0], limits[1], samples);
         ASSERT_TRUE(ours.area);
-        EXPECT_NEAR(ours.area.value(), exact, bound);
+        EXPECT_NEAR(ours.area.value_or(NOT_A_NUMBER), exact, bound);
         EXPECT_GT(std::abs(javaArea - exact), 10.0 * bound) << "OSP no longer omits the last interval";
         // OSP's value is the trapezoidal sum from the widened lower limit over samples - 1 intervals.
         const double first = number(item[QStringLiteral("first_sample")]);
@@ -676,7 +709,7 @@ TEST(AnalysisReference, FourierSpectrum)
             {
                 // OSP puts -X_{n/2} / n in the zero-frequency sine and its square in the power.
                 EXPECT_TRUE(near(ours.cosine[0], cosine[0], tolerance));
-                EXPECT_EQ(ours.sine[0], 0.0);
+                EXPECT_TRUE(missing ? std::isnan(ours.sine[0]) : ours.sine[0] == 0.0);
                 EXPECT_TRUE(near(-nyquist, sine[0], tolerance));
                 EXPECT_TRUE(near(ours.power[0] + nyquist * nyquist, power[0], powerTolerance));
                 EXPECT_TRUE(near(ours.power[half], nyquist * nyquist, powerTolerance));

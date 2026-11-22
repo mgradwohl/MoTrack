@@ -118,6 +118,11 @@ public final class AnalysisOracle {
         column("negative-infinity", "-inf -inf", "max-sentinel", -INF, -INF);
         column("most-negative", "-MAX_VALUE -MAX_VALUE", "max-sentinel", -Double.MAX_VALUE, -Double.MAX_VALUE);
         column("most-positive", "MAX_VALUE MAX_VALUE", "max-sentinel", Double.MAX_VALUE, Double.MAX_VALUE);
+        column("subnormal", "1, 2 and 3 times Double.MIN_VALUE: sd MIN_VALUE", "one-pass-variance", Double.MIN_VALUE,
+                2 * Double.MIN_VALUE, 3 * Double.MIN_VALUE);
+        column("subnormal-constant", "three times Double.MIN_VALUE: sd 0", null, filled(3, Double.MIN_VALUE));
+        column("mixed-max", "MAX_VALUE -MAX_VALUE 0: mean 0, sd MAX_VALUE", "overflow", Double.MAX_VALUE, -Double.MAX_VALUE, 0.0);
+        column("opposite-max", "MAX_VALUE -MAX_VALUE: sd sqrt(2) MAX_VALUE overflows", null, Double.MAX_VALUE, -Double.MAX_VALUE);
     }
 
     private static void column(String id, String description, String defect, double... values) {
@@ -478,7 +483,7 @@ public final class AnalysisOracle {
             {"line", 1.0, 0.2}, {"uneven-sine", 0.0, 3.0}, {"uneven-sine", 0.5, 2.0}, {"y-gaps", 0.0, 5.5},
             {"y-gaps", 1.5, 4.0}, {"x-gaps", 0.0, 10.0}, {"infinite-y", 0.0, 5.0}, {"path", -1.0, 1.0},
             {"repeated-x", 0.0, 3.0}, {"empty", 0.0, 1.0}, {"single", 0.0, 4.0}, {"two", 1.0, 3.0}, {"all-gaps", 0.0, 2.0},
-            {"line", NAN, 1.0}};
+            {"line", NAN, 1.0}, {"parabola", 0.55, 0.55}};
         for (Object[] spec : specs) {
             Series series = series((String) spec[0]);
             workingFor(harness, series);
@@ -536,7 +541,9 @@ public final class AnalysisOracle {
             {"parabola", 0.73, 0.76, 2.0}, {"parabola", 1.9, 0.0, 1.62}, {"y-gaps", 2.4, 0.0, 6.0}, {"y-gaps", 4.6, 0.0, 6.0},
             {"y-gaps", 5.4, 0.0, 6.0}, {"repeated-x", 1.2, -1.0, 4.0}, {"repeated-x", 3.0, -1.0, 2.5}, {"path", 0.1, -1.0, 1.0},
             {"path", 0.95, -0.5, 0.9}, {"uneven-sine", 1.0, 0.0, 3.0}, {"single", 0.0, -1.0, 1.0}, {"all-gaps", 1.0, 0.0, 2.0},
-            {"empty", 0.0, 0.0, 1.0}, {"line", NAN, 0.0, 2.0}};
+            {"empty", 0.0, 0.0, 1.0}, {"line", NAN, 0.0, 2.0},
+            // The nearest point lies outside the view: OSP moves it by index to an off-screen point.
+            {"line", 1.06, 0.0, 1.06, "view-edge"}, {"descending-8", 0.3, 0.3, 5.0, "view-edge"}};
         for (Object[] spec : specs) {
             Series series = series((String) spec[0]);
             HighlightableDataset working = workingFor(harness, series);
@@ -552,7 +559,7 @@ public final class AnalysisOracle {
             }
             CASES.add("{\"id\":" + string("nearest/" + series.id() + "/" + x + "/" + min + "," + max) + ",\"kind\":\"nearest\""
                     + ",\"series\":" + string(series.id()) + ",\"x\":" + number(x) + ",\"visible\":" + numbers(new double[] {min, max})
-                    + ",\"index\":" + result + "}");
+                    + ",\"index\":" + result + ",\"defect\":" + nullableString(spec.length > 4 ? (String) spec[4] : null) + "}");
         }
     }
 

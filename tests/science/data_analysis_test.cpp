@@ -52,6 +52,15 @@ TEST(DataAnalysisStatistics, TextbookColumn)
     ASSERT_TRUE(statistics.standardDeviation);
     EXPECT_NEAR(statistics.standardDeviation.value_or(NOT_A_NUMBER), std::sqrt(32.0 / 7.0), 1e-15);
     EXPECT_NEAR(statistics.standardError.value_or(NOT_A_NUMBER), std::sqrt(32.0 / 7.0) / std::sqrt(8.0), 1e-15);
+    // Tracker's one-pass value agrees here to rounding, so no correction is indicated.
+    EXPECT_FALSE(statistics.correctedFromTracker);
+    EXPECT_NEAR(statistics.tracker.standardDeviation.value_or(NOT_A_NUMBER), std::sqrt(32.0 / 7.0), 1e-14);
+    EXPECT_FALSE(columnStatistics(std::vector<double>{}).correctedFromTracker);
+    EXPECT_FALSE(columnStatistics(std::vector<double>{1.0, INFINITE}).correctedFromTracker);
+    EXPECT_TRUE(columnStatistics(std::vector<double>(7, 0.1)).correctedFromTracker);
+    const ColumnStatistics extreme = columnStatistics(std::vector<double>{-INFINITE, -INFINITE});
+    EXPECT_TRUE(extreme.correctedFromTracker); // Tracker shows max NaN
+    EXPECT_FALSE(extreme.tracker.maximum);
 }
 
 TEST(DataAnalysisStatistics, MissingValuesAreIgnoredAndNeverZero)
@@ -92,7 +101,12 @@ TEST(DataAnalysisStatistics, ConstantAndOffsetColumnsKeepTheirStandardDeviation)
     // OSP's one-pass formula gives 1.5e-9 for seven times 0.1 and 0 for 1e8 + {0, 1, 2}.
     EXPECT_EQ(columnStatistics(std::vector<double>(7, 0.1)).standardDeviation, 0.0);
     EXPECT_EQ(columnStatistics(std::vector<double>(5, 1.0 / 3.0)).standardDeviation, 0.0);
-    EXPECT_EQ(columnStatistics(std::vector<double>{1e8, 1e8 + 1, 1e8 + 2}).standardDeviation, 1.0);
+    const ColumnStatistics offset = columnStatistics(std::vector<double>{1e8, 1e8 + 1, 1e8 + 2});
+    EXPECT_EQ(offset.standardDeviation, 1.0);
+    // Tracker shows 0 here: the correction indicator reports it, with Tracker's value.
+    EXPECT_TRUE(offset.correctedFromTracker);
+    EXPECT_EQ(offset.tracker.standardDeviation, 0.0);
+    EXPECT_EQ(offset.tracker.mean, offset.mean);
     std::vector<double> clock(50);
     for (std::size_t i = 0; i < clock.size(); ++i)
     {
@@ -226,7 +240,17 @@ TEST(DataAnalysisMeasures, NearestPointWithinTheVisibleRange)
     // the view takes the next index; right of it, or past the end, takes the last index.
     EXPECT_EQ(nearestPointIndex(points, 0.2, 0.4, 5), 1U);
     const std::vector<PlotPoint> ramp{{.x = 0, .y = 0}, {.x = 1, .y = 1}, {.x = 2, .y = 2}, {.x = 3, .y = 3}};
-    EXPECT_EQ(nearestPointIndex(ramp, 1.9, -1, 1.6), 3U);
+    EXPECT_EQ(nearestPointIndex(ramp, 1.9, -1, 1.6), 1U); // OSP jumps to the last index, x = 3
+    // The nearest visible point wins over a nearer off-screen one (#267), in either x order.
+    std::vector<PlotPoint> ascending;
+    std::vector<PlotPoint> descending;
+    for (int i = 0; i <= 5; ++i)
+    {
+        ascending.push_back({.x = static_cast<double>(i), .y = 1.0});
+        descending.push_back({.x = static_cast<double>(5 - i), .y = 1.0});
+    }
+    EXPECT_EQ(nearestPointIndex(ascending, 2.6, 0, 2.6), 2U);  // OSP: index 5
+    EXPECT_EQ(nearestPointIndex(descending, 0.4, 0.4, 5), 4U); // x = 1; OSP: x = 0
     EXPECT_EQ(nearestPointIndex(points, 6, 5, 10), 4U);
     EXPECT_FALSE(nearestPointIndex({}, 0, 0, 1));
     EXPECT_FALSE(nearestPointIndex(std::vector<PlotPoint>{{.x = 0, .y = NOT_A_NUMBER}}, 0, 0, 1));
@@ -259,10 +283,19 @@ TEST(DataAnalysisArea, TrapezoidalRuleMatchesTheAnalyticSum)
     const AreaMeasurement none = dataArea(points, 0.31, 0.39);
     EXPECT_EQ(none.pointCount, 0U);
     EXPECT_FALSE(none.area || none.firstX || none.lastX);
+    // Between two distinct limits one point has no area; equal limits are a zero-width integral.
+    const AreaMeasurement single = dataArea(std::vector<PlotPoint>{{.x = 1, .y = 2}}, 0.0, 3.0);
+    EXPECT_EQ(single.pointCount, 1U);
+    EXPECT_FALSE(single.area);
+    EXPECT_EQ(single.firstX, 1.0);
     const AreaMeasurement one = dataArea(points, 0.5, 0.5);
     EXPECT_EQ(one.pointCount, 1U);
-    EXPECT_FALSE(one.area);
+    EXPECT_EQ(one.area, 0.0);
     EXPECT_EQ(one.firstX, 0.5);
+    const AreaMeasurement between = dataArea(points, 0.55, 0.55);
+    EXPECT_EQ(between.pointCount, 0U);
+    EXPECT_EQ(between.area, 0.0);
+    EXPECT_FALSE(between.firstX);
     EXPECT_FALSE(dataArea(points, NOT_A_NUMBER, 1.0).area);
 }
 
@@ -361,7 +394,8 @@ TEST(DataAnalysisFourier, KnownAmplitudesFrequenciesAndPhases)
     EXPECT_EQ(spectrum.pointCount, 64U);
     EXPECT_FALSE(spectrum.droppedLastPoint);
     EXPECT_NEAR(spectrum.spacing, 0.05, 1e-16);
-    EXPECT_LT(spectrum.maximumSpacingError, 1e-12);
+    EXPECT_GT(spectrum.maximumSpacingError, 0.0); // t = 0.05 i rounds
+    EXPECT_LT(spectrum.maximumSpacingError, UNIFORM_SPACING_TOLERANCE * 1e-6);
     // Bins are 1 / (64 * 0.05) = 0.3125 Hz apart up to the 10 Hz Nyquist frequency.
     EXPECT_NEAR(spectrum.frequency[4], 1.25, 1e-14);
     EXPECT_NEAR(spectrum.frequency[8], 2.5, 1e-14);
@@ -448,7 +482,7 @@ TEST(DataAnalysisFourier, DegenerateInputsHaveAStatus)
     EXPECT_EQ(gap.status, FourierStatus::MissingValues);
     ASSERT_EQ(gap.frequency.size(), 3U);
     EXPECT_EQ(gap.frequency[1], 0.25);
-    EXPECT_TRUE(std::isnan(gap.cosine[1]) && std::isnan(gap.power[0]));
+    EXPECT_TRUE(std::isnan(gap.cosine[1]) && std::isnan(gap.power[0]) && std::isnan(gap.sine[0]));
     const FourierSpectrum flat =
         fourierSpectrum(std::vector<PlotPoint>{{.x = 1, .y = 0}, {.x = 1, .y = 1}, {.x = 1, .y = 0}, {.x = 1, .y = -1}});
     EXPECT_EQ(flat.status, FourierStatus::InvalidSpacing);

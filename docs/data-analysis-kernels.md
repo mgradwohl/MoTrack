@@ -63,8 +63,16 @@ give NaN and near 1e-200 give 0. MoTrack uses the corrected two-pass sum
 (exact) so squares cannot overflow or underflow, and returns 0 when all values are equal. A sum that
 overflows for finite values is recomputed with the same scaling (OSP reports an infinite mean).
 OSP starts max and min from ∓`Double.MAX_VALUE` and reports NaN if that sentinel survives, so a
-column of −infinity or −`Double.MAX_VALUE` has a NaN maximum; MoTrack reports the value.
-See [MoTrack #225](https://github.com/mgradwohl/MoTrack/issues/225).
+column of −infinity or −`Double.MAX_VALUE` has a NaN maximum; MoTrack reports the value. An sd
+is infinite only when the true value exceeds the largest double (MAX and −MAX give √2·MAX); OSP
+gives infinity whenever the squares overflow. Subnormal values keep their sd (1, 2, 3 × 2^-1074
+gives 2^-1074; OSP gives 0). See [MoTrack #225](https://github.com/mgradwohl/MoTrack/issues/225).
+
+For the quiet correction indicator, `ColumnStatistics::tracker` holds what Tracker shows, bit for
+bit (OSP's sums, its one-pass sd and its sentinels, empty where Tracker shows NaN), and
+`correctedFromTracker` is true when any statistic is present in only one of them or differs by
+more than `TRACKER_DIFFERENCE_TOLERANCE` (10^-6 relative): far above the rounding differences of
+well-conditioned data (below 10^-12) and below the four significant digits of Tracker's table.
 
 The correlation status is `doLinearRegression` on the selected points with a y value:
 r^2 = cov(x, y)^2 / (var x var y) with population (1/n) moments from a two-pass sum. It is empty
@@ -72,11 +80,15 @@ with fewer than three points, without x or y variation, or when it overflows. It
 
 ## Measuring tools
 
-- **Nearest point.** The plot x is clamped to the visible range; the nearest point with a y value
-  wins, the first on ties. OSP then moves a nearest point left of the view to the next index and one
-  right of the view (or past the end) to the last index, assuming ascending x; MoTrack does the same.
-  When no point has a y value OSP throws `ArrayIndexOutOfBoundsException` from the mouse handler;
-  `nearestPointIndex` is empty ([MoTrack #231](https://github.com/mgradwohl/MoTrack/issues/231)).
+- **Nearest point.** The plot x is clamped to the visible range; the nearest visible point with a
+  y value wins, the first on ties, or the nearest point overall when none is visible. OSP takes the
+  nearest point overall and moves an off-screen one to the next index (left of the view) or to the
+  last index (right of it), assuming ascending x, so it can measure a point far outside the view: x
+  = 0 … 5 with the view [0, 2.6] and the cursor at 2.6 measures x = 5 instead of 2
+  ([MoTrack #267](https://github.com/mgradwohl/MoTrack/issues/267); OSP's earlier sorted version,
+  still commented out in `DataToolTab`, chose the visible neighbour). When no point has a y value OSP
+  throws `ArrayIndexOutOfBoundsException` from the mouse handler; `nearestPointIndex` is empty
+  ([MoTrack #231](https://github.com/mgradwohl/MoTrack/issues/231)).
 - **Coordinates.** The point itself, if it has a y value. OSP keeps showing the previous point over a
   gap; I4 may do the same.
 - **Slope on data.** (y[i+1] − y[i−1]) / (x[i+1] − x[i−1]), the chord through the neighbours, also
@@ -88,12 +100,13 @@ with fewer than three points, without x or y variation, or when it overflows. It
   row order: area = (y0 (x1 − x0) + y_{n−1} (x_{n−1} − x_{n−2}) + sum y_i (x_{i+1} − x_{i−1})) / 2,
   bit for bit as OSP. Gaps are bridged by straight lines; points that go back in x subtract, so a
   path gives the signed integral of y dx. Data Tool draws the limit lines at the first and last x
-  used (`firstX`, `lastX`). Unit y·x.
+  used (`firstX`, `lastX`). Equal limits give exactly 0, a zero-width integral, as in OSP. Unit y·x.
 - **Area on a fit.** The trapezoidal rule with `intervals` equal intervals between the limits,
   bridging samples where the function is NaN. Data Tool uses the number of screen pixels between the
   limits. OSP takes that many samples from the widened lower limit and so omits the last interval,
-  missing about f(upper) (upper − lower) / intervals (0.4% at 400 pixels). OSP also shows 0 for an
-  area with fewer than two points, where MoTrack reports none
+  missing about f(upper) (upper − lower) / intervals (0.4% at 400 pixels). Zero intervals, a
+  non-finite limit or fewer than two defined samples give no area. OSP also shows 0 for an area
+  with fewer than two points between distinct limits, where MoTrack reports none
   ([MoTrack #228](https://github.com/mgradwohl/MoTrack/issues/228)).
 
 ## Fourier spectrum
@@ -104,8 +117,9 @@ no gutter and `getDatasets`:
 1. Fewer than two points give no spectrum (`TooFewPoints`). An odd count drops the last point.
 2. The n points are treated as uniformly spaced from x0 = x[0] with the spacing
    delta = (x[n−1] − x[0] + x[1] − x[0]) / n, which is x[1] − x[0] for uniform data. Unequal
-   spacing is not corrected; `maximumSpacingError` reports max |x[i+1] − x[i] − delta| / |delta| so
-   that I4 can warn. A zero or non-finite delta is `InvalidSpacing` (OSP lists infinite
+   spacing is not corrected; `maximumSpacingError` reports max |x[i+1] − x[i] − delta| / |delta|.
+   It is not exactly 0 for frame times t0 + i dt (about 1.5e-15 for dt = 0.1): I4 should warn above
+   `UNIFORM_SPACING_TOLERANCE` (10^-6, while one microsecond of jitter at 25 frames/s is 2.5e-5). A zero or non-finite delta is `InvalidSpacing` (OSP lists infinite
    frequencies with NaN coefficients). Descending x gives negative frequencies, as in OSP.
 3. The y values are transformed with `realFft` (no window, no padding, no detrending), giving
    X_k = sum_j y_j exp(−2 pi i j k / n).
@@ -114,8 +128,11 @@ no gutter and `getDatasets`:
    unit). The coefficients describe y(x) = sum_k a_k cos(w_k x) + b_k sin(w_k x) relative to x = 0,
    not to x0: with c = (2/n) cos(w_k x0) and s = (2/n) sin(w_k x0),
    a_k = Re X_k c + Im X_k s and b_k = −Im X_k c + Re X_k s, both halved for k = 0 and k = n/2. Power
-   is a_k^2 + b_k^2: the squared amplitude in y units squared, not a spectral density. a_0 is the mean.
-5. A missing y value makes every coefficient NaN, as in OSP, with the status `MissingValues`.
+   is a_k^2 + b_k^2: the squared amplitude in y units squared, not a spectral density. a_0 is the mean
+   and b_0 = 0. At the Nyquist frequency the samples determine only the amplitude A = X_{n/2}/n;
+   a = A cos(w x0), b = A sin(w x0) is the smallest pair that reproduces them, a convention.
+5. A missing y value makes every coefficient and power NaN, as in OSP, with the status
+   `MissingValues`.
 
 Deliberate differences:
 
@@ -127,10 +144,15 @@ Deliberate differences:
   ([MoTrack #226](https://github.com/mgradwohl/MoTrack/issues/226)).
 - **Nyquist row.** OSP lists rows k = 0..n/2 − 1 only and reads the packed X_{n/2} as the imaginary
   part of X_0, so the zero-frequency sine is −X_{n/2}/n and its power includes the Nyquist energy.
-  MoTrack reports b_0 = 0 and a Nyquist row. OSP's `createFourierData` also drops the last point of
-  an odd count from the selected dataset it shares with the curve fitter, so later fits silently use
-  one point fewer while the spectrum is open; the kernel does not modify its input
-  ([MoTrack #227](https://github.com/mgradwohl/MoTrack/issues/227)).
+  MoTrack reports b_0 = 0 and a Nyquist row
+  ([MoTrack #227](https://github.com/mgradwohl/MoTrack/issues/227)). OSP's `createFourierData` also
+  drops the last point of an odd count from the selected dataset it shares with the curve fitter, so
+  later fits silently use one point fewer while the spectrum is open; the kernel does not modify its
+  input ([MoTrack #230](https://github.com/mgradwohl/MoTrack/issues/230)).
+
+Both differences follow from the result, which is all the correction indicator needs: Tracker has
+no Nyquist row and its 0 Hz sine and power differ whenever that row's power is nonzero; its bins
+(n/2 − 1)/2 and (n/2 + 1)/2 are wrong whenever `pointCount` / 2 is odd and `pointCount` ≥ 10.
 
 `complexFft` ports `FFT.transform`, GSL's mixed-radix algorithm with passes for 2, 3, 4, 5, 6 and 7
 and a general pass for other primes, bit for bit apart from the twiddle factors.
@@ -166,8 +188,9 @@ model (I4/C2) must not reproduce the shift
 
 Each expression keeps Java's evaluation order and `Math.max`/`Math.min` semantics. Java never fuses
 multiply-add, so the library and its reference test are compiled with `-ffp-contract=off`.
-Statistics, plot data, correlation, nearest points, coordinates, slopes, areas and frequencies are
-therefore identical to Java. FFT outputs and Fourier coefficients also use `Math.sin`/`Math.cos`
+Max, min, mean, n and the `tracker` statistics, plot data, correlation, nearest points (apart from
+#267), coordinates, slopes, data areas and frequencies are therefore identical to Java; sd and se
+are corrected (#225) and compared within OSP's rounding bound below. FFT outputs and Fourier coefficients also use `Math.sin`/`Math.cos`
 (twiddle and phase factors), whose last bit differs between HotSpot's x86-64 intrinsics, its arm64
 path and C++ libraries.
 
@@ -180,12 +203,14 @@ Columns, working and selected datasets are built by `DataColumn.setPoints`,
 `WorkingDataset.setXSource` and `Dataset.append`; only the statistics table's and `getSelectedData`'s
 row gathering (plain array copies of a JTable selection) is restated. Fit-mode cases use
 `UncertainFunctionDrawer` with a `KnownPolynomial` and a pixel transform set on the plot.
-Inputs come from a 64-bit LCG and `StrictMath` (fdlibm on every JVM): 25 columns (textbook,
-gaps, frame times, noise, constants, large offsets, extremes, infinities) and 32 point series
+Inputs come from a 64-bit LCG and `StrictMath` (fdlibm on every JVM): 29 columns (textbook,
+gaps, frame times, noise, constants, large offsets, extremes, ±MAX, subnormals, infinities) and 32
+point series
 (parabola, line, unequal spacing, gaps in x and y, an infinity, a reversing path, repeated x, tiny
 sizes, sinusoids at known bins with phase origins, Nyquist terms, power-of-two and other lengths
-including radix-7 and prime factors, degenerate spacing). The 329 cases cover statistics, plot data,
-correlation, 22 area and 18 nearest-point cases, coordinates and slope at every index, fit-mode area
+including radix-7 and prime factors, degenerate spacing). The 336 cases cover statistics, plot data,
+correlation, 23 area cases (two with equal limits) and 20 nearest-point cases (two at the view
+edge), coordinates and slope at every index, fit-mode area
 and slope, 27 spectra, 23 real and 25 complex transforms, and column storage.
 [`tests/science/analysis-reference.json`](../tests/science/analysis-reference.json) stores them so
 `motrack_tests` needs no Java. `python tools/corpus.py analysis-oracle --java <java>` regenerates
@@ -216,6 +241,9 @@ The Data Tool view builds `plotData` from its x and y columns (all rows for the 
 the selection for the spectrum and fits), passes the visible x range and the pixel scale for
 `nearestPointIndex`, `functionSlope` and `functionArea`, and formats results with the column units
 and `UnitPowers`. It shows an empty result as blank or "undefined" rather than 0, reports
-`maximumSpacingError` and the Fourier status to the user, and keeps the Tracker workflow of a
-statistics row per column with the correlation in the status bar. All functions are pure; I4 runs
+`maximumSpacingError` (above `UNIFORM_SPACING_TOLERANCE`) and the Fourier status to the user,
+names the applicable corrections in a quiet indicator (`correctedFromTracker`, and the Fourier and
+area rules above), and keeps the Tracker workflow of a statistics row per column with the
+correlation in the status bar. `squaredCorrelation` is the shared R² for K3 and the existing
+position-plot fit ([MoTrack #268](https://github.com/mgradwohl/MoTrack/issues/268)). All functions are pure; I4 runs
 them on immutable snapshots, off the GUI thread for large spectra.
