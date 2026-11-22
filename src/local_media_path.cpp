@@ -9,6 +9,18 @@
 #include <system_error>
 #include <utility>
 
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
+#include <sys/stat.h>
+#endif
+
 namespace motrack
 {
 namespace
@@ -114,8 +126,57 @@ QString physicalLocalFilePath(QString path)
     return error ? QString{} : fromFilesystemPath(normalized);
 }
 
+std::optional<QString> localFileIdentity(const QString& path)
+{
+    const auto canonical = QFileInfo(path).canonicalFilePath();
+    if (canonical.isEmpty())
+        return std::nullopt;
+#ifdef Q_OS_WIN
+    // An extended path reaches names beyond MAX_PATH. Canonicalization comes first because the prefix disables
+    // Win32 dot and parent normalization.
+    auto native = QDir::toNativeSeparators(canonical);
+    if (!native.startsWith(R"(\\?\)"))
+        native = native.startsWith(R"(\\)") ? R"(\\?\UNC\)" + native.mid(2) : R"(\\?\)" + native;
+    const auto file = toFilesystemPath(native);
+    // No access rights are needed to read the id; backup semantics also opens a directory.
+    const auto handle = CreateFileW(file.c_str(),
+                                    0,
+                                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                    nullptr,
+                                    OPEN_EXISTING,
+                                    FILE_FLAG_BACKUP_SEMANTICS,
+                                    nullptr);
+    if (handle == INVALID_HANDLE_VALUE)
+        return std::nullopt;
+    FILE_ID_INFO id{};
+    BY_HANDLE_FILE_INFORMATION information{};
+    std::optional<QString> identity;
+    // FileIdInfo holds ReFS's 128-bit ids; older file systems answer only the 64-bit index.
+    if (GetFileInformationByHandleEx(handle, FileIdInfo, &id, sizeof(id)) != 0)
+        identity = QStringLiteral("file:%1:%2")
+                       .arg(id.VolumeSerialNumber)
+                       .arg(QString::fromLatin1(
+                           QByteArray(reinterpret_cast<const char*>(id.FileId.Identifier), sizeof(id.FileId.Identifier)).toHex()));
+    else if (GetFileInformationByHandle(handle, &information) != 0)
+        identity = QStringLiteral("file:%1:%2%3")
+                       .arg(information.dwVolumeSerialNumber)
+                       .arg(information.nFileIndexHigh, 8, 16, QChar('0'))
+                       .arg(information.nFileIndexLow, 8, 16, QChar('0'));
+    CloseHandle(handle);
+    return identity;
+#else
+    struct stat status{};
+    if (::stat(toFilesystemPath(canonical).c_str(), &status) != 0)
+        return std::nullopt;
+    return QStringLiteral("file:%1:%2").arg(static_cast<qulonglong>(status.st_dev)).arg(static_cast<qulonglong>(status.st_ino));
+#endif
+}
+
 bool sameLocalFile(const QString& first, const QString& second)
 {
+    // One identity for every comparison: Tracker tabsets key their files by it too.
+    if (const auto left = localFileIdentity(first), right = localFileIdentity(second); left && right)
+        return *left == *right;
     std::error_code error;
     bool equivalent = std::filesystem::equivalent(toFilesystemPath(first), toFilesystemPath(second), error);
 #ifdef Q_OS_WIN

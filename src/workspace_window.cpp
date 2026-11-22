@@ -324,6 +324,10 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
             &QFutureWatcher<RequestedFileCheck>::finished,
             this,
             [this] { applyRequestedFileCheck(m_LastCheck, m_CheckedPath, m_Checks.result()); });
+    connect(&m_TabsetChecks,
+            &QFutureWatcher<RequestedFileCheck>::finished,
+            this,
+            [this] { applyTabsetFileCheck(m_TabsetCheck, m_TabsetCheckedPath, m_TabsetChecks.result()); });
     connect(m_Context.get(),
             &WorkspaceContext::inputOpened,
             this,
@@ -355,9 +359,6 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
             this,
             [this](QUuid request, const QString& tabset, const std::vector<TabsetItem>& items)
             {
-                // A requested tabset opens all its files before the batch continues, so they keep their place.
-                if (m_Requested && m_Requested->request == request)
-                    m_Requested->awaitingTabset = true;
                 finishOpen(request);
                 if (m_Tabset && m_Tabset->request == request)
                 {
@@ -648,16 +649,25 @@ void WorkspaceWindow::expandInPlace(OrderedOpens& queue, const std::vector<Tabse
 
 void WorkspaceWindow::continueTabset()
 {
-    if (!m_Tabset || m_Tabset->request)
+    // A requested file that is opening may be listed here too; its completion resumes the tabset.
+    if (!m_Tabset || m_Tabset->request || m_Tabset->check != 0 || (m_Requested && m_Requested->request))
         return;
     if (auto& pending = *m_Tabset; !pending.files.isEmpty())
     {
-        // Starting an open only queues a worker; no completion can reset the pending tabset here.
         const auto file = pending.files.front();
+        // A file an open source owns is reused, not opened a second time whose later save would replace the first
+        // (#255). As for requested files, the request worker checks, because a share can block any file query.
+        if (pending.checked != file)
+        {
+            checkTabsetFile(pending, file);
+            return;
+        }
+        // Starting an open only queues a worker; no completion can reset the pending tabset here.
         const auto request = requestInput(file, WorkspaceActivation::KeepCurrent);
         if (!request)
             return; // Both input slots are busy; the next completion resumes the tabset in order.
         pending.files.removeFirst();
+        pending.checked.reset();
         pending.request = request;
         pending.current = QFileInfo(file).fileName();
         pending.requestIsProject = isProjectFile(file);
@@ -682,6 +692,54 @@ void WorkspaceWindow::continueTabset()
     if (m_Requested)
         QTimer::singleShot(0, this, &WorkspaceWindow::continueRequestedFiles);
     Q_EMIT tabsetFinished(finished.tabset);
+}
+
+void WorkspaceWindow::checkTabsetFile(OrderedOpens& pending, const QString& file)
+{
+    pending.check = ++m_LastCheck;
+    m_TabsetCheck = pending.check;
+    m_TabsetCheckedPath = file;
+    try
+    {
+        m_TabsetChecks.setFuture(QtConcurrent::run(&m_Context->services()->requestPool(),
+                                                   [file, sources = openSourceFiles()] { return checkRequestedFile(file, sources, {}); }));
+    }
+    catch (...)
+    {
+        pending.check = 0; // Nothing will answer this check, so the tabset must not wait for it.
+        throw;
+    }
+}
+
+void WorkspaceWindow::applyTabsetFileCheck(std::uint64_t check, const QString& file, const RequestedFileCheck& result)
+{
+    if (!m_Tabset || m_Tabset->check != check)
+        return; // The tabset finished or was replaced; never act on its stale answer.
+    auto& pending = *m_Tabset;
+    pending.check = 0;
+    if (pending.files.isEmpty() || pending.files.front() != file)
+    {
+        continueTabset(); // Closing the window stopped the remaining files.
+        return;
+    }
+    const auto& session = m_Context->session();
+    const auto sources = session.sources();
+    if (result.state == RequestedFileState::AlreadyOpen && std::ranges::find(sources, result.source) != sources.end() &&
+        !session.sourceDocuments(result.source).empty())
+    {
+        // The set lists the open file again: show its tab if hidden, and select it if it is the first experiment.
+        pending.files.removeFirst();
+        const auto documents = session.sourceDocuments(result.source);
+        const auto visible = std::ranges::find_if(documents, [this](QUuid document) { return m_Pages.contains(document); });
+        const auto document = visible != documents.end() ? *visible : documents.front();
+        if (!m_Pages.contains(document))
+            addDocuments({document});
+        if (isProjectFile(file) && !pending.select)
+            pending.select = document;
+    }
+    else
+        pending.checked = file; // Any other answer opens it; opening reports a file that has gone.
+    continueTabset();
 }
 
 void WorkspaceWindow::completeTabsetInput(QUuid request, const QList<QUuid>& documents, const QString& problem, bool cancelled)
@@ -1050,12 +1108,18 @@ void WorkspaceWindow::continueRequestedFiles()
     if (!m_Requested || m_Busy || m_Requested->check != 0 || m_Requested->request)
         return;
     auto& batch = *m_Requested;
-    // A requested tabset's files open first, in its place; continueTabset resumes the batch when it finishes.
-    if (batch.awaitingTabset)
+    // A tabset's files open first, in its place, whether it was requested or opened from the menu; continueTabset
+    // resumes the batch when it finishes. The tabset may open a file this batch already checked, so check it again.
+    if (m_Tabset || !m_ExpandedTabsets.empty() || m_TabsetPrompting)
     {
-        if (m_Tabset || !m_ExpandedTabsets.empty() || m_TabsetPrompting)
-            return;
-        batch.awaitingTabset = false;
+        if (batch.ready)
+        {
+            const auto path = *batch.ready;
+            batch.ready.reset();
+            batch.started.removeOne(path);
+            batch.files.prepend(path);
+        }
+        return;
     }
     if (batch.select)
     {
@@ -1111,17 +1175,23 @@ void WorkspaceWindow::continueRequestedFiles()
     Q_EMIT filesOpened(finished.problems, finished.notices);
 }
 
-void WorkspaceWindow::checkNextRequestedFile(RequestedBatch& batch)
+QList<std::pair<QUuid, QString>> WorkspaceWindow::openSourceFiles() const
 {
-    const auto path = batch.files.takeFirst();
-    batch.current = QFileInfo(path).fileName();
     // A source owns the file it was opened from and its save destinations, which Save As and paired saves set.
-    QList<std::pair<QUuid, QString>> sources;
+    QList<std::pair<QUuid, QString>> files;
     const auto& session = m_Context->session();
     for (const auto source : session.sources())
         for (const auto& owned : {session.sourcePath(source), session.nativeSavePath(source), session.standardSavePath(source)})
             if (!owned.isEmpty())
-                sources.emplace_back(source, owned);
+                files.emplace_back(source, owned);
+    return files;
+}
+
+void WorkspaceWindow::checkNextRequestedFile(RequestedBatch& batch)
+{
+    const auto path = batch.files.takeFirst();
+    batch.current = QFileInfo(path).fileName();
+    auto sources = openSourceFiles();
     batch.check = ++m_LastCheck;
     m_CheckedPath = path;
     // A sleeping network share can block any file query, so the worker answers and the window acts on it. Watching
@@ -1167,6 +1237,8 @@ void WorkspaceWindow::applyRequestedFileCheck(std::uint64_t check, const QString
         break;
     }
     continueRequestedFiles();
+    if (m_Tabset)
+        QTimer::singleShot(0, this, &WorkspaceWindow::continueTabset);
 }
 
 void WorkspaceWindow::startRequestedOpen(RequestedBatch& batch, const QString& path)

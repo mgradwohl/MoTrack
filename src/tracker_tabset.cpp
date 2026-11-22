@@ -1,6 +1,7 @@
 #include "tracker_tabset.hpp"
 
 #include "legacy_project.hpp"
+#include "local_media_path.hpp"
 #include "osp/render.hpp"
 #include "osp/value.hpp"
 #include "source_edits.hpp"
@@ -330,8 +331,12 @@ class Expansion
 
 QString tabsetIdentityKey(const QString& canonical)
 {
-    // NTFS compares names case-insensitively by default; macOS volumes may be case-sensitive, where folding would
-    // silently drop a distinct file, so only Windows folds.
+    // The file system's own identity, as sameLocalFile compares files: case variants, hard links and short names
+    // of one file agree on every volume.
+    if (auto identity = localFileIdentity(canonical))
+        return *std::move(identity);
+    // A missing file keys by its name. NTFS compares names case-insensitively by default; macOS volumes may be
+    // case-sensitive, where folding would silently drop a distinct file, so only Windows folds.
 #ifdef Q_OS_WIN
     return canonical.toCaseFolded();
 #else

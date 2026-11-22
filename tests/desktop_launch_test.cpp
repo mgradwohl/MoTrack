@@ -1,6 +1,7 @@
 #include "desktop_launch.hpp"
 
 #include "archive_fixture.hpp"
+#include "filesystem_path.hpp"
 #include "local_media_path.hpp"
 #include "main_window.hpp"
 #include "tracker_tabset.hpp"
@@ -41,6 +42,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <functional>
 #include <stdexcept>
 
@@ -198,19 +200,19 @@ bool editMass(motrack::WorkspaceWindow& window, double mass)
     return accepted;
 }
 
-/// Answer the next workspace close question: run `request` inside its event loop, give held work time to
+/// Answer the next modal question with this object name: run `request` inside its event loop, give held work time to
 /// (wrongly) start, record the state with `inspect`, then choose.
-class CloseQuestion
+class ModalQuestion
 {
   public:
-    CloseQuestion(QMessageBox::StandardButton choice, std::function<void()> request, std::function<void()> inspect)
+    ModalQuestion(QString name, QMessageBox::StandardButton choice, std::function<void()> request, std::function<void()> inspect)
     {
         QObject::connect(&m_Timer,
                          &QTimer::timeout,
-                         [this, choice, request = std::move(request), inspect = std::move(inspect)]
+                         [this, name = std::move(name), choice, request = std::move(request), inspect = std::move(inspect)]
                          {
                              auto* dialog = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
-                             if (!dialog || dialog->objectName() != "workspaceCloseQuestion")
+                             if (!dialog || dialog->objectName() != name)
                                  return;
                              if (!m_Asked.isValid())
                              {
@@ -231,6 +233,8 @@ class CloseQuestion
     {
         return m_Answered;
     }
+    ModalQuestion(const ModalQuestion&) = delete;
+    ModalQuestion& operator=(const ModalQuestion&) = delete;
 
   private:
     QTimer m_Timer;
@@ -608,6 +612,149 @@ TEST(DesktopLaunch, ARequestedTabsetOpensItsFilesInPlaceBeforeTheNextRequestedFi
     EXPECT_EQ(result.opened, canonicalPaths({listedA, listedB, last}));
 }
 
+/// A tabset in the folder listing the given files, relative to the folder as Tracker writes them.
+QString writeTabset(const QDir& folder, const QString& name, const QStringList& files)
+{
+    const auto path = folder.filePath(name);
+    std::vector<motrack::TabsetEntry> entries;
+    for (const auto& file : files)
+        entries.push_back(QFileInfo::exists(file) ? motrack::tabsetEntry(canonical(file), canonical(folder.path()))
+                                                  : motrack::TabsetEntry{.absolute = std::nullopt, .relative = file.toStdString()});
+    EXPECT_TRUE(motrack::saveTrackerTabset(path, entries).has_value());
+    return path;
+}
+
+TEST(DesktopLaunch, ATabsetListingAFileRequestedBeforeItReusesTheOpenFile)
+{
+    QTemporaryDir temporary;
+    const auto folder = unicodeFolder(temporary);
+    const auto listed = nativeCopy(folder, QString::fromUtf8("listed ü.motrack"));
+    const auto other = nativeCopy(folder, "other.motrack");
+    const auto tabset = writeTabset(folder, "set.trk", {listed, other});
+    auto context = std::make_shared<motrack::WorkspaceContext>();
+    motrack::WorkspaceWindow window(context);
+    window.show();
+    QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
+    window.openFiles({.files = {listed, tabset}});
+    EXPECT_TRUE(nextBatch(finished).isEmpty());
+    EXPECT_EQ(tabSources(window), canonicalPaths({listed, other}));
+    EXPECT_EQ(context->session().sources().size(), 2u);
+}
+
+TEST(DesktopLaunch, ARequestArrivingWhileAMenuTabsetOpensWaitsAndReusesItsFile)
+{
+    QTemporaryDir temporary;
+    const auto folder = unicodeFolder(temporary);
+    const auto first = nativeCopy(folder, "first.motrack");
+    const auto later = nativeCopy(folder, QString::fromUtf8("listed later ü.motrack"));
+    const auto tabset = writeTabset(folder, "menu set.trk", {first, later});
+    auto context = std::make_shared<motrack::WorkspaceContext>();
+    motrack::WorkspaceWindow window(context);
+    window.show();
+    QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
+    QSignalSpy tabsetFinished(&window, &motrack::WorkspaceWindow::tabsetFinished);
+    // As the tabset's first file opens, a Finder open or drop requests a file the tabset has not reached.
+    bool requested = false;
+    QObject::connect(context.get(),
+                     &motrack::WorkspaceContext::inputOpened,
+                     &window,
+                     [&]
+                     {
+                         if (!std::exchange(requested, true))
+                             window.openFiles({.files = {later}});
+                     });
+    ASSERT_TRUE(window.openProject(tabset));
+    EXPECT_TRUE(nextBatch(finished).isEmpty());
+    EXPECT_TRUE(requested);
+    EXPECT_EQ(tabsetFinished.count(), 1);
+    EXPECT_EQ(tabSources(window), canonicalPaths({first, later}));
+    EXPECT_EQ(context->session().sources().size(), 2u);
+}
+
+TEST(DesktopLaunch, ARequestDuringATabsetsMissingFilePromptWaitsForTheTabset)
+{
+    QTemporaryDir temporary;
+    const auto folder = unicodeFolder(temporary);
+    const auto present = nativeCopy(folder, QString::fromUtf8("present ü.motrack"));
+    const auto tabset = writeTabset(folder, "partial set.trk", {"missing.motrack", present});
+    auto context = std::make_shared<motrack::WorkspaceContext>();
+    motrack::WorkspaceWindow window(context);
+    window.show();
+    QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
+    QSignalSpy tabsetFinished(&window, &motrack::WorkspaceWindow::tabsetFinished);
+    std::size_t sourcesDuringPrompt = 1;
+    ModalQuestion missing(
+        "workspaceTabsetMissing",
+        QMessageBox::No,
+        [&] { window.openFiles({.files = {present}}); },
+        [&] { sourcesDuringPrompt = context->session().sources().size(); });
+    ASSERT_TRUE(window.openProject(tabset));
+    EXPECT_TRUE(nextBatch(finished).isEmpty());
+    EXPECT_TRUE(missing.answered());
+    EXPECT_EQ(sourcesDuringPrompt, 0u);
+    EXPECT_EQ(tabsetFinished.count(), 1);
+    EXPECT_EQ(tabSources(window), canonicalPaths({present}));
+    EXPECT_EQ(context->session().sources().size(), 1u);
+}
+
+TEST(DesktopLaunch, AMenuTabsetListingAnOpenFileReusesItAndSavesItsEntry)
+{
+    QTemporaryDir temporary;
+    const auto folder = unicodeFolder(temporary);
+    // A saved tabset lists Tracker files, so the projects are Tracker files.
+    const auto open = copied(fixture("point-mass.trk"), folder, QString::fromUtf8("already open ü.trk"));
+    const auto other = copied(fixture("point-mass.trk"), folder, "other.trk");
+    const auto tabset = writeTabset(folder, "listing open.trk", {open, other});
+    auto context = std::make_shared<motrack::WorkspaceContext>();
+    motrack::WorkspaceWindow window(context);
+    window.show();
+    QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
+    QSignalSpy tabsetFinished(&window, &motrack::WorkspaceWindow::tabsetFinished);
+    window.openFiles({.files = {open}});
+    (void)nextBatch(finished);
+    const auto openDocument = selectedDocument(window);
+    ASSERT_TRUE(window.hideDocument(openDocument));
+    ASSERT_TRUE(window.openProject(tabset));
+    ASSERT_TRUE(QTest::qWaitFor([&] { return tabsetFinished.count() == 1; }, 20000));
+    // The open file is not opened again; its hidden view returns and, as the first listed experiment, is selected.
+    EXPECT_EQ(context->session().sources().size(), 2u);
+    EXPECT_EQ(window.currentDocument(), openDocument);
+    const auto sources = tabSources(window);
+    EXPECT_EQ(QSet<QString>(sources.begin(), sources.end()), (QSet<QString>{canonical(open), canonical(other)}));
+    // A tabset saved now still lists the reused file.
+    const auto saved = folder.filePath("saved set.trk");
+    ASSERT_TRUE(window.saveTabset(saved));
+    const auto written = motrack::readTrackerTabset(saved);
+    ASSERT_TRUE(written.has_value()) << written.error();
+    EXPECT_EQ(written->entries.size(), 2u);
+}
+
+TEST(DesktopLaunch, OneFileIdentityMatchesHardLinksForRequestsAndTabsets)
+{
+    QTemporaryDir temporary;
+    const auto folder = unicodeFolder(temporary);
+    const auto file = nativeCopy(folder, QString::fromUtf8("linked ü.motrack"));
+    const auto link = folder.filePath("hard link.motrack");
+    std::error_code error;
+    std::filesystem::create_hard_link(motrack::toFilesystemPath(file), motrack::toFilesystemPath(link), error);
+    if (error)
+        GTEST_SKIP() << "Hard links are unavailable here: " << error.message();
+    EXPECT_TRUE(motrack::localFileIdentity(file).has_value());
+    EXPECT_EQ(motrack::localFileIdentity(file), motrack::localFileIdentity(link));
+    EXPECT_TRUE(motrack::sameLocalFile(file, link));
+    EXPECT_EQ(motrack::tabsetIdentityKey(canonical(file)), motrack::tabsetIdentityKey(canonical(link)));
+    EXPECT_FALSE(motrack::localFileIdentity(folder.filePath("missing.motrack")).has_value());
+    EXPECT_NE(motrack::localFileIdentity(file), motrack::localFileIdentity(nativeCopy(folder, "different.motrack")));
+    // A requested hard link of an open file selects it.
+    auto context = std::make_shared<motrack::WorkspaceContext>();
+    motrack::WorkspaceWindow window(context);
+    window.show();
+    QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
+    window.openFiles({.files = {file, link}});
+    EXPECT_TRUE(nextBatch(finished).isEmpty());
+    EXPECT_EQ(context->session().sources().size(), 1u);
+}
+
 TEST(DesktopLaunch, FileChecksRunOffTheGuiThread)
 {
     QTemporaryDir temporary;
@@ -661,15 +808,21 @@ TEST(DesktopLaunch, RequestsDuringACloseQuestionWaitAndOpenOnlyIfTheCloseIsCance
     auto& session = context->session();
     // A macOS open request can arrive while the close question runs its nested event loop.
     std::size_t sourcesDuringQuestion = 0;
-    CloseQuestion cancel(
-        QMessageBox::Cancel, [&] { window.openFiles({.files = {canceled}}); }, [&] { sourcesDuringQuestion = session.sources().size(); });
+    ModalQuestion cancel(
+        "workspaceCloseQuestion",
+        QMessageBox::Cancel,
+        [&] { window.openFiles({.files = {canceled}}); },
+        [&] { sourcesDuringQuestion = session.sources().size(); });
     EXPECT_FALSE(window.close());
     EXPECT_TRUE(cancel.answered());
     EXPECT_EQ(sourcesDuringQuestion, 1u);
     EXPECT_TRUE(nextBatch(finished, 2).isEmpty());
     EXPECT_EQ(tabSources(window), canonicalPaths({edited, canceled}));
-    CloseQuestion discard(
-        QMessageBox::Discard, [&] { window.openFiles({.files = {closed}}); }, [&] { sourcesDuringQuestion = session.sources().size(); });
+    ModalQuestion discard(
+        "workspaceCloseQuestion",
+        QMessageBox::Discard,
+        [&] { window.openFiles({.files = {closed}}); },
+        [&] { sourcesDuringQuestion = session.sources().size(); });
     EXPECT_TRUE(window.close());
     EXPECT_TRUE(discard.answered());
     EXPECT_EQ(sourcesDuringQuestion, 2u);

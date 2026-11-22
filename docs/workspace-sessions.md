@@ -273,16 +273,21 @@ unknown timing, and every other file is a movie whose indexer reports unsupporte
 - **Order and the input bound.** One requested file prepares at a time, so tabs appear in request order
   while a menu open can still use the other slot. When menu opens hold both slots, the batch waits
   for a completion instead of reporting a busy workspace. Requests arriving during a batch join it,
-  up to 256 files. A requested `.trk` tabset expands through the tabset queue above, and the batch waits
-  until its files have opened, so they keep the tabset's place; Save tabset waits for requested files.
+  up to 256 files. While any tabset is queued, prompting for a missing file or opening its files, the batch
+  waits, so a requested `.trk` tabset's files keep its place; a file the batch had already checked is checked
+  again afterwards. Save tabset waits for requested files.
 - **File checks off the GUI thread.** Before opening, `checkRequestedFile` runs on the services' single
   request worker, because an offline share or sleeping NAS can block any file query: existence, folders
-  and file-system identity (`std::filesystem::equivalent`, so case variants and aliases match where the
-  file system treats them as one file). A repeat of an earlier request in the batch is skipped, as in
+  and file-system identity (`localFileIdentity`: the volume and file id, so case variants, aliases, hard links
+  and short names of one file match). `sameLocalFile` and the tabset's `tabsetIdentityKey` use the same
+  identity. A repeat of an earlier request in the batch is skipped, as in
   Tracker. A source is identified by the file it was opened from and by its native and standard save
   destinations, so a file saved with Save As or a paired save also names it. Such a file is selected, and
   a hidden view shown (after any modal prompt), instead of opening a second copy whose later save would
-  replace the first ([#255](https://github.com/mgradwohl/MoTrack/issues/255)). A check blocked by an
+  replace the first ([#255](https://github.com/mgradwohl/MoTrack/issues/255)). The tabset queue checks each
+  file the same way before opening it, whether the tabset was requested or opened from the menu: an open
+  file's tab is reused (and selected if it is the first listed experiment), and a saved tabset still lists
+  it. A check blocked by an
   unresponsive share cannot be interrupted: closing the window stops the batch and ignores the check's
   late answer, but its worker waits for the file system.
 - **Problems and notices.** Missing files, folders, web links, failed opens and unreadable archive member

@@ -151,12 +151,18 @@ class WorkspaceWindow final : public QMainWindow
         QString current;
         bool requestIsProject = false;
         std::optional<QUuid> select;
-        QStringList problems; // Files that were not opened.
-        QStringList notices;  // Files that opened with a limitation, such as B1's stale-link recovery.
+        QStringList problems;           // Files that were not opened.
+        QStringList notices;            // Files that opened with a limitation, such as B1's stale-link recovery.
+        std::uint64_t check = 0;        // The request-worker check of files.front() that is running, if any.
+        std::optional<QString> checked; // files.front() once its check found it is not open yet.
     };
     /// Queue the resolved files of a tabset that the queue's current request turned out to be, ahead of the
     /// remaining files, and record the others as problems. No prompts: they run only for the tabset the user opened.
     void expandInPlace(OrderedOpens& queue, const std::vector<TabsetItem>& items);
+    void checkTabsetFile(OrderedOpens& pending, const QString& file);
+    void applyTabsetFileCheck(std::uint64_t check, const QString& file, const RequestedFileCheck& result);
+    /// Each open source with the files it owns: the one it was opened from and its native and standard destinations.
+    [[nodiscard]] QList<std::pair<QUuid, QString>> openSourceFiles() const;
     /// A file or tabset is opening, or a tabset is prompting or opening its files; saving a tabset waits for it.
     [[nodiscard]] bool tabsetOpening() const;
     std::optional<OrderedOpens> m_Tabset;
@@ -185,7 +191,6 @@ class WorkspaceWindow final : public QMainWindow
         std::optional<QString> ready;
         std::optional<std::pair<QUuid, QString>> select;
         std::optional<QUuid> request;
-        bool awaitingTabset = false; // The last requested file was a tabset whose files are still opening.
         QString current;
         QStringList problems;
         QStringList notices;
@@ -197,6 +202,9 @@ class WorkspaceWindow final : public QMainWindow
     std::uint64_t m_LastCheck = 0; // The check m_Checks watches; a stopped batch no longer expects it.
     QString m_CheckedPath;
     QFutureWatcher<RequestedFileCheck> m_Checks;
+    std::uint64_t m_TabsetCheck = 0; // The check m_TabsetChecks watches for the tabset queue.
+    QString m_TabsetCheckedPath;
+    QFutureWatcher<RequestedFileCheck> m_TabsetChecks;
     QLabel* m_DropOverlay = nullptr;
     bool m_Busy = false;
 };
