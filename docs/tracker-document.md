@@ -5,8 +5,10 @@ This is the design and implementation plan for slice B2 of wave 1 in the
 `WorkspaceDocument::project`, ID-addressed commands, native v7 with v1–6 readers; `LegacyProject` read-only."
 **Status:** B2.1 is implemented ([PR #337](https://github.com/mgradwohl/MoTrack/pull/337)): `motrack_model` holds the
 typed document, its families, descriptors, identities, bindings and graph, and `motrack_project` the cached legacy
-view and the conversion from the reduced model; nothing in the application uses them yet. B2.2 to B2.5 are not
-implemented. The sections below describe the intended behavior and name the existing code each part replaces. B3
+view and the conversion from the reduced model; nothing in the application uses them yet. B2.3 is implemented
+([`tracker_compose.hpp`](../src/tracker_compose.hpp)): the descriptor composition makes B1's decision, with B1's bytes,
+on every writer test, corpus case and fixture, and O8 covers the bytes outside nodes (#316); production export still
+uses B1's composition. B2.2, B2.4 and B2.5 are not implemented. The sections below describe the intended behavior and name the existing code each part replaces. B3
 then moves the track list, selection and inspector to identities and deletes
 `LegacyProject` and the legacy writer; B4 makes O3–O8 required checks. Wave 2 families build on this model and
 on the [dependency graph](dependency-graph.md) (C0), a library that no loader or command uses yet.
@@ -294,6 +296,18 @@ only the edit set; this check covers what O8 cannot, an intended edit that was n
 under one rule: a removal deletes only the removed element's own lines, an insertion adds only its own lines
 after the preceding sibling or the container's opening line, and every other gap stays byte-identical. B2.3
 first confirms that `osp::render` follows this rule, or states the rule it does follow, and O8 then enforces it.
+`osp::render` follows it with one precision, which O8 enforces: a removal deletes the element's lines with the line
+break of its last line; an insertion at index *i* goes just before the first line of original sibling *i*, so after
+the whole gap that precedes it, or just before the closing line when appending; a renamed element is rewritten in
+place with the file's line ending; and a self-closing container that receives elements is reopened. O8 also keeps
+an edited container's opening and closing lines and the text around an edited value.
+
+As built in B2.3, a scalar the file did not save is appended to its owner, as B1 appends it, rather than inserted in
+Tracker's saver order, because the exit criterion requires B1's bytes; insertion in saver order can follow the switch.
+The clip range (`startframe`, `stepsize`, `stepcount`) and the clip timing (`starttime` and the clip control's
+`delta_t`) are each composed as one batch, as B1 writes them: when one field differs, every field of the batch is
+written, an unsaved one with Tracker's loader default. The reimport check compares every typed field except the
+panel's `selectedtrack`, a view reference that the audited cleanup rewrites.
 
 ## 3. Native version 7
 
