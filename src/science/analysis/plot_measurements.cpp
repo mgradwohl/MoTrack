@@ -150,7 +150,17 @@ AreaMeasurement functionArea(const ScalarFunction& function, double firstLimit, 
 {
     const double lower = java::min(firstLimit, secondLimit);
     const double upper = java::max(firstLimit, secondLimit);
-    if (intervals == 0 || !std::isfinite(lower) || !std::isfinite(upper))
+    if (!std::isfinite(lower) || !std::isfinite(upper))
+    {
+        return {};
+    }
+    if (lower == upper)
+    {
+        AreaMeasurement zeroWidth;
+        zeroWidth.area = 0.0; // a zero-width integral is exactly zero, as for data
+        return zeroWidth;
+    }
+    if (intervals == 0)
     {
         return {};
     }

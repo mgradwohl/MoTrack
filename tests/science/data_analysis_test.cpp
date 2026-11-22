@@ -347,6 +347,7 @@ TEST(DataAnalysisArea, FunctionAreaIncludesTheLastInterval)
     // A constant is exact; equal limits give zero; NaN samples are bridged like data gaps.
     EXPECT_NEAR(functionArea([](double) { return 4.0; }, -3.0, 5.0, 320).area.value_or(NOT_A_NUMBER), 32.0, 1e-12);
     EXPECT_EQ(functionArea(cubic, 1.0, 1.0, 10).area, 0.0);
+    EXPECT_EQ(functionArea([](double) { return NOT_A_NUMBER; }, 1.0, 1.0, 0).area, 0.0); // no sampling needed
     const ScalarFunction holed = [](double x)
     {
         return x > 0.25 && x < 0.55 ? NOT_A_NUMBER : 2.0 * x;

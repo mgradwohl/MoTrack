@@ -104,8 +104,9 @@ with fewer than three points, without x or y variation, or when it overflows. It
 - **Area on a fit.** The trapezoidal rule with `intervals` equal intervals between the limits,
   bridging samples where the function is NaN. Data Tool uses the number of screen pixels between the
   limits. OSP takes that many samples from the widened lower limit and so omits the last interval,
-  missing about f(upper) (upper − lower) / intervals (0.4% at 400 pixels). Zero intervals, a
-  non-finite limit or fewer than two defined samples give no area. OSP also shows 0 for an area
+  missing about f(upper) (upper − lower) / intervals (0.4% at 400 pixels). Equal finite limits
+  give exactly 0 without sampling; otherwise zero intervals, a non-finite limit or fewer than two
+  defined samples give no area. OSP also shows 0 for an area
   with fewer than two points between distinct limits, where MoTrack reports none
   ([MoTrack #228](https://github.com/mgradwohl/MoTrack/issues/228)).
 

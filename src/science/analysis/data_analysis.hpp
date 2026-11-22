@@ -150,9 +150,9 @@ struct AreaMeasurement
 
 /// Area tool on a fit: the trapezoidal rule with `intervals` equal intervals between the limits
 /// (Data Tool uses the number of screen pixels between them), bridging samples where the function
-/// is NaN. Zero intervals, a non-finite limit or fewer than two defined samples give an empty area;
-/// equal limits give 0. Deliberate difference: OSP samples `intervals` points from the widened lower
-/// limit and omits the last interval, so it misses about f(upper) (upper - lower) / intervals (#228).
+/// is NaN. Equal finite limits give exactly 0 (a zero-width integral) without sampling; otherwise
+/// zero intervals, a non-finite limit or fewer than two defined samples give an empty area. Deliberate difference: OSP samples `intervals`
+/// points from the widened lower limit and omits the last interval, so it misses about f(upper) (upper - lower) / intervals (#228).
 [[nodiscard]] AreaMeasurement functionArea(const ScalarFunction& function, double firstLimit, double secondLimit, std::size_t intervals);
 
 enum class FourierStatus : std::uint8_t

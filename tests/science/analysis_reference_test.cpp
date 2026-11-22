@@ -580,7 +580,8 @@ TEST(AnalysisReference, AreaToolOnAFitOmitsTheLastIntervalInOsp)
         if (samples == 0)
         {
             EXPECT_EQ(javaArea, 0.0);
-            EXPECT_FALSE(functionArea(function, limits[0], limits[1], 0).area);
+            EXPECT_EQ(limits[0], limits[1]); // OSP takes no samples only between equal limits
+            EXPECT_EQ(functionArea(function, limits[0], limits[1], 0).area, 0.0);
             continue;
         }
         const double lower = std::min(limits[0], limits[1]);
