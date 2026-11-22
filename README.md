@@ -29,6 +29,12 @@ Run the setup script after cloning. It installs the [pinned toolchain](CONTRIBUT
 
 **Windows x64** (PowerShell 7 with WinGet available)
 
+Windows includes only Windows PowerShell 5.1. If `pwsh` is not installed, install PowerShell 7 first, then run setup from a new PowerShell 7 window:
+
+```powershell
+winget install --id Microsoft.PowerShell --exact --source winget
+```
+
 ```powershell
 .\tools\setup-dev.ps1 -Build
 ```

@@ -274,22 +274,18 @@ try {
 }
 
 # -- tools/dev-env.ps1 finds the one .dev-tools a checkout shares with its linked worktrees ------------
-# A scratch repository (git without the user's configuration), a linked worktree of it and a plain
-# directory, each checkout with a copy of the tools dev-env.ps1 runs. A fake SDK is Qt's and FFmpeg's
-# CMake package files holding a label; the probe prints the labels of the SDKs dev-env.ps1 activated.
+# A scratch MoTrack checkout, a linked worktree of it and a plain directory (tools/scratch-git.ps1), each
+# with a copy of the tools dev-env.ps1 runs. A fake SDK is Qt's and FFmpeg's CMake package files holding a
+# label; the probe prints the labels of the SDKs dev-env.ps1 activated. As in a git hook, GIT_DIR,
+# GIT_WORK_TREE and GIT_INDEX_FILE point at a decoy repository, which nothing may change.
 $pwsh = (Get-Process -Id $PID).Path
 if (-not (Get-Command git -CommandType Application -ErrorAction SilentlyContinue)) {
     Write-Warning 'git is not on PATH; skipping the dev-env.ps1 worktree tests.'
 } else {
+    . (Join-Path $PSScriptRoot 'scratch-git.ps1')
     $work = Join-Path ([IO.Path]::GetTempPath()) "motrack-dev-env-tests-$([guid]::NewGuid().ToString('N'))"
-    $savedEnv = @{}
-    foreach ($name in 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'MOTRACK_DEV_TOOLS', 'CMAKE_PREFIX_PATH', 'MOTRACK_FFMPEG_ROOT') {
-        $savedEnv[$name] = [Environment]::GetEnvironmentVariable($name)
-    }
-    function Invoke-ScratchGit {
-        git @args
-        if ($LASTEXITCODE -ne 0) { throw "git $($args -join ' ') exited $LASTEXITCODE" }
-    }
+    $savedEnv = Save-ScratchEnvironment 'MOTRACK_DEV_TOOLS', 'CMAKE_PREFIX_PATH', 'MOTRACK_FFMPEG_ROOT'
+    $devEnvTools = 'dev-env.ps1', 'dev_sdk.py', 'media_sdk.py', 'toolchain.env'
     function New-FakeSdk {
         param([string]$DevTools, [string]$Label)
         foreach ($file in "windows\qt\$($pinned.MOTRACK_QT_VERSION)\msvc2022_64\lib\cmake\Qt6\Qt6Config.cmake", 'vcpkg\installed\x64-windows\share\ffmpeg\FindFFMPEG.cmake') {
@@ -306,22 +302,16 @@ if (-not (Get-Command git -CommandType Application -ErrorAction SilentlyContinue
     }
     try {
         New-Item -ItemType Directory -Path $work | Out-Null
-        $env:GIT_CONFIG_GLOBAL = Join-Path $work 'gitconfig'
-        $env:GIT_CONFIG_NOSYSTEM = '1'
-        Set-Content -LiteralPath $env:GIT_CONFIG_GLOBAL -Value '' -Encoding utf8
+        Initialize-ScratchGit -Root $work
         Remove-Item Env:MOTRACK_DEV_TOOLS, Env:CMAKE_PREFIX_PATH, Env:MOTRACK_FFMPEG_ROOT -ErrorAction SilentlyContinue
-        $main = Join-Path $work 'main'
-        $linked = Join-Path $work 'linked'
+        $decoy = Join-Path $work 'decoy'
+        $decoyState = Set-HookGitEnvironment -Decoy $decoy
+        $hookVariables = Save-ScratchEnvironment
+        $scratch = New-ScratchWorktree -Root $work -Tools $devEnvTools
+        $main = $scratch.Main
+        $linked = $scratch.Linked
         $plain = Join-Path $work 'plain'
-        Invoke-ScratchGit init --quiet $main
-        Invoke-ScratchGit -C $main -c user.name=MoTrack -c user.email=motrack@example.invalid commit --quiet --allow-empty -m init
-        Invoke-ScratchGit -C $main worktree add --quiet --detach $linked
-        foreach ($checkout in $linked, $plain) {
-            $tools = (New-Item -ItemType Directory -Force -Path (Join-Path $checkout 'tools')).FullName
-            foreach ($file in 'dev-env.ps1', 'dev_sdk.py', 'media_sdk.py', 'toolchain.env') {
-                Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $tools
-            }
-        }
+        Copy-ScratchTool -Checkout $plain -Tools $devEnvTools
         $probe = Join-Path $work 'probe.ps1'
         Set-Content -LiteralPath $probe -Encoding utf8 -Value @'
 #Requires -Version 7
@@ -340,17 +330,29 @@ function Get-Label {
 $qt = @("$env:CMAKE_PREFIX_PATH" -split ';')[0]
 "$(Get-Label $qt 'lib\cmake\Qt6\Qt6Config.cmake') $(Get-Label "$env:MOTRACK_FFMPEG_ROOT" 'share\ffmpeg\FindFFMPEG.cmake')"
 '@
+        Assert-True ((Get-ScratchRepositoryState $main) -eq '1 commits, 2 worktrees') "scratch repository: $(Get-ScratchRepositoryState $main)"
         New-FakeSdk -DevTools (Join-Path $main '.dev-tools') -Label main
         $found = Get-ActivatedSdk $linked
-        Assert-True ($found -eq 'main main') "worktree without a .dev-tools: activated [$found]"
-        Assert-True (-not (Test-Path -LiteralPath (Join-Path $linked '.dev-tools'))) 'dev-env.ps1 created a .dev-tools in the worktree'
-        New-Item -ItemType Directory -Path (Join-Path $linked '.dev-tools') | Out-Null
+        Assert-True ($found -eq 'main main') "worktree without a .dev-tools, under a hook's GIT_DIR: activated [$found]"
+        foreach ($name in 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE') { Remove-Item -LiteralPath "Env:$name" }
         $found = Get-ActivatedSdk $linked
-        Assert-True ($found -eq 'main main') "worktree with an empty .dev-tools: activated [$found]"
+        Assert-True ($found -eq 'main main') "worktree without a .dev-tools: activated [$found]"
+        Restore-ScratchEnvironment $hookVariables
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $linked '.dev-tools'))) 'dev-env.ps1 created a .dev-tools in the worktree'
+        # What a worktree's .dev-tools can hold without an SDK does not hide the shared one.
+        New-Item -ItemType Directory -Path (Join-Path $linked '.dev-tools\tracker-reference') | Out-Null
+        Set-Content -LiteralPath (Join-Path $linked '.dev-tools\.DS_Store') -Value '' -Encoding utf8
+        $found = Get-ActivatedSdk $linked
+        Assert-True ($found -eq 'main main') "worktree .dev-tools without an SDK: activated [$found]"
         $env:MOTRACK_DEV_TOOLS = Join-Path $work 'override'
         New-FakeSdk -DevTools $env:MOTRACK_DEV_TOOLS -Label override
         $found = Get-ActivatedSdk $linked
         Assert-True ($found -eq 'override override') "MOTRACK_DEV_TOOLS: activated [$found]"
+        # A relative MOTRACK_DEV_TOOLS is relative to the checkout, not to this test's working directory.
+        $env:MOTRACK_DEV_TOOLS = 'relative-sdk'
+        New-FakeSdk -DevTools (Join-Path $linked 'relative-sdk') -Label relative
+        $found = Get-ActivatedSdk $linked
+        Assert-True ($found -eq 'relative relative') "relative MOTRACK_DEV_TOOLS: activated [$found]"
         Remove-Item Env:MOTRACK_DEV_TOOLS
         New-FakeSdk -DevTools (Join-Path $linked '.dev-tools') -Label linked
         $found = Get-ActivatedSdk $linked
@@ -358,8 +360,10 @@ $qt = @("$env:CMAKE_PREFIX_PATH" -split ';')[0]
         # Not a git checkout: git has no main checkout to offer, so only its own .dev-tools (none) counts.
         $found = Get-ActivatedSdk $plain
         Assert-True ($found -eq 'none none') "plain directory: activated [$found]"
+        $after = Get-ScratchRepositoryState $decoy
+        Assert-True ($after -eq $decoyState) "the scratch git commands changed the repository GIT_DIR named: $decoyState, then $after"
     } finally {
-        foreach ($name in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($name, $savedEnv[$name]) }
+        Restore-ScratchEnvironment $savedEnv
         if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
     }
 }

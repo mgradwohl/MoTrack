@@ -30,22 +30,42 @@ GIT = shutil.which("git")
 SDK_TOOLS = ("dev_sdk.py", "media_sdk.py", "toolchain.env")
 
 
-def make_worktree(base):
-    """(main, linked): a scratch repository at base/main and a linked worktree of it at base/linked.
+def scratch_git(base, *arguments):
+    """git's output for a scratch repository under base.
 
-    git runs without the user's configuration, so no hook, template or signing setting applies.
+    git runs without the caller's GIT_* variables (a git hook exports GIT_DIR, GIT_WORK_TREE and
+    GIT_INDEX_FILE, which would aim it at the real repository) and without the user's configuration, so
+    no hook, template or signing setting applies.
     """
     config = base / "gitconfig"
-    config.write_text("", encoding="utf-8")
+    if not config.exists():
+        config.write_text("", encoding="utf-8")
     environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     environment.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(config))
-    main, linked = base / "main", base / "linked"
-    for arguments in (["init", "--quiet", str(main)],
-                      ["-C", str(main), "-c", "user.name=MoTrack", "-c", "user.email=motrack@example.invalid",
-                       "commit", "--quiet", "--allow-empty", "-m", "init"],
-                      ["-C", str(main), "worktree", "add", "--quiet", "--detach", str(linked)]):
-        subprocess.run([GIT, *arguments], env=environment, capture_output=True, encoding="utf-8", errors="replace",
-                       check=True)
+    return subprocess.run([GIT, *map(str, arguments)], env=environment, capture_output=True, encoding="utf-8",
+                          errors="replace", check=True).stdout
+
+
+def make_repository(base, path):
+    """A scratch repository at path with one (empty) commit."""
+    scratch_git(base, "init", "--quiet", path)
+    scratch_git(base, "-C", path, "-c", "user.name=MoTrack", "-c", "user.email=motrack@example.invalid", "commit",
+                "--quiet", "--allow-empty", "-m", "init")
+    return path
+
+
+def copy_tools(checkout, files=SDK_TOOLS):
+    """Copies of tools/<files> in checkout, which makes it a MoTrack checkout."""
+    (checkout / "tools").mkdir(parents=True, exist_ok=True)
+    for file in files:
+        shutil.copyfile(ROOT / "tools" / file, checkout / "tools" / file)
+
+
+def make_worktree(base):
+    """(main, linked): a scratch MoTrack checkout at base/main and a linked worktree of it at base/linked."""
+    main, linked = make_repository(base, base / "main"), base / "linked"
+    copy_tools(main)
+    scratch_git(base, "-C", main, "worktree", "add", "--quiet", "--detach", linked)
     return main, linked
 
 
@@ -67,6 +87,7 @@ def supported_platform():
     except SystemExit:
         return False
     return True
+
 
 UPDATES = b"""<Updates>
  <PackageUpdate>
@@ -108,7 +129,7 @@ class ToolchainPinTests(unittest.TestCase):
 
 @unittest.skipUnless(GIT, "needs git")
 class SharedDevToolsTests(unittest.TestCase):
-    """dev_sdk.dev_tools_root and the commands built on it, in a scratch repository with a linked worktree."""
+    """dev_sdk.dev_tools_root and the commands built on it, in scratch repositories and linked worktrees."""
 
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
@@ -122,28 +143,39 @@ class SharedDevToolsTests(unittest.TestCase):
 
     def test_motrack_dev_tools_overrides_every_checkout(self):
         override = self.base / "sdk"
-        (self.linked / ".dev-tools/windows").mkdir(parents=True)
-        (self.shared / "windows").mkdir(parents=True)
+        (self.linked / ".dev-tools/windows/qt").mkdir(parents=True)
+        (self.shared / "windows/qt").mkdir(parents=True)
         for checkout in (self.main, self.linked, self.base):
             with self.subTest(checkout=checkout.name):
                 # The override needs no git: a git that would fail is never run.
-                self.assertEqual(self.root(checkout, {"MOTRACK_DEV_TOOLS": str(override)}, str(self.base / "no-git")),
-                                 override)
+                no_git = str(self.base / "no-git")
+                self.assertEqual(self.root(checkout, {"MOTRACK_DEV_TOOLS": str(override)}, no_git), override)
+                # A relative path is relative to the checkout, whatever the working directory.
+                self.assertEqual(self.root(checkout, {"MOTRACK_DEV_TOOLS": "../sdk"}, no_git), checkout.parent / "sdk")
         self.assertFalse(override.exists())
 
-    def test_a_checkout_with_its_own_dev_tools_uses_it(self):
+    def test_a_checkout_whose_own_dev_tools_holds_an_sdk_uses_it(self):
         self.assertEqual(self.root(self.main), self.shared)  # the main checkout, before setup
-        (self.shared / "windows").mkdir(parents=True)
-        (self.linked / ".dev-tools/windows").mkdir(parents=True)
+        (self.shared / "windows/qt").mkdir(parents=True)
         self.assertEqual(self.root(self.main), self.shared)
-        self.assertEqual(self.root(self.linked), self.linked / ".dev-tools")
+        for sdk in ("linux/qt", "vcpkg/.git"):
+            with self.subTest(sdk=sdk):
+                (self.linked / ".dev-tools" / sdk).mkdir(parents=True)
+                self.assertEqual(self.root(self.linked), self.linked / ".dev-tools")
+                shutil.rmtree(self.linked / ".dev-tools")
 
-    def test_a_linked_worktree_without_one_shares_the_main_checkouts(self):
+    def test_a_linked_worktree_without_an_sdk_shares_the_main_checkouts(self):
         # Before setup too, so setup in the worktree installs into the main checkout, never a second copy.
         self.assertEqual(self.root(self.linked), self.shared)
-        (self.shared / "windows").mkdir(parents=True)
+        (self.shared / "windows/qt").mkdir(parents=True)
         self.assertEqual(self.root(self.linked), self.shared)
-        (self.linked / ".dev-tools").mkdir()  # an empty one, as an interrupted run can leave
+        # What a worktree can have in .dev-tools without an SDK: none of it hides the shared one.
+        own = self.linked / ".dev-tools"
+        own.mkdir()
+        self.assertEqual(self.root(self.linked), self.shared)
+        for leftover in ("tracker-reference", "macos/llvm-23-tools", "windows/venv", "vcpkg"):
+            (own / leftover).mkdir(parents=True)
+        (own / ".DS_Store").write_bytes(b"")
         self.assertEqual(self.root(self.linked), self.shared)
         self.assertEqual(sorted(path.name for path in self.linked.iterdir()), [".dev-tools", ".git"])
         self.assertEqual([path.name for path in self.shared.iterdir()], ["windows"])
@@ -157,23 +189,69 @@ class SharedDevToolsTests(unittest.TestCase):
         self.assertIsNone(dev_sdk.main_checkout(self.main))
         self.assertEqual(dev_sdk.main_checkout(self.linked), self.main)
 
+    def test_git_environment_variables_do_not_redirect_the_answer(self):
+        # As in a git hook, which exports GIT_DIR (and often GIT_WORK_TREE) for its own repository.
+        other = make_repository(self.base, self.base / "other")
+        with patch.dict(os.environ, {"GIT_DIR": str(other / ".git"), "GIT_WORK_TREE": str(other),
+                                     "GIT_COMMON_DIR": str(other / ".git")}):
+            self.assertEqual(self.root(self.linked), self.shared)
+            self.assertEqual(self.root(self.main), self.shared)
+            plain = self.base / "plain"
+            plain.mkdir()
+            self.assertEqual(self.root(plain), plain / ".dev-tools")
+
+    def test_only_a_motrack_main_checkout_is_shared(self):
+        """Layouts where the parent of git's common directory is no MoTrack main checkout keep their own."""
+        base = self.base
+        # A worktree of a bare clone: the common directory MoTrack.git is no checkout's .git.
+        bare = base / "bare" / "MoTrack.git"
+        scratch_git(base, "clone", "--quiet", "--bare", self.main, bare)
+        scratch_git(base, "-C", bare, "worktree", "add", "--quiet", "--detach", base / "bare" / "worktree")
+        # A worktree of a checkout made with --separate-git-dir: the common directory is in another tree.
+        separate = base / "separate"
+        (base / "git-directories").mkdir()
+        scratch_git(base, "init", "--quiet", f"--separate-git-dir={base / 'git-directories' / 'separate.git'}", separate)
+        scratch_git(base, "-C", separate, "-c", "user.name=MoTrack", "-c", "user.email=motrack@example.invalid",
+                    "commit", "--quiet", "--allow-empty", "-m", "init")
+        copy_tools(separate)
+        scratch_git(base, "-C", separate, "worktree", "add", "--quiet", "--detach", base / "separate-worktree")
+        # A linked worktree of a submodule: the common directory is <superproject>/.git/modules/motrack.
+        superproject = make_repository(base, base / "superproject")
+        scratch_git(base, "-C", superproject, "-c", "protocol.file.allow=always", "submodule", "add", "--quiet",
+                    self.main, "motrack")
+        copy_tools(superproject / "motrack")
+        scratch_git(base, "-C", superproject / "motrack", "worktree", "add", "--quiet", "--detach",
+                    base / "submodule-worktree")
+        # A linked worktree of a repository that is not MoTrack, and MoTrack files inside it.
+        other = make_repository(base, base / "other")
+        scratch_git(base, "-C", other, "worktree", "add", "--quiet", "--detach", base / "other-worktree")
+        vendored = base / "other-worktree" / "third_party" / "motrack"
+        copy_tools(vendored)
+        # The earlier rule (the parent of the common directory) sent each of these outside any MoTrack checkout.
+        for checkout in (base / "bare" / "worktree", base / "separate-worktree", base / "submodule-worktree",
+                         base / "other-worktree", vendored):
+            with self.subTest(checkout=str(checkout.relative_to(base))):
+                self.assertIsNone(dev_sdk.main_checkout(checkout))
+                self.assertEqual(self.root(checkout), checkout / ".dev-tools")
+        self.assertEqual(self.root(self.linked), self.shared)  # while a MoTrack worktree still shares
+
     @unittest.skipUnless(supported_platform(), "no automatic SDK setup on this platform")
     def test_the_commands_print_the_shared_locations_from_a_worktree(self):
         name, _host, _archive, directory, _repository_os = dev_sdk.platform_config()
+        copy_tools(self.linked)
         tools = self.linked / "tools"
-        tools.mkdir()
-        for file in SDK_TOOLS:
-            shutil.copyfile(ROOT / "tools" / file, tools / file)
 
         def command(script, name, env=None):
             environment = {key: value for key, value in os.environ.items() if key != "MOTRACK_DEV_TOOLS"}
             environment.update(env or {})
             # -I as the encoding policy runs the tools: media_sdk.py still finds dev_sdk.py beside it.
             result = subprocess.run([sys.executable, "-I", "-X", "utf8", str(tools / script), name], env=environment,
-                                    capture_output=True, encoding="utf-8", check=True)
+                                    cwd=self.base, capture_output=True, encoding="utf-8", check=True)
             return Path(result.stdout.strip()).resolve()
 
         for env, expected in ((None, self.shared), ({"MOTRACK_DEV_TOOLS": str(self.base / "sdk")}, self.base / "sdk"),
+                              # Relative to the checkout, not to the working directory (self.base).
+                              ({"MOTRACK_DEV_TOOLS": "sdk"}, self.linked / "sdk"),
                               # No git on PATH: the worktree falls back to its own directory.
                               ({"PATH": str(self.base / "empty")}, self.linked / ".dev-tools")):
             with self.subTest(env=env):
@@ -194,10 +272,7 @@ class SharedDevToolsTests(unittest.TestCase):
 
     @unittest.skipUnless(BASH and sys.platform != "win32" and supported_platform(), "needs Bash on Linux or macOS")
     def test_dev_env_sh_in_a_worktree_activates_the_main_checkouts_sdks(self):
-        tools = self.linked / "tools"
-        tools.mkdir()
-        for file in (*SDK_TOOLS, "dev-env.sh"):
-            shutil.copyfile(ROOT / "tools" / file, tools / file)
+        copy_tools(self.linked, (*SDK_TOOLS, "dev-env.sh"))
         qt, media = fake_sdk(self.shared, "main")
         script = ('unset CMAKE_PREFIX_PATH MOTRACK_FFMPEG_ROOT MOTRACK_DEV_TOOLS; source "$1/tools/dev-env.sh"; '
                   'printf "%s\\n" "${CMAKE_PREFIX_PATH%%:*}" "${MOTRACK_FFMPEG_ROOT:-}"')
