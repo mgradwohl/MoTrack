@@ -230,10 +230,12 @@ Findings from the first census:
 - The Shared Library collections "LivePhoto Videos", "NTNU Videos" and "University of Cincinnati" list no
   Tracker files.
 
-The committed census was generated on Windows 11 with the `dev` (debug) build, so it holds only the
-`windows` native baseline. The first Linux run of the workflow publishes the `linux` baseline. Only the
-debug CRT detects the #211 memory errors, so other builds and platforms may report the affected files as
-opened. Those experiments are therefore listed as known issues.
+The committed census holds two native baselines. The `windows` baseline was generated locally on Windows 11
+with the `dev` (debug) build. The `linux` baseline comes from the workflow's validation run
+[44978631660](https://github.com/mgradwohl/MoTrack/actions/runs/44978631660) on Ubuntu 24.04 (`dev` build,
+cold fetch of all 514 files). Every experiment outside the known issues gives the same outcome on both
+platforms. The #211 experiments show why they are known issues: Windows' debug CRT stops all 12, while on
+Linux glibc aborts on four (`double free or corruption`) and the rest open. macOS has no baseline.
 
 <!-- library-census:start -->
 
@@ -251,6 +253,10 @@ Generated from manifest refresh 2026-11-21 by `python tools/corpus.py library-ce
 | Data functions | 1057 in 133 projects |
 | Archive member types (experiments) | trk (492), html (295), png (295), mp4 (245), pdf (77), jpg (63), mov (13), docx (8), … 13 more |
 | Tabs per experiment (experiments) | 1 (480), 2 (6), 3 (3), 4 (2), 0 (1) |
+| MoTrack desktop open, linux (experiments) | opened (434), rejected (46), known issue #211 (12) |
+| MoTrack open failures, linux (excluding known issues) | Choose a Tracker or MoTrack project file. (32), Invalid or unsupported Tracker archive. (6), Invalid Tracker XML. (4), Expected a TrackerPanel project. (2), Invalid Tracker numeric property. (2) |
+| Unsupported tracks reported, linux (experiments) | CoordAxes (433), TapeMeasure (397), DynamicParticle (188), AnalyticParticle (74), Protractor (26), DynamicParticlePolar (23), Calibration (21), LineProfile (18), CenterOfMass (7), PerspectiveTrack (5), … 5 more |
+| ZIP experiments renamed .trz, linux | opened (32) |
 | MoTrack desktop open, windows (experiments) | opened (434), rejected (46), known issue #211 (12) |
 | MoTrack open failures, windows (excluding known issues) | Choose a Tracker or MoTrack project file. (32), Invalid or unsupported Tracker archive. (6), Invalid Tracker XML. (4), Expected a TrackerPanel project. (2), Invalid Tracker numeric property. (2) |
 | Unsupported tracks reported, windows (experiments) | CoordAxes (433), TapeMeasure (397), DynamicParticle (188), AnalyticParticle (74), Protractor (26), DynamicParticlePolar (23), Calibration (21), LineProfile (18), CenterOfMass (7), PerspectiveTrack (5), … 5 more |
