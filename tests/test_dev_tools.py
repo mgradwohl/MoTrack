@@ -228,7 +228,7 @@ class BashScriptTests(unittest.TestCase):
         environment = {key: value for key, value in os.environ.items() if key != "MOTRACK_GCC_INSTALL_DIR"}
         environment.update(env or {}, PATH=os.pathsep.join((str(self.stubs), str(self.utilities))))
         result = subprocess.run([BASH, "-c", script], cwd=ROOT, env=environment, capture_output=True, text=True, check=True)
-        return [line.split("\t") for line in result.stdout.splitlines()]
+        return [line.split("\x1f") for line in result.stdout.splitlines()]
 
     def test_llvm_tools_must_be_the_pinned_major(self):
         major = PINS["MOTRACK_LLVM_MAJOR"]
@@ -249,7 +249,7 @@ class BashScriptTests(unittest.TestCase):
             self.stub("clang++", f"""\
                 case " $* " in
                     *" -v "*) echo "Selected GCC installation: {selected}" >&2 ;;
-                    *" -P "*) cat >/dev/null; echo "{release}" ;;
+                    *" -P "*) cat >/dev/null; echo "namespace std {{ typedef unsigned long size_t; }}"; echo "MOTRACK_STDLIB={release}" ;;
                 esac
                 """)
             with self.subTest(release=release, env=env):

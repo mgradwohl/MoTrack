@@ -15,9 +15,11 @@ repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$repo/tools/toolchain.env"
 setup_hint='Run tools/setup-dev.sh (preview with --dry-run), then source tools/dev-env.sh.'
 
+# Fields are separated by the ASCII unit separator: read would merge adjacent tabs, dropping an empty field.
+sep=$'\x1f'
 rows=()
 add_row() { # status name version required detail fix
-    rows+=("$1"$'\t'"$2"$'\t'"$3"$'\t'"$4"$'\t'"$5"$'\t'"$6")
+    rows+=("$1$sep$2$sep$3$sep$4$sep$5$sep$6")
 }
 
 # 0 when dotted version $1 >= $2 (in Bash: macOS's sort has no -V).
@@ -93,8 +95,10 @@ check_libstdcxx() {
     fi
     if [[ -n "$dir" ]]; then args=("--gcc-install-dir=$dir"); fi
     selected="$({ clang++ ${args[@]+"${args[@]}"} -v -x c++ -E -o /dev/null /dev/null 2>&1 || true; } | sed -n 's/^Selected GCC installation: //p' | head -n 1)"
-    release="$(printf '%s\n' '#include <version>' '#ifdef _LIBCPP_VERSION' 'libc++' '#elif defined(_GLIBCXX_RELEASE)' '_GLIBCXX_RELEASE' '#endif' |
-        { clang++ ${args[@]+"${args[@]}"} -std=c++23 -x c++ -E -P - 2>/dev/null || true; } | tr -d '[:space:]')"
+    # <version> brings declarations along, so the answer is the line after a marker.
+    release="$(printf '%s\n' '#include <version>' '#ifdef _LIBCPP_VERSION' 'MOTRACK_STDLIB=libc++' '#elif defined(_GLIBCXX_RELEASE)' \
+        'MOTRACK_STDLIB=_GLIBCXX_RELEASE' '#endif' |
+        { clang++ ${args[@]+"${args[@]}"} -std=c++23 -x c++ -E -P - 2>/dev/null || true; } | sed -n 's/^[[:space:]]*MOTRACK_STDLIB=[[:space:]]*\([^[:space:]]*\).*$/\1/p' | head -n 1)"
     if [[ "$release" == libc++ ]]; then
         add_row fail libstdc++ libc++ ">= $MOTRACK_GCC_MAJOR" "${selected:-$dir}" "Linux builds use libstdc++ (Qt's binaries do); remove -stdlib=libc++ from CXXFLAGS or the clang++ configuration."
     elif [[ ! "$release" =~ ^[0-9]+$ ]]; then
@@ -148,7 +152,7 @@ print_rows() {
     printf '%-16s%-14s%-18s%s\n' Tool Version Required Path
     printf '%s\n' "$(printf -- '-%.0s' {1..86})"
     for row in "${rows[@]}"; do
-        IFS=$'\t' read -r status name version required detail fix <<< "$row"
+        IFS="$sep" read -r status name version required detail fix <<< "$row"
         case "$status" in
             ok) mark='✓' color=$'\033[0;32m' ;;
             warn) mark='!' color=$'\033[1;33m' ;;
@@ -207,7 +211,7 @@ main() {
     print_rows
     local row
     for row in "${rows[@]}"; do
-        if [[ "$row" == fail$'\t'* ]]; then
+        if [[ "$row" == "fail$sep"* ]]; then
             printf '%s\n' 'Some prerequisites are missing or outside the versions MoTrack needs.' >&2
             exit 1
         fi

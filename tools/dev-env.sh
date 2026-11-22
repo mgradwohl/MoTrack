@@ -11,7 +11,7 @@ motrack_path_prepend() {
 }
 
 motrack_dev_env() {
-    local repo pins llvm_major gcc_major tools qt media llvm apple gcc_dir
+    local repo pins llvm_major gcc_major tools qt media llvm apple gcc_dir links tool
     repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)" || return
     pins="$repo/tools/toolchain.env"
     llvm_major="$(sed -n 's/^MOTRACK_LLVM_MAJOR=//p' "$pins")"
@@ -53,17 +53,23 @@ motrack_dev_env() {
                 SDKROOT="$(xcrun --show-sdk-path)" || return
                 export SDKROOT
             fi
-            # clang-format and clang-tidy from Homebrew's keg-only llvm@23, then Apple's toolchain ahead
-            # of it: Apple Clang (Qt's macOS binaries use the system libc++) and the llvm-cov and
-            # llvm-profdata that read its coverage profiles.
-            if command -v brew >/dev/null 2>&1; then
-                llvm="$(brew --prefix "llvm@$llvm_major" 2>/dev/null)/bin"
-                if [[ -x "$llvm/clang-format" ]]; then
-                    motrack_path_prepend "$llvm"
-                fi
-            fi
+            # Apple's toolchain: Apple Clang (Qt's macOS binaries use the system libc++) and the llvm-cov
+            # and llvm-profdata that read its coverage profiles.
             apple="$(xcrun --find clang++)" || return
             motrack_path_prepend "${apple%/*}"
+            # Xcode's toolchain has its own, older clang-format, so links to just clang-format and
+            # clang-tidy from Homebrew's keg-only llvm@23 go ahead of it; the rest of llvm@23, its
+            # clang++ included, stays off PATH.
+            if command -v brew >/dev/null 2>&1; then
+                llvm="$(brew --prefix "llvm@$llvm_major" 2>/dev/null)/bin"
+                links="$repo/.dev-tools/macos/llvm-$llvm_major-tools"
+                if [[ -x "$llvm/clang-format" ]] && mkdir -p "$links"; then
+                    for tool in clang-format clang-tidy clang-apply-replacements run-clang-tidy; do
+                        if [[ -x "$llvm/$tool" ]]; then ln -sf "$llvm/$tool" "$links/$tool"; fi
+                    done
+                    motrack_path_prepend "$links"
+                fi
+            fi
             ;;
     esac
     export PATH
