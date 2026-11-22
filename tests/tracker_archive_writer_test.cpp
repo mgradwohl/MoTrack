@@ -290,10 +290,7 @@ TEST(TrackerArchiveWriter, RefusesAnInvalidSecondDocumentWithoutSavingTheFirst)
         },
         [](auto& document) { document.archiveReference = "stale.trz"; },
         [](auto& document) { document.project.clip.mediaReferences.front() = "outside.png"; },
-        [foreign](auto& document)
-        {
-            document.archivePayload = foreign;
-        }};
+        [foreign](auto& document) { document.archivePayload = foreign; }};
     for (std::size_t i = 0; i < mutations.size(); ++i)
     {
         SCOPED_TRACE(i);
@@ -702,10 +699,7 @@ TEST(TrackerArchiveWriter, ExportsAnEditedImageDocumentAfterNativeReopenAndOrigi
         [](auto& value) { value.archiveReference = "unavailable.trz"; },
         [](auto& value) { value.project.clip.mediaReferences.front() = "outside.png"; },
         [](auto& value) { value.project.clip.mediaReferences.clear(); },
-        [](auto& value)
-        {
-            value.movie = true;
-        }};
+        [](auto& value) { value.movie = true; }};
     for (std::size_t i = 0; i < mutations.size(); ++i)
     {
         SCOPED_TRACE(i);
