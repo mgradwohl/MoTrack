@@ -364,16 +364,17 @@ TEST(SamplingReference, RgbRegionsMatchTracker)
             ADD_FAILURE() << "no pixel bounds";
             continue;
         }
+        const PixelRect rect = *bounds;
         const QJsonArray expectedBounds = item.value(QStringLiteral("bounds")).toArray();
         EXPECT_EQ(
-            *bounds,
+            rect,
             (PixelRect{
                 expectedBounds.at(0).toInt(), expectedBounds.at(1).toInt(), expectedBounds.at(2).toInt(), expectedBounds.at(3).toInt()}));
         std::uint64_t mask = FNV_OFFSET;
         int included = 0;
-        for (int y = bounds->y; y < bounds->y + bounds->height; ++y)
+        for (int y = rect.y; y < rect.y + rect.height; ++y)
         {
-            for (int x = bounds->x; x < bounds->x + bounds->width; ++x)
+            for (int x = rect.x; x < rect.x + rect.width; ++x)
             {
                 if (outline.includesPixel(x, y))
                 {
