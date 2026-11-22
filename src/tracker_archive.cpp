@@ -47,11 +47,10 @@ bool safeMember(const QString& path)
         return false;
     }
     const auto parts = path.split('/');
-    return std::ranges::none_of(parts,
-                                [](const QString& part) {
-                                    return part.isEmpty() || part.endsWith('.') || part.endsWith(' ') ||
-                                           part.section('.', 0, 0).trimmed().contains(device);
-                                });
+    return std::ranges::none_of(
+        parts,
+        [](const QString& part)
+        { return part.isEmpty() || part.endsWith('.') || part.endsWith(' ') || part.section('.', 0, 0).trimmed().contains(device); });
 }
 
 QByteArray snapshotArchive(const QString& path, const QString& destination, const std::atomic_bool* cancelled)

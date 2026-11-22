@@ -18,7 +18,8 @@ bool supportsConstantClipTimingEdits(const LegacyProject& project)
 {
     return project.clip.mediaReferences.empty() &&
            std::ranges::all_of(project.unsupportedTrackTypes,
-                               [](const auto& type) {
+                               [](const auto& type)
+                               {
                                    return type == "org.opensourcephysics.cabrillo.tracker.CoordAxes" ||
                                           type == "org.opensourcephysics.cabrillo.tracker.Protractor";
                                });
@@ -305,7 +306,7 @@ PlotSeries measurementPlot(const LegacyProject& project,
             continue;
         }
         // Differentiate the quadratic through the three samples at the center time.
-        const auto derivative = [&](double WorldPoint::*component)
+        const auto derivative = [&](double WorldPoint::* component)
         {
             const auto firstSlope = (center.point.*component - previous.point.*component) / before;
             const auto secondSlope = (next.point.*component - center.point.*component) / after;

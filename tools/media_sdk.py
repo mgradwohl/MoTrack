@@ -37,7 +37,12 @@ def bootstrap():
     if revision != VCPKG_COMMIT:
         raise SystemExit(f"Unexpected vcpkg revision {revision}. Expected {VCPKG_COMMIT}.")
     if not binary.is_file():
-        command = ["cmd.exe", "/d", "/c", "bootstrap-vcpkg.bat"] if sys.platform == "win32" else ["./bootstrap-vcpkg.sh"]
+        # By absolute path: with NoDefaultCurrentDirectoryInExePath set, cmd does not run a bare name
+        # from its current directory.
+        if sys.platform == "win32":
+            command = ["cmd.exe", "/d", "/c", str(ROOT / "bootstrap-vcpkg.bat")]
+        else:
+            command = [str(ROOT / "bootstrap-vcpkg.sh")]
         subprocess.run([*command, "-disableMetrics"], cwd=ROOT, check=True)
     return binary
 
