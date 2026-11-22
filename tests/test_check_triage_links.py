@@ -4,6 +4,8 @@
 import contextlib
 import importlib.util
 import io
+import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -78,6 +80,10 @@ class FilingTest(unittest.TestCase):
             f"Resize part filed upstream as {osp(36)}.",
             f"Same root cause, so it was grouped into the existing upstream issue {osp(33)}.",
             f"2. Sample rate: **not filed**.\n3. Help formula: filed as {tracker(84)}.",
+            f"Reported upstream as {osp(16)}.",
+            f"Opened {tracker(105)} (2026-11-22, by the maintainer).",
+            "Opened upstream as OpenSourcePhysics/osp#57.",
+            f"Could not reproduce it headless; filed as {osp(46)} from source.",
         ):
             with self.subTest(comment=comment):
                 self.assertTrue(checker.records_filing(comment))
@@ -87,8 +93,14 @@ class FilingTest(unittest.TestCase):
             "Not filed upstream (checked 2026-11-22 against the Tracker 6.3.5 JAR).",
             "Checked; **not filed upstream** because it could not be reproduced headless.",
             f"Reported separately in OpenSourcePhysics/osp (not yet filed); compare {osp(37)}.",
+            f"It has not been filed; see {osp(37)}.",
+            f"The report will be filed after review; related: {osp(37)}.",
+            f"Never filed. Related {osp(37)}.",
+            f"It wasn't filed upstream, unlike {osp(37)}.",
+            f"Not reported upstream; compare {osp(37)}.",
             f"Upstream: OpenSourcePhysics/osp#20, reproduced against the 6.3.5 JAR ({osp(20)}).",
             "No corresponding upstream filing is known.",
+            f"Opened the experiment in Tracker 6.3.5; it differs from {tracker(14)}.",
         ):
             with self.subTest(comment=comment):
                 self.assertFalse(checker.records_filing(comment))
@@ -131,6 +143,29 @@ class MissingFilingsTest(unittest.TestCase):
         self.assertEqual(checker.missing_filings(rows, lambda issue: COMMENTS[issue]), [])
 
 
+class GhCommentsTest(unittest.TestCase):
+    def completed(self, stdout: str, returncode: int = 0, stderr: str = "") -> subprocess.CompletedProcess:
+        return subprocess.CompletedProcess(["gh"], returncode, stdout=stdout, stderr=stderr)
+
+    def test_comment_bodies_are_read_as_utf8_json(self) -> None:
+        output = json.dumps({"comments": [{"body": "first"}, {"body": "second"}]})
+        with mock.patch.object(checker.subprocess, "run", return_value=self.completed(output)) as run:
+            self.assertEqual(checker.gh_comments(320), ["first", "second"])
+        self.assertEqual(run.call_args.args[0], ["gh", "issue", "view", "320", "--repo", "mgradwohl/MoTrack", "--json", "comments"])
+        self.assertEqual(run.call_args.kwargs["encoding"], "utf-8")
+
+    def test_failures_become_gh_errors(self) -> None:
+        for name, patch in (
+            ("missing gh", {"side_effect": FileNotFoundError(2, "No such file or directory", "gh")}),
+            ("gh exit status", {"return_value": self.completed("", 1, "HTTP 401: Bad credentials")}),
+            ("not JSON", {"return_value": self.completed("<html>rate limited</html>")}),
+            ("no comments field", {"return_value": self.completed(json.dumps({"title": "x"}))}),
+        ):
+            with self.subTest(name), mock.patch.object(checker.subprocess, "run", **patch):
+                with self.assertRaises(checker.GhError):
+                    checker.gh_comments(320)
+
+
 class MainTest(unittest.TestCase):
     def run_main(self, comments_of) -> tuple[int, str, str]:
         with tempfile.TemporaryDirectory() as directory:
@@ -167,6 +202,13 @@ class MainTest(unittest.TestCase):
         code, out, err = self.run_main(failing)
         self.assertEqual((code, out), (2, ""))
         self.assertIn("not authenticated", err)
+
+    def test_a_missing_gh_exits_2_without_a_traceback(self) -> None:
+        with mock.patch.object(checker.subprocess, "run", side_effect=FileNotFoundError(2, "No such file", "gh")):
+            code, out, err = self.run_main(checker.gh_comments)
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("cannot run gh", err)
+        self.assertNotIn("Traceback", err)
 
 
 if __name__ == "__main__":

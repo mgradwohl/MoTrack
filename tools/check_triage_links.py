@@ -7,15 +7,19 @@ Usage:
 
 Each Markdown table row of the triage names its MoTrack issues in its last cell (the tracking column). For every
 such issue, the comments are fetched with `gh issue view` and searched for filing records: a comment that says
-something was filed ("Filed upstream as <url>", "Item 2 filed upstream as <url>", "filed as <url>") or grouped into
-an existing upstream issue. A "not filed" alone does not count. Every OpenSourcePhysics issue such a comment names,
+something was filed ("Filed upstream as <url>", "Item 2 filed upstream as <url>", "filed as <url>"), reported
+upstream ("Reported upstream as <url>"), grouped into an existing upstream issue, or opened ("Opened <url>"). A
+phrase is negated when "not", "never", "will" or a word ending in "n't" comes at most two words before it in the
+same clause ("not yet filed", "has not been filed", "will be filed", "Never filed"); a comment whose filing phrases
+are all negated is skipped. Every OpenSourcePhysics issue a filing comment names,
 as an issue URL or as `OpenSourcePhysics/<repo>#<n>`, must be linked from the same row; each missing one is
 reported as `doc:line: MoTrack #N: filed upstream as OpenSourcePhysics/<repo>#<n>, not linked from this row`.
 Links outside table rows are not checked, and neither are issue bodies.
 
 It needs the network and an authenticated `gh`, so it is a manual tool for triage sweeps (CONTRIBUTING.md, "Pull
 requests and review"), not part of the test suite; tests/test_check_triage_links.py covers its matching offline.
-Exits 1 when a filing is missing from its row and 2 when `gh` fails.
+Exits 1 when a filing is missing from its row and 2 when `gh` is missing, fails or returns something other than
+the expected JSON.
 """
 
 from __future__ import annotations
@@ -37,8 +41,14 @@ UPSTREAM_OWNER = "OpenSourcePhysics"
 _MOTRACK_ISSUE = re.compile(r"https://github\.com/mgradwohl/MoTrack/issues/(\d+)\b", re.IGNORECASE)
 _UPSTREAM_URL = re.compile(rf"https?://github\.com/{UPSTREAM_OWNER}/([\w.-]+)/issues/(\d+)\b", re.IGNORECASE)
 _UPSTREAM_SHORT = re.compile(rf"(?<![\w/]){UPSTREAM_OWNER}/([\w.-]+)#(\d+)\b", re.IGNORECASE)
-_FILING = re.compile(r"\b(?:filed|grouped into)\b", re.IGNORECASE)
-_NEGATION = re.compile(r"\bnot(?:\W+yet)?\W*$", re.IGNORECASE)
+_REF_START = rf"(?:https?://github\.com/{UPSTREAM_OWNER}/|{UPSTREAM_OWNER}/)"
+_FILING = re.compile(
+    rf"\b(?:filed|grouped\s+into|reported\s+upstream|opened(?=(?:\s+upstream)?(?:\s+as)?\s+{_REF_START}))\b",
+    re.IGNORECASE,
+)
+# A negating word, then at most two more words separated only by spaces (no punctuation ends the clause), then the
+# phrase; `*` and `_` allow Markdown emphasis such as "**not filed**".
+_NEGATION = re.compile(r"\b(?:not|never|will|\w+n['’]t)(?:\s+\w+){0,2}[\s*_]*$", re.IGNORECASE)
 _CELL_SEPARATOR = re.compile(r"(?<!\\)\|")
 
 
@@ -80,7 +90,7 @@ def upstream_refs(text: str) -> set[UpstreamRef]:
 
 
 def records_filing(comment: str) -> bool:
-    """True when `comment` says something was filed upstream or grouped into an upstream issue ("not filed" aside)."""
+    """True when `comment` has a filing phrase that is not negated ("not filed", "will be filed", "Never filed")."""
     return any(not _NEGATION.search(comment, 0, match.start()) for match in _FILING.finditer(comment))
 
 
@@ -118,21 +128,27 @@ def missing_filings(rows: Iterable[Row], comments_of: Callable[[int], list[str]]
 
 
 class GhError(RuntimeError):
-    pass
+    """`gh` could not be run, failed, or returned something other than the issue's comments."""
 
 
 def gh_comments(issue: int) -> list[str]:
     """The comment bodies of a MoTrack issue, read with `gh`."""
-    result = subprocess.run(
-        ["gh", "issue", "view", str(issue), "--repo", MOTRACK_REPO, "--json", "comments"],
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["gh", "issue", "view", str(issue), "--repo", MOTRACK_REPO, "--json", "comments"],
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+    except OSError as error:
+        raise GhError(f"cannot run gh for issue {issue}: {error}") from error
     if result.returncode != 0:
         raise GhError(f"gh issue view {issue} failed: {result.stderr.strip()}")
-    return [comment["body"] for comment in json.loads(result.stdout)["comments"]]
+    try:
+        return [comment["body"] for comment in json.loads(result.stdout)["comments"]]
+    except (json.JSONDecodeError, KeyError, TypeError) as error:
+        raise GhError(f"gh issue view {issue} returned unexpected output: {error}") from error
 
 
 def main(argv: list[str] | None = None) -> int:
