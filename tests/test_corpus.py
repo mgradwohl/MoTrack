@@ -2,11 +2,14 @@
 
 import hashlib
 import copy
-from contextlib import nullcontext, redirect_stdout
+from contextlib import nullcontext, redirect_stderr, redirect_stdout
 import io
 import json
 import math
 import os
+import re
+import shutil
+import struct
 from pathlib import Path
 import sys
 import tempfile
@@ -3399,6 +3402,261 @@ class CorpusTests(unittest.TestCase):
         self.assertEqual(report["after_save"], {"stage": "after_save"})
         self.assertEqual(report["after"], {"stage": "reopen"})
         self.assertEqual(list(self.root.glob("session-*")), [])
+
+
+class ExpressionOracleTests(unittest.TestCase):
+    """The expression kernel fixture and its Java regeneration check (no Java needed)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.fixture = json.loads(corpus.EXPRESSION_REFERENCE.read_text(encoding="utf-8"))
+
+    def case(self, report, case_id):
+        return next(case for case in report["cases"] if case["id"] == case_id)
+
+    def test_fixture_is_bounded_unique_and_documents_every_defect(self):
+        self.assertEqual(self.fixture["reference"]["tracker_version"], "6.3.5")
+        ids = [case["id"] for case in self.fixture["cases"]]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertTrue(all(re.fullmatch(r"[a-z0-9-]+", case_id) for case_id in ids))
+        self.assertGreater(len(ids), 600)
+        corpus.compare_expression_reference(self.fixture, copy.deepcopy(self.fixture))
+        for case in self.fixture["cases"]:
+            values = [evaluation for evaluation in case["evaluations"] if "result_bits" in evaluation or "intended_bits" in evaluation]
+            if case["defect"] and case["defect"] != "tracker-code-limit":
+                # Each annotated defect is evidenced by at least one value that differs from Tracker's.
+                self.assertTrue(any("intended_bits" in evaluation for evaluation in values), case["id"])
+            if case["error"] or case["exception"]:
+                self.assertFalse(any("result_bits" in evaluation for evaluation in values), case["id"])
+
+    def test_exact_cases_require_identical_bits_and_signed_zeros(self):
+        actual = copy.deepcopy(self.fixture)
+        evaluation = self.case(actual, "precedence-negative-zero")["evaluations"][0]
+        self.assertEqual(evaluation["result_bits"], "8000000000000000")
+        evaluation["result_bits"] = "0000000000000000"
+        evaluation["result"] = "0.0"
+        with self.assertRaisesRegex(ValueError, "precedence-negative-zero"):
+            corpus.compare_expression_reference(self.fixture, actual)
+
+    def test_transcendental_cases_accept_only_the_declared_ulp_bound(self):
+        name = "function-sin"
+        index = next(i for i, e in enumerate(self.case(self.fixture, name)["evaluations"]) if e["values"] == ["0.5"])
+        original = corpus.expression_value(self.case(self.fixture, name)["evaluations"][index]["result_bits"])
+        for ulps, accepted in [(1, True), (self.fixture["tolerance"]["ulp"], True), (self.fixture["tolerance"]["ulp"] + 1, False)]:
+            actual = copy.deepcopy(self.fixture)
+            evaluation = self.case(actual, name)["evaluations"][index]
+            shifted = struct.unpack(">d", struct.pack(">q", struct.unpack(">q", struct.pack(">d", original))[0] + ulps))[0]
+            evaluation["result_bits"] = struct.pack(">d", shifted).hex()
+            evaluation["result"] = repr(shifted)
+            with self.subTest(ulps=ulps):
+                if accepted:
+                    corpus.compare_expression_reference(self.fixture, actual)
+                else:
+                    with self.assertRaisesRegex(ValueError, "ulp"):
+                        corpus.compare_expression_reference(self.fixture, actual)
+
+    def test_signed_zeros_are_one_ulp_value_and_nan_payloads_are_equal(self):
+        self.assertEqual(corpus.expression_ulps(0.0, -0.0), 0)
+        self.assertEqual(corpus.expression_ulps(-5e-324, 5e-324), 2)
+        expected = {"values": [], "result": "NaN", "result_bits": "7ff8000000000000"}
+        corpus.compare_expression_values(expected, dict(expected, result_bits="fff8000000000001"), "exact", 4, "nan")
+        with self.assertRaises(ValueError):
+            corpus.compare_expression_values(expected, dict(expected, result_bits="0000000000000000"), "ulp", 4, "nan")
+        with self.assertRaises(ValueError):
+            corpus.compare_expression_values(expected, dict(expected, result_bits="not-hex-bits0000"), "ulp", 4, "bits")
+
+    def test_definitions_errors_and_display_text_must_match(self):
+        mutations = {
+            "expression": lambda c: c.__setitem__("expression", c["expression"] + " "),
+            "error position": lambda c: c["error"].__setitem__("position", c["error"]["position"] + 1),
+            "evaluation count": lambda c: c["evaluations"].pop(),
+            "missing field": lambda c: c.pop("defect"),
+            "display text": lambda c: c["evaluations"][0].__setitem__("result", "3"),
+            "random range": lambda c: c["evaluations"][0].__setitem__("range", ["0.0", "2.0"]),
+        }
+        targets = {"expression": "constant-pi", "error position": "syntax-unclosed", "evaluation count": "division-variable",
+                   "missing field": "constant-pi", "display text": "constant-pi", "random range": "random-offset"}
+        for name, mutate in mutations.items():
+            actual = copy.deepcopy(self.fixture)
+            mutate(self.case(actual, targets[name]))
+            with self.subTest(mutation=name), self.assertRaises(ValueError):
+                corpus.compare_expression_reference(self.fixture, actual)
+        for key in ["function_names", "cases"]:
+            actual = copy.deepcopy(self.fixture)
+            actual[key].pop()
+            with self.subTest(header=key), self.assertRaises(ValueError):
+                corpus.compare_expression_reference(self.fixture, actual)
+        with self.assertRaises(ValueError):
+            corpus.compare_expression_reference(self.fixture, dict(self.fixture, tolerance={"ulp": 0, "random_samples": 2000}))
+
+    def test_oracle_runs_the_pinned_jar_in_a_private_home_and_can_record(self):
+        manifest = corpus.load_manifest()
+        root = Path(tempfile.mkdtemp(prefix="motrack-expression-test-"))
+        self.addCleanup(shutil.rmtree, root)
+        commands = []
+        fixture = corpus.EXPRESSION_REFERENCE.read_text(encoding="utf-8")
+
+        def oracle(command):
+            commands.append(command)
+            Path(command[-1]).write_text(fixture, encoding="utf-8")
+
+        with patch.object(corpus, "verify_file"), patch.object(corpus, "run", side_effect=oracle):
+            corpus.check_expression_oracle(manifest, root, "java")
+            recorded = root / "recorded.json"
+            with patch.object(corpus, "EXPRESSION_REFERENCE", recorded):
+                corpus.check_expression_oracle(manifest, root, "java", record=True)
+        self.assertEqual(json.loads(recorded.read_text(encoding="utf-8")), self.fixture)
+        self.assertEqual(len(commands), 2)
+        command = commands[0]
+        self.assertIn("-Djava.awt.headless=true", command)
+        self.assertEqual(command[command.index("--class-path") + 1], str(root / manifest["reference"]["file"]))
+        self.assertEqual(command[-2], str(corpus.EXPRESSION_ORACLE))
+        home = Path(command[-1]).parent
+        self.assertIn(f"-Duser.home={home}", command)
+        self.assertFalse(home.exists())
+        self.assertEqual(list(root.iterdir()), [recorded])
+
+    def test_command_line_accepts_recording_only_for_reference_commands(self):
+        with patch.object(sys, "argv", ["corpus.py", "session", "--record"]), redirect_stderr(io.StringIO()), \
+                self.assertRaises(SystemExit):
+            corpus.main()
+        with patch.object(sys, "argv", ["corpus.py", "expression-oracle", "--record", "--java", "jdk"]), \
+                patch.object(corpus, "check_expression_oracle") as check:
+            corpus.main()
+        self.assertEqual(check.call_args.args[2], "jdk")
+        self.assertTrue(check.call_args.kwargs["record"])
+class OdeOracleTests(unittest.TestCase):
+    """The ODE kernel oracle (tools/reference/OdeOracle.java) without running Java."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name).resolve()
+        self.manifest = corpus.load_manifest()
+        self.fixture = json.loads(corpus.ODE_REFERENCE.read_text(encoding="utf-8"))
+
+    def check(self, document, *, record=False, commands=None):
+        """Run check_ode_oracle with a fake Java process that emits `document`."""
+        def run(command):
+            if commands is not None:
+                commands.append(command)
+            Path(command[-1]).write_text(json.dumps(document), encoding="utf-8")
+
+        with patch.object(corpus, "verify_file") as verify, patch.object(corpus, "run", side_effect=run), \
+                redirect_stdout(io.StringIO()) as output:
+            corpus.check_ode_oracle(self.manifest, self.root, "java", record=record)
+        verify.assert_called_once_with(self.root / self.manifest["reference"]["file"], self.manifest["reference"])
+        return output.getvalue()
+
+    def test_committed_fixture_covers_every_solver_in_its_canonical_layout(self):
+        corpus.validate_ode_reference(self.fixture, self.manifest)
+        classes = {solver["class"].rsplit(".", 1)[1] for solver in self.fixture["solvers"]}
+        self.assertEqual(classes, {"Euler", "EulerRichardson", "Ralston2", "Heun3", "RK4", "Butcher5", "Fehlberg8", "Adams4",
+                                   "Adams5", "Adams6", "Verlet", "LeapFrog", "CashKarp45", "DormandPrince45", "RK45",
+                                   "RK45MultiStep", "ODEMultistepSolver"})
+        self.assertEqual({system["id"] for system in self.fixture["systems"]},
+                         {"oscillator", "drag", "kepler", "stiff", "forced", "nan-rate"})
+        tracker = self.fixture["tracker"]
+        self.assertEqual(tracker["default_solver"], "org.opensourcephysics.numerics.RK4")
+        self.assertEqual(tracker["model_builder_solvers"][0], tracker["default_solver"])
+        self.assertEqual((tracker["trace_points_per_step"], tracker["iterations_per_step"]), (10, 10))
+        self.assertEqual(corpus.ODE_REFERENCE.read_bytes().decode("utf-8"), corpus.ode_reference_text(self.fixture))
+        self.assertLess(corpus.ODE_REFERENCE.stat().st_size, 256 * 1024)
+
+    def test_check_runs_the_pinned_jar_privately_and_accepts_an_identical_regeneration(self):
+        commands = []
+        self.assertIn(f"{len(self.fixture['cases'])} Java solver cases match tests/science/ode-reference.json",
+                      self.check(self.fixture, commands=commands))
+        [command] = commands
+        self.assertEqual(command[0], "java")
+        self.assertIn("-Djava.awt.headless=true", command)
+        self.assertIn("-Xmx256m", command)
+        self.assertEqual(command[command.index("--class-path") + 1], str(self.root / self.manifest["reference"]["file"]))
+        self.assertEqual(Path(command[-2]), corpus.ROOT / "tools/reference/OdeOracle.java")
+        # A private, removed home: OSP preference files never land in the shared reference cache.
+        home = next(arg for arg in command if arg.startswith("-Duser.home=")).split("=", 1)[1]
+        self.assertFalse(Path(home).is_relative_to(self.root))
+        self.assertFalse(Path(home).exists())
+
+    def test_check_rejects_numerical_count_and_non_finite_drift(self):
+        def first(document, predicate):
+            return next(point for case in document["cases"] for point in case["checkpoints"] if predicate(case, point))
+
+        for mutation in ["state", "rates", "error-code", "nan", "taken", "missing-case", "stiff-state", "tracker"]:
+            document = copy.deepcopy(self.fixture)
+            if mutation == "state":
+                point = first(document, lambda case, point: case["solver"] == "rk4" and point["n"] > 1)
+                point["state"][0] = math.nextafter(point["state"][0], math.inf)
+            elif mutation == "rates":
+                first(document, lambda case, point: True)["rates"] += 1
+            elif mutation == "error-code":
+                first(document, lambda case, point: point["error_code"] == 1)["error_code"] = 0
+            elif mutation == "nan":
+                point = first(document, lambda case, point: "NaN" in point["state"])
+                point["state"][point["state"].index("NaN")] = 0.0
+            elif mutation == "taken":
+                first(document, lambda case, point: case["solver"] == "dormandprince45" and point["n"] > 0)["taken"] *= 1 + 1e-7
+            elif mutation == "missing-case":
+                document["cases"].pop()
+            elif mutation == "stiff-state":
+                point = first(document, lambda case, point: case["system"] == "stiff" and case["solver"] == "rk45" and point["n"] > 1)
+                point["state"][0] *= 1 + 1e-5
+            else:
+                document["tracker"]["trace_points_per_step"] = 5
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                self.check(document)
+
+    def test_adaptive_cases_allow_amplified_last_bit_pow_differences(self):
+        # Magnitudes observed with fdlibm's pow (HotSpot on arm64): 4e-10 on the Kepler orbit and
+        # up to 6e-9 at the stiff system's stability limit.
+        document = copy.deepcopy(self.fixture)
+        kepler = next(point for case in document["cases"] if case["id"] == "kepler/dormandprince45/tol=1.0E-6"
+                      for point in case["checkpoints"] if point["n"] > 1)
+        kepler["taken"] *= 1 + 4e-10
+        point = next(point for case in document["cases"] if case["system"] == "stiff" and case["solver"] == "dormandprince45"
+                     for point in case["checkpoints"] if point["n"] > 1)
+        point["state"][0] *= 1 + 1e-8
+        self.check(document)
+        # Fixed-step solvers on the same system must still match to the last bit.
+        fixed = next(point for case in document["cases"] if case["system"] == "stiff" and case["solver"] == "rk4"
+                     for point in case["checkpoints"] if point["n"] > 1)
+        fixed["state"][1] = math.nextafter(fixed["state"][1], math.inf)
+        with self.assertRaisesRegex(ValueError, "stiff/rk4"):
+            self.check(document)
+
+    def test_record_writes_the_canonical_fixture_only_when_requested(self):
+        destination = self.root / "science" / "ode-reference.json"
+        with patch.object(corpus, "ODE_REFERENCE", destination):
+            self.assertIn(f"recorded {len(self.fixture['cases'])} Java solver cases", self.check(self.fixture, record=True))
+        self.assertEqual(destination.read_bytes(), corpus.ode_reference_text(self.fixture).encode("utf-8"))
+        with patch.object(sys, "argv", ["corpus.py", "check", "--probe", "probe", "--record"]), \
+                patch.object(corpus, "check_cases") as check, self.assertRaises(SystemExit), \
+                patch("sys.stderr", new_callable=io.StringIO):
+            corpus.main()
+        check.assert_not_called()
+        with patch.object(sys, "argv", ["corpus.py", "ode-oracle", "--java", "jdk/java", "--record"]), \
+                patch.object(corpus, "check_ode_oracle") as oracle:
+            corpus.main()
+        oracle.assert_called_once()
+        self.assertEqual(oracle.call_args.args[2], "jdk/java")
+        self.assertTrue(oracle.call_args.kwargs["record"])
+
+    def test_validation_rejects_malformed_or_incomplete_documents(self):
+        for mutation in ["version", "schema", "no-cases", "duplicate-case", "unknown-solver", "unknown-system", "checkpoint",
+                         "uncovered-solver", "duplicate-solver", "not-object"]:
+            document = copy.deepcopy(self.fixture)
+            if mutation == "version": document["reference_version"] = "6.3.4"
+            elif mutation == "schema": document["schema_version"] = 2
+            elif mutation == "no-cases": document["cases"] = []
+            elif mutation == "duplicate-case": document["cases"].append(document["cases"][0])
+            elif mutation == "unknown-solver": document["cases"][0]["solver"] = "rk5"
+            elif mutation == "unknown-system": document["cases"][0]["system"] = "pendulum"
+            elif mutation == "checkpoint": document["cases"][0]["checkpoints"][-1]["n"] = document["cases"][0]["steps"] + 1
+            elif mutation == "uncovered-solver": document["cases"] = [c for c in document["cases"] if c["solver"] != "leapfrog"]
+            elif mutation == "duplicate-solver": document["solvers"].append(document["solvers"][0])
+            else: document["cases"][0] = "case"
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                corpus.validate_ode_reference(document, self.manifest)
 
 
 class AnalysisOracleTests(unittest.TestCase):

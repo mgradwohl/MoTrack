@@ -1,5 +1,5 @@
 #include "science/analysis/data_analysis.hpp"
-#include "science/analysis/java_order.hpp"
+#include "science/java_math.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -148,10 +148,10 @@ ColumnStatistics statisticsOf(std::span<const double> data)
         }
         // OSP starts from -/+Double.MAX_VALUE and reports NaN if that sentinel survives; starting
         // from the first value gives the same result for every other column.
-        maximum = values.empty() ? value : detail::javaMax(maximum, value);
-        minimum = values.empty() ? value : detail::javaMin(minimum, value);
-        trackerMaximum = detail::javaMax(trackerMaximum, value);
-        trackerMinimum = detail::javaMin(trackerMinimum, value);
+        maximum = values.empty() ? value : java::max(maximum, value);
+        minimum = values.empty() ? value : java::min(minimum, value);
+        trackerMaximum = java::max(trackerMaximum, value);
+        trackerMinimum = java::min(trackerMinimum, value);
         sum += value;
         squareSum += value * value;
         infinite = infinite || std::isinf(value);

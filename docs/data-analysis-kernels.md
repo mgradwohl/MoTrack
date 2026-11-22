@@ -186,8 +186,9 @@ model (I4/C2) must not reproduce the shift
 
 ## Floating point and the Java oracle
 
-Each expression keeps Java's evaluation order and `Math.max`/`Math.min` semantics. Java never fuses
-multiply-add, so the library and its reference test are compiled with `-ffp-contract=off`.
+Each expression keeps Java's evaluation order and uses `Math.max`/`Math.min` from the shared`nmotrack_java_math` library (`science/java_math.hpp`, also used by K1 and K2; #263 tracks moving the
+other kernels' Java helpers there). Java never fuses multiply-add, so the library and its reference
+test are compiled with `MOTRACK_JAVA_FP_OPTIONS` (`-ffp-contract=off`).
 Max, min, mean, n and the `tracker` statistics, plot data, correlation, nearest points (apart from
 #267), coordinates, slopes, data areas and frequencies are therefore identical to Java; sd and se
 are corrected (#225) and compared within OSP's rounding bound below. FFT outputs and Fourier coefficients also use `Math.sin`/`Math.cos`

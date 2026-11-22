@@ -1,5 +1,5 @@
 #include "science/analysis/data_analysis.hpp"
-#include "science/analysis/java_order.hpp"
+#include "science/java_math.hpp"
 
 #include <cmath>
 #include <cstddef>
@@ -30,8 +30,8 @@ AreaMeasurement trapezoidArea(std::span<const PlotPoint> used)
     double lastX = used.front().x;
     for (const PlotPoint& point : used)
     {
-        firstX = detail::javaMin(firstX, point.x);
-        lastX = detail::javaMax(lastX, point.x);
+        firstX = java::min(firstX, point.x);
+        lastX = java::max(lastX, point.x);
     }
     result.firstX = firstX;
     result.lastX = lastX;
@@ -58,7 +58,7 @@ AreaMeasurement trapezoidArea(std::span<const PlotPoint> used)
 
 std::optional<std::size_t> nearestPointIndex(std::span<const PlotPoint> points, double x, double visibleMin, double visibleMax)
 {
-    const double clamped = detail::javaMin(visibleMax, detail::javaMax(visibleMin, x));
+    const double clamped = java::min(visibleMax, java::max(visibleMin, x));
     // OSP takes the nearest point overall and then moves an off-screen choice by one index or to the
     // last index, assuming ascending x, which can land far outside the view (#267). MoTrack
     // takes the nearest visible point and falls back to the nearest point when none is visible.
@@ -122,8 +122,8 @@ std::optional<double> functionSlope(const ScalarFunction& function, double x, do
 
 AreaMeasurement dataArea(std::span<const PlotPoint> points, double firstLimit, double secondLimit)
 {
-    double lower = detail::javaMin(firstLimit, secondLimit);
-    double upper = detail::javaMax(firstLimit, secondLimit);
+    double lower = java::min(firstLimit, secondLimit);
+    double upper = java::max(firstLimit, secondLimit);
     const double margin = (upper - lower) / 200000;
     if (margin > 0)
     {
@@ -148,8 +148,8 @@ AreaMeasurement dataArea(std::span<const PlotPoint> points, double firstLimit, d
 
 AreaMeasurement functionArea(const ScalarFunction& function, double firstLimit, double secondLimit, std::size_t intervals)
 {
-    const double lower = detail::javaMin(firstLimit, secondLimit);
-    const double upper = detail::javaMax(firstLimit, secondLimit);
+    const double lower = java::min(firstLimit, secondLimit);
+    const double upper = java::max(firstLimit, secondLimit);
     if (intervals == 0 || !std::isfinite(lower) || !std::isfinite(upper))
     {
         return {};
