@@ -78,7 +78,9 @@ to it elsewhere. Do not describe planned functionality or unavailable tooling as
   link a match or file a MoTrack issue (reproduction, upstream search result, impact on Tracker workflows,
   disposition and closing condition); add reference defects to
   [docs/upstream-issues.md](docs/upstream-issues.md#defects-discovered-by-the-reference-harness); and
-  reference the issue from the PR. Filing upstream reports needs the maintainer's approval.
+  reference the issue from the PR. The maintainer approved filing confirmed reference defects upstream
+  under their account (2026-11-21): verify against the current upstream source, file in the
+  OpenSourcePhysics repository with permalinks, a reproduction and a suggested fix, and link both ways.
 - Document coordinate spaces, units, original frame numbers, clip steps, and timestamps. Changes to
   scientific results need explicit reasoning and numerical reference tests against the pinned Tracker
   behavior. Do not silently substitute zero for missing or unsupported measurements.
