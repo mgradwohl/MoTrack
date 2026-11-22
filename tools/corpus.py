@@ -3055,6 +3055,8 @@ FIT_HEADER_KEYS = ["schema_version", "reference_version", "fits", "user_fits", "
 FIT_RESULT_KEYS = {"points", "valid_x", "method", "parameters", "uncertainties", "band", "intended_band", "rms", "correlation",
                    "non_real", "formatted"}
 FIT_METHODS = {"none", "closed-form", "hessian", "levenberg-marquardt", "restored"}
+# Main-fit paths that minimize; from a start at the minimum, the choice among them ties to the last bits.
+FIT_MINIMIZER_PATHS = {"hessian", "levenberg-marquardt", "restored"}
 MAX_FIT_CASES = 1000
 # The agreement classes of tests/science/curve_fit_test.cpp (docs/curve-fitting.md#tolerances). Fits using
 # only + - * / are bitwise; Math.exp/sin/log/pow differ in the last bit between HotSpot intrinsics on
@@ -3177,8 +3179,12 @@ def compare_fit_result(case, expected, actual, location):
             for key in keys:
                 compare_fit_values(expected[key], actual[key], tolerances[group], f"{location}.{key}")
     if case["agreement"] != "chaotic":
+        # From a start already at the minimum, Newton's result, the Levenberg-Marquardt fallback and the restored
+        # start differ in the last bits, so a transcendental fit may take any of them that reaches the same values.
+        tied = (case["agreement"] == "transcendental" and tolerances["parameters"] is not None
+                and {expected["method"], actual["method"]} <= FIT_MINIMIZER_PATHS)
         for key in ["method", "non_real"]:
-            if expected[key] != actual[key]:
+            if expected[key] != actual[key] and not (key == "method" and tied):
                 raise ValueError(f"{location}.{key}: expected {expected[key]!r}, got {actual[key]!r}")
         # Display text follows the compared values; within the tolerance it may legitimately differ.
         if tolerances["parameters"] is FIT_EXACT and tolerances["uncertainties"] is FIT_EXACT and expected["formatted"] != actual["formatted"]:
@@ -3202,11 +3208,18 @@ def compare_fit_reference(expected, actual):
         raise ValueError("fit-reference: the Java case list differs from the fixture")
     for want, got in zip(expected["cases"], actual["cases"]):
         location = f"fit-reference.{want['id']}"
-        if set(want) != set(got):
+        # Whether Newton diverges depends on the JVM's Math last bits, so either run may classify a transcendental
+        # case as chaotic. That case then compares only its data handling and carries no independent expectation.
+        classes = {want.get("agreement"), got.get("agreement")}
+        chaotic = "chaotic" in classes and classes <= {"chaotic", "transcendental"}
+        if (set(want) ^ set(got)) - ({"expect"} if chaotic else set()):
             raise ValueError(f"{location}: case fields differ")
+        compared = dict(want, agreement="chaotic") if chaotic else want
         for key, value in want.items():
             if key in {"java", "intended"}:
-                compare_fit_result(want, value, got[key], f"{location}.{key}")
+                compare_fit_result(compared, value, got[key], f"{location}.{key}")
+            elif chaotic and key in {"agreement", "expect"}:
+                continue
             elif key == "expect":
                 # Independent expectations: exact decimal least squares or a double Gauss-Newton minimum.
                 if {k: v for k, v in value.items() if k not in {"parameters", "uncertainties"}} != \

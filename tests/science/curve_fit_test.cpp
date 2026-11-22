@@ -379,6 +379,17 @@ bool samePath(const std::string& java, const FitResult& result)
     return method == result.method && (!status || *status == result.status);
 }
 
+/// Whether a main-fit path minimized: Newton's result, the Levenberg-Marquardt fallback or the restored start.
+bool minimizerPath(const std::string& java)
+{
+    return java == "hessian" || java == "levenberg-marquardt" || java == "restored";
+}
+
+bool minimizerPath(const FitResult& result)
+{
+    return result.method == FitMethod::Hessian || result.method == FitMethod::LevenbergMarquardt;
+}
+
 void expectMethod(const std::string& java, const FitResult& result, const std::string& id)
 {
     const auto [method, status] = javaPath(java);
@@ -406,8 +417,14 @@ void expectJavaResult(const QJsonObject& c, const QJsonObject& java, const FitRe
     }
     if (tolerance.parameters)
     {
-        // The path is as reproducible as the parameters it produces.
-        expectMethod(text(java[QStringLiteral("method")]), result, id);
+        // The path is as reproducible as the parameters it produces, except that from a start already at the
+        // minimum Newton's result, the Levenberg-Marquardt fallback and the restored start tie to the last bits:
+        // a transcendental fit may take any of them that reaches the same parameters.
+        const std::string method = text(java[QStringLiteral("method")]);
+        if (text(c[QStringLiteral("agreement")]) != "transcendental" || !minimizerPath(method) || !minimizerPath(result))
+        {
+            expectMethod(method, result, id);
+        }
         EXPECT_EQ(java[QStringLiteral("non_real")].toBool(), result.nonRealValues) << id;
         expectClose(numbers(java[QStringLiteral("parameters")]), result.parameters, *tolerance.parameters, id + " parameters");
     }

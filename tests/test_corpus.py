@@ -3779,6 +3779,47 @@ class FitOracleTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "user-charge/default-start"):
             self.check(document)
 
+    def test_another_jvm_may_classify_a_transcendental_case_as_chaotic(self):
+        # Another JVM's Newton iteration diverges on a committed transcendental case and converges on a chaotic one.
+        document = copy.deepcopy(self.fixture)
+        diverged = self.case(document, "gaussian/noisy")
+        diverged["agreement"] = "chaotic"
+        del diverged["expect"]
+        diverged["java"]["parameters"] = [value * 2 for value in diverged["java"]["parameters"]]
+        diverged["java"]["method"] = "restored"
+        converged = self.case(document, "dampedsine/outlier")
+        converged["agreement"] = "transcendental"
+        converged["expect"] = {"source": "gauss-newton", "parameters": [1, 2, 3, 4, 5], "uncertainties": [1, 1, 1, 1, 1]}
+        self.check(document)
+        # The data handling still compares, and no other agreement class may change.
+        diverged["java"]["points"] += 1
+        with self.assertRaisesRegex(ValueError, "gaussian/noisy"):
+            self.check(document)
+        document = copy.deepcopy(self.fixture)
+        self.case(document, "line/noisy")["agreement"] = "chaotic"
+        with self.assertRaisesRegex(ValueError, "line/noisy"):
+            self.check(document)
+
+    def test_a_tied_transcendental_fit_may_take_another_minimizer_path(self):
+        # log/random-1 starts at its least-squares minimum, so Newton's result and the fallback tie.
+        document = copy.deepcopy(self.fixture)
+        tied = self.case(document, "log/random-1")
+        self.assertEqual(tied["java"]["method"], "hessian")
+        tied["java"]["method"] = "levenberg-marquardt"
+        self.check(document)
+        tied["java"]["method"] = "none"
+        with self.assertRaisesRegex(ValueError, "log/random-1.java.method"):
+            self.check(document)
+        # The values must still agree, and arithmetic fits keep their exact path.
+        tied["java"]["method"] = "restored"
+        tied["java"]["parameters"][0] *= 1 + 1e-5
+        with self.assertRaisesRegex(ValueError, "log/random-1"):
+            self.check(document)
+        document = copy.deepcopy(self.fixture)
+        self.case(document, "user-line/noisy")["java"]["method"] = "restored"
+        with self.assertRaisesRegex(ValueError, "user-line/noisy.java.method"):
+            self.check(document)
+
     def test_record_writes_the_canonical_fixture_only_when_requested(self):
         destination = self.root / "science" / "fit-reference.json"
         with patch.object(corpus, "FIT_REFERENCE", destination):

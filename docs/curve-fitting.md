@@ -169,7 +169,9 @@ with arm64 Java, whose `Math` functions are fdlibm, on macOS. `--record` rewrite
   uncertainties and band within 1e−4 relative + 1e−9 (second differences of χ², refitted). Measured on
   Windows (MSVC STL) the largest differences were 3.1e−12 for parameters and 3.7e−4 relative for the
   rounding-level uncertainties of exact data, which the absolute term covers; Linux (glibc) and macOS agree
-  within the same bounds outside the chaotic cases.
+  within the same bounds outside the chaotic cases. The main-fit path must match too, except that from a start
+  already at the minimum (Log's line-fit guess, for example) Newton's result, the Levenberg-Marquardt fallback
+  and the restored start tie to the last bits, so any of them may reach the compared values.
 - **Sensitivity.** The oracle reruns each such case with every y moved by one ulp. Where a quantity moves,
   the tolerance grows to 100 times that movement; a quantity that moves by more than 1e−3 is decided by last
   bits (uncertainties around a non-minimum, for example) and is not compared. Of the 102 such cases, 2 skip
@@ -178,8 +180,9 @@ with arm64 Java, whose `Math` functions are fdlibm, on macOS. `--record` rewrite
   plus 1e−12 Σy², worse than the start) the outcome of the three-step Levenberg-Marquardt fallback depends on
   last bits: `dampedsine/shuffled` converges with HotSpot's `exp`/`sin` and fails with glibc's and Apple's.
   The oracle marks such cases automatically, and the overflowing default start of `A*(1-exp(-x/T))` by hand.
-  Data handling always compares, and parameters compare (within the transcendental tolerance) when the port
-  took Java's path.
+  Another JVM may classify a transcendental case as chaotic or the reverse (`dampedsine/outlier` with fdlibm),
+  so the regeneration check then applies the chaotic rule. Data handling always compares, and parameters
+  compare (within the transcendental tolerance) when the port took Java's path.
 
 Independent expectations use 1e−6 relative (1e−7 absolute) for synthetic parameters, 1e−6 (1e−8) for least
 squares, 1e−4 for linear standard errors and 5 % for nonlinear ones, which the curvature method estimates at a
