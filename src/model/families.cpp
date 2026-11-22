@@ -83,12 +83,11 @@ std::string loadedName(const Read<std::string>& name)
 
 bool supportsConstantClipTimingEdits(std::span<const std::string> mediaReferences, std::span<const std::string> unknownTrackClasses)
 {
-    return mediaReferences.empty() && std::ranges::all_of(unknownTrackClasses,
-                                                          [](const std::string& type)
-                                                          {
-                                                              return type == tracker::COORD_AXES_CLASS ||
-                                                                     type == "org.opensourcephysics.cabrillo.tracker.Protractor";
-                                                          });
+    return mediaReferences.empty() &&
+           std::ranges::all_of(
+               unknownTrackClasses,
+               [](const std::string& type)
+               { return type == tracker::COORD_AXES_CLASS || type == "org.opensourcephysics.cabrillo.tracker.Protractor"; });
 }
 
 } // namespace motrack::model

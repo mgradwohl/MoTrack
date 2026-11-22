@@ -366,7 +366,6 @@ ImportedTrackerProject parseTrackerProject(std::string xml)
     return {.project = std::move(parsed.project), .source = {.xml = std::move(xml), .bindings = std::move(parsed.bindings)}};
 }
 
-
 void validateTrackerSource(const TrackerSource& source, const LegacyProject& project)
 {
     static_cast<void>(detail::validatedTrackerSource(source, project));

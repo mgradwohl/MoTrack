@@ -119,7 +119,10 @@ std::size_t trackOrdinal(const osp::Source& source, osp::NodeId object)
 
 // Conversion from the reduced model.
 
-ObjectSlot unbound(Role role, std::string_view className, model::TypedValue value, model::AllocationRange range = model::AllocationRange::Countdown,
+ObjectSlot unbound(Role role,
+                   std::string_view className,
+                   model::TypedValue value,
+                   model::AllocationRange range = model::AllocationRange::Countdown,
                    model::ObjectId id = {})
 {
     return {.id = id,
@@ -241,7 +244,8 @@ model::CoordinatesState createdCoordinates(const Calibration& stored)
 /// Equal sources, with bindings compared as sets: a native file may store them in any order.
 bool sameSource(const std::optional<TrackerSource>& left, const std::optional<TrackerSource>& right)
 {
-    if (left.has_value() != right.has_value() || (left && (left->xml != right->xml || left->bindings.has_value() != right->bindings.has_value())))
+    if (left.has_value() != right.has_value() ||
+        (left && (left->xml != right->xml || left->bindings.has_value() != right->bindings.has_value())))
     {
         return false;
     }
@@ -258,12 +262,10 @@ bool sameSource(const std::optional<TrackerSource>& left, const std::optional<Tr
 
 ObjectSlot* findRole(std::vector<ObjectSlot>& objects, Role role, model::Family family)
 {
-    const auto found = std::ranges::find_if(objects,
-                                            [&](const ObjectSlot& object)
-                                            {
-                                                return object.role == role && object.state == model::ObjectState::Live &&
-                                                       object.family() == family;
-                                            });
+    const auto found =
+        std::ranges::find_if(objects,
+                             [&](const ObjectSlot& object)
+                             { return object.role == role && object.state == model::ObjectState::Live && object.family() == family; });
     return found == objects.end() ? nullptr : &*found;
 }
 
@@ -291,9 +293,7 @@ void overlaySingletons(model::DocumentParts& parts, const LegacyProject& project
     auto clip = clipReading;
     setIfChanged(clip.startFrame, clipReading.startFrame.value_or(0), stored.firstFrame);
     setIfChanged(clip.stepSize, clipReading.stepSize.value_or(1), stored.stepSize);
-    setIfChanged(clip.stepCount,
-                 clipReading.stepCount ? std::optional<int>(*clipReading.stepCount) : std::nullopt,
-                 stored.stepCount);
+    setIfChanged(clip.stepCount, clipReading.stepCount ? std::optional<int>(*clipReading.stepCount) : std::nullopt, stored.stepCount);
     setIfChanged(clip.startTime, model::finiteValue(clipReading.startTime).value_or(0.0), stored.startTimeMs);
     if (clipObject)
     {
@@ -350,13 +350,13 @@ void nativeObjects(model::DocumentParts& parts, const LegacyProject& project)
                                                       .massUnit = project.massUnit,
                                                       .timeUnit = project.timeUnit}));
     const auto& clip = project.clip;
-    parts.objects.push_back(unbound(Role::Clip,
-                                    tracker::VIDEO_CLIP_CLASS,
-                                    model::ClipState{.startFrame = clip.firstFrame,
-                                                     .stepSize = clip.stepSize,
-                                                     .stepCount = clip.stepCount ? model::Read<std::int32_t>(*clip.stepCount)
-                                                                                 : model::missing<std::int32_t>(),
-                                                     .startTime = clip.startTimeMs}));
+    parts.objects.push_back(
+        unbound(Role::Clip,
+                tracker::VIDEO_CLIP_CLASS,
+                model::ClipState{.startFrame = clip.firstFrame,
+                                 .stepSize = clip.stepSize,
+                                 .stepCount = clip.stepCount ? model::Read<std::int32_t>(*clip.stepCount) : model::missing<std::int32_t>(),
+                                 .startTime = clip.startTimeMs}));
     parts.objects.push_back(unbound(
         Role::ClipControl,
         tracker::STEPPER_CLIP_CONTROL_CLASS,
@@ -367,8 +367,8 @@ void nativeObjects(model::DocumentParts& parts, const LegacyProject& project)
     }
     for (const auto& track : project.pointMasses)
     {
-        parts.objects.push_back(
-            unbound(Role::Track, tracker::POINT_MASS_CLASS, createdPointMass(track), model::AllocationRange::Counter, model::ObjectId{track.id}));
+        parts.objects.push_back(unbound(
+            Role::Track, tracker::POINT_MASS_CLASS, createdPointMass(track), model::AllocationRange::Counter, model::ObjectId{track.id}));
     }
     for (const auto& track : project.vectors)
     {
@@ -444,16 +444,19 @@ model::DocumentParts boundObjects(const LegacyProject& project, const TrackerSou
     {
         if (!bound.contains(track.id))
         {
-            parts.objects.push_back(
-                unbound(Role::Track, tracker::POINT_MASS_CLASS, createdPointMass(track), model::AllocationRange::Counter, model::ObjectId{track.id}));
+            parts.objects.push_back(unbound(Role::Track,
+                                            tracker::POINT_MASS_CLASS,
+                                            createdPointMass(track),
+                                            model::AllocationRange::Counter,
+                                            model::ObjectId{track.id}));
         }
     }
     for (const auto& track : project.vectors)
     {
         if (!bound.contains(track.id))
         {
-            parts.objects.push_back(
-                unbound(Role::Track, tracker::VECTOR_CLASS, createdVector(track), model::AllocationRange::Counter, model::ObjectId{track.id}));
+            parts.objects.push_back(unbound(
+                Role::Track, tracker::VECTOR_CLASS, createdVector(track), model::AllocationRange::Counter, model::ObjectId{track.id}));
         }
     }
     // Countdown identities are derived again on each open until native v7 stores them (B2.5).
@@ -554,7 +557,8 @@ model::TrackerDocument importTypedTracker(std::string_view xml)
     return std::move(*document);
 }
 
-model::TrackerDocument typedDocumentFromReduced(const LegacyProject& project, const std::optional<TrackerSource>& source, bool bindingsReset)
+model::TrackerDocument
+typedDocumentFromReduced(const LegacyProject& project, const std::optional<TrackerSource>& source, bool bindingsReset)
 {
     model::DocumentParts parts;
     if (source && source->bindings)

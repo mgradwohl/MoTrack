@@ -22,7 +22,8 @@ namespace motrack::model
 {
 
 /// A Qt-free scalar value: absent (`std::monostate`) or one of the OSP value types.
-using FieldValue = std::variant<std::monostate, bool, std::int32_t, double, std::string, std::vector<std::string>, std::vector<std::int32_t>>;
+using FieldValue =
+    std::variant<std::monostate, bool, std::int32_t, double, std::string, std::vector<std::string>, std::vector<std::int32_t>>;
 
 enum class FieldKind : std::uint8_t
 {

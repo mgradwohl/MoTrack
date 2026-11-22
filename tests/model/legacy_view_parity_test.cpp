@@ -1,8 +1,7 @@
-#include "legacy_view.hpp"
-
-#include "archive_group.hpp"
 #include "../corpus_documents.hpp"
+#include "archive_group.hpp"
 #include "document_dump.hpp"
+#include "legacy_view.hpp"
 #include "track_edits.hpp"
 #include "tracker_archive.hpp"
 #include "tracker_import.hpp"
@@ -39,7 +38,8 @@ QJsonObject describe(const motrack::LegacyProject& project)
         {
             marks.append(QJsonArray{mark.frame, mark.x, mark.y});
         }
-        masses.append(QJsonObject{{"id", QString::number(track.id)}, {"name", QString::fromStdString(track.name)}, {"mass", track.mass}, {"marks", marks}});
+        masses.append(QJsonObject{
+            {"id", QString::number(track.id)}, {"name", QString::fromStdString(track.name)}, {"mass", track.mass}, {"marks", marks}});
     }
     QJsonArray vectors;
     for (const auto& track : project.vectors)
@@ -69,14 +69,17 @@ QJsonObject describe(const motrack::LegacyProject& project)
         {
             keys.append(QJsonArray{key.frame, key.originX, key.originY, key.angleDegrees, key.scaleX, key.scaleY});
         }
-        calibration = QJsonObject{{"keys", keys},
-                                  {"fixed", QJsonArray{project.calibration->fixedOrigin, project.calibration->fixedAngle, project.calibration->fixedScale}}};
+        calibration = QJsonObject{
+            {"keys", keys},
+            {"fixed", QJsonArray{project.calibration->fixedOrigin, project.calibration->fixedAngle, project.calibration->fixedScale}}};
     }
     const auto& clip = project.clip;
     return {{"version", QString::fromStdString(project.version)},
             {"description", QString::fromStdString(project.description)},
             {"units",
-             QJsonArray{QString::fromStdString(project.lengthUnit), QString::fromStdString(project.massUnit), QString::fromStdString(project.timeUnit)}},
+             QJsonArray{QString::fromStdString(project.lengthUnit),
+                        QString::fromStdString(project.massUnit),
+                        QString::fromStdString(project.timeUnit)}},
             {"clip",
              QJsonObject{{"first", clip.firstFrame},
                          {"step", clip.stepSize},
@@ -161,7 +164,8 @@ TEST(LegacyViewParity, EveryCorpusFileAndFixtureReadsAsB1ImportsIt)
 
 TEST(LegacyViewParity, TheCacheIsKeyedByOwnerAndRevisionAndNeverSharedBetweenCopies)
 {
-    const auto document = motrack::importTypedTracker(motrack::test::readCorpusFile(motrack::utf8Path(MOTRACK_FIXTURES) / "point-mass.trk"));
+    const auto document =
+        motrack::importTypedTracker(motrack::test::readCorpusFile(motrack::utf8Path(MOTRACK_FIXTURES) / "point-mass.trk"));
     motrack::LegacyViewCache cache;
     EXPECT_FALSE(cache.stamp());
     const auto first = cache.view(document, {.runtime = 1, .revision = 1});
@@ -197,7 +201,8 @@ TEST(LegacyViewParity, EmptyDocumentsAndEmptyProjectsCorrespond)
 std::string boundSource()
 {
     auto xml = motrack::test::readCorpusFile(motrack::utf8Path(MOTRACK_FIXTURES) / "native" / "baseline.trk");
-    const std::string massB = "        <property name=\"item\" type=\"object\">\n            <object class=\"org.opensourcephysics.cabrillo.tracker.PointMass\">\n"
+    const std::string massB = "        <property name=\"item\" type=\"object\">\n            <object "
+                              "class=\"org.opensourcephysics.cabrillo.tracker.PointMass\">\n"
                               "                <property name=\"mass\" type=\"double\">1.0</property>";
     xml.insert(xml.find(massB),
                "        <property name=\"item\" type=\"object\">\n"
@@ -250,8 +255,13 @@ TEST(LegacyViewParity, ConvertsEditedReducedModelsWithoutTurningUnchangedReading
     ASSERT_TRUE(edits.markVector(project, 1, {.frame = 2, .tailX = 1.0, .tailY = 2.0, .componentX = 3.0, .componentY = 4.0}));
     ASSERT_TRUE(edits.markVector(project, 0, {.frame = 3, .tailX = 5.0, .tailY = 6.0, .componentX = 7.0, .componentY = 8.0}));
     ASSERT_TRUE(edits.calibrateDistance(project,
-                                        {.frame = 0, .imageDeltaX = 10.0, .imageDeltaY = 0.0, .knownLength = 2.0, .defaultOriginX = 0.0,
-                                         .defaultOriginY = 0.0, .unit = "cm"}));
+                                        {.frame = 0,
+                                         .imageDeltaX = 10.0,
+                                         .imageDeltaY = 0.0,
+                                         .knownLength = 2.0,
+                                         .defaultOriginX = 0.0,
+                                         .defaultOriginY = 0.0,
+                                         .unit = "cm"}));
     ASSERT_TRUE(edits.setClipRange(project, 2, 8, 2));
     // Timing edits need a media-free experiment without other track classes; a native file can still hold new timing.
     project.clip.frameDurationMs = 50.0;
@@ -449,7 +459,8 @@ TEST(LegacyViewParity, NativeFixturesOpenToTheirDocumentDumpsAndExports)
     }
     catch (const motrack::ProjectError& error)
     {
-        EXPECT_TRUE(std::string_view(error.what()).starts_with("The copy of the original Tracker file kept in this MoTrack project can no longer be read"))
+        EXPECT_TRUE(std::string_view(error.what())
+                        .starts_with("The copy of the original Tracker file kept in this MoTrack project can no longer be read"))
             << error.what();
     }
 }
@@ -528,8 +539,14 @@ void editBaseline(motrack::LegacyProject& project)
     require(edits.createPointMass(project, "created"));
     require(edits.markPointMass(project, 1, {.frame = 4, .x = 40.0, .y = 41.0}));
     require(edits.renameVector(project, 0, "renamed v"));
-    require(edits.calibrateDistance(
-        project, {.frame = 0, .imageDeltaX = 100.0, .imageDeltaY = 0.0, .knownLength = 1.0, .defaultOriginX = 0.0, .defaultOriginY = 0.0, .unit = "cm"}));
+    require(edits.calibrateDistance(project,
+                                    {.frame = 0,
+                                     .imageDeltaX = 100.0,
+                                     .imageDeltaY = 0.0,
+                                     .knownLength = 1.0,
+                                     .defaultOriginX = 0.0,
+                                     .defaultOriginY = 0.0,
+                                     .unit = "cm"}));
     require(edits.setClipRange(project, 1, 8, 1));
     require(edits.setClipTiming(project, 50.0, 10.0));
 }
@@ -557,7 +574,10 @@ TEST(LegacyViewParity, WriteNativeFixtures)
         EXPECT_TRUE(writeBytes(path, xml));
         return motrack::importTrackerDocument(path);
     };
-    const auto write = [&](const QString& name, const QByteArray& bytes) { ASSERT_TRUE(writeBytes(QDir(target).filePath(name), bytes)); };
+    const auto write = [&](const QString& name, const QByteArray& bytes)
+    {
+        ASSERT_TRUE(writeBytes(QDir(target).filePath(name), bytes));
+    };
 
     auto edited = importBaseline(baselineXml);
     editBaseline(edited.project);
@@ -569,7 +589,8 @@ TEST(LegacyViewParity, WriteNativeFixtures)
     auto withVector = edited;
     motrack::TrackEdits vectorEdits;
     ASSERT_TRUE(vectorEdits.createVector(withVector.project, "arrow"));
-    ASSERT_TRUE(vectorEdits.markVector(withVector.project, 1, {.frame = 1, .tailX = 1.0, .tailY = 2.0, .componentX = 3.0, .componentY = 4.0}));
+    ASSERT_TRUE(
+        vectorEdits.markVector(withVector.project, 1, {.frame = 1, .tailX = 1.0, .tailY = 2.0, .componentX = 3.0, .componentY = 4.0}));
     const auto unassociated = nativeJson(withVector, scratch);
     for (const int version : {1, 2, 3})
     {
@@ -578,14 +599,20 @@ TEST(LegacyViewParity, WriteNativeFixtures)
     }
     // Saved before B1: MoTrack's former DOM reader saw the track after a blank line that ends OSP's collection.
     auto blankLine = baselineXml;
-    blankLine.replace("        <property name=\"item\" type=\"object\">\n            <object class=\"org.opensourcephysics.cabrillo.tracker.PointMass\">\n                <property name=\"mass\" type=\"double\">1.0</property>",
-                      "\n        <property name=\"item\" type=\"object\">\n            <object class=\"org.opensourcephysics.cabrillo.tracker.PointMass\">\n                <property name=\"mass\" type=\"double\">1.0</property>");
+    blankLine.replace("        <property name=\"item\" type=\"object\">\n            <object "
+                      "class=\"org.opensourcephysics.cabrillo.tracker.PointMass\">\n                <property name=\"mass\" "
+                      "type=\"double\">1.0</property>",
+                      "\n        <property name=\"item\" type=\"object\">\n            <object "
+                      "class=\"org.opensourcephysics.cabrillo.tracker.PointMass\">\n                <property name=\"mass\" "
+                      "type=\"double\">1.0</property>");
     ASSERT_NE(blankLine, baselineXml);
     write("v4-stale.motrack", withBaseline(current4, blankLine));
     // A source the current reader refuses: the blank line ends the panel's tracks before a null element (#196).
     auto refused = baselineXml;
-    refused.replace("        <property name=\"item\" type=\"object\">\n            <object class=\"org.opensourcephysics.cabrillo.tracker.CoordAxes\">",
-                    "\n        <property name=\"item\" type=\"object\">null</property>\n        <property name=\"item\" type=\"object\">\n            <object class=\"org.opensourcephysics.cabrillo.tracker.CoordAxes\">");
+    refused.replace(
+        "        <property name=\"item\" type=\"object\">\n            <object class=\"org.opensourcephysics.cabrillo.tracker.CoordAxes\">",
+        "\n        <property name=\"item\" type=\"object\">null</property>\n        <property name=\"item\" type=\"object\">\n            "
+        "<object class=\"org.opensourcephysics.cabrillo.tracker.CoordAxes\">");
     ASSERT_NE(refused, baselineXml);
     write("v4-refused-baseline.motrack", withBaseline(current4, refused));
     // Sources whose reading the loader-fidelity fixes change (#313-#315), saved as the reader of the time read them.
@@ -593,18 +620,30 @@ TEST(LegacyViewParity, WriteNativeFixtures)
     {
         ASSERT_NE(xml, baselineXml);
         const auto imported = importBaseline(xml);
-        write(name, QJsonDocument(downgrade(QJsonDocument::fromJson(nativeJson(imported, scratch)).object(), 4)).toJson(QJsonDocument::Compact));
+        write(name,
+              QJsonDocument(downgrade(QJsonDocument::fromJson(nativeJson(imported, scratch)).object(), 4)).toJson(QJsonDocument::Compact));
     };
     auto shifted = baselineXml;
     shifted.replace("            <property name=\"startframe\" type=\"int\">0</property>",
-                    "            <property name=\"startframe\" type=\"int\">2</property>\n            <property name=\"frameshift\" type=\"int\">2</property>");
+                    "            <property name=\"startframe\" type=\"int\">2</property>\n            <property name=\"frameshift\" "
+                    "type=\"int\">2</property>");
     variant("v4-frame-shift.motrack", shifted);
     auto duplicate = baselineXml;
-    const QByteArray key = "                <property name=\"[0]\" type=\"object\">\n                    <object class=\"org.opensourcephysics.media.core.ImageCoordSystem$FrameData\">\n                        <property name=\"xorigin\" type=\"double\">160.0</property>";
-    duplicate.replace(key, QByteArray(key).replace("160.0", "150.0").prepend(QByteArray(key).append("\n                        <property name=\"yorigin\" type=\"double\">120.0</property>\n                        <property name=\"angle\" type=\"double\">0.0</property>\n                        <property name=\"xscale\" type=\"double\">40.0</property>\n                        <property name=\"yscale\" type=\"double\">40.0</property>\n                    </object>\n                </property>\n")));
+    const QByteArray key = "                <property name=\"[0]\" type=\"object\">\n                    <object "
+                           "class=\"org.opensourcephysics.media.core.ImageCoordSystem$FrameData\">\n                        <property "
+                           "name=\"xorigin\" type=\"double\">160.0</property>";
+    duplicate.replace(key,
+                      QByteArray(key)
+                          .replace("160.0", "150.0")
+                          .prepend(QByteArray(key).append(
+                              "\n                        <property name=\"yorigin\" type=\"double\">120.0</property>\n                     "
+                              "   <property name=\"angle\" type=\"double\">0.0</property>\n                        <property "
+                              "name=\"xscale\" type=\"double\">40.0</property>\n                        <property name=\"yscale\" "
+                              "type=\"double\">40.0</property>\n                    </object>\n                </property>\n")));
     variant("v4-duplicate-keys.motrack", duplicate);
     auto emptyUnit = baselineXml;
-    emptyUnit.replace("    <property name=\"description\"", "    <property name=\"mass_unit\" type=\"string\"></property>\n    <property name=\"description\"");
+    emptyUnit.replace("    <property name=\"description\"",
+                      "    <property name=\"mass_unit\" type=\"string\"></property>\n    <property name=\"description\"");
     variant("v4-empty-mass-unit.motrack", emptyUnit);
 
     // Archive-backed documents: one member, and a group of both members of a two-tab archive.

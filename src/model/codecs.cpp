@@ -38,7 +38,8 @@ bool isTrackerUnitLabel(std::string_view unit)
     {
         return false;
     }
-    return std::ranges::none_of(label->toUcs4(), [](char32_t codePoint) { return isControlOrFormat(codePoint) || QChar::isDigit(codePoint); });
+    return std::ranges::none_of(label->toUcs4(),
+                                [](char32_t codePoint) { return isControlOrFormat(codePoint) || QChar::isDigit(codePoint); });
 }
 
 bool isTrackerTrackName(std::string_view name)

@@ -296,7 +296,8 @@ bool TrackEdits::removeVectorSample(LegacyProject& project, std::size_t track, i
 bool TrackEdits::calibrateDistance(LegacyProject& project, CalibrationDistance distance)
 {
     // The unit must survive standard export, which stores it as Tracker's length_unit label.
-    if (distance.frame < 0 || !std::isfinite(distance.knownLength) || distance.knownLength <= 0.0 || !model::isTrackerUnitLabel(distance.unit))
+    if (distance.frame < 0 || !std::isfinite(distance.knownLength) || distance.knownLength <= 0.0 ||
+        !model::isTrackerUnitLabel(distance.unit))
     {
         return false;
     }

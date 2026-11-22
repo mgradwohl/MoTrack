@@ -24,17 +24,33 @@ constexpr std::array PANEL_FIELDS{
     FieldDescriptor{.id = "semantic_version", .property = "semantic_version", .type = PropertyType::String},
     FieldDescriptor{.id = "description", .property = "description", .type = PropertyType::String},
     FieldDescriptor{.id = "time_unit", .property = "time_unit", .type = PropertyType::String, .commandEdits = true, .loaderDefault = "s"},
-    FieldDescriptor{.id = "length_unit", .property = "length_unit", .type = PropertyType::String, .commandEdits = true, .loaderDefault = "m"},
+    FieldDescriptor{
+        .id = "length_unit", .property = "length_unit", .type = PropertyType::String, .commandEdits = true, .loaderDefault = "m"},
     FieldDescriptor{.id = "mass_unit", .property = "mass_unit", .type = PropertyType::String, .commandEdits = true, .loaderDefault = "kg"},
     FieldDescriptor{.id = "referenceframe", .property = "referenceframe", .type = PropertyType::String},
     FieldDescriptor{.id = "selectedtrack", .property = "selectedtrack", .type = PropertyType::String},
 };
 constexpr std::array CLIP_FIELDS{
     FieldDescriptor{.id = "video_framecount", .property = "video_framecount", .type = PropertyType::Int},
-    FieldDescriptor{.id = "startframe", .property = "startframe", .type = PropertyType::Int, .commandEdits = true, .facet = Definition, .loaderDefault = "0"},
-    FieldDescriptor{.id = "stepsize", .property = "stepsize", .type = PropertyType::Int, .commandEdits = true, .facet = Definition, .loaderDefault = "1"},
+    FieldDescriptor{.id = "startframe",
+                    .property = "startframe",
+                    .type = PropertyType::Int,
+                    .commandEdits = true,
+                    .facet = Definition,
+                    .loaderDefault = "0"},
+    FieldDescriptor{.id = "stepsize",
+                    .property = "stepsize",
+                    .type = PropertyType::Int,
+                    .commandEdits = true,
+                    .facet = Definition,
+                    .loaderDefault = "1"},
     FieldDescriptor{.id = "stepcount", .property = "stepcount", .type = PropertyType::Int, .commandEdits = true, .facet = Definition},
-    FieldDescriptor{.id = "starttime", .property = "starttime", .type = PropertyType::Double, .commandEdits = true, .facet = Definition, .loaderDefault = "0.0"},
+    FieldDescriptor{.id = "starttime",
+                    .property = "starttime",
+                    .type = PropertyType::Double,
+                    .commandEdits = true,
+                    .facet = Definition,
+                    .loaderDefault = "0.0"},
     FieldDescriptor{.id = "frameshift", .property = "frameshift", .type = PropertyType::Int, .loaderDefault = "0"},
 };
 constexpr std::array VIDEO_FIELDS{
@@ -61,7 +77,8 @@ constexpr std::array COORDINATES_FIELDS{
                     .facet = Geometry},
 };
 constexpr std::array POINT_MASS_FIELDS{
-    FieldDescriptor{.id = "mass", .property = "mass", .type = PropertyType::Double, .commandEdits = true, .facet = Definition, .loaderDefault = "1.0"},
+    FieldDescriptor{
+        .id = "mass", .property = "mass", .type = PropertyType::Double, .commandEdits = true, .facet = Definition, .loaderDefault = "1.0"},
     FieldDescriptor{.id = "name", .property = "name", .type = PropertyType::String, .commandEdits = true, .label = true},
     FieldDescriptor{.id = "framedata",
                     .property = "framedata",
@@ -292,13 +309,14 @@ FieldValue scalarValue(const TypedValue& value, const FieldDescriptor& field)
             using State = std::decay_t<decltype(state)>;
             if constexpr (std::is_same_v<State, PanelState>)
             {
-                const std::array<std::pair<std::string_view, const Read<std::string>*>, 7> fields{{{"semantic_version", &state.semanticVersion},
-                                                                                                  {"description", &state.description},
-                                                                                                  {"time_unit", &state.timeUnit},
-                                                                                                  {"length_unit", &state.lengthUnit},
-                                                                                                  {"mass_unit", &state.massUnit},
-                                                                                                  {"referenceframe", &state.referenceFrame},
-                                                                                                  {"selectedtrack", &state.selectedTrack}}};
+                const std::array<std::pair<std::string_view, const Read<std::string>*>, 7> fields{
+                    {{"semantic_version", &state.semanticVersion},
+                     {"description", &state.description},
+                     {"time_unit", &state.timeUnit},
+                     {"length_unit", &state.lengthUnit},
+                     {"mass_unit", &state.massUnit},
+                     {"referenceframe", &state.referenceFrame},
+                     {"selectedtrack", &state.selectedTrack}}};
                 const auto found = std::ranges::find(fields, id, &std::pair<std::string_view, const Read<std::string>*>::first);
                 return found == fields.end() ? FieldValue{} : fromRead(*found->second);
             }
@@ -309,10 +327,10 @@ FieldValue scalarValue(const TypedValue& value, const FieldDescriptor& field)
                     return fromRead(state.startTime);
                 }
                 const std::array<std::pair<std::string_view, const Read<std::int32_t>*>, 5> fields{{{"video_framecount", &state.frameCount},
-                                                                                                   {"startframe", &state.startFrame},
-                                                                                                   {"stepsize", &state.stepSize},
-                                                                                                   {"stepcount", &state.stepCount},
-                                                                                                   {"frameshift", &state.frameShift}}};
+                                                                                                    {"startframe", &state.startFrame},
+                                                                                                    {"stepsize", &state.stepSize},
+                                                                                                    {"stepcount", &state.stepCount},
+                                                                                                    {"frameshift", &state.frameShift}}};
                 const auto found = std::ranges::find(fields, id, &std::pair<std::string_view, const Read<std::int32_t>*>::first);
                 return found == fields.end() ? FieldValue{} : fromRead(*found->second);
             }
@@ -339,9 +357,9 @@ FieldValue scalarValue(const TypedValue& value, const FieldDescriptor& field)
             else if constexpr (std::is_same_v<State, CoordinatesState>)
             {
                 const std::array<std::pair<std::string_view, const Read<bool>*>, 4> fields{{{"fixedorigin", &state.fixedOrigin},
-                                                                                           {"fixedangle", &state.fixedAngle},
-                                                                                           {"fixedscale", &state.fixedScale},
-                                                                                           {"locked", &state.locked}}};
+                                                                                            {"fixedangle", &state.fixedAngle},
+                                                                                            {"fixedscale", &state.fixedScale},
+                                                                                            {"locked", &state.locked}}};
                 const auto found = std::ranges::find(fields, id, &std::pair<std::string_view, const Read<bool>*>::first);
                 return found == fields.end() ? FieldValue{} : fromRead(*found->second);
             }
@@ -544,7 +562,8 @@ std::vector<osp::PropertyValue> saverProperties(const TypedValue& value)
         properties.push_back(osp::stringProperty("name", loadedName(mass->name)));
         properties.push_back(frameArray(tracker::POINT_MASS_FRAME_CLASS,
                                         mass->marks,
-                                        [](const Mark& mark) { return std::vector{osp::doubleProperty("x", mark.x), osp::doubleProperty("y", mark.y)}; }));
+                                        [](const Mark& mark)
+                                        { return std::vector{osp::doubleProperty("x", mark.x), osp::doubleProperty("y", mark.y)}; }));
         appendScalar(properties, POINT_MASS_FIELDS[3], loadedKeyFrames(*mass));
         return properties;
     }

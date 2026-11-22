@@ -320,7 +320,8 @@ DocumentParts emptyParts()
                                                     .lengthUnit = std::string{},
                                                     .massUnit = std::string("kg"),
                                                     .timeUnit = std::string("s")}));
-    parts.objects.push_back(nativeObject(Role::Clip, tracker::VIDEO_CLIP_CLASS, ClipState{.startFrame = 0, .stepSize = 1, .startTime = 0.0}));
+    parts.objects.push_back(
+        nativeObject(Role::Clip, tracker::VIDEO_CLIP_CLASS, ClipState{.startFrame = 0, .stepSize = 1, .startTime = 0.0}));
     parts.objects.push_back(nativeObject(Role::ClipControl, tracker::STEPPER_CLIP_CONTROL_CLASS, ClipControlState{}));
     return parts;
 }
@@ -375,7 +376,8 @@ std::expected<void, DocumentError> validate(const DocumentParts& parts)
         }
         if (object.binding)
         {
-            if (parts.associations != Associations::Known || !parts.baseline->contains(*object.binding) || !bound.insert(*object.binding).second)
+            if (parts.associations != Associations::Known || !parts.baseline->contains(*object.binding) ||
+                !bound.insert(*object.binding).second)
             {
                 return invalid("Invalid document source binding.");
             }
@@ -502,17 +504,20 @@ std::expected<TrackerDocument, DocumentError> TrackerDocument::importBaseline(st
                 {
                     parts.media.references = {path};
                 }
-                objects.push_back(
-                    slot(Role::Video, video.className, video.object, VideoState{.path = video.path, .paths = std::move(paths), .deltaT = video.deltaT}));
+                objects.push_back(slot(Role::Video,
+                                       video.className,
+                                       video.object,
+                                       VideoState{.path = video.path, .paths = std::move(paths), .deltaT = video.deltaT}));
             }
         }
         if (panel.clipControl)
         {
             const auto& control = *panel.clipControl;
-            objects.push_back(slot(Role::ClipControl,
-                                   control.className,
-                                   control.object,
-                                   ClipControlState{.rate = control.rate, .deltaT = control.deltaT, .frame = control.frame, .looping = control.looping}));
+            objects.push_back(
+                slot(Role::ClipControl,
+                     control.className,
+                     control.object,
+                     ClipControlState{.rate = control.rate, .deltaT = control.deltaT, .frame = control.frame, .looping = control.looping}));
         }
         if (panel.coords)
         {
@@ -604,8 +609,9 @@ std::expected<void, DocumentError> TrackerDocument::derive()
     {
         const auto& object = objects[index];
         m_Index.emplace(object.id, index);
-        const auto added = object.state == ObjectState::Live ? graph->addObject(object.id, {.label = graphLabel(object), .className = object.className})
-                                                             : graph->retireIdentity(object.id);
+        const auto added = object.state == ObjectState::Live
+                               ? graph->addObject(object.id, {.label = graphLabel(object), .className = object.className})
+                               : graph->retireIdentity(object.id);
         if (!added)
         {
             return invalid(std::string(errorMessage(added.error().code)));
@@ -656,17 +662,23 @@ std::expected<void, DocumentError> TrackerDocument::derive()
                     auto binding = names.bind(*name, field.filter);
                     if (!binding)
                     {
-                        m_ReferenceIssues.push_back(
-                            {.owner = object.id, .field = std::string(field.id), .reason = std::string(errorMessage(binding.error().code))});
+                        m_ReferenceIssues.push_back({.owner = object.id,
+                                                     .field = std::string(field.id),
+                                                     .reason = std::string(errorMessage(binding.error().code))});
                         continue;
                     }
-                    const auto dependency = makeDependency(
-                        field.kind, field.slotBase + static_cast<std::uint32_t>(slotIndex), field.targetFacet, *name, *binding, field.onMissing);
+                    const auto dependency = makeDependency(field.kind,
+                                                           field.slotBase + static_cast<std::uint32_t>(slotIndex),
+                                                           field.targetFacet,
+                                                           *name,
+                                                           *binding,
+                                                           field.onMissing);
                     if (!dependency)
                     {
                         continue;
                     }
-                    const auto added = graph->addDependency({.object = object.id, .facet = field.ownerFacet}, *dependency, CyclePolicy::Record);
+                    const auto added =
+                        graph->addDependency({.object = object.id, .facet = field.ownerFacet}, *dependency, CyclePolicy::Record);
                     if (!added)
                     {
                         m_ReferenceIssues.push_back(
@@ -763,7 +775,8 @@ std::vector<std::string> TrackerDocument::unknownTrackClasses() const
     std::vector<std::string> classes;
     for (const auto& object : m_Parts.objects)
     {
-        if (object.role == Role::Track && object.state == ObjectState::Live && object.family() == Family::Unknown && !object.className.empty())
+        if (object.role == Role::Track && object.state == ObjectState::Live && object.family() == Family::Unknown &&
+            !object.className.empty())
         {
             classes.push_back(object.className);
         }
@@ -780,8 +793,7 @@ bool operator==(const TrackerDocument& left, const TrackerDocument& right)
 {
     const auto& a = left.m_Parts;
     const auto& b = right.m_Parts;
-    const bool sameBaseline =
-        a.baseline == b.baseline || (a.baseline && b.baseline && a.baseline->bytes() == b.baseline->bytes());
+    const bool sameBaseline = a.baseline == b.baseline || (a.baseline && b.baseline && a.baseline->bytes() == b.baseline->bytes());
     return sameBaseline && a.associations == b.associations && a.objects == b.objects && a.trackOrder == b.trackOrder &&
            a.nextObjectId == b.nextObjectId && a.countdownLowWater == b.countdownLowWater && a.media == b.media;
 }

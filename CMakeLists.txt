@@ -235,6 +235,10 @@ if(MOTRACK_BUILD_BENCHMARKS)
     add_executable(motrack_import_benchmark benchmarks/import_benchmark.cpp)
     target_link_libraries(motrack_import_benchmark PRIVATE motrack_project)
     list(APPEND motrack_targets motrack_import_benchmark)
+    # One AutoTracker step: typed edit, legacy view rebuild, TrackEdits mark and template match (tracker-document.md).
+    add_executable(motrack_autotracker_benchmark benchmarks/autotracker_benchmark.cpp)
+    target_link_libraries(motrack_autotracker_benchmark PRIVATE motrack_project motrack_media Qt6::Gui)
+    list(APPEND motrack_targets motrack_autotracker_benchmark)
 endif()
 
 # Qt-free port of OSP's TemplateMatcher behind Tracker's AutoTracker (docs/template-matching.md).
@@ -427,6 +431,8 @@ if(BUILD_TESTING)
     if(MOTRACK_BUILD_BENCHMARKS)
         add_test(NAME import_benchmark_smoke COMMAND motrack_import_benchmark
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/point-mass.trk")
+        add_test(NAME autotracker_benchmark_smoke COMMAND motrack_autotracker_benchmark
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/native/baseline.trk" 300)
     endif()
 
     if(MOTRACK_COVERAGE)

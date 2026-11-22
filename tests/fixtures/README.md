@@ -23,3 +23,28 @@ are re-checked by `python tools/corpus.py xml-oracle`, which also derives CRLF, 
 variants. `unicode.xml` is written by byte value so that U+2028, U+2029 and U+0085 stay literal. `osp/generated/`
 holds documents written by OSP's own writer (`tools/reference/XmlControlDump.java --generate`); regenerate them
 rather than editing them by hand.
+
+`native/` holds the native migration fixtures of slice B2.1 ([typed document design](../../docs/tracker-document.md#5-oracles-and-tests)).
+They pin how today's native reader opens each version before B2.4a switches it to typed documents.
+`baseline.trk` is a synthetic, media-free Tracker document in OSP's layout: two point masses (with saved key frames),
+a vector without samples (B1 exports no vector samples beside point masses), coordinate axes, a fixed calibration
+and a selected track. `LegacyViewParity.WriteNativeFixtures` wrote every `.motrack` file and golden at the B2.1 base
+(`d5c0a26`) on Windows, with `MOTRACK_WRITE_NATIVE_FIXTURES` naming this directory; regenerate rather than edit them,
+and review every changed golden.
+
+- `v5-plain.motrack` is MoTrack's version-5 writer output after the fixture edits: rename, mark, unmark and weigh a
+  point mass, change the mass unit, delete the second point mass, create and mark another, rename the vector,
+  calibrate in centimeters and change the clip range and timing. `v5-archive.motrack` (one edited member) and
+  `v6-group.motrack` (both edited members) embed `tests/corpus/fixtures/linked-images/multitab-images.trz`.
+- `v4-known`, `v3-source`, `v2-source` and `v1` are that writer's output reduced by hand to the schemas
+  [docs/native-format.md](../../docs/native-format.md) documents for each version (no container fields, `timeUnit`
+  or `movieTimeBase`; v3 without bindings; v2 without identities; v1 without a source or vectors). v1 to v3 also
+  hold a vector created with a sample. No earlier MoTrack build was used: building one needs its own SDK pins.
+- `v4-stale` stores a baseline with a blank line inside `tracks`, so the bindings that MoTrack's former DOM reader
+  recorded no longer match OSP's reading; `v4-refused-baseline` stores one that the current reader refuses.
+- `v4-frame-shift`, `v4-duplicate-keys` and `v4-empty-mass-unit` store an unedited import of a baseline variant
+  (a clip `frameshift`, a repeated calibration key, an empty saved `mass_unit`) as the reader before the
+  loader-fidelity fixes (#313–#315) read it.
+
+Each `*.document.json` is the typed document the fixture converts into (`tests/model/document_dump.hpp`), and each
+`*.export.txt` is B1's standard export of it, the exported member for archives, or `refused:` and B1's reason.

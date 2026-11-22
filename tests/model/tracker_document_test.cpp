@@ -1,8 +1,8 @@
 #include "model/tracker_document.hpp"
 
+#include "../osp_layout.hpp"
 #include "model/codecs.hpp"
 #include "model/descriptors.hpp"
-#include "../osp_layout.hpp"
 
 #include <gtest/gtest.h>
 
@@ -63,27 +63,29 @@ std::string marks(std::string_view frames)
 
 std::string mark(int frame, std::string_view x, std::string_view y)
 {
-    return "<property name='[" + std::to_string(frame) + "]' type='object'><object class='" + cls("PointMass$FrameData") + "'>" + number("x", x) +
-           number("y", y) + "</object></property>";
+    return "<property name='[" + std::to_string(frame) + "]' type='object'><object class='" + cls("PointMass$FrameData") + "'>" +
+           number("x", x) + number("y", y) + "</object></property>";
 }
 
 std::string vectorFrame(int frame, std::string_view tail)
 {
-    return "<property name='[" + std::to_string(frame) + "]' type='object'><object class='" + cls("Vector$FrameData") + "'>" + number("xtail", tail) +
-           number("ytail", "2.0") + number("xcomponent", "3.0") + number("ycomponent", "4.0") + "</object></property>";
+    return "<property name='[" + std::to_string(frame) + "]' type='object'><object class='" + cls("Vector$FrameData") + "'>" +
+           number("xtail", tail) + number("ytail", "2.0") + number("xcomponent", "3.0") + number("ycomponent", "4.0") +
+           "</object></property>";
 }
 
 std::string coordKey(int frame, std::string_view scale = "2.0")
 {
-    return "<property name='[" + std::to_string(frame) + "]' type='object'><object class='org.opensourcephysics.media.core.ImageCoordSystem$FrameData'>" +
-           number("xorigin", "10.0") + number("yorigin", "20.0") + number("angle", "0.0") + number("xscale", scale) +
-           number("yscale", scale) + "</object></property>";
+    return "<property name='[" + std::to_string(frame) +
+           "]' type='object'><object class='org.opensourcephysics.media.core.ImageCoordSystem$FrameData'>" + number("xorigin", "10.0") +
+           number("yorigin", "20.0") + number("angle", "0.0") + number("xscale", scale) + number("yscale", scale) + "</object></property>";
 }
 
 std::string coords(std::string_view keys)
 {
     return "<property name='coords' type='object'><object class='org.opensourcephysics.media.core.ImageCoordSystem'>" +
-           number("fixedorigin", "true", "boolean") + "<property name='framedata' type='array' "
+           number("fixedorigin", "true", "boolean") +
+           "<property name='framedata' type='array' "
            "class='[Lorg.opensourcephysics.media.core.ImageCoordSystem$FrameData;'>" +
            std::string(keys) + "</property></object></property>";
 }
@@ -144,26 +146,32 @@ const ObjectSlot& named(const TrackerDocument& document, std::string_view classN
 /// A media-free experiment with every typed family, Unknown tracks and every kind of reference-only slot.
 std::string experiment()
 {
-    const auto videoclip =
-        "<property name='videoclip' type='object'><object class='org.opensourcephysics.media.core.VideoClip'>"
-        "<property name='video' type='object'><object class='org.opensourcephysics.media.core.ImageVideo'>" +
-        strings("paths", text("[0]", "frames/a.png") + text("[1]", "frames/b.png")) + text("path", "frames/a.png") + number("delta_t", "40.0") +
-        "</object></property>" + number("video_framecount", "2", "int") + number("startframe", "0", "int") + number("stepsize", "1", "int") +
-        number("stepcount", "2", "int") + number("starttime", "0.0") + "</object></property>";
-    const auto clipcontrol = "<property name='clipcontrol' type='object'><object class='org.opensourcephysics.media.core.StepperClipControl'>" +
-                             number("rate", "1.0") + number("delta_t", "40.0") + "</object></property>";
+    const auto videoclip = "<property name='videoclip' type='object'><object class='org.opensourcephysics.media.core.VideoClip'>"
+                           "<property name='video' type='object'><object class='org.opensourcephysics.media.core.ImageVideo'>" +
+                           strings("paths", text("[0]", "frames/a.png") + text("[1]", "frames/b.png")) + text("path", "frames/a.png") +
+                           number("delta_t", "40.0") + "</object></property>" + number("video_framecount", "2", "int") +
+                           number("startframe", "0", "int") + number("stepsize", "1", "int") + number("stepcount", "2", "int") +
+                           number("starttime", "0.0") + "</object></property>";
+    const auto clipcontrol =
+        "<property name='clipcontrol' type='object'><object class='org.opensourcephysics.media.core.StepperClipControl'>" +
+        number("rate", "1.0") + number("delta_t", "40.0") + "</object></property>";
     const auto tracks =
         "<property name='tracks' type='collection' class='java.util.ArrayList'>" +
         track("PointMass",
               "A",
               number("mass", "2.0") + marks(mark(0, "1.0", "2.0") + mark(1, "3.0", "4.0")) +
                   "<property name='keyFrames' type='array' class='[I'><property name='array' type='string'>{0,1}</property></property>") +
-        track("FutureTrack", "F") + track("Vector", "v", "<property name='framedata' type='array' class='[L" + cls("Vector$FrameData") + ";'>" +
-                                                          vectorFrame(1, "1.0") + "</property>") +
+        track("FutureTrack", "F") +
+        track("Vector",
+              "v",
+              "<property name='framedata' type='array' class='[L" + cls("Vector$FrameData") + ";'>" + vectorFrame(1, "1.0") +
+                  "</property>") +
         track("CenterOfMass", "cm", collection("masses", text("item", "A") + text("item", "missing") + text("item", "F"))) +
-        track("TapeMeasure", "tape", strings("attachments", text("[0]", "A") + "<property name='[1]' type='object'>null</property>" + text("[2]", "v"))) +
-        track("DynamicParticle", "model", text("booster", "A")) + "<property name='item' type='object'>null</property>" + track("PointMass", "B") +
-        "</property>";
+        track("TapeMeasure",
+              "tape",
+              strings("attachments", text("[0]", "A") + "<property name='[1]' type='object'>null</property>" + text("[2]", "v"))) +
+        track("DynamicParticle", "model", text("booster", "A")) + "<property name='item' type='object'>null</property>" +
+        track("PointMass", "B") + "</property>";
     return panel(text("description", "notes") + text("mass_unit", "g") + videoclip + clipcontrol + coords(coordKey(0)) + tracks);
 }
 
@@ -262,14 +270,14 @@ TEST(TrackerDocument, PopulatesTheGraphFromReferenceOnlyDescriptorsByOriginalNam
 
 TEST(TrackerDocument, RecordsCyclesFromFilesAndReportsMalformedSlots)
 {
-    const auto document = import(panel(
-        "<property name='tracks' type='collection' class='java.util.ArrayList'>" +
-        track("TapeMeasure", "one", strings("attachments", text("[0]", "two"))) +
-        track("TapeMeasure", "two", strings("attachments", text("[0]", "one"))) +
-        track("CircleFitter", "circle", text("step_attachment", "one") + strings("attachments", text("[0]", "two"))) +
-        track("CenterOfMass", "no members") + track("Protractor", "bad", strings("attachments", text("[x]", "one"))) +
-        track("DynamicSystem", "system", strings("particles", text("[1]", "one")) + text("booster", "one")) +
-        "</property>" + text("referenceframe", "one")));
+    const auto document =
+        import(panel("<property name='tracks' type='collection' class='java.util.ArrayList'>" +
+                     track("TapeMeasure", "one", strings("attachments", text("[0]", "two"))) +
+                     track("TapeMeasure", "two", strings("attachments", text("[0]", "one"))) +
+                     track("CircleFitter", "circle", text("step_attachment", "one") + strings("attachments", text("[0]", "two"))) +
+                     track("CenterOfMass", "no members") + track("Protractor", "bad", strings("attachments", text("[x]", "one"))) +
+                     track("DynamicSystem", "system", strings("particles", text("[1]", "one")) + text("booster", "one")) + "</property>" +
+                     text("referenceframe", "one")));
     const auto plan = document.graph().plan();
     EXPECT_EQ(plan.cycles.size(), 1u);
     const auto& circle = named(document, cls("CircleFitter"));
@@ -287,8 +295,9 @@ TEST(TrackerDocument, RecordsCyclesFromFilesAndReportsMalformedSlots)
     {
         issues.push_back(issue.field + " " + issue.reason);
     }
-    EXPECT_EQ(issues,
-              (std::vector<std::string>{"center-of-mass.masses malformed", "tool.attachments malformed", "dynamic-system.particles malformed"}));
+    EXPECT_EQ(
+        issues,
+        (std::vector<std::string>{"center-of-mass.masses malformed", "tool.attachments malformed", "dynamic-system.particles malformed"}));
 }
 
 TEST(TrackerDocument, PresentsWhatB1CannotReadAsUnknownObjects)
@@ -302,8 +311,9 @@ TEST(TrackerDocument, PresentsWhatB1CannotReadAsUnknownObjects)
              {"no keys", panel(coords(""))},
              {"unreadable key", panel(coords(coordKey(-1)))},
              {"reference frame", panel(coords(coordKey(0)) + text("referenceframe", "origin"))},
-             {"other class", panel("<property name='coords' type='object'><object class='org.opensourcephysics.cabrillo.tracker.ReferenceFrame'>"
-                                   "</object></property>")},
+             {"other class",
+              panel("<property name='coords' type='object'><object class='org.opensourcephysics.cabrillo.tracker.ReferenceFrame'>"
+                    "</object></property>")},
          })
     {
         SCOPED_TRACE(label);
@@ -312,7 +322,8 @@ TEST(TrackerDocument, PresentsWhatB1CannotReadAsUnknownObjects)
         EXPECT_EQ(document.singleton(Role::Coordinates)->family(), Family::Unknown);
         EXPECT_EQ(document.singleton(Role::Coordinates)->range, AllocationRange::Countdown);
     }
-    const auto document = import(panel("<property name='tracks' type='collection' class='java.util.ArrayList'>" + unreadableVector + "</property>"));
+    const auto document =
+        import(panel("<property name='tracks' type='collection' class='java.util.ArrayList'>" + unreadableVector + "</property>"));
     const auto& vector = named(document, cls("Vector"));
     EXPECT_EQ(vector.family(), Family::Unknown);
     EXPECT_EQ(vector.range, AllocationRange::Countdown);
@@ -327,8 +338,8 @@ TEST(TrackerDocument, RefusesWithB1sMessagesWhereB1RefusesTheFile)
               "Expected a TrackerPanel project.");
     const auto clip = [](std::string_view fields)
     {
-        return panel("<property name='videoclip' type='object'><object class='org.opensourcephysics.media.core.VideoClip'>" + std::string(fields) +
-                     "</object></property>");
+        return panel("<property name='videoclip' type='object'><object class='org.opensourcephysics.media.core.VideoClip'>" +
+                     std::string(fields) + "</object></property>");
     };
     EXPECT_EQ(refusal(clip(number("startframe", "-1", "int"))), "Invalid project integer.");
     EXPECT_EQ(refusal(clip(number("stepsize", "0", "int"))), "Invalid project integer.");
@@ -362,8 +373,8 @@ TEST(TrackerDocument, RefusesWithB1sMessagesWhereB1RefusesTheFile)
 DocumentParts sampleParts()
 {
     return import(panel("<property name='tracks' type='collection' class='java.util.ArrayList'>" +
-                        track("PointMass", "A", marks(mark(0, "1.0", "1.0"))) + track("CenterOfMass", "cm", collection("masses", text("item", "A"))) +
-                        "</property>"))
+                        track("PointMass", "A", marks(mark(0, "1.0", "1.0"))) +
+                        track("CenterOfMass", "cm", collection("masses", text("item", "A"))) + "</property>"))
         .parts();
 }
 
@@ -560,11 +571,12 @@ TEST(TrackerDocument, FrameSeriesCopiesOneChunkPerEdit)
 
 TEST(TrackerDocument, DescriptorsNameEveryTypedFieldAndItsSaverTree)
 {
-    using motrack::model::FieldKind;
     using motrack::model::fieldDescriptors;
+    using motrack::model::FieldKind;
     using motrack::model::findField;
     EXPECT_TRUE(fieldDescriptors(Family::Unknown).empty());
-    for (const auto family : {Family::Panel, Family::Clip, Family::Video, Family::ClipControl, Family::Coordinates, Family::PointMass, Family::Vector})
+    for (const auto family :
+         {Family::Panel, Family::Clip, Family::Video, Family::ClipControl, Family::Coordinates, Family::PointMass, Family::Vector})
     {
         EXPECT_FALSE(fieldDescriptors(family).empty()) << motrack::model::familyName(family);
     }
@@ -583,7 +595,9 @@ TEST(TrackerDocument, DescriptorsNameEveryTypedFieldAndItsSaverTree)
 
     const auto document = import(experiment());
     const auto value = [&](Role role, std::string_view field)
-    { return motrack::model::scalarValue(*document.singleton(role)->value, *findField(document.singleton(role)->family(), field)); };
+    {
+        return motrack::model::scalarValue(*document.singleton(role)->value, *findField(document.singleton(role)->family(), field));
+    };
     EXPECT_EQ(value(Role::Panel, "description"), motrack::model::FieldValue(std::string("notes")));
     EXPECT_EQ(value(Role::Panel, "length_unit"), motrack::model::FieldValue{});
     EXPECT_EQ(value(Role::Clip, "stepcount"), motrack::model::FieldValue(2));
@@ -613,7 +627,8 @@ TEST(TrackerDocument, DescriptorsNameEveryTypedFieldAndItsSaverTree)
     const auto other = motrack::model::saverProperties(*named(document, cls("PointMass"), 1).value);
     EXPECT_EQ(names(other), (std::vector<std::string>{"mass", "name", "framedata", "keyFrames"}));
     EXPECT_EQ(other[0].content, "1.0");
-    EXPECT_EQ(names(motrack::model::saverProperties(*named(document, cls("Vector")).value)), (std::vector<std::string>{"name", "framedata"}));
+    EXPECT_EQ(names(motrack::model::saverProperties(*named(document, cls("Vector")).value)),
+              (std::vector<std::string>{"name", "framedata"}));
     EXPECT_EQ(names(motrack::model::saverProperties(*document.singleton(Role::Coordinates)->value)),
               (std::vector<std::string>{"fixedorigin", "framedata"}));
     EXPECT_EQ(names(motrack::model::saverProperties(*document.singleton(Role::Video)->value)),

@@ -139,7 +139,6 @@ struct ImportedTrackerProject
     TrackerSource source;
 };
 
-
 LegacyProject parseLegacyProject(std::string_view xml);
 /// Parse an owned XML snapshot and retain its original object associations.
 ImportedTrackerProject parseTrackerProject(std::string xml);

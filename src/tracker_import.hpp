@@ -1,8 +1,8 @@
 #pragma once
 
 #include "legacy_project.hpp"
-#include "osp/source.hpp"
 #include "model/tracker_loaders.hpp"
+#include "osp/source.hpp"
 
 #include <memory>
 #include <string>

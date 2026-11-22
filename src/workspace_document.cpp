@@ -2,10 +2,10 @@
 
 #include "filesystem_path.hpp"
 #include "local_media_path.hpp"
+#include "model/tracker_loaders.hpp"
 #include "track_identity.hpp"
 #include "tracker_archive.hpp"
 #include "tracker_import.hpp"
-#include "model/tracker_loaders.hpp"
 #include "workspace_document_codec.hpp"
 #include "workspace_storage.hpp"
 

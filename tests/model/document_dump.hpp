@@ -120,7 +120,8 @@ inline QJsonObject dumpFields(const motrack::model::ObjectSlot& object)
     {
         if (field.kind == FieldKind::Scalar)
         {
-            fields.insert(QString::fromUtf8(field.id.data(), static_cast<qsizetype>(field.id.size())), dumpField(scalarValue(*object.value, field)));
+            fields.insert(QString::fromUtf8(field.id.data(), static_cast<qsizetype>(field.id.size())),
+                          dumpField(scalarValue(*object.value, field)));
         }
     }
     if (const auto* mass = std::get_if<PointMassState>(object.value.get()))
@@ -131,12 +132,15 @@ inline QJsonObject dumpFields(const motrack::model::ObjectSlot& object)
     {
         fields.insert("framedata",
                       dumpSeries(vector->samples,
-                                 [](const motrack::model::VectorSample& sample) { return std::array{sample.xTail, sample.yTail, sample.xComponent, sample.yComponent}; }));
+                                 [](const motrack::model::VectorSample& sample)
+                                 { return std::array{sample.xTail, sample.yTail, sample.xComponent, sample.yComponent}; }));
     }
     else if (const auto* coords = std::get_if<CoordinatesState>(object.value.get()))
     {
         fields.insert("framedata",
-                      dumpSeries(coords->keys, [](const motrack::model::CoordKey& key) { return std::array{key.xOrigin, key.yOrigin, key.angle, key.xScale, key.yScale}; }));
+                      dumpSeries(coords->keys,
+                                 [](const motrack::model::CoordKey& key)
+                                 { return std::array{key.xOrigin, key.yOrigin, key.angle, key.xScale, key.yScale}; }));
     }
     else if (const auto* unknown = std::get_if<UnknownState>(object.value.get()))
     {
@@ -209,16 +213,18 @@ inline QJsonObject documentDump(const motrack::model::TrackerDocument& document)
                                   {"reason", QString::fromStdString(issue.reason)}});
     }
     const auto& media = document.media();
-    return {{"associations", QString::fromUtf8(associationsName(document.associations()).data())},
-            {"baselineBytes", document.baseline() ? QJsonValue(static_cast<qint64>(document.baseline()->bytes().size())) : QJsonValue::Null},
-            {"nextObjectId", dumpId(document.nextObjectId())},
-            {"countdownLowWater", dumpId(document.countdownLowWater())},
-            {"trackOrder", order},
-            {"media", QJsonObject{{"references", references},
-                                  {"sourceFrameCount", media.sourceFrameCount ? QJsonValue(*media.sourceFrameCount) : QJsonValue::Null}}},
-            {"objects", objects},
-            {"dependencies", dependencies},
-            {"referenceIssues", issues}};
+    return {
+        {"associations", QString::fromUtf8(associationsName(document.associations()).data())},
+        {"baselineBytes", document.baseline() ? QJsonValue(static_cast<qint64>(document.baseline()->bytes().size())) : QJsonValue::Null},
+        {"nextObjectId", dumpId(document.nextObjectId())},
+        {"countdownLowWater", dumpId(document.countdownLowWater())},
+        {"trackOrder", order},
+        {"media",
+         QJsonObject{{"references", references},
+                     {"sourceFrameCount", media.sourceFrameCount ? QJsonValue(*media.sourceFrameCount) : QJsonValue::Null}}},
+        {"objects", objects},
+        {"dependencies", dependencies},
+        {"referenceIssues", issues}};
 }
 
 inline std::string documentDumpText(const motrack::model::TrackerDocument& document)

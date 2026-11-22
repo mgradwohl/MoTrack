@@ -1,8 +1,8 @@
 #include "tracker_rename.hpp"
 
 #include "model/codecs.hpp"
-#include "osp/java_text.hpp"
 #include "model/source_edits.hpp"
+#include "osp/java_text.hpp"
 #include "tracker_import.hpp"
 #include "tracker_references.hpp"
 

@@ -366,7 +366,8 @@ struct UnknownState
 };
 
 /// One family value; the alternative index is the `Family`.
-using TypedValue = std::variant<PanelState, ClipState, VideoState, ClipControlState, CoordinatesState, PointMassState, VectorState, UnknownState>;
+using TypedValue =
+    std::variant<PanelState, ClipState, VideoState, ClipControlState, CoordinatesState, PointMassState, VectorState, UnknownState>;
 
 [[nodiscard]] inline Family familyOf(const TypedValue& value) noexcept
 {
@@ -389,6 +390,7 @@ inline constexpr double MINIMUM_POINT_MASS = 1e-30;
 /// The timing-provider guard: constant clip timing edits require media-free experiments whose untyped tracks all
 /// leave time alone. Point masses, independent vectors and retained coordinate axes and protractors qualify; any
 /// other class (a model, data track or future class) could supply time and blocks the edit.
-[[nodiscard]] bool supportsConstantClipTimingEdits(std::span<const std::string> mediaReferences, std::span<const std::string> unknownTrackClasses);
+[[nodiscard]] bool supportsConstantClipTimingEdits(std::span<const std::string> mediaReferences,
+                                                   std::span<const std::string> unknownTrackClasses);
 
 } // namespace motrack::model
