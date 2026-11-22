@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
+include(cmake/MoTrackLibstdcxx.cmake)
 project(MoTrack VERSION 0.1.0 LANGUAGES CXX)
+motrack_check_libstdcxx()
 
 if(NOT CMAKE_CXX_COMPILER_ID MATCHES "^(Apple)?Clang$")
     message(FATAL_ERROR "MoTrack requires Clang or Apple Clang.")
@@ -211,7 +213,9 @@ if(BUILD_TESTING)
         MOTRACK_TRANSLATIONS="${CMAKE_CURRENT_BINARY_DIR}")
     # Keep every case while bounding UI saving, persistence and session groups independently.
     add_test(NAME workspace COMMAND motrack_workspace_tests
-        "--gtest_filter=-PairedWorkspace.*:DocumentSession.*:WorkspaceDocument.*:ImagePackageWorkspace.*")
+        "--gtest_filter=-PairedWorkspace.*:DocumentSession.*:WorkspaceDocument.*:ImagePackageWorkspace.*:WorkspaceShell.*")
+    # The shell's save/revert flows take seconds each and slow down most on loaded runners (#283).
+    add_test(NAME workspace_shell COMMAND motrack_workspace_tests --gtest_filter=WorkspaceShell.*)
     add_test(NAME workspace_saving COMMAND motrack_workspace_tests
         "--gtest_filter=PairedWorkspace.*:ImagePackageWorkspace.*")
     add_test(NAME workspace_document COMMAND motrack_workspace_tests --gtest_filter=WorkspaceDocument.*)
@@ -219,7 +223,7 @@ if(BUILD_TESTING)
     # Real-file journal matrices can exhaust a shared 60-second budget on slower CI storage (#137).
     add_test(NAME document_session COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*-DocumentSession.*Journal*")
     add_test(NAME document_session_journals COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*Journal*")
-    set_tests_properties(workspace workspace_saving workspace_document document_session document_session_journals PROPERTIES TIMEOUT 60)
+    set_tests_properties(workspace workspace_shell workspace_saving workspace_document document_session document_session_journals PROPERTIES TIMEOUT 60)
     add_executable(motrack_media_tests tests/template_tracker_test.cpp tests/video_reader_test.cpp)
     target_link_libraries(motrack_media_tests PRIVATE motrack_media GTest::gtest_main)
     target_compile_definitions(motrack_media_tests PRIVATE
@@ -229,7 +233,7 @@ if(BUILD_TESTING)
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/point-mass.trk")
     add_test(NAME desktop_invalid_project COMMAND motrack --smoke-test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/missing.trk")
-    set_tests_properties(workspace workspace_saving workspace_document document_session document_session_journals desktop_smoke desktop_invalid_project PROPERTIES
+    set_tests_properties(workspace workspace_shell workspace_saving workspace_document document_session document_session_journals desktop_smoke desktop_invalid_project PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     set_tests_properties(desktop_invalid_project PROPERTIES WILL_FAIL TRUE)
     if(MOTRACK_BUILD_BENCHMARKS)

@@ -50,47 +50,20 @@ constexpr double NOT_A_NUMBER = std::numeric_limits<double>::quiet_NaN();
 const std::map<std::string, FitModel>& userModels()
 {
     static const std::map<std::string, FitModel> models = {
-        {"m*x+b",
-         [](double x, std::span<const double> p)
-         {
-             return (p[0] * x) + p[1];
-         }},
-        {"A*(1-exp(-x/T))",
-         [](double x, std::span<const double> p)
-         {
-             return p[0] * (1 - std::exp(-x / p[1]));
-         }},
+        {"m*x+b", [](double x, std::span<const double> p) { return (p[0] * x) + p[1]; }},
+        {"A*(1-exp(-x/T))", [](double x, std::span<const double> p) { return p[0] * (1 - std::exp(-x / p[1])); }},
         {"A/(1+((x-B)/C)^2)",
          [](double x, std::span<const double> p)
          {
              const double u = (x - p[1]) / p[2];
              return p[0] / (1 + (u * u));
          }},
-        {"a*cos(b*x)+c",
-         [](double x, std::span<const double> p)
-         {
-             return (p[0] * std::cos(p[1] * x)) + p[2];
-         }},
-        {"a*cos(b*x)+k",
-         [](double x, std::span<const double> p)
-         {
-             return (p[0] * std::cos(p[1] * x)) + p[2];
-         }},
+        {"a*cos(b*x)+c", [](double x, std::span<const double> p) { return (p[0] * std::cos(p[1] * x)) + p[2]; }},
+        {"a*cos(b*x)+k", [](double x, std::span<const double> p) { return (p[0] * std::cos(p[1] * x)) + p[2]; }},
         {"A*exp(F*x)*sin(B*x+C)+D",
-         [](double x, std::span<const double> p)
-         {
-             return ((p[0] * std::exp(p[4] * x)) * std::sin((p[1] * x) + p[2])) + p[3];
-         }},
-        {"2*x",
-         [](double x, std::span<const double>)
-         {
-             return 2 * x;
-         }},
-        {"A*sqrt(x-B)",
-         [](double x, std::span<const double> p)
-         {
-             return p[0] * std::sqrt(x - p[1]);
-         }},
+         [](double x, std::span<const double> p) { return ((p[0] * std::exp(p[4] * x)) * std::sin((p[1] * x) + p[2])) + p[3]; }},
+        {"2*x", [](double x, std::span<const double>) { return 2 * x; }},
+        {"A*sqrt(x-B)", [](double x, std::span<const double> p) { return p[0] * std::sqrt(x - p[1]); }},
     };
     return models;
 }
