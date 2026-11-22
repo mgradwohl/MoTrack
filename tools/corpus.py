@@ -4609,6 +4609,252 @@ def compare_ode_reference(expected, actual):
     for want, got in zip(expected["cases"], actual["cases"]):
         compare(want, got, ode_case_tolerance(want, adaptive), f"ode-reference.{want['id']}")
 
+FIT_REFERENCE = ROOT / "tests/science/fit-reference.json"
+
+
+FIT_ORACLE = ROOT / "tools/reference/FitOracle.java"
+
+
+FIT_BUILT_INS = ["line", "parabola", "cubic", "gaussian", "exponential", "sinusoid", "dampedsine", "power", "log"]
+
+
+FIT_AGREEMENTS = {"exact", "polynomial", "transcendental", "chaotic"}
+
+
+FIT_DEFECTS = {"duplicate-x-initial-guess", "dataset-append-duplicates", "dataset-capacity", "singular-polynomial",
+               "non-finite-initial-guess", "normal-equation-conditioning", "text-substitution"}
+
+
+FIT_HEADER_KEYS = ["schema_version", "reference_version", "fits", "user_fits", "minimizers", "format"]
+
+
+FIT_RESULT_KEYS = {"points", "valid_x", "method", "parameters", "uncertainties", "band", "intended_band", "rms", "correlation",
+                   "non_real", "formatted", "start", "tied"}
+
+
+FIT_METHODS = {"none", "closed-form", "hessian", "levenberg-marquardt", "restored"}
+
+
+# Main-fit paths that minimize; for a tied fit (ending at its starting deviation) last bits choose among them.
+FIT_MINIMIZER_PATHS = {"hessian", "levenberg-marquardt", "restored"}
+
+
+MAX_FIT_CASES = 1000
+
+
+# The agreement classes of tests/science/curve_fit_test.cpp (docs/curve-fitting.md#tolerances). Fits using
+# only + - * / are bitwise; Math.exp/sin/log/pow differ in the last bit between HotSpot intrinsics on
+# x86-64 and arm64 and are amplified by the finite-difference Hessian. A quantity that moves by more than
+# 1e-3 when every y changes by one ulp ("sensitivity") is reproducible only bit for bit.
+FIT_EXACT = {"relative": 0.0, "absolute": 0.0}
+
+
+FIT_PARAMETER_TOLERANCE = {"relative": 1e-7, "absolute": 1e-9}
+
+
+FIT_UNCERTAINTY_TOLERANCE = {"relative": 1e-4, "absolute": 1e-9}
+
+
+FIT_EXPECT_TOLERANCE = {"relative": 1e-9, "absolute": 1e-12}
+
+
+FIT_SENSITIVITY_LIMIT = 1e-3
+
+
+def fit_number(value):
+    """Fixture numbers are JSON numbers or the strings NaN, Infinity and -Infinity."""
+    if isinstance(value, str) and value in {"NaN", "Infinity", "-Infinity"}:
+        return float(value.replace("Infinity", "inf"))
+    if type(value) not in {int, float}:
+        raise ValueError(f"Invalid fit oracle number {value!r}")
+    return float(value)
+
+
+def validate_fit_reference(document, manifest):
+    """Check the curve-fit oracle schema before comparing or recording it."""
+    if (not isinstance(document, dict) or document.get("schema_version") != 1
+            or document.get("reference_version") != manifest["reference"]["version"]):
+        raise ValueError("Unexpected fit oracle schema or reference version")
+    fits, cases = document.get("fits"), document.get("cases")
+    if (not isinstance(fits, list) or [fit.get("id") if isinstance(fit, dict) else None for fit in fits] != FIT_BUILT_INS
+            or not isinstance(cases, list) or not cases or len(cases) > MAX_FIT_CASES
+            or not isinstance(document.get("user_fits"), list) or not isinstance(document.get("minimizers"), list)
+            or not isinstance(document.get("format"), list)):
+        raise ValueError("Invalid fit oracle fit, case, minimizer or format list")
+    user_ids = {user.get("id") for user in document["user_fits"] if isinstance(user, dict)}
+    seen = set()
+    for case in cases:
+        if not isinstance(case, dict) or not isinstance(case.get("id"), str) or case["id"] in seen:
+            raise ValueError(f"Invalid or duplicate fit oracle case {case.get('id') if isinstance(case, dict) else case!r}")
+        seen.add(case["id"])
+        java = case.get("java")
+        data_ok = ("generated" in case) != ("x" in case and "y" in case)
+        if (case.get("fit") not in FIT_BUILT_INS and case.get("fit") not in user_ids
+                or case.get("agreement") not in FIT_AGREEMENTS or not data_ok
+                or ("defect" in case and case["defect"] not in FIT_DEFECTS)
+                or not isinstance(java, dict) or set(java) - {"sensitivity"} != FIT_RESULT_KEYS
+                or java.get("method") not in FIT_METHODS
+                or ("sensitivity" in java) != (case["agreement"] != "exact")
+                or ("intended" in case) != ("intended_fit" in case)):
+            raise ValueError(f"Invalid fit oracle case {case['id']!r}")
+        if "x" in case and len(case["x"]) != len(case["y"]):
+            raise ValueError(f"Fit oracle case {case['id']!r} has unpaired data")
+    if not set(FIT_BUILT_INS) <= {case["fit"] for case in cases}:
+        raise ValueError("Every built-in fit needs an oracle case")
+
+
+def fit_reference_text(document):
+    """Render the fixture with one case per line so that review diffs stay readable."""
+    compact = {"separators": (",", ":"), "ensure_ascii": True}
+    lines = ["{"]
+    lines.extend(f"  {json.dumps(key)}: {json.dumps(value, **compact)}," for key, value in document.items() if key != "cases")
+    lines.append('  "cases": [')
+    cases = document["cases"]
+    lines.extend(f"    {json.dumps(case, **compact)}{',' if index + 1 < len(cases) else ''}" for index, case in enumerate(cases))
+    lines.extend(["  ]", "}"])
+    return "\n".join(lines) + "\n"
+
+
+def compare_fit_values(expected, actual, tolerance, location):
+    if isinstance(expected, list) or isinstance(actual, list):
+        if not isinstance(expected, list) or not isinstance(actual, list) or len(expected) != len(actual):
+            raise ValueError(f"{location}: list length differs")
+        for index, value in enumerate(expected):
+            compare_fit_values(value, actual[index], tolerance, f"{location}[{index}]")
+        return
+    if expected is None or actual is None:
+        if expected is not actual:
+            raise ValueError(f"{location}: expected {expected!r}, got {actual!r}")
+        return
+    want, got = fit_number(expected), fit_number(actual)
+    if math.isnan(want) or math.isnan(got) or math.isinf(want) or math.isinf(got):
+        if not (want == got or (math.isnan(want) and math.isnan(got))):
+            raise ValueError(f"{location}: expected {want!r}, got {got!r}")
+    elif tolerance is FIT_EXACT:
+        if want != got or math.copysign(1, want) != math.copysign(1, got):
+            raise ValueError(f"{location}: expected {want!r}, got {got!r} (bitwise)")
+    elif abs(want - got) > tolerance["absolute"] + tolerance["relative"] * max(abs(want), abs(got)):
+        raise ValueError(f"{location}: {got!r} differs from {want!r} beyond {tolerance}")
+
+
+def fit_result_tolerances(case, result):
+    """Per-quantity tolerances of a Java result, or None for a quantity that last bits decide."""
+    agreement = case["agreement"]
+    if agreement == "exact":
+        return {"parameters": FIT_EXACT, "rms": FIT_EXACT, "uncertainties": FIT_EXACT}
+    sensitivity = result.get("sensitivity", {})
+
+    def relaxed(base, key):
+        moved = sensitivity.get(key, 0.0)
+        if moved > FIT_SENSITIVITY_LIMIT:
+            return None
+        return {"relative": max(base["relative"], 100 * moved), "absolute": base["absolute"]}
+
+    if agreement == "chaotic":
+        return {"parameters": None, "rms": None, "uncertainties": None}
+    uncertainties = relaxed(FIT_UNCERTAINTY_TOLERANCE, "uncertainties")
+    if agreement == "polynomial":
+        return {"parameters": FIT_EXACT, "rms": FIT_EXACT, "uncertainties": uncertainties}
+    return {"parameters": relaxed(FIT_PARAMETER_TOLERANCE, "parameters"), "rms": relaxed(FIT_PARAMETER_TOLERANCE, "rms"),
+            "uncertainties": uncertainties}
+
+
+def compare_fit_result(case, expected, actual, location):
+    if not isinstance(actual, dict) or set(expected) != set(actual):
+        raise ValueError(f"{location}: result fields differ")
+    tolerances = fit_result_tolerances(case, expected)
+    for key in ["points", "valid_x", "correlation"]:
+        compare_fit_values(expected[key], actual[key], FIT_EXACT, f"{location}.{key}")
+    # The start precedes any minimization: bitwise for arithmetic fits, a from-scratch guess otherwise.
+    if (expected["start"] is None) != (actual["start"] is None) and case["agreement"] != "chaotic":
+        raise ValueError(f"{location}.start: only one run minimized")
+    if expected["start"] is not None and actual["start"] is not None:
+        start = FIT_EXACT if case["agreement"] == "exact" else FIT_PARAMETER_TOLERANCE
+        compare_fit_values(expected["start"]["parameters"], actual["start"]["parameters"], start, f"{location}.start")
+        compare_fit_values(expected["start"]["ssr"], actual["start"]["ssr"], start, f"{location}.start.ssr")
+    groups = {"parameters": ["parameters"], "rms": ["rms"], "uncertainties": ["uncertainties", "band", "intended_band"]}
+    for group, keys in groups.items():
+        if tolerances[group] is not None:
+            for key in keys:
+                compare_fit_values(expected[key], actual[key], tolerances[group], f"{location}.{key}")
+    if case["agreement"] != "chaotic":
+        # A tied fit ends at the deviation it started from (a start already at the minimum): Newton's result, the
+        # Levenberg-Marquardt fallback and the restored start then differ in the last bits, so a transcendental fit
+        # may take any of them that reaches the same values. Every other path must match.
+        tied = (case["agreement"] == "transcendental" and tolerances["parameters"] is not None
+                and (expected["tied"] or actual["tied"]) and {expected["method"], actual["method"]} <= FIT_MINIMIZER_PATHS)
+        for key in ["method", "non_real"]:
+            if expected[key] != actual[key] and not (key == "method" and tied):
+                raise ValueError(f"{location}.{key}: expected {expected[key]!r}, got {actual[key]!r}")
+        # Display text follows the compared values; within the tolerance it may legitimately differ.
+        if tolerances["parameters"] is FIT_EXACT and tolerances["uncertainties"] is FIT_EXACT and expected["formatted"] != actual["formatted"]:
+            raise ValueError(f"{location}.formatted: display text differs for identical values")
+
+
+def compare_fit_reference(expected, actual):
+    """Compares a regenerated Java fit report with the committed fixture."""
+    if [key for key in expected if key != "cases"] != FIT_HEADER_KEYS or set(actual) != set(expected):
+        raise ValueError("Fit oracle report fields differ")
+    for key in ["schema_version", "reference_version", "fits", "user_fits", "format"]:
+        if expected[key] != actual[key]:
+            raise ValueError(f"fit-reference: {key} differs")
+    # Direct minimizer cases use arithmetic objectives only.
+    compare_fit_values([m["parameters"] for m in expected["minimizers"]], [m["parameters"] for m in actual["minimizers"]],
+                       FIT_EXACT, "fit-reference.minimizers")
+    if ([{k: v for k, v in m.items() if k != "parameters"} for m in expected["minimizers"]]
+            != [{k: v for k, v in m.items() if k != "parameters"} for m in actual["minimizers"]]):
+        raise ValueError("fit-reference: minimizer results differ")
+    if [case["id"] for case in expected["cases"]] != [case["id"] for case in actual["cases"]]:
+        raise ValueError("fit-reference: the Java case list differs from the fixture")
+    for want, got in zip(expected["cases"], actual["cases"]):
+        location = f"fit-reference.{want['id']}"
+        # Whether Newton diverges depends on the JVM's Math last bits, so either run may classify a transcendental
+        # case as chaotic. That case then compares only its data handling and carries no independent expectation.
+        classes = {want.get("agreement"), got.get("agreement")}
+        chaotic = "chaotic" in classes and classes <= {"chaotic", "transcendental"}
+        if (set(want) ^ set(got)) - ({"expect"} if chaotic else set()):
+            raise ValueError(f"{location}: case fields differ")
+        compared = dict(want, agreement="chaotic") if chaotic else want
+        for key, value in want.items():
+            if key in {"java", "intended"}:
+                compare_fit_result(compared, value, got[key], f"{location}.{key}")
+            elif chaotic and key in {"agreement", "expect"}:
+                continue
+            elif key == "expect":
+                # Independent expectations: exact decimal least squares or a double Gauss-Newton minimum.
+                if {k: v for k, v in value.items() if k not in {"parameters", "uncertainties"}} != \
+                        {k: v for k, v in got[key].items() if k not in {"parameters", "uncertainties"}}:
+                    raise ValueError(f"{location}.expect: definition differs")
+                compare_fit_values(value["parameters"], got[key]["parameters"], FIT_EXPECT_TOLERANCE, f"{location}.expect")
+                compare_fit_values(value["uncertainties"], got[key]["uncertainties"], FIT_EXPECT_TOLERANCE, f"{location}.expect")
+            elif value != got[key]:
+                raise ValueError(f"{location}.{key}: case definition differs")
+
+
+@kernel_oracle("fit-oracle")
+def check_fit_oracle(manifest, cache, java, *, record=False):
+    """Fit the curve-fit kernel cases with the pinned OSP Data Tool classes and diff the fixture."""
+    verify_file(cache / manifest["reference"]["file"], manifest["reference"])
+    # A private home keeps OSP preference files out of the shared reference cache.
+    with tempfile.TemporaryDirectory(prefix="fit-oracle-") as temporary:
+        home = Path(temporary) / "home"
+        home.mkdir()
+        output = Path(temporary) / "fit-java.json"
+        run([java, "-Djava.awt.headless=true", f"-Duser.home={home}", f"-Djava.io.tmpdir={home}",
+             "-Xmx256m", "--class-path", java_classpath(manifest, cache), str(FIT_ORACLE), str(output)], timeout=300)
+        actual = json.loads(output.read_text(encoding="utf-8"))
+    validate_fit_reference(actual, manifest)
+    location = FIT_REFERENCE.relative_to(ROOT).as_posix() if FIT_REFERENCE.is_relative_to(ROOT) else str(FIT_REFERENCE)
+    if record:
+        FIT_REFERENCE.parent.mkdir(parents=True, exist_ok=True)
+        FIT_REFERENCE.write_text(fit_reference_text(actual), encoding="utf-8", newline="\n")
+        print(f"fit-oracle: recorded {len(actual['cases'])} Java curve-fit cases in {location}")
+        return
+    expected = json.loads(FIT_REFERENCE.read_text(encoding="utf-8"))
+    validate_fit_reference(expected, manifest)
+    compare_fit_reference(expected, actual)
+    print(f"fit-oracle: {len(actual['cases'])} Java curve-fit cases and {len(actual['minimizers'])} minimizer runs match {location}")
+
 
 FILTER_REFERENCE = ROOT / "tests/science/video-filter-reference.json"
 

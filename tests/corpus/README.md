@@ -341,6 +341,8 @@ python tools/corpus.py motion-oracle --java /path/to/jdk-17/bin/java
 python tools/corpus.py analysis-oracle --java /path/to/jdk-17/bin/java
 
 python tools/corpus.py filter-oracle --java /path/to/jdk-17/bin/java
+
+python tools/corpus.py fit-oracle --java /path/to/jdk-17/bin/java
 python -m unittest discover -s tests -p test_corpus.py
 ```
 
@@ -393,6 +395,11 @@ for the Butterworth cases, OSP's test function and the FilterSelfTest metrics, w
 home and compares them with [`analysis-reference.json`](../science/analysis-reference.json) under the
 tolerances in the [data analysis kernel notes](../../docs/data-analysis-kernels.md#floating-point-and-the-java-oracle);
 `--record` rewrites that fixture for review. The C++ tests read the committed fixture and need no Java.
+
+`fit-oracle` runs the [curve-fit kernel](../../docs/curve-fitting.md) cases through the pinned OSP Data Tool
+classes (`tools/reference/FitOracle.java`) in a temporary Java home and compares the result with
+`tests/science/fit-reference.json` under that kernel's agreement classes; `--record` replaces the fixture
+for review. The C++ tests read the committed fixture and need no Java.
 
 On Windows, use `build/coverage/motrack_corpus_probe.exe` and the path to `java.exe`. Python 3.10 or newer
 is supported. The reference command uses Java source-file mode and therefore needs a JDK, not just a

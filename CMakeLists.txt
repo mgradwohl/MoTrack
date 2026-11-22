@@ -98,6 +98,13 @@ add_library(motrack_media STATIC src/template_tracker.cpp src/video_reader.cpp)
 target_include_directories(motrack_media PUBLIC src)
 target_link_libraries(motrack_media PUBLIC Qt6::Gui PRIVATE motrack_ffmpeg)
 
+# Qt-free port of the Data Tool curve fitter and its minimizers (docs/curve-fitting.md).
+add_library(motrack_fit STATIC src/science/fit/curve_fit.cpp src/science/fit/built_in_fits.cpp src/science/fit/fit_format.cpp
+    src/science/fit/minimizers.cpp)
+target_include_directories(motrack_fit PUBLIC src)
+target_link_libraries(motrack_fit PRIVATE motrack_java_math)
+target_compile_options(motrack_fit PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
+
 # Input adaptation may probe/index media; keep Qt Gui and FFmpeg outside the document model.
 add_library(motrack_input STATIC src/workspace_input.cpp)
 target_include_directories(motrack_input PUBLIC src)
@@ -175,7 +182,7 @@ if(MOTRACK_STAGE_DESKTOP)
     install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/motrack)
 endif()
 
-set(motrack_targets motrack_dependencies motrack_osp motrack_expression motrack_ode motrack_analysis motrack_motion motrack_project motrack_input motrack_image_package motrack_media motrack_workspace motrack motrack_java_math)
+set(motrack_targets motrack_dependencies motrack_osp motrack_expression motrack_ode motrack_fit motrack_analysis motrack_motion motrack_project motrack_input motrack_image_package motrack_media motrack_workspace motrack motrack_java_math)
 if(MOTRACK_BUILD_BENCHMARKS)
     add_executable(motrack_import_benchmark benchmarks/import_benchmark.cpp)
     target_link_libraries(motrack_import_benchmark PRIVATE motrack_project)
@@ -257,6 +264,13 @@ if(BUILD_TESTING)
         MOTRACK_FILTER_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/video-filter-reference.json")
     # The filter test computes Java-rounded values too (sinCos arguments, ramps).
     set_source_files_properties(tests/science/video_filter_test.cpp PROPERTIES COMPILE_OPTIONS "${MOTRACK_JAVA_FP_OPTIONS}")
+    target_sources(motrack_tests PRIVATE tests/science/curve_fit_api_test.cpp tests/science/curve_fit_test.cpp)
+    target_link_libraries(motrack_tests PRIVATE motrack_fit)
+    target_compile_definitions(motrack_tests PRIVATE
+        MOTRACK_FIT_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/fit-reference.json")
+    # The fit models must round like the Java oracle's.
+    set_source_files_properties(tests/science/curve_fit_test.cpp tests/science/curve_fit_api_test.cpp
+        PROPERTIES COMPILE_OPTIONS "${MOTRACK_JAVA_FP_OPTIONS}")
     add_test(NAME legacy_project COMMAND motrack_tests)
     target_sources(motrack_tests PRIVATE tests/science/sampling_test.cpp tests/science/sampling_reference_test.cpp)
     target_link_libraries(motrack_tests PRIVATE motrack_sampling)
