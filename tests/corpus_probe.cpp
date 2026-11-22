@@ -27,14 +27,20 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
+#include <initializer_list>
 #include <limits>
 #include <memory>
+#include <numbers>
 #include <optional>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 namespace
 {
@@ -156,6 +162,268 @@ QJsonObject snapshot(const motrack::LegacyProject& project)
             {"vectors", vectors},
             {"unsupported_tracks", unsupported},
             {"coordinate_samples", coordinates}};
+}
+
+constexpr auto POINT_MASS_CLASS = "org.opensourcephysics.cabrillo.tracker.PointMass";
+constexpr auto VECTOR_CLASS = "org.opensourcephysics.cabrillo.tracker.Vector";
+
+/// Loaded-state dumps (docs/oracle-dumps.md) write IEEE specials as strings; JSON has no NaN.
+QJsonValue stateNumber(double value)
+{
+    if (std::isnan(value))
+    {
+        return QStringLiteral("NaN");
+    }
+    if (std::isinf(value))
+    {
+        return value > 0 ? QStringLiteral("Infinity") : QStringLiteral("-Infinity");
+    }
+    return value;
+}
+
+QJsonArray statePoint(double x, double y)
+{
+    return QJsonArray{stateNumber(x), stateNumber(y)};
+}
+
+bool clipIncludes(const motrack::Clip& clip, int frame)
+{
+    if (clip.firstFrame < 0 || frame < clip.firstFrame || clip.stepSize < 1)
+    {
+        return false;
+    }
+    const auto offset = frame - clip.firstFrame;
+    return offset % clip.stepSize == 0 && (!clip.stepCount || offset / clip.stepSize < *clip.stepCount);
+}
+
+/// Tracker's DatasetManager columns that MoTrack computes for a point mass, keyed by original frame.
+/// Untimed clips omit time and derivatives; uncalibrated projects omit world quantities. Neither is
+/// substituted with zero: the comparison reports such columns as gaps.
+QJsonObject pointMassData(const motrack::LegacyProject& project, std::size_t index)
+{
+    const auto& mass = project.pointMasses.at(index);
+    const auto& clip = project.clip;
+    const bool timed = clip.frameDurationMs.has_value() && *clip.frameDurationMs > 0.0;
+    const bool calibrated = project.calibration.has_value();
+    struct Column
+    {
+        const char* name;
+        const char* dimensions;
+        std::optional<motrack::PlotQuantity> quantity;
+    };
+    std::vector<Column> columns{{.name = "step", .dimensions = "I", .quantity = std::nullopt},
+                                {.name = "frame", .dimensions = "I", .quantity = std::nullopt},
+                                {.name = "pixel_{x}", .dimensions = "P", .quantity = std::nullopt},
+                                {.name = "pixel_{y}", .dimensions = "P", .quantity = std::nullopt}};
+    if (timed)
+    {
+        columns.push_back({.name = "t", .dimensions = "T", .quantity = std::nullopt});
+    }
+    if (calibrated)
+    {
+        columns.push_back({.name = "x", .dimensions = "L", .quantity = motrack::PlotQuantity::PositionX});
+        columns.push_back({.name = "y", .dimensions = "L", .quantity = motrack::PlotQuantity::PositionY});
+    }
+    if (calibrated && timed)
+    {
+        using enum motrack::PlotQuantity;
+        for (const auto& column : std::initializer_list<Column>{{.name = "v_{x}", .dimensions = "L/T", .quantity = VelocityX},
+                                                                {.name = "v_{y}", .dimensions = "L/T", .quantity = VelocityY},
+                                                                {.name = "v", .dimensions = "L/T", .quantity = Speed},
+                                                                {.name = "a_{x}", .dimensions = "L/TT", .quantity = AccelerationX},
+                                                                {.name = "a_{y}", .dimensions = "L/TT", .quantity = AccelerationY},
+                                                                {.name = "p_{x}", .dimensions = "ML/T", .quantity = MomentumX},
+                                                                {.name = "p_{y}", .dimensions = "ML/T", .quantity = MomentumY},
+                                                                {.name = "K", .dimensions = "MLL/TT", .quantity = KineticEnergy}})
+        {
+            columns.push_back(column);
+        }
+    }
+    // Each plotted quantity is indexed by its source frame. Frames without a value stay NaN.
+    std::vector<std::vector<std::pair<int, double>>> series;
+    series.reserve(columns.size());
+    for (const auto& column : columns)
+    {
+        std::vector<std::pair<int, double>> values;
+        if (column.quantity)
+        {
+            for (const auto& sample : motrack::measurementPlot(project, index, *column.quantity).samples)
+            {
+                values.emplace_back(sample.frame, sample.vertical);
+            }
+        }
+        series.push_back(std::move(values));
+    }
+    QJsonArray names;
+    for (const auto& column : columns)
+    {
+        names.append(QJsonObject{{"name", column.name}, {"dimensions", column.dimensions}});
+    }
+    QJsonArray rows;
+    for (const auto& mark : mass.marks)
+    {
+        if (!clipIncludes(clip, mark.frame))
+        {
+            continue;
+        }
+        if (calibrated && !motrack::worldPosition(*project.calibration, mark))
+        {
+            continue; // Tracker omits steps whose world position is undefined.
+        }
+        const auto step = (mark.frame - clip.firstFrame) / clip.stepSize;
+        QJsonArray row;
+        for (std::size_t column = 0; column < columns.size(); ++column)
+        {
+            const std::string_view name = columns[column].name;
+            if (name == "step")
+            {
+                row.append(step);
+            }
+            else if (name == "frame")
+            {
+                row.append(mark.frame);
+            }
+            else if (name == "pixel_{x}" || name == "pixel_{y}")
+            {
+                row.append(stateNumber(name == "pixel_{x}" ? mark.x : mark.y));
+            }
+            else if (name == "t")
+            {
+                row.append(stateNumber((clip.startTimeMs + (mark.frame - clip.firstFrame) * *clip.frameDurationMs) / 1000.0));
+            }
+            else
+            {
+                const auto& values = series[column];
+                const auto found = std::ranges::find(values, mark.frame, &std::pair<int, double>::first);
+                row.append(stateNumber(found == values.end() ? std::numeric_limits<double>::quiet_NaN() : found->second));
+            }
+        }
+        rows.append(row);
+    }
+    return {{"columns", names}, {"constants", QJsonObject{{"m", stateNumber(mass.mass)}}}, {"rows", rows}};
+}
+
+/// MoTrack's loaded state in the oracle schema, limited to what LegacyProject models today: point masses,
+/// independent vectors, clip and calibration. Tracks follow their original source order.
+QJsonObject stateSnapshot(const motrack::ImportedTrackerProject& imported)
+{
+    const auto& project = imported.project;
+    QJsonObject units{{"mass", QString::fromStdString(project.massUnit)}, {"time", QString::fromStdString(project.timeUnit)}};
+    if (!project.lengthUnit.empty())
+    {
+        // Tracker materializes its default length unit when the file has none; MoTrack does not (a gap).
+        units.insert("length", QString::fromStdString(project.lengthUnit));
+    }
+    const auto& clip = project.clip;
+    QJsonObject clipState{{"first_frame", clip.firstFrame}, {"step_size", clip.stepSize}, {"start_time_ms", stateNumber(clip.startTimeMs)}};
+    std::optional<std::int64_t> endFrame;
+    if (clip.stepCount)
+    {
+        clipState.insert("step_count", *clip.stepCount);
+        if (*clip.stepCount > 0)
+        {
+            endFrame = clip.firstFrame + std::int64_t{clip.stepSize} * (*clip.stepCount - 1);
+            if (*endFrame > std::numeric_limits<int>::max())
+            {
+                throw motrack::ProjectError("Corpus clip frame overflow.");
+            }
+            clipState.insert("end_frame", static_cast<int>(*endFrame));
+        }
+    }
+    if (clip.frameDurationMs)
+    {
+        clipState.insert("frame_duration_ms", stateNumber(*clip.frameDurationMs));
+        if (clip.stepCount)
+        {
+            QJsonArray steps;
+            for (int step = 0; step < *clip.stepCount; ++step)
+            {
+                const auto frame = clip.firstFrame + step * clip.stepSize;
+                steps.append(QJsonArray{step, frame, stateNumber(clip.startTimeMs + (frame - clip.firstFrame) * *clip.frameDurationMs)});
+            }
+            clipState.insert("steps", steps);
+        }
+    }
+    QJsonObject panel{{"units", units}, {"clip", clipState}};
+    if (project.calibration)
+    {
+        const auto& calibration = *project.calibration;
+        auto last = std::int64_t{calibration.keyframes.back().frame};
+        if (endFrame)
+        {
+            last = std::max(last, *endFrame);
+        }
+        QJsonArray frames;
+        for (std::int64_t frame = 0; frame <= last; ++frame)
+        {
+            if (const auto key = motrack::calibrationAt(calibration, static_cast<int>(frame)))
+            {
+                // Tracker reports ImageCoordSystem.getAngle: radians from atan2(sin, cos), in (-pi, pi].
+                const auto radians = key->angleDegrees * (std::numbers::pi / 180.0);
+                frames.append(QJsonArray{static_cast<int>(frame),
+                                         stateNumber(key->originX),
+                                         stateNumber(key->originY),
+                                         stateNumber(std::atan2(std::sin(radians), std::cos(radians))),
+                                         stateNumber(key->scaleX),
+                                         stateNumber(key->scaleY)});
+            }
+        }
+        panel.insert("coords",
+                     QJsonObject{{"fixed_origin", calibration.fixedOrigin},
+                                 {"fixed_angle", calibration.fixedAngle},
+                                 {"fixed_scale", calibration.fixedScale},
+                                 {"frames", frames}});
+    }
+    if (!imported.source.bindings)
+    {
+        throw motrack::ProjectError("Imported project has no source track order.");
+    }
+    auto bindings = *imported.source.bindings;
+    std::ranges::sort(bindings, {}, &motrack::TrackSourceBinding::sourceIndex);
+    QJsonArray tracks;
+    for (const auto& binding : bindings)
+    {
+        if (binding.kind == motrack::TrackKind::PointMass)
+        {
+            const auto found = std::ranges::find(project.pointMasses, binding.trackId, &motrack::PointMass::id);
+            if (found == project.pointMasses.end())
+            {
+                throw motrack::ProjectError("Point-mass source binding is not in the project.");
+            }
+            QJsonArray steps;
+            for (const auto& mark : found->marks)
+            {
+                steps.append(QJsonObject{{"frame", mark.frame}, {"position", statePoint(mark.x, mark.y)}});
+            }
+            const auto index = static_cast<std::size_t>(found - project.pointMasses.begin());
+            tracks.append(QJsonObject{{"class", POINT_MASS_CLASS},
+                                      {"name", QString::fromStdString(found->name)},
+                                      {"properties", QJsonObject{{"mass", stateNumber(found->mass)}}},
+                                      {"steps", steps},
+                                      {"data", pointMassData(project, index)}});
+        }
+        else
+        {
+            const auto found = std::ranges::find(project.vectors, binding.trackId, &motrack::VectorTrack::id);
+            if (found == project.vectors.end())
+            {
+                throw motrack::ProjectError("Vector source binding is not in the project.");
+            }
+            QJsonArray steps;
+            for (const auto& sample : found->samples)
+            {
+                steps.append(QJsonObject{{"frame", sample.frame},
+                                         {"tail", statePoint(sample.tailX, sample.tailY)},
+                                         {"tip", statePoint(sample.tailX + sample.componentX, sample.tailY + sample.componentY)},
+                                         {"components", statePoint(sample.componentX, sample.componentY)}});
+            }
+            tracks.append(QJsonObject{{"class", VECTOR_CLASS}, {"name", QString::fromStdString(found->name)}, {"steps", steps}});
+        }
+    }
+    panel.insert("tracks", tracks);
+    return {{"schema_version", 1},
+            {"producer", QJsonObject{{"kind", "motrack"}, {"supported_classes", QJsonArray{POINT_MASS_CLASS, VECTOR_CLASS}}}},
+            {"panel", panel}};
 }
 
 void saveAndRecoverPair(const QString& path, const motrack::WorkspaceDocument& document, const QString& mediaPath)
@@ -1084,13 +1352,16 @@ try
     }
     const bool references = args.size() == 4 && args[1] == "--references";
     const bool timing = args.size() == 4 && args[1] == "--timing";
-    if (args.size() != 3 && !references && !timing)
+    const bool state = args.size() == 4 && args[1] == "--state";
+    const bool flagged = references || timing || state;
+    if (args.size() != 3 && !flagged)
     {
-        std::fputs("Usage: motrack_corpus_probe [--references|--timing] input.trk output.json | --export-<case> input.trk output.trk\n",
-                   stderr);
+        std::fputs(
+            "Usage: motrack_corpus_probe [--references|--timing|--state] input.trk output.json | --export-<case> input.trk output.trk\n",
+            stderr);
         return 1;
     }
-    const auto& inputArgument = args[references || timing ? 2 : 1];
+    const auto& inputArgument = args[flagged ? 2 : 1];
 #ifdef _WIN32
     const std::filesystem::path input(inputArgument.toStdWString());
 #else
@@ -1101,6 +1372,10 @@ try
         if (references)
         {
             return referenceSnapshot(motrack::readTrackerProject(input));
+        }
+        if (state)
+        {
+            return stateSnapshot(motrack::readTrackerProject(input));
         }
         const auto project = motrack::readLegacyProject(input);
         if (!timing)
@@ -1121,7 +1396,7 @@ try
         return {{"frame_duration_ms", *clip.frameDurationMs}, {"time_samples", times}};
     }();
     const auto bytes = QJsonDocument(report).toJson();
-    QSaveFile output(args[references || timing ? 3 : 2]);
+    QSaveFile output(args[flagged ? 3 : 2]);
     if (!output.open(QIODevice::WriteOnly) || output.write(bytes) != bytes.size() || !output.commit())
     {
         throw motrack::ProjectError("Could not write corpus snapshot.");

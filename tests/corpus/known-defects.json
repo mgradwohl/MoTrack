@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "reference_version": "6.3.5",
+  "entries": [
+    {
+      "id": "vector-sum-members",
+      "case": "vector-sum",
+      "object": { "track": "resultant" },
+      "path": "properties.vectors",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/63",
+      "upstream": null,
+      "summary": "VectorSum.Loader does not reset the inherited initialized flag, so the named members stay pending and the sum saves an empty member collection.",
+      "expected": { "items": ["vector A", "vector B"] },
+      "tracker": { "@collection": "java.util.ArrayList", "items": [] }
+    },
+    {
+      "id": "vector-sum-steps",
+      "case": "vector-sum",
+      "object": { "track": "resultant" },
+      "path": "steps",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/63",
+      "upstream": null,
+      "summary": "With unresolved members the loaded sum has no steps; the independent image-space sums exist at frames 0, 2 and 4 only.",
+      "expected": [
+        { "frame": 0, "tail": [240.0, 260.0], "components": [10.0, 4.0] },
+        { "frame": 2, "tail": [280.0, 280.0], "components": [0.0, 0.0] },
+        { "frame": 4, "tail": [320.0, 300.0], "components": [-2.0, 4.0] }
+      ],
+      "tracker": []
+    },
+    {
+      "id": "vector-sum-data",
+      "case": "vector-sum",
+      "object": { "track": "resultant" },
+      "path": "data.rows",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/63",
+      "upstream": null,
+      "summary": "The loaded sum has no data rows; independent world components with scales (2,4) are (5,-1), (0,0) and (-1,-1).",
+      "expected": [
+        { "frame": 0, "x": 5.0, "y": -1.0 },
+        { "frame": 2, "x": 0.0, "y": 0.0 },
+        { "frame": 4, "x": -1.0, "y": -1.0 }
+      ],
+      "tracker": []
+    },
+    {
+      "id": "vector-images-negative-time-a",
+      "case": "vector-images-negative-time",
+      "object": { "track": "vector A" },
+      "path": "data.rows[frame=0]",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/146",
+      "upstream": null,
+      "summary": "Vector.refreshData rejects negative times, omitting the frame-0 row at -250 ms.",
+      "expected": { "t": -0.25, "x": 1.5, "y": -1.0, "mag": 1.8027756377319946 },
+      "tracker": "@absent"
+    },
+    {
+      "id": "vector-images-negative-time-b",
+      "case": "vector-images-negative-time",
+      "object": { "track": "vector B" },
+      "path": "data.rows[frame=1]",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/146",
+      "upstream": null,
+      "summary": "Vector.refreshData rejects negative times, omitting the frame-1 row at -125 ms.",
+      "expected": { "t": -0.125, "x": -1.5, "y": 0.0, "mag": 1.5 },
+      "tracker": "@absent"
+    },
+    {
+      "id": "vector-movie-negative-time-a",
+      "case": "vector-movie-negative-time",
+      "object": { "track": "vector A" },
+      "path": "data.rows[frame=0]",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/146",
+      "upstream": null,
+      "summary": "Vector.refreshData rejects negative times, omitting the frame-0 row at -250 ms.",
+      "expected": { "t": -0.25, "x": 1.5, "y": -1.0, "mag": 1.8027756377319946 },
+      "tracker": "@absent"
+    },
+    {
+      "id": "vector-movie-negative-time-b",
+      "case": "vector-movie-negative-time",
+      "object": { "track": "vector B" },
+      "path": "data.rows[frame=1]",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/146",
+      "upstream": null,
+      "summary": "Vector.refreshData rejects negative times, omitting the frame-1 row at -125 ms.",
+      "expected": { "t": -0.125, "x": -1.5, "y": 0.0, "mag": 1.5 },
+      "tracker": "@absent"
+    },
+    {
+      "id": "archived-avi-load",
+      "case": "archived-avi",
+      "object": null,
+      "path": null,
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/140",
+      "upstream": null,
+      "summary": "Tracker 6.3.5 does not register AVI for archive extraction and Xuggle cannot open the jar URL. The archived experiment is byte-identical to linked-movie, whose Tracker state is the independent expectation.",
+      "expected": { "state_of": "linked-movie" },
+      "tracker": "@load_failure"
+    }
+  ]
+}

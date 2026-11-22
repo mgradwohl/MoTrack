@@ -54,9 +54,11 @@ import org.opensourcephysics.tools.ResourceLoader;
  * This establishes Java's own resave baseline; it does not claim MoTrack export compatibility.
  */
 public final class TrackerSessionReference {
-    private static final CountDownLatch DONE = new CountDownLatch(1);
-    private static final AtomicReference<Throwable> FAILURE = new AtomicReference<>();
-    private static final AtomicReference<String> WAITING = new AtomicReference<>("application loader callback");
+    static final CountDownLatch DONE = new CountDownLatch(1);
+    static final AtomicReference<Throwable> FAILURE = new AtomicReference<>();
+    static final AtomicReference<String> WAITING = new AtomicReference<>("application loader callback");
+    // TrackerStateDump dumps loaded tables as they are; the resave baseline keeps waiting for populated columns.
+    static boolean boundedTableVisits;
     private static final AtomicReference<Map<String, Object>> REPORT = new AtomicReference<>();
     private static final AtomicInteger LOADER_CALLBACKS = new AtomicInteger();
 
@@ -157,7 +159,7 @@ public final class TrackerSessionReference {
         return text.length() <= limit ? text : text.substring(0, limit) + "...";
     }
 
-    private static void printWaitingThreads() {
+    static void printWaitingThreads() {
         // Observe only this isolated JVM. Do not call the possibly blocked event thread or alter its loader.
         try {
             StringBuilder report = new StringBuilder("Tracker timeout threads (bounded):\n");
@@ -201,7 +203,7 @@ public final class TrackerSessionReference {
         };
     }
 
-    private static Runnable guard(Runnable action) {
+    static Runnable guard(Runnable action) {
         return () -> {
             try { action.run(); }
             catch (Throwable error) { FAILURE.compareAndSet(null, error); DONE.countDown(); }
@@ -217,8 +219,8 @@ public final class TrackerSessionReference {
         return panel;
     }
 
-    private record AttachmentRequirement(String owner, String[] targets) {}
-    private record ModelRequirement(String owner, String booster, String[] particles) {}
+    record AttachmentRequirement(String owner, String[] targets) {}
+    record ModelRequirement(String owner, String booster, String[] particles) {}
     private record ArchiveTab(String member, List<AttachmentRequirement> attachments, List<ModelRequirement> models) {}
 
     private static List<TrackerPanel> archivePanels(TFrame frame, Path archive, List<ArchiveTab> expected) {
@@ -267,7 +269,7 @@ public final class TrackerSessionReference {
         });
     }
 
-    private static List<ModelRequirement> modelRequirements(Path input) {
+    static List<ModelRequirement> modelRequirements(Path input) {
         XMLControlElement source = new XMLControlElement(input.toString());
         List<ModelRequirement> result = new ArrayList<>();
         for (XMLControl track : TrackerReference.objects(TrackerReference.property(source, "tracks"))) {
@@ -297,7 +299,7 @@ public final class TrackerSessionReference {
         return true;
     }
 
-    private static List<AttachmentRequirement> attachmentRequirements(Path input) {
+    static List<AttachmentRequirement> attachmentRequirements(Path input) {
         XMLControlElement source = new XMLControlElement(input.toString());
         List<AttachmentRequirement> result = new ArrayList<>();
         for (XMLControl track : TrackerReference.objects(TrackerReference.property(source, "tracks"))) {
@@ -355,7 +357,7 @@ public final class TrackerSessionReference {
         return true;
     }
 
-    private static void whenEvaluated(TrackerPanel panel, List<AttachmentRequirement> attachments, List<ModelRequirement> models, Runnable action) {
+    static void whenEvaluated(TrackerPanel panel, List<AttachmentRequirement> attachments, List<ModelRequirement> models, Runnable action) {
         TFrame frame = panel.getTFrame();
         WAITING.set("showing the loaded experiment");
         VideoClip clip = panel.getPlayer().getVideoClip();
@@ -432,6 +434,7 @@ public final class TrackerSessionReference {
         // normal selection/refresh path, observe populated columns, then restore the saved selection.
         // This is a visited-view baseline, not proof of fidelity for an immediate unvisited resave.
         int[] index = {0};
+        int[] polls = {0};
         boolean[] selected = {false};
         Timer timer = new Timer(25, event -> guard(() -> {
             TableVisit visit = visits.get(index[0]);
@@ -460,10 +463,12 @@ public final class TrackerSessionReference {
                     + " paintHold=" + panel.getTFrame().hasPaintHold()
                     + " ignoreRepaint=" + panel.getTFrame().getIgnoreRepaint()
                     + " autoRefresh=" + panel.isAutoRefresh());
-                if (row.stream().anyMatch(value -> value == null)) return;
+                // A bounded visit (40 polls, one second) records still-null columns instead of timing out.
+                if (row.stream().anyMatch(value -> value == null) && !(boundedTableVisits && ++polls[0] >= 40)) return;
             }
             if (!found) throw new IllegalStateException("Customized table disappeared during selection");
             visit.view().setSelectedTrack(visit.restore());
+            polls[0] = 0;
             if (++index[0] == visits.size()) {
                 ((Timer) event.getSource()).stop();
                 action.run();
@@ -735,7 +740,7 @@ public final class TrackerSessionReference {
     // controls: their loaders require the existing panel/track context. Only primitive string
     // arrays are decoded with getObject. Owner-map order is immaterial; visible column and plot
     // order remains significant. This deliberately excludes transient autoscale/rendering state.
-    private static Map<String, Object> savedViews(TrackerPanel panel) {
+    static Map<String, Object> savedViews(TrackerPanel panel) {
         TView[][] views = panel.getTFrame().getTViews(panel, false);
         List<Object> tables = new ArrayList<>();
         List<Object> plots = new ArrayList<>();

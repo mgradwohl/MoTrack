@@ -151,6 +151,7 @@ jobs:
           probe=build/coverage/motrack_corpus_probe
           if [[ "$RUNNER_OS" == Windows ]]; then probe="$probe.exe"; fi
           python tools/corpus.py check --probe "$probe"
+          python tools/corpus.py state-check --probe "$probe"
       - name: Check edited Tracker round trip
         if: runner.os == 'Linux'
         shell: bash
@@ -189,9 +190,29 @@ jobs:
           name: coverage-${{ matrix.os }}
           path: coverage.json
           if-no-files-found: error
+  tracker-state:
+    name: Tracker loaded-state oracle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Regenerate and diff Tracker loaded-state dumps and known defects
+        run: |
+          python tools/corpus.py fetch
+          python tools/corpus.py state-oracle --java "$JAVA_HOME_17_X64/bin/java"
+      - name: Upload regenerated dumps for review
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tracker-state-dumps
+          path: .dev-tools/tracker-reference/state-generated
+          if-no-files-found: ignore
   coverage:
     name: 90% line coverage
-    needs: [build, setup]
+    needs: [build, setup, tracker-state]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
