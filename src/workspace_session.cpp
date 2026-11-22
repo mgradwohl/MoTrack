@@ -255,7 +255,8 @@ WorkspaceJobToken WorkspaceSession::beginMovieIndex(QUuid id)
 bool WorkspaceSession::applyMovieIndex(const WorkspaceJobToken& token,
                                        std::vector<double> frameTimes,
                                        int frameCount,
-                                       std::shared_ptr<const MovieTimeline> timeline)
+                                       std::shared_ptr<const MovieTimeline> timeline,
+                                       FrameTimeBase timeBase)
 {
     if (token.kind != WorkspaceJob::MediaIndex || !accepts(token) || frameCount <= 0 || !std::cmp_equal(frameCount, frameTimes.size()) ||
         frameTimes.front() != 0.0 || !std::ranges::all_of(frameTimes, [](double time) { return std::isfinite(time); }) ||
@@ -267,6 +268,7 @@ bool WorkspaceSession::applyMovieIndex(const WorkspaceJobToken& token,
     document.movie = true;
     document.movieTimeline = std::move(timeline);
     document.movieFrameTimes = std::move(frameTimes);
+    document.movieTimeBase = timeBase;
     auto& clip = document.project.clip;
     const auto steps = clip.stepCount.value_or(0);
     const auto last = static_cast<std::int64_t>(clip.firstFrame) + static_cast<std::int64_t>(steps - 1) * clip.stepSize;
