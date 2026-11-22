@@ -1,6 +1,5 @@
 #include "science/matching/template_matcher.hpp"
 
-#include "science/common/java_math.hpp"
 #include "science/matching/matching_internal.hpp"
 
 #include <algorithm>
@@ -517,8 +516,8 @@ MatchResult findMatchAlongLine(
             const auto parabola = fitParabola(score((*points)[*best - 1]), minimum, score((*points)[*best + 1]));
             fit.width = std::sqrt(2 * parabola.c0 / parabola.c2);
         }
-        const double ux = java::cos(line.angle);
-        const double uy = -java::sin(line.angle);
+        const double ux = matching_detail::javaCos(line.angle);
+        const double uy = -matching_detail::javaSin(line.angle);
         const double along = planar.dx * ux + planar.dy * uy;
         fit.dx = along * ux;
         fit.dy = along * uy;
@@ -534,10 +533,10 @@ std::array<double, 2> projectOntoLine(const SearchLine& line, double x, double y
     // the axis, then a perpendicular move by that distance.
     const double x0 = line.x0;
     const double y0 = line.y0;
-    const double x1 = x0 + java::cos(line.angle);
-    const double y1 = y0 - java::sin(line.angle);
+    const double x1 = x0 + matching_detail::javaCos(line.angle);
+    const double y1 = y0 - matching_detail::javaSin(line.angle);
     const double distance = ((y1 - y0) * x - (x1 - x0) * y + x1 * y0 - x0 * y1) / std::sqrt((y1 - y0) * (y1 - y0) + (x1 - x0) * (x1 - x0));
-    return {x + distance * java::sin(line.angle), y + distance * java::cos(line.angle)};
+    return {x + distance * matching_detail::javaSin(line.angle), y + distance * matching_detail::javaCos(line.angle)};
 }
 
 MatchQuality classifyMatch(const MatchResult& result, int goodMatch, int possibleMatch) noexcept

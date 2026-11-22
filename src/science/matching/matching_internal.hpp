@@ -37,6 +37,16 @@ struct Parabola
 };
 [[nodiscard]] Parabola fitParabola(double previous, double center, double next) noexcept;
 
+/// Math.sin, Math.cos and Math.tan, identical on every platform: correctly rounded (double-double
+/// reduction and series, then one rounding). Java only bounds these to 1 ulp; HotSpot x86-64, the
+/// oracle's JVM, is correctly rounded for all but about 0.1-0.3% of angles (recorded in
+/// tests/science/match-reference.json), whereas fdlibm (StrictMath) differs for about 3% and platform
+/// libms vary. Arguments beyond 2^20 radians, infinities and NaN use <cmath>. Private to matching until
+/// the shared Java Math library consolidates them (#263).
+[[nodiscard]] double javaSin(double radians) noexcept;
+[[nodiscard]] double javaCos(double radians) noexcept;
+[[nodiscard]] double javaTan(double radians) noexcept;
+
 /// `(int) Math.round(value)`: nearest integer with ties toward +infinity, NaN to 0, saturated to int.
 [[nodiscard]] int javaRoundToInt(double value) noexcept;
 

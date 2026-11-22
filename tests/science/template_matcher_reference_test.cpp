@@ -3,7 +3,6 @@
 // true positions. The scene renderer repeats MatchOracle.render operation by operation; this target is
 // compiled with -ffp-contract=off so that every frame hash matches the Java frame bit for bit.
 
-#include "science/common/java_math.hpp"
 #include "science/matching/matching_internal.hpp"
 #include "science/matching/template_matcher.hpp"
 
@@ -692,7 +691,7 @@ motrack::science::MatchQuality quality(double peakHeight)
 
 TEST(TemplateMatcherReference, TrigonometryMatchesHotSpotExceptWhereItIsNotCorrectlyRounded)
 {
-    // Math.tan/sin/cos as getSearchPoints and getMatchLocation call them. java_math is correctly
+    // Math.tan/sin/cos as getSearchPoints and getMatchLocation call them. MoTrack's are correctly
     // rounded; HotSpot x86-64 is too except for the recorded arguments.
     const auto trig = reference()[QStringLiteral("trig")].toObject();
     const int first = integer(trig[QStringLiteral("first")]);
@@ -708,7 +707,9 @@ TEST(TemplateMatcherReference, TrigonometryMatchesHotSpotExceptWhereItIsNotCorre
             object[QStringLiteral("correct")].toString().toULongLong(nullptr, 16)};
     }
     const std::array<std::pair<std::string, double (*)(double) noexcept>, 3> functions = {
-        {{"sin", &motrack::science::java::sin}, {"cos", &motrack::science::java::cos}, {"tan", &motrack::science::java::tan}}};
+        {{"sin", &motrack::science::matching_detail::javaSin},
+         {"cos", &motrack::science::matching_detail::javaCos},
+         {"tan", &motrack::science::matching_detail::javaTan}}};
     int platformDifferences = 0;
     for (const auto& [name, function] : functions)
     {
@@ -730,10 +731,10 @@ TEST(TemplateMatcherReference, TrigonometryMatchesHotSpotExceptWhereItIsNotCorre
             words.push_back(static_cast<ArgbPixel>(value >> 32U));
         }
         EXPECT_EQ(hash(words), text(trig[QStringLiteral("hashes")].toObject()[QString::fromStdString(name)])) << name;
-        std::cout << "[ java_math ] " << name << ": equal to HotSpot for " << (last - first + 1 - corrected) << " of " << (last - first + 1)
+        std::cout << "[ java trig ] " << name << ": equal to HotSpot for " << (last - first + 1 - corrected) << " of " << (last - first + 1)
                   << " angles; correctly rounded where HotSpot is not (" << corrected << ")\n";
     }
-    std::cout << "[ java_math ] this platform's <cmath> differs from java_math for " << platformDifferences << " of "
+    std::cout << "[ java trig ] this platform's <cmath> differs from MoTrack's for " << platformDifferences << " of "
               << 3 * (last - first + 1) << " values\n";
 }
 

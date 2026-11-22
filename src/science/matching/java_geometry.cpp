@@ -1,4 +1,3 @@
-#include "science/common/java_math.hpp"
 #include "science/matching/matching_internal.hpp"
 #include "science/matching/template_matcher.hpp"
 
@@ -366,8 +365,8 @@ std::optional<std::vector<PixelPoint>> lineSearchPoints(PixelRect searchArea, co
     const double bottom = static_cast<double>(searchArea.y) + searchArea.height;
     const double x0 = searchLine.x0;
     const double y0 = searchLine.y0;
-    // Math.tan, correctly rounded on every platform (science/common/java_math.hpp).
-    const double slope = -java::tan(searchLine.angle);
+    // Math.tan, correctly rounded on every platform (javaTan).
+    const double slope = -matching_detail::javaTan(searchLine.angle);
     Line line{.x1 = x0, .y1 = y0, .x2 = x0 + 1, .y2 = y0 + slope};
     if (std::abs(slope) > LARGE_NUMBER)
     {

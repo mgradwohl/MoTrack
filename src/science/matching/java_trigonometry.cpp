@@ -1,8 +1,8 @@
-#include "science/common/java_math.hpp"
+#include "science/matching/matching_internal.hpp"
 
 #include <cmath>
 
-namespace motrack::science::java
+namespace motrack::science::matching_detail
 {
 namespace
 {
@@ -140,17 +140,17 @@ bool reducible(double radians) noexcept
 // The high part of a normalized double-double is the double nearest its value, so each result is
 // rounded once.
 
-double sin(double radians) noexcept
+double javaSin(double radians) noexcept
 {
     return reducible(radians) ? sineCosine(radians).sine.hi : std::sin(radians);
 }
 
-double cos(double radians) noexcept
+double javaCos(double radians) noexcept
 {
     return reducible(radians) ? sineCosine(radians).cosine.hi : std::cos(radians);
 }
 
-double tan(double radians) noexcept
+double javaTan(double radians) noexcept
 {
     if (!reducible(radians))
     {
@@ -160,4 +160,4 @@ double tan(double radians) noexcept
     return divide(values.sine, values.cosine).hi;
 }
 
-} // namespace motrack::science::java
+} // namespace motrack::science::matching_detail

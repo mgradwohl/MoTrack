@@ -92,7 +92,8 @@ these to 1 ulp, and platform libms differ more: Windows UCRT differs from Java f
 on the oracle's domain. A 1-ulp difference can change which pixels a tilted axis crosses, and so the
 1D score.
 
-MoTrack therefore uses `java::sin/cos/tan` (`src/science/common/java_math.hpp`), which are correctly
+MoTrack therefore uses its own `javaSin/javaCos/javaTan` (`src/science/matching/java_trigonometry.cpp`, private
+to the kernel until #263 consolidates the Java Math ports), which are correctly
 rounded through a double-double evaluation and identical on every platform. Correct rounding was
 chosen over an fdlibm (`StrictMath`) port because it agrees better with HotSpot x86-64, the oracle's
 JVM. Over 40,001 angles in [-pi, pi], HotSpot's intrinsics differ from correct rounding for 36 sines,
