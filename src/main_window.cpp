@@ -1115,10 +1115,14 @@ void MainWindow::activateProject(const QString& path)
     m_Save->setEnabled(true);
     m_SaveTracker->setEnabled(viewDocument().trackerSource.has_value());
     const bool bindingsReset = viewDocument().trackerBindingsReset;
-    m_SourceNotice->setText(bindingsReset ? tr("Tracker export unavailable: the links to this project's Tracker tracks could not be "
-                                               "restored. Measurements are unchanged.")
-                                          : QString{});
-    m_SourceNotice->setVisible(bindingsReset);
+    const bool readingOutdated = viewDocument().trackerReadingOutdated;
+    m_SourceNotice->setText(readingOutdated ? tr("Tracker export unavailable: an earlier MoTrack saved these measurements without the "
+                                                 "Tracker file's frame shift or duplicate calibration keys, and they could not be "
+                                                 "updated safely. Measurements are unchanged.")
+                            : bindingsReset ? tr("Tracker export unavailable: the links to this project's Tracker tracks could not be "
+                                                 "restored. Measurements are unchanged.")
+                                            : QString{});
+    m_SourceNotice->setVisible(bindingsReset || readingOutdated);
     m_ExportArchive->setEnabled(isLinkedMediaDocument(viewDocument()));
     refreshEditViews(0);
     syncClipControls();

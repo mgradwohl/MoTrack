@@ -122,7 +122,8 @@ public final class FrameDataFixture {
         PointMass mass = new PointMass();
         mass.setName("mass A");
         mass.setMass(1.5);
-        for (int frame = 0; frame < 5; frame++) mass.createStep(frame, 10 + 10 * frame, 20);
+        // No three consecutive marks: derivative columns stay outside this loader case (#207).
+        for (int frame = 0; frame < 5; frame += 2) mass.createStep(frame, 10 + 10 * frame, 20);
         return panel(clip, coords, List.of(new CoordAxes(), mass));
     }
 }

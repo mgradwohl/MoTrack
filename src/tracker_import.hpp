@@ -28,7 +28,8 @@ struct ImportedTracker
 /// Parses bounded Tracker XML with `motrack_osp`. Throws ProjectError for oversized or unreadable input.
 [[nodiscard]] std::shared_ptr<const osp::Source> parseTrackerXml(std::string_view xml);
 /// Applies MoTrack's import policy to a parsed document. Throws ProjectError like `parseLegacyProject`.
-[[nodiscard]] ImportedTracker importTracker(std::shared_ptr<const osp::Source> source);
+/// An earlier `reading` reproduces the values that revision gave the same source, for native migration only.
+[[nodiscard]] ImportedTracker importTracker(std::shared_ptr<const osp::Source> source, TrackerReading reading = CURRENT_TRACKER_READING);
 /// `validateTrackerSource`, returning the source's import so callers parse it only once.
 [[nodiscard]] ImportedTracker validatedTrackerSource(const TrackerSource& source, const LegacyProject& project);
 /// Whether known bindings still name exactly the editable track objects of `original`, the import of their source.

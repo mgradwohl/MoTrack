@@ -920,7 +920,7 @@ void requireUnchangedShiftedSamples(const LegacyProject& expected, const LegacyP
     const auto refuse = []
     {
         throw ProjectError("Tracker export cannot yet save changed marks or vectors in a project whose video clip has a frame shift "
-                           "(MoTrack issue #FRAMESHIFT_EXPORT).");
+                           "(MoTrack issue #328).");
     };
     for (const auto& track : expected.pointMasses)
     {
@@ -1496,6 +1496,9 @@ std::string prepareTrackerDocument(const QString& path, const WorkspaceDocument&
 {
     if (!document.trackerSource)
         throw ProjectError("Tracker export requires its original source.");
+    if (document.trackerReadingOutdated)
+        throw ProjectError("Tracker export is unavailable: an earlier MoTrack saved these measurements without the Tracker file's frame "
+                           "shift or duplicate calibration keys, and they could not be updated safely. Import the Tracker file again.");
     const auto& source = *document.trackerSource;
     require(!document.useDisplayOrientation && !document.archivePayload && !document.archiveMember && document.archiveReference.empty());
     require(document.movie ? document.alignMovieToClip && !document.movieFrameTimes.empty() : document.movieFrameTimes.empty());

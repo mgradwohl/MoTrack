@@ -89,21 +89,9 @@
                     <property name="y" type="double">20.0</property>
                 </object>
                 </property>
-                <property name="[1]" type="object">
-                <object class="org.opensourcephysics.cabrillo.tracker.PointMass$FrameData">
-                    <property name="x" type="double">20.0</property>
-                    <property name="y" type="double">20.0</property>
-                </object>
-                </property>
                 <property name="[2]" type="object">
                 <object class="org.opensourcephysics.cabrillo.tracker.PointMass$FrameData">
                     <property name="x" type="double">30.0</property>
-                    <property name="y" type="double">20.0</property>
-                </object>
-                </property>
-                <property name="[3]" type="object">
-                <object class="org.opensourcephysics.cabrillo.tracker.PointMass$FrameData">
-                    <property name="x" type="double">40.0</property>
                     <property name="y" type="double">20.0</property>
                 </object>
                 </property>

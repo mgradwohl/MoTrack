@@ -1,6 +1,7 @@
 #include "workspace_document.hpp"
 
 #include "local_media_path.hpp"
+#include "measurements.hpp"
 #include "track_identity.hpp"
 #include "tracker_archive.hpp"
 #include "tracker_import.hpp"
@@ -17,14 +18,17 @@
 #include <QJsonObject>
 #include <QTemporaryDir>
 
+#include <algorithm>
 #include <charconv>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace motrack
 {
@@ -320,6 +324,172 @@ std::vector<VectorTrack> readVectors(const QJsonValue& value, int version)
     return result;
 }
 
+/// Tracks by source ordinal, in increasing ordinal order.
+template <typename Track> using Bound = std::vector<std::pair<std::size_t, const Track*>>;
+
+/// A project's bound tracks. `complete` when every binding names a live track and every live track is bound, so the
+/// project has neither deleted nor created tracks.
+struct BoundTracks
+{
+    Bound<PointMass> masses;
+    Bound<VectorTrack> vectors;
+    bool complete = true;
+};
+
+BoundTracks boundTracks(const LegacyProject& project, const std::vector<TrackSourceBinding>& bindings)
+{
+    BoundTracks result;
+    std::size_t live = 0;
+    for (const auto& binding : bindings)
+    {
+        if (binding.kind == TrackKind::PointMass)
+        {
+            if (const auto track = std::ranges::find(project.pointMasses, binding.trackId, &PointMass::id);
+                track != project.pointMasses.end())
+            {
+                result.masses.emplace_back(binding.sourceIndex, &*track);
+                ++live;
+                continue;
+            }
+        }
+        else if (const auto track = std::ranges::find(project.vectors, binding.trackId, &VectorTrack::id); track != project.vectors.end())
+        {
+            result.vectors.emplace_back(binding.sourceIndex, &*track);
+            ++live;
+            continue;
+        }
+        result.complete = false;
+    }
+    std::ranges::sort(result.masses, {}, &std::pair<std::size_t, const PointMass*>::first);
+    std::ranges::sort(result.vectors, {}, &std::pair<std::size_t, const VectorTrack*>::first);
+    result.complete = result.complete && live == project.pointMasses.size() + project.vectors.size();
+    return result;
+}
+
+/// The track bound to a source ordinal; callers have checked that it exists.
+template <typename Track> const Track& boundTrack(const Bound<Track>& tracks, std::size_t sourceIndex)
+{
+    const auto found = std::ranges::lower_bound(tracks, sourceIndex, {}, &std::pair<std::size_t, const Track*>::first);
+    require(found != tracks.end() && found->first == sourceIndex);
+    return *found->second;
+}
+
+template <typename Track, typename Samples> bool sameSamples(const Bound<Track>& first, const Bound<Track>& second, Samples samples)
+{
+    return std::ranges::equal(
+        first,
+        second,
+        [samples](const auto& left, const auto& right)
+        { return left.first == right.first && std::invoke(samples, *left.second) == std::invoke(samples, *right.second); });
+}
+
+bool sameFrames(const Clip& firstClip, const BoundTracks& first, const Clip& secondClip, const BoundTracks& second)
+{
+    return firstClip.firstFrame == secondClip.firstFrame && firstClip.stepSize == secondClip.stepSize &&
+           firstClip.stepCount == secondClip.stepCount && sameSamples(first.masses, second.masses, &PointMass::marks) &&
+           sameSamples(first.vectors, second.vectors, &VectorTrack::samples);
+}
+
+/// Whether moving samples from their earlier to their current frames keeps every one: none is dropped and each one on an
+/// earlier clip step stays on that step of the current clip. A shift drops none only when it keeps their order and count.
+template <typename Track, typename Samples>
+bool keepsSamples(
+    const Bound<Track>& earlier, const Bound<Track>& current, Samples samples, const Clip& earlierClip, const Clip& currentClip)
+{
+    return std::ranges::equal(earlier,
+                              current,
+                              [&](const auto& before, const auto& after)
+                              {
+                                  const auto& from = std::invoke(samples, *before.second);
+                                  const auto& to = std::invoke(samples, *after.second);
+                                  if (before.first != after.first || from.size() != to.size())
+                                      return false;
+                                  for (std::size_t index = 0; index < from.size(); ++index)
+                                  {
+                                      const auto step = clipStepOfFrame(earlierClip, from[index].frame);
+                                      if (step && clipStepOfFrame(currentClip, to[index].frame) != step)
+                                          return false;
+                                  }
+                                  return true;
+                              });
+}
+
+/// Takes the values a fix of the current reading changes from that reading, when the stored ones still are exactly
+/// what the document's earlier reading gave the same source (#313/#314). A native file cannot tell an unedited old
+/// reading from an edit, so any other stored value, and a frame shift that would drop marks or move them off their
+/// clip steps, leaves every stored value as it is: the source associations are dropped, so standard export refuses,
+/// and the document keeps its earlier reading, so every later open explains it again.
+void migrateTrackerReading(WorkspaceDocument& document, const detail::ImportedTracker& current)
+{
+    if (!document.trackerSource || document.trackerReading == CURRENT_TRACKER_READING)
+    {
+        document.trackerReading = CURRENT_TRACKER_READING;
+        return;
+    }
+    std::optional<detail::ImportedTracker> reproduced;
+    try
+    {
+        reproduced = detail::importTracker(detail::parseTrackerXml(document.trackerSource->xml), document.trackerReading);
+    }
+    catch (const ProjectError&)
+    {
+        // Values of a reading that cannot be reproduced cannot be verified: keep them and explain.
+        document.trackerSource->bindings.reset();
+        document.trackerReadingOutdated = true;
+        return;
+    }
+    const auto& earlier = *reproduced;
+    auto& project = document.project;
+    const auto& before = earlier.project;
+    const auto& after = current.project;
+    bool outdated = false;
+    // #314: the earlier reader read a coordinate system with a duplicate key as no calibration.
+    if (before.calibration != after.calibration && project.calibration != after.calibration)
+    {
+        if (!before.calibration && !project.calibration)
+            project.calibration = after.calibration;
+        else
+            outdated = true;
+    }
+    // #313: the earlier reader ignored the clip frame shift.
+    const auto earlierTracks = boundTracks(before, earlier.bindings);
+    const auto currentTracks = boundTracks(after, current.bindings);
+    if (!sameFrames(before.clip, earlierTracks, after.clip, currentTracks))
+    {
+        const auto& bindings = document.trackerSource->bindings;
+        const auto stored = bindings ? boundTracks(project, *bindings) : BoundTracks{.masses = {}, .vectors = {}, .complete = false};
+        if (!stored.complete || !sameFrames(project.clip, stored, after.clip, currentTracks))
+        {
+            if (stored.complete && sameFrames(project.clip, stored, before.clip, earlierTracks) &&
+                keepsSamples(earlierTracks.masses, currentTracks.masses, &PointMass::marks, before.clip, after.clip) &&
+                keepsSamples(earlierTracks.vectors, currentTracks.vectors, &VectorTrack::samples, before.clip, after.clip))
+            {
+                // Every live track is bound (stored.complete), so each has a binding and a current counterpart.
+                const auto sourceIndex = [&bindings](TrackId id)
+                {
+                    return std::ranges::find(bindings.value(), id, &TrackSourceBinding::trackId)->sourceIndex;
+                };
+                project.clip.firstFrame = after.clip.firstFrame;
+                for (auto& track : project.pointMasses)
+                    track.marks = boundTrack(currentTracks.masses, sourceIndex(track.id)).marks;
+                for (auto& track : project.vectors)
+                    track.samples = boundTrack(currentTracks.vectors, sourceIndex(track.id)).samples;
+            }
+            else
+            {
+                outdated = true;
+            }
+        }
+    }
+    if (outdated)
+    {
+        document.trackerSource->bindings.reset();
+        document.trackerReadingOutdated = true;
+        return;
+    }
+    document.trackerReading = CURRENT_TRACKER_READING;
+}
+
 void validateArchive(const WorkspaceDocument& document)
 {
     require(!document.archivePayload || document.archiveReference.empty());
@@ -410,6 +580,17 @@ WorkspaceDocument detail::decodeWorkspaceDocument(const QJsonObject& input, std:
     {
         // Version 1 did not preserve source XML. Never imply its lost content can be recovered.
         require(!input.contains("trackerSource"));
+    }
+    // Files written before the reading revision was recorded hold values of the first reading (#313/#314).
+    if (const auto reading = input.value("trackerReading"); !reading.isUndefined())
+    {
+        const auto revision = integer(reading, static_cast<int>(TrackerReading::SavedIndices));
+        require(revision <= static_cast<int>(CURRENT_TRACKER_READING));
+        result.trackerReading = static_cast<TrackerReading>(revision);
+    }
+    else
+    {
+        result.trackerReading = TrackerReading::SavedIndices;
     }
     require(input.value("movie").isBool());
     result.movie = input.value("movie").toBool();
@@ -537,6 +718,14 @@ WorkspaceDocument detail::decodeWorkspaceDocument(const QJsonObject& input, std:
             project.clip.frameDurationMs = loaded.clip.frameDurationMs;
         }
     }
+    if (preserved)
+    {
+        migrateTrackerReading(result, *preserved);
+    }
+    else
+    {
+        result.trackerReading = CURRENT_TRACKER_READING; // No source: there is no reading to follow.
+    }
     validateArchive(result);
     return result;
 }
@@ -623,6 +812,7 @@ QJsonObject detail::encodeWorkspaceDocument(const WorkspaceDocument& document)
         {"version", DOCUMENT_VERSION},
         {"nextTrackId", QString::fromStdString(std::to_string(project.nextTrackId))},
         {"trackerSource", writeTrackerSource(document.trackerSource, project)},
+        {"trackerReading", static_cast<int>(document.trackerReading)},
         {"trackerVersion", QString::fromStdString(project.version)},
         {"description", QString::fromStdString(project.description)},
         {"lengthUnit", QString::fromStdString(project.lengthUnit)},

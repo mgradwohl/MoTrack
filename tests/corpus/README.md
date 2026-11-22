@@ -558,6 +558,31 @@ cannot prove that all calibration parameters survived.
 Fixed-state changes, key deletion, attachments and reference frames are separate follow-ups;
 varying vector coordinates have their own later corpus section. This case must not be reported as full calibration parity.
 
+## Frame shift and duplicate coordinate keys
+
+[FrameDataFixture.java](../../tools/reference/FrameDataFixture.java) authors two loader cases with the pinned
+serializers, omitting trailing null array elements as TrackerPanel's saver does. Tracker 6.3.5 writes neither shape,
+so each mode makes one documented change to the saved document; expectations come from Tracker, never from MoTrack.
+
+- `frame-shift` (#313) adds `frameshift` 2 to a media-free clip of six steps from frame 3. Tracker's application
+  loader starts the clip at frame 1 and removes the first two slots of each track's `framedata`. `mass A`'s saved
+  [0] [1] [2] [3] [5] [7] load at frames 0, 1, 3 and 5, `single` (only [0], Java length 1) stays at frame 0, `dropped`
+  (only [1], length 2) loads nothing, and `vector A`'s [1] [4] leave one sample at frame 2. The coordinate keys at
+  frames 0 and 4 do not move, so the mark from saved [5], now at frame 3, uses key 0: image (60, 45) is world
+  (-130, 48.75). The mark from saved [7], now at frame 5, uses key 4 (90°, 4 and 8 px per m): (80, 55) is (8.125, 5).
+- `duplicate-coords` (#314) renames the key [1] to a second [0] and appends a null [3] after the key [3]. Tracker keeps
+  the last [0] (origin (100, 50), scale (5, 10)) and no key at frame 3, so image (10, 20) is world (-18, 3) at every
+  frame. Its marks are two frames apart, keeping derivative columns out of this case (#207).
+
+The XML reference applies the same shift (`TrackerReference.droppedSlots`), and the loaded-state dumps come from
+Tracker's own loader; MoTrack's [native migration](../../docs/native-format.md#tracker-reading-revisions) of values
+saved by its earlier reading is tested with documents that reader wrote. Regenerate each fixture to a fresh path and
+compare bytes:
+
+```sh
+java -Djava.awt.headless=true -Xmx256m --class-path .dev-tools/tracker-reference/tracker-6.3.5.jar tools/reference/FrameDataFixture.java frame-shift /temporary/path/frame-shift.trk
+```
+
 ## Partly fixed calibration export
 
 [MixedCalibrationFixture.java](../../tools/reference/MixedCalibrationFixture.java) uses pinned public

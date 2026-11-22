@@ -117,8 +117,8 @@ when the file has none. Tracker materializes a 100 ms frame duration and the `m`
 saves neither; MoTrack does not yet (#214). The XML-only probe does not decode media, so movie cases are untimed
 here even though MoTrack's decoder times them in the application.
 
-**What O4 covers today:** positions (`x`, `y`), pixels, steps and frames, compared in 43 point-mass cases, plus
-vector tails, tips and components in 36 cases. **No finite derivative value is compared in any case.** Tracker
+**What O4 covers today:** positions (`x`, `y`), pixels, steps and frames, compared in 45 point-mass cases, plus
+vector tails, tips and components in 37 cases. **No finite derivative value is compared in any case.** Tracker
 has finite velocities in 17 cases (BallToss, the 14 keyed movies, `attachments` and `model-dependencies`), all of
 which are untimed in the probe; the remaining timed cases have no three consecutive marks.
 

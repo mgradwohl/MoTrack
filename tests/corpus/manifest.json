@@ -4581,8 +4581,8 @@
       "id": "duplicate-coords",
       "local_file": "fixtures/duplicate-coords.trk",
       "file": "duplicate-coords.trk",
-      "bytes": 6684,
-      "sha256": "a4ccee43b297f2f893d1fd6201cd6c60a60912a3e41b0b73509b73e5f98bf021",
+      "bytes": 6012,
+      "sha256": "ea0cc8d6568e26dd01c6b91407a9a2d7dcc3284b91bbb42c0e46300923fd68a7",
       "tracker_version": "6.3.5",
       "features": [
         "duplicate-coordinate-keys",

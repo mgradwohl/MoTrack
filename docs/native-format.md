@@ -157,6 +157,39 @@ imported again. Associations that contradict the native document itself (unreser
 wrong-kind IDs) still fail. A preserved source that the current reader refuses fails to open with a message
 saying so, and the native file is left unchanged.
 
+### Tracker reading revisions
+
+Typed values are stored as MoTrack read the preserved source. The optional version-5 integer `trackerReading`
+names that reading; a file without it was written by reading 1. Reading 2 (#313, #314) applies Tracker 6.3.5's loader:
+
+- **Frame shift.** A saved `VideoClip` `frameshift` stays only in the preserved XML; native marks, vector samples and
+  the clip's first frame hold the frames Tracker shows. Tracker subtracts the shift from the start frame (never below
+  0) and removes that many leading slots from each track's `framedata` when the array's Java length (last index + 1)
+  is above 1: saved index *n* becomes frame *n* − shift, lower indices and arrays no longer than the shift load nothing,
+  and a lone `[0]` stays. Coordinate keys and a negative shift's track frames do not move. Unreadable or other-typed
+  shifts are ignored, as Java's `getInt` makes them. [MoTrack #327](https://github.com/mgradwohl/MoTrack/issues/327)
+  records how this differs from the property's pre-2016 meaning.
+- **Duplicate coordinate keys.** The last `[n]` element wins, a null one included, as OSP's array loader assigns slots.
+  Reading 1 stored no calibration for such a source.
+
+Opening a reading-1 file compares its stored values with both readings of the preserved source, per fix:
+
+- The clip's first frame and every bound track's samples are migrated only together, when they all still equal
+  reading 1 exactly, every track is bound and none was created or deleted, and the shift drops no sample and moves
+  none off its clip step (for example when the clip start is held at frame 0, or for a negative shift).
+- A calibration is migrated only when reading 1 and the stored document both have none.
+
+A native file cannot tell an edit from an unedited reading-1 value, so anything else keeps every stored value of that
+fix: nothing is shifted, dropped or overwritten. The source associations are then dropped as for stale bindings, so
+standard export refuses, and the window shows a persistent note. The document keeps `trackerReading: 1`, so every
+later open explains it again; importing the original Tracker file again gives Tracker's values. A migrated document
+is saved with the current reading and is never migrated again, edited or not.
+
+Standard export keeps the `frameshift` property and the saved indices. With a positive shift it refuses changed or
+new marks and vector samples, which the frame writers would place at other frames
+([#328](https://github.com/mgradwohl/MoTrack/issues/328)). Mass, unit, name and calibration edits keep their saved
+indices. An edited calibration with duplicate keys is refused, because the key writer needs one element per index.
+
 Versions 2/3 retain their XML
 when migrated but get `bindings: null`; version 3 retains its existing IDs, while versions 1/2 receive
 new ones. Matching names or order cannot prove historical identity after earlier edits, so migration

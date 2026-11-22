@@ -266,6 +266,7 @@
     <message numerus="yes"><source>The Tracker archive keeps %n unextracted member(s) whose names may show the author's folder or user names.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform><numerusform></numerusform></translation></message>
     <message><source>Could not open this project: %1</source><translation type="unfinished"></translation></message>
     <message><source>Tracker export unavailable: the links to this project's Tracker tracks could not be restored. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker export unavailable: an earlier MoTrack saved these measurements without the Tracker file's frame shift or duplicate calibration keys, and they could not be updated safely. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
   </context>
   <context>
     <name>WorkspaceInput</name>

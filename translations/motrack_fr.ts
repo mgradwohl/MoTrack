@@ -193,6 +193,7 @@
     <message><source>Choose a unique, nonempty track name.</source><translation>Choisissez un nom de trajectoire unique et non vide.</translation></message>
     <message numerus="yes"><source>The Tracker archive omits %n duplicate member(s) with unsafe names.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform></translation></message>
     <message numerus="yes"><source>The Tracker archive keeps %n unextracted member(s) whose names may show the author's folder or user names.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform></translation></message>
+    <message><source>Tracker export unavailable: an earlier MoTrack saved these measurements without the Tracker file's frame shift or duplicate calibration keys, and they could not be updated safely. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
   </context>
   <context>
     <name>PositionPlot</name>

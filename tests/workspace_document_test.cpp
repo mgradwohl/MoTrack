@@ -2,6 +2,7 @@
 
 #include "archive_fixture.hpp"
 #include "main_window.hpp"
+#include "measurements.hpp"
 #include "paired_save.hpp"
 #include "track_edits.hpp"
 #include "tracker_archive.hpp"
@@ -509,6 +510,176 @@ TEST(WorkspaceDocument, RecoversStaleSourceBindingsAndExplainsUnreadableSources)
     EXPECT_FALSE(window.loadProject(native));
     EXPECT_TRUE(window.statusBar()->currentMessage().startsWith("Could not open this project: The copy of the original Tracker file"))
         << window.statusBar()->currentMessage().toStdString();
+}
+
+std::vector<int> markFrames(const motrack::PointMass& track)
+{
+    std::vector<int> result;
+    result.reserve(track.marks.size());
+    for (const auto& mark : track.marks)
+        result.push_back(mark.frame);
+    return result;
+}
+
+QString preFixFixture(const char* name)
+{
+    // Saved by MoTrack's reader before #313/#314 (origin/train-3 cc25638), which wrote no `trackerReading`.
+    return QString::fromUtf8(MOTRACK_FIXTURES) + "/" + name;
+}
+
+TEST(WorkspaceDocument, MigratesValuesTheFirstReaderSavedForFrameShiftsAndDuplicateKeys)
+{
+    // The preserved source saves frameshift 2, a clip from frame 3, marks at [2] [3] [5] [6] and [4] [7], and two [0]
+    // coordinate keys. The first reader stored the marks at those indices, the clip from 3 and no calibration. Tracker
+    // shows the marks two frames earlier, the clip from frame 1 and the last [0] key.
+    const auto path = preFixFixture("pre-fix-shifted-duplicate-coords.motrack");
+    const auto stored = QJsonDocument::fromJson(readBytes(path)).object();
+    ASSERT_FALSE(stored.contains("trackerReading"));
+    ASSERT_EQ(stored.value("clip").toObject().value("firstFrame"), 3);
+    ASSERT_TRUE(stored.value("calibration").isNull());
+    const auto document = motrack::readWorkspaceDocument(path);
+    EXPECT_FALSE(document.trackerReadingOutdated);
+    EXPECT_EQ(document.trackerReading, motrack::CURRENT_TRACKER_READING);
+    ASSERT_TRUE(document.trackerSource && document.trackerSource->bindings);
+    const auto& project = document.project;
+    EXPECT_EQ(project.clip.firstFrame, 1);
+    ASSERT_EQ(project.pointMasses.size(), 2u);
+    EXPECT_EQ(project.pointMasses[0].marks,
+              (std::vector<motrack::Mark>{{.frame = 0, .x = 30, .y = 30},
+                                          {.frame = 1, .x = 40, .y = 35},
+                                          {.frame = 3, .x = 60, .y = 45},
+                                          {.frame = 4, .x = 70, .y = 50}}));
+    EXPECT_EQ(markFrames(project.pointMasses[1]), (std::vector<int>{2, 5}));
+    if (!project.calibration)
+    {
+        FAIL() << "The calibration the first reader dropped was not migrated.";
+    }
+    EXPECT_EQ(
+        project.calibration->keyframes,
+        (std::vector<motrack::CalibrationKey>{{.frame = 0, .originX = 100, .originY = 50, .angleDegrees = 0, .scaleX = 5, .scaleY = 10}}));
+    const auto world = motrack::worldPosition(*project.calibration, project.pointMasses[0].marks.front());
+    ASSERT_TRUE(world);
+    EXPECT_NEAR(world->x, (30.0 - 100.0) / 5.0, 1e-12);
+    EXPECT_NEAR(world->y, (50.0 - 30.0) / 10.0, 1e-12);
+    // Nothing else changed: the migrated document equals a fresh import of its preserved source.
+    EXPECT_EQ(project, motrack::parseLegacyProject(document.trackerSource->xml));
+
+    // Standard export copies the source unchanged, and an edit keeps the frame shift and the saved indices.
+    EXPECT_EQ(motrack::renderTrackerProject(project, *document.trackerSource), document.trackerSource->xml);
+    QTemporaryDir temporary;
+    auto edited = document;
+    edited.project.pointMasses[1].mass = 2.5;
+    const auto output = temporary.filePath("migrated.trk");
+    motrack::writeTrackerDocument(output, edited, {});
+    const auto saved = readBytes(output);
+    EXPECT_TRUE(saved.contains(R"(<property name="frameshift" type="int">2</property>)"));
+    EXPECT_TRUE(saved.contains(R"(<property name="[7]" type="object">)"));
+    EXPECT_EQ(motrack::parseLegacyProject(saved.toStdString()), edited.project);
+
+    // A native save records the current reading, so its values are taken as they are on the next open.
+    const auto native = temporary.filePath("migrated.motrack");
+    motrack::writeWorkspaceDocument(native, document);
+    EXPECT_EQ(QJsonDocument::fromJson(readBytes(native)).object().value("trackerReading"), 2);
+    const auto reopened = motrack::readWorkspaceDocument(native);
+    EXPECT_EQ(reopened.project, project);
+    EXPECT_FALSE(reopened.trackerReadingOutdated);
+}
+
+TEST(WorkspaceDocument, KeepsEditedOrLossyFirstReadingValuesAndExplainsWhy)
+{
+    // An edit after import cannot be told from the first reader's value, so a stored mark that the first reader would
+    // not have produced keeps every frame of the document where it was saved.
+    auto root = QJsonDocument::fromJson(readBytes(preFixFixture("pre-fix-shifted-duplicate-coords.motrack"))).object();
+    auto masses = root.value("pointMasses").toArray();
+    auto mass = masses.at(0).toObject();
+    auto marks = mass.value("marks").toArray();
+    marks.replace(0, QJsonArray{2, 31, 30});
+    mass.insert("marks", marks);
+    masses.replace(0, mass);
+    root.insert("pointMasses", masses);
+    QTemporaryDir temporary;
+    const auto edited = temporary.filePath("edited.motrack");
+    ASSERT_TRUE(writeBytes(edited, QJsonDocument(root).toJson()));
+    const auto document = motrack::readWorkspaceDocument(edited);
+    EXPECT_TRUE(document.trackerReadingOutdated);
+    EXPECT_EQ(document.trackerReading, motrack::TrackerReading::SavedIndices);
+    ASSERT_TRUE(document.trackerSource);
+    EXPECT_FALSE(document.trackerSource->bindings);
+    EXPECT_EQ(document.project.clip.firstFrame, 3);
+    EXPECT_EQ(document.project.pointMasses[0].marks.front(), (motrack::Mark{.frame = 2, .x = 31, .y = 30}));
+    EXPECT_EQ(markFrames(document.project.pointMasses[0]), (std::vector<int>{2, 3, 5, 6}));
+    EXPECT_EQ(markFrames(document.project.pointMasses[1]), (std::vector<int>{4, 7}));
+    // The duplicate-key fix covers only the calibration, which neither the first reader nor the user set.
+    EXPECT_TRUE(document.project.calibration.has_value());
+    const auto refused = [&](const motrack::WorkspaceDocument& outdated)
+    {
+        try
+        {
+            motrack::writeTrackerDocument(temporary.filePath("export.trk"), outdated, {});
+            ADD_FAILURE() << "Standard export wrote values of an earlier reading.";
+        }
+        catch (const motrack::ProjectError& error)
+        {
+            EXPECT_TRUE(std::string_view(error.what()).starts_with("Tracker export is unavailable: an earlier MoTrack")) << error.what();
+        }
+        EXPECT_FALSE(QFileInfo::exists(temporary.filePath("export.trk")));
+    };
+    refused(document);
+
+    // The note persists: a native save keeps the earlier reading, and every open explains it again.
+    const auto resaved = temporary.filePath("resaved.motrack");
+    motrack::writeWorkspaceDocument(resaved, document);
+    EXPECT_EQ(QJsonDocument::fromJson(readBytes(resaved)).object().value("trackerReading"), 1);
+    const auto reopened = motrack::readWorkspaceDocument(resaved);
+    EXPECT_TRUE(reopened.trackerReadingOutdated);
+    EXPECT_EQ(reopened.project, document.project);
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(resaved));
+    const auto* notice = window.findChild<QLabel*>("sourceNotice");
+    ASSERT_NE(notice, nullptr);
+    EXPECT_FALSE(notice->isHidden());
+    EXPECT_TRUE(notice->text().startsWith("Tracker export unavailable: an earlier MoTrack")) << notice->text().toStdString();
+
+    // Never drop data: in the corpus frame-shift fixture the shift drops saved [0] and [1] of mass A, all of "dropped"
+    // and the vector's [1], so its first-reader values stay as saved.
+    const auto lossy = motrack::readWorkspaceDocument(preFixFixture("pre-fix-frame-shift.motrack"));
+    EXPECT_TRUE(lossy.trackerReadingOutdated);
+    EXPECT_EQ(lossy.project.clip.firstFrame, 3);
+    ASSERT_EQ(lossy.project.pointMasses.size(), 3u);
+    EXPECT_EQ(markFrames(lossy.project.pointMasses[0]), (std::vector<int>{0, 1, 2, 3, 5, 7}));
+    EXPECT_EQ(markFrames(lossy.project.pointMasses[2]), (std::vector<int>{1}));
+    ASSERT_EQ(lossy.project.vectors.size(), 1u);
+    EXPECT_EQ(lossy.project.vectors.front().samples.size(), 2u);
+    refused(lossy);
+    ASSERT_TRUE(window.loadProject(preFixFixture("pre-fix-frame-shift.motrack")));
+    EXPECT_FALSE(notice->isHidden());
+}
+
+TEST(WorkspaceDocument, KeepsEditsOfTheCurrentReadingAndRejectsUnknownReadings)
+{
+    // A document written with the current reading is never migrated, edited or not.
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("shifted.trk");
+    const auto source = motrack::readWorkspaceDocument(preFixFixture("pre-fix-shifted-duplicate-coords.motrack")).trackerSource;
+    ASSERT_TRUE(source);
+    ASSERT_TRUE(writeBytes(original, QByteArray::fromStdString(source->xml)));
+    auto document = motrack::importTrackerDocument(original);
+    document.project.pointMasses[0].marks.front().x = 33;
+    const auto native = temporary.filePath("edited.motrack");
+    motrack::writeWorkspaceDocument(native, document);
+    const auto reopened = motrack::readWorkspaceDocument(native);
+    EXPECT_FALSE(reopened.trackerReadingOutdated);
+    EXPECT_EQ(reopened.project, document.project);
+    EXPECT_TRUE(reopened.trackerSource && reopened.trackerSource->bindings);
+
+    const auto root = QJsonDocument::fromJson(readBytes(native)).object();
+    for (const auto& invalid : {QJsonValue(0), QJsonValue(3), QJsonValue("2"), QJsonValue(1.5)})
+    {
+        auto changed = root;
+        changed.insert("trackerReading", invalid);
+        ASSERT_TRUE(writeBytes(native, QJsonDocument(changed).toJson()));
+        EXPECT_THROW(static_cast<void>(motrack::readWorkspaceDocument(native)), motrack::ProjectError);
+    }
 }
 
 TEST(WorkspaceDocument, RejectsInvalidOptionalFrameDurationsBeforeReplacingExistingFile)
