@@ -343,8 +343,11 @@ A new tabset is written as `XMLControlElement.toString` writes it (LF line break
 existing tabset edits it instead, with the same O8 check as every standard export: each entry that still names its
 listed file in Tracker's search order keeps its bytes, together with the repeats Tracker writes for each further tab
 of an archive. Saving an unchanged set therefore leaves the file byte for byte, and otherwise only the changed paths,
-removed entries and appended entries differ; other properties and line breaks stay. A tabset MoTrack cannot read is
-not replaced.
+removed entries and appended entries differ; other properties and line breaks stay. Entries that Tracker cannot read
+because of their index order are rewritten in order whenever anything changes. As in Tracker, which saves only open
+tabs, an entry whose file is not open is not kept: entries that name no existing file are listed afterward, and a
+nested tabset is saved as the files it opened. A tabset MoTrack cannot read is not replaced, and **Save tabset as…**
+waits until a tabset that is opening has finished, so a set is never saved with only some of its files.
 
 **Deliberate differences from Tracker 6.3.5.**
 

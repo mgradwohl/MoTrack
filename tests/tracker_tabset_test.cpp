@@ -387,6 +387,39 @@ TEST(TrackerTabset, SavingAddsMissingTabsAndRewritesOrderTrackerCannotRead)
     ASSERT_TRUE(again.has_value()) << again.error();
     EXPECT_EQ(again->entries, moved);
     EXPECT_TRUE(again->nodes[0].ordered);
+    // Any edit also rewrites an unchanged entry Tracker cannot read, since Tracker would refuse the whole tabset.
+    const auto appended = motrack::renderTrackerTabset(*single, std::vector{single->entries[0], relativeEntry("c.trk")});
+    ASSERT_TRUE(appended.has_value()) << appended.error();
+    const auto repaired = motrack::parseTrackerTabset(*appended);
+    ASSERT_TRUE(repaired.has_value()) << repaired.error();
+    EXPECT_EQ(repaired->entries, (std::vector{single->entries[0], relativeEntry("c.trk")}));
+    EXPECT_TRUE(repaired->nodes[0].ordered);
+
+    // Tracker writes a frame without saveable tabs as a self-closing tabs array, which receives the entries.
+    const std::string closed = R"(<?xml version="1.0" encoding="UTF-8"?>
+<object class="org.opensourcephysics.cabrillo.tracker.TFrame">
+    <property name="tabs" type="array" class="[[Ljava.lang.String;"/>
+</object>)";
+    const auto none = motrack::parseTrackerTabset(closed);
+    ASSERT_TRUE(none.has_value()) << none.error();
+    ASSERT_TRUE(none->tabs);
+    EXPECT_EQ(motrack::renderTrackerTabset(*none, std::vector<TabsetEntry>{}).value(), closed);
+    const auto opened = motrack::renderTrackerTabset(*none, entries);
+    ASSERT_TRUE(opened.has_value()) << opened.error();
+    EXPECT_EQ(entriesOf(*opened), entries);
+    EXPECT_TRUE(opened->starts_with(closed.substr(0, closed.find("    <property name=\"tabs\""))));
+
+    // An entry kept as it was read need not meet the rules for new paths, here an empty absolute path.
+    const auto blank = replaced(
+        *motrack::writeTrackerTabset(std::vector{TabsetEntry{.absolute = "x", .relative = "a.trk"}}), ">x</property>", "></property>");
+    const auto kept = motrack::parseTrackerTabset(blank);
+    ASSERT_TRUE(kept.has_value()) << kept.error();
+    ASSERT_EQ(kept->entries.front().absolute, "");
+    EXPECT_EQ(motrack::renderTrackerTabset(*kept, kept->entries).value(), blank);
+    const auto extended = motrack::renderTrackerTabset(*kept, std::vector{kept->entries.front(), relativeEntry("b.trk")});
+    ASSERT_TRUE(extended.has_value()) << extended.error();
+    EXPECT_EQ(entriesOf(*extended), (std::vector{kept->entries.front(), relativeEntry("b.trk")}));
+    EXPECT_FALSE(motrack::writeTrackerTabset(kept->entries).has_value());
 }
 
 TEST(TrackerTabset, ComputesTrackerRelativePaths)
@@ -618,6 +651,14 @@ TEST(TrackerTabset, KeepsEntriesThatStillNameTheirFiles)
     EXPECT_EQ(entries({a, b, c}), (std::vector{saved[0], saved[1], saved[2], motrack::tabsetEntry(c, base)}));
     // Without an existing tabset every entry is new.
     EXPECT_EQ(motrack::tabsetEntries(std::vector{a}, set, {}), std::vector{motrack::tabsetEntry(a, base)});
+    // Entries naming no file are not kept, and are reported.
+    writeTabset(set, {saved[0], relativeEntry("gone.trk"), saved[1]});
+    const auto withMissing = motrack::readTrackerTabset(set);
+    ASSERT_TRUE(withMissing.has_value()) << withMissing.error();
+    std::vector<TabsetEntry> unresolved;
+    EXPECT_EQ(motrack::tabsetEntries(std::vector{a, b}, set, {}, &*withMissing, &unresolved), (std::vector{saved[0], saved[1]}));
+    EXPECT_EQ(unresolved, std::vector{relativeEntry("gone.trk")});
+    writeFile(set, bytes);
 
     // A saved basepath stays the base for new entries, so Tracker finds them where MoTrack wrote them.
     const auto based = replaced(bytes,

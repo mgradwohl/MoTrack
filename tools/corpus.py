@@ -2781,12 +2781,27 @@ def check_tabset(manifest, cache, java, classes, root, display, probe):
     run([str(Path(probe).resolve()), "--save-tabset", str(tracker_tabset), str(linked), str(archive)])
     if tracker_tabset.read_bytes() != written:
         raise ValueError("MoTrack changed Tracker's tabset when saving the same experiments over it")
-    # MoTrack edits its own tabset in place (the archive first, then another experiment), and actual Tracker must
-    # load every tab of the edited set from its relative paths.
+    # MoTrack edits its own tabset in place (the archive first, then another experiment). A property Tracker ignores
+    # must keep its bytes, which a rewrite would drop, and the edited lines must keep the file's layout.
+    lines = tabset.read_text(encoding="utf-8").split("\n")
+    root_line = next((index for index, line in enumerate(lines) if "<object class=" in line), None)
+    if root_line is None:
+        raise ValueError("Unexpected MoTrack tabset")
+    note = '    <property name="note" type="string">kept as written</property>'
+    tabset.write_text("\n".join(lines[:root_line + 1] + [note] + lines[root_line + 1:]), encoding="utf-8")
+    before = tabset.read_text(encoding="utf-8")
     run([str(Path(probe).resolve()), "--save-tabset", str(tabset), str(archive), str(linked), str(secondary)])
-    edited = tracker_tabset_session(manifest, cache, java, classes, tabset, moved / "tracker-edited", display,
+    after = tabset.read_text(encoding="utf-8")
+    if after.split("\n")[:root_line + 2] != before.split("\n")[:root_line + 2]:
+        raise ValueError("MoTrack rewrote its tabset instead of editing the changed entries")
+    # Move everything again, so that the new entry's absolute path is stale too and only relative paths resolve.
+    again = moved.with_name(moved.name + "-again")
+    moved.rename(again)
+    tabset, linked, archive, secondary = (again / path.relative_to(moved) for path in (tabset, linked, archive, secondary))
+    # Actual Tracker must load every tab of the edited set, and MoTrack must read it back.
+    edited = tracker_tabset_session(manifest, cache, java, classes, tabset, again / "tracker-edited", display,
                                     [tabs_of(archive), tabs_of(linked), tabs_of(secondary)])
-    edited_items, edited_files = motrack_tabset_files(probe, tabset, moved / "motrack-read-edited.json")
+    edited_items, edited_files = motrack_tabset_files(probe, tabset, again / "motrack-read-edited.json")
     if edited_files != [archive.resolve(), linked.resolve(), secondary.resolve()]:
         raise ValueError(f"MoTrack did not reread its edited tabset: {edited_items}")
     (cache / "reports" / "tabset-roundtrip.json").write_text(

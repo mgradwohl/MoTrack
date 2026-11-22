@@ -76,8 +76,9 @@ struct TrackerTabset
 [[nodiscard]] std::expected<std::string, std::string> writeTrackerTabset(std::span<const TabsetEntry> entries);
 /// `original` edited so that it lists `entries`. Unchanged entries and every other property keep their bytes; a
 /// changed entry has only its changed paths replaced, so an unedited tabset renders byte-identical. Entries that
-/// Tracker could not read because of their index order are rewritten in order when they change. The output is
-/// re-parsed and checked like every standard export (oracle O8).
+/// Tracker could not read because of their index order are rewritten in order whenever anything changes. Only new
+/// entries must be representable; entries read from `original` are kept as read. The output is re-parsed and
+/// checked like every standard export (oracle O8).
 [[nodiscard]] std::expected<std::string, std::string> renderTrackerTabset(const TrackerTabset& original,
                                                                           std::span<const TabsetEntry> entries);
 
@@ -129,11 +130,14 @@ expandTrackerTabset(const QString& path, const QString& workingDirectory, const 
 /// Entries for a tabset at `tabsetPath` that lists `files` (canonical, in tab order). When `existing` is the tabset
 /// that path holds now, each entry of it that still resolves to the listed file in Tracker's order is kept as it
 /// is, together with the repeats that follow it (Tracker lists an archive once per experiment tab), so that saving
-/// an unchanged set leaves the file unchanged. Other files get a new tabsetEntry against tabsetBase.
+/// an unchanged set leaves the file unchanged. Other files get a new tabsetEntry against tabsetBase. As in Tracker,
+/// which saves only open tabs, entries without a listed file are not kept; those that name no existing file at all
+/// are added to `unresolved` so the caller can say so.
 [[nodiscard]] std::vector<TabsetEntry> tabsetEntries(std::span<const QString> files,
                                                      const QString& tabsetPath,
                                                      const QString& workingDirectory,
-                                                     const TrackerTabset* existing = nullptr);
+                                                     const TrackerTabset* existing = nullptr,
+                                                     std::vector<TabsetEntry>* unresolved = nullptr);
 /// Write a tabset atomically: `existing` (read from `path`) edited by renderTrackerTabset, or a new document.
 /// Existing destinations are only replaced after the complete file is staged.
 [[nodiscard]] std::expected<void, std::string>

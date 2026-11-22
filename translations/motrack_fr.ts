@@ -644,6 +644,14 @@
         <source>%1 is a tabset that MoTrack cannot read (%2). Choose another filename so it is not replaced.</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Wait until the tabset has finished opening before saving a tabset.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1: not found, so the saved tabset no longer lists it.</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 
 <context>

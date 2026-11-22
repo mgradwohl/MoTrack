@@ -262,10 +262,23 @@ TEST(WorkspaceTabset, MissingFilesCanBeLocatedOrSkippedAndOtherProblemsAreReport
                 });
     motrack::WorkspaceWindow window;
     window.show();
-    DialogScript script(
-        {answer("workspaceTabsetMissing", QMessageBox::Yes), chooseFile(experiment), answer("workspaceTabsetMissing", QMessageBox::No)});
+    auto* saveAction = window.findChild<QAction*>("saveTrackerTabset");
+    ASSERT_NE(saveAction, nullptr);
+    bool savedWhileOpening = true;
+    DialogScript script({[&](QWidget* widget)
+                         {
+                             if (widget->objectName() != "workspaceTabsetMissing")
+                                 return false;
+                             // A tabset that is still opening cannot be saved over itself with only some of its files.
+                             savedWhileOpening = saveAction->isEnabled() || window.saveTabset(set);
+                             return answer("workspaceTabsetMissing", QMessageBox::Yes)(widget);
+                         },
+                         chooseFile(experiment),
+                         answer("workspaceTabsetMissing", QMessageBox::No)});
     ASSERT_TRUE(openTabset(window, set, 1));
     EXPECT_EQ(script.handled(), 3U);
+    EXPECT_FALSE(savedWhileOpening);
+    EXPECT_TRUE(saveAction->isEnabled());
     // The located file is also the next entry; each file opens once, unlike Tracker.
     EXPECT_EQ(window.context()->session().sources().size(), 1U);
     EXPECT_EQ(tabs(window)->count(), 1);
@@ -274,7 +287,19 @@ TEST(WorkspaceTabset, MissingFilesCanBeLocatedOrSkippedAndOtherProblemsAreReport
     const auto text = box->informativeText();
     EXPECT_TRUE(text.contains("set.trk")) << text.toStdString();
     EXPECT_TRUE(text.contains("gone.trk")) << text.toStdString();
-    box->accept();
+    dismiss(window, box);
+
+    // Saving the set back keeps the entry that names the open experiment and lists the entries that name no file.
+    ASSERT_TRUE(window.saveTabset(set));
+    box = problems(window);
+    ASSERT_NE(box, nullptr);
+    EXPECT_TRUE(box->informativeText().contains("moved.trk: not found, so the saved tabset no longer lists it."))
+        << box->informativeText().toStdString();
+    EXPECT_TRUE(box->informativeText().contains("gone.trk: not found")) << box->informativeText().toStdString();
+    dismiss(window, box);
+    const auto saved = motrack::readTrackerTabset(set);
+    ASSERT_TRUE(saved.has_value()) << saved.error();
+    EXPECT_EQ(saved->entries, std::vector{absoluteEntry(experiment)});
 }
 
 TEST(WorkspaceTabset, SavingAsksToSaveChangedProjectsAndReopensTheSameSet)

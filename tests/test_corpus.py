@@ -353,7 +353,9 @@ class CorpusTests(unittest.TestCase):
             def run(command, *, display=None):
                 if command[1] == "--write-tabset":
                     self.assertEqual(Path(command[2]).name, "lesson.trk")
-                    Path(command[2]).write_text("tabset", encoding="utf-8")
+                    Path(command[2]).write_text('<?xml version="1.0" encoding="UTF-8"?>\n'
+                                                '<object class="org.opensourcephysics.cabrillo.tracker.TFrame">\n</object>',
+                                                encoding="utf-8")
                     return
                 if command[1] == "--save-tabset":
                     target = Path(command[2])
@@ -367,12 +369,15 @@ class CorpusTests(unittest.TestCase):
                         self.assertEqual(target.name, "lesson.trk")
                         self.assertTrue(target.parent.parent.parent.name.endswith("-moved"))
                         self.assertEqual(files, ["multitab-images.trz", "linked-images.trk", "secondary-images.trk"])
-                        target.write_text("edited", encoding="utf-8")
+                        self.assertIn('name="note"', target.read_text(encoding="utf-8"))
+                        # In place, the existing lines stay; a rewrite (mutation) drops the property Tracker ignores.
+                        target.write_text("edited" if mutation == "rewritten" else target.read_text(encoding="utf-8") + "\nedited",
+                                          encoding="utf-8")
                     return
                 if "TrackerTabsetReference" in command:
                     self.assertEqual(display, ":77")
                     args = command[command.index("TrackerTabsetReference") + 1:]
-                    edited = Path(args[0]).read_text(encoding="utf-8") == "edited"
+                    edited = Path(args[0]).read_text(encoding="utf-8").endswith("edited")
                     self.assertEqual(args[2], "4" if edited else "3")
                     # Tracker opens the relocated copy; the original folder no longer exists.
                     self.assertEqual(Path(args[0]).parent.parent.name, "relocated-input")
@@ -399,7 +404,8 @@ class CorpusTests(unittest.TestCase):
                 if command[1] == "--read-tabset":
                     target = Path(command[2])
                     if target.name == "lesson.trk":
-                        self.assertTrue(target.parent.parent.parent.name.endswith("-moved"))
+                        # The edited set is read after the tree moved once more.
+                        self.assertTrue(target.parent.parent.parent.name.endswith("-moved-again"))
                         lesson = target.parent.parent / "lesson é"
                         items = [{"status": 0, "file": str(lesson / name)}
                                  for name in ["multitab-images.trz", "linked-images.trk", "secondary-images.trk"]]
@@ -419,7 +425,8 @@ class CorpusTests(unittest.TestCase):
                 self.fail(f"unexpected command {command}")
             return run
 
-        for mutation in [None, "order", "mass", "path", "unresolved", "resave", "edited-order", "edited-missing", "edited-unresolved"]:
+        for mutation in [None, "order", "mass", "path", "unresolved", "resave", "rewritten", "edited-order", "edited-missing",
+                         "edited-unresolved"]:
             root = self.root / f"tabset-{mutation}"
             root.mkdir()
             with self.subTest(mutation=mutation), patch.object(corpus, "run", side_effect=fake(mutation)):

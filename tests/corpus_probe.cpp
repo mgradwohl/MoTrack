@@ -935,7 +935,11 @@ try
         for (const auto& file : args.sliced(3))
             files.push_back(QFileInfo(file).canonicalFilePath());
         const auto* baseline = existing ? &*existing : nullptr;
-        const auto entries = motrack::tabsetEntries(files, QFileInfo(args[2]).absoluteFilePath(), QDir::currentPath(), baseline);
+        // The canonical destination, as the window passes it, so relative paths compare with the canonical files.
+        const QFileInfo destination(args[2]);
+        const auto folder = QFileInfo(destination.absolutePath()).canonicalFilePath();
+        const auto tabset = folder.isEmpty() ? destination.absoluteFilePath() : QDir(folder).filePath(destination.fileName());
+        const auto entries = motrack::tabsetEntries(files, tabset, QDir::currentPath(), baseline);
         if (const auto written = motrack::saveTrackerTabset(args[2], entries, baseline); !written)
             throw motrack::ProjectError(written.error());
         return EXIT_SUCCESS;

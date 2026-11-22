@@ -323,6 +323,7 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
                 }
                 // One tabset opens at a time; its prompts run after the context's completion handler has returned.
                 m_ExpandedTabsets.push_back({.tabset = tabset, .items = items});
+                refreshLabels();
                 QTimer::singleShot(0, this, &WorkspaceWindow::beginQueuedTabset);
                 if (m_Tabset && !m_Tabset->request) // This open may have used the slot the active tabset was waiting for.
                     QTimer::singleShot(0, this, &WorkspaceWindow::continueTabset);
@@ -552,6 +553,11 @@ void WorkspaceWindow::beginTabset(const QString& tabset, const std::vector<Tabse
     continueTabset();
 }
 
+bool WorkspaceWindow::tabsetOpening() const
+{
+    return m_Tabset.has_value() || !m_ExpandedTabsets.empty() || m_TabsetPrompting;
+}
+
 void WorkspaceWindow::expandInPlace(OrderedOpens& queue, const std::vector<TabsetItem>& items) const
 {
     QStringList nested;
@@ -588,6 +594,7 @@ void WorkspaceWindow::continueTabset()
     }
     auto finished = std::move(*m_Tabset);
     m_Tabset.reset();
+    refreshLabels();
     // Tracker selects the first listed experiment file rather than a video.
     if (finished.select && m_Pages.contains(*finished.select))
         (void)showDocument(*finished.select);
@@ -703,6 +710,12 @@ bool WorkspaceWindow::saveTabset(const QString& path)
 {
     if (m_Busy)
         return false;
+    // A tabset that is still opening would be saved, possibly over itself, with only the files opened so far.
+    if (tabsetOpening())
+    {
+        statusBar()->showMessage(tr("Wait until the tabset has finished opening before saving a tabset."));
+        return false;
+    }
     m_Busy = true;
     refreshLabels();
     bool alive = true;
@@ -827,7 +840,10 @@ bool WorkspaceWindow::saveTabset(const QString& path)
     for (const auto& [source, file] : references)
         files.push_back(file);
     const auto* baseline = existing ? &*existing : nullptr;
-    const auto entries = tabsetEntries(files, physical, QDir::currentPath(), baseline);
+    std::vector<TabsetEntry> unresolved;
+    const auto entries = tabsetEntries(files, physical, QDir::currentPath(), baseline, &unresolved);
+    for (const auto& entry : unresolved)
+        problems.push_back(tr("%1: not found, so the saved tabset no longer lists it.").arg(QString::fromStdString(entry.relative)));
     const auto written = saveTrackerTabset(physical, entries, baseline);
     if (!written)
     {
@@ -1073,7 +1089,7 @@ void WorkspaceWindow::refreshLabels()
     m_CloseSource->setEnabled(!m_Busy && currentDocument().has_value());
     const auto sources = session.sources();
     m_SaveAll->setEnabled(!m_Busy && !sources.empty());
-    m_SaveTabset->setEnabled(!m_Busy && !sources.empty());
+    m_SaveTabset->setEnabled(!m_Busy && !sources.empty() && !tabsetOpening());
     const auto current = currentDocument();
     setWindowTitle(current ? tr("%1[*] — MoTrack").arg(documentLabel(*current)) : tr("MoTrack[*]"));
     setWindowModified(std::ranges::any_of(sources, [&session](QUuid source) { return session.isModified(source); }));

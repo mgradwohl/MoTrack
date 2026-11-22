@@ -111,13 +111,17 @@ struct ParsedEntry
     return !path.empty() && !path.contains("]]>") && !path.contains('\0') && !path.contains('\n') && !path.contains('\r');
 }
 
-[[nodiscard]] std::expected<void, std::string> validEntries(std::span<const TabsetEntry> entries)
+/// Entries read from the file being edited (`known`) are kept as they were read, so only new ones are checked.
+[[nodiscard]] std::expected<void, std::string> validEntries(std::span<const TabsetEntry> entries, std::span<const TabsetEntry> known = {})
 {
     if (entries.size() > MAX_TABSET_ENTRIES)
         return std::unexpected("The tabset lists too many files.");
     if (!std::ranges::all_of(entries,
-                             [](const TabsetEntry& entry)
-                             { return representable(entry.relative) && (!entry.absolute || representable(*entry.absolute)); }))
+                             [&](const TabsetEntry& entry)
+                             {
+                                 return std::ranges::contains(known, entry) ||
+                                        (representable(entry.relative) && (!entry.absolute || representable(*entry.absolute)));
+                             }))
         return std::unexpected("A tabset path cannot be written in Tracker XML.");
     return {};
 }
@@ -433,10 +437,10 @@ std::expected<std::string, std::string> renderTrackerTabset(const TrackerTabset&
 {
     if (!original.source)
         return std::unexpected("The tabset has no source.");
-    if (auto valid = validEntries(entries); !valid)
-        return std::unexpected(std::move(valid).error());
     if (std::ranges::equal(entries, original.entries))
         return std::string(original.source->bytes()); // Nothing to edit: the file stays byte for byte.
+    if (auto valid = validEntries(entries, original.entries); !valid)
+        return std::unexpected(std::move(valid).error());
     SourceEdits edits(original.source);
     const auto& source = *original.source;
     const auto root = source.root();
@@ -457,7 +461,9 @@ std::expected<std::string, std::string> renderTrackerTabset(const TrackerTabset&
         for (std::size_t index = 0; index < kept; ++index)
         {
             const auto& nodes = original.nodes[index];
-            if (entries[index] == original.entries[index])
+            // An entry with [1] before [0] makes Tracker refuse the whole tabset, so an edited save rewrites it even
+            // when its paths are unchanged.
+            if (nodes.ordered && entries[index] == original.entries[index])
                 continue;
             if (nodes.ordered)
             {
@@ -541,8 +547,11 @@ std::vector<TabsetItem> expandTrackerTabset(const QString& path, const QString& 
     return std::move(expansion).take();
 }
 
-std::vector<TabsetEntry>
-tabsetEntries(std::span<const QString> files, const QString& tabsetPath, const QString& workingDirectory, const TrackerTabset* existing)
+std::vector<TabsetEntry> tabsetEntries(std::span<const QString> files,
+                                       const QString& tabsetPath,
+                                       const QString& workingDirectory,
+                                       const TrackerTabset* existing,
+                                       std::vector<TabsetEntry>* unresolved)
 {
     const auto base = existing ? tabsetBase(*existing, tabsetPath) : QFileInfo(tabsetPath).absolutePath();
     // The file each existing entry names now, in Tracker's search order.
@@ -583,6 +592,10 @@ tabsetEntries(std::span<const QString> files, const QString& tabsetPath, const Q
         if (ahead)
             next = index;
     }
+    if (unresolved && existing) // `named` is empty without an existing tabset.
+        for (std::size_t index = 0; index < named.size(); ++index)
+            if (named[index].isEmpty())
+                unresolved->push_back(existing->entries[index]);
     return result;
 }
 

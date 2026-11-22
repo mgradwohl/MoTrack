@@ -96,6 +96,8 @@
     <message><source>Saved tabset %1.</source><translation type="unfinished"></translation></message>
     <message><source>Some projects were not included in %1.</source><translation type="unfinished"></translation></message>
     <message><source>Closing the window stopped the remaining tabset files.</source><translation type="unfinished"></translation></message>
+    <message><source>Wait until the tabset has finished opening before saving a tabset.</source><translation type="unfinished"></translation></message>
+    <message><source>%1: not found, so the saved tabset no longer lists it.</source><translation type="unfinished"></translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>
