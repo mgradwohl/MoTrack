@@ -108,24 +108,26 @@ public final class FitOracle {
     private static final List<User> USERS =
         List.of(USER_LINE, USER_CHARGE, USER_LORENTZ, USER_COS, USER_COS_RENAMED, USER_DAMPED_RENAMED, USER_CONSTANT, USER_ROOT);
 
-    /** Evaluates a synthetic model with the same expression as its fit function. */
+    /** Evaluates a synthetic model with the same expression as its fit function. The data and independent
+     *  expectations use StrictMath (fdlibm) so that every JVM generates the same inputs; only the fits run
+     *  through OSP's Math calls. */
     static double model(String id, double[] p, double x) {
         switch (id) {
             case "line": return p[0] * x + p[1];
             case "parabola": return p[0] * x * x + p[1] * x + p[2];
             case "cubic": return p[0] * x * x * x + p[1] * x * x + p[2] * x + p[3];
-            case "gaussian": return p[0] * Math.exp(-(x - p[1]) * (x - p[1]) / (2 * p[2] * p[2]));
-            case "exponential": return p[0] * Math.exp(p[1] * x) + p[2];
-            case "sinusoid": return p[0] * Math.sin(p[1] * x + p[2]) + p[3];
+            case "gaussian": return p[0] * StrictMath.exp(-(x - p[1]) * (x - p[1]) / (2 * p[2] * p[2]));
+            case "exponential": return p[0] * StrictMath.exp(p[1] * x) + p[2];
+            case "sinusoid": return p[0] * StrictMath.sin(p[1] * x + p[2]) + p[3];
             case "dampedsine":
-            case "user-damped-renamed": return p[0] * Math.exp(p[4] * x) * Math.sin(p[1] * x + p[2]) + p[3];
-            case "power": return p[0] * Math.pow(x, p[1]);
-            case "log": return p[0] * Math.log(x) + p[1];
+            case "user-damped-renamed": return p[0] * StrictMath.exp(p[4] * x) * StrictMath.sin(p[1] * x + p[2]) + p[3];
+            case "power": return p[0] * StrictMath.pow(x, p[1]);
+            case "log": return p[0] * StrictMath.log(x) + p[1];
             case "user-line": return p[0] * x + p[1];
-            case "user-charge": return p[0] * (1 - Math.exp(-x / p[1]));
+            case "user-charge": return p[0] * (1 - StrictMath.exp(-x / p[1]));
             case "user-lorentz": return p[0] / (1 + ((x - p[1]) / p[2]) * ((x - p[1]) / p[2]));
             case "user-cos":
-            case "user-cos-renamed": return p[0] * Math.cos(p[1] * x) + p[2];
+            case "user-cos-renamed": return p[0] * StrictMath.cos(p[1] * x) + p[2];
             default: throw new IllegalArgumentException(id);
         }
     }
@@ -135,31 +137,31 @@ public final class FitOracle {
         switch (id) {
             case "gaussian": {
                 double d = x - p[1];
-                double g = Math.exp(-d * d / (2 * p[2] * p[2]));
+                double g = StrictMath.exp(-d * d / (2 * p[2] * p[2]));
                 return new double[] {g, p[0] * g * d / (p[2] * p[2]), p[0] * g * d * d / (p[2] * p[2] * p[2])};
             }
             case "exponential": {
-                double e = Math.exp(p[1] * x);
+                double e = StrictMath.exp(p[1] * x);
                 return new double[] {e, p[0] * x * e, 1};
             }
             case "sinusoid": {
-                double s = Math.sin(p[1] * x + p[2]);
-                double c = Math.cos(p[1] * x + p[2]);
+                double s = StrictMath.sin(p[1] * x + p[2]);
+                double c = StrictMath.cos(p[1] * x + p[2]);
                 return new double[] {s, p[0] * x * c, p[0] * c, 1};
             }
             case "dampedsine":
             case "user-damped-renamed": {
-                double e = Math.exp(p[4] * x);
-                double s = Math.sin(p[1] * x + p[2]);
-                double c = Math.cos(p[1] * x + p[2]);
+                double e = StrictMath.exp(p[4] * x);
+                double s = StrictMath.sin(p[1] * x + p[2]);
+                double c = StrictMath.cos(p[1] * x + p[2]);
                 return new double[] {e * s, p[0] * e * x * c, p[0] * e * c, 1, p[0] * x * e * s};
             }
             case "power": {
-                double v = Math.pow(x, p[1]);
-                return new double[] {v, p[0] * v * Math.log(x)};
+                double v = StrictMath.pow(x, p[1]);
+                return new double[] {v, p[0] * v * StrictMath.log(x)};
             }
             case "user-charge": {
-                double e = Math.exp(-x / p[1]);
+                double e = StrictMath.exp(-x / p[1]);
                 return new double[] {1 - e, -p[0] * e * x / (p[1] * p[1])};
             }
             case "user-lorentz": {
@@ -170,7 +172,7 @@ public final class FitOracle {
             }
             case "user-cos":
             case "user-cos-renamed": {
-                return new double[] {Math.cos(p[1] * x), -p[0] * x * Math.sin(p[1] * x), 1};
+                return new double[] {StrictMath.cos(p[1] * x), -p[0] * x * StrictMath.sin(p[1] * x), 1};
             }
             default: throw new IllegalArgumentException(id);
         }
@@ -533,8 +535,8 @@ public final class FitOracle {
             for (int i = 0; i < basis.length; i++) {
                 double xi = points[0][i];
                 for (int j = 0; j < p; j++) {
-                    if (id.equals("log")) basis[i][j] = j == 0 ? Math.log(xi) : 1;
-                    else basis[i][j] = Math.pow(xi, degree - j);
+                    if (id.equals("log")) basis[i][j] = j == 0 ? StrictMath.log(xi) : 1;
+                    else basis[i][j] = StrictMath.pow(xi, degree - j);
                 }
             }
             parameters = linearLeastSquares(basis, points[1], truth, fix);
