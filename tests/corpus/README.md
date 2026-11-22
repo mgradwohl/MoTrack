@@ -142,8 +142,13 @@ python tools/corpus.py sampling-oracle --java /path/to/jdk-17/bin/java
 python tools/corpus.py motion-oracle --java /path/to/jdk-17/bin/java
 
 python tools/corpus.py analysis-oracle --java /path/to/jdk-17/bin/java
+
+python tools/corpus.py filter-oracle --java /path/to/jdk-17/bin/java
 python -m unittest discover -s tests -p test_corpus.py
 ```
+
+`filter-oracle` runs the pinned OSP [video filters](../../docs/video-filters.md) on synthetic frames and compares
+the result with `tests/science/video-filter-reference.json` exactly; `--record` replaces the fixture for review.
 
 `expression-oracle` is a kernel oracle rather than a corpus case: it reruns
 [`ExpressionOracle.java`](../../tools/reference/ExpressionOracle.java) with the pinned JAR in a temporary

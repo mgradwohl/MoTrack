@@ -104,6 +104,12 @@ add_library(motrack_sampling STATIC src/science/sampling/argb_image.cpp src/scie
     src/science/sampling/line_profile.cpp src/science/sampling/rgb_region.cpp)
 target_include_directories(motrack_sampling PUBLIC src)
 target_compile_options(motrack_sampling PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
+# Qt-free ports of Tracker's video filters (docs/video-filters.md).
+add_library(motrack_filters STATIC src/science/filters/filter_image.cpp src/science/filters/java_arithmetic.cpp src/science/filters/video_filter.cpp
+    src/science/filters/point_filters.cpp src/science/filters/temporal_filters.cpp src/science/filters/geometric_filters.cpp)
+target_include_directories(motrack_filters PUBLIC src)
+target_compile_options(motrack_filters PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
+
 target_link_libraries(motrack_workspace PUBLIC motrack_project motrack_input Qt6::Widgets PRIVATE motrack_media motrack_image_package Qt6::Concurrent)
 target_link_libraries(motrack PRIVATE motrack_workspace)
 qt_add_translations(motrack
@@ -164,6 +170,7 @@ target_include_directories(motrack_matching PUBLIC src)
 target_compile_options(motrack_matching PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
 list(APPEND motrack_targets motrack_matching)
 list(APPEND motrack_targets motrack_sampling)
+list(APPEND motrack_targets motrack_filters)
 
 foreach(target IN LISTS motrack_targets)
     if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
@@ -224,6 +231,12 @@ if(BUILD_TESTING)
     # The ODE rate functions and the analysis fit polynomials must round like the Java oracles'.
     set_source_files_properties(tests/science/ode_solver_test.cpp tests/science/analysis_reference_test.cpp
         PROPERTIES COMPILE_OPTIONS "${MOTRACK_JAVA_FP_OPTIONS}")
+    target_sources(motrack_tests PRIVATE tests/science/video_filter_test.cpp)
+    target_link_libraries(motrack_tests PRIVATE motrack_filters)
+    target_compile_definitions(motrack_tests PRIVATE
+        MOTRACK_FILTER_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/video-filter-reference.json")
+    # The filter test computes Java-rounded values too (sinCos arguments, ramps).
+    set_source_files_properties(tests/science/video_filter_test.cpp PROPERTIES COMPILE_OPTIONS "${MOTRACK_JAVA_FP_OPTIONS}")
     add_test(NAME legacy_project COMMAND motrack_tests)
     target_sources(motrack_tests PRIVATE tests/science/sampling_test.cpp tests/science/sampling_reference_test.cpp)
     target_link_libraries(motrack_tests PRIVATE motrack_sampling)

@@ -4003,6 +4003,151 @@ class OdeOracleTests(unittest.TestCase):
                 corpus.validate_ode_reference(document, self.manifest)
 
 
+class FilterOracleTests(unittest.TestCase):
+    """The video-filter kernel oracle (tools/reference/FilterOracle.java) without running Java."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name).resolve()
+        self.manifest = corpus.load_manifest()
+        self.fixture = json.loads(corpus.FILTER_REFERENCE.read_text(encoding="utf-8"))
+
+    def check(self, document, *, record=False, commands=None):
+        """Run check_filter_oracle with a fake Java process that emits `document`."""
+        def run(command):
+            if commands is not None:
+                commands.append(command)
+            Path(command[-1]).write_text(json.dumps(document), encoding="utf-8")
+
+        with patch.object(corpus, "verify_file") as verify, patch.object(corpus, "run", side_effect=run), \
+                patch("sys.stdout", new_callable=io.StringIO) as output:
+            corpus.check_filter_oracle(self.manifest, self.root, "java", record=record)
+        verify.assert_called_once_with(self.root / self.manifest["reference"]["file"], self.manifest["reference"])
+        return output.getvalue()
+
+    def case(self, document, case_id):
+        return next(case for case in document["cases"] if case["id"] == case_id)
+
+    def test_committed_fixture_is_canonical_and_covers_every_registered_filter(self):
+        corpus.validate_filter_reference(self.fixture, self.manifest)
+        classes = {f["class"].rsplit(".", 1)[1] for case in self.fixture["cases"] for f in case["filters"]}
+        self.assertEqual(classes, set(corpus.FILTER_CLASSES))
+        self.assertEqual(len(corpus.FILTER_CLASSES), 14)
+        self.assertNotIn("BarrelPincushionFilter", classes)
+        self.assertEqual(corpus.FILTER_REFERENCE.read_bytes().decode("utf-8"), corpus.filter_reference_text(self.fixture))
+        self.assertLess(corpus.FILTER_REFERENCE.stat().st_size, 256 * 1024)
+        # Temporal filters are driven through multi-frame sequences with steps, seeks and resets.
+        ops = {op["op"] for case in self.fixture["cases"] for op in case["ops"]}
+        self.assertEqual(ops, corpus.FILTER_OPS)
+        ghost = self.case(self.fixture, "ghost-reevaluate-seek")
+        self.assertEqual([op["frame"] for op in ghost["ops"]], [0, 1, 2, 2, 2, 5, 1, 0, 3])
+        # Tracker saves the enabled state only for the perspective filter, which then fails to reload headless.
+        reloads = {entry["class"].rsplit(".", 1)[1]: entry["disabled_reloads_as"] for entry in self.fixture["persistence"]}
+        self.assertEqual(reloads.pop("PerspectiveFilter"), "NullPointerException")
+        self.assertEqual(set(reloads.values()), {"enabled"})
+        self.assertEqual({entry["id"]: entry["exception"] for entry in self.fixture["failures"]},
+                         {"resize-zero-width": "IllegalArgumentException", "perspective-no-key-0": "NullPointerException"})
+
+    def test_check_runs_the_pinned_jar_privately_and_accepts_an_identical_regeneration(self):
+        commands = []
+        self.assertIn(f"{len(self.fixture['cases'])} Java filter cases match tests/science/video-filter-reference.json pixel for pixel",
+                      self.check(self.fixture, commands=commands))
+        [command] = commands
+        self.assertEqual(command[0], "java")
+        self.assertIn("-Djava.awt.headless=true", command)
+        self.assertIn("-Xmx512m", command)
+        self.assertEqual(command[command.index("--class-path") + 1], str(self.root / self.manifest["reference"]["file"]))
+        self.assertEqual(Path(command[-2]), corpus.ROOT / "tools/reference/FilterOracle.java")
+        # A private, removed home: OSP preference files never land in the shared reference cache.
+        home = next(arg for arg in command if arg.startswith("-Duser.home=")).split("=", 1)[1]
+        self.assertFalse(Path(home).is_relative_to(self.root))
+        self.assertFalse(Path(home).exists())
+
+    def test_check_rejects_any_pixel_probe_or_reference_drift(self):
+        for mutation in ["pixels", "size", "rgb", "probe", "trig", "lookup", "composite", "frame", "persistence", "failure",
+                         "missing-case", "case-order"]:
+            document = copy.deepcopy(self.fixture)
+            if mutation == "pixels":
+                result = self.case(document, "ghost-0.05")["results"][3]
+                result["sha256"] = "0" * 64
+            elif mutation == "size":
+                self.case(document, "rotate-CW")["results"][0]["width"] += 1
+            elif mutation == "rgb":
+                result = self.case(document, "perspective-small")["results"][2]
+                result["rgb"] = "000000"
+            elif mutation == "probe":
+                probe = self.case(document, "radial-Rectilinear-Equisolid-0.75-170.0")["probes"][1]
+                probe["value"] = math.nextafter(probe["value"], math.inf)
+            elif mutation == "trig":
+                document["math"]["brightness_trig"][50]["sin"] = "3fe6a09e667f3bcd"
+            elif mutation == "lookup":
+                document["math"]["log_lookup_sha256_prefix"]["-99"] = "0" * 16
+            elif mutation == "composite":
+                document["composites"][0]["sha256"] = "f" * 64
+            elif mutation == "frame":
+                document["frames"][0]["sha256"] = "e" * 64
+            elif mutation == "persistence":
+                document["persistence"][0]["disabled_reloads_as"] = "disabled"
+            elif mutation == "failure":
+                document["failures"][0]["exception"] = "none"
+            elif mutation == "missing-case":
+                document["cases"].pop()
+            else:
+                document["cases"][0], document["cases"][1] = document["cases"][1], document["cases"][0]
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                self.check(document)
+
+    def test_record_writes_the_canonical_fixture_only_when_requested(self):
+        destination = self.root / "science" / "video-filter-reference.json"
+        with patch.object(corpus, "FILTER_REFERENCE", destination):
+            self.assertIn(f"recorded {len(self.fixture['cases'])}", self.check(self.fixture, record=True))
+        self.assertEqual(destination.read_bytes(), corpus.filter_reference_text(self.fixture).encode("utf-8"))
+        with patch.object(sys, "argv", ["corpus.py", "session", "--record"]), patch.object(corpus, "check_sessions") as sessions, \
+                self.assertRaises(SystemExit), patch("sys.stderr", new_callable=io.StringIO):
+            corpus.main()
+        sessions.assert_not_called()
+        with patch.object(sys, "argv", ["corpus.py", "filter-oracle", "--java", "jdk/java", "--record"]), \
+                patch.object(corpus, "check_filter_oracle") as oracle:
+            corpus.main()
+        oracle.assert_called_once()
+        self.assertEqual(oracle.call_args.args[2], "jdk/java")
+        self.assertTrue(oracle.call_args.kwargs["record"])
+
+    def test_validation_rejects_malformed_or_incomplete_documents(self):
+        mutations = ["version", "schema", "registry", "no-cases", "duplicate-case", "case-type", "unknown-class", "unknown-frame",
+                     "frame-size", "duplicate-frame", "bad-op", "op-frame", "op-filter", "result-count", "result-hash", "rgb-on-large",
+                     "rgb-missing", "rgb-length", "uncovered-class", "persistence", "lists", "repeat"]
+        for mutation in mutations:
+            document = copy.deepcopy(self.fixture)
+            case = document["cases"][0]
+            if mutation == "version": document["reference_version"] = "6.3.4"
+            elif mutation == "schema": document["schema_version"] = 2
+            elif mutation == "registry": document["registry"].reverse()
+            elif mutation == "no-cases": document["cases"] = []
+            elif mutation == "duplicate-case": document["cases"].append(case)
+            elif mutation == "case-type": document["cases"][0] = "case"
+            elif mutation == "unknown-class": case["filters"][0]["class"] = "org.opensourcephysics.media.core.BarrelPincushionFilter"
+            elif mutation == "unknown-frame": case["frames"][0]["seed"] = 987654
+            elif mutation == "frame-size": document["frames"][0]["width"] = corpus.MAX_FILTER_SIDE + 1
+            elif mutation == "duplicate-frame": document["frames"].append(document["frames"][0])
+            elif mutation == "bad-op": case["ops"].append({"op": "paste"})
+            elif mutation == "op-frame": case["ops"][0]["frame"] = len(case["frames"])
+            elif mutation == "op-filter": self.case(document, "ghost-clear-enable")["ops"][3]["filter"] = 1
+            elif mutation == "result-count": case["results"].append(case["results"][0])
+            elif mutation == "result-hash": case["results"][0]["sha256"] = "XYZ"
+            elif mutation == "rgb-on-large": case["results"][0]["rgb"] = "00" * 3
+            elif mutation == "rgb-missing": self.case(document, "negative-1x1")["results"][0].pop("rgb")
+            elif mutation == "rgb-length": self.case(document, "negative-1x1")["results"][0]["rgb"] = "0000000"
+            elif mutation == "uncovered-class":
+                document["cases"] = [c for c in document["cases"] if not c["id"].startswith(("sum-", "stack-"))]
+            elif mutation == "persistence": document["persistence"].pop()
+            elif mutation == "repeat": self.case(document, "darkghost-black-then-white")["ops"][1]["repeat"] = 0
+            else: document["composites"] = {}
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                corpus.validate_filter_reference(document, self.manifest)
+
+
 class AnalysisOracleTests(unittest.TestCase):
     """The Data Tool analysis oracle (tools/reference/AnalysisOracle.java) without running Java."""
 
