@@ -17,12 +17,15 @@
 #include <algorithm>
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <set>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -409,6 +412,81 @@ TEST(TrackerCompose, UneditedUnresolvedReferencesAcrossBothIdentityRangesRenderF
     std::ranges::sort(outcomes);
     EXPECT_EQ(outcomes, (std::vector{motrack::model::BindingOutcome::Ambiguous, motrack::model::BindingOutcome::Unclassified}));
     EXPECT_NO_THROW(motrack::detail::requireFaithfulReferences(document));
+}
+
+/// The native baseline's typed document with mass A's state changed as a command could leave it.
+motrack::model::TrackerDocument withMassA(const std::function<void(motrack::model::PointMassState&)>& change)
+{
+    auto parts = motrack::importTypedTracker(readFixture("native/baseline.trk")).parts();
+    for (auto& object : parts.objects)
+    {
+        if (const auto* mass = std::get_if<motrack::model::PointMassState>(object.value.get());
+            mass && motrack::model::loadedName(mass->name) == "mass A")
+        {
+            auto state = *mass;
+            change(state);
+            object.value = std::make_shared<const motrack::model::TypedValue>(std::move(state));
+        }
+    }
+    auto document = motrack::model::TrackerDocument::assemble(std::move(parts));
+    if (!document)
+    {
+        throw std::runtime_error(document.error().message);
+    }
+    return std::move(*document);
+}
+
+TEST(TrackerCompose, KeyFramesMustFollowTheMarksTheyChange)
+{
+    using motrack::model::FrameElement;
+    using motrack::model::Mark;
+    using motrack::model::PointMassState;
+    // Mass A has manual key frames {0,1,3} for its marks at 0, 1 and 3. A new mark is a key frame; a moved one stays one.
+    const auto added = [](PointMassState& state)
+    {
+        state.marks.set(5, FrameElement<Mark>{.value = {.x = 1.0, .y = 2.0}});
+    };
+    EXPECT_EQ(refusal(composed(withMassA(added))),
+              "Tracker export cannot keep the key frames of 'mass A': a changed or new mark is not a key frame.");
+    const auto keyed = composed(withMassA(
+        [&](PointMassState& state)
+        {
+            added(state);
+            state.keyFrames = std::vector<std::int32_t>{0, 1, 3, 5};
+        }));
+    ASSERT_TRUE(std::holds_alternative<std::string>(keyed)) << refusal(keyed);
+    EXPECT_NE(std::get<std::string>(keyed).find("<property name=\"array\" type=\"string\">{0,1,3,5}</property>"), std::string::npos);
+    const auto moved = composed(withMassA(
+        [](PointMassState& state)
+        {
+            auto element = *state.marks.find(1);
+            element.value.x += 4.0;
+            state.marks.set(1, element);
+        }));
+    EXPECT_TRUE(std::holds_alternative<std::string>(moved)) << refusal(moved);
+    // A removed mark leaves the key frames with it.
+    EXPECT_EQ(refusal(composed(withMassA([](PointMassState& state) { state.marks.erase(1); }))),
+              "Tracker export cannot keep the key frames of 'mass A': a removed mark is still a key frame.");
+    const auto removed = composed(withMassA(
+        [](PointMassState& state)
+        {
+            state.marks.erase(1);
+            state.keyFrames = std::vector<std::int32_t>{0, 3};
+        }));
+    EXPECT_TRUE(std::holds_alternative<std::string>(removed)) << refusal(removed);
+    // Without any key, Tracker would promote every automatic mark to a manual one; B1 refuses this too.
+    EXPECT_EQ(refusal(composed(withMassA([](PointMassState& state) { state.keyFrames = std::vector<std::int32_t>{}; }))),
+              "This Tracker export cannot preserve all edits or source associations.");
+}
+
+TEST(TrackerCompose, TheReimportCheckRefusesAnEditTheCompositionDoesNotCompose)
+{
+    // Key frames held unsorted and repeated are written as Tracker's sorted set, so the output rereads differently from
+    // the state; only the reimport check sees it, since every byte outside the edit is kept.
+    const auto document = withMassA([](motrack::model::PointMassState& state) { state.keyFrames = std::vector<std::int32_t>{3, 1, 0, 1}; });
+    EXPECT_EQ(refusal(composed(document)),
+              "This Tracker export cannot preserve all edits or source associations (its output rereads differently from the "
+              "intended state).");
 }
 
 TEST(TrackerCompose, ComparisonsDescribeEachDifference)

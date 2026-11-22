@@ -307,7 +307,11 @@ Tracker's saver order, because the exit criterion requires B1's bytes; insertion
 The clip range (`startframe`, `stepsize`, `stepcount`) and the clip timing (`starttime` and the clip control's
 `delta_t`) are each composed as one batch, as B1 writes them: when one field differs, every field of the batch is
 written, an unsaved one with Tracker's loader default. The reimport check compares every typed field except the
-panel's `selectedtrack`, a view reference that the audited cleanup rewrites.
+panel's `selectedtrack`, a view reference that the audited cleanup rewrites. `renderName` covers the references the
+graph holds (typed reference fields and slots of untyped owners); view references (selections, plot and table owners,
+plot guests) are not graph edges, so the last row of the table above covers them through B1's audited cleanup and
+its reference checks, not through `renderName`. Mark edits must keep the key frames with the marks they change: every
+changed or new mark is a key frame and no removed one is, which B1 computes and the descriptor composition checks.
 
 ## 3. Native version 7
 

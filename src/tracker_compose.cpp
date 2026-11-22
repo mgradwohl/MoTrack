@@ -527,6 +527,20 @@ void checkKeyFrames(const std::set<int>& keys, bool marked)
 
 void patchKeyFrames(SourceEdits& edits, NodeId object, const std::set<int>& keys);
 
+/// Mark edits keep the key frames with the marks they change (admission): in the key frames Tracker loads, every changed
+/// or new mark is a manual key and no removed one stays a key, as B1 computes them. Otherwise Tracker would reload a
+/// manual mark as an automatic one, or keep a key without its mark.
+void checkKeyFramesFollowMarks(const std::set<int>& keys, const FrameChanges& changes, const std::string& track)
+{
+    const auto unkeyed = std::ranges::any_of(changes.updated, [&](int frame) { return !keys.contains(frame); });
+    const auto stale = std::ranges::any_of(changes.removed, [&](int frame) { return keys.contains(frame); });
+    if (unkeyed || stale)
+    {
+        throw ProjectError("Tracker export cannot keep the key frames of '" + track +
+                           "': " + (unkeyed ? "a changed or new mark is not a key frame." : "a removed mark is still a key frame."));
+    }
+}
+
 void patchMarks(SourceEdits& edits, NodeId object, const std::vector<Mark>& original, const std::vector<Mark>& current)
 {
     const auto& xml = edits.source();
@@ -1894,11 +1908,11 @@ std::string_view renderStatusName(model::RenderStatus status)
     switch (status)
     {
     case model::RenderStatus::Faithful:
-        return "faithful";
+        return "is faithful";
     case model::RenderStatus::Ambiguous:
-        return "ambiguous";
+        return "would be ambiguous";
     case model::RenderStatus::Unclassified:
-        return "unclassified";
+        return "could bind a track of an unverified class";
     case model::RenderStatus::Rebinds:
         return "would bind another track";
     case model::RenderStatus::Lost:
@@ -2011,15 +2025,24 @@ void checkReimport(const model::TrackerDocument& document,
                    const model::TrackerDocument& output,
                    std::span<const ObjectSlot* const> exportOrder)
 {
-    require(output.media().references == document.media().references);
+    // An intended edit that was never composed, or composed as another value, rereads differently.
+    const auto reread = [](bool same)
+    {
+        if (!same)
+        {
+            throw ProjectError("This Tracker export cannot preserve all edits or source associations (its output rereads "
+                               "differently from the intended state).");
+        }
+    };
+    reread(output.media().references == document.media().references);
     for (const auto role : {Role::Panel, Role::Clip, Role::Video, Role::ClipControl, Role::Coordinates})
     {
         const auto* expected = document.singleton(role);
         const auto* actual = output.singleton(role);
-        require((expected == nullptr) == (actual == nullptr));
-        if (expected)
+        reread((expected == nullptr) == (actual == nullptr));
+        if (expected && actual)
         {
-            require(expected->className == actual->className && sameExportedState(intended.value(*expected), *actual->value));
+            reread(expected->className == actual->className && sameExportedState(intended.value(*expected), *actual->value));
         }
     }
     std::vector<const ObjectSlot*> tracks;
@@ -2030,11 +2053,11 @@ void checkReimport(const model::TrackerDocument& document,
             tracks.push_back(&object);
         }
     }
-    require(tracks.size() == exportOrder.size());
+    reread(tracks.size() == exportOrder.size());
     for (std::size_t position = 0; position < tracks.size(); ++position)
     {
-        require(tracks[position]->className == exportOrder[position]->className &&
-                sameExportedState(intended.value(*exportOrder[position]), *tracks[position]->value));
+        reread(tracks[position]->className == exportOrder[position]->className &&
+               sameExportedState(intended.value(*exportOrder[position]), *tracks[position]->value));
     }
 }
 
@@ -2351,8 +2374,11 @@ std::string composeTrackerExport(const model::TrackerDocument& document, const E
                 require(state.keyFrames.has_value());
                 keys = state.keyFrames ? std::set<int>(state.keyFrames->begin(), state.keyFrames->end()) : std::set<int>{};
             }
-            static_cast<void>(patchMarkFrames(edits, element, originalMarks, reducedMarks(state.marks)));
+            const auto changes = patchMarkFrames(edits, element, originalMarks, reducedMarks(state.marks));
             checkKeyFrames(keys, !state.marks.empty());
+            // Tracker's loaded key frames: the saved ones, or every remaining mark when none is saved.
+            const auto loadedKeys = model::loadedKeyFrames(state);
+            checkKeyFramesFollowMarks(std::set<int>(loadedKeys.begin(), loadedKeys.end()), changes, model::loadedName(state.name));
             if (keysChanged)
             {
                 patchKeyFrames(edits, element, keys);

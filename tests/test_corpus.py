@@ -5842,9 +5842,14 @@ class ComposeCheckTests(unittest.TestCase):
         with patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "project_path", return_value=self.root / "p.trk"), \
                 patch.object(corpus, "rename_source", return_value=self.root / "renamed.trk"), \
                 patch.object(corpus, "run", side_effect=probe), redirect_stdout(io.StringIO()) as output:
-            corpus.check_compositions(manifest, self.root, "probe")
+            corpus.check_compositions(manifest, self.root / "cache", "probe", scratch=self.root / "scratch")
         scenario_runs = [command for command in commands if command[1] == "--compose-scenarios"]
         self.assertEqual(len(scenario_runs), 2)
+        # Outputs stay in a temporary directory of the scratch directory, never in the (possibly shared) cache, and are
+        # removed afterwards.
+        self.assertTrue(all(Path(command[-1]).resolve().is_relative_to(self.root / "scratch") for command in commands))
+        self.assertEqual(list((self.root / "scratch").iterdir()), [])
+        self.assertFalse((self.root / "cache").exists())
         exports = [command[1] for command in commands if command[1] != "--compose-scenarios"]
         expected = [mode for case, mode in corpus.roundtrip_cases(manifest) if mode not in corpus.JAVA_AUTHORED_MODES]
         self.assertEqual(exports, ["--export-" + mode for mode in expected])
@@ -5862,7 +5867,7 @@ class ComposeCheckTests(unittest.TestCase):
         with patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "project_path", return_value=self.root / "p.trk"), \
                 patch.object(corpus, "run", side_effect=different), redirect_stdout(io.StringIO()), \
                 self.assertRaisesRegex(ValueError, "protractor/mass \\(media-free\\): the exports differ from byte 9"):
-            corpus.check_compositions(manifest, self.root, "probe")
+            corpus.check_compositions(manifest, self.root / "cache", "probe", scratch=self.root / "scratch")
 
     def test_the_roundtrip_fails_when_an_export_composes_differently(self):
         manifest = copy.deepcopy(self.manifest)

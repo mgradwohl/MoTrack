@@ -2900,9 +2900,11 @@ def roundtrip_export(probe, manifest, cache, case, mode, output):
     run([probe, "--export-" + mode, str(project), str(output / ("motrack-export.trz" if packaged else "motrack-export.trk"))])
 
 
-def check_compositions(manifest, cache, probe):
+def check_compositions(manifest, cache, probe, scratch=ROOT / "build"):
     """B2.3's comparison of the descriptor composition with B1's, without Java: every edit scenario of every corpus case
-    (tests/compose_scenarios.hpp), then every MoTrack export of the round trip whose input exists without Tracker."""
+    (tests/compose_scenarios.hpp), then every MoTrack export of the round trip whose input exists without Tracker.
+    Exports go to a temporary directory under this checkout's (ignored) build directory, never into the reference cache,
+    which worktrees may share, and on the fixtures' file system, so linked media keep relative references."""
     for path, artifact in artifacts(manifest, cache):
         if artifact is not manifest["reference"] and artifact not in manifest["reference"].get("runtime_dependencies", []):
             verify_file(path, artifact)
@@ -2911,7 +2913,8 @@ def check_compositions(manifest, cache, probe):
     reasons = 0
     different = []
     skipped = []
-    with tempfile.TemporaryDirectory(prefix="compose-", dir=cache) as temporary:
+    scratch.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="compose-check-", dir=scratch) as temporary:
         root = Path(temporary)
         for case in manifest["cases"]:
             report = root / (case["id"] + "-scenarios.json")

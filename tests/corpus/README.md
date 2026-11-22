@@ -354,6 +354,8 @@ every MoTrack export of the round trip whose input exists without Tracker. Each 
 bytes where both export; refusals may give another reason, which the summary counts. `roundtrip` makes the same
 comparison of its own exports, including those of Tracker-authored inputs (`first-mark`, `first-vector`,
 `clip-boundary`). With `MOTRACK_COMPOSE_REPORT` naming a file, the probe appends one JSON line per composition.
+`compose-check` writes its exports to a temporary directory under the checkout's `build` directory, never into the
+cache, and runs on Linux CI.
 
 `filter-oracle` runs the pinned OSP [video filters](../../docs/video-filters.md) on synthetic frames and compares
 the result with `tests/science/video-filter-reference.json` exactly; `--record` replaces the fixture for review.
