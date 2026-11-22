@@ -549,9 +549,19 @@ void WorkspaceWindow::checkNextRequestedFile(RequestedBatch& batch)
                 watcher->deleteLater();
                 applyRequestedFileCheck(check, path, result);
             });
-    watcher->setFuture(QtConcurrent::run(&m_Context->services()->requestPool(),
-                                         [path, sources = std::move(sources), earlier = batch.started]
-                                         { return checkRequestedFile(path, sources, earlier); }));
+    try
+    {
+        watcher->setFuture(QtConcurrent::run(&m_Context->services()->requestPool(),
+                                             [path, sources = std::move(sources), earlier = batch.started]
+                                             { return checkRequestedFile(path, sources, earlier); }));
+    }
+    catch (...)
+    {
+        // Nothing will answer this check, so the batch must not wait for it.
+        batch.check = 0;
+        delete watcher;
+        throw;
+    }
 }
 
 void WorkspaceWindow::applyRequestedFileCheck(std::uint64_t check, const QString& path, const RequestedFileCheck& result)
