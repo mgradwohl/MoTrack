@@ -5,7 +5,10 @@
 //
 // On Windows a path holds UTF-16 and these pass it through unchanged; path(std::string) and path::string() would
 // convert through the ANSI code page, which is UTF-8 only in motrack.exe (its manifest) and not in the test
-// binaries. On POSIX a path holds bytes and these use UTF-8, as Qt's own std::filesystem interoperation does.
+// binaries. On POSIX a path holds bytes and these use UTF-8, as Qt's own std::filesystem interoperation does, through
+// the Qt-free helpers in utf8_path.hpp.
+
+#include "utf8_path.hpp"
 
 #include <QString>
 
@@ -20,7 +23,7 @@ namespace motrack
 #ifdef _WIN32
     return {text.toStdWString()};
 #else
-    return {text.toStdString()};
+    return utf8Path(text.toStdString());
 #endif
 }
 
@@ -31,7 +34,7 @@ namespace motrack
 #ifdef _WIN32
     return QString::fromStdWString(path.native());
 #else
-    return QString::fromStdString(path.native());
+    return QString::fromStdString(utf8String(path));
 #endif
 }
 
