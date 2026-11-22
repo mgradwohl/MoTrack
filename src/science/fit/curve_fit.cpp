@@ -119,11 +119,6 @@ class Curve
         return m_Free;
     }
 
-    [[nodiscard]] bool knownPolynomial() const noexcept
-    {
-        return m_KnownPolynomial;
-    }
-
     [[nodiscard]] std::vector<double> freeValues() const
     {
         std::vector<double> result;

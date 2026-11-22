@@ -120,12 +120,15 @@ TEST(CurveFit, PolynomialsOfHigherDegree)
     EXPECT_FALSE(motrack::science::polynomialFit(0));
     EXPECT_FALSE(motrack::science::polynomialFit(6));
     const auto quartic = motrack::science::polynomialFit(4);
-    ASSERT_TRUE(quartic);
+    const auto quintic = motrack::science::polynomialFit(5);
+    if (!quartic || !quintic)
+    {
+        ADD_FAILURE() << "degree 4 and 5 polynomials are supported";
+        return;
+    }
     EXPECT_EQ(quartic->name, "Poly4");
     EXPECT_EQ(quartic->expression, "A*x^4+B*x^3+C*x^2+D*x+E");
     EXPECT_FALSE(quartic->builtIn);
-    const auto quintic = motrack::science::polynomialFit(5);
-    ASSERT_TRUE(quintic);
     EXPECT_EQ(quintic->parameters.back().name, "F");
     const std::vector<double> truth = {0.25, -0.5, 1.5, 2.0, -3.0, 0.75};
     const auto x = grid(-1.0, 0.125, 21);

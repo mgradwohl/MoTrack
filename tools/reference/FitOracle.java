@@ -831,6 +831,8 @@ public final class FitOracle {
         final List<String> calls;
         /** The objective at the first fit's start: the deviation the fitter compares with. */
         double startValue = Double.NaN;
+        /** The objective at the last vector the first fit evaluated, which the fitted function keeps. */
+        double firstLastValue = Double.NaN;
 
         RecordingHessian(List<String> calls) {
             this.calls = calls;
@@ -843,6 +845,7 @@ public final class FitOracle {
             return super.minimize(p -> {
                 double value = f.evaluate(p);
                 if (first && Double.isNaN(startValue)) startValue = value;
+                if (first) firstLastValue = value;
                 return value;
             }, x, max, tol);
         }
@@ -866,7 +869,8 @@ public final class FitOracle {
     }
 
     private record Result(int points, double[] validX, double[] parameters, double[] uncertainties, double[][] band,
-                          String intendedBand, double rms, double correlation, boolean nonReal, String method, String[] formatted) {}
+                          String intendedBand, double rms, double correlation, boolean nonReal, String method, String[] formatted,
+                          boolean diverged) {}
 
     /** Fits one case with OSP's DatasetCurveFitter. */
     private static Result run(CaseSpec spec, String fitId, double[] y) throws ReflectiveOperationException {
@@ -895,6 +899,7 @@ public final class FitOracle {
         // The main fit is the first HessianMinimize call and, when its result was worse, the next
         // LevenbergMarquardt call; only after LM can the fitter restore its starting values.
         String method = "none";
+        boolean diverged = false;
         boolean closedForm = f instanceof KnownPolynomial && (spec.fixed() == null || !anyTrue(spec.fixed()));
         int points = ((Dataset) get(fitter, FITTER, "dataset")).getValidXPoints().length;
         if (closedForm) {
@@ -906,6 +911,11 @@ public final class FitOracle {
                 // Restored when LM fails or its last evaluated vector is still worse than the start.
                 boolean restored = calls.get(1).equals("lm-failed") || levenberg.lastValue > hessian.startValue;
                 method = restored ? "restored" : "levenberg-marquardt";
+                // Newton diverged rather than missing the start by rounding: the outcome of the three-step
+                // Levenberg-Marquardt fallback that follows is then decided by last bits.
+                double scale = 0;
+                for (double value : y) if (Double.isFinite(value)) scale += value * value;
+                diverged = !(hessian.firstLastValue <= hessian.startValue * (1 + 1e-6) + 1e-12 * scale);
             }
         }
         double[] sigmas = (double[]) get(fitter, FITTER, "uncertainties");
@@ -920,7 +930,7 @@ public final class FitOracle {
         }
         String intended = intendedBand(fitter, f, spec, values, sigmas);
         return new Result(data.getValidXPoints().length, data.getValidXPoints(), values, sigmas, band, intended, rms, correlation,
-            nonReal, method, formatted);
+            nonReal, method, formatted, diverged);
     }
 
     private static boolean anyTrue(boolean[] flags) {
@@ -1151,9 +1161,13 @@ public final class FitOracle {
     }
 
     private static String caseJson(CaseSpec spec) throws ReflectiveOperationException {
+        Result java = run(spec, spec.fit(), spec.y());
+        // A diverged Newton iteration makes the case chaotic, and Tracker's result then no independent minimum.
+        boolean chaotic = spec.agreement().equals("chaotic") || (java.diverged() && spec.agreement().equals("transcendental"));
+        String agreement = chaotic ? "chaotic" : spec.agreement();
         StringBuilder json = new StringBuilder("{");
         json.append("\"id\":").append(string(spec.id())).append(",\"group\":").append(string(spec.group()))
-            .append(",\"fit\":").append(string(spec.fit())).append(",\"agreement\":").append(string(spec.agreement()))
+            .append(",\"fit\":").append(string(spec.fit())).append(",\"agreement\":").append(string(agreement))
             .append(",\"autofit\":").append(spec.autofit()).append(",\"start\":").append(string(spec.scratch() ? "scratch" : "current"))
             .append(",\"initial\":").append(spec.initial() == null ? "null" : numbers(spec.initial()))
             .append(",\"fixed\":").append(spec.fixed() == null ? "null" : booleans(spec.fixed()))
@@ -1161,7 +1175,7 @@ public final class FitOracle {
                 ? ",\"generated\":{\"rows\":" + CAPACITY_ROWS + ",\"head\":" + CAPACITY_HEAD + ",\"head_y\":50.0}"
                 : ",\"x\":" + numbers(spec.x()) + ",\"y\":" + numbers(spec.y()));
         if (spec.defect() != null) json.append(",\"defect\":").append(string(spec.defect()));
-        Expect e = spec.expect();
+        Expect e = chaotic ? null : spec.expect();
         if (e != null) {
             json.append(",\"expect\":{\"source\":").append(string(e.source())).append(",\"parameters\":").append(numbers(e.parameters()))
                 .append(",\"uncertainties\":").append(e.uncertainties() == null ? "null" : numbers(e.uncertainties()))
@@ -1169,7 +1183,6 @@ public final class FitOracle {
                 .append(number(e.parameterAbsolute())).append("},\"uncertainty_relative\":").append(number(e.uncertaintyRelative()))
                 .append('}');
         }
-        Result java = run(spec, spec.fit(), spec.y());
         Result perturbed = null;
         if (!spec.agreement().equals("exact")) {
             double[] y = spec.y().clone();

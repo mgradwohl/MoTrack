@@ -147,7 +147,7 @@ every decision is OSP's own code. It records [`tests/science/fit-reference.json`
   an objective that becomes NaN) and 36 formatting probes.
 
 Each case stores the inputs, Java's parameters, uncertainties, band, the refitted band OSP computes before
-overwriting it, rms, R², the warning flag, the display text and which minimizer produced the result. 79 cases
+overwriting it, rms, R², the warning flag, the display text and which minimizer produced the result. 76 cases
 also carry an independent expectation computed without OSP: synthetic parameters for exact data, exact
 80-digit least squares and standard errors for models linear in their parameters, and a Gauss-Newton minimum
 with linearized standard errors for the others.
@@ -166,19 +166,23 @@ fixture with Java in a temporary home and applies the same rules (Linux CI runs 
   step before the 1e−12 step tolerance stops it. Parameters and rms must agree within 1e−7 relative + 1e−9,
   uncertainties and band within 1e−4 relative + 1e−9 (second differences of χ², refitted). Measured on
   Windows (MSVC STL) the largest differences were 3.1e−12 for parameters and 3.7e−4 relative for the
-  rounding-level uncertainties of exact data, which the absolute term covers.
+  rounding-level uncertainties of exact data, which the absolute term covers; Linux (glibc) and macOS agree
+  within the same bounds outside the chaotic cases.
 - **Sensitivity.** The oracle reruns each such case with every y moved by one ulp. Where a quantity moves,
   the tolerance grows to 100 times that movement; a quantity that moves by more than 1e−3 is decided by last
-  bits (a fit that does not converge, uncertainties around a non-minimum) and is not compared. Of the 112
-  such cases, 3 skip parameters and 7 skip uncertainties.
-- **Chaotic** (one case): from the default values the Newton steps of `A*(1-exp(-x/T))` overflow, and whether
-  they end in NaN (so that Tracker falls back to Levenberg-Marquardt) depends on the last bit of `exp`; only
-  the data handling is compared.
+  bits (uncertainties around a non-minimum, for example) and is not compared. Of the 102 such cases, 2 skip
+  parameters and 2 skip uncertainties.
+- **Chaotic** (11 cases): where Tracker's Newton iteration diverged (its result is more than 1e−6 relative,
+  plus 1e−12 Σy², worse than the start) the outcome of the three-step Levenberg-Marquardt fallback depends on
+  last bits: `dampedsine/shuffled` converges with HotSpot's `exp`/`sin` and fails with glibc's and Apple's.
+  The oracle marks such cases automatically, and the overflowing default start of `A*(1-exp(-x/T))` by hand.
+  Data handling always compares, and parameters compare (within the transcendental tolerance) when the port
+  took Java's path.
 
 Independent expectations use 1e−6 relative (1e−7 absolute) for synthetic parameters, 1e−6 (1e−8) for least
 squares, 1e−4 for linear standard errors and 5 % for nonlinear ones, which the curvature method estimates at a
-finite δ rather than by linearization. Tracker's damped-sine fit does not converge from its own initial guess
-for the outlier, fixed-offset and repeated-x data; those cases carry no expectation.
+finite δ rather than by linearization. Chaotic cases carry no expectation, nor do the damped-sine outlier and
+fixed-offset fits, which do not converge from Tracker's own initial guess.
 
 ## Binding for slice I4
 

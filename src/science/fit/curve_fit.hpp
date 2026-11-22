@@ -214,8 +214,8 @@ struct FitResult
 [[nodiscard]] FitResult
 fitCurve(const FitFunction& function, std::span<const double> x, std::span<const double> y, const FitOptions& options = {});
 
-/// `DatasetCurveFitter.formatUncertainParameter`: "value +/- sigma" with sigma rounded to one significant
-/// digit (plus `extraPlaces`) and both scaled by a shared power of ten, e.g. "(7.6 +/- 0.4) E1". Nothing when
+/// `DatasetCurveFitter.formatUncertainParameter`: "value PM sigma", PM being U+00B1 in UTF-8, with sigma rounded
+/// to one significant digit (plus `extraPlaces`) and both scaled by a shared power of ten, e.g. "(7.6 PM 0.4) E1". Nothing when
 /// sigma is NaN or not positive, or either value is not finite. Uses '.' as decimal separator; Tracker
 /// substitutes the locale's.
 [[nodiscard]] std::optional<std::string> formatUncertainParameter(double value, double sigma, int extraPlaces = 0);

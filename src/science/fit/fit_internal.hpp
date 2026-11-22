@@ -51,11 +51,4 @@ initialGuess(BuiltInFit kind, std::span<const double> x, std::span<const double>
 /// Default parameter values of a built-in fit.
 [[nodiscard]] std::vector<double> builtInDefaults(BuiltInFit kind);
 
-/// Java `Math.min`/`Math.max`: NaN-propagating, with -0.0 below +0.0.
-[[nodiscard]] double javaMin(double a, double b) noexcept;
-[[nodiscard]] double javaMax(double a, double b) noexcept;
-
-/// Java `Math.pow` special cases that differ from C: `pow(x, NaN)` and `pow(+-1, +-inf)` are NaN.
-[[nodiscard]] double javaPow(double base, double exponent) noexcept;
-
 } // namespace motrack::science::fit_detail

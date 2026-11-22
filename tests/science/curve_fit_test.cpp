@@ -369,7 +369,8 @@ std::vector<std::vector<double>> band(const QJsonValue& value)
     return result;
 }
 
-void expectMethod(const std::string& java, const FitResult& result, const std::string& id)
+/// The FitMethod and, where it is implied, FitStatus of the oracle's main-fit path.
+std::pair<FitMethod, std::optional<FitStatus>> javaPath(const std::string& java)
 {
     static const std::map<std::string, std::pair<FitMethod, std::optional<FitStatus>>> methods = {
         {"none", {FitMethod::None, std::nullopt}},
@@ -378,7 +379,18 @@ void expectMethod(const std::string& java, const FitResult& result, const std::s
         {"levenberg-marquardt", {FitMethod::LevenbergMarquardt, FitStatus::Fitted}},
         {"restored", {FitMethod::LevenbergMarquardt, FitStatus::NotImproved}},
     };
-    const auto& [method, status] = methods.at(java);
+    return methods.at(java);
+}
+
+bool samePath(const std::string& java, const FitResult& result)
+{
+    const auto [method, status] = javaPath(java);
+    return method == result.method && (!status || *status == result.status);
+}
+
+void expectMethod(const std::string& java, const FitResult& result, const std::string& id)
+{
+    const auto [method, status] = javaPath(java);
     EXPECT_EQ(method, result.method) << id << " method " << java;
     if (status)
     {
@@ -393,6 +405,12 @@ void expectJavaResult(const QJsonObject& c, const QJsonObject& java, const FitRe
     EXPECT_TRUE(close(number(java[QStringLiteral("correlation")]), result.correlation, EXACT)) << id << " correlation";
     if (text(c[QStringLiteral("agreement")]) == "chaotic")
     {
+        // Newton diverged in Java, so the Levenberg-Marquardt fallback's outcome depends on last bits; the
+        // values compare only where this port's libm led it down the same path.
+        if (samePath(text(java[QStringLiteral("method")]), result))
+        {
+            expectClose(numbers(java[QStringLiteral("parameters")]), result.parameters, TRANSCENDENTAL_PARAMETERS, id + " parameters");
+        }
         return;
     }
     if (tolerance.parameters)
@@ -669,8 +687,7 @@ TEST(CurveFitReference, UncertaintyTextMatchesJava)
         }
         else
         {
-            ASSERT_TRUE(formatted.has_value());
-            EXPECT_EQ(text(probe[QStringLiteral("text")]), *formatted);
+            EXPECT_EQ(text(probe[QStringLiteral("text")]), formatted.value_or("<none>"));
         }
     }
     // Every fitted parameter shown with its uncertainty in the oracle cases.

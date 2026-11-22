@@ -26,9 +26,43 @@ namespace motrack::science
 namespace
 {
 
-using fit_detail::javaMax;
-using fit_detail::javaMin;
-using fit_detail::javaPow;
+// Java Math.min/max (NaN-propagating, -0.0 below +0.0) and the Math.pow special cases that differ
+// from C (pow(x, NaN) and pow(+-1, +-inf) are NaN). Local until the shared Java math module of K1/K5
+// lands (#191, #248), which these calls should then use.
+double javaMin(double a, double b) noexcept
+{
+    if (std::isnan(a) || std::isnan(b))
+    {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+    if (a == 0.0 && b == 0.0)
+    {
+        return std::signbit(a) ? a : b;
+    }
+    return a <= b ? a : b;
+}
+
+double javaMax(double a, double b) noexcept
+{
+    if (std::isnan(a) || std::isnan(b))
+    {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+    if (a == 0.0 && b == 0.0)
+    {
+        return std::signbit(a) ? b : a;
+    }
+    return a >= b ? a : b;
+}
+
+double javaPow(double base, double exponent) noexcept
+{
+    if (std::isnan(exponent) || (std::abs(base) == 1.0 && std::isinf(exponent)))
+    {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+    return std::pow(base, exponent);
+}
 
 constexpr std::size_t MAX_POLYNOMIAL_DEGREE = 5;
 constexpr std::array<std::string_view, MAX_POLYNOMIAL_DEGREE + 1> POLYNOMIAL_NAMES = {"A", "B", "C", "D", "E", "F"};

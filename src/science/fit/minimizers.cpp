@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <limits>
 #include <optional>
 #include <span>
 #include <utility>
@@ -168,41 +167,6 @@ double evaluatePolynomial(std::span<const double> coefficients, double x) noexce
         answer = (answer * x) + coefficients[--n];
     }
     return answer;
-}
-
-double javaMin(double a, double b) noexcept
-{
-    if (std::isnan(a) || std::isnan(b))
-    {
-        return std::numeric_limits<double>::quiet_NaN();
-    }
-    if (a == 0.0 && b == 0.0)
-    {
-        return std::signbit(a) ? a : b;
-    }
-    return a <= b ? a : b;
-}
-
-double javaMax(double a, double b) noexcept
-{
-    if (std::isnan(a) || std::isnan(b))
-    {
-        return std::numeric_limits<double>::quiet_NaN();
-    }
-    if (a == 0.0 && b == 0.0)
-    {
-        return std::signbit(a) ? b : a;
-    }
-    return a >= b ? a : b;
-}
-
-double javaPow(double base, double exponent) noexcept
-{
-    if (std::isnan(exponent) || (std::abs(base) == 1.0 && std::isinf(exponent)))
-    {
-        return std::numeric_limits<double>::quiet_NaN();
-    }
-    return std::pow(base, exponent);
 }
 
 } // namespace fit_detail
