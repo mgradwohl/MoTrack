@@ -157,16 +157,16 @@ TEST(NameBinding, MakesBoundOrUnboundDependenciesAndNoneForEmptySlots)
     ASSERT_TRUE(bound);
     auto expected = boundDependency(DependencyKind::BoosterOf, 0, id(4), Facet::Data, MissingTarget::FallsBack);
     expected.savedName = "mass A";
-    EXPECT_EQ(*bound, expected);
+    EXPECT_EQ(bound.value(), expected);
     const auto ambiguous =
         makeDependency(DependencyKind::MemberOf, 3, Facet::Geometry, "twin", binding(BindingOutcome::Ambiguous, {id(2), id(3)}));
     ASSERT_TRUE(ambiguous);
-    EXPECT_FALSE(ambiguous->target);
-    EXPECT_EQ(ambiguous->slot, 3u);
-    EXPECT_EQ(ambiguous->savedName, "twin");
-    EXPECT_EQ(ambiguous->binding, BindingOutcome::Ambiguous);
-    EXPECT_EQ(ambiguous->candidates, (std::vector<ObjectId>{id(2), id(3)}));
-    EXPECT_EQ(ambiguous->onMissing, MissingTarget::Blocks);
+    EXPECT_FALSE(ambiguous.value().target);
+    EXPECT_EQ(ambiguous.value().slot, 3u);
+    EXPECT_EQ(ambiguous.value().savedName, "twin");
+    EXPECT_EQ(ambiguous.value().binding, BindingOutcome::Ambiguous);
+    EXPECT_EQ(ambiguous.value().candidates, (std::vector<ObjectId>{id(2), id(3)}));
+    EXPECT_EQ(ambiguous.value().onMissing, MissingTarget::Blocks);
 
     // Both kinds are accepted by the graph as they come from a load.
     DependencyGraph graph;
@@ -174,13 +174,13 @@ TEST(NameBinding, MakesBoundOrUnboundDependenciesAndNoneForEmptySlots)
     {
         ASSERT_TRUE(graph.addObject(id(value), ObjectInfo{.label = "x", .className = POINT_MASS}));
     }
-    ASSERT_TRUE(graph.addDependency({.object = id(1), .facet = Facet::Geometry}, *bound));
-    ASSERT_TRUE(graph.addDependency({.object = id(1), .facet = Facet::Geometry}, *ambiguous));
+    ASSERT_TRUE(graph.addDependency({.object = id(1), .facet = Facet::Geometry}, bound.value()));
+    ASSERT_TRUE(graph.addDependency({.object = id(1), .facet = Facet::Geometry}, ambiguous.value()));
     // A malformed Unique binding without its target stays unbound, and the graph refuses it.
     const auto malformed = makeDependency(DependencyKind::MemberOf, 9, Facet::Geometry, "x", binding(BindingOutcome::Unique));
     ASSERT_TRUE(malformed);
-    EXPECT_FALSE(malformed->target);
-    EXPECT_EQ(graph.addDependency({.object = id(1), .facet = Facet::Geometry}, *malformed).error().code,
+    EXPECT_FALSE(malformed.value().target);
+    EXPECT_EQ(graph.addDependency({.object = id(1), .facet = Facet::Geometry}, malformed.value()).error().code,
               DependencyErrorCode::InvalidDependency);
 }
 

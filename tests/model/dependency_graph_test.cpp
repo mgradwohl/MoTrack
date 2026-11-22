@@ -176,7 +176,9 @@ TEST(DependencyGraph, IdentitiesRevisionsAndDiagnosticNamesAreValueTypes)
         motrack::model::DependencyError{.code = DependencyErrorCode::UnknownObject, .object = id(4), .cycle = {}};
     EXPECT_FALSE(error);
     EXPECT_EQ(error.error().object, id(4));
-    EXPECT_THROW(static_cast<void>(*error), std::bad_variant_access);
+    EXPECT_THROW(static_cast<void>(*error), std::bad_optional_access);
+    EXPECT_THROW(static_cast<void>(error.operator->()), std::bad_optional_access);
+    EXPECT_THROW(static_cast<void>(value.error()), std::bad_optional_access);
 }
 
 TEST(DependencyGraph, AddsObjectsAndRefusesReservedDuplicateAndReusedIdentitiesWithoutChangingRevision)
@@ -817,7 +819,7 @@ TEST(DependencyGraph, TenThousandObjectGraphsStayBoundedAndIterative)
     // Closing the chain is refused with the full path, found without recursion.
     const auto cycle = graph.cycleIfAdded(geometry(1), on(geometry(COUNT), DependencyKind::AttachedTo));
     ASSERT_TRUE(cycle);
-    EXPECT_EQ(cycle->edges.size(), COUNT);
+    EXPECT_EQ(cycle.value().edges.size(), COUNT);
 
     // Changing the leaf invalidates only the leaf; changing the root invalidates everything.
     auto revision = graph.revision();

@@ -12,6 +12,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -182,49 +183,66 @@ struct DependencyError
 
 /// A value or the reason an operation was refused without changing the graph: the subset of std::expected
 /// that callers need, because CI's Clang 18 with libstdc++ 13 does not provide std::expected. Accessing the
-/// absent alternative throws std::bad_variant_access.
+/// absent alternative throws std::bad_optional_access. Plain members rather than std::variant keep the
+/// static analyzer free of false uninitialized-value reports through libstdc++'s variant.
 template <typename T = std::monostate> class [[nodiscard]] DependencyResult
 {
+    static_assert(std::is_default_constructible_v<T>, "DependencyResult stores a default-constructed value with an error.");
+
   public:
     // Implicit, like std::expected, so that operations can return either alternative directly.
-    DependencyResult(T value) : m_Value(std::in_place_index<0>, std::move(value))
+    DependencyResult(T value) : m_Value(std::move(value)), m_HasValue(true)
     {}
 
-    DependencyResult(DependencyError error) : m_Value(std::in_place_index<1>, std::move(error))
+    DependencyResult(DependencyError error) : m_Error(std::move(error))
     {}
 
     [[nodiscard]] bool hasValue() const noexcept
     {
-        return m_Value.index() == 0;
+        return m_HasValue;
     }
 
     explicit operator bool() const noexcept
     {
-        return hasValue();
+        return m_HasValue;
     }
 
     [[nodiscard]] const T& operator*() const&
     {
-        return std::get<0>(m_Value);
+        requireValue(true);
+        return m_Value;
     }
 
     [[nodiscard]] T&& operator*() &&
     {
-        return std::get<0>(std::move(m_Value));
+        requireValue(true);
+        return std::move(m_Value);
     }
 
     [[nodiscard]] const T* operator->() const
     {
-        return &std::get<0>(m_Value);
+        requireValue(true);
+        return &m_Value;
     }
 
     [[nodiscard]] const DependencyError& error() const
     {
-        return std::get<1>(m_Value);
+        requireValue(false);
+        return m_Error;
     }
 
   private:
-    std::variant<T, DependencyError> m_Value;
+    void requireValue(bool expected) const
+    {
+        if (m_HasValue != expected)
+        {
+            throw std::bad_optional_access();
+        }
+    }
+
+    T m_Value{};
+    DependencyError m_Error{};
+    bool m_HasValue = false;
 };
 
 struct ObjectInfo
