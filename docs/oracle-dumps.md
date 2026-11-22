@@ -100,14 +100,22 @@ row.
 
 ### MoTrack dumps
 
-`motrack_corpus_probe --state input.trk output.json` writes what MoTrack's importer models today, in the same
-schema with `kind: "motrack"` and `supported_classes` (point mass and vector). It reads MoTrack's own values
-rather than recomputing them: data rows are the frames of `measurementPlot`'s position series, `t` is that
-series' time, the derivative columns are `measurementPlot`'s quantities, and steps, step times and the end frame
-come from the production clip helpers (`clipStepOfFrame`, `clipFrameOfStep`, `clipFrameTimeMs`). Tracks follow
-their original source order. Point masses carry `mass`, their marks as steps and the computed columns (`t`, `x`,
-`y`, `v_{x}`, `v_{y}`, `v`, `a_{x}`, `a_{y}`, `p_{x}`, `p_{y}`, `K`, `step`, `frame`, `pixel_{x}`, `pixel_{y}`);
-vectors carry their samples as steps. Clip step rows exist for untimed clips too, with a `null` (unknown) time.
+`motrack_corpus_probe --state input.trk output.json` writes the loaded state of MoTrack's typed document
+([B2.1](tracker-document.md)), in the same schema with `kind: "motrack"` and `supported_classes` (point mass and
+vector). It reads MoTrack's own values rather than recomputing them. Each typed point mass and vector carries its
+descriptor saver tree as `properties`: `mass`, `name`, `framedata` and `keyFrames` (as PointMass.Loader fills them:
+the saved key frames, or every loaded mark when the file saves none) for point masses, `name` and `framedata` for
+vectors. Steps come from the typed frame data. Units, clip and coordinates come from the document's legacy view,
+data rows are the frames of `measurementPlot`'s position series over that view, `t` is that series' time, the
+derivative columns are `measurementPlot`'s quantities, and steps, step times and the end frame come from the
+production clip helpers (`clipStepOfFrame`, `clipFrameOfStep`, `clipFrameTimeMs`). Tracks follow their original
+source order. Point masses carry the computed columns `t`, `x`, `y`, `v_{x}`, `v_{y}`, `v`, `a_{x}`, `a_{y}`,
+`p_{x}`, `p_{y}`, `K`, `step`, `frame`, `pixel_{x}` and `pixel_{y}`. Clip step rows exist for untimed clips too,
+with a `null` (unknown) time.
+
+Every probe import also checks B2.1's parity: the typed document's legacy view and source view must equal B1's
+import of the same bytes, and a file B1 refuses must be refused with the same message. Each native reopen in the
+export routes must also convert into a typed document whose legacy view it is.
 `coords.key_frames` lists the calibration keys unless origin, angle and scale are all fixed, matching
 `ImageCoordSystem`.
 
@@ -240,5 +248,7 @@ license linked in the manifest's `upstream.license_notice` (GPL).
   listed view properties are not yet part of the schema (wave 2, C7).
 - Particle models are evaluated by drawing up to the last clip step; the dump does not exercise playback.
 - Video pixels, filters' settings beyond the saver tree, and rendering are outside this oracle.
-- The MoTrack side covers the importer's current model only. The wave-1 typed model is expected to produce
-  saver trees and every class, at which point the gaps close and O3/O4 become required gates.
+- The MoTrack side covers the typed document's families. Point masses and vectors dump their descriptor saver trees
+  (B2.1); their view properties (`color`, `footprint`, `visible`, `trail`) and the panel's own saver tree, with its
+  clip, clip control and coordinate system, are not dumped yet and remain gaps. The wave-2 families add the other
+  classes, and O3/O4 become required gates in B4.

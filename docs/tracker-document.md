@@ -3,8 +3,11 @@
 This is the design and implementation plan for slice B2 of wave 1 in the
 [full-port plan](migration-plan.md#implementation-order-and-exit-gates): "`TrackerDocument` behind
 `WorkspaceDocument::project`, ID-addressed commands, native v7 with v1–6 readers; `LegacyProject` read-only."
-**None of it is implemented yet.** The sections below describe the intended behavior and name the existing
-code each part replaces. B3 then moves the track list, selection and inspector to identities and deletes
+**Status:** B2.1 is implemented ([PR #337](https://github.com/mgradwohl/MoTrack/pull/337)): `motrack_model` holds the
+typed document, its families, descriptors, identities, bindings and graph, and `motrack_project` the cached legacy
+view and the conversion from the reduced model; nothing in the application uses them yet. B2.2 to B2.5 are not
+implemented. The sections below describe the intended behavior and name the existing code each part replaces. B3
+then moves the track list, selection and inspector to identities and deletes
 `LegacyProject` and the legacy writer; B4 makes O3–O8 required checks. Wave 2 families build on this model and
 on the [dependency graph](dependency-graph.md) (C0), a library that no loader or command uses yet.
 
@@ -453,9 +456,12 @@ Order: the loader-fidelity prerequisite, B2.1, then B2.2 and B2.3 in parallel, t
 parallel. Each slice depends on merged slices only, so no stack is more than one PR deep. Each slice updates the
 R02–R04 rows of the migration plan and the status line of this document.
 
-**Prerequisite — loader fidelity** ([#330](https://github.com/mgradwohl/MoTrack/pull/330), in review)
+**Prerequisite — loader fidelity** ([#330](https://github.com/mgradwohl/MoTrack/pull/330), merged)
 - Fixes #313, #314 and #315's track slots, and adds the v≤6 migrations of §3 to the current native reader as
-  `trackerReading` revisions 1 and 2. #315's empty `mass_unit` (revision 3) and its refusals follow before B2.1.
+  `trackerReading` revisions 1 and 2. B2.1 landed before the rest of #315, so #315's empty `mass_unit` (revision 3)
+  and its refusals now gate B2.4a: until then B1's reading maps an empty saved mass or time label to its default,
+  and `typedDocumentFromReduced` refuses a native file that stores an empty `massUnit` or `timeUnit`, which would be
+  an open failure once B2.4a reads native files through it.
 
 **B2.1 — Typed document** (first)
 - Content: `motrack_model`; `TrackerDocument`, families, descriptors and reference-only descriptors; identities,
@@ -542,16 +548,23 @@ R02–R04 rows of the migration plan and the status line of this document.
    content still refers to removed objects, and a value edited and later restored would not get its original text
    back. The current XML is a deterministic render of baseline and state. The table row is marked proposed;
    B2.5 updates it.
-2. **Where do #313–#315 land?** Decided: before B2.1. #330 lands #313, #314 and #315's track slots with the v≤6
-   migrations, so B2.1's parity baseline includes the fixes and no migration turns an old misreading into an edit;
-   #315's remaining parts follow before B2.1.
+2. **Where do #313–#315 land?** Decided: #330 landed #313, #314 and #315's track slots with the v≤6 migrations
+   before B2.1, so B2.1's parity baseline includes the fixes and no migration turns an old misreading into an edit.
+   B2.1 then landed before #315's remaining parts (the empty `mass_unit` as revision 3 and the refusals), which now
+   gate B2.4a.
 3. **Should removing a referenced object be refused?** Recommended: no. Allow it in the native document with
    export refused while references dangle, as today; the families add explicit cleanup edits.
 4. **Should untyped classes get graph edges in B2?** Recommended: yes, through reference-only descriptors that
    bind every baseline reference by its original name. Deleting and undoing need them now.
 5. **How is the legacy view maintained?** Recommended: rebuilt lazily once per document revision, with chunked
    frame fields so copying stays proportional to the edit. If B2.1's AutoTracker benchmark shows the rebuild
-   dominating, the owner patches its unshared view in place for frame-keyed edits.
+   dominating, the owner patches its unshared view in place for frame-keyed edits. Measured in B2.1
+   (`motrack_autotracker_benchmark`, `benchmark` preset, Windows): on the longest corpus track (BallToss, 11 marks)
+   a rebuild takes 1.5 µs against 216 µs for the template match alone, and 5 µs at 1,000 marks; it equals the match
+   at 10,000 marks (229 µs) and is ten times it at 100,000 (2.1 ms). A typed mark edit copies one chunk and costs
+   1–29 µs. The rebuild therefore does not dominate ordinary runs; it does in runs of tens of thousands of marks,
+   so B2.4a should patch the owner's unshared view in place for frame-keyed edits rather than let them grow
+   quadratically.
 6. **May `motrack_model` use Qt?** Recommended: Qt Core, linked privately for the codecs' `QChar` classification
    only, which AGENTS.md allows; a separate Unicode table could disagree with today's classification.
 7. **When does export switch to the descriptor composition?** Recommended: in B2.4b, keeping B1's composition as

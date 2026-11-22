@@ -4,7 +4,6 @@
 #include "track_identity.hpp"
 #include "tracker_import.hpp"
 
-#include <QChar>
 #include <QFile>
 #include <QString>
 
@@ -501,21 +500,6 @@ ImportedTrackerProject parseTrackerProject(std::string xml)
 {
     auto parsed = detail::importTracker(detail::parseTrackerXml(xml));
     return {.project = std::move(parsed.project), .source = {.xml = std::move(xml), .bindings = std::move(parsed.bindings)}};
-}
-
-bool isTrackerUnitLabel(std::string_view unit)
-{
-    const auto label = QString::fromUtf8(unit.data(), static_cast<qsizetype>(unit.size()));
-    if (label.isEmpty() || label.size() > 256 || label != label.trimmed() || label.toStdString() != unit)
-    {
-        return false;
-    }
-    return std::ranges::none_of(label.toUcs4(),
-                                [](char32_t codePoint)
-                                {
-                                    const auto category = QChar::category(codePoint);
-                                    return category == QChar::Other_Control || category == QChar::Other_Format || QChar::isDigit(codePoint);
-                                });
 }
 
 void validateTrackerSource(const TrackerSource& source, const LegacyProject& project)

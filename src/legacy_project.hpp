@@ -154,10 +154,6 @@ struct ImportedTrackerProject
     TrackerSource source;
 };
 
-/// Whether standard export can store `unit` as a Tracker unit label: non-empty, without surrounding white space,
-/// at most 256 UTF-16 units of valid UTF-8, and free of control, format and digit characters.
-[[nodiscard]] bool isTrackerUnitLabel(std::string_view unit);
-
 LegacyProject parseLegacyProject(std::string_view xml);
 /// Parse an owned XML snapshot and retain its original object associations.
 ImportedTrackerProject parseTrackerProject(std::string xml);

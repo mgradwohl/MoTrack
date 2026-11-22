@@ -2,9 +2,10 @@
 
 #include "local_media_path.hpp"
 #include "measurements.hpp"
+#include "model/codecs.hpp"
+#include "model/source_edits.hpp"
 #include "osp/java_text.hpp"
 #include "osp/value.hpp"
-#include "source_edits.hpp"
 #include "tracker_archive.hpp"
 #include "tracker_archive_writer.hpp"
 #include "tracker_import.hpp"
@@ -167,7 +168,7 @@ void patchString(SourceEdits& edits, NodeId object, std::string_view name, const
 
 void patchUnit(SourceEdits& edits, std::string_view name, const std::string& unit)
 {
-    require(isTrackerUnitLabel(unit));
+    require(model::isTrackerUnitLabel(unit));
     patchString(edits, edits.source().root(), name, unit);
 }
 

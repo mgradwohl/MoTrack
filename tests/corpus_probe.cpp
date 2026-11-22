@@ -3,13 +3,17 @@
 #include "archive_group_session.hpp"
 #include "filesystem_path.hpp"
 #include "legacy_project.hpp"
+#include "legacy_view.hpp"
 #include "library/collection.hpp"
 #include "library/compadre.hpp"
 #include "library/library.hpp"
 #include "library/resource.hpp"
 #include "measurements.hpp"
 #include "media_vectors.hpp"
+#include "model/descriptors.hpp"
+#include "model/tracker_document.hpp"
 #include "movie_authoring.hpp"
+#include "osp/java_text.hpp"
 #include "osp/render.hpp"
 #include "osp/source.hpp"
 #include "paired_save.hpp"
@@ -37,6 +41,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -218,6 +223,206 @@ QJsonArray statePoint(double x, double y)
     return QJsonArray{stateNumber(x), stateNumber(y)};
 }
 
+/// B2.1's parity oracle: the typed document's legacy view and source view equal B1's import of the same bytes.
+void requireTypedParity(const motrack::model::TrackerDocument& document, const motrack::ImportedTrackerProject& imported)
+{
+    const auto source = motrack::trackerSourceView(document);
+    if (motrack::legacyProject(document) != imported.project || !source || source->xml != imported.source.xml ||
+        source->bindings != imported.source.bindings)
+    {
+        throw motrack::ProjectError("The typed document's legacy view differs from B1's import.");
+    }
+}
+
+/// B1's import of a Tracker file and its typed document, which must agree: the same view, or the same refusal.
+std::pair<motrack::ImportedTrackerProject, motrack::model::TrackerDocument> readTrackerProjectWithParity(const std::filesystem::path& input)
+{
+    std::optional<motrack::ImportedTrackerProject> imported;
+    std::string refusal;
+    try
+    {
+        imported = motrack::readTrackerProject(input);
+    }
+    catch (const motrack::ProjectError& error)
+    {
+        refusal = error.what();
+    }
+    if (imported)
+    {
+        std::optional<motrack::model::TrackerDocument> document;
+        try
+        {
+            document = motrack::importTypedTracker(imported->source.xml);
+        }
+        catch (const motrack::ProjectError& typed)
+        {
+            throw motrack::ProjectError(std::string("The typed document refuses what B1 accepts: ") + typed.what());
+        }
+        requireTypedParity(*document, *imported);
+        return {std::move(*imported), std::move(*document)};
+    }
+    std::ifstream stream(input, std::ios::binary);
+    const std::string bytes{std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+    if (stream.bad() || bytes.empty())
+    {
+        throw motrack::ProjectError(refusal); // An unreadable file: B1's I/O refusal, before either reader runs.
+    }
+    try
+    {
+        static_cast<void>(motrack::importTypedTracker(bytes));
+    }
+    catch (const motrack::ProjectError& typed)
+    {
+        if (std::string_view(typed.what()) == refusal)
+        {
+            throw motrack::ProjectError(refusal);
+        }
+        throw motrack::ProjectError("The typed document refuses differently: " + std::string(typed.what()) + " / " + refusal);
+    }
+    throw motrack::ProjectError("The typed document accepts what B1 refuses: " + refusal);
+}
+
+/// A native document this build saved must convert into a typed document whose legacy view it is, and keep the
+/// associations it records: the conversion's stale fallback is for files of former readers, so here it would hide a
+/// defect of the bound conversion (B2.1).
+void requireTypedNative(const motrack::WorkspaceDocument& document, const std::string& label)
+{
+    const bool dropped = document.trackerBindingsReset || document.trackerReadingOutdated;
+    const auto typed = motrack::typedDocumentFromReduced(document.project, document.trackerSource, dropped, document.trackerReading);
+    if (!motrack::keepsRecordedAssociations(typed, document.trackerSource, dropped, document.trackerReading))
+    {
+        throw motrack::ProjectError("The typed conversion of " + label +
+                                    " lost the source associations the native file records; its bound conversion failed.");
+    }
+}
+
+motrack::WorkspaceDocument reopenNative(const QString& path)
+{
+    auto document = motrack::readWorkspaceDocument(path);
+    requireTypedNative(document, QFileInfo(path).fileName().toStdString());
+    return document;
+}
+
+motrack::ArchiveGroup reopenGroup(const QString& path)
+{
+    auto group = motrack::readArchiveGroup(path);
+    for (const auto& member : group.members)
+    {
+        requireTypedNative(member.document, QFileInfo(path).fileName().toStdString() + "!" + member.member);
+    }
+    return group;
+}
+/// An OSP saver tree in the oracle dump's form (docs/oracle-dumps.md): typed values, arrays by index with absent
+/// elements null, compact primitive arrays expanded, and objects with their class.
+QJsonValue saverJson(const motrack::osp::PropertyValue& property);
+
+QJsonObject saverObject(const motrack::osp::ObjectValue& object)
+{
+    QJsonObject result{{"@class", QString::fromStdString(object.className)}};
+    for (const auto& property : object.properties)
+    {
+        result.insert(QString::fromStdString(property.name.value_or(std::string{})), saverJson(property));
+    }
+    return result;
+}
+
+QJsonValue saverJson(const motrack::osp::PropertyValue& property)
+{
+    using motrack::osp::PropertyType;
+    const auto& content = property.content;
+    switch (property.type())
+    {
+    case PropertyType::Int:
+    {
+        const auto value = motrack::osp::parseJavaInt(content);
+        if (!value)
+        {
+            throw motrack::ProjectError("Unreadable int in a saver tree.");
+        }
+        return *value;
+    }
+    case PropertyType::Double:
+    {
+        // Java's spelling, including Infinity and NaN.
+        const auto value = motrack::osp::parseJavaDouble(content);
+        if (!value)
+        {
+            throw motrack::ProjectError("Unreadable double in a saver tree.");
+        }
+        return stateNumber(*value);
+    }
+    case PropertyType::Boolean:
+        return content == "true";
+    case PropertyType::Object:
+        return property.object ? QJsonValue(saverObject(*property.object)) : QJsonValue(QJsonValue::Null);
+    case PropertyType::Array:
+    {
+        QJsonArray items;
+        if (!property.elements.empty() && property.elements.front().name == "array")
+        {
+            const auto compact = motrack::osp::parseCompactArray(property.elements.front().content, property.className);
+            if (!compact)
+            {
+                throw motrack::ProjectError("Unreadable compact array in a saver tree.");
+            }
+            for (const auto value : compact->ints)
+            {
+                items.append(value);
+            }
+            for (const auto value : compact->doubles)
+            {
+                items.append(stateNumber(value));
+            }
+            for (const bool value : compact->booleans)
+            {
+                items.append(value);
+            }
+        }
+        else
+        {
+            for (const auto& element : property.elements)
+            {
+                const auto& name = element.name.value_or(std::string{});
+                std::size_t index = 0;
+                if (name.size() < 3 || std::from_chars(name.data() + 1, name.data() + name.size() - 1, index).ec != std::errc{})
+                {
+                    throw motrack::ProjectError("Unindexed array element in a saver tree.");
+                }
+                while (std::cmp_less(items.size(), index))
+                {
+                    items.append(QJsonValue::Null);
+                }
+                items.append(saverJson(element));
+            }
+        }
+        return QJsonObject{{"@array", QString::fromStdString(property.className)}, {"items", items}};
+    }
+    case PropertyType::Collection:
+    {
+        QJsonArray items;
+        for (const auto& element : property.elements)
+        {
+            items.append(saverJson(element));
+        }
+        return QJsonObject{{"@collection", QString::fromStdString(property.className)}, {"items", items}};
+    }
+    case PropertyType::String:
+    case PropertyType::Unknown:
+        break;
+    }
+    return QString::fromStdString(content);
+}
+
+QJsonObject saverTree(const motrack::model::TypedValue& value)
+{
+    QJsonObject result;
+    for (const auto& property : motrack::model::saverProperties(value))
+    {
+        result.insert(QString::fromStdString(property.name.value_or(std::string{})), saverJson(property));
+    }
+    return result;
+}
+
 /// Tracker's DatasetManager columns that MoTrack computes for a point mass, read from MoTrack's own
 /// measurement series and clip mapping, keyed by original frame. Rows are the frames of MoTrack's position
 /// series (marks inside the clip whose position is defined). Untimed clips have no time or derivatives and
@@ -314,11 +519,13 @@ QJsonObject pointMassData(const motrack::LegacyProject& project, std::size_t ind
     return {{"columns", names}, {"constants", QJsonObject{{"m", stateNumber(mass.mass)}}}, {"rows", rows}};
 }
 
-/// MoTrack's loaded state in the oracle schema, limited to what LegacyProject models today: point masses,
-/// independent vectors, clip and calibration. Tracks follow their original source order.
-QJsonObject stateSnapshot(const motrack::ImportedTrackerProject& imported)
+/// MoTrack's loaded state in the oracle schema, from the typed document (O3, B2.1): the typed point masses and
+/// independent vectors with their descriptor saver trees, and the clip, timing and calibration of the document's
+/// legacy view. Tracks follow their original source order.
+QJsonObject stateSnapshot(const motrack::model::TrackerDocument& document)
 {
-    const auto& project = imported.project;
+    const auto view = motrack::legacyProject(document);
+    const auto& project = view;
     QJsonObject units{{"mass", QString::fromStdString(project.massUnit)}, {"time", QString::fromStdString(project.timeUnit)}};
     if (!project.lengthUnit.empty())
     {
@@ -402,50 +609,48 @@ QJsonObject stateSnapshot(const motrack::ImportedTrackerProject& imported)
                                  {"key_frames", keys},
                                  {"frames", frames}});
     }
-    if (!imported.source.bindings)
-    {
-        throw motrack::ProjectError("Imported project has no source track order.");
-    }
-    auto bindings = *imported.source.bindings;
-    std::ranges::sort(bindings, {}, &motrack::TrackSourceBinding::sourceIndex);
+    // Typed tracks in source order, each with its descriptor saver tree and its steps from the typed document. Data
+    // columns still come from measurements.cpp over the legacy view (O4 changes in C2).
     QJsonArray tracks;
-    for (const auto& binding : bindings)
+    for (const auto& object : document.objects())
     {
-        if (binding.kind == motrack::TrackKind::PointMass)
+        if (object.role != motrack::model::Role::Track || object.state != motrack::model::ObjectState::Live)
         {
-            const auto found = std::ranges::find(project.pointMasses, binding.trackId, &motrack::PointMass::id);
+            continue;
+        }
+        if (const auto* mass = std::get_if<motrack::model::PointMassState>(object.value.get()))
+        {
+            QJsonArray steps;
+            mass->marks.forEach([&](std::int32_t frame, const motrack::model::FrameElement<motrack::model::Mark>& mark)
+                                { steps.append(QJsonObject{{"frame", frame}, {"position", statePoint(mark.value.x, mark.value.y)}}); });
+            const auto found = std::ranges::find(project.pointMasses, object.id.value, &motrack::PointMass::id);
             if (found == project.pointMasses.end())
             {
-                throw motrack::ProjectError("Point-mass source binding is not in the project.");
-            }
-            QJsonArray steps;
-            for (const auto& mark : found->marks)
-            {
-                steps.append(QJsonObject{{"frame", mark.frame}, {"position", statePoint(mark.x, mark.y)}});
+                throw motrack::ProjectError("Typed point mass is not in the legacy view.");
             }
             const auto index = static_cast<std::size_t>(found - project.pointMasses.begin());
             tracks.append(QJsonObject{{"class", POINT_MASS_CLASS},
-                                      {"name", QString::fromStdString(found->name)},
-                                      {"properties", QJsonObject{{"mass", stateNumber(found->mass)}}},
+                                      {"name", QString::fromStdString(motrack::model::loadedName(mass->name))},
+                                      {"properties", saverTree(*object.value)},
                                       {"steps", steps},
                                       {"data", pointMassData(project, index)}});
         }
-        else
+        else if (const auto* vector = std::get_if<motrack::model::VectorState>(object.value.get()))
         {
-            const auto found = std::ranges::find(project.vectors, binding.trackId, &motrack::VectorTrack::id);
-            if (found == project.vectors.end())
-            {
-                throw motrack::ProjectError("Vector source binding is not in the project.");
-            }
             QJsonArray steps;
-            for (const auto& sample : found->samples)
-            {
-                steps.append(QJsonObject{{"frame", sample.frame},
-                                         {"tail", statePoint(sample.tailX, sample.tailY)},
-                                         {"tip", statePoint(sample.tailX + sample.componentX, sample.tailY + sample.componentY)},
-                                         {"components", statePoint(sample.componentX, sample.componentY)}});
-            }
-            tracks.append(QJsonObject{{"class", VECTOR_CLASS}, {"name", QString::fromStdString(found->name)}, {"steps", steps}});
+            vector->samples.forEach(
+                [&](std::int32_t frame, const motrack::model::FrameElement<motrack::model::VectorSample>& element)
+                {
+                    const auto& sample = element.value;
+                    steps.append(QJsonObject{{"frame", frame},
+                                             {"tail", statePoint(sample.xTail, sample.yTail)},
+                                             {"tip", statePoint(sample.xTail + sample.xComponent, sample.yTail + sample.yComponent)},
+                                             {"components", statePoint(sample.xComponent, sample.yComponent)}});
+                });
+            tracks.append(QJsonObject{{"class", VECTOR_CLASS},
+                                      {"name", QString::fromStdString(motrack::model::loadedName(vector->name))},
+                                      {"properties", saverTree(*object.value)},
+                                      {"steps", steps}});
         }
     }
     panel.insert("tracks", tracks);
@@ -549,7 +754,7 @@ void saveAndRecoverPair(const QString& path, const motrack::WorkspaceDocument& d
         throw motrack::ProjectError("Paired corpus recovery did not complete both outputs.");
     auto expected = document;
     motrack::rebaseWorkspaceMedia(expected, mediaPath, recovered.nativePath);
-    const auto reopened = motrack::readWorkspaceDocument(recovered.nativePath);
+    const auto reopened = reopenNative(recovered.nativePath);
     if (reopened.project != expected.project || reopened.archiveMember != expected.archiveMember || !reopened.trackerSource ||
         !expected.trackerSource || reopened.trackerSource->xml != expected.trackerSource->xml || reopened.movie != expected.movie ||
         reopened.movieFrameTimes != expected.movieFrameTimes || reopened.alignMovieToClip != expected.alignMovieToClip ||
@@ -1054,7 +1259,7 @@ try
         payload.reset();
         if (!QFile::remove(source))
             throw motrack::ProjectError("Could not remove original media vector project.");
-        document = motrack::readWorkspaceDocument(native);
+        document = reopenNative(native);
         if (document.project != expectedProject)
             throw motrack::ProjectError("Native reopen changed the edited media vectors.");
         if (route == "paired")
@@ -1143,7 +1348,7 @@ try
         std::vector<motrack::WorkspaceDocument> documents;
         for (std::size_t i = 0; i < expected.size(); ++i)
         {
-            auto document = motrack::readWorkspaceDocument(QDir(relocated).filePath(QString("saved-%1.motrack").arg(i)));
+            auto document = reopenNative(QDir(relocated).filePath(QString("saved-%1.motrack").arg(i)));
             if (document.project != expected[i])
                 throw motrack::ProjectError("Native reopen changed an edited archive experiment.");
             documents.push_back(std::move(document));
@@ -1162,7 +1367,7 @@ try
         for (std::size_t i = 0; i < expected.size(); ++i)
             if (!QFile::remove(QDir(relocated).filePath(QString("saved-%1.motrack").arg(i))))
                 throw motrack::ProjectError("Could not remove the independent native companions.");
-        auto reopened = motrack::readArchiveGroup(relocatedGroupPath);
+        auto reopened = reopenGroup(relocatedGroupPath);
         if (reopened.id != groupId || reopened.archive->sourceDigest() != originalDigest || reopened.members.size() != expected.size())
             throw motrack::ProjectError("Native group reopen changed its identity or immutable source.");
         for (std::size_t i = 0; i < expected.size(); ++i)
@@ -1195,7 +1400,7 @@ try
         const auto recovered = motrack::recoverPairedDocuments(partial.recoveryPath, nullptr, {}, partial.transactionId);
         if (recovered.status != motrack::PairedSaveStatus::Saved || !recovered.standardCurrent || !recovered.nativeCurrent)
             throw motrack::ProjectError("Could not recover the complete shared archive group.");
-        const auto recoveredGroup = motrack::readArchiveGroup(recovered.nativePath);
+        const auto recoveredGroup = reopenGroup(recovered.nativePath);
         if (recoveredGroup.id != groupId || recoveredGroup.archive->sourceDigest() != originalDigest ||
             recoveredGroup.members.size() != expected.size())
             throw motrack::ProjectError("Shared-group recovery changed its identity or immutable source.");
@@ -1254,7 +1459,7 @@ try
         if (live.completePairedSave(*finalRequest, finalSaved) != motrack::SaveOutcome::Saved || live.isModified(opened.source) ||
             !live.accepts(tracking))
             throw motrack::ProjectError("Could not save the current complete group after recovery.");
-        const auto finalGroup = motrack::readArchiveGroup(finalSaved.nativePath);
+        const auto finalGroup = reopenGroup(finalSaved.nativePath);
         if (finalGroup.id != recoveredGroup.id || finalGroup.members.size() != recoveredGroup.members.size())
             throw motrack::ProjectError("Live group coordination changed persisted membership.");
         for (std::size_t i = 0; i < finalGroup.members.size(); ++i)
@@ -1328,7 +1533,7 @@ try
         payload.reset();
         if (!QFile::remove(source))
             throw motrack::ProjectError("Could not remove original archive reference.");
-        document = motrack::readWorkspaceDocument(native);
+        document = reopenNative(native);
         if (args[1] == "--export-paired-archive-images" || args[1].startsWith("--export-paired-archive-movie"))
             saveAndRecoverPair(args[3], document, native);
         else
@@ -1393,7 +1598,7 @@ try
         document = {};
         if (!QFile::remove(source) || !QDir().rmdir(inputDirectory))
             throw motrack::ProjectError("Could not remove the original movie project directory.");
-        document = motrack::readWorkspaceDocument(native);
+        document = reopenNative(native);
         if (packaged)
         {
             motrack::writeTrackerMoviePackage(args[3], document, native);
@@ -1446,7 +1651,7 @@ try
         document = {};
         if (!QFile::remove(source))
             throw motrack::ProjectError("Could not remove linked-image source.");
-        document = motrack::readWorkspaceDocument(native);
+        document = reopenNative(native);
         if (args[1] == "--export-paired-linked-images")
             saveAndRecoverPair(args[3], document, native);
         else if (args[1] == "--export-packaged-images" || args[1] == "--export-packaged-image-clip")
@@ -1797,7 +2002,7 @@ try
         {
             throw motrack::ProjectError("Could not remove round-trip source copy.");
         }
-        document = motrack::readWorkspaceDocument(native);
+        document = reopenNative(native);
         if (!document.trackerSource)
         {
             throw motrack::ProjectError("Native reopen lost Tracker source.");
@@ -1852,13 +2057,13 @@ try
         }
         if (references)
         {
-            return referenceSnapshot(motrack::readTrackerProject(input));
+            return referenceSnapshot(readTrackerProjectWithParity(input).first);
         }
         if (state)
         {
-            return stateSnapshot(motrack::readTrackerProject(input));
+            return stateSnapshot(readTrackerProjectWithParity(input).second);
         }
-        const auto project = motrack::readLegacyProject(input);
+        const auto project = readTrackerProjectWithParity(input).first.project;
         if (!timing)
         {
             return snapshot(project);
