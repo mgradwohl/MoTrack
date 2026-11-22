@@ -7,9 +7,8 @@
 #include <QMainWindow>
 #include <QPointer>
 
-#include <functional>
-
 #include <cstdint>
+#include <functional>
 #include <optional>
 
 class QAction;

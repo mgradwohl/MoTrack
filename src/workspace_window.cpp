@@ -492,8 +492,11 @@ void WorkspaceWindow::continueRequestedFiles()
         if (const auto more = static_cast<int>(finished.problems.size() - MAX_LISTED); more > 0)
             listed.push_back(tr("…and %n more problem(s).", nullptr, more));
         // Window-modal without a nested event loop: later requests and completions continue independently.
-        auto* box =
-            new QMessageBox(QMessageBox::Warning, tr("Open files"), tr("Some requested files could not be opened, or opened with limits."), QMessageBox::Ok, this);
+        auto* box = new QMessageBox(QMessageBox::Warning,
+                                    tr("Open files"),
+                                    tr("Some requested files could not be opened, or opened with limits."),
+                                    QMessageBox::Ok,
+                                    this);
         box->setObjectName("workspaceRequestedFileProblems");
         box->setInformativeText(listed.join('\n'));
         box->setAttribute(Qt::WA_DeleteOnClose);

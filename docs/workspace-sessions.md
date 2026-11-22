@@ -282,7 +282,9 @@ unknown timing, and every other file is a movie whose indexer reports unsupporte
   Tracker. The file of an open source is selected, and a hidden view shown, instead of opening a
   second copy whose later save would replace the first ([#255](https://github.com/mgradwohl/MoTrack/issues/255)).
 - **Problems.** Missing files, folders, web links and failed opens are collected and shown together
-  in one window-modal summary after the batch, without a nested event loop. Canceling a requested
+  in one window-modal summary after the batch, without a nested event loop. An archive's notices (skipped
+  unsafe members, unreadable projects) join it under the file's name, because the batch's next open
+  replaces the status message. Canceling a requested
   open stops its remaining files. Batches wait while a save, revert or close prompt runs its nested
   event loop. Closing the window stops queued files before the close prompts run, and again before the
   window closes, so a request that arrived during the prompts opens only if the close is canceled.
@@ -318,7 +320,7 @@ the types, including Windows ProgIDs, are deferred with R27.
 
 Tests: `DesktopLaunch.*` covers parsing, routing, request order within the input bound, duplicates and
 case variants, selecting an already-open or hidden file, checks held by a blocked worker, requests during
-a canceled or completed close, missing/folder/failed/remote problems, the 256-file bound, cancel and
+a canceled or completed close, archive notices kept for the summary, missing/folder/failed/remote problems, the 256-file bound, cancel and
 close, drops on the workspace and
 an experiment view through Qt's propagation, refused drags, file-open events before and after a window,
 child launches with spaces, Unicode, relative and long (Windows `\\?\`) paths, and a second process opening

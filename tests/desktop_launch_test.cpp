@@ -1,5 +1,6 @@
 #include "desktop_launch.hpp"
 
+#include "archive_fixture.hpp"
 #include "main_window.hpp"
 #include "workspace_document.hpp"
 #include "workspace_input.hpp"
@@ -573,6 +574,42 @@ TEST(DesktopLaunch, RequestsDuringACloseQuestionWaitAndOpenOnlyIfTheCloseIsCance
     EXPECT_EQ(sourcesDuringQuestion, 2u);
     EXPECT_EQ(nextBatch(finished, 3), QStringList{"Closing the window stopped 1 requested file(s) from opening."});
     EXPECT_TRUE(session.sources().empty());
+}
+
+TEST(DesktopLaunch, ArchiveNoticesOutliveTheNextRequestedOpenInTheBatchSummary)
+{
+    QTemporaryDir temporary;
+    const auto folder = unicodeFolder(temporary);
+    const auto images = corpusFixture("linked-images");
+    const auto read = [](const QString& path)
+    {
+        QFile file(path);
+        return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray{};
+    };
+    std::vector<motrack::test::ArchiveEntry> members{{.name = "experiment.trk", .bytes = read(images + "/linked-images.trk")},
+                                                     {.name = "broken.trk", .bytes = "invalid xml"}};
+    for (const auto* frame : {"images/frame0.png", "images/frame1.png", "images/frame2.png", "images/frame3.png"})
+        members.push_back({.name = frame, .bytes = read(images + '/' + frame)});
+    for (auto& unsafe : motrack::test::unsafeTrackerExportMembers())
+        members.push_back(std::move(unsafe));
+    const auto archive = folder.filePath(QString::fromUtf8("library ü.trz"));
+    ASSERT_TRUE(motrack::test::writeArchive(archive, members));
+    const auto next = nativeCopy(folder, "opened next.motrack");
+    motrack::WorkspaceWindow window;
+    window.show();
+    QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
+    window.openFiles({.files = {archive, next}});
+    const auto problems = nextBatch(finished);
+    EXPECT_EQ(tabSources(window), canonicalPaths({archive, next}));
+    // The next open replaces the status message; the summary keeps the archive's notices under its name.
+    EXPECT_TRUE(contains(problems, QString::fromUtf8("library ü.trz: 4 archive member(s) with unsafe names were not extracted.")))
+        << problems.join('\n').toStdString();
+    EXPECT_TRUE(contains(problems, QString::fromUtf8("library ü.trz: Could not read the Tracker project broken.trk")))
+        << problems.join('\n').toStdString();
+    auto* summary = window.findChild<QMessageBox*>("workspaceRequestedFileProblems");
+    ASSERT_TRUE(summary);
+    EXPECT_EQ(summary->text(), "Some requested files could not be opened, or opened with limits.");
+    summary->accept();
 }
 
 TEST(DesktopLaunch, DropsLocalFilesAsCopiesOntoTheWorkspaceAndExperimentViews)
