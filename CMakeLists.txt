@@ -423,9 +423,16 @@ if(BUILD_TESTING)
     endif()
 
     # Windows loads Qt's and FFmpeg's DLLs from PATH. Prepend their directories for every test, so CTest also
-    # works outside an activated developer shell: a missing DLL otherwise stops the run at a modal loader
-    # dialog ("Qt6Guid.dll was not found") instead of failing the test. Child processes the tests start inherit it.
+    # works outside an activated developer shell: without them a test cannot start (STATUS_DLL_NOT_FOUND), and
+    # an executable started directly stops at a modal loader dialog ("Qt6Guid.dll was not found"). Child
+    # processes the tests start inherit the PATH.
+    # Keep this block after the last add_test: it applies to the tests defined so far.
     if(WIN32)
+        # Starts from a PATH with neither directory (ENVIRONMENT applies before ENVIRONMENT_MODIFICATION), so it
+        # passes only if the modification below supplies both: the executable needs Qt's and FFmpeg's DLLs to load.
+        file(TO_CMAKE_PATH "$ENV{SystemRoot}/System32" motrack_system32)
+        add_test(NAME test_runtime_path COMMAND motrack_workspace_tests --gtest_list_tests)
+        set_tests_properties(test_runtime_path PROPERTIES ENVIRONMENT "PATH=${motrack_system32}" TIMEOUT 60)
         get_property(motrack_all_tests DIRECTORY PROPERTY TESTS)
         set(motrack_test_path "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
         if(MOTRACK_FFMPEG_ROOT)
