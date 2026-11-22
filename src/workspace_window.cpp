@@ -2,6 +2,7 @@
 
 #include "local_media_path.hpp"
 #include "main_window.hpp"
+#include "tracker_archive.hpp"
 
 #include <QAction>
 #include <QCloseEvent>
@@ -139,7 +140,15 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
     openMovieAction->setObjectName("workspaceOpenMovie");
     auto* openImagesAction = new QAction(tr("Open &images…"), this);
     openImagesAction->setObjectName("workspaceOpenImages");
-    m_OpenActions = {openProjectAction, openMovieAction, openImagesAction};
+    auto* captureAction = new QAction(tr("Capture from &camera…"), this);
+    captureAction->setObjectName("workspaceCaptureCamera");
+    captureAction->setToolTip(tr("Record a clip with a camera and open it as a new experiment."));
+    m_OpenActions = {openProjectAction, openMovieAction, openImagesAction, captureAction};
+    m_CameraSources = []
+    {
+        return std::make_unique<QtCameraSource>();
+    };
+    connect(captureAction, &QAction::triggered, this, [this] { (void)captureFromCamera(); });
     connect(openProjectAction,
             &QAction::triggered,
             this,
@@ -238,6 +247,7 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
     m_EmptyFileMenu->addActions({m_SaveAll, m_Revert, m_HideView, m_CloseSource, m_Quit});
     m_ExperimentsMenu = new QMenu(tr("&Experiments"), this);
     m_ExperimentsMenu->setObjectName("workspaceExperimentsMenu");
+    m_ExperimentsMenu->setToolTipsVisible(true);
     connect(m_ExperimentsMenu, &QMenu::aboutToShow, this, &WorkspaceWindow::rebuildExperimentsMenu);
     auto* toolbar = addToolBar(tr("Workspace"));
     toolbar->addActions(m_OpenActions);
@@ -273,10 +283,19 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
     connect(m_Context.get(),
             &WorkspaceContext::inputOpened,
             this,
-            [this](QUuid request, QUuid, const QList<QUuid>& documents)
+            [this](QUuid request, QUuid source, const QList<QUuid>& documents, const QList<UnreadableProject>& unreadable)
             {
+                const bool requested = m_Requested && m_Requested->request == request;
                 finishOpen(request);
+                // Kept for the source's lifetime so the Experiments menu can list them, as Tracker keeps a failed tab.
+                if (!unreadable.isEmpty())
+                    m_Unreadable.insert(source, unreadable);
                 addDocuments(documents);
+                const auto notices = reportArchiveLimits(documents, unreadable);
+                // A requested file's notices join its batch summary; the batch's next open replaces the status message.
+                if (requested && m_Requested)
+                    for (const auto& notice : notices)
+                        m_Requested->problems.push_back(tr("%1: %2").arg(m_Requested->current, notice));
             });
     connect(m_Context.get(),
             &WorkspaceContext::inputFailed,
@@ -302,6 +321,8 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
 
 WorkspaceWindow::~WorkspaceWindow()
 {
+    // Stops a recording and removes its temporary file before the window's other children go.
+    delete m_Capture;
     disconnect(m_Tabs, nullptr, this, nullptr);
     disconnect(m_Tabs->tabBar(), nullptr, this, nullptr);
     disconnect(m_Context.get(), nullptr, this, nullptr);
@@ -349,6 +370,41 @@ std::optional<QUuid> WorkspaceWindow::openProject(const QString& path)
 std::optional<QUuid> WorkspaceWindow::openMovie(const QString& path)
 {
     return trackOpen(m_Context->openMovie(path), QFileInfo(path).fileName());
+}
+
+void WorkspaceWindow::setCameraSourceFactory(CameraSourceFactory factory)
+{
+    m_CameraSources = std::move(factory);
+}
+
+CaptureDialog* WorkspaceWindow::captureFromCamera()
+{
+    if (m_Capture)
+    {
+        m_Capture->raise();
+        m_Capture->activateWindow();
+        return m_Capture;
+    }
+    if (!m_CameraSources)
+        return nullptr;
+    auto* dialog = new CaptureDialog(m_CameraSources(), this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    connect(dialog,
+            &CaptureDialog::recordingSaved,
+            this,
+            [this](const QString& path)
+            {
+                const auto name = QDir::toNativeSeparators(path);
+                if (openMovie(path))
+                    statusBar()->showMessage(tr("Recording saved as %1. Opening it as a new experiment…").arg(name));
+                else
+                    statusBar()->showMessage(
+                        tr("Recording saved as %1. Open it with Open video once the current files finish opening.").arg(name));
+            });
+    m_Capture = dialog;
+    // Not modal: the workspace stays usable, and macOS shows a window rather than a sheet.
+    dialog->show();
+    return dialog;
 }
 
 std::optional<QUuid> WorkspaceWindow::openImages(const QStringList& paths, double frameRate)
@@ -437,7 +493,7 @@ void WorkspaceWindow::continueRequestedFiles()
             listed.push_back(tr("…and %n more problem(s).", nullptr, more));
         // Window-modal without a nested event loop: later requests and completions continue independently.
         auto* box =
-            new QMessageBox(QMessageBox::Warning, tr("Open files"), tr("Some requested files were not opened."), QMessageBox::Ok, this);
+            new QMessageBox(QMessageBox::Warning, tr("Open files"), tr("Some requested files could not be opened, or opened with limits."), QMessageBox::Ok, this);
         box->setObjectName("workspaceRequestedFileProblems");
         box->setInformativeText(listed.join('\n'));
         box->setAttribute(Qt::WA_DeleteOnClose);
@@ -620,6 +676,37 @@ void WorkspaceWindow::dropEvent(QDropEvent* event)
     m_DropOverlay->hide();
     if (auto dropped = acceptDrag(event); !dropped.files.isEmpty())
         openFiles(std::move(dropped));
+}
+
+QStringList WorkspaceWindow::reportArchiveLimits(const QList<QUuid>& documents, const QList<UnreadableProject>& unreadable)
+{
+    if (documents.isEmpty())
+        return {};
+    QStringList notices;
+    if (const auto& archive = m_Context->session().document(documents.front()).archivePayload)
+    {
+        const auto skipped = static_cast<int>(archive->skippedMembers().size());
+        const auto omitted = static_cast<int>(archive->omittedOnSave().size());
+        if (skipped > 0)
+            notices.push_back(tr("%n archive member(s) with unsafe names were not extracted.", nullptr, skipped));
+        if (omitted > 0)
+            notices.push_back(tr("Saving this Tracker archive omits %n duplicate copy(ies) among them.", nullptr, omitted));
+        if (skipped > omitted)
+            notices.push_back(tr("Saved archives keep the other %n unchanged; their names may show the author's folder or user names.",
+                                 nullptr,
+                                 skipped - omitted));
+    }
+    // Name one project so a large archive cannot flood the status bar; the Experiments menu lists them all.
+    if (unreadable.size() == 1)
+        notices.push_back(tr("Could not read the Tracker project %1; see the Experiments menu.").arg(unreadable.front().member));
+    else if (unreadable.size() > 1)
+        notices.push_back(tr("Could not read %1 and %n other Tracker project(s); see the Experiments menu.",
+                             nullptr,
+                             static_cast<int>(unreadable.size() - 1))
+                              .arg(unreadable.front().member));
+    if (!notices.isEmpty())
+        statusBar()->showMessage(notices.join(' '));
+    return notices;
 }
 
 std::optional<QUuid> WorkspaceWindow::currentDocument() const
@@ -842,6 +929,20 @@ void WorkspaceWindow::rebuildExperimentsMenu()
             action->setChecked(currentDocument() == document);
             connect(action, &QAction::triggered, this, [this, document] { (void)showDocument(document); });
         }
+    for (const auto source : m_Context->session().sources())
+    {
+        const auto name = QFileInfo(m_Context->session().sourcePath(source)).fileName();
+        for (const auto& project : m_Unreadable.value(source))
+        {
+            // Choosing the entry states the reason; the text alone tells keyboard and screen-reader users.
+            auto* action = m_ExperimentsMenu->addAction(tr("%1 — %2 (could not be read)").arg(name, project.member));
+            action->setToolTip(project.reason);
+            connect(action,
+                    &QAction::triggered,
+                    this,
+                    [this, project] { statusBar()->showMessage(tr("Could not read %1: %2").arg(project.member, project.reason)); });
+        }
+    }
 }
 
 bool WorkspaceWindow::saveSource(QUuid source)
@@ -894,8 +995,12 @@ bool WorkspaceWindow::saveSource(QUuid source)
         return false;
     if (!selected.isNull() && std::ranges::find(context->session().tabs(), selected) != context->session().tabs().end())
         context->session().showDocument(selected);
+    // A temporary editor for hidden experiments is gone now; carry its result (such as omitted archive
+    // members) to this window either way.
     if (!saved)
         statusBar()->showMessage(tr("Save canceled or failed: %1").arg(diagnostic));
+    else if (!diagnostic.isEmpty())
+        statusBar()->showMessage(diagnostic);
     refreshLabels();
     return saved;
 }
@@ -953,6 +1058,8 @@ bool WorkspaceWindow::releaseSource(QUuid source, WorkspaceDiscard discard)
     for (const auto document : m_Context->session().sourceDocuments(source))
         removeView(document, false);
     const bool released = m_Context->session().releaseSource(source, discard);
+    if (released)
+        m_Unreadable.remove(source);
     if (const auto active = currentDocument())
         (void)showDocument(*active);
     refreshMenus();
@@ -986,6 +1093,26 @@ void WorkspaceWindow::closeEvent(QCloseEvent* event)
     // Requested files must not start opens while the close prompts run, even if the close is then canceled.
     // Requests arriving during the prompts wait (busy) and are stopped too if the close goes ahead.
     stopRequestedFiles();
+    if (m_Capture && (m_Capture->hasUnsavedRecording() || m_Capture->state() == CaptureDialog::State::Saving))
+    {
+        // A camera recording that is not saved yet is asked about first. Keeping it cancels this close:
+        // the clip is saved and opened as an experiment, which the user then sees.
+        setBusy(true);
+        bool alive = true;
+        QObject lifetime;
+        connect(this, &QObject::destroyed, &lifetime, [&] { alive = false; });
+        const bool close = m_Capture->confirmClose();
+        if (!alive)
+            return;
+        setBusy(false);
+        if (!close)
+        {
+            using enum CaptureDialog::State;
+            if (m_Capture && (m_Capture->state() == Finishing || m_Capture->state() == Saving))
+                statusBar()->showMessage(tr("The camera recording is kept: it opens as a new experiment once it is saved."));
+            return;
+        }
+    }
     for (auto request = m_Opening.cbegin(); request != m_Opening.cend(); ++request)
         (void)m_Context->cancelOpen(request.key());
     const auto context = m_Context;
@@ -1045,6 +1172,9 @@ void WorkspaceWindow::closeEvent(QCloseEvent* event)
         }
     stopRequestedFiles(); // Requests that arrived during the prompts do not open into a closed window.
     setBusy(false);
+    // The recording was confirmed for discarding above; its window removes the temporary file.
+    if (m_Capture)
+        m_Capture->discardAndClose();
     event->accept();
 }
 

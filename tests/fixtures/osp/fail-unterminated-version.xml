@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="test.Version" version="1>
+    <property name="value" type="int">1</property>
+</object>

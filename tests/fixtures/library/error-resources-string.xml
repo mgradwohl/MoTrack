@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="org.opensourcephysics.tools.LibraryCollection">
+    <property name="name" type="string">Resources as text</property>
+    <property name="resources" type="string">first.trk</property>
+</object>

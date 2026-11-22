@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A comment before the root -->
+<!DOCTYPE object SYSTEM "osp10.dtd">
+<object class="test.Prolog">
+    <!-- a comment between properties is ignored -->
+    <property name="value" type="int">1</property>
+    stray text is ignored
+</object>
+<property name="swallowed epilog" type="int">2</property>
+<object class="test.Ignored"/>
+trailing text

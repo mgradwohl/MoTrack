@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="org.opensourcephysics.tools.LibraryResource">
+    <property name="name" type="string">One-dimensional metadata</property>
+    <property name="metadata" type="array" class="[Ljava.lang.String;">
+        <property name="[0]" type="string">Author</property>
+        <property name="[1]" type="string">A. Example</property>
+    </property>
+</object>

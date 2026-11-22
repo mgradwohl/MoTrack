@@ -2,12 +2,16 @@
 
 import hashlib
 import copy
-from contextlib import nullcontext, redirect_stdout
+from contextlib import nullcontext, redirect_stderr, redirect_stdout
 import io
 import json
 import math
 import os
+import re
+import shutil
+import struct
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -27,6 +31,132 @@ class Download(io.BytesIO):
 
     def geturl(self):
         return self.url
+
+
+class MatchOracleTests(unittest.TestCase):
+    """The template-matching kernel oracle (tools/reference/MatchOracle.java) without running Java."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name).resolve()
+        self.manifest = corpus.load_manifest()
+        self.fixture = json.loads(corpus.MATCH_REFERENCE.read_text(encoding="utf-8"))
+
+    def check(self, document, *, record=False, commands=None):
+        """Run check_match_oracle with a fake Java process that emits `document`."""
+        def run(command):
+            if commands is not None:
+                commands.append(command)
+            Path(command[-1]).write_text(json.dumps(document), encoding="utf-8")
+
+        with patch.object(corpus, "verify_file") as verify, patch.object(corpus, "run", side_effect=run), \
+                patch("sys.stdout", new_callable=io.StringIO) as output:
+            corpus.check_match_oracle(self.manifest, self.root, "java", record=record)
+        verify.assert_called_once_with(self.root / self.manifest["reference"]["file"], self.manifest["reference"])
+        return output.getvalue()
+
+    def test_committed_fixture_covers_every_case_family_in_its_canonical_layout(self):
+        corpus.validate_match_reference(self.fixture, self.manifest)
+        self.assertEqual([entry["alpha"] for entry in self.fixture["composite"]], list(range(1, 256)))
+        self.assertTrue({"ellipse-empty", "ellipse-key-default", "rectangle-9", "ellipse-max"} <= {m["id"] for m in self.fixture["masks"]})
+        ids = {case["id"] for case in self.fixture["matches"]}
+        self.assertTrue({"exact", "uniform", "outside-right", "line(0.0)", "line-misses-area", "line-outside-trimmed-area"} <= ids)
+        self.assertTrue(any(case["id"].startswith("beyond(") for case in self.fixture["matches"]))
+        self.assertEqual({s["id"] for s in self.fixture["sequences"]} & {"clean", "occlusion", "evolving", "line-tilted"},
+                         {"clean", "occlusion", "evolving", "line-tilted"})
+        # The reference defects the C++ tests rely on are recorded, not hidden.
+        outside = next(case for case in self.fixture["matches"] if case["id"] == "line-outside-trimmed-area")
+        self.assertEqual(outside["result"]["exception"], "ArrayIndexOutOfBoundsException")
+        self.assertIn("NegativeArraySizeException", {row.get("exception") for row in self.fixture["search_points"]})
+        self.assertEqual(corpus.MATCH_REFERENCE.read_bytes().decode("utf-8"), corpus.match_reference_text(self.fixture))
+        self.assertLess(corpus.MATCH_REFERENCE.stat().st_size, 256 * 1024)
+
+    def test_check_runs_the_pinned_jar_privately_and_accepts_an_identical_regeneration(self):
+        commands = []
+        count = sum(len(self.fixture[section]) for section in corpus.MATCH_LISTS) + 1
+        self.assertIn(f"{count} Java template-matching cases match tests/science/match-reference.json",
+                      self.check(self.fixture, commands=commands))
+        [command] = commands
+        self.assertEqual(command[0], "java")
+        self.assertIn("-Djava.awt.headless=true", command)
+        self.assertIn("-Xmx256m", command)
+        self.assertEqual(command[command.index("--class-path") + 1], str(self.root / self.manifest["reference"]["file"]))
+        self.assertEqual(Path(command[-2]), corpus.ROOT / "tools/reference/MatchOracle.java")
+        home = next(arg for arg in command if arg.startswith("-Duser.home=")).split("=", 1)[1]
+        self.assertFalse(Path(home).is_relative_to(self.root))
+        self.assertFalse(Path(home).exists())
+
+    def test_check_rejects_hash_score_position_and_case_drift(self):
+        import math  # local: keeps this class independent of the module's shared import lines
+
+        def first_point(document, line):
+            return next(case for case in document["matches"]
+                        if (case["line"] is not None) == line and case["result"].get("point"))["result"]["point"]
+
+        for mutation in ["composite", "mask", "evolution", "points", "score", "position", "line-position", "sequence", "missing"]:
+            document = copy.deepcopy(self.fixture)
+            if mutation == "composite":
+                document["composite"][7]["opaque"] = "0" * 16
+            elif mutation == "mask":
+                document["masks"][0]["template"]["trim"] = [0, 0]
+            elif mutation == "evolution":
+                document["evolution"]["steps"][0]["template"]["hash"] = "f" * 16
+            elif mutation == "points":
+                next(row for row in document["search_points"] if row.get("points"))["points"][0][0] += 1
+            elif mutation == "score":
+                next(case for case in document["matches"] if case["id"] == "shift(0.25,0.0)")["result"]["height"] *= 1 + 1e-15
+            elif mutation == "position":
+                point = first_point(document, False)
+                point[0] = math.nextafter(point[0], math.inf)
+            elif mutation == "line-position":
+                first_point(document, True)[1] += 1e-6
+            elif mutation == "sequence":
+                document["sequences"][0]["steps"][3]["good"] = not document["sequences"][0]["steps"][3]["good"]
+            else:
+                document["matches"].pop()
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                self.check(document)
+
+    def test_one_dimensional_positions_allow_last_bit_trigonometric_differences(self):
+        document = copy.deepcopy(self.fixture)
+        case = next(case for case in document["matches"] if case["id"] == "line(0.3)")
+        case["result"]["point"][0] += 1e-12
+        self.check(document)
+
+    def test_record_writes_the_canonical_fixture_only_when_requested(self):
+        destination = self.root / "science" / "match-reference.json"
+        with patch.object(corpus, "MATCH_REFERENCE", destination):
+            self.assertIn("recorded", self.check(self.fixture, record=True))
+        self.assertEqual(destination.read_bytes(), corpus.match_reference_text(self.fixture).encode("utf-8"))
+        with patch.object(sys, "argv", ["corpus.py", "session", "--record"]), patch.object(corpus, "check_sessions") as sessions, \
+                self.assertRaises(SystemExit), patch("sys.stderr", new_callable=io.StringIO):
+            corpus.main()
+        sessions.assert_not_called()
+        with patch.object(sys, "argv", ["corpus.py", "match-oracle", "--java", "jdk/java", "--record"]), \
+                patch.object(corpus, "check_match_oracle") as oracle:
+            corpus.main()
+        oracle.assert_called_once()
+        self.assertEqual(oracle.call_args.args[2], "jdk/java")
+        self.assertTrue(oracle.call_args.kwargs["record"])
+
+    def test_validation_rejects_malformed_or_incomplete_documents(self):
+        for mutation in ["version", "schema", "section", "empty", "alphas", "hash", "duplicate", "no-result", "evolution",
+                         "frames", "not-object"]:
+            document = copy.deepcopy(self.fixture)
+            if mutation == "version": document["reference_version"] = "6.3.4"
+            elif mutation == "schema": document["schema_version"] = 2
+            elif mutation == "section": document["extra"] = []
+            elif mutation == "empty": document["masks"] = []
+            elif mutation == "alphas": document["composite"].pop(0)
+            elif mutation == "hash": document["composite"][0]["translucent"] = "xyz"
+            elif mutation == "duplicate": document["matches"].append(document["matches"][0])
+            elif mutation == "no-result": del document["matches"][0]["result"]
+            elif mutation == "evolution": document["evolution"]["steps"] = []
+            elif mutation == "frames": document["sequences"][0]["steps"].pop()
+            else: document["sequences"][0] = "sequence"
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                corpus.validate_match_reference(document, self.manifest)
 
 
 class CorpusTests(unittest.TestCase):
@@ -299,11 +429,11 @@ class CorpusTests(unittest.TestCase):
                     if info.filename == "experiment.trk" and edited:
                         root = ET.fromstring(data)
                         mass = root.find(".//object[@class='org.opensourcephysics.cabrillo.tracker.PointMass']")
-                        mass.find("property[@name='mass']").text = "6" if mutation == "xml" else "5"
+                        mass.find("property[@name='mass']").text = "6.0" if mutation == "xml" else "5.0"
                         frames = mass.find("property[@name='framedata']")
                         step = ET.Element("property", name="[1]", type="object")
                         obj = ET.SubElement(step, "object", {"class": "org.opensourcephysics.cabrillo.tracker.PointMass$FrameData"})
-                        for name, value in [("x", "8"), ("y", "12")]:
+                        for name, value in [("x", "8.0"), ("y", "12.0")]:
                             ET.SubElement(obj, "property", name=name, type="double").text = value
                         frames.insert(1, step)
                         keys = mass.find("property[@name='keyFrames']")
@@ -466,7 +596,7 @@ class CorpusTests(unittest.TestCase):
                 corpus.patch_expected_linked_media(document, movie=True, packaged=packaged)
                 frame = next(node for node in document.getElementsByTagName("object")
                              if node.getAttribute("class") == "org.opensourcephysics.media.core.ImageCoordSystem$FrameData")
-                for name, value in [("xorigin", "10"), ("yorigin", "18"), ("angle", "90"), ("xscale", "4"), ("yscale", "8")]:
+                for name, value in [("xorigin", "10.0"), ("yorigin", "18.0"), ("angle", "90.0"), ("xscale", "4.0"), ("yscale", "8.0")]:
                     prop = next(node for node in frame.getElementsByTagName("property") if node.getAttribute("name") == name)
                     prop.firstChild.data = value
                 unit = next(node for node in document.documentElement.childNodes
@@ -1727,11 +1857,11 @@ class CorpusTests(unittest.TestCase):
         original.write_text(source, encoding="utf-8")
         new = ('<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.Vector">'
                '<property name="name" type="string"><![CDATA[vecteur β & <C>]]></property>'
-               '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
-               '<property name="locked" type="boolean">false</property><property name="footprint" type="string"><![CDATA[Footprint.BoldArrow]]></property>'
                '<property name="color" type="object"><object class="java.awt.Color">'
                '<property name="red" type="int">255</property><property name="green" type="int">0</property>'
                '<property name="blue" type="int">255</property><property name="alpha" type="int">255</property></object></property>'
+               '<property name="footprint" type="string">Footprint.BoldArrow</property>'
+               '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
                '</object></property>')
         point = source.rfind('</property>')
         valid = source[:point] + new + source[point:]
@@ -1741,7 +1871,7 @@ class CorpusTests(unittest.TestCase):
             corpus.verify_create_vector_export_xml(original, exported, False)
         for old, replacement in [('>vector A<', '>lost original<'), ('<![CDATA[vecteur β & <C>]]>', '<![CDATA[wrong]]>'),
                                  ('name="xcomponent" type="double">3.0', 'name="xcomponent" type="double">7.0'),
-                                 ('<![CDATA[Footprint.BoldArrow]]>', '<![CDATA[Footprint.Arrow]]>'),
+                                 ('>Footprint.BoldArrow</property><property name="visible"', '>Footprint.Arrow</property><property name="visible"'),
                                  ('<![CDATA[vecteur β & <C>]]></property>',
                                   '<![CDATA[vecteur β & <C>]]></property><property name="keyFrames" type="array" class="[I"/>')]:
             self.assertIn(old, valid)
@@ -1793,12 +1923,12 @@ class CorpusTests(unittest.TestCase):
                   '<property name="description" type="string">old words</property>'
                   '<property name="tracks" type="collection" class="java.util.ArrayList"></property></object>')
         new = ('<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">'
-               '<property name="name" type="string"><![CDATA[nouvelle β & <C>]]></property><property name="mass" type="double">3</property>'
-               '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
-               '<property name="locked" type="boolean">false</property><property name="footprint" type="string"><![CDATA[Footprint.Diamond]]></property>'
+               '<property name="mass" type="double">3.0</property><property name="name" type="string"><![CDATA[nouvelle β & <C>]]></property>'
                '<property name="color" type="object"><object class="java.awt.Color">'
                '<property name="red" type="int">255</property><property name="green" type="int">0</property>'
                '<property name="blue" type="int">0</property><property name="alpha" type="int">255</property></object></property>'
+               '<property name="footprint" type="string">Footprint.Diamond</property>'
+               '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
                '</object></property>')
         original, exported = self.root / "creation-source.trk", self.root / "creation-export.trk"
         original.write_text(source, encoding="utf-8")
@@ -1807,12 +1937,34 @@ class CorpusTests(unittest.TestCase):
         corpus.verify_create_mass_export_xml(original, exported, True)
         with self.assertRaises(ValueError):
             corpus.verify_create_mass_export_xml(original, exported, False)
-        for old, replacement in [('old words', 'lost words'), ('<!-- keep -->', ''), ('>3</property>', '>1</property>'),
+        for old, replacement in [('old words', 'lost words'), ('<!-- keep -->', ''), ('>3.0</property>', '>1.0</property>'),
                                  ('name="visible" type="boolean">true', 'name="visible" type="boolean">false'),
                                  ('<property name="item"', new + '<property name="item"')]:
             exported.write_text(valid.replace(old, replacement, 1), encoding="utf-8")
             with self.subTest(change=old), self.assertRaises(ValueError):
                 corpus.verify_create_mass_export_xml(original, exported, True)
+
+    def test_created_track_fixpoint_compares_modeled_properties_with_trackers_resave(self):
+        def document(mass="3.0", extra="", order=("mass", "name")):
+            fields = {"mass": '<property name="mass" type="double">' + mass + '</property>',
+                      "name": '<property name="name" type="string"><![CDATA[nouvelle β & <C>]]></property>'}
+            return ('<object class="org.opensourcephysics.cabrillo.tracker.TrackerPanel">'
+                    '<property name="tracks" type="collection" class="java.util.ArrayList"><property name="item" type="object">'
+                    '<object class="org.opensourcephysics.cabrillo.tracker.PointMass">' + "".join(fields[key] for key in order) +
+                    '<property name="color" type="object"><object class="java.awt.Color"><property name="red" type="int">255</property>'
+                    '</object></property><property name="footprint" type="string">Footprint.Diamond</property>'
+                    '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
+                    + extra + '</object></property></property></object>')
+        exported, resaved = self.root / "created.trk", self.root / "resaved.trk"
+        exported.write_text(document(), encoding="utf-8")
+        mode = corpus.CREATED_TRACK_MODES["create-mass"]
+        # Tracker's extra state (velocity footprints, its own frame arrays) is outside the modeled properties.
+        resaved.write_text(document(extra='<property name="velocity_footprint" type="string">x</property>'), encoding="utf-8")
+        corpus.verify_created_track_fixpoint(exported, resaved, mode)
+        for changed in [document(mass="3"), document(order=("name", "mass"))]:
+            resaved.write_text(changed, encoding="utf-8")
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                corpus.verify_created_track_fixpoint(exported, resaved, mode)
 
     def test_rename_oracle_preserves_unrelated_text_and_every_selection(self):
         def source(first="mass A", second="mass B", selected="mass B"):
@@ -2706,7 +2858,7 @@ class CorpusTests(unittest.TestCase):
                 nodes = [obj.find(f"property[@name='{name}']") for name in ["xorigin", "yorigin", "angle", "xscale", "yscale"]]
                 if added_key or [float(node.text) for node in nodes] != values:
                     for node, value in zip(nodes, values):
-                        node.text = format(value, ".17g")
+                        node.text = corpus.java_double(value)
             exported = self.root / "mixed.trk"
             tree.write(exported, encoding="utf-8", xml_declaration=True)
             corpus.verify_mixed_calibration_export_xml(case, source, exported)
@@ -2753,14 +2905,14 @@ class CorpusTests(unittest.TestCase):
         original = corpus.local_fixture_path(case)
         xml = original.read_text(encoding="utf-8")
         edited = xml
-        for name, before, after in [("xorigin", "100.0", "120"), ("yorigin", "120.0", "140"),
-                                   ("angle", "90.0", "0"), ("xscale", "4.0", "8"), ("yscale", "8.0", "16")]:
+        for name, before, after in [("xorigin", "100.0", "120.0"), ("yorigin", "120.0", "140.0"),
+                                   ("angle", "90.0", "0.0"), ("xscale", "4.0", "8.0"), ("yscale", "8.0", "16.0")]:
             edited = edited.replace(f'name="{name}" type="double">{before}<', f'name="{name}" type="double">{after}<', 1)
         added = ('<property name="[3]" type="object">'
                  '<object class="org.opensourcephysics.media.core.ImageCoordSystem$FrameData">'
-                 '<property name="xorigin" type="double">80</property><property name="yorigin" type="double">90</property>'
-                 '<property name="angle" type="double">-90</property><property name="xscale" type="double">2</property>'
-                 '<property name="yscale" type="double">4</property></object></property>\n')
+                 '<property name="xorigin" type="double">80.0</property><property name="yorigin" type="double">90.0</property>'
+                 '<property name="angle" type="double">-90.0</property><property name="xscale" type="double">2.0</property>'
+                 '<property name="yscale" type="double">4.0</property></object></property>\n')
         pos = edited.index('<property name="[4]"')
         edited = edited[:pos] + added + edited[pos:]
         output = self.root / "keyed.trk"
@@ -2914,14 +3066,14 @@ class CorpusTests(unittest.TestCase):
                '<property name="delta_t" type="double">100.0</property></object><!-- keep --></object>')
         original.write_text(xml, encoding="utf-8")
         for ranged in [False, True]:
-            edited = xml.replace('>0.0<', '>-500<').replace('>100.0<', '>250<')
+            edited = xml.replace('>0.0<', '>-500.0<').replace('>100.0<', '>250.0<')
             if ranged:
                 edited = edited.replace('name="startframe" type="int">0<', 'name="startframe" type="int">2<')
                 edited = edited.replace('name="stepsize" type="int">1<', 'name="stepsize" type="int">2<')
                 edited = edited.replace('name="stepcount" type="int">10<', 'name="stepcount" type="int">4<')
             exported.write_text(edited, encoding="utf-8")
             corpus.verify_clip_timing_export_xml(original, exported, ranged)
-            for invalid in [xml, edited.replace('>250<', '>500<'), edited.replace('>-500<', '>0<'),
+            for invalid in [xml, edited.replace('>250.0<', '>500.0<'), edited.replace('>-500.0<', '>0.0<'),
                             edited.replace('>1.25<', '>1<'), edited.replace('<!-- keep -->', ''),
                             edited.replace('name="frame" type="int">0<', 'name="frame" type="int">2<')]:
                 with self.subTest(ranged=ranged, invalid=invalid):
@@ -3012,9 +3164,8 @@ class CorpusTests(unittest.TestCase):
         expected = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
         xml = original.read_text(encoding="utf-8")
         expected["vectors"][0]["samples"][0]["tail"][0] = 22.5
+        # Only the changed component is rewritten; the others keep their Tracker text.
         edited = xml.replace('name="xtail" type="double">10.0', 'name="xtail" type="double">22.5', 1)
-        for name, before, after in [("ytail", "20.0", "20"), ("xcomponent", "3.0", "3"), ("ycomponent", "-4.0", "-4")]:
-            edited = edited.replace(f'name="{name}" type="double">{before}', f'name="{name}" type="double">{after}', 1)
         exported.write_text(edited, encoding="utf-8")
         corpus.verify_vector_export_xml(original, exported, expected)
         for invalid in [xml, edited.replace('>22.5<', '>23.5<', 1),
@@ -3030,8 +3181,8 @@ class CorpusTests(unittest.TestCase):
         exported = self.root / "calibration.trk"
         xml = original.read_text(encoding="utf-8")
         edited = xml
-        for name, before, after in [("xorigin", "320.0", "100"), ("yorigin", "240.0", "120"),
-                                     ("angle", "0.0", "90"), ("xscale", "2.0", "4"), ("yscale", "4.0", "8")]:
+        for name, before, after in [("xorigin", "320.0", "100.0"), ("yorigin", "240.0", "120.0"),
+                                     ("angle", "0.0", "90.0"), ("xscale", "2.0", "4.0"), ("yscale", "4.0", "8.0")]:
             edited = edited.replace(f'name="{name}" type="double">{before}', f'name="{name}" type="double">{after}', 1)
         exported.write_text(edited, encoding="utf-8")
         corpus.verify_calibration_export_xml(original, exported)
@@ -3113,23 +3264,23 @@ class CorpusTests(unittest.TestCase):
         def project(first, second):
             return "<!-- before --><object><property name='tracks' type='collection'>" + first + second + "</property></object>"
         original, exported = self.root / "original.trk", self.root / "exported.trk"
-        original.write_text(project(mass(frame(0, 1, 2), "0"), mass(frame(0, 3, 4), "0")), encoding="utf-8")
+        original.write_text(project(mass(frame(0, "1.0", "2.0"), "0"), mass(frame(0, "3.0", "4.0"), "0")), encoding="utf-8")
         x, y = expected["point_masses"][0]["samples"][0]["image"]
-        edited = project(mass(frame(0, format(x, '.17g'), format(y, '.17g')) + frame(3, 100.125, 200.5), "0,3"),
-                         mass(frame(7, 50, 60), "7"))
+        edited = project(mass(frame(0, corpus.java_double(x), corpus.java_double(y)) + frame(3, 100.125, 200.5), "0,3"),
+                         mass(frame(7, "50.0", "60.0"), "7"))
         exported.write_text(edited, encoding="utf-8")
         corpus.verify_mark_export_xml(original, exported, expected)
         for invalid in [edited.replace("{0,3}", "{0}"), edited.replace("[7]", "[6]"),
-                        edited.replace(">50<", ">51<"), edited.replace("  keep  ", "keep"),
+                        edited.replace(">50.0<", ">51.0<"), edited.replace("  keep  ", "keep"),
                         edited.replace("<!-- before -->", "")]:
             exported.write_text(invalid, encoding="utf-8")
             with self.assertRaises(ValueError):
                 corpus.verify_mark_export_xml(original, exported, expected)
-        empty = project(mass("\n ", None), mass(frame(0, 3, 4), "0"))
+        empty = project(mass("\n ", None), mass(frame(0, "3.0", "4.0"), "0"))
         exported.write_text(empty, encoding="utf-8")
         corpus.verify_mark_export_xml(original, exported, corpus.mark_roundtrip_expected(case, "empty-marks"), "empty-marks")
         original.write_text(empty, encoding="utf-8")
-        first = project(mass(frame(4, 11.25, 22.5), "4"), mass(frame(0, 3, 4), "0"))
+        first = project(mass(frame(4, 11.25, 22.5), "4"), mass(frame(0, "3.0", "4.0"), "0"))
         exported.write_text(first, encoding="utf-8")
         corpus.verify_mark_export_xml(original, exported, corpus.mark_roundtrip_expected(case, "first-mark"), "first-mark")
         exported.write_text(first.replace("{4}", "{}"), encoding="utf-8")
@@ -3401,6 +3552,1012 @@ class CorpusTests(unittest.TestCase):
         self.assertEqual(list(self.root.glob("session-*")), [])
 
 
+TRACKER = "org.opensourcephysics.cabrillo.tracker."
+
+
+def tracker_state(mass_name="mass A", members=("vector A",)):
+    """A small, schema-complete Tracker dump: axes, one point mass and one vector sum."""
+    columns = [("t", "T"), ("x", "L"), ("y", "L"), ("v_{x}", "L/T"), ("a_{x}", "L/TT"), ("θ_{v}", "A"),
+               ("step", "I"), ("frame", "I")]
+    rows = [[0.0, 1.0, 2.0, "NaN", "NaN", "NaN", 0.0, 0.0],
+            [0.1, 1.5, 2.5, 5.0, "NaN", 0.0, 1.0, 1.0],
+            [0.2, 2.0, 3.0, "NaN", "NaN", "NaN", 2.0, 2.0]]
+    data = {"columns": [{"name": name, "dimensions": dims} for name, dims in columns], "constants": {"m": 2.0}, "rows": rows}
+    sum_data = {"columns": [{"name": "t", "dimensions": "T"}, {"name": "x", "dimensions": "L"}, {"name": "frame", "dimensions": "I"}],
+                "constants": {}, "rows": [] if not members else [[0.0, 5.0, 0.0]]}
+    return {
+        "schema_version": 1,
+        "producer": {"kind": "tracker", "version": "6.3.5", "loading": "tracker_session",
+                     "view_preparation": corpus.STATE_PREPARATION},
+        "panel": {
+            "units": {"length": "m", "mass": "kg", "time": "s", "angles_in_radians": False},
+            "selected_track": mass_name,
+            "properties": {"@class": TRACKER + "TrackerPanel", "width": 640.0, "length_unit": "m"},
+            "clip": {"first_frame": 0, "step_size": 1, "step_count": 3, "end_frame": 2, "frame_count": 3, "frame_shift": 0,
+                     "extra_frames": 0, "start_time_ms": 0.0, "frame_duration_ms": 100.0, "rate": 1.0, "looping": False,
+                     "steps": [[0, 0, 0.0], [1, 1, 100.0], [2, 2, 200.0]]},
+            "video": None,
+            "coords": {"class": "org.opensourcephysics.media.core.ImageCoordSystem", "fixed_origin": True, "fixed_angle": True,
+                       "fixed_scale": True, "locked": False, "key_frames": [],
+                       "frames": [[frame, 0.0, 0.0, 0.0, 1.0, 1.0, [1.0, 0.0, 0.0, -1.0, 0.0, 0.0]] for frame in range(3)]},
+            "tracks": [
+                {"class": TRACKER + "CoordAxes", "name": "axes", "properties": {"name": "axes"}, "steps": [],
+                 "data": {"columns": [], "constants": {}, "rows": []}},
+                {"class": TRACKER + "PointMass", "name": mass_name,
+                 "properties": {"mass": 2.0, "name": mass_name, "keyFrames": {"@array": "[I", "items": [0, 2]}},
+                 "steps": [{"frame": frame, "position": [1.0 + frame / 2, -2.0 - frame / 2]} for frame in range(3)], "data": data},
+                {"class": TRACKER + "VectorSum", "name": "resultant",
+                 "properties": {"vectors": {"@collection": "java.util.ArrayList", "items": list(members)}},
+                 "steps": [] if not members else [{"frame": 0, "tail": [1.0, 2.0], "tip": [6.0, 2.0], "components": [5.0, 0.0]}],
+                 "data": sum_data}],
+            "views": {"tables": [], "plots": []}}}
+
+
+def motrack_state(tracker=None):
+    """MoTrack's dump of the same experiment: units, clip, coordinates and the point mass only."""
+    tracker = tracker or tracker_state()
+    mass = tracker["panel"]["tracks"][1]
+    keep = ["frame", "step", "t", "x", "y", "v_{x}"]
+    indices = [i for i, column in enumerate(mass["data"]["columns"]) if column["name"] in keep]
+    return {
+        "schema_version": 1,
+        "producer": {"kind": "motrack", "supported_classes": [TRACKER + "PointMass", TRACKER + "Vector"]},
+        "panel": {
+            "units": {"mass": "kg", "time": "s", "length": "m"},
+            "clip": {"first_frame": 0, "step_size": 1, "step_count": 3, "end_frame": 2, "start_time_ms": 0,
+                     "frame_duration_ms": 100, "steps": [[0, 0, 0], [1, 1, 100], [2, 2, 200]]},
+            "coords": {"fixed_origin": True, "fixed_angle": True, "fixed_scale": True, "key_frames": [],
+                       "frames": [row[:6] for row in tracker["panel"]["coords"]["frames"]]},
+            "tracks": [{"class": mass["class"], "name": mass["name"], "properties": {"mass": 2},
+                        "steps": copy.deepcopy(mass["steps"]),
+                        "data": {"columns": [mass["data"]["columns"][i] for i in indices], "constants": {"m": 2},
+                                 "rows": [[row[i] for i in indices] for row in mass["data"]["rows"]]}}]}}
+
+
+def known_avi_failure(entry_id="avi"):
+    return {"id": entry_id, "case": "archived-avi", "object": None, "path": None,
+            "issue": "https://github.com/mgradwohl/MoTrack/issues/140", "upstream": None, "summary": "AVI is not extracted.",
+            "expected": {"state_of": "linked-movie", "project_sha256": "0" * 64},
+            "tracker": {"load_failure": ["waiting=application loader callback"]}}
+
+
+AVI_FAILURE = "Probe failed (1):\nTracker state dump input=x waiting=application loader callback\njava.lang.IllegalStateException: timed out"
+
+
+class TrackerStateTests(unittest.TestCase):
+    """The loaded-state oracle (TrackerStateDump.java), differ, gap baseline and registry, without Java."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix="motrack-state-test-")
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name).resolve()
+        self.manifest = corpus.load_manifest()
+
+    def compare(self, expected, actual, subset=False):
+        return corpus.compare_state(expected, actual, self.manifest, "case", subset=subset)
+
+    def test_schema_validation_rejects_malformed_or_inconsistent_dumps(self):
+        corpus.validate_state_dump(tracker_state(), self.manifest)
+        corpus.validate_state_dump(motrack_state(), self.manifest, "motrack")
+        untimed = motrack_state()
+        untimed["panel"]["clip"]["steps"][1][2] = None  # A partial producer may not know a step time.
+        corpus.validate_state_dump(untimed, self.manifest, "motrack")
+        for mutation in ["version", "producer", "loading", "panel-keys", "track-keys", "duplicate-frame", "ragged-row",
+                         "raw-nan", "duplicate-column", "clip-step", "coords-frame", "unsupported-class", "constants",
+                         "tracker-null-time"]:
+            document = tracker_state()
+            kind = "tracker"
+            panel = document["panel"]
+            mass = panel["tracks"][1]
+            if mutation == "version": document["schema_version"] = 2
+            elif mutation == "producer": document["producer"]["version"] = "6.3.4"
+            elif mutation == "loading": document["producer"]["loading"] = "headless_frameless"
+            elif mutation == "panel-keys": del panel["views"]
+            elif mutation == "track-keys": mass["extra"] = True
+            elif mutation == "duplicate-frame": mass["steps"].append(mass["steps"][0])
+            elif mutation == "ragged-row": mass["data"]["rows"][0].pop()
+            elif mutation == "raw-nan": mass["data"]["rows"][0][1] = math.nan
+            elif mutation == "duplicate-column": mass["data"]["columns"][1]["name"] = "t"
+            elif mutation == "clip-step": panel["clip"]["steps"][0][1] = 0.5
+            elif mutation == "coords-frame": panel["coords"]["frames"][0][0] = "0"
+            elif mutation == "constants": mass["data"]["constants"]["m"] = None
+            elif mutation == "tracker-null-time": panel["clip"]["steps"][0][2] = None
+            else:
+                document, kind = motrack_state(), "motrack"
+                document["panel"]["tracks"][0]["class"] = TRACKER + "CenterOfMass"
+            with self.subTest(mutation=mutation), self.assertRaisesRegex(ValueError, "^named.json: invalid"):
+                corpus.validate_state_dump(document, self.manifest, kind, "named.json")
+
+    def test_dump_files_name_themselves_and_reject_bare_specials(self):
+        path = self.root / "bare.json"
+        path.write_text(json.dumps(tracker_state()).replace('"NaN"', "NaN", 1), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "bare.json: bare NaN is not JSON"):
+            corpus.read_state(path, self.manifest)
+        path.write_text(json.dumps({**tracker_state(), "schema_version": 3}), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "bare.json: invalid tracker state dump: schema"):
+            corpus.read_state(path, self.manifest)
+
+    def test_canonical_layout_round_trips_with_one_row_per_line(self):
+        document = tracker_state()
+        text = corpus.state_text(document)
+        self.assertEqual(json.loads(text), document)
+        self.assertEqual(corpus.state_text(json.loads(text)), text)
+        self.assertIn('\n            [0.1,1.5,2.5,5.0,"NaN",0.0,1.0,1.0],\n', text)
+        self.assertIn('"θ_{v}"', text)
+
+    def test_identical_dumps_match_and_every_quantity_class_is_checked(self):
+        self.assertEqual(self.compare(tracker_state(), tracker_state()).failures, [])
+        cases = {
+            "name": (lambda d: d["panel"]["tracks"][1].update(name="mass B"), "track identities differ"),
+            "class": (lambda d: d["panel"]["tracks"][0].update({"class": TRACKER + "OffsetOrigin"}), "track identities differ"),
+            "frame": (lambda d: d["panel"]["tracks"][1]["steps"][2].update(frame=3), "steps[frame=2]: missing step"),
+            "row": (lambda d: d["panel"]["tracks"][1]["data"]["rows"].pop(0), "rows[frame=0]: missing row"),
+            "position": (lambda d: d["panel"]["tracks"][1]["data"]["rows"][1].__setitem__(1, 1.5 + 1e-9), "rows[frame=1].x"),
+            "nan": (lambda d: d["panel"]["tracks"][1]["data"]["rows"][1].__setitem__(4, 0.0), "rows[frame=1].a_{x}"),
+            "column": (lambda d: d["panel"]["tracks"][1]["data"]["columns"][3].update(name="vx"), "data.columns"),
+            "dimensions": (lambda d: d["panel"]["tracks"][1]["data"]["columns"][3].update(dimensions="L"), "dimensions"),
+            "time": (lambda d: d["panel"]["clip"]["steps"][2].__setitem__(2, 200.001), "clip.steps[2].time_ms"),
+            "mapping": (lambda d: d["panel"]["clip"]["steps"][2].__setitem__(1, 3), "clip.steps[2]: frame 3 differs"),
+            "extra-step": (lambda d: d["panel"]["clip"]["steps"].append([3, 3, 300.0]), "clip.steps[3]: unexpected step"),
+            "coords": (lambda d: d["panel"]["coords"]["frames"][1][6].__setitem__(4, 1e-6), "coords.frames[1]"),
+            "property": (lambda d: d["panel"]["tracks"][1]["properties"]["keyFrames"]["items"].append(3), "keyFrames.items"),
+            "integer": (lambda d: d["panel"]["tracks"][1]["properties"]["keyFrames"]["items"].__setitem__(0, 0.0), None),
+            "selection": (lambda d: d["panel"].update(selected_track=None), "selected_track"),
+            "unit": (lambda d: d["panel"]["units"].update(length="cm"), "units.length"),
+            "view": (lambda d: d["panel"]["views"]["tables"].append({"chooser": 0}), "views.tables"),
+        }
+        for name, (mutate, location) in cases.items():
+            actual = tracker_state()
+            mutate(actual)
+            failures = [message for _, message in self.compare(tracker_state(), actual).failures]
+            with self.subTest(mutation=name):
+                if location is None:
+                    self.assertEqual(failures, [])  # An equal double and int are the same OSP number.
+                else:
+                    self.assertTrue(any(location in message for message in failures), failures)
+
+    def test_tolerances_come_from_the_manifest_table_by_column_dimensions(self):
+        table = self.manifest["state_tolerance"]
+        self.assertEqual(table["default"], self.manifest["tolerance"])
+        self.assertGreater(table["dimensions"]["L/TT"]["absolute"], table["dimensions"]["L/T"]["absolute"])
+        for column, value, accepted in [(1, 1.5 + 5e-11, True), (1, 1.5 + 5e-10, False), (3, 5.0 + 5e-9, False),
+                                        (3, 5.0 + 4e-9, True)]:
+            actual = tracker_state()
+            actual["panel"]["tracks"][1]["data"]["rows"][1][column] = value
+            with self.subTest(column=column, value=value):
+                self.assertEqual(not self.compare(tracker_state(), actual).failures, accepted)
+        second = tracker_state()
+        second["panel"]["tracks"][1]["data"]["rows"][1][4] = 3.0
+        actual = copy.deepcopy(second)
+        actual["panel"]["tracks"][1]["data"]["rows"][1][4] = 3.0 + 5e-8  # within L/TT, beyond the default
+        self.assertEqual(self.compare(second, actual).failures, [])
+        actual["panel"]["tracks"][1]["data"]["rows"][1][4] = 3.0 + 5e-7
+        self.assertTrue(self.compare(second, actual).failures)
+
+    def test_partial_producer_reports_unmodeled_content_as_gaps_and_its_own_values_as_failures(self):
+        comparison = self.compare(tracker_state(), motrack_state(), subset=True)
+        self.assertEqual(comparison.failures, [])
+        for gap in ["track class CoordAxes", "track class VectorSum", "PointMass.data.a_{x}", "PointMass.data.θ_{v}",
+                    "PointMass.properties.name", "selected_track", "views", "video", "properties", "coords.frames.transform",
+                    "units.angles_in_radians", "clip.rate"]:
+            self.assertIn(gap, comparison.gaps)
+        untimed = motrack_state()
+        untimed["panel"]["clip"]["steps"][2][2] = None
+        self.assertIn("clip.steps.time", self.compare(tracker_state(), untimed, subset=True).gaps)
+        shorter = motrack_state()
+        shorter["panel"]["coords"]["frames"].pop()
+        self.assertIn("coords.frames after 1", self.compare(tracker_state(), shorter, subset=True).gaps)
+        for mutation, location in [("value", "rows[frame=1].v_{x}"), ("invented", "columns.speed"), ("missing-track", "identities"),
+                                   ("extra-step", "steps[frame=7]"), ("mass", "properties.mass"), ("unit", "units.time"),
+                                   ("coords", "coords.frames[3]"), ("row", "rows[frame=2]"), ("gap-frames", "contiguous"),
+                                   ("empty-frames", "contiguous"), ("key-frames", "coords.key_frames"),
+                                   ("clip-step", "clip.steps[2]")]:
+            actual = motrack_state()
+            track = actual["panel"]["tracks"][0]
+            if mutation == "value": track["data"]["rows"][1][3] = 5.5
+            elif mutation == "invented": track["data"]["columns"][0]["name"] = "speed"
+            elif mutation == "missing-track": actual["panel"]["tracks"] = []
+            elif mutation == "extra-step": track["steps"].append({"frame": 7, "position": [0.0, 0.0]})
+            elif mutation == "mass": track["properties"]["mass"] = 3.0
+            elif mutation == "unit": actual["panel"]["units"]["time"] = "ms"
+            elif mutation == "coords": actual["panel"]["coords"]["frames"].append([3, 0.0, 0.0, 0.0, 1.0, 1.0])
+            elif mutation == "gap-frames": del actual["panel"]["coords"]["frames"][1]
+            elif mutation == "empty-frames": actual["panel"]["coords"]["frames"] = []
+            elif mutation == "key-frames": actual["panel"]["coords"]["key_frames"] = [0]
+            elif mutation == "clip-step": actual["panel"]["clip"]["steps"].pop()
+            else: track["data"]["rows"].pop()
+            failures = [message for _, message in self.compare(tracker_state(), actual, subset=True).failures]
+            with self.subTest(mutation=mutation):
+                self.assertTrue(any(location in message for message in failures), failures)
+
+    def test_gaps_name_their_reason(self):
+        tracker, motrack = tracker_state(), motrack_state()
+        untimed = copy.deepcopy(motrack)
+        del untimed["panel"]["clip"]["frame_duration_ms"]
+        movie = copy.deepcopy(tracker)
+        movie["panel"]["video"] = {"class": "XuggleVideo"}
+        uncalibrated = copy.deepcopy(motrack)
+        del uncalibrated["panel"]["coords"]
+        for gap, tracker_doc, motrack_doc, reason in [
+                ("track class CoordAxes", tracker, motrack, "unmodeled-class"),
+                ("PointMass.data.θ_{v}", tracker, motrack, "unmodeled-column"),
+                ("PointMass.data.t", movie, untimed, "probe-media-timing"),
+                ("clip.steps.time", movie, untimed, "probe-media-timing"),
+                ("PointMass.data.x", tracker, uncalibrated, "uncalibrated"),
+                ("coords.frames after 12", tracker, motrack, "coords-range"),
+                ("known defect x-row.t", movie, untimed, "probe-media-timing"),
+                ("known defect x", tracker, motrack, "known-defect-unmodeled"),
+                ("views", tracker, motrack, "unmodeled-field"),
+                # MoTrack applies Tracker's media-free defaults (#214): losing them is not a probe limitation.
+                ("PointMass.data.v_{x}", tracker, untimed, "unmodeled-column"),
+                ("clip.steps.time", tracker, untimed, "unmodeled-field"),
+                ("units.length", tracker, motrack, "unmodeled-field"),
+                ("known defect x-step-11[2]", tracker, untimed, "known-defect-unmodeled")]:
+            with self.subTest(gap=gap, video=tracker_doc["panel"]["video"]):
+                self.assertEqual(corpus.classify_gap(gap, tracker_doc, motrack_doc), reason)
+        self.assertEqual(set(corpus.STATE_GAP_REASONS), {"unmodeled-class", "unmodeled-field", "unmodeled-column",
+                                                         "probe-media-timing", "uncalibrated", "coords-range",
+                                                         "known-defect-unmodeled"})
+
+    def registry(self, *entries):
+        return {"schema_version": 1, "reference_version": "6.3.5", "entries": list(entries)}
+
+    def entry(self, **changes):
+        entry = {"id": "sum-members", "case": "vector-sum", "object": {"track": "resultant"}, "path": "properties.vectors",
+                 "issue": "https://github.com/mgradwohl/MoTrack/issues/63", "upstream": None, "summary": "Members stay pending.",
+                 "expected": {"items": ["vector A", "vector B"]}, "tracker": {"@collection": "java.util.ArrayList", "items": []}}
+        entry.update(changes)
+        return entry
+
+    def write_registry(self, registry):
+        path = self.root / "known-defects.json"
+        path.write_text(json.dumps(registry), encoding="utf-8")
+        return path
+
+    def test_committed_registry_is_valid_and_seeded_from_unaccepted_cases(self):
+        registry = corpus.load_known_defects(self.manifest)
+        issues = {entry["issue"].rsplit("/", 1)[1] for entry in registry["entries"]}
+        self.assertTrue({"63", "64", "140", "146", "209"} <= issues)
+        cases = {entry["case"] for entry in registry["entries"]}
+        # Each rejected session case of the corpus guide is represented, never waived as a group.
+        excluded = {case["id"] for case in self.manifest["cases"] if "session_exclusion" in case or case.get("session_known_issue")}
+        self.assertTrue(excluded <= cases, excluded - cases)
+
+    def test_committed_dumps_are_canonical_cover_the_corpus_and_reproduce_the_registry(self):
+        registry = corpus.load_known_defects(self.manifest)
+        whole = {entry["case"]: entry for entry in registry["entries"] if corpus.is_whole_file(entry)}
+        dumps, size = {}, 0
+        for case in self.manifest["cases"]:
+            path = corpus.state_path(case["id"])
+            if case["id"] in whole:
+                self.assertFalse(path.exists(), case["id"])
+                dumps[case["id"]] = corpus.STATE_LOAD_FAILURE
+                continue
+            document = corpus.read_state(path, self.manifest)
+            self.assertEqual(path.read_bytes().decode("utf-8"), corpus.state_text(document), case["id"])
+            dumps[case["id"]] = document
+            size += path.stat().st_size
+        self.assertEqual(set(corpus.STATE_DIR.glob("*.json")),
+                         {corpus.state_path(case["id"]) for case in self.manifest["cases"] if case["id"] not in whole})
+        self.assertLess(size, 1536 * 1024)
+        failures = []
+        errors = {case_id: "\n".join(entry["tracker"]["load_failure"]) for case_id, entry in whole.items()}
+        reproduced = corpus.check_known_defects(registry, self.manifest, dumps, failures, errors)
+        self.assertEqual(failures, [])
+        self.assertEqual(len(reproduced), len(registry["entries"]))
+        for case_id in ["protractor", "ball-toss", "dynamic-sine"]:
+            self.assertEqual(corpus.compare_state(dumps[case_id], dumps[case_id], self.manifest, case_id).failures, [])
+        for path in corpus.STATE_DIR.glob("*.json"):
+            self.assertNotRegex(path.read_text(encoding="utf-8"), r"/home/|/tmp/|[A-Za-z]:[\\/]|/Users/")
+
+    def test_registry_values_are_derived_independently_from_the_saved_projects(self):
+        # BallToss is fetched into the reference cache; its derivation runs in state-oracle/state-check.
+        manifest = copy.deepcopy(self.manifest)
+        manifest["cases"] = [case for case in manifest["cases"] if case["id"] != "ball-toss"]
+        registry = corpus.load_known_defects(self.manifest)
+        values, checks = corpus.derive_known_defect_values(manifest, self.root)
+        derivable = [entry for entry in registry["entries"] if entry["case"] != "ball-toss" and not corpus.is_whole_file(entry)]
+        self.assertLessEqual({entry["id"] for entry in derivable}, set(values))
+        for entry in derivable:
+            mismatches, missing = corpus.registered_check(values[entry["id"]], entry["expected"], {"absolute": 1e-9, "relative": 1e-9})
+            with self.subTest(entry=entry["id"]):
+                self.assertEqual((mismatches, missing), ([], []))
+        self.assertEqual(len(checks), 4)
+        dumps = {case["id"]: corpus.read_state(corpus.state_path(case["id"]), self.manifest) for case in manifest["cases"]
+                 if corpus.state_path(case["id"]).exists()}
+        for case_id, track, path, value in checks:
+            actual = corpus.resolve_state_path(dumps[case_id]["panel"], {"track": track}, path)
+            self.assertTrue(corpus.state_matches(value, actual, {"absolute": 1e-9, "relative": 1e-9}), (case_id, path))
+        avi = next(entry for entry in registry["entries"] if entry["id"] == "archived-avi-load")
+        by_id = {case["id"]: case for case in self.manifest["cases"]}
+        for case_id in ("archived-avi", "linked-movie"):
+            digest = hashlib.sha256(corpus.project_path(by_id[case_id], self.root).read_bytes()).hexdigest()
+            self.assertEqual(digest, avi["expected"]["project_sha256"], case_id)
+        # A tampered registry value no longer matches its derivation.
+        tampered = copy.deepcopy(registry)
+        entry = next(item for item in tampered["entries"] if item["id"] == "vector-images-negative-time-a")
+        entry["expected"]["x"] = 1.25
+        entry["expected"]["extra"] = 0.0
+        failures = []
+        with patch.object(corpus, "derive_ball_toss", return_value=[]):
+            corpus.check_known_defect_derivations(tampered, manifest, self.root, dumps, failures)
+        self.assertTrue(any("vector-images-negative-time-a" in failure and "registered value differs" in failure
+                            for failure in failures), failures)
+
+    def test_media_sample_tables_give_independent_frame_times(self):
+        movie = corpus.CORPUS / "fixtures/vector-movie/constant-rate.mov"
+        self.assertEqual(corpus.iso_video_frames(movie.read_bytes()), [0.0, 125.0, 250.0, 375.0])
+        with self.assertRaises(ValueError):
+            corpus.iso_video_frames(b"\x00\x00\x00\x10moovxxxx\x00\x00\x00\x04")
+
+    def test_registry_rejects_cross_file_wildcard_duplicate_or_non_deviating_entries(self):
+        whole = known_avi_failure()
+        corpus.load_known_defects(self.manifest, self.write_registry(self.registry(self.entry(), whole)))
+        mutations = {
+            "unknown-case": self.entry(case="not-a-case"),
+            "case-list": self.entry(case=["vector-sum", "center-of-mass"]),
+            "wildcard": self.entry(path="properties.*"),
+            "bad-segment": self.entry(path="properties..vectors"),
+            "upstream-issue": self.entry(issue="https://github.com/OpenSourcePhysics/tracker/issues/1"),
+            "non-deviating": self.entry(tracker={"items": ["vector A", "vector B"]}),
+            "missing-summary": self.entry(summary=""),
+            "extra-key": {**self.entry(), "waive": True},
+            "whole-object": {**whole, "case": "vector-sum"},
+            "self-reference": {**whole, "expected": {**whole["expected"], "state_of": "archived-avi"}},
+            "unknown-state-of": {**whole, "expected": {**whole["expected"], "state_of": "missing"}},
+            "no-hash": {**whole, "expected": {"state_of": "linked-movie"}},
+            "no-signature": {**whole, "tracker": {"load_failure": []}},
+            "generic-failure": {**whole, "tracker": "@load_failure"},
+        }
+        for name, entry in mutations.items():
+            entries = [entry, self.entry(id="second", path="steps", expected=[{"frame": 0}], tracker=[])] \
+                if name == "whole-object" else [entry]
+            with self.subTest(mutation=name), self.assertRaises(ValueError):
+                corpus.load_known_defects(self.manifest, self.write_registry(self.registry(*entries)))
+        with self.assertRaises(ValueError):
+            corpus.load_known_defects(self.manifest, self.write_registry(self.registry(self.entry(), self.entry(id="again"))))
+        with self.assertRaises(ValueError):
+            corpus.load_known_defects(self.manifest, self.write_registry({**self.registry(), "reference_version": "6.3.6"}))
+
+    def test_registry_paths_select_objects_rows_and_absent_values(self):
+        panel = tracker_state()["panel"]
+        self.assertEqual(corpus.resolve_state_path(panel, {"track": "resultant"}, "properties.vectors.items"), ["vector A"])
+        self.assertEqual(corpus.resolve_state_path(panel, {"track": "mass A"}, "data.rows[frame=1]")["v_{x}"], 5.0)
+        self.assertEqual(corpus.resolve_state_path(panel, {"track": "mass A"}, "steps[frame=2].position[0]"), 2.0)
+        self.assertEqual(corpus.resolve_state_path(panel, None, "clip.steps[1]"), [1, 1, 100.0])
+        for target, path in [({"track": "mass A"}, "data.rows[frame=9]"), ({"track": "missing"}, "steps"),
+                             ({"track": "mass A"}, "data.missing"), (None, "clip.steps[9]")]:
+            self.assertEqual(corpus.resolve_state_path(panel, target, path), corpus.STATE_ABSENT)
+
+    def test_known_defects_must_persist_and_stale_or_changed_entries_fail(self):
+        registry = self.registry(self.entry(), known_avi_failure())
+        broken = tracker_state(members=())
+        failures = []
+        reproduced = corpus.check_known_defects(registry, self.manifest,
+                                                {"vector-sum": broken, "archived-avi": corpus.STATE_LOAD_FAILURE}, failures,
+                                                {"archived-avi": AVI_FAILURE})
+        self.assertEqual(failures, [])
+        self.assertEqual([entry["id"] for entry in reproduced], ["sum-members", "avi"])
+        for dumps, errors, message in [
+                ({"vector-sum": tracker_state(members=("vector A", "vector B")), "archived-avi": corpus.STATE_LOAD_FAILURE},
+                 {"archived-avi": AVI_FAILURE}, "STALE known defect sum-members"),
+                ({"vector-sum": tracker_state(members=("vector C",)), "archived-avi": corpus.STATE_LOAD_FAILURE},
+                 {"archived-avi": AVI_FAILURE}, "CHANGED known defect sum-members"),
+                ({"vector-sum": broken, "archived-avi": tracker_state()}, {}, "STALE known defect avi"),
+                ({"vector-sum": broken, "archived-avi": corpus.STATE_LOAD_FAILURE}, {"archived-avi": "Probe failed: OutOfMemoryError"},
+                 "CHANGED known defect avi"),
+                ({"vector-sum": corpus.STATE_LOAD_FAILURE, "archived-avi": corpus.STATE_LOAD_FAILURE}, {"archived-avi": AVI_FAILURE},
+                 "Tracker failed to load"),
+                ({"archived-avi": corpus.STATE_LOAD_FAILURE}, {"archived-avi": AVI_FAILURE}, "was not dumped")]:
+            failures = []
+            corpus.check_known_defects(registry, self.manifest, dumps, failures, errors)
+            with self.subTest(message=message):
+                self.assertTrue(any(message in failure for failure in failures), failures)
+
+    def test_motrack_must_match_the_independent_value_without_waiving_unlisted_keys(self):
+        entry = self.entry(id="mass-velocity", case="case", object={"track": "mass A"}, path="data.rows[frame=1]",
+                           expected={"v_{x}": 6.0}, tracker={"v_{x}": 5.0})
+
+        def check(actual, registry_entry=entry, expected=None):
+            comparison = self.compare(expected or tracker_state(), actual, subset=True)
+            corpus.apply_known_defects(comparison, self.registry(registry_entry), "case", actual, expected or tracker_state())
+            return comparison
+        # MoTrack reproducing Tracker's deviating value fails; the independent value passes.
+        for value, failing in [(5.0, True), (6.0, False)]:
+            actual = motrack_state()
+            actual["panel"]["tracks"][0]["data"]["rows"][1][3] = value
+            comparison = check(actual)
+            with self.subTest(value=value):
+                self.assertEqual(bool(comparison.failures), failing, comparison.failures)
+                if failing:
+                    self.assertIn("independent value of known defect mass-velocity", comparison.failures[0][1])
+        # An unlisted key in the same row is still compared with Tracker, not waived.
+        actual = motrack_state()
+        actual["panel"]["tracks"][0]["data"]["rows"][1][3] = 6.0
+        actual["panel"]["tracks"][0]["data"]["rows"][1][1] = 9.0
+        self.assertTrue(any("rows[frame=1].x" in message for _, message in check(actual).failures))
+        # Where Tracker has no row, every key MoTrack reports must be listed; listed unreported keys are gaps.
+        absent = self.entry(id="extra-row", case="case", object={"track": "mass A"}, path="data.rows[frame=3]",
+                            expected={"frame": 3, "x": 2.5, "y": 3.5, "v_{x}": 1.0}, tracker="@absent")
+        actual = motrack_state()
+        actual["panel"]["tracks"][0]["data"]["rows"].append([0.3, 2.5, 3.5, "NaN", 3.0, 3.0])
+        comparison = check(actual, absent)
+        self.assertTrue(any("t: not part of the independent value" in message for _, message in comparison.failures),
+                        comparison.failures)
+        absent["expected"]["t"] = 0.3
+        absent["expected"]["step"] = 3
+        actual["panel"]["tracks"][0]["data"]["rows"][-1][3] = 1.0
+        comparison = check(actual, absent)
+        self.assertEqual(comparison.failures, [])
+        del actual["panel"]["tracks"][0]["data"]["columns"][0]
+        for row in actual["panel"]["tracks"][0]["data"]["rows"]:
+            del row[0]
+        self.assertIn("known defect extra-row.t", check(actual, absent).gaps)
+        unmodeled = self.entry(case="case")
+        comparison = check(motrack_state(), unmodeled)
+        self.assertEqual(comparison.failures, [])
+        self.assertIn("known defect sum-members", comparison.gaps)
+
+    def oracle_cases(self):
+        by_id = {case["id"]: case for case in self.manifest["cases"]}
+        manifest = copy.deepcopy(self.manifest)
+        manifest["cases"] = [copy.deepcopy(by_id[name]) for name in ["independent-vectors", "vector-sum", "archived-avi", "linked-movie"]]
+        return manifest
+
+    def run_oracle(self, manifest, registry, outputs, *, record=False, commands=None, logs=None):
+        """Run check_state_oracle with fake javac/Java processes; `outputs` maps input names to dumps or errors."""
+        state_dir = self.root / "state"
+
+        def run(command, display=None):
+            if commands is not None:
+                commands.append((command, display))
+            if "TrackerStateDump" not in command:
+                return ""
+            index = command.index("TrackerStateDump")
+            source, output = Path(command[index + 1]), Path(command[index + 2])
+            polls = next(argument for argument in command if argument.startswith("-Dmotrack.tableVisitPolls=")).split("=")[1]
+            result = outputs.get((source.name, polls), outputs[source.name])
+            if isinstance(result, Exception):
+                raise result
+            output.write_text(json.dumps(result), encoding="utf-8")
+            return (logs or {}).get(source.name, "")
+
+        with patch.object(corpus.sys, "platform", "linux"), patch.object(corpus, "STATE_DIR", state_dir), \
+                patch.object(corpus, "KNOWN_DEFECTS", self.write_registry(registry)), \
+                patch.object(corpus, "private_display", return_value=nullcontext(":77")), \
+                patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "run", side_effect=run), \
+                patch.object(corpus, "check_known_defect_derivations"), redirect_stdout(io.StringIO()) as printed:
+            corpus.check_state_oracle(manifest, self.root, "java", record=record)
+        return printed.getvalue()
+
+    def oracle_registry(self):
+        return self.registry(self.entry(), known_avi_failure())
+
+    def oracle_outputs(self):
+        return {"independent-vectors.trk": tracker_state(), "vector-sum.trk": tracker_state(members=()),
+                "archived-movie.trz": ValueError(AVI_FAILURE), "linked-movie.trk": tracker_state()}
+
+    def test_state_oracle_records_then_rejects_drift_and_keeps_generated_dumps(self):
+        manifest = self.oracle_cases()
+        outputs = self.oracle_outputs()
+        commands = []
+        printed = self.run_oracle(manifest, self.oracle_registry(), outputs, record=True, commands=commands)
+        self.assertIn("recorded 3 Tracker dumps", printed)
+        self.assertIn("archived-avi: Tracker load failed (whole-file known defect): ", printed)
+        self.assertIn("waiting=application loader callback | java.lang.IllegalStateException: timed out", printed)
+        self.assertIn("KNOWN TRACKER DEFECT reproduced: avi", printed)
+        self.assertEqual(sorted(path.name for path in (self.root / "state").glob("*.json")),
+                         ["independent-vectors.json", "linked-movie.json", "vector-sum.json"])
+        self.assertEqual((self.root / "state" / "vector-sum.json").read_text(encoding="utf-8"),
+                         corpus.state_text(tracker_state(members=())))
+        javac, *java = [command for command, _ in commands]
+        self.assertTrue(Path(javac[0]).name.startswith("javac"))
+        self.assertEqual([Path(argument).name for argument in javac[-3:]], list(corpus.STATE_JAVA_SOURCES))
+        for command, display in commands[1:]:
+            self.assertEqual(display, ":77")
+            self.assertIn("-Xmx256m", command)
+            self.assertIn(f"-Dmotrack.tableVisitPolls={corpus.STATE_TABLE_POLLS}", command)
+            home = next(argument for argument in command if argument.startswith("-Duser.home=")).split("=", 1)[1]
+            self.assertTrue(Path(home).is_relative_to(self.root) and not Path(home).exists())
+        archive = next(command for command, _ in commands if "archived-movie.trz" in " ".join(command))
+        self.assertEqual(archive[-1], "experiment.trk")
+        self.assertNotEqual(Path(archive[-3]).parent, corpus.local_fixture_path(manifest["cases"][2]).parent)
+
+        self.assertIn("3 Tracker loaded-state dumps match", self.run_oracle(manifest, self.oracle_registry(), outputs))
+        drifted = tracker_state()
+        drifted["panel"]["tracks"][1]["data"]["rows"][2][2] = 3.5
+        with self.assertRaisesRegex(ValueError, r"independent-vectors: .*rows\[frame=2\]\.y"):
+            self.run_oracle(manifest, self.oracle_registry(), {**outputs, "independent-vectors.trk": drifted})
+        generated = sorted(path.name for path in (self.root / "state-generated").glob("*.json"))
+        self.assertEqual(generated, ["independent-vectors.json", "linked-movie.json", "vector-sum.json"])
+
+    def test_bounded_table_visits_are_logged_and_confirmed_with_a_long_bound(self):
+        manifest = self.oracle_cases()
+        outputs = self.oracle_outputs()
+        self.run_oracle(manifest, self.oracle_registry(), outputs, record=True)
+        logs = {"independent-vectors.trk": "noise\nTrackerStateDump table visit owner=mass A result=bounded polls=40\n"
+                                           "TrackerStateDump table visit owner=mass B result=populated polls=3\n"}
+        commands = []
+        printed = self.run_oracle(manifest, self.oracle_registry(), outputs, logs=logs, commands=commands)
+        self.assertIn("independent-vectors: table visits mass A: bounded (40 polls), mass B: populated (3 polls)", printed)
+        self.assertIn("independent-vectors: bounded table visit confirmed with 400 polls", printed)
+        longer = [command for command, _ in commands if f"-Dmotrack.tableVisitPolls={corpus.STATE_LONG_TABLE_POLLS}" in command]
+        self.assertEqual(len(longer), 1)
+        changed = tracker_state()
+        changed["panel"]["views"]["tables"].append({"chooser": 0, "track_columns": [["mass A", "t"]]})
+        with self.assertRaisesRegex(ValueError, "400-poll table visit changes the dump"):
+            self.run_oracle(manifest, self.oracle_registry(),
+                            {**outputs, ("independent-vectors.trk", str(corpus.STATE_LONG_TABLE_POLLS)): changed}, logs=logs)
+
+    def test_state_oracle_fails_for_stale_or_unexpected_load_results(self):
+        manifest = self.oracle_cases()
+        outputs = self.oracle_outputs()
+        self.run_oracle(manifest, self.oracle_registry(), outputs, record=True)
+        for changed, message in [({"vector-sum.trk": tracker_state(members=("vector A", "vector B"))}, "STALE known defect sum-members"),
+                                 ({"archived-movie.trz": tracker_state()}, "STALE known defect avi"),
+                                 ({"archived-movie.trz": ValueError("Probe failed (1): crash")}, "CHANGED known defect avi"),
+                                 ({"independent-vectors.trk": ValueError("Probe failed (1): crash")}, "Tracker state dump failed")]:
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                self.run_oracle(manifest, self.oracle_registry(), {**outputs, **changed})
+        (self.root / "state" / "archived-avi.json").write_text(corpus.state_text(tracker_state()), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, r"unexpected \['archived-avi.json'\]"):
+            self.run_oracle(manifest, self.oracle_registry(), outputs)
+        (self.root / "state" / "archived-avi.json").unlink()
+        (self.root / "state" / "independent-vectors.json").unlink()
+        with self.assertRaisesRegex(ValueError, "no committed dump"):
+            self.run_oracle(manifest, self.oracle_registry(), outputs)
+        with patch.object(corpus.sys, "platform", "win32"), self.assertRaisesRegex(ValueError, "requires Linux"):
+            corpus.check_state_oracle(manifest, self.root, "java")
+
+    def native_check(self, manifest, native, *, record=False, probes=None, gaps_path=None):
+        state_dir = self.root / "state"
+
+        def run(command, display=None):
+            if probes is not None:
+                probes.append(command)
+            self.assertEqual(command[1], "--state")
+            case_id = next(name for name in native if Path(command[2]).stem == name)
+            result = native[case_id]
+            if isinstance(result, Exception):
+                raise result
+            Path(command[3]).write_text(json.dumps(result), encoding="utf-8")
+            return ""
+
+        with patch.object(corpus, "STATE_DIR", state_dir), patch.object(corpus, "STATE_GAPS", gaps_path or self.root / "gaps.json"), \
+                patch.object(corpus, "KNOWN_DEFECTS", self.write_registry(self.oracle_registry())), \
+                patch.object(corpus, "artifacts", return_value=[]), patch.object(corpus, "run", side_effect=run), \
+                patch.object(corpus, "project_path", side_effect=lambda case, cache: self.root / (case["id"] + ".trk")), \
+                patch.object(corpus, "check_known_defect_derivations"), redirect_stdout(io.StringIO()) as printed:
+            corpus.check_state_native(manifest, self.root, "probe", record=record)
+        return printed.getvalue()
+
+    def test_native_state_check_ratchets_gaps_and_uses_independent_whole_file_expectations(self):
+        manifest = self.oracle_cases()
+        state_dir = self.root / "state"
+        state_dir.mkdir()
+        for name in ["independent-vectors", "vector-sum", "linked-movie"]:
+            (state_dir / (name + ".json")).write_text(corpus.state_text(tracker_state()), encoding="utf-8")
+        native = {name: motrack_state() for name in ["independent-vectors", "vector-sum", "archived-avi", "linked-movie"]}
+        probes = []
+        self.assertIn("recorded the gaps of 4 cases", self.native_check(manifest, native, record=True, probes=probes))
+        self.assertEqual(len(probes), 4)
+        baseline = corpus.load_gap_baseline(manifest, self.root / "gaps.json")
+        self.assertEqual(baseline["vector-sum"]["track class VectorSum"], "unmodeled-class")
+        self.assertIn("unmodeled-field", json.loads((self.root / "gaps.json").read_text(encoding="utf-8"))["all_cases"])
+        printed = self.native_check(manifest, native)
+        self.assertIn("in 4 of 4 cases, and every gap equals the committed baseline", printed)
+        self.assertIn("unmodeled-class 8", printed)
+        # A value MoTrack stops reporting is a new gap, so it fails even though nothing is compared there.
+        for name, mutate, message in [
+                ("calibration-lost", lambda d: d["panel"].pop("coords"), "new gap (unmodeled-field): MoTrack no longer"),
+                ("timing-lost", lambda d: d["panel"]["clip"].pop("frame_duration_ms"), "gap clip.frame_duration_ms"),
+                ("mass-lost", lambda d: d["panel"]["tracks"][0].pop("properties"), "gap PointMass.properties"),
+                ("steps-lost", lambda d: d["panel"]["tracks"][0].pop("steps"), "gap PointMass.steps"),
+                ("column-lost", lambda d: d["panel"]["tracks"][0]["data"]["columns"].pop(3) and
+                 [row.pop(3) for row in d["panel"]["tracks"][0]["data"]["rows"]], "gap PointMass.data.v_{x}"),
+                ("frames-lost", lambda d: d["panel"]["coords"]["frames"].pop(), "gap coords.frames after 1")]:
+            changed = copy.deepcopy(native)
+            mutate(changed["vector-sum"])
+            with self.subTest(mutation=name), self.assertRaisesRegex(ValueError, re.escape(message)):
+                self.native_check(manifest, changed)
+        # A closed gap must be removed from the baseline explicitly.
+        richer = copy.deepcopy(native)
+        richer["vector-sum"]["panel"]["selected_track"] = "mass A"
+        with self.assertRaisesRegex(ValueError, "gap closed: MoTrack now reports this value"):
+            self.native_check(manifest, richer)
+        native["archived-avi"]["panel"]["tracks"][0]["steps"][0]["position"] = [9.0, 9.0]
+        with self.assertRaisesRegex(ValueError, r"archived-avi: .*steps\[frame=0\]\.position"):
+            self.native_check(manifest, native)
+        native["archived-avi"] = ValueError("Probe failed (3): crash")
+        with self.assertRaisesRegex(ValueError, "archived-avi: MoTrack state probe failed"):
+            self.native_check(manifest, native)
+        native["archived-avi"] = motrack_state()
+        (state_dir / "archived-avi.json").write_text(corpus.state_text(tracker_state()), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, r"unexpected \['archived-avi.json'\]"):
+            self.native_check(manifest, native)
+
+    def test_committed_gap_baseline_covers_every_case_with_named_reasons(self):
+        baseline = corpus.load_gap_baseline(self.manifest)
+        self.assertEqual(set(baseline), {case["id"] for case in self.manifest["cases"]})
+        self.assertEqual(baseline["ball-toss"]["PointMass.data.t"], "probe-media-timing")
+        # Tracker's media-free default timing and length unit are compared (#214), as are derivatives (#207).
+        self.assertNotIn("PointMass.data.t", baseline["center-of-mass"])
+        self.assertNotIn("units.length", baseline["independent-vectors"])
+        self.assertNotIn("PointMass.data.a_{x}", baseline["attachments"])
+        self.assertNotIn("PointMass.data.x", baseline["ball-toss"])  # Calibrated positions are compared.
+        self.assertEqual(corpus.STATE_GAPS.read_bytes().decode("utf-8"),
+                         corpus.gap_baseline_text(corpus.gap_baseline(baseline)))
+
+    def test_state_diff_command_compares_two_files_and_rejects_misuse(self):
+        expected, actual = self.root / "tracker.json", self.root / "motrack.json"
+        expected.write_text(json.dumps(tracker_state()), encoding="utf-8")
+        actual.write_text(json.dumps(motrack_state()), encoding="utf-8")
+        with patch.object(sys, "argv", ["corpus.py", "state-diff", str(expected), str(actual)]), \
+                redirect_stdout(io.StringIO()) as printed:
+            corpus.main()
+        self.assertIn("matches", printed.getvalue())
+        self.assertIn("gaps: ", printed.getvalue())
+        broken = motrack_state()
+        broken["panel"]["tracks"][0]["properties"]["mass"] = 1.0
+        actual.write_text(json.dumps(broken), encoding="utf-8")
+        with patch.object(sys, "argv", ["corpus.py", "state-diff", str(expected), str(actual)]), \
+                self.assertRaisesRegex(ValueError, r"properties\.mass"), redirect_stdout(io.StringIO()):
+            corpus.main()
+        for argv in [["state-diff", str(expected)], ["state-check"], ["check", "--probe", "p", str(expected)],
+                     ["state-diff", str(expected), str(actual), "--record"]]:
+            with self.subTest(argv=argv), patch.object(sys, "argv", ["corpus.py", *argv]), \
+                    self.assertRaises(SystemExit), patch("sys.stderr", new_callable=io.StringIO):
+                corpus.main()
+        with patch.object(sys, "argv", ["corpus.py", "state-oracle", "--java", "jdk/java", "--record"]), \
+                patch.object(corpus, "check_state_oracle") as oracle:
+            corpus.main()
+        self.assertEqual(oracle.call_args.args[2], "jdk/java")
+        self.assertTrue(oracle.call_args.kwargs["record"])
+        with patch.object(sys, "argv", ["corpus.py", "state-check", "--probe", "p", "--record"]), \
+                patch.object(corpus, "check_state_native") as native:
+            corpus.main()
+        self.assertTrue(native.call_args.kwargs["record"])
+
+
+class ExpressionOracleTests(unittest.TestCase):
+    """The expression kernel fixture and its Java regeneration check (no Java needed)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.fixture = json.loads(corpus.EXPRESSION_REFERENCE.read_text(encoding="utf-8"))
+
+    def case(self, report, case_id):
+        return next(case for case in report["cases"] if case["id"] == case_id)
+
+    def test_fixture_is_bounded_unique_and_documents_every_defect(self):
+        self.assertEqual(self.fixture["reference"]["tracker_version"], "6.3.5")
+        ids = [case["id"] for case in self.fixture["cases"]]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertTrue(all(re.fullmatch(r"[a-z0-9-]+", case_id) for case_id in ids))
+        self.assertGreater(len(ids), 600)
+        corpus.compare_expression_reference(self.fixture, copy.deepcopy(self.fixture))
+        for case in self.fixture["cases"]:
+            values = [evaluation for evaluation in case["evaluations"] if "result_bits" in evaluation or "intended_bits" in evaluation]
+            if case["defect"] and case["defect"] != "tracker-code-limit":
+                # Each annotated defect is evidenced by at least one value that differs from Tracker's.
+                self.assertTrue(any("intended_bits" in evaluation for evaluation in values), case["id"])
+            if case["error"] or case["exception"]:
+                self.assertFalse(any("result_bits" in evaluation for evaluation in values), case["id"])
+
+    def test_exact_cases_require_identical_bits_and_signed_zeros(self):
+        actual = copy.deepcopy(self.fixture)
+        evaluation = self.case(actual, "precedence-negative-zero")["evaluations"][0]
+        self.assertEqual(evaluation["result_bits"], "8000000000000000")
+        evaluation["result_bits"] = "0000000000000000"
+        evaluation["result"] = "0.0"
+        with self.assertRaisesRegex(ValueError, "precedence-negative-zero"):
+            corpus.compare_expression_reference(self.fixture, actual)
+
+    def test_transcendental_cases_accept_only_the_declared_ulp_bound(self):
+        name = "function-sin"
+        index = next(i for i, e in enumerate(self.case(self.fixture, name)["evaluations"]) if e["values"] == ["0.5"])
+        original = corpus.expression_value(self.case(self.fixture, name)["evaluations"][index]["result_bits"])
+        for ulps, accepted in [(1, True), (self.fixture["tolerance"]["ulp"], True), (self.fixture["tolerance"]["ulp"] + 1, False)]:
+            actual = copy.deepcopy(self.fixture)
+            evaluation = self.case(actual, name)["evaluations"][index]
+            shifted = struct.unpack(">d", struct.pack(">q", struct.unpack(">q", struct.pack(">d", original))[0] + ulps))[0]
+            evaluation["result_bits"] = struct.pack(">d", shifted).hex()
+            evaluation["result"] = repr(shifted)
+            with self.subTest(ulps=ulps):
+                if accepted:
+                    corpus.compare_expression_reference(self.fixture, actual)
+                else:
+                    with self.assertRaisesRegex(ValueError, "ulp"):
+                        corpus.compare_expression_reference(self.fixture, actual)
+
+    def test_signed_zeros_are_one_ulp_value_and_nan_payloads_are_equal(self):
+        self.assertEqual(corpus.expression_ulps(0.0, -0.0), 0)
+        self.assertEqual(corpus.expression_ulps(-5e-324, 5e-324), 2)
+        expected = {"values": [], "result": "NaN", "result_bits": "7ff8000000000000"}
+        corpus.compare_expression_values(expected, dict(expected, result_bits="fff8000000000001"), "exact", 4, "nan")
+        with self.assertRaises(ValueError):
+            corpus.compare_expression_values(expected, dict(expected, result_bits="0000000000000000"), "ulp", 4, "nan")
+        with self.assertRaises(ValueError):
+            corpus.compare_expression_values(expected, dict(expected, result_bits="not-hex-bits0000"), "ulp", 4, "bits")
+
+    def test_definitions_errors_and_display_text_must_match(self):
+        mutations = {
+            "expression": lambda c: c.__setitem__("expression", c["expression"] + " "),
+            "error position": lambda c: c["error"].__setitem__("position", c["error"]["position"] + 1),
+            "evaluation count": lambda c: c["evaluations"].pop(),
+            "missing field": lambda c: c.pop("defect"),
+            "display text": lambda c: c["evaluations"][0].__setitem__("result", "3"),
+            "random range": lambda c: c["evaluations"][0].__setitem__("range", ["0.0", "2.0"]),
+        }
+        targets = {"expression": "constant-pi", "error position": "syntax-unclosed", "evaluation count": "division-variable",
+                   "missing field": "constant-pi", "display text": "constant-pi", "random range": "random-offset"}
+        for name, mutate in mutations.items():
+            actual = copy.deepcopy(self.fixture)
+            mutate(self.case(actual, targets[name]))
+            with self.subTest(mutation=name), self.assertRaises(ValueError):
+                corpus.compare_expression_reference(self.fixture, actual)
+        for key in ["function_names", "cases"]:
+            actual = copy.deepcopy(self.fixture)
+            actual[key].pop()
+            with self.subTest(header=key), self.assertRaises(ValueError):
+                corpus.compare_expression_reference(self.fixture, actual)
+        with self.assertRaises(ValueError):
+            corpus.compare_expression_reference(self.fixture, dict(self.fixture, tolerance={"ulp": 0, "random_samples": 2000}))
+
+    def test_oracle_runs_the_pinned_jar_in_a_private_home_and_can_record(self):
+        manifest = corpus.load_manifest()
+        root = Path(tempfile.mkdtemp(prefix="motrack-expression-test-"))
+        self.addCleanup(shutil.rmtree, root)
+        commands = []
+        fixture = corpus.EXPRESSION_REFERENCE.read_text(encoding="utf-8")
+
+        def oracle(command):
+            commands.append(command)
+            Path(command[-1]).write_text(fixture, encoding="utf-8")
+
+        with patch.object(corpus, "verify_file"), patch.object(corpus, "run", side_effect=oracle):
+            corpus.check_expression_oracle(manifest, root, "java")
+            recorded = root / "recorded.json"
+            with patch.object(corpus, "EXPRESSION_REFERENCE", recorded):
+                corpus.check_expression_oracle(manifest, root, "java", record=True)
+        self.assertEqual(json.loads(recorded.read_text(encoding="utf-8")), self.fixture)
+        self.assertEqual(len(commands), 2)
+        command = commands[0]
+        self.assertIn("-Djava.awt.headless=true", command)
+        self.assertEqual(command[command.index("--class-path") + 1], str(root / manifest["reference"]["file"]))
+        self.assertEqual(command[-2], str(corpus.EXPRESSION_ORACLE))
+        home = Path(command[-1]).parent
+        self.assertIn(f"-Duser.home={home}", command)
+        self.assertFalse(home.exists())
+        self.assertEqual(list(root.iterdir()), [recorded])
+
+    def test_command_line_accepts_recording_only_for_reference_commands(self):
+        with patch.object(sys, "argv", ["corpus.py", "session", "--record"]), redirect_stderr(io.StringIO()), \
+                self.assertRaises(SystemExit):
+            corpus.main()
+        with patch.object(sys, "argv", ["corpus.py", "expression-oracle", "--record", "--java", "jdk"]), \
+                patch.object(corpus, "check_expression_oracle") as check:
+            corpus.main()
+        self.assertEqual(check.call_args.args[2], "jdk")
+        self.assertTrue(check.call_args.kwargs["record"])
+
+class XmlOracleTests(unittest.TestCase):
+    """O1/O2 runner: inputs, comparison and reports, with the Java and probe processes mocked."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix="motrack-xml-oracle-test-")
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name).resolve()
+        self.committed = self.root / "committed"
+        self.osp = self.root / "osp"
+        for directory in (self.committed, self.osp, self.root / "fixtures"):
+            directory.mkdir()
+        (self.committed / "fixture.trk").write_bytes(b'<object class="a"/>\n')
+        (self.committed / "notes.txt").write_bytes(b"not xml")
+        (self.osp / "quirk.xml").write_bytes(b'<object class="q">\n</object>\n')
+        (self.osp / "fail-quirk.xml").write_bytes(b"fail\n")
+        (self.osp / "generated").mkdir()
+        self.generated = b'<?xml version="1.0" encoding="UTF-8"?>\n<object class="java.lang.Object"/>'
+        (self.osp / "generated" / "demo.xml").write_bytes(self.generated)
+        (self.root / "fixtures" / "experiment.trk").write_bytes(b'<object class="e"/>\r\n')
+        with zipfile.ZipFile(self.root / "fixtures" / "archive.trz", "w") as archive:
+            archive.writestr("one.trk", '<object class="one"/>')
+            archive.writestr("nested/two.xml", '<object class="two"/>')
+            archive.writestr("duplicate.trk", '<object class="one"/>')
+            archive.writestr("image.png", b"\x89PNG")
+            archive.writestr("folder/", "")
+        self.manifest = {"reference": {"file": "tracker.jar"},
+                         "cases": [{"id": "experiment", "file": "experiment.trk"}, {"id": "archive", "file": "archive.trz"}]}
+        for replacement in (patch.object(corpus, "COMMITTED_FIXTURES", self.committed), patch.object(corpus, "OSP_FIXTURES", self.osp),
+                            patch.object(corpus, "verify_file")):
+            replacement.start()
+            self.addCleanup(replacement.stop)
+
+    @staticmethod
+    def dump(data):
+        report = {"schema": corpus.XML_DUMP_SCHEMA, "read": b"fail" not in data}
+        if report["read"]:
+            report["root"] = {"class": "x", "version": None,
+                              "properties": [{"name": "n", "type": "int", "content": "1", "int": 1}]}
+        return report
+
+    def runner(self, native=None, generated=None):
+        """A run() replacement: the Java tool writes OSP's documents or every listed dump; the probe writes one."""
+        commands = []
+
+        def run(command, timeout=45):
+            commands.append((command, timeout))
+            if "--generate" in command:
+                output = Path(command[-1])
+                output.mkdir()
+                for name, data in (generated if generated is not None else {"demo.xml": self.generated}).items():
+                    (output / name).write_bytes(data)
+                return
+            if "--osp-dump" in command:
+                source, output = Path(command[2]), Path(command[3])
+                report = self.dump(source.read_bytes())
+                if native is not None:
+                    report = native(source.read_bytes(), report)
+                output.write_text(json.dumps(report), encoding="utf-8")
+                return
+            for line in Path(command[-1]).read_text(encoding="utf-8").splitlines():
+                source, output = line.split("\t")
+                Path(output).write_text(json.dumps(self.dump(Path(source).read_bytes())), encoding="utf-8")
+
+        return commands, run
+
+    def test_inputs_cover_cases_archive_members_fixtures_and_line_ending_variants(self):
+        documents = corpus.xml_oracle_inputs(self.manifest, self.root)
+        labels = [label for label, _ in documents]
+        self.assertEqual(labels, ["experiment", "archive!one.trk", "archive!nested/two.xml", "fixtures/fixture.trk",
+                                  "osp/fail-quirk.xml[lf]", "osp/fail-quirk.xml[crlf]", "osp/fail-quirk.xml[cr]",
+                                  "osp/fail-quirk.xml[bom-crlf]", "osp/quirk.xml[lf]", "osp/quirk.xml[crlf]", "osp/quirk.xml[cr]",
+                                  "osp/quirk.xml[bom-crlf]", "osp/generated/demo.xml[lf]", "osp/generated/demo.xml[crlf]",
+                                  "osp/generated/demo.xml[cr]", "osp/generated/demo.xml[bom-crlf]"])
+        data = dict(documents)
+        self.assertEqual(data["experiment"], b'<object class="e"/>\r\n')
+        self.assertEqual(data["osp/quirk.xml[cr]"], b'<object class="q">\r</object>\r')
+        self.assertEqual(data["osp/quirk.xml[bom-crlf]"], b'\xef\xbb\xbf<object class="q">\r\n</object>\r\n')
+        self.assertEqual(corpus.xml_oracle_variants(b"a\r\nb\rc\n")["lf"], b"a\nb\nc\n")
+
+    def test_inputs_are_bounded(self):
+        with patch.object(corpus, "MAX_XML_BYTES", 10), self.assertRaisesRegex(ValueError, "experiment: document exceeds"):
+            corpus.xml_oracle_inputs(self.manifest, self.root)
+        archive_only = {**self.manifest, "cases": [self.manifest["cases"][1]]}
+        with patch.object(corpus, "MAX_XML_BYTES", 15), self.assertRaisesRegex(ValueError, "one.trk.*exceeds"):
+            corpus.xml_oracle_inputs(archive_only, self.root)
+        with patch.object(corpus, "MAX_XML_ORACLE_DOCUMENTS", 2), self.assertRaisesRegex(ValueError, "Too many"):
+            corpus.xml_oracle_inputs(self.manifest, self.root)
+        with patch.object(corpus, "MAX_ARCHIVE_MEMBERS", 4), self.assertRaisesRegex(ValueError, "archive: archive has too many members"):
+            corpus.xml_oracle_inputs(archive_only, self.root)
+        # Two members with one name are ambiguous: which one a reader takes is not defined.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            with zipfile.ZipFile(self.root / "fixtures" / "archive.trz", "a") as archive:
+                archive.writestr("one.trk", '<object class="other"/>')
+        with self.assertRaisesRegex(ValueError, "ambiguous archive member 'one.trk'"):
+            corpus.xml_oracle_inputs(archive_only, self.root)
+
+    def test_matching_dumps_pass_and_report_reads_and_shared_rejections(self):
+        commands, run = self.runner()
+        reports = self.root / "reports"
+        with patch.object(corpus, "run", side_effect=run), patch("builtins.print") as printed:
+            corpus.check_xml_oracle(self.manifest, self.root, "java", "probe", reports)
+        java = [(command, timeout) for command, timeout in commands if "--osp-dump" not in command]
+        self.assertEqual([command[-2] for command, _ in java][0], "--generate")
+        self.assertEqual(len(java), 2)
+        for command, timeout in java:
+            self.assertEqual(timeout, 600)
+            self.assertIn("-Djava.awt.headless=true", command)
+            self.assertIn("-Xmx256m", command)
+            self.assertEqual(command[command.index("--class-path") + 1], str(self.root / "tracker.jar"))
+        self.assertTrue(java[1][0][-2].endswith("XmlControlDump.java"))
+        self.assertEqual(len(commands) - 2, 16)
+        summary = json.loads((reports / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary, {"schema": corpus.XML_DUMP_SCHEMA, "oracles": "O1+O2", "documents": 16, "read_by_both": 12,
+                                   "deliberate_differences": [], "rejected_by_both": 4, "mismatches": []})
+        self.assertIn("16 documents", printed.call_args.args[0])
+        self.assertEqual(sorted(path.name for path in reports.iterdir()), ["summary.json"])
+
+    def test_any_difference_fails_and_keeps_both_dumps(self):
+        def native(data, report):
+            if data == b'<object class="one"/>':
+                report["root"]["properties"][0]["int"] = 2
+            if b"fail" in data and b"\r" in data:
+                report = {**report, "read": True, "root": {}}
+            return report
+
+        _, run = self.runner(native)
+        reports = self.root / "reports"
+        with patch.object(corpus, "run", side_effect=run), self.assertRaises(ValueError) as raised:
+            corpus.check_xml_oracle(self.manifest, self.root, "java", "probe", reports)
+        message = str(raised.exception)
+        self.assertIn("O1+O2 failed for 4 of 16 documents", message)
+        self.assertIn("archive!one.trk: $.root.properties[0].int (1 != 2)", message)
+        self.assertIn("osp/fail-quirk.xml[crlf]: $ (keys ['root'])", message)
+        summary = json.loads((reports / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(summary["mismatches"]), 4)
+        self.assertEqual(len(list(reports.glob("*-java.json"))), 4)
+        self.assertEqual(len(list(reports.glob("*-native.json"))), 4)
+
+    def test_committed_osp_writer_documents_must_match_a_fresh_java_run(self):
+        for generated, pattern in [({"demo.xml": b"changed"}, "differs from OSP's writer output"),
+                                   ({}, "OSP writer documents differ"),
+                                   ({"demo.xml": self.generated, "extra.xml": b"x"}, "OSP writer documents differ")]:
+            commands, run = self.runner(generated=generated)
+            with self.subTest(generated=sorted(generated)), patch.object(corpus, "run", side_effect=run), \
+                    self.assertRaisesRegex(ValueError, pattern):
+                corpus.check_xml_oracle(self.manifest, self.root, "java", "probe", self.root / "reports")
+            self.assertEqual(len(commands), 1)
+
+    def test_registered_rejections_still_compare_the_tree_and_others_fail(self):
+        def native(data, report):
+            if data == b'<object class="one"/>':
+                report = {**report, "motrack_rejects": "truncated"}
+            if data == b'<object class="two"/>':
+                report = {**report, "motrack_rejects": "something else"}
+            return report
+
+        _, run = self.runner(native)
+        reports = self.root / "reports"
+        with patch.object(corpus, "run", side_effect=run), self.assertRaises(ValueError) as raised:
+            corpus.check_xml_oracle(self.manifest, self.root, "java", "probe", reports)
+        self.assertIn("archive!nested/two.xml: unregistered MoTrack rejection 'something else'", str(raised.exception))
+        summary = json.loads((reports / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary["deliberate_differences"], ["archive!one.trk: truncated"])
+        self.assertEqual(len(summary["mismatches"]), 1)
+
+        # A registered rejection must still produce Java's tree.
+        def wrong_tree(data, report):
+            if data == b'<object class="one"/>':
+                report = {**report, "motrack_rejects": "truncated", "root": {"class": "other"}}
+            return report
+
+        _, run = self.runner(wrong_tree)
+        with patch.object(corpus, "run", side_effect=run), self.assertRaisesRegex(ValueError, "archive!one.trk: \\$.root"):
+            corpus.check_xml_oracle(self.manifest, self.root, "java", "probe", reports)
+
+    def test_o2_only_runs_every_document_through_the_probe_without_java(self):
+        commands, run = self.runner(lambda data, report: {**report, "motrack_rejects": "truncated"} if data == b'<object class="one"/>' else report)
+        reports = self.root / "o2"
+        with patch.object(corpus, "run", side_effect=run), patch("builtins.print") as printed:
+            corpus.check_xml_oracle(self.manifest, self.root, None, "probe", reports, o2_only=True)
+        self.assertTrue(all("--osp-dump" in command for command, _ in commands))
+        self.assertEqual(len(commands), 16)
+        summary = json.loads((reports / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual((summary["oracles"], summary["read_by_both"], summary["rejected_by_both"]), ("O2", 11, 4))
+        self.assertEqual(summary["deliberate_differences"], ["archive!one.trk: truncated"])
+        self.assertIn("--o2-only: 16 documents", printed.call_args.args[0])
+        _, run = self.runner(lambda data, report: {**report, "schema": "other"})
+        with patch.object(corpus, "run", side_effect=run), self.assertRaisesRegex(ValueError, "unexpected XML dump schema"):
+            corpus.check_xml_oracle(self.manifest, self.root, None, "probe", reports, o2_only=True)
+
+    def test_unexpected_dump_schema_is_rejected(self):
+        _, run = self.runner(lambda data, report: {**report, "schema": "other"})
+        with patch.object(corpus, "run", side_effect=run), self.assertRaisesRegex(ValueError, "unexpected XML dump schema"):
+            corpus.check_xml_oracle(self.manifest, self.root, "java", "probe", self.root / "reports")
+
+    def test_json_difference_requires_identical_types_keys_and_order(self):
+        self.assertIsNone(corpus.first_json_difference({"a": [1, {"b": None}]}, {"a": [1, {"b": None}]}))
+        self.assertEqual(corpus.first_json_difference({"a": True}, {"a": 1}), "$.a (type)")
+        self.assertEqual(corpus.first_json_difference({"a": 1}, {"b": 1}), "$ (keys ['a', 'b'])")
+        self.assertEqual(corpus.first_json_difference([1, 2], [1]), "$ (length 2 != 1)")
+        self.assertEqual(corpus.first_json_difference([1, [2, "x"]], [1, [2, "y"]]), "$[1][1] ('x' != 'y')")
+
+    def test_command_line_requires_a_probe_and_limits_reports_to_the_oracle(self):
+        for arguments in (["corpus.py", "xml-oracle"], ["corpus.py", "check", "--probe", "p", "--reports", "r"],
+                          ["corpus.py", "check", "--probe", "p", "--o2-only"]):
+            with self.subTest(arguments=arguments), patch.object(sys, "argv", arguments), \
+                    patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit):
+                corpus.main()
+        with patch.object(sys, "argv", ["corpus.py", "xml-oracle", "--probe", "p", "--java", "j", "--cache", str(self.root),
+                                        "--reports", str(self.root / "out")]), \
+                patch.object(corpus, "load_manifest", return_value=self.manifest), \
+                patch.object(corpus, "check_xml_oracle") as check:
+            corpus.main()
+        check.assert_called_once_with(self.manifest, self.root, "j", "p", self.root / "out", False)
+
+
 class OdeOracleTests(unittest.TestCase):
     """The ODE kernel oracle (tools/reference/OdeOracle.java) without running Java."""
 
@@ -3533,6 +4690,951 @@ class OdeOracleTests(unittest.TestCase):
             else: document["cases"][0] = "case"
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
                 corpus.validate_ode_reference(document, self.manifest)
+
+
+class LibraryOracleTests(unittest.TestCase):
+    """corpus.py library-oracle without Java or the probe: inputs, generated documents and the comparison."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix="motrack-library-oracle-test-")
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.library = self.root / "library"
+        (self.library / "compadre").mkdir(parents=True)
+        (self.library / "generated").mkdir()
+        self.collection = b'<?xml version="1.0" encoding="UTF-8"?>\n<object class="org.opensourcephysics.tools.LibraryCollection">\n</object>\n'
+        (self.library / "known.xml").write_bytes(self.collection)
+        (self.library / "my-library.xml").write_bytes(b'<object class="org.opensourcephysics.tools.Library">\n</object>\n')
+        (self.library / "compadre" / "tree.rest").write_bytes(b"<x><Identify/></x>\n")
+        (self.library / "compadre" / "records.rest").write_bytes(b"<records><record/></records>\n")
+        (self.library / "notes.txt").write_bytes(b"ignored")
+        self.generated = b'<object class="org.opensourcephysics.tools.LibraryCollection"/>'
+        (self.library / "generated" / "osp-collection.xml").write_bytes(self.generated)
+        for replacement in (patch.object(corpus, "LIBRARY_FIXTURES", self.library), patch.object(corpus, "verify_file"),
+                            patch.object(corpus, "LIBRARY_DEEPEST_NESTING", 2)):
+            replacement.start()
+            self.addCleanup(replacement.stop)
+
+    def test_kinds_follow_the_root_class_or_rest_elements(self):
+        self.assertEqual(corpus.library_kind(self.collection), "collection")
+        self.assertEqual(corpus.library_kind(b'<object class="org.opensourcephysics.tools.Library">'), "library")
+        self.assertEqual(corpus.library_kind(b"<x><Identify/></x>"), "compadre-tree")
+        self.assertEqual(corpus.library_kind(b"<records/>"), "compadre-records")
+
+    def test_inputs_cover_fixtures_variants_extras_and_generated_documents(self):
+        extra = self.root / "extra"
+        extra.mkdir()
+        (extra / "real.rest").write_bytes(b"<records></records>\n")
+        documents = corpus.library_oracle_inputs(extra)
+        labels = [label for _, label, _, _ in documents]
+        self.assertIn("known.xml[lf]", labels)
+        self.assertIn("known.xml[bom-crlf]", labels)
+        self.assertIn("compadre/tree.rest[cr]", labels)
+        self.assertIn("extra/real.rest", labels)
+        self.assertNotIn("notes.txt", " ".join(labels))
+        kinds = {label: kind for _, label, kind, _ in documents}
+        self.assertEqual(kinds["my-library.xml[lf]"], "library")
+        self.assertEqual(kinds["compadre/records.rest[lf]"], "compadre-records")
+        self.assertEqual(kinds["synthetic/deep-nesting.xml"], "collection")
+        deep = next(data for _, label, _, data in documents if label == "synthetic/deep-nesting.xml")
+        self.assertEqual(deep.count(b"org.opensourcephysics.tools.LibraryCollection"), 2)
+        self.assertIn("synthetic/large-index.xml", labels)
+        self.assertEqual(len(labels), len(set(labels)))
+
+    def run_oracle(self, java_dump, native_dump, generated=None):
+        def run(command, timeout=45):
+            if "--generate" in command:
+                output = Path(command[-1])
+                output.mkdir()
+                for name, data in (generated or {"osp-collection.xml": self.generated}).items():
+                    (output / name).write_bytes(data)
+                return
+            if "--library-dump" in command:
+                kind, source, output = command[2], Path(command[3]), Path(command[4])
+                Path(output).write_text(json.dumps(native_dump(kind, source.read_bytes())), encoding="utf-8")
+                return
+            for line in Path(command[-1]).read_text(encoding="utf-8").splitlines():
+                kind, source, output = line.split("\t")
+                Path(output).write_text(json.dumps(java_dump(kind, Path(source).read_bytes())), encoding="utf-8")
+
+        manifest = {"reference": {"file": "tracker.jar"}, "cases": []}
+        with patch.object(corpus, "run", run), redirect_stdout(io.StringIO()) as output:
+            corpus.check_library_oracle(manifest, self.root, "java", "probe", self.root / "reports")
+        return output.getvalue()
+
+    @staticmethod
+    def dump(kind, data, loaded=True):
+        return {"schema": corpus.LIBRARY_DUMP_SCHEMA, "kind": kind, "read": True, "loaded": loaded, "error": "ignored"}
+
+    def test_matching_dumps_pass_and_differences_fail_with_reports(self):
+        summary = self.run_oracle(self.dump, lambda kind, data: {k: v for k, v in self.dump(kind, data).items() if k != "error"})
+        self.assertIn("documents matched", summary)
+        with self.assertRaisesRegex(ValueError, "Library oracle failed"):
+            self.run_oracle(self.dump, lambda kind, data: self.dump(kind, data, loaded=False) | {"extra": 1})
+        self.assertTrue(any((self.root / "reports").glob("*-native.json")))
+
+    def test_generated_documents_must_equal_the_committed_copies(self):
+        with self.assertRaisesRegex(ValueError, "differs from OSP's writer output"):
+            self.run_oracle(self.dump, self.dump, generated={"osp-collection.xml": b"changed"})
+        with self.assertRaisesRegex(ValueError, "OSP library documents differ"):
+            self.run_oracle(self.dump, self.dump, generated={"other.xml": self.generated})
+
+    def test_known_differences_must_still_differ(self):
+        (self.library / "collection-resources-arraylist.xml").write_bytes(self.collection.replace(b"</object>", b"<!-- list --></object>"))
+        java = lambda kind, data: self.dump(kind, data, loaded=b"list" not in data)
+        native = lambda kind, data: {k: v for k, v in self.dump(kind, data).items() if k != "error"}
+        # One fixture in four line-ending variants.
+        self.assertIn("4 known differences", self.run_oracle(java, native))
+        with self.assertRaisesRegex(ValueError, "stale known difference"):
+            self.run_oracle(lambda kind, data: self.dump(kind, data), native)
+
+
+class FitOracleTests(unittest.TestCase):
+    """The curve-fit kernel oracle (tools/reference/FitOracle.java) without running Java."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name).resolve()
+        self.manifest = corpus.load_manifest()
+        self.fixture = json.loads(corpus.FIT_REFERENCE.read_text(encoding="utf-8"))
+
+    def check(self, document, *, record=False, commands=None):
+        """Run check_fit_oracle with a fake Java process that emits `document`."""
+        def run(command, **options):
+            if commands is not None:
+                commands.append((command, options))
+            Path(command[-1]).write_text(json.dumps(document), encoding="utf-8")
+
+        with patch.object(corpus, "verify_file") as verify, patch.object(corpus, "run", side_effect=run), \
+                redirect_stdout(io.StringIO()) as output:
+            corpus.check_fit_oracle(self.manifest, self.root, "java", record=record)
+        verify.assert_called_once_with(self.root / self.manifest["reference"]["file"], self.manifest["reference"])
+        return output.getvalue()
+
+    def case(self, document, case_id):
+        return next(case for case in document["cases"] if case["id"] == case_id)
+
+    def test_committed_fixture_covers_every_fit_defect_and_agreement_class(self):
+        corpus.validate_fit_reference(self.fixture, self.manifest)
+        self.assertEqual([fit["id"] for fit in self.fixture["fits"]], corpus.FIT_BUILT_INS)
+        self.assertEqual([fit["name"] for fit in self.fixture["fits"]],
+                         ["Poly1", "Poly2", "Poly3", "Gaussian", "Exponential", "Sinusoid", "DampedSine", "Power", "Log"])
+        cases = self.fixture["cases"]
+        self.assertEqual({case["agreement"] for case in cases}, corpus.FIT_AGREEMENTS)
+        self.assertEqual({case["defect"] for case in cases if "defect" in case}, corpus.FIT_DEFECTS)
+        self.assertEqual({case["java"]["method"] for case in cases}, corpus.FIT_METHODS)
+        for fit in corpus.FIT_BUILT_INS:
+            groups = {case["group"] for case in cases if case["fit"] == fit}
+            self.assertTrue({"exact", "noisy", "outlier", "duplicate-x", "fixed", "current", "manual", "random"} <= groups, fit)
+        self.assertGreaterEqual(sum("expect" in case for case in cases), 70)
+        self.assertEqual(len(self.fixture["minimizers"]), 14)
+        self.assertEqual(corpus.FIT_REFERENCE.read_bytes().decode("utf-8"), corpus.fit_reference_text(self.fixture))
+        self.assertLess(corpus.FIT_REFERENCE.stat().st_size, 400 * 1024)
+
+    def test_check_runs_the_pinned_jar_privately_and_accepts_an_identical_regeneration(self):
+        commands = []
+        output = self.check(self.fixture, commands=commands)
+        self.assertIn(f"{len(self.fixture['cases'])} Java curve-fit cases and 14 minimizer runs match", output)
+        [(command, options)] = commands
+        self.assertEqual(command[0], "java")
+        self.assertIn("-Djava.awt.headless=true", command)
+        self.assertIn("-Xmx256m", command)
+        self.assertGreater(options["timeout"], 45)
+        self.assertEqual(command[command.index("--class-path") + 1], str(self.root / self.manifest["reference"]["file"]))
+        self.assertEqual(Path(command[-2]), corpus.ROOT / "tools/reference/FitOracle.java")
+        # A private, removed home: OSP preference files never land in the shared reference cache.
+        home = next(arg for arg in command if arg.startswith("-Duser.home=")).split("=", 1)[1]
+        self.assertFalse(Path(home).is_relative_to(self.root))
+        self.assertFalse(Path(home).exists())
+
+    def test_check_rejects_drift_beyond_each_agreement_class(self):
+        def mutate(document, case_id, change):
+            change(self.case(document, case_id))
+
+        mutations = {
+            "exact-parameter": ("line/noisy", lambda c: c["java"]["parameters"].__setitem__(
+                0, math.nextafter(c["java"]["parameters"][0], math.inf))),
+            "polynomial-parameter": ("cubic/noisy", lambda c: c["java"]["parameters"].__setitem__(
+                1, math.nextafter(c["java"]["parameters"][1], math.inf))),
+            "transcendental-parameter": ("gaussian/noisy", lambda c: c["java"]["parameters"].__setitem__(
+                0, c["java"]["parameters"][0] * (1 + 1e-5))),
+            "uncertainty": ("gaussian/noisy", lambda c: c["java"]["uncertainties"].__setitem__(
+                0, c["java"]["uncertainties"][0] * (1 + 1e-2))),
+            "band": ("sinusoid/noisy", lambda c: c["java"]["band"][0].__setitem__(0, c["java"]["band"][0][0] * 1.01)),
+            "method": ("user-line/noisy", lambda c: c["java"].__setitem__("method", "levenberg-marquardt")),
+            "points": ("line/nan-x", lambda c: c["java"].__setitem__("points", c["java"]["points"] - 1)),
+            "correlation": ("gaussian/noisy", lambda c: c["java"].__setitem__(
+                "correlation", math.nextafter(c["java"]["correlation"], 0))),
+            "nan": ("power/negative-x", lambda c: c["java"].__setitem__("rms", 0.5)),
+            "input": ("log/noisy", lambda c: c["y"].__setitem__(0, c["y"][0] + 1)),
+            "expect": ("exponential/noisy", lambda c: c["expect"]["parameters"].__setitem__(
+                0, c["expect"]["parameters"][0] * (1 + 1e-6))),
+            "text": ("line/noisy", lambda c: c["java"]["formatted"].__setitem__(0, "1 ± 1")),
+        }
+        for name, (case_id, change) in mutations.items():
+            document = copy.deepcopy(self.fixture)
+            mutate(document, case_id, change)
+            with self.subTest(mutation=name), self.assertRaises(ValueError):
+                self.check(document)
+        for name, change in {
+            "minimizer": lambda d: d["minimizers"][0]["parameters"].__setitem__(0, d["minimizers"][0]["parameters"][0] + 1e-15),
+            "minimizer-iterations": lambda d: d["minimizers"][1].__setitem__("iterations", 7),
+            "fit-definition": lambda d: d["fits"][3].__setitem__("expression", "A*exp(-(x-B)^2/C)"),
+            "format-probe": lambda d: d["format"][0].__setitem__("text", "2.0 ± 0.0"),
+            "case-order": lambda d: d["cases"].reverse(),
+        }.items():
+            document = copy.deepcopy(self.fixture)
+            change(document)
+            with self.subTest(mutation=name), self.assertRaises(ValueError):
+                self.check(document)
+
+    def test_sensitive_and_chaotic_quantities_are_not_compared(self):
+        document = copy.deepcopy(self.fixture)
+        chaotic = self.case(document, "user-charge/default-start")
+        chaotic["java"]["parameters"] = [value * 2 for value in chaotic["java"]["parameters"]]
+        chaotic["java"]["method"] = "none"
+        sensitive = next(case for case in document["cases"]
+                         if case["java"].get("sensitivity", {}).get("uncertainties", 0) > corpus.FIT_SENSITIVITY_LIMIT
+                         and case["java"]["uncertainties"])
+        sensitive["java"]["uncertainties"] = [value * 3 for value in sensitive["java"]["uncertainties"]]
+        # Within 100 times the measured last-bit sensitivity, a transcendental parameter may move.
+        relaxed = self.case(document, "sinusoid/duplicate-x")
+        moved = relaxed["java"]["sensitivity"]["parameters"]
+        self.assertGreater(moved, 1e-10)
+        relaxed["java"]["parameters"][1] *= 1 + 50 * moved
+        self.check(document)
+        # The data handling of a chaotic case still compares exactly.
+        chaotic["java"]["points"] += 1
+        with self.assertRaisesRegex(ValueError, "user-charge/default-start"):
+            self.check(document)
+
+    def test_another_jvm_may_classify_a_transcendental_case_as_chaotic(self):
+        # Another JVM's Newton iteration diverges on a committed transcendental case and converges on a chaotic one.
+        document = copy.deepcopy(self.fixture)
+        diverged = self.case(document, "gaussian/noisy")
+        diverged["agreement"] = "chaotic"
+        del diverged["expect"]
+        diverged["java"]["parameters"] = [value * 2 for value in diverged["java"]["parameters"]]
+        diverged["java"]["method"] = "restored"
+        converged = self.case(document, "dampedsine/outlier")
+        converged["agreement"] = "transcendental"
+        converged["expect"] = {"source": "gauss-newton", "parameters": [1, 2, 3, 4, 5], "uncertainties": [1, 1, 1, 1, 1]}
+        self.check(document)
+        # The data handling still compares, and no other agreement class may change.
+        diverged["java"]["points"] += 1
+        with self.assertRaisesRegex(ValueError, "gaussian/noisy"):
+            self.check(document)
+        document = copy.deepcopy(self.fixture)
+        self.case(document, "line/noisy")["agreement"] = "chaotic"
+        with self.assertRaisesRegex(ValueError, "line/noisy"):
+            self.check(document)
+
+    def test_a_tied_transcendental_fit_may_take_another_minimizer_path(self):
+        # log/random-1 starts at its least-squares minimum, so Newton's result and the fallback tie.
+        document = copy.deepcopy(self.fixture)
+        tied = self.case(document, "log/random-1")
+        self.assertEqual(tied["java"]["method"], "hessian")
+        self.assertTrue(tied["java"]["tied"])
+        tied["java"]["method"] = "levenberg-marquardt"
+        self.check(document)
+        # A fit that lowered its deviation keeps its path, and its start compares too.
+        document = copy.deepcopy(self.fixture)
+        moved = self.case(document, "gaussian/noisy")
+        self.assertFalse(moved["java"]["tied"])
+        moved["java"]["method"] = "levenberg-marquardt"
+        with self.assertRaisesRegex(ValueError, "gaussian/noisy.java.method"):
+            self.check(document)
+        document = copy.deepcopy(self.fixture)
+        self.case(document, "gaussian/noisy")["java"]["start"]["parameters"][0] *= 1 + 1e-5
+        with self.assertRaisesRegex(ValueError, "gaussian/noisy.java.start"):
+            self.check(document)
+        document = copy.deepcopy(self.fixture)
+        lorentz = self.case(document, "user-lorentz/levenberg-marquardt")
+        self.assertEqual((lorentz["agreement"], lorentz["java"]["method"], lorentz["java"]["tied"]), ("exact", "levenberg-marquardt", False))
+        lorentz["java"]["start"]["ssr"] = math.nextafter(lorentz["java"]["start"]["ssr"], 0)
+        with self.assertRaisesRegex(ValueError, "user-lorentz/levenberg-marquardt.java.start.ssr"):
+            self.check(document)
+        document = copy.deepcopy(self.fixture)
+        tied = self.case(document, "log/random-1")
+        tied["java"]["method"] = "none"
+        with self.assertRaisesRegex(ValueError, "log/random-1.java.method"):
+            self.check(document)
+        # The values must still agree, and arithmetic fits keep their exact path.
+        tied["java"]["method"] = "restored"
+        tied["java"]["parameters"][0] *= 1 + 1e-5
+        with self.assertRaisesRegex(ValueError, "log/random-1"):
+            self.check(document)
+        document = copy.deepcopy(self.fixture)
+        self.case(document, "user-line/noisy")["java"]["method"] = "restored"
+        with self.assertRaisesRegex(ValueError, "user-line/noisy.java.method"):
+            self.check(document)
+
+    def test_record_writes_the_canonical_fixture_only_when_requested(self):
+        destination = self.root / "science" / "fit-reference.json"
+        with patch.object(corpus, "FIT_REFERENCE", destination):
+            self.assertIn(f"recorded {len(self.fixture['cases'])}", self.check(self.fixture, record=True))
+        self.assertEqual(destination.read_bytes(), corpus.fit_reference_text(self.fixture).encode("utf-8"))
+        with patch.object(sys, "argv", ["corpus.py", "session", "--record"]), patch.object(corpus, "check_sessions") as sessions, \
+                self.assertRaises(SystemExit), patch("sys.stderr", new_callable=io.StringIO):
+            corpus.main()
+        sessions.assert_not_called()
+        with patch.object(sys, "argv", ["corpus.py", "fit-oracle", "--java", "jdk/java", "--record"]), \
+                patch.object(corpus, "check_fit_oracle") as oracle:
+            corpus.main()
+        oracle.assert_called_once()
+        self.assertEqual(oracle.call_args.args[2], "jdk/java")
+        self.assertTrue(oracle.call_args.kwargs["record"])
+
+    def test_validation_rejects_malformed_or_incomplete_documents(self):
+        mutations = {
+            "version": lambda d: d.__setitem__("reference_version", "6.3.4"),
+            "schema": lambda d: d.__setitem__("schema_version", 2),
+            "fits": lambda d: d["fits"].pop(),
+            "no-cases": lambda d: d.__setitem__("cases", []),
+            "duplicate-case": lambda d: d["cases"].append(d["cases"][0]),
+            "unknown-fit": lambda d: d["cases"][0].__setitem__("fit", "spline"),
+            "agreement": lambda d: d["cases"][0].__setitem__("agreement", "approximate"),
+            "defect": lambda d: d["cases"][0].__setitem__("defect", "unknown"),
+            "method": lambda d: d["cases"][0]["java"].__setitem__("method", "simplex"),
+            "result-keys": lambda d: d["cases"][0]["java"].pop("band"),
+            "sensitivity": lambda d: self.case(d, "gaussian/noisy")["java"].pop("sensitivity"),
+            "unpaired": lambda d: d["cases"][0]["y"].pop(),
+            "data": lambda d: d["cases"][0].pop("x"),
+            "intended": lambda d: self.case(d, "user-cos/fixed-text").pop("intended"),
+            "uncovered-fit": lambda d: d.__setitem__("cases", [c for c in d["cases"] if c["fit"] != "log"]),
+            "not-object": lambda d: d["cases"].__setitem__(0, "case"),
+            "not-a-number": lambda d: d.__setitem__("minimizers", "none"),
+        }
+        for name, change in mutations.items():
+            document = copy.deepcopy(self.fixture)
+            change(document)
+            with self.subTest(mutation=name), self.assertRaises(ValueError):
+                corpus.validate_fit_reference(document, self.manifest)
+        with self.assertRaises(ValueError):
+            corpus.fit_number("1.5")
+        self.assertTrue(math.isnan(corpus.fit_number("NaN")))
+        self.assertEqual(corpus.fit_number("-Infinity"), -math.inf)
+
+
+class FilterOracleTests(unittest.TestCase):
+    """The video-filter kernel oracle (tools/reference/FilterOracle.java) without running Java."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name).resolve()
+        self.manifest = corpus.load_manifest()
+        self.fixture = json.loads(corpus.FILTER_REFERENCE.read_text(encoding="utf-8"))
+
+    def check(self, document, *, record=False, commands=None):
+        """Run check_filter_oracle with a fake Java process that emits `document`."""
+        def run(command):
+            if commands is not None:
+                commands.append(command)
+            Path(command[-1]).write_text(json.dumps(document), encoding="utf-8")
+
+        with patch.object(corpus, "verify_file") as verify, patch.object(corpus, "run", side_effect=run), \
+                patch("sys.stdout", new_callable=io.StringIO) as output:
+            corpus.check_filter_oracle(self.manifest, self.root, "java", record=record)
+        verify.assert_called_once_with(self.root / self.manifest["reference"]["file"], self.manifest["reference"])
+        return output.getvalue()
+
+    def case(self, document, case_id):
+        return next(case for case in document["cases"] if case["id"] == case_id)
+
+    def test_committed_fixture_is_canonical_and_covers_every_registered_filter(self):
+        corpus.validate_filter_reference(self.fixture, self.manifest)
+        classes = {f["class"].rsplit(".", 1)[1] for case in self.fixture["cases"] for f in case["filters"]}
+        self.assertEqual(classes, set(corpus.FILTER_CLASSES))
+        self.assertEqual(len(corpus.FILTER_CLASSES), 14)
+        self.assertNotIn("BarrelPincushionFilter", classes)
+        self.assertEqual(corpus.FILTER_REFERENCE.read_bytes().decode("utf-8"), corpus.filter_reference_text(self.fixture))
+        self.assertLess(corpus.FILTER_REFERENCE.stat().st_size, 256 * 1024)
+        # Temporal filters are driven through multi-frame sequences with steps, seeks and resets.
+        ops = {op["op"] for case in self.fixture["cases"] for op in case["ops"]}
+        self.assertEqual(ops, corpus.FILTER_OPS)
+        ghost = self.case(self.fixture, "ghost-reevaluate-seek")
+        self.assertEqual([op["frame"] for op in ghost["ops"]], [0, 1, 2, 2, 2, 5, 1, 0, 3])
+        # Tracker saves the enabled state only for the perspective filter, which then fails to reload headless.
+        reloads = {entry["class"].rsplit(".", 1)[1]: entry["disabled_reloads_as"] for entry in self.fixture["persistence"]}
+        self.assertEqual(reloads.pop("PerspectiveFilter"), "NullPointerException")
+        self.assertEqual(set(reloads.values()), {"enabled"})
+        self.assertEqual({entry["id"]: entry["exception"] for entry in self.fixture["failures"]},
+                         {"resize-zero-width": "IllegalArgumentException", "perspective-no-key-0": "NullPointerException"})
+
+    def test_check_runs_the_pinned_jar_privately_and_accepts_an_identical_regeneration(self):
+        commands = []
+        self.assertIn(f"{len(self.fixture['cases'])} Java filter cases match tests/science/video-filter-reference.json pixel for pixel",
+                      self.check(self.fixture, commands=commands))
+        [command] = commands
+        self.assertEqual(command[0], "java")
+        self.assertIn("-Djava.awt.headless=true", command)
+        self.assertIn("-Xmx512m", command)
+        self.assertEqual(command[command.index("--class-path") + 1], str(self.root / self.manifest["reference"]["file"]))
+        self.assertEqual(Path(command[-2]), corpus.ROOT / "tools/reference/FilterOracle.java")
+        # A private, removed home: OSP preference files never land in the shared reference cache.
+        home = next(arg for arg in command if arg.startswith("-Duser.home=")).split("=", 1)[1]
+        self.assertFalse(Path(home).is_relative_to(self.root))
+        self.assertFalse(Path(home).exists())
+
+    def test_check_rejects_any_pixel_probe_or_reference_drift(self):
+        for mutation in ["pixels", "size", "rgb", "probe", "trig", "lookup", "composite", "frame", "persistence", "failure",
+                         "missing-case", "case-order"]:
+            document = copy.deepcopy(self.fixture)
+            if mutation == "pixels":
+                result = self.case(document, "ghost-0.05")["results"][3]
+                result["sha256"] = "0" * 64
+            elif mutation == "size":
+                self.case(document, "rotate-CW")["results"][0]["width"] += 1
+            elif mutation == "rgb":
+                result = self.case(document, "perspective-small")["results"][2]
+                result["rgb"] = "000000"
+            elif mutation == "probe":
+                probe = self.case(document, "radial-Rectilinear-Equisolid-0.75-170.0")["probes"][1]
+                probe["value"] = math.nextafter(probe["value"], math.inf)
+            elif mutation == "trig":
+                document["math"]["brightness_trig"][50]["sin"] = "3fe6a09e667f3bcd"
+            elif mutation == "lookup":
+                document["math"]["log_lookup_sha256_prefix"]["-99"] = "0" * 16
+            elif mutation == "composite":
+                document["composites"][0]["sha256"] = "f" * 64
+            elif mutation == "frame":
+                document["frames"][0]["sha256"] = "e" * 64
+            elif mutation == "persistence":
+                document["persistence"][0]["disabled_reloads_as"] = "disabled"
+            elif mutation == "failure":
+                document["failures"][0]["exception"] = "none"
+            elif mutation == "missing-case":
+                document["cases"].pop()
+            else:
+                document["cases"][0], document["cases"][1] = document["cases"][1], document["cases"][0]
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                self.check(document)
+
+    def test_record_writes_the_canonical_fixture_only_when_requested(self):
+        destination = self.root / "science" / "video-filter-reference.json"
+        with patch.object(corpus, "FILTER_REFERENCE", destination):
+            self.assertIn(f"recorded {len(self.fixture['cases'])}", self.check(self.fixture, record=True))
+        self.assertEqual(destination.read_bytes(), corpus.filter_reference_text(self.fixture).encode("utf-8"))
+        with patch.object(sys, "argv", ["corpus.py", "session", "--record"]), patch.object(corpus, "check_sessions") as sessions, \
+                self.assertRaises(SystemExit), patch("sys.stderr", new_callable=io.StringIO):
+            corpus.main()
+        sessions.assert_not_called()
+        with patch.object(sys, "argv", ["corpus.py", "filter-oracle", "--java", "jdk/java", "--record"]), \
+                patch.object(corpus, "check_filter_oracle") as oracle:
+            corpus.main()
+        oracle.assert_called_once()
+        self.assertEqual(oracle.call_args.args[2], "jdk/java")
+        self.assertTrue(oracle.call_args.kwargs["record"])
+
+    def test_validation_rejects_malformed_or_incomplete_documents(self):
+        mutations = ["version", "schema", "registry", "no-cases", "duplicate-case", "case-type", "unknown-class", "unknown-frame",
+                     "frame-size", "duplicate-frame", "bad-op", "op-frame", "op-filter", "result-count", "result-hash", "rgb-on-large",
+                     "rgb-missing", "rgb-length", "uncovered-class", "persistence", "lists", "repeat"]
+        for mutation in mutations:
+            document = copy.deepcopy(self.fixture)
+            case = document["cases"][0]
+            if mutation == "version": document["reference_version"] = "6.3.4"
+            elif mutation == "schema": document["schema_version"] = 2
+            elif mutation == "registry": document["registry"].reverse()
+            elif mutation == "no-cases": document["cases"] = []
+            elif mutation == "duplicate-case": document["cases"].append(case)
+            elif mutation == "case-type": document["cases"][0] = "case"
+            elif mutation == "unknown-class": case["filters"][0]["class"] = "org.opensourcephysics.media.core.BarrelPincushionFilter"
+            elif mutation == "unknown-frame": case["frames"][0]["seed"] = 987654
+            elif mutation == "frame-size": document["frames"][0]["width"] = corpus.MAX_FILTER_SIDE + 1
+            elif mutation == "duplicate-frame": document["frames"].append(document["frames"][0])
+            elif mutation == "bad-op": case["ops"].append({"op": "paste"})
+            elif mutation == "op-frame": case["ops"][0]["frame"] = len(case["frames"])
+            elif mutation == "op-filter": self.case(document, "ghost-clear-enable")["ops"][3]["filter"] = 1
+            elif mutation == "result-count": case["results"].append(case["results"][0])
+            elif mutation == "result-hash": case["results"][0]["sha256"] = "XYZ"
+            elif mutation == "rgb-on-large": case["results"][0]["rgb"] = "00" * 3
+            elif mutation == "rgb-missing": self.case(document, "negative-1x1")["results"][0].pop("rgb")
+            elif mutation == "rgb-length": self.case(document, "negative-1x1")["results"][0]["rgb"] = "0000000"
+            elif mutation == "uncovered-class":
+                document["cases"] = [c for c in document["cases"] if not c["id"].startswith(("sum-", "stack-"))]
+            elif mutation == "persistence": document["persistence"].pop()
+            elif mutation == "repeat": self.case(document, "darkghost-black-then-white")["ops"][1]["repeat"] = 0
+            else: document["composites"] = {}
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                corpus.validate_filter_reference(document, self.manifest)
+
+
+class AnalysisOracleTests(unittest.TestCase):
+    """The Data Tool analysis oracle (tools/reference/AnalysisOracle.java) without running Java."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name).resolve()
+        self.manifest = corpus.load_manifest()
+        self.fixture = json.loads(corpus.ANALYSIS_REFERENCE.read_text(encoding="utf-8"))
+
+    def check(self, document, *, record=False, commands=None):
+        """Run check_analysis_oracle with a fake Java process that emits `document`."""
+        def run(command):
+            if commands is not None:
+                commands.append(command)
+            Path(command[-1]).write_text(json.dumps(document), encoding="utf-8")
+
+        with patch.object(corpus, "verify_file") as verify, patch.object(corpus, "run", side_effect=run), \
+                redirect_stdout(io.StringIO()) as output:
+            corpus.check_analysis_oracle(self.manifest, self.root, "java", record=record)
+        verify.assert_called_once_with(self.root / self.manifest["reference"]["file"], self.manifest["reference"])
+        return output.getvalue()
+
+    def case(self, document, case_id):
+        return next(case for case in document["cases"] if case["id"] == case_id)
+
+    def test_committed_fixture_covers_every_kind_in_its_canonical_layout(self):
+        corpus.validate_analysis_reference(self.fixture, self.manifest)
+        self.assertEqual({case["kind"] for case in self.fixture["cases"]}, set(corpus.ANALYSIS_KINDS))
+        self.assertEqual(self.fixture["osp_commit"], "d56207b0ae737458a31365d368f1c28e4bd3202a")
+        columns = {column["id"] for column in self.fixture["columns"]}
+        self.assertTrue({"textbook", "constant-tenth", "offset-1e8", "most-negative", "overflowing-sum"} <= columns)
+        series = {item["id"] for item in self.fixture["series"]}
+        self.assertTrue({"parabola", "x-gaps", "infinite-y", "nyquist-16", "mod4-30", "noise-22", "same-x-8"} <= series)
+        self.assertEqual(corpus.ANALYSIS_REFERENCE.read_bytes().decode("utf-8"), corpus.analysis_reference_text(self.fixture))
+        self.assertLess(corpus.ANALYSIS_REFERENCE.stat().st_size, 256 * 1024)
+
+    def test_fixture_records_the_reference_defects_it_documents(self):
+        # The one-pass standard deviation, the folded Nyquist term, the FFTReal unpacking and the
+        # Dataset.append tail are visible in the committed Java output.
+        self.assertEqual(self.case(self.fixture, "statistics/offset-1e8")["sd"], 0.0)
+        self.assertGreater(self.case(self.fixture, "statistics/constant-tenth")["sd"], 0.0)
+        self.assertEqual(self.case(self.fixture, "statistics/most-negative")["max"], "NaN")
+        nyquist = self.case(self.fixture, "fourier/nyquist-16")["spectrum"]
+        self.assertEqual(nyquist["rows"], 8)
+        self.assertAlmostEqual(nyquist["sine"][0], 0.5, places=12)
+        mod4 = self.case(self.fixture, "fourier/mod4-30")["spectrum"]
+        self.assertGreater(abs(mod4["power"][7] - 1.0), 0.5)
+        working = self.case(self.fixture, "plot/x-gaps")["working"]["x"]
+        self.assertEqual(working[-2:], working[-4:-2])
+        area = self.case(self.fixture, "function-area/2/-3.0,5.0/40.0")
+        self.assertLess(area["area"], 32.0 - 0.05)
+
+    def test_check_runs_the_pinned_jar_privately_and_accepts_an_identical_regeneration(self):
+        commands = []
+        count = len(self.fixture["cases"])
+        self.assertIn(f"{count} Java Data Tool cases match tests/science/analysis-reference.json",
+                      self.check(self.fixture, commands=commands))
+        [command] = commands
+        self.assertEqual(command[0], "java")
+        self.assertIn("-Djava.awt.headless=true", command)
+        self.assertIn("-Xmx256m", command)
+        self.assertEqual(command[command.index("--class-path") + 1], str(self.root / self.manifest["reference"]["file"]))
+        self.assertEqual(Path(command[-2]), corpus.ROOT / "tools/reference/AnalysisOracle.java")
+        home = next(arg for arg in command if arg.startswith("-Duser.home=")).split("=", 1)[1]
+        self.assertFalse(Path(home).is_relative_to(self.root))
+        self.assertFalse(Path(home).exists())
+
+    def test_transform_values_allow_last_bit_differences_and_nothing_else_does(self):
+        document = copy.deepcopy(self.fixture)
+        fft = self.case(document, "fft-complex/7")
+        fft["output"][3] = math.nextafter(math.nextafter(fft["output"][3], math.inf), math.inf)
+        spectrum = self.case(document, "fourier/sine-64")["spectrum"]
+        spectrum["cosine"][4] = math.nextafter(spectrum["cosine"][4], -math.inf)
+        spectrum["power"][8] = math.nextafter(spectrum["power"][8], math.inf)
+        self.check(document)
+        document = copy.deepcopy(self.fixture)
+        mean = self.case(document, "statistics/noise")
+        mean["mean"] = math.nextafter(mean["mean"], math.inf)
+        with self.assertRaisesRegex(ValueError, "statistics/noise"):
+            self.check(document)
+
+    def test_check_rejects_numerical_count_and_missing_value_drift(self):
+        def mutate(document, mutation):
+            if mutation == "sd":
+                case = self.case(document, "statistics/textbook")
+                case["sd"] = math.nextafter(case["sd"], 0.0)
+            elif mutation == "count":
+                self.case(document, "statistics/gaps")["count"] += 1
+            elif mutation == "area":
+                case = self.case(document, "area/parabola/0.0,2.0")
+                case["area"] = math.nextafter(case["area"], math.inf)
+            elif mutation == "slope":
+                case = self.case(document, "measure/line/3")
+                case["slope"] = math.nextafter(case["slope"], math.inf)
+            elif mutation == "nearest":
+                self.case(document, "nearest/parabola/0.73/0.0,2.0")["index"] = 8
+            elif mutation == "exception":
+                self.case(document, "nearest/empty/0.0/0.0,1.0")["index"] = -1
+            elif mutation == "frequency":
+                spectrum = self.case(document, "fourier/shifted-60")["spectrum"]
+                spectrum["frequency"][5] = math.nextafter(spectrum["frequency"][5], math.inf)
+            elif mutation == "power":
+                spectrum = self.case(document, "fourier/sine-64")["spectrum"]
+                spectrum["power"][8] *= 1 + 1e-9
+            elif mutation == "fft":
+                self.case(document, "fft-real/30")["output"][14] += 1e-9
+            elif mutation == "nan":
+                self.case(document, "fourier/gap-8")["spectrum"]["cosine"][1] = 0.0
+            elif mutation == "working":
+                self.case(document, "plot/x-gaps")["working"]["x"].pop()
+            elif mutation == "missing-case":
+                document["cases"].pop()
+            elif mutation == "series":
+                document["series"][0]["y"][3] = math.nextafter(document["series"][0]["y"][3], math.inf)
+            else:
+                document["osp_commit"] = "swingJS"
+
+        for mutation in ["sd", "count", "area", "slope", "nearest", "exception", "frequency", "power", "fft", "nan",
+                         "working", "missing-case", "series", "commit"]:
+            document = copy.deepcopy(self.fixture)
+            mutate(document, mutation)
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                self.check(document)
+
+    def test_record_writes_the_canonical_fixture_only_when_requested(self):
+        destination = self.root / "science" / "analysis-reference.json"
+        with patch.object(corpus, "ANALYSIS_REFERENCE", destination):
+            self.assertIn(f"recorded {len(self.fixture['cases'])}", self.check(self.fixture, record=True))
+        self.assertEqual(destination.read_bytes(), corpus.analysis_reference_text(self.fixture).encode("utf-8"))
+        with patch.object(sys, "argv", ["corpus.py", "session", "--record"]), \
+                patch.object(corpus, "check_sessions") as sessions, self.assertRaises(SystemExit), \
+                patch("sys.stderr", new_callable=io.StringIO):
+            corpus.main()
+        sessions.assert_not_called()
+        with patch.object(sys, "argv", ["corpus.py", "analysis-oracle", "--java", "jdk/java", "--record"]), \
+                patch.object(corpus, "check_analysis_oracle") as oracle:
+            corpus.main()
+        oracle.assert_called_once()
+        self.assertEqual(oracle.call_args.args[2], "jdk/java")
+        self.assertTrue(oracle.call_args.kwargs["record"])
+
+    def test_validation_rejects_malformed_or_incomplete_documents(self):
+        for mutation in ["version", "schema", "commit", "no-cases", "duplicate-case", "unknown-kind", "unknown-series",
+                         "unknown-column", "uncovered-kind", "duplicate-series", "no-columns", "not-object", "too-many"]:
+            document = copy.deepcopy(self.fixture)
+            if mutation == "version":
+                document["reference_version"] = "6.3.4"
+            elif mutation == "schema":
+                document["schema_version"] = 2
+            elif mutation == "commit":
+                del document["osp_commit"]
+            elif mutation == "no-cases":
+                document["cases"] = []
+            elif mutation == "duplicate-case":
+                document["cases"].append(document["cases"][0])
+            elif mutation == "unknown-kind":
+                document["cases"][0]["kind"] = "histogram"
+            elif mutation == "unknown-series":
+                self.case(document, "area/line/0.0,2.0")["series"] = "pendulum"
+            elif mutation == "unknown-column":
+                document["cases"][0]["column"] = "pressure"
+            elif mutation == "uncovered-kind":
+                document["cases"] = [case for case in document["cases"] if case["kind"] != "column"]
+            elif mutation == "duplicate-series":
+                document["series"].append(document["series"][0])
+            elif mutation == "no-columns":
+                document["columns"] = []
+            elif mutation == "too-many":
+                document["cases"] = [dict(document["cases"][0], id=f"statistics/{index}")
+                                     for index in range(corpus.MAX_ANALYSIS_CASES + 1)]
+            else:
+                document["cases"][0] = "case"
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                corpus.validate_analysis_reference(document, self.manifest)
+
+
+
+class MotionOracleTests(unittest.TestCase):
+    """The motion kernel oracle (tools/reference/MotionOracle.java) without running Java."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name).resolve()
+        self.manifest = corpus.load_manifest()
+        self.fixture = json.loads(corpus.MOTION_REFERENCE.read_text(encoding="utf-8"))
+
+    def check(self, document, *, record=False, commands=None):
+        """Run check_motion_oracle with a fake Java process that emits `document`."""
+        def run(command):
+            if commands is not None:
+                commands.append(command)
+            Path(command[-1]).write_text(json.dumps(document), encoding="utf-8")
+
+        with patch.object(corpus, "verify_file") as verify, patch.object(corpus, "run", side_effect=run), \
+                patch("sys.stdout", new_callable=io.StringIO) as output:
+            corpus.check_motion_oracle(self.manifest, self.root, "java", record=record)
+        verify.assert_called_once_with(self.root / self.manifest["reference"]["file"], self.manifest["reference"])
+        return output.getvalue()
+
+    def result(self, document, case_id, algorithm):
+        case = next(case for case in document["derivative_cases"] if case["id"] == case_id)
+        return next(result for result in case["results"] if result["algorithm"] == algorithm)
+
+    def test_committed_fixture_is_canonical_and_covers_every_kernel(self):
+        corpus.validate_motion_reference(self.fixture, self.manifest)
+        self.assertEqual(self.fixture["tracker"]["algorithm_codes"], {"FINITE_DIFF": 0, "BOUNCE_DETECT": 1, "FINITE_DIFF_VSPILL2": 2})
+        self.assertEqual(self.fixture["tracker"]["spills"], {"vDerivSpill": 1, "aDerivSpill": 2, "bounceDerivsSpill": 3})
+        self.assertEqual([check["name"] for check in self.fixture["self_test"]], list(corpus.MOTION_SELF_TESTS))
+        failures = sorted((case["id"], result["error"]) for case in self.fixture["derivative_cases"] for result in case["results"]
+                          if result["error"])
+        self.assertEqual(failures, [("huge", "java.lang.StackOverflowError"), ("stride-2", "java.lang.NullPointerException"),
+                                    ("stride-3-variable-time", "java.lang.NullPointerException")])
+        self.assertEqual({case["type"] for case in self.fixture["filter_cases"]}, set(corpus.MOTION_FILTER_TYPES))
+        methods = {case["method"] for case in self.fixture["numerical_cases"]}
+        self.assertTrue({"first", "forward", "backward", "second", "partial", "romberg", "benchmark-sum"} <= methods)
+        self.assertEqual(corpus.MOTION_REFERENCE.read_bytes().decode("utf-8"), corpus.motion_reference_text(self.fixture))
+        self.assertLess(corpus.MOTION_REFERENCE.stat().st_size, 256 * 1024)
+
+    def test_check_runs_the_pinned_jar_privately_and_accepts_an_identical_regeneration(self):
+        commands = []
+        self.assertIn("Java motion cases match tests/science/motion-reference.json", self.check(self.fixture, commands=commands))
+        [command] = commands
+        self.assertEqual(command[0], "java")
+        self.assertIn("-Djava.awt.headless=true", command)
+        self.assertIn("-Xmx256m", command)
+        self.assertEqual(command[command.index("--class-path") + 1], str(self.root / self.manifest["reference"]["file"]))
+        self.assertEqual(Path(command[-2]), corpus.ROOT / "tools/reference/MotionOracle.java")
+        # A private, removed home: OSP preference files never land in the shared reference cache.
+        home = next(arg for arg in command if arg.startswith("-Duser.home=")).split("=", 1)[1]
+        self.assertFalse(Path(home).is_relative_to(self.root))
+        self.assertFalse(Path(home).exists())
+
+    def test_check_rejects_numerical_missing_value_and_count_drift(self):
+        import math
+
+        for mutation in ["velocity", "missing", "moving-average", "savitzky-golay", "butterworth", "angle", "romberg-status",
+                         "error", "tracker", "case-count", "self-test-metric"]:
+            document = copy.deepcopy(self.fixture)
+            if mutation == "velocity":
+                point = next(p for p in self.result(document, "free-fall", "finite_difference")["velocity"] if p)
+                point[1] = math.nextafter(point[1], math.inf)
+            elif mutation == "missing":
+                result = self.result(document, "noisy-gaps", "bounce_detection")
+                index = next(i for i, p in enumerate(result["first"]) if p)
+                result["first"][index] = None
+            elif mutation in {"moving-average", "savitzky-golay", "butterworth"}:
+                prefix = {"moving-average": "ma-", "savitzky-golay": "sg-", "butterworth": "bw-default"}[mutation]
+                case = next(c for c in document["filter_cases"] if c["id"].startswith(prefix) and any(c["output"]))
+                index = next(i for i, value in enumerate(case["output"]) if value)
+                # Butterworth allows a last-bit intrinsic change, not a 1e-9 one.
+                factor = 1 + 1e-9 if mutation == "butterworth" else None
+                case["output"][index] = case["output"][index] * factor if factor else math.nextafter(case["output"][index], math.inf)
+            elif mutation == "angle":
+                case = document["angular_cases"][0]
+                index = next(i for i, value in enumerate(case["angle"]) if value)
+                case["angle"][index] = math.nextafter(case["angle"][index], -math.inf)
+            elif mutation == "romberg-status":
+                next(c for c in document["numerical_cases"] if c.get("status") == "converged")["status"] = "not_converged"
+            elif mutation == "error":
+                self.result(document, "stride-2", "bounce_detection")["error"] = "java.lang.IllegalStateException"
+            elif mutation == "tracker":
+                document["tracker"]["spills"]["aDerivSpill"] = 1
+            elif mutation == "case-count":
+                document["filter_cases"].pop()
+            else:
+                document["self_test"][0]["rms_in"] *= 1 + 1e-6
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                self.check(document)
+
+    def test_intrinsic_cases_allow_last_bit_differences_only(self):
+        import math
+
+        document = copy.deepcopy(self.fixture)
+        case = next(c for c in document["filter_cases"] if c["type"] == "butterworth" and any(c["output"]))
+        index = next(i for i, value in enumerate(case["output"]) if value)
+        case["output"][index] = math.nextafter(case["output"][index], math.inf)
+        numerical = next(c for c in document["numerical_cases"] if c["function"] == "x-log-sin-cos")
+        numerical["value"] = math.nextafter(numerical["value"], -math.inf)
+        self.check(document)
+
+    def test_record_writes_the_canonical_fixture_only_when_requested(self):
+        destination = self.root / "science" / "motion-reference.json"
+        with patch.object(corpus, "MOTION_REFERENCE", destination):
+            self.assertIn("recorded", self.check(self.fixture, record=True))
+        self.assertEqual(destination.read_bytes(), corpus.motion_reference_text(self.fixture).encode("utf-8"))
+        with patch.object(sys, "argv", ["corpus.py", "session", "--record"]), patch.object(corpus, "check_sessions") as sessions, \
+                self.assertRaises(SystemExit), patch("sys.stderr", new_callable=io.StringIO):
+            corpus.main()
+        sessions.assert_not_called()
+        with patch.object(sys, "argv", ["corpus.py", "motion-oracle", "--java", "jdk/java", "--record"]), \
+                patch.object(corpus, "check_motion_oracle") as oracle:
+            corpus.main()
+        oracle.assert_called_once()
+        self.assertEqual(oracle.call_args.args[2], "jdk/java")
+        self.assertTrue(oracle.call_args.kwargs["record"])
+
+    def test_validation_rejects_malformed_or_incomplete_documents(self):
+        for mutation in ["version", "schema", "not-object", "no-tracker", "self-test-order", "self-test-failed", "empty-section",
+                         "duplicate-id", "missing-algorithm", "series-length", "positions-length", "filter-type",
+                         "filter-signal", "filter-coverage", "no-failures", "case-not-object"]:
+            document = copy.deepcopy(self.fixture)
+            if mutation == "version": document["reference_version"] = "6.3.4"
+            elif mutation == "schema": document["schema_version"] = 2
+            elif mutation == "not-object": document = []
+            elif mutation == "no-tracker": del document["tracker"]
+            elif mutation == "self-test-order": document["self_test"].reverse()
+            elif mutation == "self-test-failed": document["self_test"][2]["passed"] = False
+            elif mutation == "empty-section": document["angular_cases"] = []
+            elif mutation == "duplicate-id": document["filter_cases"].append(document["filter_cases"][0])
+            elif mutation == "missing-algorithm": document["derivative_cases"][0]["results"].pop()
+            elif mutation == "series-length": document["derivative_cases"][0]["results"][0]["velocity"].pop()
+            elif mutation == "positions-length": document["derivative_cases"][0]["positions"].pop()
+            elif mutation == "filter-type": document["filter_cases"][0]["type"] = "kalman"
+            elif mutation == "filter-signal": document["filter_cases"][0]["signal"] = "unknown"
+            elif mutation == "filter-coverage":
+                document["filter_cases"] = [c for c in document["filter_cases"] if c["type"] != "savitzky_golay"]
+            elif mutation == "no-failures":
+                for case in document["derivative_cases"]:
+                    case["results"] = [dict(result, error=None, first=[None] * case["clip"]["step_count"],
+                                            second=[None] * case["clip"]["step_count"],
+                                            velocity=[None] * case["clip"]["step_count"],
+                                            acceleration=[None] * case["clip"]["step_count"]) for result in case["results"]]
+            else: document["difference_cases"][0] = "case"
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                corpus.validate_motion_reference(document, self.manifest)
+
+
+class SamplingOracleTests(unittest.TestCase):
+    """The sampling kernel oracle (tools/reference/SamplingOracle.java) without running Java."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name).resolve()
+        self.manifest = corpus.load_manifest()
+        self.fixture = json.loads(corpus.SAMPLING_REFERENCE.read_text(encoding="utf-8"))
+
+    def check(self, document, *, record=False, commands=None):
+        """Run check_sampling_oracle with a fake Java process that emits `document`."""
+        def run(command):
+            if commands is not None:
+                commands.append(command)
+            Path(command[-1]).write_text(json.dumps(document), encoding="utf-8")
+
+        with patch.object(corpus, "verify_file") as verify, patch.object(corpus, "run", side_effect=run), \
+                redirect_stdout(io.StringIO()) as output:
+            corpus.check_sampling_oracle(self.manifest, self.root, "java", record=record)
+        verify.assert_called_once_with(self.root / self.manifest["reference"]["file"], self.manifest["reference"])
+        return output.getvalue()
+
+    def case(self, document, case_id):
+        return next(case for key in ("regions", "profiles") for case in document[key] if case["id"] == case_id)
+
+    def test_committed_fixture_is_canonical_and_covers_both_kernels(self):
+        corpus.validate_sampling_reference(self.fixture, self.manifest)
+        self.assertEqual(corpus.SAMPLING_REFERENCE.read_bytes().decode("utf-8"), corpus.sampling_reference_text(self.fixture))
+        self.assertLess(corpus.SAMPLING_REFERENCE.stat().st_size, 256 * 1024)
+        self.assertEqual({frame["kind"] for frame in self.fixture["frames"]}, corpus.SAMPLING_FRAME_KINDS)
+        self.assertEqual({case["shape"] for case in self.fixture["regions"]}, corpus.SAMPLING_SHAPES)
+        self.assertEqual(self.fixture["tracker"]["line_profile_max_spread"], 100)
+        profiles = self.fixture["profiles"]
+        self.assertTrue(any(corpus.sampling_profile_is_tilted(case) for case in profiles))
+        self.assertTrue(any(not corpus.sampling_profile_is_tilted(case) for case in profiles))
+        # Recorded reference defects: int overflow, the all-black strip and tilted-probe exceptions.
+        self.assertEqual(self.case(self.fixture, "overflow-white-200")["result"]["Rsd"], "NaN")
+        self.assertEqual(self.case(self.fixture, "horizontal-all-black")["tracker_diagnostic"], "image_failed")
+        self.assertEqual(self.case(self.fixture, "tilted-vertical-integer")["tracker_error"], "java.lang.NullPointerException")
+
+    def test_check_runs_the_pinned_jar_privately_and_accepts_an_identical_regeneration(self):
+        commands = []
+        cases = len(self.fixture["regions"]) + len(self.fixture["profiles"])
+        self.assertIn(f"{cases} Java sampling cases match tests/science/sampling-reference.json",
+                      self.check(self.fixture, commands=commands))
+        [command] = commands
+        self.assertEqual(command[0], "java")
+        self.assertIn("-Djava.awt.headless=true", command)
+        self.assertIn("-Xmx256m", command)
+        self.assertEqual(command[command.index("--class-path") + 1], str(self.root / self.manifest["reference"]["file"]))
+        self.assertEqual(Path(command[-2]), corpus.ROOT / "tools/reference/SamplingOracle.java")
+        # A private, removed home: OSP preference files never land in the shared reference cache.
+        home = next(arg for arg in command if arg.startswith("-Duser.home=")).split("=", 1)[1]
+        self.assertFalse(Path(home).is_relative_to(self.root))
+        self.assertFalse(Path(home).exists())
+
+    def test_check_rejects_drift_beyond_each_agreement_class(self):
+        for mutation in ["region-mean", "region-nan", "region-null", "mask", "horizontal", "tilted", "tilted-n", "error",
+                         "missing", "frame-hash", "constant"]:
+            document = copy.deepcopy(self.fixture)
+            if mutation == "region-mean":
+                result = self.case(document, "ellipse-21-subpixel")["result"]
+                result["R"] = math.nextafter(result["R"], math.inf)
+            elif mutation == "region-nan":
+                self.case(document, "overflow-white-200")["result"]["Rsd"] = 0.0
+            elif mutation == "region-null":
+                self.case(document, "ellipse-bounds-left-outside")["result"] = self.case(document, "ellipse-touching-left")["result"]
+            elif mutation == "mask":
+                self.case(document, "polygon-bowtie")["mask_fnv1a64"] = "0" * 16
+            elif mutation == "horizontal":
+                column = self.case(document, "horizontal-checker")["result"]["R"]
+                column[0] = math.nextafter(column[0], math.inf)
+            elif mutation == "tilted":
+                self.case(document, "tilted-q2-s1")["result"]["G"][3] += 2e-9
+            elif mutation == "tilted-n":
+                self.case(document, "tilted-q2-s1")["result"]["n"][3] += 1
+            elif mutation == "error":
+                self.case(document, "tilted-integer-start")["tracker_error"] = None
+            elif mutation == "missing":
+                document["profiles"].pop()
+            elif mutation == "frame-hash":
+                document["frames"][0]["fnv1a64"] = "f" * 16
+            else:
+                document["tracker"]["rgb_default_edge_length"] = 21
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                self.check(document)
+
+    def test_tilted_profiles_allow_last_bit_libm_differences_only(self):
+        document = copy.deepcopy(self.fixture)
+        self.case(document, "tilted-q2-s1")["result"]["G"][3] += 5e-10
+        self.case(document, "tilted-q0-checker")["result"]["x"][0] += 5e-10
+        self.check(document)
+        # Horizontal profiles on the same frames must still match to the last bit.
+        column = self.case(document, "horizontal-reversed")["result"]["G"]
+        column[1] = math.nextafter(column[1], math.inf)
+        with self.assertRaisesRegex(ValueError, "horizontal-reversed"):
+            self.check(document)
+
+    def test_record_writes_the_canonical_fixture_only_when_requested(self):
+        destination = self.root / "science" / "sampling-reference.json"
+        cases = len(self.fixture["regions"]) + len(self.fixture["profiles"])
+        with patch.object(corpus, "SAMPLING_REFERENCE", destination):
+            self.assertIn(f"recorded {cases}", self.check(self.fixture, record=True))
+        self.assertEqual(destination.read_bytes(), corpus.sampling_reference_text(self.fixture).encode("utf-8"))
+        with patch.object(sys, "argv", ["corpus.py", "session", "--record"]), patch.object(corpus, "check_sessions") as sessions, \
+                self.assertRaises(SystemExit), patch("sys.stderr", new_callable=io.StringIO):
+            corpus.main()
+        sessions.assert_not_called()
+        with patch.object(sys, "argv", ["corpus.py", "sampling-oracle", "--java", "jdk/java", "--record"]), \
+                patch.object(corpus, "check_sampling_oracle") as oracle:
+            corpus.main()
+        oracle.assert_called_once()
+        self.assertEqual(oracle.call_args.args[2], "jdk/java")
+        self.assertTrue(oracle.call_args.kwargs["record"])
+
+    def test_validation_rejects_malformed_or_incomplete_documents(self):
+        for mutation in ["version", "schema", "no-regions", "duplicate", "unknown-frame", "unknown-kind", "frame-size", "shape",
+                         "vertices", "size", "bounds", "region-columns", "ragged", "spread", "ends", "all-tilted", "not-object",
+                         "tracker"]:
+            document = copy.deepcopy(self.fixture)
+            region, profile = document["regions"][0], document["profiles"][0]
+            if mutation == "version": document["reference_version"] = "6.3.4"
+            elif mutation == "schema": document["schema_version"] = 2
+            elif mutation == "no-regions": document["regions"] = []
+            elif mutation == "duplicate": document["profiles"].append(copy.deepcopy(region))
+            elif mutation == "unknown-frame": profile["frame"] = "stripes"
+            elif mutation == "unknown-kind": document["frames"][0]["kind"] = "stripes"
+            elif mutation == "frame-size": document["frames"][0]["width"] = 0
+            elif mutation == "shape": region["shape"] = "star"
+            elif mutation == "vertices": region["vertices"] = [[0, 0], [1, 1], [2, 0]]
+            elif mutation == "size": region["size"] = [20.5, 20]
+            elif mutation == "bounds": region["bounds"] = [0, 0, 1]
+            elif mutation == "region-columns": del region["result"]["Bsd"]
+            elif mutation == "ragged": profile["result"]["luma"].pop()
+            elif mutation == "spread": profile["spread"] = 101
+            elif mutation == "ends": profile["ends"] = [[0, 0]]
+            elif mutation == "all-tilted":
+                for case in document["profiles"]:
+                    case["always_horizontal"], case["axis_angle"] = False, 0.5
+            elif mutation == "tracker": document["tracker"] = []
+            else: document["regions"][0] = "case"
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                corpus.validate_sampling_reference(document, self.manifest)
 
 
 if __name__ == "__main__":

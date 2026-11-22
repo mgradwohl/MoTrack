@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="org.opensourcephysics.tools.LibraryCollection">
+    <property name="name" type="string">Failure inside a nested collection</property>
+    <property name="resources" type="array" class="[Lorg.opensourcephysics.tools.LibraryResource;">
+        <property name="[0]" type="object">
+        <object class="org.opensourcephysics.tools.LibraryCollection">
+            <property name="name" type="string">Nested</property>
+            <property name="properties" type="array" class="[[Ljava.lang.String;">
+                <property name="[0]" type="string">not a row</property>
+            </property>
+        </object>
+        </property>
+    </property>
+</object>

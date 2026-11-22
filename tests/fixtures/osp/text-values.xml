@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="test.Text">
+    <property name="cdata" type="string"><![CDATA[a & b < c]]></property>
+    <property name="multiline" type="string"><![CDATA[line one
+line two ]]> still
+<property name="inside" type="int">9</property>
+end]]></property>
+    <property name="entities" type="string">&amp; &lt;tag&gt; &#233;</property>
+    <property name="plain multiline" type="string">first
+second</property>
+    <property name="unknown" type="float">1.5</property>
+    <property name="empty type" type="">x</property>
+    <property name="pair" type="int">1</property><property name="lost" type="int">2</property>
+    <property name="trailing" type="int">3</property> trailing text
+    <property name="prefix" type="string">x<![CDATA[y]]></property>
+    <property name="nested marker" type="string"><![CDATA[a<![CDATA[b]]></property>
+    <property name="empty" type="string"></property>
+    <property name="spaces" type="string">  padded  </property>
+    <property name="self" type="string"/>
+    <property name="swallowed" type="int">4</property>
+    <property name="last" type="int">5</property>
+</object>

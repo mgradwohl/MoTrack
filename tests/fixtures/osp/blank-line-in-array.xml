@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="test.BlankLine">
+    <property name="gap" type="array" class="[Ljava.lang.Object;">
+        <property name="[0]" type="int">1</property>
+
+        <property name="[1]" type="int">2</property>
+    </property>
+    <property name="after" type="int">3</property>
+    <property name="nested" type="collection" class="java.util.ArrayList">
+        <property name="item" type="array" class="[I">
+            <property name="array" type="string">{1,2}</property>
+        </property>
+        <property name="item" type="string">kept</property>
+    </property>
+</object>

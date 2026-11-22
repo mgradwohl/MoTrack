@@ -1,5 +1,6 @@
 #pragma once
 
+#include "workspace_input.hpp"
 #include "workspace_services.hpp"
 #include "workspace_session.hpp"
 
@@ -13,8 +14,6 @@
 
 namespace motrack
 {
-
-struct PreparedWorkspaceInput;
 
 /// Owner-thread bridge for retained records and their editing views. Records outlive views;
 /// destruction cancels registry work before the shared execution owner can drain its pools.
@@ -44,7 +43,8 @@ class WorkspaceContext final : public QObject
   Q_SIGNALS:
     void sourceChanged(QUuid source, bool mediaBindings);
     void jobsCancelled(QUuid document);
-    void inputOpened(QUuid request, QUuid source, QList<QUuid> documents);
+    /// unreadableProjects lists archive members that opened no experiment (PreparedWorkspaceInput).
+    void inputOpened(QUuid request, QUuid source, QList<QUuid> documents, QList<motrack::UnreadableProject> unreadableProjects);
     void inputFailed(QUuid request, QString diagnostic);
     void inputCancelled(QUuid request);
 

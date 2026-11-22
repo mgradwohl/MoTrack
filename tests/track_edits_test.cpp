@@ -460,9 +460,14 @@ TEST(TrackEdits, ChangesTimingWithHistoryAndRescalesDerivedMotionAtOriginalFrame
     motrack::LegacyProject project;
     project.clip.firstFrame = 2;
     project.clip.stepSize = 2;
-    project.clip.stepCount = 3;
+    project.clip.stepCount = 5;
+    // x = 2k² at clip step k: per step, velocity 4 at k = 1 and Tracker's five-point acceleration 4 at k = 2.
     project.pointMasses.push_back({.name = "Cart",
-                                   .marks = {{.frame = 2, .x = 0, .y = 0}, {.frame = 4, .x = 2, .y = 0}, {.frame = 6, .x = 8, .y = 0}},
+                                   .marks = {{.frame = 2, .x = 0, .y = 0},
+                                             {.frame = 4, .x = 2, .y = 0},
+                                             {.frame = 6, .x = 8, .y = 0},
+                                             {.frame = 8, .x = 18, .y = 0},
+                                             {.frame = 10, .x = 32, .y = 0}},
                                    .mass = 3,
                                    .id = motrack::allocateTrackId(project)});
     const auto original = project;
@@ -479,11 +484,13 @@ TEST(TrackEdits, ChangesTimingWithHistoryAndRescalesDerivedMotionAtOriginalFrame
                                 motrack::PlotQuantity::MomentumX,
                                 motrack::PlotQuantity::KineticEnergy};
     const std::array values{8.0, 16.0, 24.0, 96.0};
+    const std::array sizes{3u, 1u, 3u, 3u};
+    const std::array times{0.0, 0.5, 0.0, 0.0};
     for (std::size_t index = 0; index < quantities.size(); ++index)
     {
         const auto plot = motrack::measurementPlot(project, 0, quantities[index]);
-        ASSERT_EQ(plot.samples.size(), 1u);
-        EXPECT_DOUBLE_EQ(plot.samples[0].horizontal, 0);
+        ASSERT_EQ(plot.samples.size(), sizes[index]);
+        EXPECT_DOUBLE_EQ(plot.samples[0].horizontal, times[index]);
         EXPECT_DOUBLE_EQ(plot.samples[0].vertical, values[index]);
     }
     EXPECT_EQ(project.pointMasses, original.pointMasses);
@@ -509,14 +516,20 @@ TEST(TrackEdits, ChangesTimingWithHistoryAndRescalesDerivedMotionAtOriginalFrame
 TEST(TrackEdits, TimeOriginDoesNotDistortConstantIntervalDerivatives)
 {
     motrack::LegacyProject project;
-    project.clip.stepCount = 3;
-    project.pointMasses.push_back(
-        {.name = "linear", .marks = {{.frame = 0, .x = 0, .y = 0}, {.frame = 1, .x = 1, .y = 2}, {.frame = 2, .x = 2, .y = 4}}, .mass = 3});
+    project.clip.stepCount = 5;
+    motrack::PointMass linear{.name = "linear", .mass = 3};
+    for (int frame = 0; frame < 5; ++frame)
+    {
+        linear.marks.push_back({.frame = frame, .x = static_cast<double>(frame), .y = 2.0 * frame});
+    }
+    project.pointMasses.push_back(linear);
     motrack::TrackEdits edits;
     ASSERT_TRUE(edits.setClipTiming(project, 3, 0));
     for (const auto origin : {0.0, -1e16, 1e16})
     {
-        project.clip.startTimeMs = origin; // Legacy timing also uses origin-independent native derivatives.
+        // Step intervals come from the frame duration, so a time origin far larger than a step (where
+        // subtracting absolute step times, as Tracker does, would lose them to rounding) changes nothing.
+        project.clip.startTimeMs = origin;
         const std::array quantities{motrack::PlotQuantity::VelocityX,
                                     motrack::PlotQuantity::VelocityY,
                                     motrack::PlotQuantity::AccelerationX,
@@ -527,9 +540,12 @@ TEST(TrackEdits, TimeOriginDoesNotDistortConstantIntervalDerivatives)
         for (std::size_t index = 0; index < quantities.size(); ++index)
         {
             const auto plot = motrack::measurementPlot(project, 0, quantities[index]);
-            ASSERT_EQ(plot.samples.size(), 1u);
-            EXPECT_NEAR(plot.samples.front().vertical, values[index], 1e-8);
-            EXPECT_DOUBLE_EQ(plot.samples.front().horizontal, (origin + 3.0) / 1000.0);
+            const bool acceleration = index == 2 || index == 3;
+            ASSERT_EQ(plot.samples.size(), acceleration ? 1u : 3u);
+            const auto& center = plot.samples.at(acceleration ? 0 : 1); // Frame 2.
+            EXPECT_EQ(center.frame, 2);
+            EXPECT_NEAR(center.vertical, values[index], 1e-8);
+            EXPECT_DOUBLE_EQ(center.horizontal, (origin + 6.0) / 1000.0);
         }
     }
 }
@@ -639,10 +655,7 @@ TEST(TrackEdits, RefusesInvalidOrUnrepresentableTimingWithoutHistoryChanges)
                                                                        clip.stepSize = std::numeric_limits<int>::max();
                                                                    },
                                                                    [](auto& clip) { clip.sourceFrameCount = 3; },
-                                                                   [](auto& clip)
-                                                                   {
-                                                                       clip.mediaReferences = {"frames/one.png"};
-                                                                   }};
+                                                                   [](auto& clip) { clip.mediaReferences = {"frames/one.png"}; }};
     for (const auto& change : changes)
     {
         project = original;
@@ -912,6 +925,18 @@ TEST(TrackEdits, CreatesDistanceCalibrationAndRestoresThePriorUnit)
     EXPECT_EQ(project.lengthUnit, "m");
     EXPECT_TRUE(edits.redo(project));
     EXPECT_EQ(project.lengthUnit, "cm");
+
+    // Standard export refuses a label Tracker cannot store, so the edit refuses it too.
+    for (const auto* unit : {"", " cm", "cm\t", "m2", "\xE2\x80\x8Bm", "\xFF"})
+    {
+        SCOPED_TRACE(unit);
+        distance.unit = unit;
+        EXPECT_FALSE(edits.calibrateDistance(project, distance));
+        EXPECT_EQ(project.lengthUnit, "cm");
+    }
+    distance.unit = "\xC2\xB5m";
+    EXPECT_TRUE(edits.calibrateDistance(project, distance));
+    EXPECT_EQ(project.lengthUnit, "\xC2\xB5m");
 }
 
 TEST(TrackEdits, ChangesScaleAtTheSelectedKeyframeAndPreservesAnisotropy)

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="org.opensourcephysics.tools.Library">
+    <property name="collection_paths" type="array" class="[Ljava.lang.String;">
+        <property name="[1]" type="string">https://example.org/only.xml</property>
+    </property>
+    <property name="collection_names" type="array" class="[Ljava.lang.String;">
+        <property name="[0]" type="string">Unused</property>
+        <property name="[1]" type="string">Only</property>
+    </property>
+    <property name="recently_opened" type="array" class="[Ljava.lang.String;">
+        <property name="[0]" type="string">https://example.org/only.xml</property>
+    </property>
+</object>

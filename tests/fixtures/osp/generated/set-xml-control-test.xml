@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="java.lang.Object">
+    <property name="name" type="string">myName</property>
+    <property name="pi" type="double">3.14</property>
+    <property name="data" type="array" class="[D">
+        <property name="array" type="string">{10.0,20.0,30.0}</property>
+    </property>
+    <property name="data2" type="array" class="[[D">
+        <property name="array" type="string">{{1.0,10.0},{2.0,20.0},{3.0,30.0}}</property>
+    </property>
+</object>

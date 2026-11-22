@@ -1,12 +1,11 @@
 #include "desktop_launch.hpp"
+#include "ui_translations.hpp"
 #include "workspace_window.hpp"
 
 #include <QApplication>
 #include <QDir>
-#include <QLibraryInfo>
 #include <QLocale>
 #include <QTimer>
-#include <QTranslator>
 
 #include <cstdio>
 #include <cstdlib>
@@ -29,25 +28,7 @@ try
     // macOS can deliver Finder and Dock open requests as soon as events are processed; keep them until the window exists.
     motrack::FileOpenRequests openRequests;
     app.installEventFilter(&openRequests);
-    const QLocale locale;
-    QTranslator qtTranslator;
-    const auto loadQtCatalog = [&](const QString& directory)
-    {
-        return qtTranslator.load(locale, "qtbase", "_", directory) || qtTranslator.load(locale, "qt", "_", directory);
-    };
-    auto qtLoaded = loadQtCatalog(QLibraryInfo::path(QLibraryInfo::TranslationsPath));
-#ifdef Q_OS_MACOS
-    qtLoaded = qtLoaded || loadQtCatalog(QCoreApplication::applicationDirPath() + "/../Resources/translations");
-#endif
-    if (qtLoaded)
-    {
-        app.installTranslator(&qtTranslator);
-    }
-    QTranslator translator;
-    if (translator.load(locale, "motrack", "_", ":/i18n"))
-    {
-        app.installTranslator(&translator);
-    }
+    const motrack::UiTranslations translations(QLocale{});
     // Relative arguments refer to the directory the launcher started in.
     auto launch = motrack::parseLaunchArguments(app.arguments(), QDir::currentPath());
     for (const auto& option : launch.unknownOptions)

@@ -308,7 +308,7 @@ unknown timing, and every other file is a movie whose indexer reports unsupporte
 - **Smoke tests.** `--smoke-test FILE…` prints `opened<TAB>path` for each tab after the batch, and exits
   with 0 only if every file opened. With no files it waits for an operating-system open request.
 
-Staged builds declare the file types: the macOS bundle uses `desktop/macos/Info.plist.in`, and Linux
+Staged builds declare the file types: the macOS bundle's `cmake/MoTrackInfo.plist.in` (shared with the camera usage string), and Linux
 installs a desktop entry with `Exec=… %F` and a shared-mime-info package. The desktop entry quotes the
 binary path chosen at install time following the Desktop Entry Specification. An install path containing
 `%` is refused: the specification spells it `%%`, but GLib looks up the Exec program before expanding

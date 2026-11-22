@@ -1,34 +1,58 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Staged MoTrack bundle. CMake substitutes the MACOSX_BUNDLE_* target properties. -->
+<!-- MoTrack's macOS bundle Info.plist: Qt 6.8's default application template plus the camera usage
+     string macOS requires before an app may ask for camera access (Capture from camera), and the file
+     types Finder, Open With and the Dock may send (#68). CMake fills the ${...} and @...@ values;
+     non-bundle builds embed the camera keys from MoTrackEmbeddedInfo.plist.in. -->
 <plist version="1.0">
 <dict>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+
 	<key>CFBundleName</key>
 	<string>${MACOSX_BUNDLE_BUNDLE_NAME}</string>
 	<key>CFBundleIdentifier</key>
 	<string>${MACOSX_BUNDLE_GUI_IDENTIFIER}</string>
 	<key>CFBundleExecutable</key>
 	<string>${MACOSX_BUNDLE_EXECUTABLE_NAME}</string>
+
 	<key>CFBundleVersion</key>
 	<string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
 	<key>CFBundleShortVersionString</key>
 	<string>${MACOSX_BUNDLE_SHORT_VERSION_STRING}</string>
+	<key>CFBundleLongVersionString</key>
+	<string>${MACOSX_BUNDLE_LONG_VERSION_STRING}</string>
+
+	<!-- The deployment target, or the SDK version Clang targets when none is set (CMakeLists.txt). -->
 	<key>LSMinimumSystemVersion</key>
 	<string>${MOTRACK_MACOS_MINIMUM}</string>
+
+	<key>CFBundleGetInfoString</key>
+	<string>${MACOSX_BUNDLE_INFO_STRING}</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>${MACOSX_BUNDLE_COPYRIGHT}</string>
+
+	<key>CFBundleIconFile</key>
+	<string>${MACOSX_BUNDLE_ICON_FILE}</string>
+
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleAllowMixedLocalizations</key>
 	<true/>
+
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSSupportsAutomaticGraphicsSwitching</key>
 	<true/>
+
+	<key>NSCameraUsageDescription</key>
+	<string>@MOTRACK_CAMERA_USAGE@</string>
+
 	<!-- MoTrack owns .motrack. Tracker owns .trk/.trz; MoTrack is an ordinary (Default-rank) editor, so an
 	     installed Tracker that claims ownership stays the default. Movies and images are Alternate so Open With
 	     and Dock drops work without taking over their usual viewer. -->

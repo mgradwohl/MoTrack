@@ -1,0 +1,292 @@
+{
+  "schema_version": 1,
+  "reference_version": "6.3.5",
+  "entries": [
+    {
+      "id": "vector-sum-members",
+      "case": "vector-sum",
+      "object": {"track": "resultant"},
+      "path": "properties.vectors",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/63",
+      "upstream": null,
+      "summary": "VectorSum.Loader does not reset the inherited initialized flag, so the named members stay pending and the sum saves an empty member collection.",
+      "expected": {"items": ["vector A", "vector B"]},
+      "tracker": {"@collection": "java.util.ArrayList", "items": []}
+    },
+    {
+      "id": "vector-sum-steps",
+      "case": "vector-sum",
+      "object": {"track": "resultant"},
+      "path": "steps",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/63",
+      "upstream": null,
+      "summary": "With unresolved members the loaded sum has no steps; the independent image-space sums exist at frames 0, 2 and 4 only.",
+      "expected": [{"frame": 0, "tail": [240.0, 260.0], "tip": [250.0, 264.0], "components": [10.0, 4.0]}, {"frame": 2, "tail": [280.0, 280.0], "tip": [280.0, 280.0], "components": [0.0, 0.0]}, {"frame": 4, "tail": [320.0, 300.0], "tip": [318.0, 304.0], "components": [-2.0, 4.0]}],
+      "tracker": []
+    },
+    {
+      "id": "vector-sum-data",
+      "case": "vector-sum",
+      "object": {"track": "resultant"},
+      "path": "data.rows",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/63",
+      "upstream": null,
+      "summary": "The loaded sum has no data rows; independent world components with scales (2,4) are (5,-1), (0,0) and (-1,-1).",
+      "expected": [{"t": 0.0, "x": 5.0, "y": -1.0, "mag": 5.0990195135927845, "x_{tail}": -80.0, "y_{tail}": 35.0, "step": 0, "frame": 0, "θ": -0.19739555984988075}, {"t": 0.2, "x": 0.0, "y": -0.0, "mag": 0.0, "x_{tail}": -60.0, "y_{tail}": 30.0, "step": 2, "frame": 2}, {"t": 0.4, "x": -1.0, "y": -1.0, "mag": 1.4142135623730951, "x_{tail}": -40.0, "y_{tail}": 25.0, "step": 4, "frame": 4, "θ": -2.356194490192345}],
+      "tracker": []
+    },
+    {
+      "id": "vector-images-negative-time-a",
+      "case": "vector-images-negative-time",
+      "object": {"track": "vector A"},
+      "path": "data.rows[frame=0]",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/146",
+      "upstream": null,
+      "summary": "Vector.refreshData rejects negative times, omitting the frame-0 row at -250 ms.",
+      "expected": {"t": -0.25, "x": 1.5, "y": -1.0, "mag": 1.8027756377319946, "θ": -0.5880026035475675, "x_{tail}": 9.0, "y_{tail}": 4.0, "step": 0, "frame": 0},
+      "tracker": "@absent"
+    },
+    {
+      "id": "vector-images-negative-time-b",
+      "case": "vector-images-negative-time",
+      "object": {"track": "vector B"},
+      "path": "data.rows[frame=1]",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/146",
+      "upstream": null,
+      "summary": "Vector.refreshData rejects negative times, omitting the frame-1 row at -125 ms. Its angle is omitted: (-1.5, 0) lies on atan2's branch cut, where the sign of a zero picks +/-pi. Its angle is omitted: (-1.5, 0) lies on atan2's branch cut, where the sign of a zero picks +/-pi.",
+      "expected": {"t": -0.125, "x": -1.5, "y": 0.0, "mag": 1.5, "x_{tail}": 9.0, "y_{tail}": -0.0, "step": 1, "frame": 1},
+      "tracker": "@absent"
+    },
+    {
+      "id": "vector-movie-negative-time-a",
+      "case": "vector-movie-negative-time",
+      "object": {"track": "vector A"},
+      "path": "data.rows[frame=0]",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/146",
+      "upstream": null,
+      "summary": "Vector.refreshData rejects negative times, omitting the frame-0 row at -250 ms.",
+      "expected": {"t": -0.25, "x": 1.5, "y": -1.0, "mag": 1.8027756377319946, "θ": -0.5880026035475675, "x_{tail}": 9.0, "y_{tail}": 4.0, "step": 0, "frame": 0},
+      "tracker": "@absent"
+    },
+    {
+      "id": "vector-movie-negative-time-b",
+      "case": "vector-movie-negative-time",
+      "object": {"track": "vector B"},
+      "path": "data.rows[frame=1]",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/146",
+      "upstream": null,
+      "summary": "Vector.refreshData rejects negative times, omitting the frame-1 row at -125 ms. Its angle is omitted: (-1.5, 0) lies on atan2's branch cut, where the sign of a zero picks +/-pi. Its angle is omitted: (-1.5, 0) lies on atan2's branch cut, where the sign of a zero picks +/-pi.",
+      "expected": {"t": -0.125, "x": -1.5, "y": 0.0, "mag": 1.5, "x_{tail}": 9.0, "y_{tail}": -0.0, "step": 1, "frame": 1},
+      "tracker": "@absent"
+    },
+    {
+      "id": "archived-avi-load",
+      "case": "archived-avi",
+      "object": null,
+      "path": null,
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/140",
+      "upstream": null,
+      "summary": "Tracker 6.3.5 does not register AVI for archive extraction and Xuggle cannot open the jar URL. The archived experiment is byte-identical to linked-movie, whose Tracker state is the independent expectation. Loading the clip blocks in VideoIO.handleUnsupportedVideo (the unsupported-video dialog), so the 30 s deadline expires.",
+      "expected": {"state_of": "linked-movie", "project_sha256": "57da7df15a0ce7d1feeb3dec70d98af6b99ca923c282a394fa1fe792aa4d5e6b"},
+      "tracker": {"load_failure": ["waiting=application loader callback", "org.opensourcephysics.media.core.VideoIO.handleUnsupportedVideo", "org.opensourcephysics.media.core.VideoClip$Loader.loadObject"]}
+    },
+    {
+      "id": "table-owners-subset-track-columns",
+      "case": "table-owners-subset",
+      "object": null,
+      "path": "views.tables[chooser=0].track_columns",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/64",
+      "upstream": null,
+      "summary": "The loaded customized table loses the saved column rows or order.",
+      "expected": [["mass A", "t", "x", "y"], ["mass B", "t", "y", "x"], ["mass C", "t", "x"]],
+      "tracker": [["mass C", "t", "x"]]
+    },
+    {
+      "id": "table-owners-subset-selected-track",
+      "case": "table-owners-subset",
+      "object": null,
+      "path": "views.tables[chooser=0].selected_track",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/64",
+      "upstream": null,
+      "summary": "The loaded customized table loses its saved selected track.",
+      "expected": "mass B",
+      "tracker": "mass A"
+    },
+    {
+      "id": "table-owners-subset-column-formats",
+      "case": "table-owners-subset",
+      "object": null,
+      "path": "views.tables[chooser=0].column_formats",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/64",
+      "upstream": null,
+      "summary": "The loaded customized table loses the saved custom number patterns.",
+      "expected": [["mass A", "frame", "0"], ["mass A", "step", "0"], ["mass A", "t", "0.000"], ["mass A", "x", "0.000"], ["mass A", "y", "0.00"], ["mass B", "frame", "0"], ["mass B", "step", "0"], ["mass B", "t", "0.00"], ["mass B", "y", "0.0000"], ["mass C", "frame", "0"], ["mass C", "step", "0"], ["mass C", "t", "0.000"], ["mass C", "x", "0.00000"]],
+      "tracker": [["mass C", "frame", "0"], ["mass C", "step", "0"], ["mass C", "t", "0.000"]]
+    },
+    {
+      "id": "table-owners-defaults-table",
+      "case": "table-owners-defaults",
+      "object": null,
+      "path": "views.tables",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/64",
+      "upstream": null,
+      "summary": "The loaded default-column table drops its saved custom formats, column order and selection, so Tracker reports no customized table.",
+      "expected": [{"chooser": 0, "selected_track": "mass B", "track_columns": [["mass A", "t", "x", "y"], ["mass B", "t", "y", "x"], ["mass C", "t", "x", "y"]], "column_formats": [["mass A", "frame", "0"], ["mass A", "step", "0"], ["mass A", "t", "0.000"], ["mass A", "x", "0.000"], ["mass A", "y", "0.00"], ["mass B", "frame", "0"], ["mass B", "step", "0"], ["mass B", "t", "0.00"], ["mass B", "y", "0.0000"], ["mass C", "frame", "0"], ["mass C", "step", "0"], ["mass C", "t", "0.000"], ["mass C", "x", "0.00000"]], "dataset_indices": []}],
+      "tracker": []
+    },
+    {
+      "id": "table-owners-legacy-formats-track-columns",
+      "case": "table-owners-legacy-formats",
+      "object": null,
+      "path": "views.tables[chooser=0].track_columns",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/64",
+      "upstream": null,
+      "summary": "The loaded customized table loses the saved column rows or order.",
+      "expected": [["mass A", "t", "x", "y", "frame"], ["mass B", "t", "y", "x", "frame"], ["mass C", "t", "x", "y", "frame"]],
+      "tracker": [["mass A", "t", "x", "y", "frame"], ["mass B", "t", "x", "y", "frame"], ["mass C", "t", "x", "y", "frame"]]
+    },
+    {
+      "id": "table-owners-legacy-formats-selected-track",
+      "case": "table-owners-legacy-formats",
+      "object": null,
+      "path": "views.tables[chooser=0].selected_track",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/64",
+      "upstream": null,
+      "summary": "The loaded customized table loses its saved selected track.",
+      "expected": "mass B",
+      "tracker": "mass A"
+    },
+    {
+      "id": "table-owners-legacy-formats-column-formats",
+      "case": "table-owners-legacy-formats",
+      "object": null,
+      "path": "views.tables[chooser=0].column_formats",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/64",
+      "upstream": null,
+      "summary": "The loaded customized table loses the saved custom number patterns.",
+      "expected": [["mass A", "frame", "0"], ["mass A", "step", "0"], ["mass A", "t", "0.000"], ["mass A", "x", "0.000"], ["mass A", "y", "0.00"], ["mass B", "frame", "0"], ["mass B", "step", "0"], ["mass B", "t", "0.00"], ["mass B", "y", "0.0000"], ["mass C", "frame", "0"], ["mass C", "step", "0"], ["mass C", "t", "0.000"], ["mass C", "x", "0.00000"]],
+      "tracker": [["mass A", "frame", "0"], ["mass A", "step", "0"], ["mass A", "t", "0.000"], ["mass B", "frame", "0"], ["mass B", "step", "0"], ["mass B", "t", "0.000"], ["mass C", "frame", "0"], ["mass C", "step", "0"], ["mass C", "t", "0.000"]]
+    },
+    {
+      "id": "table-owners-track-columns",
+      "case": "table-owners",
+      "object": null,
+      "path": "views.tables[chooser=0].track_columns",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/64",
+      "upstream": null,
+      "summary": "The loaded customized table loses the saved column rows or order.",
+      "expected": [["mass A", "t", "x", "y", "frame"], ["mass B", "t", "y", "x", "frame"], ["mass C", "t", "x", "y", "frame"]],
+      "tracker": [["mass A", "t", "x", "y", "frame"], ["mass B", "t", "x", "y", "frame"], ["mass C", "t", "x", "y", "frame"]]
+    },
+    {
+      "id": "table-owners-column-formats",
+      "case": "table-owners",
+      "object": null,
+      "path": "views.tables[chooser=0].column_formats",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/64",
+      "upstream": null,
+      "summary": "The loaded customized table loses the saved custom number patterns.",
+      "expected": [["mass A", "frame", "0"], ["mass A", "step", "0"], ["mass A", "t", "0.000"], ["mass A", "x", "0.000"], ["mass A", "y", "0.00"], ["mass B", "frame", "0"], ["mass B", "step", "0"], ["mass B", "t", "0.00"], ["mass B", "y", "0.0000"], ["mass C", "frame", "0"], ["mass C", "step", "0"], ["mass C", "t", "0.000"], ["mass C", "x", "0.00000"]],
+      "tracker": [["mass A", "frame", "0"], ["mass A", "step", "0"], ["mass A", "t", "0.000"], ["mass B", "frame", "0"], ["mass B", "step", "0"], ["mass B", "t", "0.000"], ["mass C", "frame", "0"], ["mass C", "step", "0"], ["mass C", "t", "0.000"]]
+    },
+    {
+      "id": "ball-toss-video-frames",
+      "case": "ball-toss",
+      "object": null,
+      "path": "video.frame_count",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
+      "upstream": "https://github.com/OpenSourcePhysics/tracker/issues/77",
+      "summary": "Xuggle indexes 11 of the MP4's 13 samples (stsz 13, stts 13 x 66 ms).",
+      "expected": 13,
+      "tracker": 11
+    },
+    {
+      "id": "ball-toss-clip-steps",
+      "case": "ball-toss",
+      "object": null,
+      "path": "clip.step_count",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
+      "upstream": "https://github.com/OpenSourcePhysics/tracker/issues/77",
+      "summary": "The loaded clip is cut from the saved 13 steps to the 11 indexed frames.",
+      "expected": 13,
+      "tracker": 11
+    },
+    {
+      "id": "ball-toss-clip-end",
+      "case": "ball-toss",
+      "object": null,
+      "path": "clip.end_frame",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
+      "upstream": "https://github.com/OpenSourcePhysics/tracker/issues/77",
+      "summary": "The loaded clip ends at frame 10 instead of the saved frame 12.",
+      "expected": 12,
+      "tracker": 10
+    },
+    {
+      "id": "ball-toss-step-11",
+      "case": "ball-toss",
+      "object": null,
+      "path": "clip.steps[11]",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
+      "upstream": "https://github.com/OpenSourcePhysics/tracker/issues/77",
+      "summary": "Clip step 11 (frame 11 at 726 ms in the MP4 sample table) is cut.",
+      "expected": [11, 11, 726.0],
+      "tracker": "@absent"
+    },
+    {
+      "id": "ball-toss-row-11",
+      "case": "ball-toss",
+      "object": {"track": "ball"},
+      "path": "data.rows[frame=11]",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
+      "upstream": "https://github.com/OpenSourcePhysics/tracker/issues/77",
+      "summary": "The mark at frame 11 lies outside the shortened clip, so its data row is omitted.",
+      "expected": {"t": 0.726, "step": 11, "frame": 11, "x": 1.0385765309139832, "y": -0.38709161050766444, "pixel_{x}": 545.4848800834202, "pixel_{y}": 361.8769551616267},
+      "tracker": "@absent"
+    },
+    {
+      "id": "ball-toss-step-12",
+      "case": "ball-toss",
+      "object": null,
+      "path": "clip.steps[12]",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
+      "upstream": "https://github.com/OpenSourcePhysics/tracker/issues/77",
+      "summary": "Clip step 12 (frame 12 at 792 ms in the MP4 sample table) is cut.",
+      "expected": [12, 12, 792.0],
+      "tracker": "@absent"
+    },
+    {
+      "id": "ball-toss-row-12",
+      "case": "ball-toss",
+      "object": {"track": "ball"},
+      "path": "data.rows[frame=12]",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
+      "upstream": "https://github.com/OpenSourcePhysics/tracker/issues/77",
+      "summary": "The mark at frame 12 lies outside the shortened clip, so its data row is omitted.",
+      "expected": {"t": 0.792, "step": 12, "frame": 12, "x": 1.161392997274509, "y": -0.6583428063942824, "pixel_{x}": 594.5359749739312, "pixel_{y}": 469.9895724713243},
+      "tracker": "@absent"
+    },
+    {
+      "id": "ball-toss-derivatives-9",
+      "case": "ball-toss",
+      "object": {"track": "ball"},
+      "path": "data.rows[frame=9]",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
+      "upstream": "https://github.com/OpenSourcePhysics/tracker/issues/77",
+      "summary": "Tracker's five-point acceleration at frame 9 needs frame 11, which the shortened clip excludes (NaN).",
+      "expected": {"a_{x}": 0.23895424787029482, "a_{y}": -10.498534384805007, "a": 10.501253418592864},
+      "tracker": {"a_{x}": "NaN", "a_{y}": "NaN", "a": "NaN"}
+    },
+    {
+      "id": "ball-toss-derivatives-10",
+      "case": "ball-toss",
+      "object": {"track": "ball"},
+      "path": "data.rows[frame=10]",
+      "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
+      "upstream": "https://github.com/OpenSourcePhysics/tracker/issues/77",
+      "summary": "Velocity at frame 10 needs frame 11 and acceleration frames 11-12, which the shortened clip excludes (NaN).",
+      "expected": {"v_{x}": 1.7951166369838845, "v_{y}": -3.0256452358946664, "v": 3.5180922150888003, "a_{x}": 0.5269859502692836, "a_{y}": -10.704605688347469, "a": 10.717569553531352},
+      "tracker": {"v_{x}": "NaN", "v_{y}": "NaN", "v": "NaN", "a_{x}": "NaN", "a_{y}": "NaN", "a": "NaN"}
+    }
+  ]
+}

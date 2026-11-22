@@ -1,9 +1,13 @@
 #pragma once
 
+#include "capture_dialog.hpp"
 #include "desktop_launch.hpp"
 #include "workspace_context.hpp"
 
 #include <QMainWindow>
+#include <QPointer>
+
+#include <functional>
 
 #include <cstdint>
 #include <optional>
@@ -27,6 +31,8 @@ class WorkspaceWindow final : public QMainWindow
     Q_OBJECT
 
   public:
+    using CameraSourceFactory = std::function<std::unique_ptr<CameraSource>()>;
+
     explicit WorkspaceWindow(std::shared_ptr<WorkspaceContext> context = {});
     ~WorkspaceWindow() override;
     [[nodiscard]] const std::shared_ptr<WorkspaceContext>& context() const;
@@ -39,6 +45,10 @@ class WorkspaceWindow final : public QMainWindow
     bool revertDocument(QUuid document);
     bool saveAll();
     bool closeSource(QUuid source);
+    /// Cameras for Capture from camera; Qt Multimedia's by default. Tests supply cameras without hardware.
+    void setCameraSourceFactory(CameraSourceFactory factory);
+    /// Opens the capture window, or raises the open one. A clip it saves opens as a new movie experiment.
+    CaptureDialog* captureFromCamera();
     /// Open files from the command line, a drop or the operating system in the given order, through the same
     /// entry points as the menus (see launchFileKind). One requested file prepares at a time, so tabs keep this
     /// order while a menu open may use the other input slot. Requests arriving during a batch join it; a file
@@ -74,6 +84,9 @@ class WorkspaceWindow final : public QMainWindow
     void setBusy(bool busy);
     /// Accept a drag of local files as a copy or link; a refused drag returns no files, only its remote links.
     [[nodiscard]] RequestedFiles acceptDrag(QDropEvent* event);
+    /// Report skipped unsafe archive members, the ones a standard save omits, and unreadable projects.
+    /// Returns the notices shown, so a batch of requested files can keep them for its summary.
+    [[nodiscard]] QStringList reportArchiveLimits(const QList<QUuid>& documents, const QList<UnreadableProject>& unreadable);
     bool saveSource(QUuid source);
     [[nodiscard]] std::optional<WorkspaceDiscard> confirmSourceClose(QUuid source);
     bool releaseSource(QUuid source, WorkspaceDiscard discard);
@@ -90,9 +103,12 @@ class WorkspaceWindow final : public QMainWindow
     QAction* m_Revert = nullptr;
     QAction* m_CloseSource = nullptr;
     QAction* m_Quit = nullptr;
+    CameraSourceFactory m_CameraSources;
+    QPointer<CaptureDialog> m_Capture; // Qt parent-owned; deletes itself when closed.
     QHash<QUuid, MainWindow*> m_Views; // Qt parent-owned; views hold their own shared context lease.
     QHash<QUuid, QWidget*> m_Pages;    // Lightweight placeholders until an experiment is first selected.
     QHash<QUuid, QListWidgetItem*> m_Opening;
+    QHash<QUuid, QList<UnreadableProject>> m_Unreadable; // Per source, listed in the Experiments menu.
     /// Files requested from outside the menus, opened one at a time in their requested order. Each file is
     /// first checked on a worker; `check` identifies the running check, `ready` a checked file awaiting a slot.
     struct RequestedBatch

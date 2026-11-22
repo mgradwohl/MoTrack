@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="test.UnclosedRoot">
+    <property name="value" type="int">1</property>
+    <property name="child" type="object">
+    <object class="test.Child">
+        <property name="x" type="int">2</property>

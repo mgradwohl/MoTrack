@@ -13,19 +13,23 @@
       </property>
     </object>
   </property>
-  <property name="tracks" type="collection">
+  <property name="tracks" type="collection" class="java.util.ArrayList">
     <property name="item" type="object">
       <object class="org.opensourcephysics.cabrillo.tracker.PointMass">
         <property name="name" type="string">Cart</property>
-        <property name="framedata" type="array">
-          <property name="[1]" type="object"><object>
-            <property name="x" type="double">5.0</property>
-            <property name="y" type="double">6.0</property>
-          </object></property>
-          <property name="[3]" type="object"><object>
-            <property name="x" type="double">8.0</property>
-            <property name="y" type="double">7.0</property>
-          </object></property>
+        <property name="framedata" type="array" class="[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;">
+          <property name="[1]" type="object">
+            <object class="org.opensourcephysics.cabrillo.tracker.PointMass$FrameData">
+              <property name="x" type="double">5.0</property>
+              <property name="y" type="double">6.0</property>
+            </object>
+          </property>
+          <property name="[3]" type="object">
+            <object class="org.opensourcephysics.cabrillo.tracker.PointMass$FrameData">
+              <property name="x" type="double">8.0</property>
+              <property name="y" type="double">7.0</property>
+            </object>
+          </property>
         </property>
       </object>
     </property>

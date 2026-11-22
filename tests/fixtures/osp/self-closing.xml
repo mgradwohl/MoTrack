@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="test.SelfClosing">
+    <property name="first" type="object">
+    <object class="test.Empty"/></property>
+    <property name="swallowed" type="int">1</property>
+    <property name="second" type="object">
+    <object class="test.Empty"/>
+    </property>
+    <property name="kept" type="int">2</property>
+    <property name="third" type="object">
+    <object class="test.Inner">
+        <property name="value" type="int">3</property>
+    </object></property>
+    <property name="swallowed too" type="int">4</property>
+    <property name="last" type="int">5</property>
+</object>

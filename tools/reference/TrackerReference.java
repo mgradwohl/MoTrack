@@ -44,7 +44,12 @@ public final class TrackerReference {
         Integer count = has(clip, "stepcount") ? clip.getInt("stepcount") : null;
         if (first < 0 || stride < 1 || (count != null && count < 0))
             throw new IllegalArgumentException("Invalid clip range");
-        ImageCoordSystem coords = has(root, "coords") ? (ImageCoordSystem) root.getObject("coords") : null;
+        // getObject instantiates the saved class by name; with untrusted (library) files, load only the
+        // expected coordinate system class and reject anything else before OSP touches it.
+        XMLControl coordsControl = has(root, "coords") ? root.getChildControl("coords") : null;
+        if (coordsControl != null && !ImageCoordSystem.class.getName().equals(coordsControl.getObjectClassName()))
+            throw new IllegalArgumentException("Unexpected coordinate system class");
+        ImageCoordSystem coords = coordsControl != null ? (ImageCoordSystem) root.getObject("coords") : null;
         List<Object> masses = new ArrayList<>();
         List<Object> vectors = new ArrayList<>();
         List<Object> unsupported = new ArrayList<>();
@@ -82,8 +87,9 @@ public final class TrackerReference {
         for (int frame : new int[] {first, (int) last})
             coordinateSamples.add(map("frame", frame, "image", List.of(13.5, 17.25),
                 "world", world(coords, frame, 13.5, 17.25)));
+        // Unsaved labels take the panel's defaults: Tracker.preferredLengthUnit (SI "m") and "kg"/"s" (#214).
         Map<String, Object> result = map("source_version", string(root, "semantic_version", ""),
-            "length_unit", string(root, "length_unit", ""), "mass_unit", string(root, "mass_unit", "kg"),
+            "length_unit", string(root, "length_unit", "m"), "mass_unit", string(root, "mass_unit", "kg"),
             "time_unit", string(root, "time_unit", "s"),
             "clip", map("first_frame", first, "step_size", stride, "step_count", count,
                 "start_ms", number(clip, "starttime", 0.0)),
