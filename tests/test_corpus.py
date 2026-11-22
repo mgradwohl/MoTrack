@@ -329,7 +329,7 @@ class CorpusTests(unittest.TestCase):
                                           self.root / "reference.jar", self.root / "output", ":77")
             run.assert_not_called()
 
-    def test_tabset_roundtrip_requires_tracker_order_data_paths_and_motrack_resolution(self):
+    def test_tabset_roundtrip_requires_tracker_order_data_paths_resaves_and_edited_reopen(self):
         manifest = corpus.load_manifest()
         (self.root / "reports").mkdir(exist_ok=True)
 
@@ -338,10 +338,16 @@ class CorpusTests(unittest.TestCase):
             project = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
             return [{"name": m["name"], "mass": m["mass"], "samples": len(m["samples"])} for m in project["point_masses"]]
 
-        def tracker_tabs(lesson):
-            return [{"title": "linked-images", "path": str(lesson / "linked-images.trk"), "point_masses": masses("linked-images")},
-                    {"title": "second", "path": str(lesson / "multitab-images.trz"), "point_masses": masses("secondary-images")},
-                    {"title": "experiment", "path": str(lesson / "multitab-images.trz"), "point_masses": masses("linked-images")}]
+        def tab(title, path, case_id):
+            return {"title": title, "path": str(path), "point_masses": masses(case_id)}
+
+        def tracker_tabs(lesson, edited):
+            archive = [tab("second", lesson / "multitab-images.trz", "secondary-images"),
+                       tab("experiment", lesson / "multitab-images.trz", "linked-images")]
+            linked = [tab("linked-images.trk", lesson / "linked-images.trk", "linked-images")]
+            # Tracker opens an archive listed first after the files that follow it (TrackerIO's loadTRZ queues its members).
+            return linked + [tab("secondary-images.trk", lesson / "secondary-images.trk", "secondary-images")] + archive if edited \
+                else linked + archive
 
         def fake(mutation):
             def run(command, *, display=None):
@@ -349,21 +355,40 @@ class CorpusTests(unittest.TestCase):
                     self.assertEqual(Path(command[2]).name, "lesson.trk")
                     Path(command[2]).write_text("tabset", encoding="utf-8")
                     return
+                if command[1] == "--save-tabset":
+                    target = Path(command[2])
+                    files = [Path(file).name for file in command[3:]]
+                    if target.name == "tracker-tabset.trk":
+                        self.assertEqual(files, ["linked-images.trk", "multitab-images.trz"])
+                        if mutation == "resave":
+                            target.write_text("rewritten", encoding="utf-8")
+                    else:
+                        # MoTrack's own tabset, edited in place after the tree moved.
+                        self.assertEqual(target.name, "lesson.trk")
+                        self.assertTrue(target.parent.parent.parent.name.endswith("-moved"))
+                        self.assertEqual(files, ["multitab-images.trz", "linked-images.trk", "secondary-images.trk"])
+                        target.write_text("edited", encoding="utf-8")
+                    return
                 if "TrackerTabsetReference" in command:
                     self.assertEqual(display, ":77")
                     args = command[command.index("TrackerTabsetReference") + 1:]
-                    self.assertEqual(args[2], "3")
+                    edited = Path(args[0]).read_text(encoding="utf-8") == "edited"
+                    self.assertEqual(args[2], "4" if edited else "3")
                     # Tracker opens the relocated copy; the original folder no longer exists.
                     self.assertEqual(Path(args[0]).parent.parent.name, "relocated-input")
                     self.assertFalse(Path(args[0]).parent.parent.with_name("input").exists())
                     lesson = Path(args[0]).parent.parent / "lesson é"
-                    tabs = tracker_tabs(lesson)
+                    tabs = tracker_tabs(lesson, edited)
                     if mutation == "order":
                         tabs = tabs[1:] + tabs[:1]
                     elif mutation == "mass":
                         tabs[1]["point_masses"][0]["mass"] = 4.5
                     elif mutation == "path":
                         tabs[0]["path"] = str(Path(args[0]).parent.parent.with_name("input") / "lesson é" / "linked-images.trk")
+                    elif mutation == "edited-order" and edited:
+                        tabs = tabs[2:] + tabs[:2]  # The archive where it is listed, which is not what Tracker does.
+                    elif mutation == "edited-missing" and edited:
+                        tabs = tabs[:-1]
                     output = Path(args[1])
                     output.mkdir(parents=True)
                     (output / "tracker-tabset.trk").write_text("tracker", encoding="utf-8")
@@ -372,20 +397,29 @@ class CorpusTests(unittest.TestCase):
                          "tabs": tabs}), encoding="utf-8")
                     return
                 if command[1] == "--read-tabset":
-                    # The checker moves the whole tree before MoTrack reads Tracker's tabset.
-                    self.assertTrue(Path(command[2]).parent.parent.name.endswith("-moved"))
-                    lesson = Path(command[2]).parent.parent / "relocated-input" / "lesson é"
-                    items = [{"status": 0, "file": str(lesson / "linked-images.trk")},
-                             {"status": 0, "file": str(lesson / "multitab-images.trz")},
-                             {"status": 2, "file": ""}]
-                    if mutation == "unresolved":
-                        items[1]["status"] = 1
+                    target = Path(command[2])
+                    if target.name == "lesson.trk":
+                        self.assertTrue(target.parent.parent.parent.name.endswith("-moved"))
+                        lesson = target.parent.parent / "lesson é"
+                        items = [{"status": 0, "file": str(lesson / name)}
+                                 for name in ["multitab-images.trz", "linked-images.trk", "secondary-images.trk"]]
+                        if mutation == "edited-unresolved":
+                            items[2]["status"] = 1
+                    else:
+                        # The checker moves the whole tree before MoTrack reads Tracker's tabset.
+                        self.assertTrue(target.parent.parent.name.endswith("-moved"))
+                        lesson = target.parent.parent / "relocated-input" / "lesson é"
+                        items = [{"status": 0, "file": str(lesson / "linked-images.trk")},
+                                 {"status": 0, "file": str(lesson / "multitab-images.trz")},
+                                 {"status": 2, "file": ""}]
+                        if mutation == "unresolved":
+                            items[1]["status"] = 1
                     Path(command[3]).write_text(json.dumps(items), encoding="utf-8")
                     return
                 self.fail(f"unexpected command {command}")
             return run
 
-        for mutation in [None, "order", "mass", "path", "unresolved"]:
+        for mutation in [None, "order", "mass", "path", "unresolved", "resave", "edited-order", "edited-missing", "edited-unresolved"]:
             root = self.root / f"tabset-{mutation}"
             root.mkdir()
             with self.subTest(mutation=mutation), patch.object(corpus, "run", side_effect=fake(mutation)):
@@ -393,6 +427,7 @@ class CorpusTests(unittest.TestCase):
                     corpus.check_tabset(manifest, self.root, "java", self.root / "classes", root, ":77", "probe")
                     report = json.loads((self.root / "reports" / "tabset-roundtrip.json").read_text(encoding="utf-8"))
                     self.assertEqual(report["verification_level"], "motrack_tabset_roundtrip")
+                    self.assertEqual(len(report["tracker_edited_session"]["tabs"]), 4)
                 else:
                     with self.assertRaises(ValueError):
                         corpus.check_tabset(manifest, self.root, "java", self.root / "classes", root, ":77", "probe")
