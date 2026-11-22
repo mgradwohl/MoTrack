@@ -3,7 +3,9 @@
 #include "track_identity.hpp"
 #include "tracker_import.hpp"
 
+#include <QChar>
 #include <QFile>
+#include <QString>
 
 #include <algorithm>
 #include <cmath>
@@ -364,6 +366,21 @@ ImportedTrackerProject parseTrackerProject(std::string xml)
     return {.project = std::move(parsed.project), .source = {.xml = std::move(xml), .bindings = std::move(parsed.bindings)}};
 }
 
+bool isTrackerUnitLabel(std::string_view unit)
+{
+    const auto label = QString::fromUtf8(unit.data(), static_cast<qsizetype>(unit.size()));
+    if (label.isEmpty() || label.size() > 256 || label != label.trimmed() || label.toStdString() != unit)
+    {
+        return false;
+    }
+    return std::ranges::none_of(label.toUcs4(),
+                                [](char32_t codePoint)
+                                {
+                                    const auto category = QChar::category(codePoint);
+                                    return category == QChar::Other_Control || category == QChar::Other_Format || QChar::isDigit(codePoint);
+                                });
+}
+
 void validateTrackerSource(const TrackerSource& source, const LegacyProject& project)
 {
     static_cast<void>(detail::validatedTrackerSource(source, project));
@@ -373,19 +390,17 @@ detail::ImportedTracker detail::validatedTrackerSource(const TrackerSource& sour
 {
     validateTrackIdentities(project);
     auto original = detail::importTracker(detail::parseTrackerXml(source.xml));
-    if (!source.bindings)
-    {
-        return original;
-    }
-    if (source.bindings->size() != original.bindings.size())
+    if (source.bindings && !detail::trackerBindingsMatch(*source.bindings, project, original))
     {
         throw ProjectError("Incomplete Tracker source associations.");
     }
-    std::unordered_map<std::size_t, TrackKind> expected;
-    for (const auto& binding : original.bindings)
-    {
-        expected.emplace(binding.sourceIndex, binding.kind);
-    }
+    return original;
+}
+
+bool detail::trackerBindingsMatch(const std::vector<TrackSourceBinding>& bindings,
+                                  const LegacyProject& project,
+                                  const ImportedTracker& original)
+{
     std::unordered_map<TrackId, TrackKind> live;
     for (const auto& track : project.pointMasses)
     {
@@ -396,18 +411,34 @@ detail::ImportedTracker detail::validatedTrackerSource(const TrackerSource& sour
         live.emplace(track.id, TrackKind::Vector);
     }
     std::unordered_set<TrackId> ids;
-    for (const auto& binding : *source.bindings)
+    for (const auto& binding : bindings)
     {
-        const auto object = expected.find(binding.sourceIndex);
         const auto track = live.find(binding.trackId);
         if (binding.trackId == 0 || binding.trackId >= project.nextTrackId || !ids.insert(binding.trackId).second ||
-            object == expected.end() || object->second != binding.kind || (track != live.end() && track->second != binding.kind))
+            (track != live.end() && track->second != binding.kind))
         {
             throw ProjectError("Invalid Tracker source association.");
         }
+    }
+    if (bindings.size() != original.bindings.size())
+    {
+        return false;
+    }
+    std::unordered_map<std::size_t, TrackKind> expected;
+    for (const auto& binding : original.bindings)
+    {
+        expected.emplace(binding.sourceIndex, binding.kind);
+    }
+    for (const auto& binding : bindings)
+    {
+        const auto object = expected.find(binding.sourceIndex);
+        if (object == expected.end() || object->second != binding.kind)
+        {
+            return false;
+        }
         expected.erase(object);
     }
-    return original;
+    return true;
 }
 
 } // namespace motrack

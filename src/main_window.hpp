@@ -165,6 +165,7 @@ class MainWindow final : public QMainWindow
     QComboBox* m_PlotQuantity;
     QCheckBox* m_FitLine;
     QLabel* m_FitSummary;
+    QLabel* m_SourceNotice; ///< Persistent note about the open document's Tracker source.
     PositionPlot* m_Plot;
     DocumentSession m_Session;
     std::shared_ptr<WorkspaceContext> m_Workspace;

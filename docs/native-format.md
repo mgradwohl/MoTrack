@@ -54,9 +54,10 @@ field to version 5; it does not add a persistent undo log or a desktop units edi
 
 Import applies Tracker's loader defaults for values a file does not save ([#214](https://github.com/mgradwohl/MoTrack/issues/214)):
 `m` without `length_unit`, and a 100 ms frame duration for a media-free source without a clip control. Native
-files written before that stored an empty length label or no duration for such sources; no edit produces
-those values, so the reader takes the defaults from the preserved source. Standard export keeps the
-absent properties absent unless they are edited.
+files written before that stored an empty length label or no duration for such sources, so the reader takes
+the defaults from the preserved source. Calibration refuses a unit label that standard export cannot store,
+including an empty one, so no edit produces those values now; an empty unit typed into an earlier MoTrack
+also reopens as `m`. Standard export keeps the absent properties absent unless they are edited.
 
 ## Track identities
 
@@ -145,7 +146,18 @@ associations intact. Unknown objects remain byte-preserved in XML and are not gi
 
 Validation reparses the baseline and checks complete, unique object positions, matching original/live
 types, unique IDs, and IDs below the saved allocation counter. A deleted object's ID must remain reserved.
-Malformed associations fail before an existing native file is replaced. Versions 2/3 retain their XML
+Malformed associations fail before an existing native file is replaced.
+
+Opening reads the preserved source with the current reader (`motrack_osp`, since B1). Associations written
+before B1 hold ordinals from MoTrack's former DOM reader; where OSP's line reader sees other track objects
+(for example after a blank line inside `tracks`, or the compact layouts of the old test fixtures), they no
+longer match. Such stale associations are dropped on open rather than guessed: the measurements and source
+stay, the window shows a persistent note, and standard export is refused until the original Tracker file is
+imported again. Associations that contradict the native document itself (unreserved, duplicate or
+wrong-kind IDs) still fail. A preserved source that the current reader refuses fails to open with a message
+saying so, and the native file is left unchanged.
+
+Versions 2/3 retain their XML
 when migrated but get `bindings: null`; version 3 retains its existing IDs, while versions 1/2 receive
 new ones. Matching names or order cannot prove historical identity after earlier edits, so migration
 does not invent associations. Future additions to binding kinds require an explicit schema migration.

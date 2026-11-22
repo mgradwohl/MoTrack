@@ -167,13 +167,7 @@ void patchString(SourceEdits& edits, NodeId object, std::string_view name, const
 
 void patchUnit(SourceEdits& edits, std::string_view name, const std::string& unit)
 {
-    const auto label = QString::fromStdString(unit);
-    require(!label.isEmpty() && label.size() <= 256 && label == label.trimmed() && label.toStdString() == unit);
-    for (const auto codePoint : label.toUcs4())
-    {
-        const auto category = QChar::category(codePoint);
-        require(category != QChar::Other_Control && category != QChar::Other_Format && !QChar::isDigit(codePoint));
-    }
+    require(isTrackerUnitLabel(unit));
     patchString(edits, edits.source().root(), name, unit);
 }
 

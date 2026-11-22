@@ -138,7 +138,8 @@
     <message><source>Reading project…</source><translation>Projekt wird gelesen…</translation></message>
     <message><source>Choose a Tracker tab</source><translation>Wählen Sie einen Tracker-Tab</translation></message>
     <message><source>Opened %1 marks. Unsupported tracks: %2.</source><translation>%1 Markierungen geladen. Nicht unterstützte Tracks: %2.</translation></message>
-    <message><source>Could not open this project.</source><translation>Dieses Projekt konnte nicht geöffnet werden.</translation></message>
+    <message><source>Could not open this project: %1</source><translation type="unfinished">Dieses Projekt konnte nicht geöffnet werden: %1</translation></message>
+    <message><source>Tracker export unavailable: the links to this project's Tracker tracks could not be restored. Measurements are unchanged.</source><translation type="unfinished">Tracker-Export nicht verfügbar: Die Verknüpfungen zu den Tracker-Tracks dieses Projekts konnten nicht wiederhergestellt werden. Die Messungen sind unverändert.</translation></message>
     <message><source>%1[*] — MoTrack</source><translation>%1[*] — MoTrack</translation></message>
     <message><source>Previous frame</source><translation>Vorheriges Bild</translation></message>
     <message><source>Next frame</source><translation>Nächstes Bild</translation></message>

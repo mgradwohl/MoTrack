@@ -243,10 +243,8 @@ TEST(ArchiveGroup, RejectsInvalidSnapshotsWithoutReplacingExistingOutput)
         [](auto& value) { value.members[1].document.trackerSource.reset(); },
         [](auto& value) { value.members[1].document.trackerSource = value.members[0].document.trackerSource; },
         [](auto& value) { value.members[1].document.project.pointMasses.front().id = 0; },
-        [](auto& value)
-        {
-            value.members[1].document.project.clip.startTimeMs = std::numeric_limits<double>::quiet_NaN();
-        }};
+        [](auto& value) { value.members[1].document.project.clip.startTimeMs = std::numeric_limits<double>::quiet_NaN(); },
+    };
     for (std::size_t index = 0; index < mutations.size(); ++index)
     {
         SCOPED_TRACE(index);

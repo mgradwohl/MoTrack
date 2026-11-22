@@ -257,7 +257,7 @@ TEST(Workspace, KeepsOnlyTheLatestBackgroundProjectRequest)
     window.openProject(fixturePath("point-mass.trk"));
     ASSERT_TRUE(QTest::qWaitFor([&window] { return window.windowTitle().contains("point-mass.trk"); }));
     window.openProject(fixturePath("missing.motrack"));
-    ASSERT_TRUE(QTest::qWaitFor([status] { return status->currentMessage() == "Could not open this project."; }));
+    ASSERT_TRUE(QTest::qWaitFor([status] { return status->currentMessage().startsWith("Could not open this project: "); }));
     EXPECT_TRUE(window.windowTitle().contains("point-mass.trk"));
 }
 
@@ -1959,7 +1959,8 @@ TEST(Workspace, AppliesPreparedOpensAfterSavingAndRejectsCanceledResults)
                 EXPECT_TRUE(processed);
                 if (cancel)
                 {
-                    ASSERT_TRUE(QTest::qWaitFor([&] { return window.statusBar()->currentMessage() == "Could not open this project."; }));
+                    ASSERT_TRUE(
+                        QTest::qWaitFor([&] { return window.statusBar()->currentMessage().startsWith("Could not open this project: "); }));
                     EXPECT_TRUE(window.windowTitle().contains(failSave ? "point-mass.trk" : "saved.motrack"));
                 }
                 else
