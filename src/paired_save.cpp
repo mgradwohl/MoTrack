@@ -488,9 +488,12 @@ void commitPair(const Record& record, PairedSaveResult& result, const std::atomi
 
 void validateNativeSnapshot(const WorkspaceDocument& before, const WorkspaceDocument& after)
 {
-    require(before.project == after.project && before.movieFrameTimes == after.movieFrameTimes && before.movie == after.movie &&
-                before.useDisplayOrientation == after.useDisplayOrientation && before.alignMovieToClip == after.alignMovieToClip &&
-                before.archiveReference == after.archiveReference && before.archiveMember == after.archiveMember &&
+    // The time base is written only with frame times, which it describes.
+    const auto writtenTimeBase = before.movieFrameTimes.empty() ? FrameTimeBase{} : before.movieTimeBase;
+    require(before.project == after.project && before.movieFrameTimes == after.movieFrameTimes && writtenTimeBase == after.movieTimeBase &&
+                before.movie == after.movie && before.useDisplayOrientation == after.useDisplayOrientation &&
+                before.alignMovieToClip == after.alignMovieToClip && before.archiveReference == after.archiveReference &&
+                before.archiveMember == after.archiveMember &&
                 static_cast<bool>(before.archivePayload) == static_cast<bool>(after.archivePayload) &&
                 before.trackerSource.has_value() == after.trackerSource.has_value(),
             "Prepared native companion did not preserve its snapshot.");

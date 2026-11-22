@@ -130,66 +130,6 @@ void writeCsvField(std::ostream& output, std::string_view value)
     output << '"';
 }
 
-/// Decoded movie frame times are whole nanoseconds (video_reader.cpp rescales each presentation timestamp),
-/// so two equal container intervals can differ by up to 2 ns after rounding both ends of each.
-constexpr double DECODED_INTERVAL_TOLERANCE_SECONDS = 2e-9;
-
-/// Whether the `spill` step intervals on each side of `step` are equal within the decoder's rounding
-/// (plus a few ulps of the timestamps), which is the uniform spacing Tracker's stencils assume.
-bool equalIntervals(std::span<const double> times, std::size_t step, std::size_t spill)
-{
-    if (step < spill || step + spill >= times.size())
-    {
-        return false;
-    }
-    double smallest = std::numeric_limits<double>::infinity();
-    double largest = 0.0;
-    double magnitude = 0.0;
-    for (auto index = step - spill; index < step + spill; ++index)
-    {
-        const auto interval = times[index + 1] - times[index];
-        if (!std::isfinite(interval) || interval <= 0.0)
-        {
-            return false;
-        }
-        smallest = std::min(smallest, interval);
-        largest = std::max(largest, interval);
-        magnitude = std::max({magnitude, std::abs(times[index]), std::abs(times[index + 1])});
-    }
-    return largest - smallest <= DECODED_INTERVAL_TOLERANCE_SECONDS + 8.0 * std::numeric_limits<double>::epsilon() * magnitude;
-}
-
-/// MoTrack's time-aware estimate at a step whose neighbours lie at unequal intervals (#87): the first or
-/// second derivative, at the step's time, of the quadratic through the step and its two neighbours.
-/// `positions` and `times` describe one run of consecutive marked clip steps.
-std::optional<science::PlanarValue>
-unevenDerivative(std::span<const science::PlanarValue> positions, std::span<const double> times, std::size_t step, bool second)
-{
-    if (step < 1 || step + 1 >= positions.size())
-    {
-        return std::nullopt;
-    }
-    const auto before = times[step] - times[step - 1];
-    const auto after = times[step + 1] - times[step];
-    if (!std::isfinite(before) || !std::isfinite(after) || before <= 0.0 || after <= 0.0)
-    {
-        return std::nullopt;
-    }
-    const auto elapsed = before + after;
-    const auto component = [&](double science::PlanarValue::* axis)
-    {
-        const auto firstSlope = (positions[step].*axis - positions[step - 1].*axis) / before;
-        const auto secondSlope = (positions[step + 1].*axis - positions[step].*axis) / after;
-        return second ? 2.0 * (secondSlope - firstSlope) / elapsed : (after / elapsed) * firstSlope + (before / elapsed) * secondSlope;
-    };
-    const science::PlanarValue value{.x = component(&science::PlanarValue::x), .y = component(&science::PlanarValue::y)};
-    if (!std::isfinite(value.x) || !std::isfinite(value.y))
-    {
-        return std::nullopt;
-    }
-    return value;
-}
-
 } // namespace
 
 std::optional<CalibrationKey> calibrationAt(const Calibration& calibration, int frame)
@@ -291,7 +231,8 @@ PlotSeries measurementPlot(const LegacyProject& project,
                            std::size_t track,
                            PlotQuantity quantity,
                            std::span<const double> frameTimes,
-                           double presentationOffsetSeconds)
+                           double presentationOffsetSeconds,
+                           FrameTimeBase frameTimeBase)
 {
     const auto frameDurationMs = project.clip.frameDurationMs.value_or(0.0);
     const auto displayOffset = frameTimes.empty() ? 0.0 : presentationOffsetSeconds;
@@ -375,12 +316,10 @@ PlotSeries measurementPlot(const LegacyProject& project,
         {
             ++end;
         }
-        std::vector<science::PlanarValue> points;
         std::vector<std::optional<science::PlanarValue>> positions;
         std::vector<double> times;
         for (const auto& mark : std::ranges::subrange(begin, end))
         {
-            points.push_back(mark.position);
             positions.emplace_back(mark.position);
             // Tracker's media-free step time is (k * duration * stride + start) / 1000 for clip step k, in that
             // operand order (StepperClipControl.getStepTime, VideoPlayer.getStepTime). Omitting the start time
@@ -390,23 +329,16 @@ PlotSeries measurementPlot(const LegacyProject& project,
             times.push_back(frameTimes.empty() ? static_cast<double>(clipStep) * frameDurationMs * static_cast<double>(stride) / 1000.0
                                                : frameTime(mark.frame));
         }
-        const science::ClipLattice lattice{.firstFrame = begin->frame, .stepSize = stride, .stepCount = static_cast<int>(points.size())};
-        const auto motion = science::pointMassDerivatives(science::TRACKER_DEFAULT_DERIVATIVE_ALGORITHM, lattice, positions, times);
-        for (std::size_t step = 0; step < points.size(); ++step)
+        const science::ClipLattice lattice{.firstFrame = begin->frame, .stepSize = stride, .stepCount = static_cast<int>(positions.size())};
+        // Constant timing is evenly spaced by definition: Tracker's values. Decoded frame times get Tracker's
+        // values wherever a window is evenly spaced within the stream's time base, and a time-aware five-point
+        // fit elsewhere (#87, #331; docs/motion-kernels.md).
+        const auto motion = frameTimes.empty()
+                                ? science::pointMassDerivatives(science::TRACKER_DEFAULT_DERIVATIVE_ALGORITHM, lattice, positions, times)
+                                : science::measuredTimeDerivatives(lattice, positions, times, frameTimeBase.resolutionSeconds());
+        for (std::size_t step = 0; step < positions.size(); ++step)
         {
-            // Constant timing is uniform by definition. Decoded frame times use Tracker's stencils where their
-            // intervals are equal and keep the time-aware estimates elsewhere, reporting acceleration only where
-            // Tracker's five-step window exists (#87; docs/motion-kernels.md).
-            const auto spill = acceleration ? std::size_t{2} : std::size_t{1};
-            std::optional<science::PlanarValue> derivative;
-            if (frameTimes.empty() || equalIntervals(times, step, spill))
-            {
-                derivative = acceleration ? motion.acceleration[step] : motion.velocity[step];
-            }
-            else if (step >= spill && step + spill < points.size())
-            {
-                derivative = unevenDerivative(points, times, step, acceleration);
-            }
+            const auto& derivative = acceleration ? motion.acceleration[step] : motion.velocity[step];
             if (!derivative)
             {
                 continue;
