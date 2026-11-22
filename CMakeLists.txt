@@ -93,6 +93,12 @@ target_link_libraries(motrack_media PUBLIC Qt6::Gui PRIVATE motrack_ffmpeg)
 add_library(motrack_input STATIC src/workspace_input.cpp)
 target_include_directories(motrack_input PUBLIC src)
 target_link_libraries(motrack_input PUBLIC motrack_project PRIVATE motrack_media)
+
+# Qt-free RGB-region and line-profile sampling kernels (docs/image-sampling.md).
+add_library(motrack_sampling STATIC src/science/sampling/argb_image.cpp src/science/sampling/java_path.cpp
+    src/science/sampling/line_profile.cpp src/science/sampling/rgb_region.cpp)
+target_include_directories(motrack_sampling PUBLIC src)
+target_compile_options(motrack_sampling PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
 # Camera capture: Qt Multimedia supplies cameras and frames; MoTrack's FFmpeg (motrack_media) records them.
 add_library(motrack_capture STATIC src/camera_source.cpp src/capture_dialog.cpp src/capture_pipeline.cpp)
 set_target_properties(motrack_capture PROPERTIES AUTOMOC ON)
@@ -153,6 +159,14 @@ if(MOTRACK_BUILD_BENCHMARKS)
     list(APPEND motrack_targets motrack_import_benchmark)
 endif()
 
+# Qt-free port of OSP's TemplateMatcher behind Tracker's AutoTracker (docs/template-matching.md).
+add_library(motrack_matching STATIC src/science/matching/template_matcher.cpp src/science/matching/java_geometry.cpp
+    src/science/matching/java_numerics.cpp src/science/matching/java_trigonometry.cpp)
+target_include_directories(motrack_matching PUBLIC src)
+target_compile_options(motrack_matching PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
+list(APPEND motrack_targets motrack_matching)
+list(APPEND motrack_targets motrack_sampling)
+
 foreach(target IN LISTS motrack_targets)
     if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
         target_compile_options(${target} PRIVATE /W4)
@@ -208,6 +222,13 @@ if(BUILD_TESTING)
     # The test rate functions must round like the Java oracle's.
     set_source_files_properties(tests/science/ode_solver_test.cpp PROPERTIES COMPILE_OPTIONS "${MOTRACK_JAVA_FP_OPTIONS}")
     add_test(NAME legacy_project COMMAND motrack_tests)
+    target_sources(motrack_tests PRIVATE tests/science/sampling_test.cpp tests/science/sampling_reference_test.cpp)
+    target_link_libraries(motrack_tests PRIVATE motrack_sampling)
+    target_compile_definitions(motrack_tests PRIVATE
+        MOTRACK_SAMPLING_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/sampling-reference.json")
+    # Independent expectations repeat the kernel's Java-ordered arithmetic (see motrack_sampling).
+    set_source_files_properties(tests/science/sampling_test.cpp tests/science/sampling_reference_test.cpp
+        PROPERTIES COMPILE_OPTIONS "${MOTRACK_JAVA_FP_OPTIONS}")
     add_executable(motrack_corpus_probe tests/corpus_probe.cpp)
     add_dependencies(motrack_tests motrack_corpus_probe)
     target_compile_definitions(motrack_tests PRIVATE MOTRACK_CORPUS_PROBE="$<TARGET_FILE:motrack_corpus_probe>")
@@ -230,7 +251,9 @@ if(BUILD_TESTING)
         MOTRACK_TRANSLATIONS="${CMAKE_CURRENT_BINARY_DIR}")
     # Keep every case while bounding UI saving, persistence and session groups independently.
     add_test(NAME workspace COMMAND motrack_workspace_tests
-        "--gtest_filter=-PairedWorkspace.*:DocumentSession.*:WorkspaceDocument.*:ImagePackageWorkspace.*:CameraCapture.*")
+        "--gtest_filter=-PairedWorkspace.*:DocumentSession.*:WorkspaceDocument.*:ImagePackageWorkspace.*:WorkspaceShell.*:CameraCapture.*")
+    # The shell's save/revert flows take seconds each and slow down most on loaded runners (#283).
+    add_test(NAME workspace_shell COMMAND motrack_workspace_tests --gtest_filter=WorkspaceShell.*)
     add_test(NAME camera_capture COMMAND motrack_workspace_tests --gtest_filter=CameraCapture.*)
     add_test(NAME workspace_saving COMMAND motrack_workspace_tests
         "--gtest_filter=PairedWorkspace.*:ImagePackageWorkspace.*")
@@ -239,18 +262,29 @@ if(BUILD_TESTING)
     # Real-file journal matrices can exhaust a shared 60-second budget on slower CI storage (#137).
     add_test(NAME document_session COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*-DocumentSession.*Journal*")
     add_test(NAME document_session_journals COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*Journal*")
-    set_tests_properties(workspace workspace_saving workspace_document document_session document_session_journals camera_capture PROPERTIES TIMEOUT 60)
-    add_executable(motrack_media_tests tests/capture_encoder_test.cpp tests/template_tracker_test.cpp tests/video_reader_test.cpp)
-    target_link_libraries(motrack_media_tests PRIVATE motrack_media GTest::gtest_main)
+    set_tests_properties(workspace workspace_shell workspace_saving workspace_document document_session document_session_journals camera_capture
+        PROPERTIES TIMEOUT 60)
+    add_executable(motrack_media_tests tests/capture_encoder_test.cpp tests/template_tracker_test.cpp tests/video_frame_conversion_test.cpp
+        tests/video_reader_test.cpp)
+    # The tests encode synthetic movies and drive swscale with FFmpeg's own types.
+    target_link_libraries(motrack_media_tests PRIVATE motrack_media motrack_ffmpeg GTest::gtest_main)
     target_compile_definitions(motrack_media_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
     add_test(NAME video_reader COMMAND motrack_media_tests)
+    # The matching kernel's tests read the Java oracle fixture with Qt Core's JSON support only.
+    add_executable(motrack_matching_tests tests/science/template_matcher_test.cpp tests/science/template_matcher_reference_test.cpp)
+    target_link_libraries(motrack_matching_tests PRIVATE motrack_matching GTest::gtest_main Qt6::Core)
+    target_compile_definitions(motrack_matching_tests PRIVATE
+        MOTRACK_MATCH_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/match-reference.json")
+    # The synthetic frame generator must round like tools/reference/MatchOracle.java.
+    target_compile_options(motrack_matching_tests PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
+    add_test(NAME template_matching COMMAND motrack_matching_tests)
     add_test(NAME desktop_smoke COMMAND motrack --smoke-test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/point-mass.trk")
     add_test(NAME desktop_invalid_project COMMAND motrack --smoke-test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/missing.trk")
-    set_tests_properties(workspace workspace_saving workspace_document document_session document_session_journals camera_capture desktop_smoke
-        desktop_invalid_project PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    set_tests_properties(workspace workspace_shell workspace_saving workspace_document document_session document_session_journals camera_capture
+        desktop_smoke desktop_invalid_project PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     set_tests_properties(desktop_invalid_project PROPERTIES WILL_FAIL TRUE)
     if(MOTRACK_BUILD_BENCHMARKS)
         add_test(NAME import_benchmark_smoke COMMAND motrack_import_benchmark
@@ -259,6 +293,6 @@ if(BUILD_TESTING)
 
     if(MOTRACK_COVERAGE)
         file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/coverage-objects.txt"
-            CONTENT "$<TARGET_FILE:motrack>\n$<TARGET_FILE:motrack_tests>\n$<TARGET_FILE:motrack_workspace_tests>\n$<TARGET_FILE:motrack_media_tests>\n")
+            CONTENT "$<TARGET_FILE:motrack>\n$<TARGET_FILE:motrack_tests>\n$<TARGET_FILE:motrack_workspace_tests>\n$<TARGET_FILE:motrack_media_tests>\n$<TARGET_FILE:motrack_matching_tests>\n")
     endif()
 endif()
