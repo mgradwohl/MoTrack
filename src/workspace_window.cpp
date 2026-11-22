@@ -13,6 +13,7 @@
 #include <QDropEvent>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFutureWatcher>
 #include <QImageReader>
 #include <QInputDialog>
 #include <QLabel>
@@ -27,6 +28,7 @@
 #include <QTimer>
 #include <QToolBar>
 #include <QVBoxLayout>
+#include <QtConcurrentRun>
 
 #include <algorithm>
 #include <utility>
@@ -406,47 +408,23 @@ void WorkspaceWindow::openFiles(RequestedFiles requested)
 
 void WorkspaceWindow::continueRequestedFiles()
 {
-    if (!m_Requested || m_Requested->request)
+    // Hold while a modal prompt runs its nested event loop (setBusy resumes), or while a check or open runs.
+    if (!m_Requested || m_Busy || m_Requested->check != 0 || m_Requested->request)
         return;
     auto& batch = *m_Requested;
-    while (!batch.files.isEmpty())
+    if (batch.ready)
     {
-        if (!m_Context->canOpen())
-            return; // Menu opens hold both slots; their completion resumes this batch in order.
-        const auto path = batch.files.takeFirst();
-        const QFileInfo file(path);
-        const auto shown = QDir::toNativeSeparators(path);
-        if (!file.exists())
+        if (m_Context->canOpen()) // Otherwise menu opens hold both slots; their completion resumes the batch.
         {
-            batch.problems.push_back(tr("%1 was not found.").arg(shown));
-            continue;
+            const auto path = *batch.ready;
+            batch.ready.reset();
+            startRequestedOpen(batch, path);
         }
-        if (file.isDir())
-        {
-            batch.problems.push_back(tr("%1 is a folder. Use Open images… to choose its images.").arg(shown));
-            continue;
-        }
-        // As in Tracker, one batch opens each file once; aliases of an already requested file are skipped.
-        const auto identity = file.canonicalFilePath();
-        if (batch.listed.contains(identity))
-            continue;
-        batch.listed.insert(identity);
-        const auto name = file.fileName();
-        std::optional<QUuid> request;
-        switch (launchFileKind(path))
-        {
-        case LaunchFileKind::Project:
-            request = m_Context->openProject(path);
-            break;
-        case LaunchFileKind::Image:
-            request = m_Context->openImages({path}, 0.0);
-            break;
-        case LaunchFileKind::Movie:
-            request = m_Context->openMovie(path);
-            break;
-        }
-        batch.request = trackOpen(request, name);
-        batch.current = name;
+        return;
+    }
+    if (!batch.files.isEmpty())
+    {
+        checkNextRequestedFile(batch);
         return;
     }
     auto finished = std::move(batch);
@@ -466,6 +444,109 @@ void WorkspaceWindow::continueRequestedFiles()
         box->open();
     }
     Q_EMIT filesOpened(finished.problems);
+}
+
+void WorkspaceWindow::checkNextRequestedFile(RequestedBatch& batch)
+{
+    const auto path = batch.files.takeFirst();
+    batch.current = QFileInfo(path).fileName();
+    QList<std::pair<QUuid, QString>> sources;
+    for (const auto source : m_Context->session().sources())
+        sources.emplace_back(source, m_Context->session().sourcePath(source));
+    batch.check = ++m_LastCheck;
+    // A sleeping network share can block any file query, so the worker answers and the window acts on it.
+    auto* watcher = new QFutureWatcher<RequestedFileCheck>(this);
+    connect(watcher,
+            &QFutureWatcher<RequestedFileCheck>::finished,
+            this,
+            [this, watcher, check = batch.check, path]
+            {
+                const auto result = watcher->result();
+                watcher->deleteLater();
+                applyRequestedFileCheck(check, path, result);
+            });
+    watcher->setFuture(QtConcurrent::run(&m_Context->services()->requestPool(),
+                                         [path, sources = std::move(sources), earlier = batch.started]
+                                         { return checkRequestedFile(path, sources, earlier); }));
+}
+
+void WorkspaceWindow::applyRequestedFileCheck(std::uint64_t check, const QString& path, const RequestedFileCheck& result)
+{
+    if (!m_Requested || m_Requested->check != check)
+        return; // The batch was stopped or has finished; never act on its stale answer.
+    auto& batch = *m_Requested;
+    batch.check = 0;
+    const auto shown = QDir::toNativeSeparators(path);
+    auto& session = m_Context->session();
+    const auto sources = session.sources();
+    switch (result.state)
+    {
+    case RequestedFileState::Missing:
+        batch.problems.push_back(tr("%1 was not found.").arg(shown));
+        break;
+    case RequestedFileState::Folder:
+        batch.problems.push_back(tr("%1 is a folder. Use Open images… to choose its images.").arg(shown));
+        break;
+    case RequestedFileState::Repeated:
+        break;
+    case RequestedFileState::AlreadyOpen:
+        batch.started.push_back(path);
+        // Another open of the same file would let a later save silently replace the earlier one (#255).
+        if (std::ranges::find(sources, result.source) != sources.end() && !session.sourceDocuments(result.source).empty())
+        {
+            const auto documents = session.sourceDocuments(result.source);
+            const auto visible = std::ranges::find_if(documents, [this](QUuid document) { return m_Pages.contains(document); });
+            (void)showDocument(visible != documents.end() ? *visible : documents.front());
+        }
+        else
+            batch.ready = path; // Released while the worker looked; open it again.
+        break;
+    case RequestedFileState::Open:
+        batch.started.push_back(path);
+        batch.ready = path;
+        break;
+    }
+    continueRequestedFiles();
+}
+
+void WorkspaceWindow::startRequestedOpen(RequestedBatch& batch, const QString& path)
+{
+    std::optional<QUuid> request;
+    switch (launchFileKind(path))
+    {
+    case LaunchFileKind::Project:
+        request = m_Context->openProject(path);
+        break;
+    case LaunchFileKind::Image:
+        request = m_Context->openImages({path}, 0.0);
+        break;
+    case LaunchFileKind::Movie:
+        request = m_Context->openMovie(path);
+        break;
+    }
+    batch.current = QFileInfo(path).fileName();
+    batch.request = trackOpen(request, batch.current);
+}
+
+void WorkspaceWindow::stopRequestedFiles()
+{
+    if (!m_Requested)
+        return;
+    auto& batch = *m_Requested;
+    const auto stopped = batch.files.size() + (batch.ready ? 1 : 0) + (batch.check != 0 ? 1 : 0);
+    batch.files.clear();
+    batch.ready.reset();
+    batch.check = 0;
+    if (stopped > 0)
+        batch.problems.push_back(tr("Closing the window stopped %n requested file(s) from opening.", nullptr, static_cast<int>(stopped)));
+    QTimer::singleShot(0, this, &WorkspaceWindow::continueRequestedFiles);
+}
+
+void WorkspaceWindow::setBusy(bool busy)
+{
+    m_Busy = busy;
+    if (!busy && m_Requested)
+        QTimer::singleShot(0, this, &WorkspaceWindow::continueRequestedFiles);
 }
 
 RequestedFiles WorkspaceWindow::acceptDrag(QDropEvent* event)
@@ -668,7 +749,7 @@ bool WorkspaceWindow::revertDocument(QUuid document)
         statusBar()->showMessage(tr("Cannot revert while a save is pending or the saved files need recovery or a fresh paired save."));
         return false;
     }
-    m_Busy = true;
+    setBusy(true);
     refreshLabels();
     session.stopActivity(document);
     const auto checkpoint = session.documentCheckpoint(document);
@@ -684,7 +765,7 @@ bool WorkspaceWindow::revertDocument(QUuid document)
         "workspaceRevertQuestion");
     if (!alive)
         return false;
-    m_Busy = false;
+    setBusy(false);
     refreshLabels();
     if (answer != QMessageBox::Discard)
         return false;
@@ -823,7 +904,7 @@ bool WorkspaceWindow::saveAll()
 {
     if (m_Busy)
         return false;
-    m_Busy = true;
+    setBusy(true);
     refreshLabels();
     bool alive = true;
     QObject lifetime;
@@ -840,7 +921,7 @@ bool WorkspaceWindow::saveAll()
             if (!saved)
                 break;
         }
-    m_Busy = false;
+    setBusy(false);
     refreshLabels();
     return saved;
 }
@@ -882,7 +963,7 @@ bool WorkspaceWindow::closeSource(QUuid source)
 {
     if (m_Busy || m_Context->session().hasPendingOperations(source))
         return false;
-    m_Busy = true;
+    setBusy(true);
     for (const auto document : m_Context->session().sourceDocuments(source))
         m_Context->session().stopActivity(document);
     bool alive = true;
@@ -892,7 +973,7 @@ bool WorkspaceWindow::closeSource(QUuid source)
     if (!alive)
         return false;
     const bool closed = discard && releaseSource(source, *discard);
-    m_Busy = false;
+    setBusy(false);
     refreshLabels();
     return closed;
 }
@@ -903,12 +984,8 @@ void WorkspaceWindow::closeEvent(QCloseEvent* event)
     if (m_Busy)
         return;
     // Requested files must not start opens while the close prompts run, even if the close is then canceled.
-    if (m_Requested && !m_Requested->files.isEmpty())
-    {
-        m_Requested->problems.push_back(
-            tr("Closing the window stopped %n requested file(s) from opening.", nullptr, static_cast<int>(m_Requested->files.size())));
-        m_Requested->files.clear();
-    }
+    // Requests arriving during the prompts wait (busy) and are stopped too if the close goes ahead.
+    stopRequestedFiles();
     for (auto request = m_Opening.cbegin(); request != m_Opening.cend(); ++request)
         (void)m_Context->cancelOpen(request.key());
     const auto context = m_Context;
@@ -918,7 +995,7 @@ void WorkspaceWindow::closeEvent(QCloseEvent* event)
         statusBar()->showMessage(tr("Wait for the current save to finish before closing the workspace."));
         return;
     }
-    m_Busy = true;
+    setBusy(true);
     bool alive = true;
     QObject lifetime;
     connect(this, &QObject::destroyed, &lifetime, [&] { alive = false; });
@@ -934,7 +1011,7 @@ void WorkspaceWindow::closeEvent(QCloseEvent* event)
             return;
         if (!discard)
         {
-            m_Busy = false;
+            setBusy(false);
             refreshLabels();
             return;
         }
@@ -945,7 +1022,7 @@ void WorkspaceWindow::closeEvent(QCloseEvent* event)
     if (context->session().sources() != sources ||
         std::ranges::any_of(sources, [&](QUuid source) { return context->session().hasPendingOperations(source); }))
     {
-        m_Busy = false;
+        setBusy(false);
         refreshLabels();
         return;
     }
@@ -956,17 +1033,18 @@ void WorkspaceWindow::closeEvent(QCloseEvent* event)
             if (!approvedRevisions.contains(document) ||
                 approvedRevisions.value(document) != context->session().documentCheckpoint(document).revision)
             {
-                m_Busy = false;
+                setBusy(false);
                 refreshLabels();
                 return;
             }
     for (const auto& [source, discard] : decisions)
         if (!releaseSource(source, discard))
         {
-            m_Busy = false;
+            setBusy(false);
             return;
         }
-    m_Busy = false;
+    stopRequestedFiles(); // Requests that arrived during the prompts do not open into a closed window.
+    setBusy(false);
     event->accept();
 }
 

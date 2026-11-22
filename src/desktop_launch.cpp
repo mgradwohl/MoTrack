@@ -1,5 +1,6 @@
 #include "desktop_launch.hpp"
 
+#include "local_media_path.hpp"
 #include "workspace_window.hpp"
 
 #include <QDir>
@@ -53,6 +54,21 @@ LaunchFileKind launchFileKind(const QString& path)
     return LaunchFileKind::Movie;
 }
 
+RequestedFileCheck checkRequestedFile(const QString& path, const QList<std::pair<QUuid, QString>>& openSources, const QStringList& earlier)
+{
+    const QFileInfo file(path);
+    if (!file.exists())
+        return {.state = RequestedFileState::Missing};
+    if (file.isDir())
+        return {.state = RequestedFileState::Folder};
+    if (std::ranges::any_of(earlier, [&](const QString& other) { return sameLocalFile(path, other); }))
+        return {.state = RequestedFileState::Repeated};
+    for (const auto& [source, sourcePath] : openSources)
+        if (sameLocalFile(path, sourcePath))
+            return {.state = RequestedFileState::AlreadyOpen, .source = source};
+    return {.state = RequestedFileState::Open};
+}
+
 QString launchFilePath(const QString& path, const QString& workingDirectory)
 {
 #ifdef Q_OS_WIN
@@ -84,6 +100,11 @@ LaunchArguments parseLaunchArguments(const QStringList& arguments, const QString
                 options = false;
             else if (argument == QLatin1StringView("--smoke-test"))
                 result.smokeTest = true;
+#ifdef Q_OS_MACOS
+            // Cocoa reads `-Key value` pairs into its argument user defaults, e.g. `-AppleLanguages (de)`.
+            else if (argument.startsWith(QLatin1StringView("-NS")) || argument.startsWith(QLatin1StringView("-Apple")))
+                i += i + 1 < arguments.size() ? 1 : 0;
+#endif
             else if (!argument.startsWith(QLatin1StringView("-psn_"))) // Older macOS launches add a process serial number.
                 result.unknownOptions.push_back(argument);
             continue;

@@ -12,6 +12,7 @@
 #include <QDragLeaveEvent>
 #include <QDragMoveEvent>
 #include <QDropEvent>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileOpenEvent>
 #include <QImage>
@@ -37,6 +38,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <functional>
 #include <stdexcept>
 
 namespace
@@ -187,6 +189,46 @@ bool editMass(motrack::WorkspaceWindow& window, double mass)
     return accepted;
 }
 
+/// Answer the next workspace close question: run `request` inside its event loop, give held work time to
+/// (wrongly) start, record the state with `inspect`, then choose.
+class CloseQuestion
+{
+  public:
+    CloseQuestion(QMessageBox::StandardButton choice, std::function<void()> request, std::function<void()> inspect)
+    {
+        QObject::connect(&m_Timer,
+                         &QTimer::timeout,
+                         [this, choice, request = std::move(request), inspect = std::move(inspect)]
+                         {
+                             auto* dialog = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+                             if (!dialog || dialog->objectName() != "workspaceCloseQuestion")
+                                 return;
+                             if (!m_Asked.isValid())
+                             {
+                                 m_Asked.start();
+                                 request();
+                                 return;
+                             }
+                             if (m_Asked.elapsed() < 200)
+                                 return;
+                             inspect();
+                             m_Timer.stop();
+                             m_Answered = true;
+                             dialog->button(choice)->click();
+                         });
+        m_Timer.start(1);
+    }
+    [[nodiscard]] bool answered() const
+    {
+        return m_Answered;
+    }
+
+  private:
+    QTimer m_Timer;
+    QElapsedTimer m_Asked;
+    bool m_Answered = false;
+};
+
 QStringList folderEntries(const QDir& folder)
 {
     return folder.entryList(QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot, QDir::Name);
@@ -261,6 +303,16 @@ TEST(DesktopLaunch, ParsesOptionsLocalUrlsAndRelativePathsInArgumentOrder)
     EXPECT_EQ(motrack::launchFilePath(R"(C:\Folder\b.trk)", base), "C:/Folder/b.trk");
     // A drive letter is not a URL scheme.
     EXPECT_EQ(motrack::parseLaunchArguments({"motrack", "C://x.trk"}, base).requested.files, QStringList{"C://x.trk"});
+#endif
+    const auto defaults =
+        motrack::parseLaunchArguments({"motrack", "-AppleLanguages", "(de)", "-NSDocumentRevisionsDebugMode", "YES", "a.trk"}, base);
+#ifdef Q_OS_MACOS
+    // Cocoa's `-Key value` user defaults, as testers use to switch the interface language.
+    EXPECT_TRUE(defaults.unknownOptions.isEmpty());
+    EXPECT_EQ(defaults.requested.files, QStringList{QDir(base).absoluteFilePath("a.trk")});
+    EXPECT_TRUE(motrack::parseLaunchArguments({"motrack", "-AppleLanguages"}, base).unknownOptions.isEmpty());
+#else
+    EXPECT_EQ(defaults.unknownOptions, (QStringList{"-AppleLanguages", "-NSDocumentRevisionsDebugMode"}));
 #endif
     EXPECT_EQ(motrack::launchFileKind("A.TRK"), motrack::LaunchFileKind::Project);
     EXPECT_EQ(motrack::launchFileKind("a.Trz"), motrack::LaunchFileKind::Project);
@@ -409,6 +461,118 @@ TEST(DesktopLaunch, CancelingARequestedFileStopsItsBatchAndClosingStopsQueuedFil
     EXPECT_TRUE(context->session().sources().empty());
     // A hidden window shows no summary after it has been closed.
     EXPECT_FALSE(window.findChild<QMessageBox*>("workspaceRequestedFileProblems"));
+}
+
+TEST(DesktopLaunch, RequestsSelectAnAlreadyOpenFileIncludingCaseVariantsAndHiddenViews)
+{
+    QTemporaryDir temporary;
+    const auto folder = unicodeFolder(temporary);
+    const auto first = nativeCopy(folder, "first project.motrack");
+    const auto second = nativeCopy(folder, "second project.motrack");
+    auto context = std::make_shared<motrack::WorkspaceContext>();
+    motrack::WorkspaceWindow window(context);
+    window.show();
+    QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
+    window.openFiles({.files = {first, second}});
+    EXPECT_TRUE(nextBatch(finished).isEmpty());
+    auto& session = context->session();
+    ASSERT_EQ(session.sources().size(), 2u);
+    const auto firstDocument = session.tabs().front();
+    const auto secondDocument = session.tabs().back();
+    EXPECT_EQ(window.currentDocument(), secondDocument);
+    // A repeated Finder open or launch selects the open file; a second copy's later save would replace the first (#255).
+    window.openFiles({.files = {first}});
+    EXPECT_TRUE(nextBatch(finished, 2).isEmpty());
+    EXPECT_EQ(session.sources().size(), 2u);
+    EXPECT_EQ(window.currentDocument(), firstDocument);
+    ASSERT_TRUE(window.hideDocument(firstDocument));
+    EXPECT_EQ(window.currentDocument(), secondDocument);
+    window.openFiles({.files = {first}});
+    EXPECT_TRUE(nextBatch(finished, 3).isEmpty());
+    EXPECT_EQ(window.currentDocument(), firstDocument);
+    EXPECT_EQ(session.sources().size(), 2u);
+    // Where the file system ignores case (Windows and macOS by default), a case variant names the same file.
+    const auto variant = folder.filePath("FIRST PROJECT.MOTRACK");
+    if (!QFileInfo::exists(variant))
+        return;
+    ASSERT_TRUE(window.showDocument(secondDocument));
+    window.openFiles({.files = {variant}});
+    EXPECT_TRUE(nextBatch(finished, 4).isEmpty());
+    EXPECT_EQ(window.currentDocument(), firstDocument);
+    EXPECT_EQ(session.sources().size(), 2u);
+    const auto third = nativeCopy(folder, "third project.motrack");
+    window.openFiles({.files = {third, folder.filePath("THIRD PROJECT.MOTRACK")}});
+    EXPECT_TRUE(nextBatch(finished, 5).isEmpty());
+    EXPECT_EQ(session.sources().size(), 3u);
+}
+
+TEST(DesktopLaunch, FileChecksRunOffTheGuiThread)
+{
+    QTemporaryDir temporary;
+    const auto project = nativeCopy(unicodeFolder(temporary), "on a slow share.motrack");
+    auto context = std::make_shared<motrack::WorkspaceContext>();
+    motrack::WorkspaceWindow window(context);
+    window.show();
+    QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
+    // Occupy the request worker as a share that does not answer would.
+    QSemaphore entered;
+    QSemaphore release;
+    auto& pool = context->services()->requestPool();
+    pool.start(
+        [&]
+        {
+            entered.release();
+            (void)release.tryAcquire(1, 10000);
+        });
+    ASSERT_TRUE(entered.tryAcquire(1, 5000));
+    const auto cleanup = qScopeGuard(
+        [&]
+        {
+            release.release();
+            (void)pool.waitForDone(10000);
+        });
+    window.openFiles({.files = {project}});
+    bool ticked = false;
+    QTimer::singleShot(50, &window, [&] { ticked = true; });
+    ASSERT_TRUE(QTest::qWaitFor([&] { return ticked; }, 5000)); // The GUI keeps processing events meanwhile.
+    EXPECT_TRUE(finished.isEmpty());
+    EXPECT_TRUE(context->session().sources().empty());
+    release.release();
+    EXPECT_TRUE(nextBatch(finished).isEmpty());
+    EXPECT_EQ(tabSources(window), canonicalPaths({project}));
+}
+
+TEST(DesktopLaunch, RequestsDuringACloseQuestionWaitAndOpenOnlyIfTheCloseIsCanceled)
+{
+    QTemporaryDir temporary;
+    const auto folder = unicodeFolder(temporary);
+    const auto edited = nativeCopy(folder, "edited.motrack");
+    const auto canceled = nativeCopy(folder, "requested during a canceled close.motrack");
+    const auto closed = nativeCopy(folder, "requested during a completed close.motrack");
+    auto context = std::make_shared<motrack::WorkspaceContext>();
+    motrack::WorkspaceWindow window(context);
+    window.show();
+    QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
+    window.openFiles({.files = {edited}});
+    (void)nextBatch(finished);
+    ASSERT_TRUE(editMass(window, 5));
+    auto& session = context->session();
+    // A macOS open request can arrive while the close question runs its nested event loop.
+    std::size_t sourcesDuringQuestion = 0;
+    CloseQuestion cancel(
+        QMessageBox::Cancel, [&] { window.openFiles({.files = {canceled}}); }, [&] { sourcesDuringQuestion = session.sources().size(); });
+    EXPECT_FALSE(window.close());
+    EXPECT_TRUE(cancel.answered());
+    EXPECT_EQ(sourcesDuringQuestion, 1u);
+    EXPECT_TRUE(nextBatch(finished, 2).isEmpty());
+    EXPECT_EQ(tabSources(window), canonicalPaths({edited, canceled}));
+    CloseQuestion discard(
+        QMessageBox::Discard, [&] { window.openFiles({.files = {closed}}); }, [&] { sourcesDuringQuestion = session.sources().size(); });
+    EXPECT_TRUE(window.close());
+    EXPECT_TRUE(discard.answered());
+    EXPECT_EQ(sourcesDuringQuestion, 2u);
+    EXPECT_EQ(nextBatch(finished, 3), QStringList{"Closing the window stopped 1 requested file(s) from opening."});
+    EXPECT_TRUE(session.sources().empty());
 }
 
 TEST(DesktopLaunch, DropsLocalFilesAsCopiesOntoTheWorkspaceAndExperimentViews)

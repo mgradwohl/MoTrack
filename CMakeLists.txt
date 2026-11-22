@@ -82,6 +82,12 @@ if(MOTRACK_STAGE_DESKTOP)
     if(APPLE)
         # macdeployqt uses the SDK runpath to locate frameworks and rewrites it for the bundle.
         # The bundle's Info.plist declares the project types Finder, Open With and the Dock may send (#68).
+        # LSMinimumSystemVersion is the deployment target; without one, Clang targets the SDK's version.
+        set(MOTRACK_MACOS_MINIMUM "${CMAKE_OSX_DEPLOYMENT_TARGET}")
+        if(NOT MOTRACK_MACOS_MINIMUM)
+            execute_process(COMMAND xcrun --sdk macosx --show-sdk-version OUTPUT_VARIABLE MOTRACK_MACOS_MINIMUM
+                OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+        endif()
         set_target_properties(motrack PROPERTIES
             MACOSX_BUNDLE TRUE
             MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/desktop/macos/Info.plist.in"

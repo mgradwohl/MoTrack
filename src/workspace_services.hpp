@@ -30,6 +30,8 @@ class WorkspaceServices final : public QObject
     /// saving one. Callers retain per-document cancellation/revision checks and bound submitted snapshots.
     [[nodiscard]] QThreadPool& analysisPool();
     [[nodiscard]] QThreadPool& savePool();
+    /// One worker for the file-system checks of requested files, so a blocked share never holds an input slot.
+    [[nodiscard]] QThreadPool& requestPool();
 
   Q_SIGNALS:
     void frameDecoded(const motrack::MovieFrameResult& result);
@@ -39,6 +41,7 @@ class WorkspaceServices final : public QObject
     QThreadPool m_FramePool;
     QThreadPool m_AnalysisPool;
     QThreadPool m_SavePool;
+    QThreadPool m_RequestPool;
     std::shared_ptr<MovieWorker> m_MovieWorker;
     QFutureWatcher<MovieFrameResult> m_FrameWatcher;
     bool m_FrameBusy = false;

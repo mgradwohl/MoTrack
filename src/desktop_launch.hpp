@@ -1,9 +1,12 @@
 #pragma once
 
+#include <QList>
 #include <QObject>
 #include <QStringList>
+#include <QUuid>
 
 #include <cstdint>
+#include <utility>
 
 class QMimeData;
 
@@ -37,11 +40,33 @@ struct LaunchArguments
     bool smokeTest = false;     ///< `--smoke-test`: report the opened sources and exit after the files finish.
 };
 
+/// How a requested file relates to the workspace, decided off the GUI thread because a share can block.
+enum class RequestedFileState : std::uint8_t
+{
+    Open,        ///< A file to open.
+    Missing,     ///< Nothing exists at the path.
+    Folder,      ///< A directory, which only Open images can turn into a sequence.
+    AlreadyOpen, ///< The file of an open source; it is selected instead of opened again.
+    Repeated,    ///< The same file as an earlier request of the batch; skipped, as in Tracker.
+};
+
+struct RequestedFileCheck
+{
+    RequestedFileState state = RequestedFileState::Missing;
+    QUuid source{}; ///< The matching open source for AlreadyOpen.
+};
+
+/// Compares file-system identities, so case variants and aliases of one file match where the file system
+/// treats them as the same file (Windows and macOS by default). Never run this on the GUI thread.
+[[nodiscard]] RequestedFileCheck
+checkRequestedFile(const QString& path, const QList<std::pair<QUuid, QString>>& openSources, const QStringList& earlier);
+
 /// Absolute local spelling of a path handed over by a launcher. Relative paths use the launch directory.
 /// Windows extended-length prefixes are removed because Qt adds its own for long paths; nothing is canonicalized.
 [[nodiscard]] QString launchFilePath(const QString& path, const QString& workingDirectory);
 /// Argument 0 is the program. Local `file:` URLs become paths; other URLs are remote. Empty arguments and the
-/// legacy macOS `-psn_` process serial number are ignored.
+/// legacy macOS `-psn_` process serial number are ignored. On macOS, `-NS…`/`-Apple…` user defaults such as
+/// `-AppleLanguages (de)` are skipped with their value; Cocoa reads them itself.
 [[nodiscard]] LaunchArguments parseLaunchArguments(const QStringList& arguments, const QString& workingDirectory);
 /// Local files and refused links in a drag. Data without URLs yields nothing.
 [[nodiscard]] RequestedFiles droppedFiles(const QMimeData& data);

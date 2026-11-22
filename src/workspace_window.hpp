@@ -4,8 +4,8 @@
 #include "workspace_context.hpp"
 
 #include <QMainWindow>
-#include <QSet>
 
+#include <cstdint>
 #include <optional>
 
 class QAction;
@@ -68,6 +68,10 @@ class WorkspaceWindow final : public QMainWindow
     [[nodiscard]] std::optional<QUuid> trackOpen(std::optional<QUuid> request, const QString& label);
     void finishOpen(QUuid request, const QString& problem = {}, bool cancelled = false);
     void continueRequestedFiles();
+    /// Drop the batch's files that have not started; a running check's result is then ignored.
+    void stopRequestedFiles();
+    /// Requested files wait while a save, revert or close prompt runs its nested event loop.
+    void setBusy(bool busy);
     /// Accept a drag of local files as a copy or link; a refused drag returns no files, only its remote links.
     [[nodiscard]] RequestedFiles acceptDrag(QDropEvent* event);
     bool saveSource(QUuid source);
@@ -89,17 +93,24 @@ class WorkspaceWindow final : public QMainWindow
     QHash<QUuid, MainWindow*> m_Views; // Qt parent-owned; views hold their own shared context lease.
     QHash<QUuid, QWidget*> m_Pages;    // Lightweight placeholders until an experiment is first selected.
     QHash<QUuid, QListWidgetItem*> m_Opening;
-    /// Files requested from outside the menus, opened one at a time in their requested order.
+    /// Files requested from outside the menus, opened one at a time in their requested order. Each file is
+    /// first checked on a worker; `check` identifies the running check, `ready` a checked file awaiting a slot.
     struct RequestedBatch
     {
-        QStringList files;    // QList moves without throwing.
-        QSet<QString> listed; // Canonical identities started in this batch.
+        QStringList files;   // QList moves without throwing.
+        QStringList started; // Files opened or selected in this batch, for duplicate detection.
         qsizetype accepted = 0;
+        std::uint64_t check = 0;
+        std::optional<QString> ready;
         std::optional<QUuid> request;
         QString current;
         QStringList problems;
     };
+    void checkNextRequestedFile(RequestedBatch& batch);
+    void applyRequestedFileCheck(std::uint64_t check, const QString& path, const RequestedFileCheck& result);
+    void startRequestedOpen(RequestedBatch& batch, const QString& path);
     std::optional<RequestedBatch> m_Requested;
+    std::uint64_t m_LastCheck = 0;
     QLabel* m_DropOverlay = nullptr;
     bool m_Busy = false;
 };

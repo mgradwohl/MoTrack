@@ -9,15 +9,19 @@ set(binary "${CMAKE_INSTALL_PREFIX}/${MOTRACK_DESKTOP_BINARY}")
 if(binary MATCHES "[\r\n]")
     message(FATAL_ERROR "A desktop entry cannot name an executable whose path contains a line break: ${binary}")
 endif()
+# The specification spells a literal % as %%, but GLib looks up the Exec program before expanding %%
+# and then refuses to load the entry, so no spelling launches such a path from a GLib file manager.
+if(binary MATCHES "%")
+    message(FATAL_ERROR "Desktop launchers cannot start an executable whose path contains %. Install to another prefix: ${binary}")
+endif()
 
 # Desktop Entry Specification, "The Exec key": quote the program and escape \ " ` $ inside the quotes,
-# then apply the string-value escape to every backslash, and write literal % as %%.
+# then apply the string-value escape to every backslash. (CMake already turned any \ into /.)
 string(REPLACE "\\" "\\\\" quoted "${binary}")
 string(REPLACE "\"" "\\\"" quoted "${quoted}")
 string(REPLACE "`" "\\`" quoted "${quoted}")
 string(REPLACE "$" "\\$" quoted "${quoted}")
 string(REPLACE "\\" "\\\\" quoted "${quoted}")
-string(REPLACE "%" "%%" quoted "${quoted}")
 set(MOTRACK_DESKTOP_EXEC "\"${quoted}\"")
 # TryExec is an unquoted string value; only backslashes need escaping.
 string(REPLACE "\\" "\\\\" MOTRACK_DESKTOP_TRY_EXEC "${binary}")

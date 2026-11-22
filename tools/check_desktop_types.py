@@ -46,6 +46,8 @@ def check_plist(bundle):
         subprocess.run(["plutil", "-lint", str(path)], check=True)
     info = plistlib.loads(path.read_bytes())
     require(info.get("CFBundleIdentifier") == APP_ID, "unexpected bundle identifier")
+    minimum = info.get("LSMinimumSystemVersion", "")
+    require(all(part.isdigit() for part in minimum.split(".")) and minimum, f"LSMinimumSystemVersion is {minimum!r}")
     executable = bundle / "Contents" / "MacOS" / info.get("CFBundleExecutable", "")
     require(executable.is_file(), f"bundle executable {executable} is missing")
     declarations = {}
@@ -109,6 +111,24 @@ def check_linux(stage):
     print(f"{desktop}: opens {', '.join(sorted(declared))}")
 
 
+def write_desktop_entry(prefix):
+    """Run the install-time desktop entry script for another prefix."""
+    source = Path(__file__).resolve().parents[1]
+    return subprocess.run(
+        [
+            "cmake",
+            f"-DCMAKE_INSTALL_PREFIX={prefix}",
+            f"-DMOTRACK_DESKTOP_TEMPLATE={source / 'desktop' / 'linux' / f'{APP_ID}.desktop.in'}",
+            f"-DMOTRACK_DESKTOP_OUTPUT={APP_ID}.desktop",
+            "-DMOTRACK_DESKTOP_BINARY=bin/motrack",
+            "-P",
+            str(source / "cmake" / "MoTrackDesktopEntry.cmake"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+
 def registered_data_home(stage, root):
     """Per-user registration as documented in the README, inside a private XDG data directory."""
     data = root / "share"
@@ -168,22 +188,15 @@ def launch_linux(stage, root):
         require(f"{APP_ID}.desktop" in handlers, f"{mime_type} is not registered to MoTrack: {handlers}")
     # Write the entry again for a prefix that needs the Exec escapes, reaching the staged binary via a link.
     # CMake turns a backslash into a path separator, so an install prefix cannot contain one.
-    prefix = root / 'Odd "prefix" $HOME `tick` 100% ü'
+    prefix = root / 'Odd "prefix" $HOME `tick` ü'
     prefix.mkdir()
     (prefix / "bin").symlink_to(stage / "bin", target_is_directory=True)
-    source = Path(__file__).resolve().parents[1]
-    subprocess.run(
-        [
-            "cmake",
-            f"-DCMAKE_INSTALL_PREFIX={prefix}",
-            f"-DMOTRACK_DESKTOP_TEMPLATE={source / 'desktop' / 'linux' / f'{APP_ID}.desktop.in'}",
-            f"-DMOTRACK_DESKTOP_OUTPUT={APP_ID}.desktop",
-            "-DMOTRACK_DESKTOP_BINARY=bin/motrack",
-            "-P",
-            str(source / "cmake" / "MoTrackDesktopEntry.cmake"),
-        ],
-        check=True,
-    )
+    require(write_desktop_entry(prefix).returncode == 0, f"no desktop entry was written for {prefix}")
+    # GLib looks up the Exec program before expanding %%, so the install refuses a path containing %.
+    percent = root / "100% done"
+    percent.mkdir()
+    refused = write_desktop_entry(percent)
+    require(refused.returncode != 0 and "contains %" in " ".join(refused.stderr.split()), "an install path with % was accepted")
     # desktop-file-validate cannot open a file by this path; the entry's content is what needs validating.
     unusual = root / "unusual-prefix.desktop"
     shutil.copy2(prefix / f"{APP_ID}.desktop", unusual)
