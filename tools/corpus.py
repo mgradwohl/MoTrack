@@ -3397,7 +3397,10 @@ def check_state_oracle(manifest, cache, java, *, record=False):
             except (ValueError, OSError, subprocess.TimeoutExpired) as error:
                 dumps[case["id"]] = STATE_LOAD_FAILURE
                 if case["id"] in whole_file:
-                    print(f"{case['id']}: KNOWN TRACKER DEFECT reproduced (whole-file load failure; not accepted)")
+                    # Show the dumper's own failure line, so a changed cause is visible in the log.
+                    cause = [line.strip() for line in str(error).splitlines() if "waiting=" in line or "Exception" in line]
+                    print(f"{case['id']}: KNOWN TRACKER DEFECT reproduced (whole-file load failure; not accepted): "
+                          f"{' | '.join(cause[:2])[:400]}")
                 else:
                     failures.append(f"{case['id']}: Tracker state dump failed: {str(error)[-3000:]}")
                 continue
@@ -3419,6 +3422,10 @@ def check_state_oracle(manifest, cache, java, *, record=False):
                 failures.append(f"{case['id']}: Tracker state differs from the committed dump:\n" + state_report(comparison))
             else:
                 compared += 1
+    expected_files = {state_path(case_id) for case_id in dumps if case_id not in whole_file}
+    if not record and set(STATE_DIR.glob("*.json")) != expected_files:
+        failures.append("Committed dumps do not match the corpus cases and whole-file known defects: unexpected "
+                        f"{sorted(path.name for path in set(STATE_DIR.glob('*.json')) - expected_files)}")
     reproduced = check_known_defects(registry, manifest, dumps, failures)
     for entry in reproduced:
         print(f"{entry['case']}: KNOWN TRACKER DEFECT reproduced: {entry['id']} ({entry['issue']}; MoTrack must match "

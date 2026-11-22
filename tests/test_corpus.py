@@ -3691,11 +3691,14 @@ class TrackerStateTests(unittest.TestCase):
     def test_state_oracle_records_then_rejects_drift_and_keeps_generated_dumps(self):
         manifest = self.oracle_cases()
         outputs = {"independent-vectors.trk": tracker_state(), "vector-sum.trk": tracker_state(members=()),
-                   "archived-movie.trz": ValueError("Probe failed (1): timed out"), "linked-movie.trk": tracker_state()}
+                   "archived-movie.trz": ValueError("Probe failed (1):\nTracker state dump input=x waiting=loader\n"
+                                                    "java.lang.IllegalStateException: timed out\n\tat Example"),
+                   "linked-movie.trk": tracker_state()}
         commands = []
         printed = self.run_oracle(manifest, self.oracle_registry(), outputs, record=True, commands=commands)
         self.assertIn("recorded 3 Tracker dumps", printed)
-        self.assertIn("archived-avi: KNOWN TRACKER DEFECT reproduced", printed)
+        self.assertIn("archived-avi: KNOWN TRACKER DEFECT reproduced (whole-file load failure; not accepted): ", printed)
+        self.assertIn("waiting=loader | java.lang.IllegalStateException: timed out", printed)
         self.assertEqual(sorted(path.name for path in (self.root / "state").glob("*.json")),
                          ["independent-vectors.json", "linked-movie.json", "vector-sum.json"])
         self.assertEqual((self.root / "state" / "vector-sum.json").read_text(encoding="utf-8"),
@@ -3730,6 +3733,10 @@ class TrackerStateTests(unittest.TestCase):
                                  ({"independent-vectors.trk": ValueError("Probe failed (1): crash")}, "Tracker state dump failed")]:
             with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
                 self.run_oracle(manifest, self.oracle_registry(), {**outputs, **changed})
+        (self.root / "state" / "archived-avi.json").write_text(corpus.state_text(tracker_state()), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, r"unexpected \['archived-avi.json'\]"):
+            self.run_oracle(manifest, self.oracle_registry(), outputs)
+        (self.root / "state" / "archived-avi.json").unlink()
         (self.root / "state" / "independent-vectors.json").unlink()
         with self.assertRaisesRegex(ValueError, "no committed dump"):
             self.run_oracle(manifest, self.oracle_registry(), outputs)
