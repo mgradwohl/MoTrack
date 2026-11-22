@@ -140,6 +140,8 @@ python tools/corpus.py ode-oracle --java /path/to/jdk-17/bin/java
 python tools/corpus.py sampling-oracle --java /path/to/jdk-17/bin/java
 
 python tools/corpus.py motion-oracle --java /path/to/jdk-17/bin/java
+
+python tools/corpus.py analysis-oracle --java /path/to/jdk-17/bin/java
 python -m unittest discover -s tests -p test_corpus.py
 ```
 
@@ -177,6 +179,12 @@ except tilted profiles within 10⁻⁹. `--record` replaces the fixture for revi
 derivative and filter classes and compares them with `tests/science/motion-reference.json`, exactly except
 for the Butterworth cases, OSP's test function and the FilterSelfTest metrics, which use JDK intrinsics;
 `--record` replaces the fixture for review.
+
+`analysis-oracle` is a kernel oracle rather than a corpus case: it runs the Data Tool analysis cases of
+[`AnalysisOracle.java`](../../tools/reference/AnalysisOracle.java) with the pinned JAR in a temporary Java
+home and compares them with [`analysis-reference.json`](../science/analysis-reference.json) under the
+tolerances in the [data analysis kernel notes](../../docs/data-analysis-kernels.md#floating-point-and-the-java-oracle);
+`--record` rewrites that fixture for review. The C++ tests read the committed fixture and need no Java.
 
 On Windows, use `build/coverage/motrack_corpus_probe.exe` and the path to `java.exe`. Python 3.10 or newer
 is supported. The reference command uses Java source-file mode and therefore needs a JDK, not just a

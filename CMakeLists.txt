@@ -39,7 +39,7 @@ include(cmake/MoTrackFFmpeg.cmake)
 include(cmake/MoTrackArchive.cmake)
 
 # Qt-free science kernels. The expression engine ports OSP's SuryonoParser (docs/expression-engine.md).
-add_library(motrack_expression STATIC src/science/decimal_conversion.cpp src/science/expression.cpp src/science/java_math.cpp)
+add_library(motrack_expression STATIC src/science/decimal_conversion.cpp src/science/expression.cpp)
 target_include_directories(motrack_expression PUBLIC src)
 
 # Lossless OSP XMLControl reader/renderer; no Qt, media or OS dependencies.
@@ -72,6 +72,19 @@ add_library(motrack_motion STATIC src/science/motion/motion_derivatives.cpp src/
     src/science/motion/motion_filters.cpp src/science/motion/numerical_derivative.cpp)
 target_include_directories(motrack_motion PUBLIC src)
 target_compile_options(motrack_motion PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
+# Java Math semantics shared by the kernels checked against OSP (src/science/java_math.hpp; #263).
+add_library(motrack_java_math STATIC src/science/java_math.cpp)
+target_include_directories(motrack_java_math PUBLIC src)
+target_compile_options(motrack_java_math PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
+target_link_libraries(motrack_expression PUBLIC motrack_java_math)
+target_link_libraries(motrack_ode PRIVATE motrack_java_math)
+
+# Qt-free ports of OSP Data Tool statistics, measuring tools and Fourier spectra (docs/data-analysis-kernels.md).
+add_library(motrack_analysis STATIC src/science/analysis/data_columns.cpp src/science/analysis/plot_measurements.cpp
+    src/science/analysis/fourier_spectrum.cpp src/science/analysis/fft.cpp)
+target_include_directories(motrack_analysis PUBLIC src)
+target_compile_options(motrack_analysis PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
+target_link_libraries(motrack_analysis PRIVATE motrack_java_math)
 
 qt_add_executable(motrack src/main.cpp)
 add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp src/movie_worker.cpp src/position_plot.cpp
@@ -137,7 +150,7 @@ if(MOTRACK_STAGE_DESKTOP)
     install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/motrack)
 endif()
 
-set(motrack_targets motrack_osp motrack_expression motrack_ode motrack_motion motrack_project motrack_input motrack_image_package motrack_media motrack_workspace motrack)
+set(motrack_targets motrack_osp motrack_expression motrack_ode motrack_analysis motrack_motion motrack_project motrack_input motrack_image_package motrack_media motrack_workspace motrack motrack_java_math)
 if(MOTRACK_BUILD_BENCHMARKS)
     add_executable(motrack_import_benchmark benchmarks/import_benchmark.cpp)
     target_link_libraries(motrack_import_benchmark PRIVATE motrack_project)
@@ -199,15 +212,18 @@ if(BUILD_TESTING)
         tests/tracker_archive_test.cpp tests/tracker_archive_writer_test.cpp tests/tracker_image_package_test.cpp tests/tracker_movie_package_test.cpp tests/tracker_references_test.cpp tests/tracker_writer_test.cpp
         tests/science/decimal_conversion_test.cpp tests/science/expression_reference_test.cpp tests/science/expression_test.cpp tests/science/java_math_test.cpp
         tests/osp_java_text_test.cpp tests/osp_source_test.cpp tests/osp_render_test.cpp tests/osp_corpus_test.cpp
-        tests/science/ode_solver_test.cpp)
-    target_link_libraries(motrack_tests PRIVATE motrack_osp motrack_project motrack_expression motrack_ode motrack_image_package GTest::gtest_main motrack_archive Qt6::Xml Qt6::Gui)
+        tests/science/ode_solver_test.cpp tests/science/data_analysis_test.cpp tests/science/fft_test.cpp tests/science/analysis_reference_test.cpp)
+    target_link_libraries(motrack_tests PRIVATE motrack_osp motrack_project motrack_java_math motrack_expression motrack_ode motrack_analysis
+        motrack_image_package GTest::gtest_main motrack_archive Qt6::Xml Qt6::Gui)
     target_compile_definitions(motrack_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
         MOTRACK_EXPRESSION_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/expression-reference.json"
         MOTRACK_CORPUS_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/corpus/fixtures"
-        MOTRACK_ODE_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/ode-reference.json")
-    # The test rate functions must round like the Java oracle's.
-    set_source_files_properties(tests/science/ode_solver_test.cpp PROPERTIES COMPILE_OPTIONS "${MOTRACK_JAVA_FP_OPTIONS}")
+        MOTRACK_ODE_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/ode-reference.json"
+        MOTRACK_ANALYSIS_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/analysis-reference.json")
+    # The ODE rate functions and the analysis fit polynomials must round like the Java oracles'.
+    set_source_files_properties(tests/science/ode_solver_test.cpp tests/science/analysis_reference_test.cpp
+        PROPERTIES COMPILE_OPTIONS "${MOTRACK_JAVA_FP_OPTIONS}")
     add_test(NAME legacy_project COMMAND motrack_tests)
     target_sources(motrack_tests PRIVATE tests/science/sampling_test.cpp tests/science/sampling_reference_test.cpp)
     target_link_libraries(motrack_tests PRIVATE motrack_sampling)

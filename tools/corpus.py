@@ -3351,6 +3351,142 @@ def compare_ode_reference(expected, actual):
         compare(want, got, ode_case_tolerance(want, adaptive), f"ode-reference.{want['id']}")
 
 
+ANALYSIS_REFERENCE = ROOT / "tests/science/analysis-reference.json"
+
+
+ANALYSIS_ORACLE = ROOT / "tools/reference/AnalysisOracle.java"
+
+
+ANALYSIS_KINDS = {"statistics": "column", "plot": "series", "correlation": "series", "area": "series", "measure": "series",
+                  "nearest": "series", "function-area": None, "function-slope": None, "fourier": "series",
+                  "fft-real": None, "fft-complex": None, "column": None}
+
+
+# FFT outputs and Fourier coefficients go through Math.sin/Math.cos, whose last bit differs between
+# HotSpot's x86-64 intrinsics, its arm64 path and C++ libraries. They may differ by this many units
+# of 2^-52 per transform stage, relative to the sum of input magnitudes (docs/data-analysis-kernels.md);
+# a wrong twiddle, branch or sign shows at the size of the input. Everything else must be identical.
+ANALYSIS_FFT_ULPS = 16
+
+
+MAX_ANALYSIS_CASES = 2000
+
+
+def analysis_fft_tolerance(values, n):
+    """Absolute tolerance for a length-n transform of `values` (missing values do not count)."""
+    scale = sum(abs(value) for value in values if type(value) is float)
+    return ANALYSIS_FFT_ULPS * (1 + math.log2(max(n, 1))) * sys.float_info.epsilon * scale
+
+
+def validate_analysis_reference(document, manifest):
+    """Check the analysis oracle schema before comparing or recording it."""
+    if (not isinstance(document, dict) or document.get("schema_version") != 1
+            or document.get("reference_version") != manifest["reference"]["version"]
+            or not isinstance(document.get("osp_commit"), str)):
+        raise ValueError("Unexpected analysis oracle schema or reference version")
+    sources = {}
+    for name in ["columns", "series"]:
+        items = document.get(name)
+        if not isinstance(items, list) or not items or not all(isinstance(item, dict) for item in items):
+            raise ValueError(f"Invalid analysis oracle {name}")
+        ids = [item.get("id") for item in items]
+        if len(set(ids)) != len(ids):
+            raise ValueError(f"Duplicate analysis oracle {name} id")
+        sources[name[:-1] if name == "columns" else name] = set(ids)
+    cases = document.get("cases")
+    if not isinstance(cases, list) or not cases or len(cases) > MAX_ANALYSIS_CASES:
+        raise ValueError("Invalid analysis oracle case list")
+    seen = set()
+    for case in cases:
+        if not isinstance(case, dict) or not isinstance(case.get("id"), str) or case["id"] in seen:
+            identifier = case.get("id") if isinstance(case, dict) else case
+            raise ValueError(f"Invalid or duplicate analysis oracle case {identifier!r}")
+        source = ANALYSIS_KINDS.get(case.get("kind"), "unknown")
+        if source == "unknown" or (source is not None and case.get(source) not in sources[source]):
+            raise ValueError(f"Analysis oracle case {case['id']!r} has an unknown kind or source")
+        seen.add(case["id"])
+    if {case["kind"] for case in cases} != set(ANALYSIS_KINDS):
+        raise ValueError("Every analysis oracle kind needs a case")
+
+
+def analysis_reference_text(document):
+    """Render the fixture with one column, series or case per line so that review diffs stay readable."""
+    compact = {"separators": (",", ":"), "ensure_ascii": False}
+    keys = list(document)
+    lines = ["{"]
+    for position, key in enumerate(keys):
+        suffix = "," if position + 1 < len(keys) else ""
+        value = document[key]
+        if key in {"columns", "series", "cases"}:
+            lines.append(f"  {json.dumps(key)}: [")
+            lines.extend(f"    {json.dumps(item, **compact)}{',' if index + 1 < len(value) else ''}"
+                         for index, item in enumerate(value))
+            lines.append(f"  ]{suffix}")
+        else:
+            lines.append(f"  {json.dumps(key)}: {json.dumps(value, **compact)}{suffix}")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def compare_analysis_case(want, got, series):
+    location = f"analysis-reference.{want['id']}"
+    if not isinstance(got, dict) or want.keys() != got.keys():
+        raise ValueError(f"{location}: case fields differ")
+    approximate = {}
+    if want["kind"] in {"fft-real", "fft-complex"}:
+        length = len(want["input"]) // (2 if want["kind"] == "fft-complex" else 1)
+        approximate["output"] = analysis_fft_tolerance(want["input"], length)
+    elif want["kind"] == "fourier" and want["spectrum"] is not None:
+        points = want["transformed_points"]
+        coefficient = analysis_fft_tolerance(series[want["series"]]["y"][:points], points) * 2 / points
+        scale = sum(abs(value) for value in series[want["series"]]["y"][:points] if type(value) is float) * 2 / points
+        approximate = {"cosine": coefficient, "sine": coefficient, "power": (4 * scale + 2 * coefficient) * coefficient}
+    exact = {"relative": 0.0, "absolute": 0.0}
+    for key, value in want.items():
+        if key == "spectrum" and approximate:
+            if not isinstance(got[key], dict) or value.keys() != got[key].keys():
+                raise ValueError(f"{location}.spectrum: fields differ")
+            for field, values in value.items():
+                tolerance = {"relative": 0.0, "absolute": approximate[field]} if field in approximate else exact
+                compare(values, got[key][field], tolerance, f"{location}.spectrum.{field}")
+        else:
+            tolerance = {"relative": 0.0, "absolute": approximate[key]} if key in approximate else exact
+            compare(value, got[key], tolerance, f"{location}.{key}")
+
+
+@kernel_oracle("analysis-oracle")
+def check_analysis_oracle(manifest, cache, java, *, record=False):
+    """Run the Data Tool analysis cases with the pinned OSP classes and diff the committed fixture."""
+    verify_file(cache / manifest["reference"]["file"], manifest["reference"])
+    # A private home keeps OSP preference files out of the shared reference cache.
+    with tempfile.TemporaryDirectory(prefix="analysis-oracle-") as temporary:
+        home = Path(temporary) / "home"
+        home.mkdir()
+        output = Path(temporary) / "analysis-java.json"
+        run([java, "-Djava.awt.headless=true", f"-Duser.home={home}", f"-Djava.io.tmpdir={home}",
+             "-Xmx256m", "--class-path", java_classpath(manifest, cache), str(ANALYSIS_ORACLE), str(output)])
+        actual = json.loads(output.read_text(encoding="utf-8"))
+    validate_analysis_reference(actual, manifest)
+    location = (ANALYSIS_REFERENCE.relative_to(ROOT).as_posix() if ANALYSIS_REFERENCE.is_relative_to(ROOT)
+                else str(ANALYSIS_REFERENCE))
+    if record:
+        ANALYSIS_REFERENCE.parent.mkdir(parents=True, exist_ok=True)
+        ANALYSIS_REFERENCE.write_text(analysis_reference_text(actual), encoding="utf-8", newline="\n")
+        print(f"analysis-oracle: recorded {len(actual['cases'])} Java Data Tool cases in {location}")
+        return
+    expected = json.loads(ANALYSIS_REFERENCE.read_text(encoding="utf-8"))
+    validate_analysis_reference(expected, manifest)
+    exact = {"relative": 0.0, "absolute": 0.0}
+    compare({key: value for key, value in expected.items() if key != "cases"},
+            {key: value for key, value in actual.items() if key != "cases"}, exact, "analysis-reference")
+    if [case["id"] for case in expected["cases"]] != [case["id"] for case in actual["cases"]]:
+        raise ValueError("analysis-reference: the Java case list differs from the fixture")
+    series = {item["id"]: item for item in expected["series"]}
+    for want, got in zip(expected["cases"], actual["cases"]):
+        compare_analysis_case(want, got, series)
+    print(f"analysis-oracle: {len(actual['cases'])} Java Data Tool cases match {location}")
+
+
 MOTION_REFERENCE = ROOT / "tests/science/motion-reference.json"
 
 

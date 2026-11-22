@@ -2,44 +2,17 @@
 // Control flow, step-size formulas and comparisons follow the Java classes exactly, including
 // their quirks; the deliberate difference (a missing `break` in ODEMultistepSolver.minus) is marked.
 
+#include "science/java_math.hpp"
 #include "science/ode/ode_solvers_internal.hpp"
 
 #include <algorithm>
-#include <bit>
 #include <cmath>
 #include <cstddef>
-#include <cstdint>
 #include <memory>
 #include <utility>
 
 namespace motrack::science::detail
 {
-
-double javaMax(double a, double b) noexcept
-{
-    if (a != a)
-    {
-        return a;
-    }
-    if (a == 0.0 && b == 0.0 && std::bit_cast<std::uint64_t>(a) == std::bit_cast<std::uint64_t>(-0.0))
-    {
-        return b;
-    }
-    return a >= b ? a : b;
-}
-
-double javaMin(double a, double b) noexcept
-{
-    if (a != a)
-    {
-        return a;
-    }
-    if (a == 0.0 && b == 0.0 && std::bit_cast<std::uint64_t>(b) == std::bit_cast<std::uint64_t>(-0.0))
-    {
-        return b;
-    }
-    return a <= b ? a : b;
-}
 
 namespace
 {
@@ -172,7 +145,7 @@ double EmbeddedPairSolver::doStep()
             {
                 truncErr = truncErr + m_StepSize * pair.er[s] * m_K[s][i];
             }
-            error = javaMax(error, std::fabs(truncErr));
+            error = java::max(error, std::fabs(truncErr));
         }
         if (error <= FLOAT_MIN_VALUE)
         {
@@ -183,7 +156,7 @@ double EmbeddedPairSolver::doStep()
         {
             // Shrink, by no more than a factor of ten.
             const double fac = 0.9 * std::pow(error / m_Tol, -0.25);
-            m_StepSize = m_StepSize * javaMax(fac, 0.1);
+            m_StepSize = m_StepSize * java::max(fac, 0.1);
         }
         else if (error < m_Tol / 10.0)
         {
@@ -191,7 +164,7 @@ double EmbeddedPairSolver::doStep()
             const double fac = 0.9 * std::pow(error / m_Tol, -0.2);
             if (fac > 1)
             {
-                m_StepSize = m_StepSize * javaMin(fac, 10);
+                m_StepSize = m_StepSize * java::min(fac, 10);
             }
         }
     } while (error > m_Tol && iterations > 0);
@@ -242,11 +215,11 @@ void Rk45MultiStepSolver::setStepSize(double stepSize)
     m_FixedStepSize = stepSize;
     if (stepSize < 0)
     {
-        DormandPrince45Solver::setStepSize(javaMax(-std::fabs(DormandPrince45Solver::stepSize()), stepSize));
+        DormandPrince45Solver::setStepSize(java::max(-std::fabs(DormandPrince45Solver::stepSize()), stepSize));
     }
     else
     {
-        DormandPrince45Solver::setStepSize(javaMin(DormandPrince45Solver::stepSize(), stepSize));
+        DormandPrince45Solver::setStepSize(java::min(DormandPrince45Solver::stepSize(), stepSize));
     }
     // OSP then overwrites the adaptive step with the full interval.
     DormandPrince45Solver::setStepSize(stepSize);
@@ -414,11 +387,11 @@ void MultistepSolver::setStepSize(double stepSize)
     m_FixedStepSize = stepSize;
     if (stepSize < 0)
     {
-        m_Engine->setStepSize(javaMax(-std::fabs(m_Engine->stepSize()), stepSize));
+        m_Engine->setStepSize(java::max(-std::fabs(m_Engine->stepSize()), stepSize));
     }
     else
     {
-        m_Engine->setStepSize(javaMin(m_Engine->stepSize(), stepSize));
+        m_Engine->setStepSize(java::min(m_Engine->stepSize(), stepSize));
     }
 }
 

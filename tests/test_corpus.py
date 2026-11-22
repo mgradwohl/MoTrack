@@ -4003,6 +4003,183 @@ class OdeOracleTests(unittest.TestCase):
                 corpus.validate_ode_reference(document, self.manifest)
 
 
+class AnalysisOracleTests(unittest.TestCase):
+    """The Data Tool analysis oracle (tools/reference/AnalysisOracle.java) without running Java."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name).resolve()
+        self.manifest = corpus.load_manifest()
+        self.fixture = json.loads(corpus.ANALYSIS_REFERENCE.read_text(encoding="utf-8"))
+
+    def check(self, document, *, record=False, commands=None):
+        """Run check_analysis_oracle with a fake Java process that emits `document`."""
+        def run(command):
+            if commands is not None:
+                commands.append(command)
+            Path(command[-1]).write_text(json.dumps(document), encoding="utf-8")
+
+        with patch.object(corpus, "verify_file") as verify, patch.object(corpus, "run", side_effect=run), \
+                redirect_stdout(io.StringIO()) as output:
+            corpus.check_analysis_oracle(self.manifest, self.root, "java", record=record)
+        verify.assert_called_once_with(self.root / self.manifest["reference"]["file"], self.manifest["reference"])
+        return output.getvalue()
+
+    def case(self, document, case_id):
+        return next(case for case in document["cases"] if case["id"] == case_id)
+
+    def test_committed_fixture_covers_every_kind_in_its_canonical_layout(self):
+        corpus.validate_analysis_reference(self.fixture, self.manifest)
+        self.assertEqual({case["kind"] for case in self.fixture["cases"]}, set(corpus.ANALYSIS_KINDS))
+        self.assertEqual(self.fixture["osp_commit"], "d56207b0ae737458a31365d368f1c28e4bd3202a")
+        columns = {column["id"] for column in self.fixture["columns"]}
+        self.assertTrue({"textbook", "constant-tenth", "offset-1e8", "most-negative", "overflowing-sum"} <= columns)
+        series = {item["id"] for item in self.fixture["series"]}
+        self.assertTrue({"parabola", "x-gaps", "infinite-y", "nyquist-16", "mod4-30", "noise-22", "same-x-8"} <= series)
+        self.assertEqual(corpus.ANALYSIS_REFERENCE.read_bytes().decode("utf-8"), corpus.analysis_reference_text(self.fixture))
+        self.assertLess(corpus.ANALYSIS_REFERENCE.stat().st_size, 256 * 1024)
+
+    def test_fixture_records_the_reference_defects_it_documents(self):
+        # The one-pass standard deviation, the folded Nyquist term, the FFTReal unpacking and the
+        # Dataset.append tail are visible in the committed Java output.
+        self.assertEqual(self.case(self.fixture, "statistics/offset-1e8")["sd"], 0.0)
+        self.assertGreater(self.case(self.fixture, "statistics/constant-tenth")["sd"], 0.0)
+        self.assertEqual(self.case(self.fixture, "statistics/most-negative")["max"], "NaN")
+        nyquist = self.case(self.fixture, "fourier/nyquist-16")["spectrum"]
+        self.assertEqual(nyquist["rows"], 8)
+        self.assertAlmostEqual(nyquist["sine"][0], 0.5, places=12)
+        mod4 = self.case(self.fixture, "fourier/mod4-30")["spectrum"]
+        self.assertGreater(abs(mod4["power"][7] - 1.0), 0.5)
+        working = self.case(self.fixture, "plot/x-gaps")["working"]["x"]
+        self.assertEqual(working[-2:], working[-4:-2])
+        area = self.case(self.fixture, "function-area/2/-3.0,5.0/40.0")
+        self.assertLess(area["area"], 32.0 - 0.05)
+
+    def test_check_runs_the_pinned_jar_privately_and_accepts_an_identical_regeneration(self):
+        commands = []
+        count = len(self.fixture["cases"])
+        self.assertIn(f"{count} Java Data Tool cases match tests/science/analysis-reference.json",
+                      self.check(self.fixture, commands=commands))
+        [command] = commands
+        self.assertEqual(command[0], "java")
+        self.assertIn("-Djava.awt.headless=true", command)
+        self.assertIn("-Xmx256m", command)
+        self.assertEqual(command[command.index("--class-path") + 1], str(self.root / self.manifest["reference"]["file"]))
+        self.assertEqual(Path(command[-2]), corpus.ROOT / "tools/reference/AnalysisOracle.java")
+        home = next(arg for arg in command if arg.startswith("-Duser.home=")).split("=", 1)[1]
+        self.assertFalse(Path(home).is_relative_to(self.root))
+        self.assertFalse(Path(home).exists())
+
+    def test_transform_values_allow_last_bit_differences_and_nothing_else_does(self):
+        document = copy.deepcopy(self.fixture)
+        fft = self.case(document, "fft-complex/7")
+        fft["output"][3] = math.nextafter(math.nextafter(fft["output"][3], math.inf), math.inf)
+        spectrum = self.case(document, "fourier/sine-64")["spectrum"]
+        spectrum["cosine"][4] = math.nextafter(spectrum["cosine"][4], -math.inf)
+        spectrum["power"][8] = math.nextafter(spectrum["power"][8], math.inf)
+        self.check(document)
+        document = copy.deepcopy(self.fixture)
+        mean = self.case(document, "statistics/noise")
+        mean["mean"] = math.nextafter(mean["mean"], math.inf)
+        with self.assertRaisesRegex(ValueError, "statistics/noise"):
+            self.check(document)
+
+    def test_check_rejects_numerical_count_and_missing_value_drift(self):
+        def mutate(document, mutation):
+            if mutation == "sd":
+                case = self.case(document, "statistics/textbook")
+                case["sd"] = math.nextafter(case["sd"], 0.0)
+            elif mutation == "count":
+                self.case(document, "statistics/gaps")["count"] += 1
+            elif mutation == "area":
+                case = self.case(document, "area/parabola/0.0,2.0")
+                case["area"] = math.nextafter(case["area"], math.inf)
+            elif mutation == "slope":
+                case = self.case(document, "measure/line/3")
+                case["slope"] = math.nextafter(case["slope"], math.inf)
+            elif mutation == "nearest":
+                self.case(document, "nearest/parabola/0.73/0.0,2.0")["index"] = 8
+            elif mutation == "exception":
+                self.case(document, "nearest/empty/0.0/0.0,1.0")["index"] = -1
+            elif mutation == "frequency":
+                spectrum = self.case(document, "fourier/shifted-60")["spectrum"]
+                spectrum["frequency"][5] = math.nextafter(spectrum["frequency"][5], math.inf)
+            elif mutation == "power":
+                spectrum = self.case(document, "fourier/sine-64")["spectrum"]
+                spectrum["power"][8] *= 1 + 1e-9
+            elif mutation == "fft":
+                self.case(document, "fft-real/30")["output"][14] += 1e-9
+            elif mutation == "nan":
+                self.case(document, "fourier/gap-8")["spectrum"]["cosine"][1] = 0.0
+            elif mutation == "working":
+                self.case(document, "plot/x-gaps")["working"]["x"].pop()
+            elif mutation == "missing-case":
+                document["cases"].pop()
+            elif mutation == "series":
+                document["series"][0]["y"][3] = math.nextafter(document["series"][0]["y"][3], math.inf)
+            else:
+                document["osp_commit"] = "swingJS"
+
+        for mutation in ["sd", "count", "area", "slope", "nearest", "exception", "frequency", "power", "fft", "nan",
+                         "working", "missing-case", "series", "commit"]:
+            document = copy.deepcopy(self.fixture)
+            mutate(document, mutation)
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                self.check(document)
+
+    def test_record_writes_the_canonical_fixture_only_when_requested(self):
+        destination = self.root / "science" / "analysis-reference.json"
+        with patch.object(corpus, "ANALYSIS_REFERENCE", destination):
+            self.assertIn(f"recorded {len(self.fixture['cases'])}", self.check(self.fixture, record=True))
+        self.assertEqual(destination.read_bytes(), corpus.analysis_reference_text(self.fixture).encode("utf-8"))
+        with patch.object(sys, "argv", ["corpus.py", "session", "--record"]), \
+                patch.object(corpus, "check_sessions") as sessions, self.assertRaises(SystemExit), \
+                patch("sys.stderr", new_callable=io.StringIO):
+            corpus.main()
+        sessions.assert_not_called()
+        with patch.object(sys, "argv", ["corpus.py", "analysis-oracle", "--java", "jdk/java", "--record"]), \
+                patch.object(corpus, "check_analysis_oracle") as oracle:
+            corpus.main()
+        oracle.assert_called_once()
+        self.assertEqual(oracle.call_args.args[2], "jdk/java")
+        self.assertTrue(oracle.call_args.kwargs["record"])
+
+    def test_validation_rejects_malformed_or_incomplete_documents(self):
+        for mutation in ["version", "schema", "commit", "no-cases", "duplicate-case", "unknown-kind", "unknown-series",
+                         "unknown-column", "uncovered-kind", "duplicate-series", "no-columns", "not-object", "too-many"]:
+            document = copy.deepcopy(self.fixture)
+            if mutation == "version":
+                document["reference_version"] = "6.3.4"
+            elif mutation == "schema":
+                document["schema_version"] = 2
+            elif mutation == "commit":
+                del document["osp_commit"]
+            elif mutation == "no-cases":
+                document["cases"] = []
+            elif mutation == "duplicate-case":
+                document["cases"].append(document["cases"][0])
+            elif mutation == "unknown-kind":
+                document["cases"][0]["kind"] = "histogram"
+            elif mutation == "unknown-series":
+                self.case(document, "area/line/0.0,2.0")["series"] = "pendulum"
+            elif mutation == "unknown-column":
+                document["cases"][0]["column"] = "pressure"
+            elif mutation == "uncovered-kind":
+                document["cases"] = [case for case in document["cases"] if case["kind"] != "column"]
+            elif mutation == "duplicate-series":
+                document["series"].append(document["series"][0])
+            elif mutation == "no-columns":
+                document["columns"] = []
+            elif mutation == "too-many":
+                document["cases"] = [dict(document["cases"][0], id=f"statistics/{index}")
+                                     for index in range(corpus.MAX_ANALYSIS_CASES + 1)]
+            else:
+                document["cases"][0] = "case"
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                corpus.validate_analysis_reference(document, self.manifest)
+
+
 
 class MotionOracleTests(unittest.TestCase):
     """The motion kernel oracle (tools/reference/MotionOracle.java) without running Java."""

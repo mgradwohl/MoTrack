@@ -52,6 +52,10 @@ jobs:
         if: runner.os == 'Linux'
         run: python tools/corpus.py motion-oracle --java "$JAVA_HOME_17_X64/bin/java"
       - uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
+      - name: Check Data Tool analysis kernel reference
+        if: runner.os == 'Linux'
+        run: python tools/corpus.py analysis-oracle --java "$JAVA_HOME_17_X64/bin/java"
+      - uses: jurplel/install-qt-action@v4
         with:
           version: ${{ env.MOTRACK_QT_VERSION }}
           # Its own setup-python (">=3.14.0") would replace the pinned Python on PATH for every later step.
@@ -210,6 +214,13 @@ jobs:
         run: |
           java_home="${JAVA_HOME_17_arm64:-$(/usr/libexec/java_home -v 17)}"
           python tools/corpus.py ode-oracle --java "$java_home/bin/java"
+      - name: Check Data Tool analysis kernel reference with arm64 Java
+        # HotSpot on arm64 may round Math.sin/cos differently; the FFT tolerance must cover it.
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          java_home="${JAVA_HOME_17_arm64:-$(/usr/libexec/java_home -v 17)}"
+          python tools/corpus.py analysis-oracle --java "$java_home/bin/java"
       - name: Check edited Tracker round trip
         if: runner.os == 'Linux'
         shell: bash
