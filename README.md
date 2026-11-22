@@ -25,7 +25,7 @@ it is not shipped with MoTrack or used to read and write experiments.
 
 ### Build the prototype
 
-Run the setup script after cloning. It installs build tools through the platform package manager, installs Qt, FFmpeg, and libarchive in the checkout's ignored `.dev-tools` directory, and builds and tests the app.
+Run the setup script after cloning. It installs the [pinned toolchain](CONTRIBUTING.md#pinned-toolchain) that CI uses (LLVM 23, with Apple Clang as the macOS compiler) through the platform package manager, installs Qt, FFmpeg, and libarchive in the checkout's ignored `.dev-tools` directory, checks the result, and builds and tests the app. Add `-DryRun` or `--dry-run` to see what it would install first.
 
 **Windows x64** (PowerShell with WinGet available)
 

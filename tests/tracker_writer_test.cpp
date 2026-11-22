@@ -745,10 +745,7 @@ TEST(TrackerWriter, RefusesUnsafeMovingMovieCalibrationBeforeReplacingOutput)
         [](auto& calibration) { calibration.keyframes.pop_back(); },
         [](auto& calibration) { calibration.fixedOrigin = true; },
         [](auto& calibration) { calibration.keyframes.back().scaleX = 0; },
-        [](auto& calibration)
-        {
-            calibration.keyframes.back().angleDegrees = std::numeric_limits<double>::infinity();
-        }};
+        [](auto& calibration) { calibration.keyframes.back().angleDegrees = std::numeric_limits<double>::infinity(); }};
     for (const auto& change : invalid)
     {
         auto document = original;
@@ -1515,10 +1512,7 @@ TEST(TrackerWriter, RejectsUnsupportedOrInvalidEditsBeforeReplacingTheDestinatio
         [](auto& project) { project.description = "edited"; },
         [](auto& project) { project.calibration = motrack::Calibration{}; },
         [](auto& project) { project.pointMasses[0].mass = std::numeric_limits<double>::quiet_NaN(); },
-        [](auto& project)
-        {
-            project.pointMasses[0].mass = 0;
-        }};
+        [](auto& project) { project.pointMasses[0].mass = 0; }};
     for (const auto& change : changes)
     {
         auto project = imported.project;
@@ -1877,10 +1871,7 @@ TEST(TrackerWriter, RejectsMalformedOrCustomPointMassNumberFormats)
         [](auto& formats) { formats.firstChildElement().nextSiblingElement().firstChild().setNodeValue("invalid["); },
         [](auto& formats) { formats.firstChildElement().nextSiblingElement().firstChild().setNodeValue("0\n"); },
         [](auto& formats) { formats.firstChildElement().nextSiblingElement().firstChild().setNodeValue("0.0000"); },
-        [](auto& formats)
-        {
-            formats.lastChildElement().previousSiblingElement().firstChild().setNodeValue("frame");
-        }};
+        [](auto& formats) { formats.lastChildElement().previousSiblingElement().firstChild().setNodeValue("frame"); }};
     QTemporaryDir temporary;
     const auto destination = temporary.filePath("existing.trk");
     auto valid = motrack::parseTrackerProject(original);
@@ -2210,10 +2201,7 @@ TEST(TrackerWriter, CreationDoesNotAuthorizeInvalidMarksOrMedia)
              [](auto& project) { project.pointMasses.back().marks = {{.frame = 500001, .x = 1, .y = 2}}; },
              [](auto& project) { project.pointMasses.back().marks = {{.frame = 1, .x = std::numeric_limits<double>::infinity(), .y = 2}}; },
              [](auto& project) { project.pointMasses.back().mass = 0; },
-             [](auto& project)
-             {
-                 project.clip.mediaReferences.push_back("movie.mp4");
-             }})
+             [](auto& project) { project.clip.mediaReferences.push_back("movie.mp4"); }})
     {
         auto project = imported.project;
         motrack::TrackEdits edits;
@@ -4767,9 +4755,7 @@ TEST(TrackerWriter, RejectsUnsupportedOrUnstableCalibrationKeysWithoutReplacingF
         [](auto& value)
         { value.keyframes[1] = {.frame = 4, .originX = 13.5, .originY = 17.25, .angleDegrees = 45, .scaleX = 1e-100, .scaleY = 2e-100}; },
         [](auto& value)
-        {
-            value.keyframes[1] = {.frame = 4, .originX = 16, .originY = 16, .angleDegrees = 0, .scaleX = 1e-100, .scaleY = 2e-100};
-        }};
+        { value.keyframes[1] = {.frame = 4, .originX = 16, .originY = 16, .angleDegrees = 0, .scaleX = 1e-100, .scaleY = 2e-100}; }};
     for (const auto& change : changes)
     {
         motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
