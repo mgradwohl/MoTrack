@@ -373,11 +373,13 @@ TEST(DependencyGraph, RefusesSelfOwnFacetChainAndDiamondCyclesWithTheirPath)
                                 {.from = data(1), .to = geometry(1), .dependency = std::nullopt}}));
     EXPECT_EQ(motrack::model::describeCycle(graph, ownData.error().cycle),
               "'track 1' #1 geometry -[references-data-of 3]-> 'track 1' #1 data -[own geometry]-> 'track 1' #1 geometry");
-    // A definition reading its own geometry closes the implicit geometry-on-definition edge.
-    const auto ownGeometry = graph.addDependency(definition(1), on(geometry(1), DependencyKind::ReferencesDataOf, 4));
-    ASSERT_FALSE(ownGeometry);
-    EXPECT_EQ(motrack::model::describeCycle(graph, ownGeometry.error().cycle),
-              "'track 1' #1 definition -[references-data-of 4]-> 'track 1' #1 geometry -[own definition]-> 'track 1' #1 definition");
+    // A definition may read only other definitions, so no input inherits a frame dependency.
+    EXPECT_EQ(graph.addDependency(definition(1), on(geometry(1), DependencyKind::ReferencesDataOf, 4)).error().code,
+              DependencyErrorCode::InvalidDependency);
+    EXPECT_EQ(graph.addDependency(definition(1), on(data(2), DependencyKind::FunctionOf)).error().code,
+              DependencyErrorCode::InvalidDependency);
+    depend(graph, definition(1), definition(2), DependencyKind::FunctionOf);
+    ASSERT_TRUE(graph.removeDependency(key(definition(1), DependencyKind::FunctionOf)));
     // Data reading its own geometry explicitly is not a cycle.
     depend(graph, data(1), geometry(1), DependencyKind::ReferencesDataOf);
     ASSERT_TRUE(graph.removeDependency(key(data(1), DependencyKind::ReferencesDataOf)));
@@ -741,6 +743,9 @@ TEST(DependencyGraph, RestoreValidatesFabricatedRecords)
     auto unknown = removed;
     unknown.geometryDependencies.push_back(on(geometry(77)));
     EXPECT_EQ(graph.restoreObject(unknown).error().code, DependencyErrorCode::UnknownObject);
+    auto readsGeometry = removed;
+    readsGeometry.definitionDependencies = {on(geometry(2))};
+    EXPECT_EQ(graph.restoreObject(readsGeometry).error().code, DependencyErrorCode::InvalidDependency);
     auto duplicate = removed;
     duplicate.definitionDependencies = {on(definition(2)), on(definition(2))};
     EXPECT_EQ(graph.restoreObject(duplicate).error().code, DependencyErrorCode::DuplicateDependency);
@@ -955,8 +960,8 @@ TEST(DependencyGraph, TenThousandObjectGraphsStayBoundedAndIterative)
 
     // Closing the chain is refused with the full path, found without recursion.
     const auto cycle = graph.cycleIfAdded(geometry(1), on(geometry(COUNT), DependencyKind::AttachedTo));
-    ASSERT_TRUE(cycle);
-    EXPECT_EQ(cycle.value().edges.size(), COUNT);
+    ASSERT_TRUE(cycle.has_value());
+    EXPECT_EQ(cycle.value_or(Cycle{}).edges.size(), COUNT); // value_or: clang-tidy 18 ignores ASSERT_TRUE as a check.
 
     // Changing the leaf invalidates only the leaf; changing the root invalidates everything after it.
     auto revision = graph.revision();

@@ -23,13 +23,16 @@ evaluation of any dependent track and is not evidence of Tracker parity.
   it is absent for an object without a readable name.
 - **Nodes** are the three facets of each live object:
   - `Definition`: inputs that do not depend on coordinates, such as mass, model parameters and initial
-    values, and function expressions.
+    values, and function expressions. A Definition may read only other Definitions; the graph refuses any
+    other dependency, so no later reader of an input inherits a frame dependency.
   - `Geometry`: image-space geometry in pixels, such as marks, attached end points, model, center-of-mass
     and sum positions, and coordinate transforms. It implicitly depends on its own Definition.
   - `Data`: world-space values in calibrated units, such as data columns and evaluated functions. It
     implicitly depends on its own Geometry.
 
-  Reading a target's Geometry therefore also reads its Definition. With fewer facets, ordinary workflows
+  Reading a target's Geometry therefore also reads its Definition. This is conservative: a mass edit also
+  invalidates the object's own positions and, through any frame on it, all world data, even where no
+  position changes. With fewer facets, ordinary workflows
   would look like cycles. Tracker's
   [ReferenceFrame](https://github.com/OpenSourcePhysics/tracker/blob/34b1b503f6cb55bee031d64ea916bf4f3262504d/src/org/opensourcephysics/cabrillo/tracker/ReferenceFrame.java#L180-L210)
   follows its origin's image positions, while every track's world data, including the origin's, is
@@ -202,6 +205,10 @@ known-defect cases with independent expected values before claiming round trips.
   edges. Inside a two-body system, the system reads each member's Definition and booster. Boosting a
   member from another member of the same system is then a real cycle, which Tracker's booster list also
   excludes. Booster and system cycles from files are reported instead of recursing.
+- **C4/C5 compatibility case: a frame on a two-body system member.** The system computes its members in
+  the active frame, so MoTrack reports a frame on a member as a cycle and blocks the system. Tracker applies
+  its default-frame rule only to the object that computes, through `isUseDefaultReferenceFrame`. C4 and C5
+  must record Tracker's actual result in an application case and resolve the difference before claiming parity.
 - **C8, data functions.** Expressions refer to columns, parameters and functions by identity
   (`FunctionOf`/`ReferencesDataOf`). The K1 parser's referenced-variable list supplies the edges.
 - **Evaluators** process `planSince(lastRevision)` in order. They key each cached result by node and

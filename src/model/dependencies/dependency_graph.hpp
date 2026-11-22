@@ -41,7 +41,7 @@ struct Revision
 enum class Facet : std::uint8_t
 {
     /// Inputs that do not depend on coordinates: mass, model parameters and initial values, and function
-    /// expressions.
+    /// expressions. A Definition may depend only on other Definitions.
     Definition,
     /// Image-space geometry in pixels: marks, attached end points, model, center and sum positions, and
     /// coordinate transforms.
@@ -167,7 +167,7 @@ enum class DependencyErrorCode : std::uint8_t
     DuplicateObject,         ///< The identity is already live.
     IdentityReused,          ///< The identity belongs to a removed object; only restoreObject may bring it back.
     UnknownObject,           ///< The identity is not live (or, for restoreObject and targets, was never in the graph).
-    InvalidDependency,       ///< The target, binding and candidates fields disagree (see Dependency).
+    InvalidDependency,       ///< The target, binding and candidates disagree, or a Definition reads a later facet.
     DuplicateDependency,     ///< The owner already has a dependency with this kind and slot.
     UnknownDependency,       ///< The owner has no dependency with this kind and slot.
     CycleRejected,           ///< The edit would close a cycle; DependencyError::cycle is its path.
@@ -381,8 +381,8 @@ class DependencyGraph // NOLINT(bugprone-exception-escape)
     DependencyResult<> retireIdentity(ObjectId id);
     /// Changes the label only. No reference follows or loses a name, and no node is invalidated.
     DependencyResult<> renameObject(ObjectId id, std::string label);
-    /// Adds a dependency to a live owner. A bound target must be live, removed or retired (never unknown),
-    /// and a target that is not live leaves the new reference dangling. With CyclePolicy::Reject, a cycle is
+    /// Adds a dependency to a live owner. A Definition owner may target only Definition facets. A bound target must be live, removed or
+    /// retired (never unknown), and a target that is not live leaves the new reference dangling. With CyclePolicy::Reject, a cycle is
     /// refused; undoing removeDependency uses CyclePolicy::Record.
     DependencyResult<> addDependency(NodeKey owner, Dependency dependency, CyclePolicy policy = CyclePolicy::Reject);
     /// Removes and returns a dependency, for an explicit and reversible edit.

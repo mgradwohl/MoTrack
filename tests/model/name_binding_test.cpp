@@ -160,21 +160,24 @@ TEST(NameBinding, ChargesCandidateVisitsBeforeFilteringAndRefusesWhenExhausted)
 TEST(NameBinding, MakesBoundOrUnboundDependenciesAndNoneForEmptySlots)
 {
     EXPECT_FALSE(makeDependency(DependencyKind::AttachedTo, 1, Facet::Geometry, "", binding(BindingOutcome::NoTarget)));
-    const auto bound = makeDependency(
+    // value_or rather than value() after ASSERT_TRUE: clang-tidy 18 does not treat the assertion as a check.
+    const auto boundResult = makeDependency(
         DependencyKind::BoosterOf, 0, Facet::Data, "mass A", binding(BindingOutcome::Unique, {id(4)}), MissingTarget::FallsBack);
-    ASSERT_TRUE(bound);
+    ASSERT_TRUE(boundResult.has_value());
+    const auto bound = boundResult.value_or(Dependency{});
     auto expected = boundDependency(DependencyKind::BoosterOf, 0, id(4), Facet::Data, MissingTarget::FallsBack);
     expected.savedName = "mass A";
-    EXPECT_EQ(bound.value(), expected);
-    const auto ambiguous =
+    EXPECT_EQ(bound, expected);
+    const auto ambiguousResult =
         makeDependency(DependencyKind::MemberOf, 3, Facet::Geometry, "twin", binding(BindingOutcome::Ambiguous, {id(2), id(3)}));
-    ASSERT_TRUE(ambiguous);
-    EXPECT_FALSE(ambiguous.value().target);
-    EXPECT_EQ(ambiguous.value().slot, 3u);
-    EXPECT_EQ(ambiguous.value().savedName, "twin");
-    EXPECT_EQ(ambiguous.value().binding, BindingOutcome::Ambiguous);
-    EXPECT_EQ(ambiguous.value().candidates, (std::vector<ObjectId>{id(2), id(3)}));
-    EXPECT_EQ(ambiguous.value().onMissing, MissingTarget::Blocks);
+    ASSERT_TRUE(ambiguousResult.has_value());
+    const auto ambiguous = ambiguousResult.value_or(Dependency{});
+    EXPECT_FALSE(ambiguous.target);
+    EXPECT_EQ(ambiguous.slot, 3u);
+    EXPECT_EQ(ambiguous.savedName, "twin");
+    EXPECT_EQ(ambiguous.binding, BindingOutcome::Ambiguous);
+    EXPECT_EQ(ambiguous.candidates, (std::vector<ObjectId>{id(2), id(3)}));
+    EXPECT_EQ(ambiguous.onMissing, MissingTarget::Blocks);
 
     // Both kinds are accepted by the graph as they come from a load.
     DependencyGraph graph;
@@ -182,13 +185,14 @@ TEST(NameBinding, MakesBoundOrUnboundDependenciesAndNoneForEmptySlots)
     {
         ASSERT_TRUE(graph.addObject(id(value), ObjectInfo{.label = "x", .className = POINT_MASS}));
     }
-    ASSERT_TRUE(graph.addDependency({.object = id(1), .facet = Facet::Geometry}, bound.value()));
-    ASSERT_TRUE(graph.addDependency({.object = id(1), .facet = Facet::Geometry}, ambiguous.value()));
+    ASSERT_TRUE(graph.addDependency({.object = id(1), .facet = Facet::Geometry}, bound));
+    ASSERT_TRUE(graph.addDependency({.object = id(1), .facet = Facet::Geometry}, ambiguous));
     // A malformed Unique binding without its target stays unbound, and the graph refuses it.
-    const auto malformed = makeDependency(DependencyKind::MemberOf, 9, Facet::Geometry, "x", binding(BindingOutcome::Unique));
-    ASSERT_TRUE(malformed);
-    EXPECT_FALSE(malformed.value().target);
-    EXPECT_EQ(graph.addDependency({.object = id(1), .facet = Facet::Geometry}, malformed.value()).error().code,
+    const auto malformedResult = makeDependency(DependencyKind::MemberOf, 9, Facet::Geometry, "x", binding(BindingOutcome::Unique));
+    ASSERT_TRUE(malformedResult.has_value());
+    const auto malformed = malformedResult.value_or(boundDependency(DependencyKind::MemberOf, 0, id(1), Facet::Geometry));
+    EXPECT_FALSE(malformed.target);
+    EXPECT_EQ(graph.addDependency({.object = id(1), .facet = Facet::Geometry}, malformed).error().code,
               DependencyErrorCode::InvalidDependency);
 }
 

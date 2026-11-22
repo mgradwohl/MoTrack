@@ -120,7 +120,7 @@ std::string_view errorMessage(DependencyErrorCode code) noexcept
     case DependencyErrorCode::UnknownObject:
         return "The object is not in the dependency graph.";
     case DependencyErrorCode::InvalidDependency:
-        return "The dependency's target and name binding are inconsistent.";
+        return "The dependency's target and name binding are inconsistent, or a definition reads a later facet.";
     case DependencyErrorCode::DuplicateDependency:
         return "The owner already has a dependency in this slot.";
     case DependencyErrorCode::UnknownDependency:
@@ -223,7 +223,10 @@ std::optional<DependencyError> DependencyGraph::validate(NodeKey owner, const De
         dependency.target ? dependency.target->isValid() && dependency.binding == BindingOutcome::Unique && dependency.candidates.empty()
                           : dependency.binding == BindingOutcome::Ambiguous || dependency.binding == BindingOutcome::Missing ||
                                 dependency.binding == BindingOutcome::Unclassified;
-    if (!consistent)
+    // A Definition holds coordinate-independent inputs, so it may read only other Definitions; otherwise a
+    // later reader of the input would silently inherit a frame dependency.
+    const bool inputOnly = owner.facet != Facet::Definition || dependency.targetFacet == Facet::Definition;
+    if (!consistent || !inputOnly)
     {
         return failure(DependencyErrorCode::InvalidDependency, owner.object);
     }
