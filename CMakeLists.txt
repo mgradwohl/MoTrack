@@ -43,6 +43,10 @@ include(cmake/MoTrackTextEncoding.cmake)
 add_library(motrack_expression STATIC src/science/decimal_conversion.cpp src/science/expression.cpp src/science/java_math.cpp)
 target_include_directories(motrack_expression PUBLIC src)
 
+# Qt-free dependency evaluation core for dependent Tracker objects (docs/dependency-graph.md).
+add_library(motrack_dependencies STATIC src/model/dependencies/dependency_graph.cpp src/model/dependencies/name_binding.cpp)
+target_include_directories(motrack_dependencies PUBLIC src)
+
 add_library(motrack_project STATIC src/archive_group.cpp src/archive_group_session.cpp src/document_session.cpp src/legacy_project.cpp src/local_media_path.cpp src/paired_save.cpp src/save_state.cpp src/save_observation.cpp src/measurements.cpp src/track_edits.cpp src/track_identity.cpp
     src/tracker_archive.cpp src/tracker_archive_writer.cpp src/tracker_references.cpp src/tracker_rename.cpp src/tracker_writer.cpp src/workspace_document.cpp src/workspace_session.cpp src/workspace_storage.cpp)
 target_include_directories(motrack_project PUBLIC src)
@@ -136,7 +140,7 @@ if(MOTRACK_STAGE_DESKTOP)
     install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/motrack)
 endif()
 
-set(motrack_targets motrack_expression motrack_ode motrack_project motrack_input motrack_image_package motrack_media motrack_workspace motrack_locale motrack)
+set(motrack_targets motrack_dependencies motrack_expression motrack_ode motrack_project motrack_input motrack_image_package motrack_media motrack_workspace motrack_locale motrack)
 if(MOTRACK_BUILD_BENCHMARKS)
     add_executable(motrack_import_benchmark benchmarks/import_benchmark.cpp)
     target_link_libraries(motrack_import_benchmark PRIVATE motrack_project)
@@ -197,8 +201,8 @@ if(BUILD_TESTING)
     add_executable(motrack_tests tests/workspace_session_test.cpp tests/archive_group_session_test.cpp tests/archive_group_save_test.cpp tests/archive_group_test.cpp tests/paired_save_test.cpp tests/legacy_project_test.cpp tests/measurements_test.cpp tests/track_edits_test.cpp
         tests/tracker_archive_test.cpp tests/tracker_archive_writer_test.cpp tests/tracker_image_package_test.cpp tests/tracker_movie_package_test.cpp tests/tracker_references_test.cpp tests/tracker_writer_test.cpp
         tests/science/decimal_conversion_test.cpp tests/science/expression_reference_test.cpp tests/science/expression_test.cpp tests/science/java_math_test.cpp
-        tests/science/ode_solver_test.cpp)
-    target_link_libraries(motrack_tests PRIVATE motrack_project motrack_expression motrack_ode motrack_image_package GTest::gtest_main motrack_archive Qt6::Xml Qt6::Gui)
+        tests/science/ode_solver_test.cpp tests/model/dependency_graph_test.cpp tests/model/name_binding_test.cpp)
+    target_link_libraries(motrack_tests PRIVATE motrack_project motrack_dependencies motrack_expression motrack_ode motrack_image_package GTest::gtest_main motrack_archive Qt6::Xml Qt6::Gui)
     target_compile_definitions(motrack_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
         MOTRACK_EXPRESSION_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/expression-reference.json"
