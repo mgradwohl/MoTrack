@@ -134,6 +134,8 @@ python tools/corpus.py check --probe build/coverage/motrack_corpus_probe
 python tools/corpus.py reference --java /path/to/jdk-17/bin/java
 python tools/corpus.py session --java /path/to/jdk-17/bin/java
 python tools/corpus.py roundtrip --probe build/coverage/motrack_corpus_probe --java /path/to/jdk-17/bin/java
+python tools/corpus.py state-oracle --java /path/to/jdk-17/bin/java
+python tools/corpus.py state-check --probe build/coverage/motrack_corpus_probe
 python tools/corpus.py expression-oracle --java /path/to/jdk-17/bin/java
 python tools/corpus.py xml-oracle --probe build/coverage/motrack_corpus_probe --java /path/to/jdk-17/bin/java
 python tools/corpus.py ode-oracle --java /path/to/jdk-17/bin/java
@@ -149,6 +151,12 @@ python -m unittest discover -s tests -p test_corpus.py
 
 `filter-oracle` runs the pinned OSP [video filters](../../docs/video-filters.md) on synthetic frames and compares
 the result with `tests/science/video-filter-reference.json` exactly; `--record` replaces the fixture for review.
+
+`state-oracle` dumps every case as Tracker's application loader leaves it (Linux with Xvfb) and diffs the
+committed [loaded-state dumps](state) and the [known-defect registry](known-defects.json); `state-check`
+compares MoTrack's modeled subset with those dumps on any platform without Java and requires its gaps to equal
+the committed [gap baseline](state-gaps.json). The
+[oracle-dump guide](../../docs/oracle-dumps.md) defines the schema, tolerances, registry and gaps.
 
 `expression-oracle` is a kernel oracle rather than a corpus case: it reruns
 [`ExpressionOracle.java`](../../tools/reference/ExpressionOracle.java) with the pinned JAR in a temporary

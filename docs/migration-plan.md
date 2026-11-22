@@ -248,7 +248,7 @@ Tracker is used as a **loader** oracle, and preservation is checked against MoTr
 | O7 | For objects MoTrack *creates*, and only for the properties Tracker models, the XML equals what Tracker writes for the same object (fixpoint). Edited existing objects are covered by O8 instead. |
 | O8 | After any edit, every node outside the edit set re-renders byte-identical and re-parses equal to the source, including content Tracker ignores; the edited nodes decode to the intended values. |
 
-A known-defect registry records where Tracker is wrong (#63, #64, #140, #146) instead of accepting its output.
+A [known-defect registry](oracle-dumps.md#known-defect-registry) records where Tracker is wrong (#63, #64, #140, #146, #209) instead of accepting its output.
 Entries are keyed per corpus case and object (or per case for whole-file failures such as #140), carry the
 upstream issue and an independent expected value, and require MoTrack to equal that value. An entry fails when
 Tracker stops deviating, so stale entries surface when the reference is re-pinned; no entry waives a property

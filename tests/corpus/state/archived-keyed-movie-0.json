@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "producer": {"kind":"tracker","version":"6.3.5","loading":"tracker_session","view_preparation":"expand_visit_custom_tables_bounded_restore_selection"},
+  "panel": {
+    "units": {"length":"m","mass":"kg","time":"s","angles_in_radians":false},
+    "selected_track": "movie mass",
+    "properties": {"@class":"org.opensourcephysics.cabrillo.tracker.TrackerPanel","width":32.0,"height":24.0,"videoclip":{"@class":"org.opensourcephysics.media.core.VideoClip","video":{"@class":"org.opensourcephysics.media.xuggle.XuggleVideo","path":"$INPUT_DIR/archived-keyed-movie-0.trz!/constant-rate.mov","start_times":{"@array":"[D","items":[0.0,125.0,250.0,375.0]},"duration":0.5,"frame_count":4,"frame_rate":8,"platform":"Java"},"video_framecount":4,"startframe":0,"stepsize":1,"stepcount":4,"starttime":-250.0,"readout":"frame","playallsteps":true},"clipcontrol":{"@class":"org.opensourcephysics.media.core.StepperClipControl","rate":1.0,"delta_t":125.0},"coords":{"@class":"org.opensourcephysics.media.core.ImageCoordSystem","fixedorigin":false,"fixedangle":false,"fixedscale":false,"locked":false,"framedata":{"@array":"[Lorg.opensourcephysics.media.core.ImageCoordSystem$FrameData;","items":[{"@class":"org.opensourcephysics.media.core.ImageCoordSystem$FrameData","xorigin":2.0,"yorigin":20.0,"angle":0.0,"xscale":2.0,"yscale":4.0},null,{"@class":"org.opensourcephysics.media.core.ImageCoordSystem$FrameData","xorigin":10.0,"yorigin":18.0,"angle":90.0,"xscale":4.0,"yscale":8.0}]}},"time_unit":"s","length_unit":"m","mass_unit":"kg","radians":false,"units_visible":true,"selectedtrack":"movie mass"},
+    "clip": {
+      "first_frame": 0,
+      "step_size": 1,
+      "step_count": 4,
+      "end_frame": 3,
+      "frame_count": 4,
+      "frame_shift": 0,
+      "extra_frames": 0,
+      "start_time_ms": -250.0,
+      "frame_duration_ms": 125.0,
+      "rate": 1.0,
+      "looping": false,
+      "steps": [
+        [0,0,-250.0],
+        [1,1,-125.0],
+        [2,2,0.0],
+        [3,3,125.0]
+      ]
+    },
+    "video": {"class":"org.opensourcephysics.media.xuggle.XuggleVideo","frame_count":4,"start_frame":0,"end_frame":3,"frame_times_ms":[0.0,125.0,250.0,375.0],"filters":[]},
+    "coords": {
+      "class": "org.opensourcephysics.media.core.ImageCoordSystem",
+      "fixed_origin": false,
+      "fixed_angle": false,
+      "fixed_scale": false,
+      "locked": false,
+      "key_frames": [0,2],
+      "frames": [
+        [0,2.0,20.0,0.0,2.0,4.0,[0.5,0.0,0.0,-0.25,-1.0,5.0]],
+        [1,2.0,20.0,0.0,2.0,4.0,[0.5,0.0,0.0,-0.25,-1.0,5.0]],
+        [2,10.0,18.0,1.5707963267948966,4.0,8.0,[1.5308084989341915e-17,-0.25,-0.125,-7.654042494670958e-18,2.25,2.5]],
+        [3,10.0,18.0,1.5707963267948966,4.0,8.0,[1.5308084989341915e-17,-0.25,-0.125,-7.654042494670958e-18,2.25,2.5]],
+        [4,10.0,18.0,1.5707963267948966,4.0,8.0,[1.5308084989341915e-17,-0.25,-0.125,-7.654042494670958e-18,2.25,2.5]],
+        [5,10.0,18.0,1.5707963267948966,4.0,8.0,[1.5308084989341915e-17,-0.25,-0.125,-7.654042494670958e-18,2.25,2.5]],
+        [6,10.0,18.0,1.5707963267948966,4.0,8.0,[1.5308084989341915e-17,-0.25,-0.125,-7.654042494670958e-18,2.25,2.5]],
+        [7,10.0,18.0,1.5707963267948966,4.0,8.0,[1.5308084989341915e-17,-0.25,-0.125,-7.654042494670958e-18,2.25,2.5]],
+        [8,10.0,18.0,1.5707963267948966,4.0,8.0,[1.5308084989341915e-17,-0.25,-0.125,-7.654042494670958e-18,2.25,2.5]],
+        [9,10.0,18.0,1.5707963267948966,4.0,8.0,[1.5308084989341915e-17,-0.25,-0.125,-7.654042494670958e-18,2.25,2.5]]
+      ]
+    },
+    "tracks": [
+      {
+        "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+        "name": "axes",
+        "properties": {"name":"axes","color":{"@class":"java.awt.Color","red":200,"green":0,"blue":200,"alpha":255},"footprint":"Footprint.BoldSimpleAxes","visible":true,"trail":false},
+        "steps": [],
+        "data": {
+          "columns": [],
+          "constants": {},
+          "rows": []
+        }
+      },
+      {
+        "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+        "name": "movie mass",
+        "properties": {"mass":2.0,"name":"movie mass","color":{"@class":"java.awt.Color","red":0,"green":0,"blue":0,"alpha":255},"footprint":"Footprint.Diamond","visible":true,"trail":true,"framedata":{"@array":"[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;","items":[{"@class":"org.opensourcephysics.cabrillo.tracker.PointMass$FrameData","x":4.0,"y":16.0},{"@class":"org.opensourcephysics.cabrillo.tracker.PointMass$FrameData","x":4.0,"y":16.0},{"@class":"org.opensourcephysics.cabrillo.tracker.PointMass$FrameData","x":4.0,"y":16.0},{"@class":"org.opensourcephysics.cabrillo.tracker.PointMass$FrameData","x":4.0,"y":16.0}]},"keyFrames":{"@array":"[I","items":[0,1,2,3]}},
+        "steps": [
+          {"frame":0,"position":[4.0,16.0]},
+          {"frame":1,"position":[4.0,16.0]},
+          {"frame":2,"position":[4.0,16.0]},
+          {"frame":3,"position":[4.0,16.0]}
+        ],
+        "data": {
+          "columns": [{"name":"t","dimensions":"T"},{"name":"x","dimensions":"L"},{"name":"y","dimensions":"L"},{"name":"r","dimensions":"L"},{"name":"θ_{r}","dimensions":"A"},{"name":"v_{x}","dimensions":"L/T"},{"name":"v_{y}","dimensions":"L/T"},{"name":"v","dimensions":"L/T"},{"name":"θ_{v}","dimensions":"A"},{"name":"a_{x}","dimensions":"L/TT"},{"name":"a_{y}","dimensions":"L/TT"},{"name":"a","dimensions":"L/TT"},{"name":"θ_{a}","dimensions":"A"},{"name":"θ","dimensions":"A"},{"name":"ω","dimensions":"A/T"},{"name":"α","dimensions":"A/TT"},{"name":"step","dimensions":"I"},{"name":"frame","dimensions":"I"},{"name":"p_{x}","dimensions":"ML/T"},{"name":"p_{y}","dimensions":"ML/T"},{"name":"p","dimensions":"ML/T"},{"name":"θ_{p}","dimensions":"A"},{"name":"pixel_{x}","dimensions":"P"},{"name":"pixel_{y}","dimensions":"P"},{"name":"L","dimensions":"L"},{"name":"K","dimensions":"MLL/TT"}],
+          "constants": {"m":2.0},
+          "rows": [
+            [-0.25,1.0,1.0,1.4142135623730951,0.7853981633974483,"NaN","NaN","NaN","NaN","NaN","NaN","NaN","NaN",0.7853981633974483,"NaN","NaN",0.0,0.0,"NaN","NaN","NaN","NaN",4.0,16.0,0.0,"NaN"],
+            [-0.125,1.0,1.0,1.4142135623730951,0.7853981633974483,-3.0,2.0,3.605551275463989,2.5535900500422257,"NaN","NaN","NaN","NaN",0.7853981633974483,2.4809979439312855,"NaN",1.0,1.0,-6.0,4.0,7.211102550927978,5.1071801000844514,4.0,16.0,0.0,13.0],
+            [0.0,0.25,1.4999999999999998,1.5206906325745548,1.4056476493802696,-3.0,1.999999999999999,3.6055512754639887,2.553590050042226,"NaN","NaN","NaN","NaN",1.4056476493802696,2.4809979439312855,"NaN",2.0,2.0,-6.0,3.999999999999998,7.211102550927977,5.107180100084452,4.0,16.0,0.9013878188659972,12.999999999999996],
+            [0.125,0.25,1.4999999999999998,1.5206906325745548,1.4056476493802696,"NaN","NaN","NaN","NaN","NaN","NaN","NaN","NaN",1.4056476493802696,"NaN","NaN",3.0,3.0,"NaN","NaN","NaN","NaN",4.0,16.0,0.9013878188659972,"NaN"]
+          ]
+        }
+      }
+    ],
+    "views": {"tables":[],"plots":[]}
+  }
+}
