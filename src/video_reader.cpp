@@ -1,5 +1,6 @@
 #include "video_reader.hpp"
 
+#include "video_reader_detail.hpp"
 #include "workspace_document.hpp"
 
 #include <QDateTime>
@@ -22,8 +23,10 @@ extern "C" {
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 
 namespace motrack
@@ -141,7 +144,101 @@ std::int64_t seekBytes(void* opaque, std::int64_t offset, int whence)
     return file.seek(offset) ? offset : AVERROR(EIO);
 }
 
+struct FreeBuffer
+{
+    void operator()(std::uint8_t* data) const
+    {
+        av_free(data);
+    }
+};
+
+void freeImageBuffer(void* data)
+{
+    av_free(data);
+}
+
 } // namespace
+
+namespace detail
+{
+
+std::optional<RgbaLayout> paddedRgbaLayout(int width, int height)
+{
+    constexpr std::int64_t RGBA_BYTES = 4;
+    constexpr std::int64_t ALIGNMENT = 64;
+    if (width <= 0 || height <= 0)
+    {
+        return std::nullopt;
+    }
+    const auto stride = (width * RGBA_BYTES + ALIGNMENT - 1) / ALIGNMENT * ALIGNMENT;
+    if (stride > std::numeric_limits<int>::max())
+    {
+        return std::nullopt;
+    }
+    return RgbaLayout{.stride = static_cast<int>(stride), .bytes = static_cast<std::size_t>(stride * height + ALIGNMENT)};
+}
+
+void RgbaFrameConverter::FreeScale::operator()(SwsContext* context) const
+{
+    sws_freeContext(context);
+}
+
+void RgbaFrameConverter::convertInto(const AVFrame& frame, std::span<std::uint8_t> destination)
+{
+    const auto layout = paddedRgbaLayout(frame.width, frame.height);
+    if (!layout)
+    {
+        throw VideoError("The video frame dimensions are unsupported.");
+    }
+    if (destination.size() < layout->bytes)
+    {
+        throw VideoError("The converted video frame buffer is too small.");
+    }
+    m_Scale.reset(sws_getCachedContext(m_Scale.release(),
+                                       frame.width,
+                                       frame.height,
+                                       static_cast<AVPixelFormat>(frame.format),
+                                       frame.width,
+                                       frame.height,
+                                       AV_PIX_FMT_RGBA,
+                                       SWS_BILINEAR,
+                                       nullptr,
+                                       nullptr,
+                                       nullptr));
+    if (!m_Scale)
+    {
+        throw VideoError("Could not allocate the converted video frame.");
+    }
+    const std::array<std::uint8_t*, 4> planes{destination.data(), nullptr, nullptr, nullptr};
+    const std::array<int, 4> strides{layout->stride, 0, 0, 0};
+    requireSuccess(sws_scale(m_Scale.get(), frame.data, frame.linesize, 0, frame.height, planes.data(), strides.data()),
+                   "Could not convert the video frame");
+}
+
+QImage RgbaFrameConverter::convert(const AVFrame& frame)
+{
+    const auto layout = paddedRgbaLayout(frame.width, frame.height);
+    if (!layout)
+    {
+        throw VideoError("The video frame dimensions are unsupported.");
+    }
+    std::unique_ptr<std::uint8_t, FreeBuffer> buffer(static_cast<std::uint8_t*>(av_malloc(layout->bytes)));
+    if (!buffer)
+    {
+        throw VideoError("Could not allocate the converted video frame.");
+    }
+    convertInto(frame, {buffer.get(), layout->bytes});
+    // Never let swscale write into a QImage allocation: Qt adds no row padding or spare bytes.
+    QImage image(buffer.get(), frame.width, frame.height, layout->stride, QImage::Format_RGBA8888, freeImageBuffer, buffer.get());
+    if (image.isNull())
+    {
+        throw VideoError("Could not allocate the converted video frame.");
+    }
+    std::ignore = buffer.release(); // The last copy of the image frees the buffer.
+    return image;
+}
+
+} // namespace detail
 
 struct VideoReader::Impl
 {
@@ -238,27 +335,7 @@ struct VideoReader::Impl
         {
             throw VideoError("The video frame dimensions are unsupported.");
         }
-        QImage image(width, height, QImage::Format_RGBA8888);
-        scale.reset(sws_getCachedContext(scale.release(),
-                                         width,
-                                         height,
-                                         static_cast<AVPixelFormat>(decoded->format),
-                                         width,
-                                         height,
-                                         AV_PIX_FMT_RGBA,
-                                         SWS_BILINEAR,
-                                         nullptr,
-                                         nullptr,
-                                         nullptr));
-        if (image.isNull() || !scale)
-        {
-            throw VideoError("Could not allocate the converted video frame.");
-        }
-        const std::array<std::uint8_t*, 4> destination{image.bits(), nullptr, nullptr, nullptr};
-        const std::array<int, 4> strides{static_cast<int>(image.bytesPerLine()), 0, 0, 0};
-        requireSuccess(sws_scale(scale.get(), decoded->data, decoded->linesize, 0, height, destination.data(), strides.data()),
-                       "Could not convert the video frame");
-
+        auto image = converter.convert(*decoded);
         if (!orientation)
         {
             return image;
@@ -287,7 +364,7 @@ struct VideoReader::Impl
     std::unique_ptr<AVCodecContext, FreeCodec> codec;
     std::unique_ptr<AVPacket, FreePacket> packet{av_packet_alloc()};
     std::unique_ptr<AVFrame, FreeFrame> decoded{av_frame_alloc()};
-    std::unique_ptr<SwsContext, decltype(&sws_freeContext)> scale{nullptr, &sws_freeContext};
+    detail::RgbaFrameConverter converter;
     AVRational timeBase{};
     std::optional<QTransform> orientation;
     int streamIndex = -1;
