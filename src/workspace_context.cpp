@@ -10,6 +10,10 @@
 
 namespace motrack
 {
+namespace
+{
+constexpr qsizetype MAX_PENDING_INPUTS = 2;
+} // namespace
 
 WorkspaceContext::WorkspaceContext(std::shared_ptr<WorkspaceServices> services)
     : m_Services(services ? std::move(services) : std::make_shared<WorkspaceServices>()),
@@ -48,8 +52,7 @@ std::optional<QUuid> WorkspaceContext::openMediaFile(const QString& path, Worksp
 std::optional<QUuid> WorkspaceContext::beginOpen(std::function<PreparedWorkspaceInput(const std::atomic_bool*)> prepare,
                                                  WorkspaceActivation activation)
 {
-    constexpr qsizetype MAX_PENDING_INPUTS = 2;
-    if (m_Opening.size() >= MAX_PENDING_INPUTS)
+    if (!canOpen())
         return std::nullopt;
     const auto request = QUuid::createUuid();
     const auto cancelled = std::make_shared<std::atomic_bool>(false);
@@ -131,6 +134,11 @@ bool WorkspaceContext::cancelOpen(QUuid request)
         return false;
     (*found)->store(true);
     return true;
+}
+
+bool WorkspaceContext::canOpen() const
+{
+    return m_Opening.size() < MAX_PENDING_INPUTS;
 }
 
 WorkspaceSession& WorkspaceContext::session()

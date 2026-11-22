@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- shared-mime-info types for the files the staged MoTrack desktop entry opens. Globs are case-insensitive. -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-tracker-project">
+    <comment>Tracker experiment</comment>
+    <sub-class-of type="application/xml"/>
+    <glob pattern="*.trk"/>
+  </mime-type>
+  <mime-type type="application/x-tracker-archive">
+    <comment>Tracker experiment archive</comment>
+    <sub-class-of type="application/zip"/>
+    <glob pattern="*.trz"/>
+  </mime-type>
+  <mime-type type="application/x-motrack-project">
+    <comment>MoTrack project</comment>
+    <glob pattern="*.motrack"/>
+  </mime-type>
+</mime-info>

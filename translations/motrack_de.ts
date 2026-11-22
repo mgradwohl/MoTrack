@@ -214,6 +214,84 @@
 <context>
     <name>motrack::WorkspaceWindow</name>
     <message>
+        <source>%1 could not be opened: %2</source>
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">%1 konnte nicht geöffnet werden: %2</translation>
+    </message>
+    <message>
+        <source>%1 is not a local file. Download it, then open the downloaded copy.</source>
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">%1 ist keine lokale Datei. Laden Sie sie herunter und öffnen Sie dann die heruntergeladene Kopie.</translation>
+    </message>
+    <message>
+        <source>%1 was not found.</source>
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">%1 wurde nicht gefunden.</translation>
+    </message>
+    <message>
+        <source>%1 is a folder. Use Open images… to choose its images.</source>
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">%1 ist ein Ordner. Wählen Sie seine Bilder mit „Bilder öffnen…“ aus.</translation>
+    </message>
+    <message>
+        <source>Open files</source>
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Dateien öffnen</translation>
+    </message>
+    <message>
+        <source>Only local files can be dropped here. Download a linked file first.</source>
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Hier können nur lokale Dateien abgelegt werden. Laden Sie eine verlinkte Datei zuerst herunter.</translation>
+    </message>
+    <message numerus="yes">
+        <source>Opening was canceled; %n remaining file(s) were not opened.</source>
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">
+            <numerusform>Öffnen abgebrochen; %n verbleibende Datei wurde nicht geöffnet.</numerusform>
+            <numerusform>Öffnen abgebrochen; %n verbleibende Dateien wurden nicht geöffnet.</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Only %n files can be requested at a time; the others were not opened.</source>
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">
+            <numerusform>Es kann nur %n Datei auf einmal angefordert werden; die anderen wurden nicht geöffnet.</numerusform>
+            <numerusform>Es können nur %n Dateien auf einmal angefordert werden; die anderen wurden nicht geöffnet.</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>…and %n more problem(s).</source>
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">
+            <numerusform>…und %n weiteres Problem.</numerusform>
+            <numerusform>…und %n weitere Probleme.</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Drop to open %n file(s)</source>
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">
+            <numerusform>Ablegen, um %n Datei zu öffnen</numerusform>
+            <numerusform>Ablegen, um %n Dateien zu öffnen</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n link(s) to files that are not local will be skipped.</source>
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">
+            <numerusform>%n Link auf nicht lokale Dateien wird übersprungen.</numerusform>
+            <numerusform>%n Links auf nicht lokale Dateien werden übersprungen.</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Closing the window stopped %n requested file(s) from opening.</source>
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">
+            <numerusform>Durch das Schließen des Fensters wurde %n angeforderte Datei nicht geöffnet.</numerusform>
+            <numerusform>Durch das Schließen des Fensters wurden %n angeforderte Dateien nicht geöffnet.</numerusform>
+        </translation>
+    </message>
+    <message>
         <source>Open a project, video, or image sequence to begin.</source>
         <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
         <translation type="unfinished">Öffnen Sie zum Beginnen ein Projekt, ein Video oder eine Bildfolge.</translation>
@@ -673,6 +751,16 @@
     <message>
         <source>%1: listed more than once, so one of its entries was removed.</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Some requested files could not be opened, or opened with limits.</source>
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Einige angeforderte Dateien konnten nicht oder nur eingeschränkt geöffnet werden.</translation>
+    </message>
+    <message>
+        <source>Some requested files opened with limits.</source>
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Einige angeforderte Dateien wurden nur eingeschränkt geöffnet.</translation>
     </message>
 </context>
 
