@@ -62,7 +62,7 @@ template <typename T, typename E> class Expected
     {}
 
     template <typename U = T>
-        requires(std::is_constructible_v<T, U &&> && !std::is_same_v<std::remove_cvref_t<U>, Expected> &&
+        requires(std::is_constructible_v<T, U&&> && !std::is_same_v<std::remove_cvref_t<U>, Expected> &&
                  !IS_UNEXPECTED<std::remove_cvref_t<U>> && !std::is_same_v<std::remove_cvref_t<U>, std::in_place_t>)
     constexpr Expected(U&& value) : m_Storage(std::in_place_index<0>, std::forward<U>(value))
     {}

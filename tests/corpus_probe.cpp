@@ -37,14 +37,13 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
-#include <iterator>
 #include <initializer_list>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <numbers>
 #include <optional>
 #include <string>
-#include <string_view>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -1519,9 +1518,9 @@ try
     const bool flagged = references || timing || state;
     if (args.size() != 3 && !flagged)
     {
-        std::fputs(
-            "Usage: motrack_corpus_probe [--references|--timing|--state|--osp-dump] input.trk output.json | --export-<case> input.trk output.trk\n",
-            stderr);
+        std::fputs("Usage: motrack_corpus_probe [--references|--timing|--state|--osp-dump] input.trk output.json | --export-<case> "
+                   "input.trk output.trk\n",
+                   stderr);
         return 1;
     }
     const auto& inputArgument = args[flagged ? 2 : 1];
