@@ -12,7 +12,7 @@ Checks: >
   -portability-avoid-pragma-once
 WarningsAsErrors: '*'
 SystemHeaders: false
-HeaderFilterRegex: '(^|[/\\])(src|tests)([/\\]science)?[/\\][^/\\]+\.(h|hpp)$'
+HeaderFilterRegex: '(^|[/\\])(src|tests)[/\\]([a-z_]+[/\\]){0,2}[^/\\]+\.(h|hpp)$'
 FormatStyle: file
 CheckOptions:
   readability-identifier-naming.ClassCase: CamelCase
