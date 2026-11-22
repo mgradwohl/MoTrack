@@ -3914,8 +3914,11 @@ def check_state_oracle(manifest, cache, java, *, record=False):
                 dumps[case["id"]], errors[case["id"]] = STATE_LOAD_FAILURE, str(error)
                 if case["id"] in whole_file:
                     # Show the dumper's own failure line, so a changed cause is visible in the log.
-                    cause = [line.strip() for line in str(error).splitlines() if "waiting=" in line or "Exception" in line]
+                    lines = [line.strip() for line in str(error).splitlines()]
+                    cause = [line for line in lines if "waiting=" in line or "Exception" in line]
+                    frames = [line for line in lines if "org.opensourcephysics." in line][:12]
                     print(f"{case['id']}: Tracker load failed (whole-file known defect): {' | '.join(cause[:2])[:400]}")
+                    print(f"{case['id']}: Tracker frames at the failure: " + " | ".join(frames)[:2000])
                 else:
                     failures.append(f"{case['id']}: Tracker state dump failed: {str(error)[-3000:]}")
                 continue
