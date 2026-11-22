@@ -277,15 +277,17 @@ std::map<std::string, OdeSolverKind> solverIds()
 /// IEEE 754 makes every value identical: they must match exactly. The adaptive solvers also call
 /// Math.pow for the step-size factor. Neither HotSpot's x86-64 intrinsic nor the C++ libraries
 /// round it correctly in every case (about 0.07% of inputs differ by one ulp between Java and the
-/// Windows runtime), and HotSpot on arm64 uses fdlibm instead, so no implementation can match
-/// Java's last bit everywhere. On a non-stiff system that perturbation stays near 1e-16; a relative
-/// 1e-12 tolerance (absolute 1e-13 near zero, against O(1) trajectories) leaves four orders of
-/// margin and still rejects a wrong coefficient, formula or branch, whose effects appear at the
-/// truncation-error level (>= 1e-10 here). On the stiff system the controller holds h at the
-/// stability limit, where the error estimate varies like (h lambda)^5 and feeds back into h; on
-/// Windows it amplified one-ulp differences to 7e-9 relative in a step size (1e-13 absolute on a
-/// decayed component), so that class allows 1e-6 relative (1e-10 absolute). Integer data (step counts, rate evaluations and error
-/// codes, i.e. the accept/reject sequence) must match exactly in every case.
+/// Windows runtime), and HotSpot on arm64 uses fdlibm instead (about 10% differ), so no
+/// implementation can match Java's last bit everywhere. The step-size controller feeds each
+/// difference forward: with fdlibm (HotSpot with its libm intrinsics disabled) the worst non-stiff
+/// case, a Kepler periapsis at tolerance 1e-6, moved by 4e-10 relative and a near-zero component
+/// by 1.4e-13 absolute. Non-stiff adaptive cases therefore allow 1e-8 relative (1e-11 absolute,
+/// against O(1) trajectories): a 25x margin that still rejects a wrong coefficient, formula or
+/// branch, whose effects appear at the truncation-error level of the 1e-6 cases (>= 1e-7). On the
+/// stiff system the controller holds h at the stability limit, where the error estimate varies
+/// like (h lambda)^5; one-ulp differences grew to 2e-8 relative there (2e-11 absolute on a decayed
+/// component), so that class allows 1e-6 relative (1e-10 absolute). Integer data (step counts, rate evaluations and error codes, i.e.
+/// the accept/reject sequence) must match exactly in every case.
 struct Agreement
 {
     double relative = 0;
@@ -298,7 +300,7 @@ Agreement agreement(OdeSolverKind kind, std::string_view system)
     {
         return {};
     }
-    return system == "stiff" ? Agreement{.relative = 1e-6, .absolute = 1e-10} : Agreement{.relative = 1e-12, .absolute = 1e-13};
+    return system == "stiff" ? Agreement{.relative = 1e-6, .absolute = 1e-10} : Agreement{.relative = 1e-8, .absolute = 1e-11};
 }
 
 bool agrees(double expected, double actual, Agreement tolerance)
@@ -320,8 +322,25 @@ bool agrees(double expected, double actual, Agreement tolerance)
 }
 
 /// Adams6 differs from Java after its five Fehlberg8 starting steps because MoTrack corrects the
-/// predictor weights (docs/ode-solvers.md); its state is compared only for the starting steps.
+/// predictor weights (MoTrack #178); its state is compared only for the starting steps.
 constexpr int ADAMS6_STARTING_STEPS = 5;
+
+/// OSP's ODEMultistepSolver.minus() keeps stepping after a failure while MoTrack stops (MoTrack
+/// #179), so this case has its own test instead of the generic comparison.
+constexpr std::string_view BACKWARD_MULTISTEP_FAILURE = "oscillator/multistep/backward-too-many-substeps";
+
+/// The fixture case with this id, or an empty object.
+QJsonObject referenceCase(std::string_view id)
+{
+    for (const auto& value : reference()[QStringLiteral("cases")].toArray())
+    {
+        if (text(value.toObject()[QStringLiteral("id")]) == id)
+        {
+            return value.toObject();
+        }
+    }
+    return {};
+}
 
 TEST(OdeOracle, FixtureDescribesEverySolverAndTrackerDefaults)
 {
@@ -337,7 +356,10 @@ TEST(OdeOracle, FixtureDescribesEverySolverAndTrackerDefaults)
         const auto solver = value.toObject();
         const auto className = text(solver[QStringLiteral("class")]);
         const auto kind = motrack::science::odeSolverFromClassName(className);
-        ASSERT_TRUE(kind) << className;
+        if (!kind)
+        {
+            FAIL() << "Unknown solver class " << className;
+        }
         EXPECT_EQ(motrack::science::odeSolverClassName(*kind), className);
         EXPECT_EQ(motrack::science::isAdaptiveOdeSolver(*kind), solver[QStringLiteral("adaptive")].toBool()) << className;
         const auto factory = solver[QStringLiteral("factory")];
@@ -348,14 +370,15 @@ TEST(OdeOracle, FixtureDescribesEverySolverAndTrackerDefaults)
         }
         else
         {
-            ASSERT_TRUE(expectedFactory) << className;
-            EXPECT_EQ(*expectedFactory, text(factory));
+            EXPECT_EQ(expectedFactory, text(factory)) << className;
             EXPECT_EQ(motrack::science::odeSolverFromFactoryName(text(factory)), kind);
         }
     }
 
-    // Read from the pinned ModelBuilder and ParticleModel classes by the oracle.
+    // Read from the pinned ModelBuilder, ParticleModel and DynamicParticle classes by the oracle.
     const auto tracker = document[QStringLiteral("tracker")].toObject();
+    EXPECT_EQ(text(tracker[QStringLiteral("default_solver")]),
+              motrack::science::odeSolverClassName(motrack::science::TRACKER_DEFAULT_ODE_SOLVER));
     const auto builder = tracker[QStringLiteral("model_builder_solvers")].toArray();
     ASSERT_EQ(static_cast<std::size_t>(builder.size()), motrack::science::TRACKER_MODEL_BUILDER_SOLVERS.size());
     for (std::size_t index = 0; index < motrack::science::TRACKER_MODEL_BUILDER_SOLVERS.size(); ++index)
@@ -366,6 +389,7 @@ TEST(OdeOracle, FixtureDescribesEverySolverAndTrackerDefaults)
     EXPECT_EQ(motrack::science::TRACKER_MODEL_BUILDER_SOLVERS.front(), motrack::science::TRACKER_DEFAULT_ODE_SOLVER);
     // Tracker steps the solver 10 times per trace point and draws 10 trace points per clip step.
     EXPECT_EQ(tracker[QStringLiteral("trace_points_per_step")].toInt(), 10);
+    EXPECT_EQ(tracker[QStringLiteral("iterations_per_step")].toInt(), 10);
 
     for (const auto& value : document[QStringLiteral("systems")].toArray())
     {
@@ -397,6 +421,10 @@ TEST(OdeOracle, EverySolverReproducesTheJavaTrajectories)
         ASSERT_NE(found, ids.end());
         const auto kind = found->second;
         ++casesPerSolver[kind];
+        if (id == BACKWARD_MULTISTEP_FAILURE)
+        {
+            continue;
+        }
         const auto system = text(test[QStringLiteral("system")]);
         const auto tolerance = agreement(kind, system);
         auto solver = makeSolver(kind, system);
@@ -469,18 +497,11 @@ TEST(OdeOracle, EverySolverReproducesTheJavaTrajectories)
 
 TEST(OdeOracle, OspAdams6PredictorDefectIsReplacedBySixthOrderAccuracy)
 {
-    // Independent check of the deliberate difference: OSP's Adams6 is far less accurate than its
-    // own Fehlberg8 starter, while MoTrack's corrected predictor is accurate to roundoff here.
-    std::optional<QJsonObject> javaCase;
-    for (const auto& value : reference()[QStringLiteral("cases")].toArray())
-    {
-        if (text(value.toObject()[QStringLiteral("id")]) == "oscillator/adams6/h=0.01")
-        {
-            javaCase = value.toObject();
-        }
-    }
-    ASSERT_TRUE(javaCase);
-    const auto last = (*javaCase)[QStringLiteral("checkpoints")].toArray().last().toObject();
+    // Independent check of the deliberate difference (MoTrack #178): OSP's Adams6 is far less
+    // accurate than its own Fehlberg8 starter, while the corrected predictor is accurate here.
+    const auto javaCase = referenceCase("oscillator/adams6/h=0.01");
+    ASSERT_FALSE(javaCase.isEmpty());
+    const auto last = javaCase[QStringLiteral("checkpoints")].toArray().last().toObject();
     const auto javaState = numbers(last[QStringLiteral("state")]);
     const std::vector exact{oscillatorX(2.0), oscillatorV(2.0)};
     const double javaError = maxStateError(std::span(javaState).first(2), exact);
@@ -492,6 +513,35 @@ TEST(OdeOracle, OspAdams6PredictorDefectIsReplacedBySixthOrderAccuracy)
     EXPECT_GT(javaError, 1e-6);
     EXPECT_LT(nativeError, 1e-11);
     EXPECT_GT(javaError, 1e4 * nativeError);
+}
+
+TEST(OdeOracle, BackwardMultistepFailureStopsWhereOspContinues)
+{
+    // A backward interval of 10 at tolerance 1e-10 needs more than 200 substeps. OSP's
+    // ODEMultistepSolver.minus() has no break (MoTrack #179): it reports DID_NOT_CONVERGE and,
+    // because this engine keeps progressing, still finishes the whole interval. When the engine
+    // cannot progress it never returns. MoTrack stops at the failure, like OSP's own plus() and
+    // RK45MultiStep.minus(), and returns the partial interval.
+    const auto javaCase = referenceCase(BACKWARD_MULTISTEP_FAILURE);
+    ASSERT_FALSE(javaCase.isEmpty());
+    const auto java = javaCase[QStringLiteral("checkpoints")].toArray().first().toObject();
+    EXPECT_EQ(java[QStringLiteral("error_code")].toInt(), motrack::science::OSP_DID_NOT_CONVERGE);
+    EXPECT_NEAR(number(java[QStringLiteral("taken")]), -10.0, 1e-10 * 10.0);
+    const auto javaRates = static_cast<std::uint64_t>(java[QStringLiteral("rates")].toInteger());
+
+    auto solver = makeSolver(OdeSolverKind::Multistep, "oscillator");
+    solver->initialize(-10.0);
+    solver->setTolerance(1e-10);
+    const auto result = solver->step();
+    EXPECT_EQ(result.status, OdeStepStatus::DidNotConverge);
+    EXPECT_EQ(solver->convergenceFailure(), OdeConvergenceFailure::TooManySubsteps);
+    EXPECT_LT(result.stepTaken, 0.0);
+    EXPECT_GT(result.stepTaken, -10.0 / 2);
+    EXPECT_NEAR(solver->state()[2], result.stepTaken, 1e-12);
+    EXPECT_NEAR(solver->state()[0], oscillatorX(solver->state()[2]), 1e-6);
+    EXPECT_LT(solver->rateEvaluations(), javaRates / 2);
+    // OSP's RK45MultiStep.minus() does break; its copy of this case
+    // (oscillator/rk45multistep/backward-too-many-substeps) is compared with the generic cases.
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -673,7 +723,7 @@ TEST(OdeSolverAccuracy, StiffSystemSeparatesStableAdaptiveAndUnstableSteps)
     const auto result = overflow->advance(400);
     EXPECT_EQ(result.status, OdeStepStatus::NonFinite);
     ASSERT_TRUE(result.firstFailure);
-    EXPECT_GT(*result.firstFailure, 300u);
+    EXPECT_GT(result.firstFailure.value_or(0), 300u);
     EXPECT_EQ(result.steps, 400u);
 }
 
@@ -735,6 +785,13 @@ TEST(OdeSolverApi, NamesFollowTheFactoryAndTrackerClassNames)
         ASSERT_TRUE(solver);
         EXPECT_EQ(solver->kind(), kind);
     }
+
+    // A value outside the enumeration (for example a corrupt cast) is rejected without throwing.
+    const auto invalid = static_cast<OdeSolverKind>(motrack::science::ALL_ODE_SOLVER_KINDS.size());
+    EXPECT_TRUE(motrack::science::odeSolverClassName(invalid).empty());
+    EXPECT_FALSE(motrack::science::odeSolverFactoryName(invalid));
+    EXPECT_FALSE(motrack::science::isAdaptiveOdeSolver(invalid));
+    EXPECT_FALSE(motrack::science::makeOdeSolver(invalid, oscillatorRate, std::vector{1.0, 0.0, 0.0}));
 
     auto created = motrack::science::createOdeSolver("  Verlet ", oscillatorRate, std::vector{1.0, 0.0, 0.0});
     ASSERT_TRUE(created);
@@ -808,6 +865,35 @@ TEST(OdeSolverApi, RateEvaluationsFollowEachMethodsStageCount)
     leapFrog->setStepSize(0.02);
     EXPECT_EQ(leapFrog->stepSize(), 0.02);
     EXPECT_EQ(leapFrog->rateEvaluations(), 9u);
+}
+
+TEST(OdeSolverApi, LeapFrogEstimatesItsPriorStateInPlaceLikeOsp)
+{
+    // OSP steps the ODE's own state array back with Verlet and then restores it, so a rate
+    // function that reads the model's state sees the stepped values. MoTrack does the same.
+    const OdeSolver* owner = nullptr;
+    int liveCalls = 0;
+    double secondPosition = 0;
+    auto solver = motrack::science::makeOdeSolver(
+        OdeSolverKind::LeapFrog,
+        [&](std::span<const double> s, std::span<double> r)
+        {
+            if (owner != nullptr && s.data() == owner->state().data())
+            {
+                ++liveCalls;
+                secondPosition = owner->state()[0];
+            }
+            oscillatorRate(s, r);
+        },
+        std::vector{1.0, 0.5, 0.0});
+    owner = solver.get();
+    solver->initialize(0.1);
+    EXPECT_EQ(liveCalls, 2);
+    // The second Verlet rate sees x(-h) = 1 - 0.1 * 0.5 + 0.01 * (-4) / 2, then the state is restored.
+    EXPECT_DOUBLE_EQ(secondPosition, 1.0 + (-0.1 * 0.5 + 0.01 * -4.0 / 2));
+    EXPECT_EQ(solver->state()[0], 1.0);
+    EXPECT_EQ(solver->state()[1], 0.5);
+    EXPECT_EQ(solver->state()[2], 0.0);
 }
 
 TEST(OdeSolverApi, StateWritesKeepHistoryAndResizingReinitializes)
@@ -1110,7 +1196,7 @@ TEST(OdeSolverApi, AdvanceToTakesWholeStepsUntilTheTargetTime)
     result = unstable->advanceTo(40.0);
     EXPECT_EQ(result.status, OdeStepStatus::NonFinite);
     ASSERT_TRUE(result.firstFailure);
-    EXPECT_LT(*result.firstFailure, result.steps);
+    EXPECT_LT(result.firstFailure.value_or(result.steps), result.steps);
 
     // Multistep wrappers land on every interval exactly.
     auto multistep = makeSolver(OdeSolverKind::Multistep, "oscillator");

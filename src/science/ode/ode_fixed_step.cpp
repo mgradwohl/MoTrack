@@ -556,16 +556,17 @@ void LeapFrogSolver::setStepSize(double stepSize)
 
 void LeapFrogSolver::estimatePreviousState()
 {
-    // OSP steps the live state back with a new Verlet solver (fresh zeroed rate arrays), copies it
-    // to priorState and restores the state. Stepping a copy gives the same values.
-    std::ranges::copy(state(), m_PriorState.begin());
+    // Like OSP: save the state, step it back in place with a new Verlet solver (fresh zeroed rate
+    // arrays), copy the result to priorState and restore the state. A rate callback that reads
+    // state() therefore sees the same values as the Java ODE's state array.
+    const auto state = this->state();
+    std::ranges::copy(state, m_CurrentState.begin());
     auto rate1 = zeros(m_NumEqn);
     auto rate2 = zeros(m_NumEqn);
-    verletStep([this](std::span<const double> values, std::span<double> rate) { evaluateRate(values, rate); },
-               m_PriorState,
-               rate1,
-               rate2,
-               -m_StepSize);
+    verletStep(
+        [this](std::span<const double> values, std::span<double> rate) { evaluateRate(values, rate); }, state, rate1, rate2, -m_StepSize);
+    std::ranges::copy(state, m_PriorState.begin());
+    std::ranges::copy(m_CurrentState, state.begin());
 }
 
 double LeapFrogSolver::doStep()

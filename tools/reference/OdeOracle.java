@@ -237,21 +237,31 @@ public final class OdeOracle {
         }
     }
 
-    /** Tracker's own solver list and stepping constants, read from the pinned classes. */
+    /** Tracker's default solver, solver list and stepping constants, read from the pinned classes. */
     private static String trackerDriving() throws ReflectiveOperationException {
-        Class<?> builder = Class.forName("org.opensourcephysics.cabrillo.tracker.ModelBuilder");
+        String tracker = "org.opensourcephysics.cabrillo.tracker.";
+        Class<?> builder = Class.forName(tracker + "ModelBuilder");
         Field names = builder.getDeclaredField("solverClassNames");
         names.setAccessible(true);
         String[] solvers = (String[]) names.get(null);
-        Class<?> model = Class.forName("org.opensourcephysics.cabrillo.tracker.ParticleModel");
+        Class<?> model = Class.forName(tracker + "ParticleModel");
         Field tracePoints = model.getDeclaredField("tracePtsPerStep");
         tracePoints.setAccessible(true);
-        StringBuilder json = new StringBuilder("{\"model_builder_solvers\":[");
+        // A new DynamicParticle (headless, without a TrackerPanel) holds its default solver.
+        Class<?> dynamic = Class.forName(tracker + "DynamicParticle");
+        Object particle = dynamic.getDeclaredConstructor().newInstance();
+        Field solver = dynamic.getDeclaredField("solver");
+        solver.setAccessible(true);
+        Field iterations = dynamic.getDeclaredField("iterationsPerStep");
+        iterations.setAccessible(true);
+        StringBuilder json = new StringBuilder("{\"default_solver\":").append(string(solver.get(particle).getClass().getName()));
+        json.append(",\"model_builder_solvers\":[");
         for (int i = 0; i < solvers.length; i++) {
             if (i > 0) json.append(',');
             json.append(string(solvers[i]));
         }
-        return json.append("],\"trace_points_per_step\":").append(tracePoints.getInt(null)).append('}').toString();
+        return json.append("],\"trace_points_per_step\":").append(tracePoints.getInt(null))
+            .append(",\"iterations_per_step\":").append(iterations.getInt(particle)).append('}').toString();
     }
 
     private static List<CaseSpec> cases() {
@@ -299,6 +309,11 @@ public final class OdeOracle {
             if (solver.multistep()) {
                 // A stiff interval needs more than 200 substeps: DID_NOT_CONVERGE.
                 cases.add(new CaseSpec("stiff", solver.id(), "too-many-substeps", "initialize", 10.0, 1e-6, 2, new int[] {1, 2}));
+                // The same failure backward on a non-stiff interval: RK45MultiStep stops after its 201st
+                // substep, while ODEMultistepSolver.minus() keeps going and finishes the interval
+                // (MoTrack stops there too, MoTrack #179; see tests/science/ode_solver_test.cpp).
+                cases.add(new CaseSpec("oscillator", solver.id(), "backward-too-many-substeps", "initialize", -10.0, 1e-10, 1,
+                    new int[] {1}));
             } else if (!solver.adaptive()) {
                 // An unstable fixed step overflows to infinity and then NaN.
                 cases.add(new CaseSpec("stiff", solver.id(), "unstable", "initialize", 0.1, null, 400, new int[] {1, 400}));

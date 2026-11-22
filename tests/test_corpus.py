@@ -3358,7 +3358,8 @@ class OdeOracleTests(unittest.TestCase):
                 commands.append(command)
             Path(command[-1]).write_text(json.dumps(document), encoding="utf-8")
 
-        with patch.object(corpus, "verify_file") as verify, patch.object(corpus, "run", side_effect=run),                 redirect_stdout(io.StringIO()) as output:
+        with patch.object(corpus, "verify_file") as verify, patch.object(corpus, "run", side_effect=run), \
+                redirect_stdout(io.StringIO()) as output:
             corpus.check_ode_oracle(self.manifest, self.root, "java", record=record)
         verify.assert_called_once_with(self.root / self.manifest["reference"]["file"], self.manifest["reference"])
         return output.getvalue()
@@ -3371,13 +3372,17 @@ class OdeOracleTests(unittest.TestCase):
                                    "RK45MultiStep", "ODEMultistepSolver"})
         self.assertEqual({system["id"] for system in self.fixture["systems"]},
                          {"oscillator", "drag", "kepler", "stiff", "forced", "nan-rate"})
-        self.assertEqual(self.fixture["tracker"]["model_builder_solvers"][0], "org.opensourcephysics.numerics.RK4")
+        tracker = self.fixture["tracker"]
+        self.assertEqual(tracker["default_solver"], "org.opensourcephysics.numerics.RK4")
+        self.assertEqual(tracker["model_builder_solvers"][0], tracker["default_solver"])
+        self.assertEqual((tracker["trace_points_per_step"], tracker["iterations_per_step"]), (10, 10))
         self.assertEqual(corpus.ODE_REFERENCE.read_bytes().decode("utf-8"), corpus.ode_reference_text(self.fixture))
         self.assertLess(corpus.ODE_REFERENCE.stat().st_size, 256 * 1024)
 
     def test_check_runs_the_pinned_jar_privately_and_accepts_an_identical_regeneration(self):
         commands = []
-        self.assertIn("274 Java solver cases match tests/science/ode-reference.json", self.check(self.fixture, commands=commands))
+        self.assertIn(f"{len(self.fixture['cases'])} Java solver cases match tests/science/ode-reference.json",
+                      self.check(self.fixture, commands=commands))
         [command] = commands
         self.assertEqual(command[0], "java")
         self.assertIn("-Djava.awt.headless=true", command)
@@ -3406,7 +3411,7 @@ class OdeOracleTests(unittest.TestCase):
                 point = first(document, lambda case, point: "NaN" in point["state"])
                 point["state"][point["state"].index("NaN")] = 0.0
             elif mutation == "taken":
-                first(document, lambda case, point: case["solver"] == "dormandprince45" and point["n"] > 0)["taken"] *= 1 + 1e-9
+                first(document, lambda case, point: case["solver"] == "dormandprince45" and point["n"] > 0)["taken"] *= 1 + 1e-7
             elif mutation == "missing-case":
                 document["cases"].pop()
             elif mutation == "stiff-state":
@@ -3417,11 +3422,16 @@ class OdeOracleTests(unittest.TestCase):
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
                 self.check(document)
 
-    def test_stiff_adaptive_cases_allow_amplified_last_bit_pow_differences(self):
+    def test_adaptive_cases_allow_amplified_last_bit_pow_differences(self):
+        # Magnitudes observed with fdlibm's pow (HotSpot on arm64): 4e-10 on the Kepler orbit and
+        # up to 6e-9 at the stiff system's stability limit.
         document = copy.deepcopy(self.fixture)
+        kepler = next(point for case in document["cases"] if case["id"] == "kepler/dormandprince45/tol=1.0E-6"
+                      for point in case["checkpoints"] if point["n"] > 1)
+        kepler["taken"] *= 1 + 4e-10
         point = next(point for case in document["cases"] if case["system"] == "stiff" and case["solver"] == "dormandprince45"
                      for point in case["checkpoints"] if point["n"] > 1)
-        point["state"][0] *= 1 + 1e-9
+        point["state"][0] *= 1 + 1e-8
         self.check(document)
         # Fixed-step solvers on the same system must still match to the last bit.
         fixed = next(point for case in document["cases"] if case["system"] == "stiff" and case["solver"] == "rk4"
@@ -3433,12 +3443,15 @@ class OdeOracleTests(unittest.TestCase):
     def test_record_writes_the_canonical_fixture_only_when_requested(self):
         destination = self.root / "science" / "ode-reference.json"
         with patch.object(corpus, "ODE_REFERENCE", destination):
-            self.assertIn("recorded 274", self.check(self.fixture, record=True))
+            self.assertIn(f"recorded {len(self.fixture['cases'])} Java solver cases", self.check(self.fixture, record=True))
         self.assertEqual(destination.read_bytes(), corpus.ode_reference_text(self.fixture).encode("utf-8"))
-        with patch.object(sys, "argv", ["corpus.py", "check", "--probe", "probe", "--record"]),                 patch.object(corpus, "check_cases") as check, self.assertRaises(SystemExit),                 patch("sys.stderr", new_callable=io.StringIO):
+        with patch.object(sys, "argv", ["corpus.py", "check", "--probe", "probe", "--record"]), \
+                patch.object(corpus, "check_cases") as check, self.assertRaises(SystemExit), \
+                patch("sys.stderr", new_callable=io.StringIO):
             corpus.main()
         check.assert_not_called()
-        with patch.object(sys, "argv", ["corpus.py", "ode-oracle", "--java", "jdk/java", "--record"]),                 patch.object(corpus, "check_ode_oracle") as oracle:
+        with patch.object(sys, "argv", ["corpus.py", "ode-oracle", "--java", "jdk/java", "--record"]), \
+                patch.object(corpus, "check_ode_oracle") as oracle:
             corpus.main()
         oracle.assert_called_once()
         self.assertEqual(oracle.call_args.args[2], "jdk/java")

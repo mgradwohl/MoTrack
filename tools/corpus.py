@@ -2843,12 +2843,12 @@ def check_sessions(manifest, cache, java, probe=None):
 
 
 ODE_REFERENCE = ROOT / "tests/science/ode-reference.json"
-# The same agreement classes as tests/science/ode_solver_test.cpp. Fixed-step solvers are pure
-# IEEE arithmetic and must be identical. Adaptive solvers call Math.pow, whose last bit differs
-# between HotSpot's x86-64 intrinsic, its arm64 fdlibm path and C++ libraries; the stiff system
-# holds the step at its stability limit, where the controller amplifies that difference.
+# The same agreement classes as tests/science/ode_solver_test.cpp, which justifies them. Fixed-step
+# solvers are pure IEEE arithmetic and must be identical. Adaptive solvers call Math.pow, whose
+# last bit differs between HotSpot's x86-64 intrinsic, its arm64 fdlibm path and C++ libraries;
+# the step-size controller carries that forward, most strongly at the stiff system's stability limit.
 ODE_EXACT = {"relative": 0.0, "absolute": 0.0}
-ODE_ADAPTIVE_TOLERANCE = {"relative": 1e-12, "absolute": 1e-13}
+ODE_ADAPTIVE_TOLERANCE = {"relative": 1e-8, "absolute": 1e-11}
 ODE_STIFF_ADAPTIVE_TOLERANCE = {"relative": 1e-6, "absolute": 1e-10}
 MAX_ODE_CASES = 1000
 
@@ -2921,6 +2921,12 @@ def check_ode_oracle(manifest, cache, java, *, record=False):
         return
     expected = json.loads(ODE_REFERENCE.read_text(encoding="utf-8"))
     validate_ode_reference(expected, manifest)
+    compare_ode_reference(expected, actual)
+    print(f"ode-oracle: {len(actual['cases'])} Java solver cases match {location}")
+
+
+def compare_ode_reference(expected, actual):
+    """Compare two validated oracle documents with the per-solver agreement classes."""
     compare({key: value for key, value in expected.items() if key != "cases"},
             {key: value for key, value in actual.items() if key != "cases"}, ODE_EXACT, "ode-reference")
     if [case["id"] for case in expected["cases"]] != [case["id"] for case in actual["cases"]]:
@@ -2928,7 +2934,6 @@ def check_ode_oracle(manifest, cache, java, *, record=False):
     adaptive = {solver["id"]: solver["adaptive"] for solver in expected["solvers"]}
     for want, got in zip(expected["cases"], actual["cases"]):
         compare(want, got, ode_case_tolerance(want, adaptive), f"ode-reference.{want['id']}")
-    print(f"ode-oracle: {len(actual['cases'])} Java solver cases match {location}")
 
 
 def main():

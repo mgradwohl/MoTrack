@@ -46,11 +46,15 @@ add_library(motrack_image_package STATIC src/tracker_image_package.cpp)
 target_include_directories(motrack_image_package PUBLIC src)
 target_link_libraries(motrack_image_package PUBLIC motrack_project PRIVATE Qt6::Gui motrack_archive motrack_media)
 
+# Java evaluates a*b+c with two roundings; Clang may otherwise fuse it where FMA exists (arm64).
+# Science kernels checked against OSP/Tracker, and code that computes their callbacks (such as
+# model rate functions), compile with these options so that results match Java bit for bit.
+set(MOTRACK_JAVA_FP_OPTIONS -ffp-contract=off)
+
 # Qt-free ports of the OSP ODE solvers used by Tracker's dynamic models (docs/ode-solvers.md).
 add_library(motrack_ode STATIC src/science/ode/ode_solver.cpp src/science/ode/ode_fixed_step.cpp src/science/ode/ode_adaptive.cpp)
 target_include_directories(motrack_ode PUBLIC src)
-# Java evaluates a*b+c with two roundings; Clang may otherwise fuse it where FMA exists (arm64).
-target_compile_options(motrack_ode PRIVATE -ffp-contract=off)
+target_compile_options(motrack_ode PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
 
 qt_add_executable(motrack src/main.cpp)
 add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp src/movie_worker.cpp src/position_plot.cpp
@@ -151,10 +155,12 @@ if(BUILD_TESTING)
     include(FetchContent)
     set(gtest_force_shared_crt ON CACHE BOOL "Match the application CRT on Windows")
     set(INSTALL_GTEST OFF CACHE BOOL "Build tests without installing GoogleTest")
+    # SYSTEM keeps GoogleTest headers out of MoTrack's warnings and clang-tidy header filter.
     FetchContent_Declare(googletest
         GIT_REPOSITORY https://github.com/google/googletest.git
         GIT_TAG v1.17.0
         GIT_SHALLOW TRUE
+        SYSTEM
     )
     FetchContent_MakeAvailable(googletest)
 
@@ -165,8 +171,8 @@ if(BUILD_TESTING)
     target_compile_definitions(motrack_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
         MOTRACK_ODE_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/ode-reference.json")
-    # The test rate functions must round like the Java oracle's (see motrack_ode above).
-    set_source_files_properties(tests/science/ode_solver_test.cpp PROPERTIES COMPILE_OPTIONS -ffp-contract=off)
+    # The test rate functions must round like the Java oracle's.
+    set_source_files_properties(tests/science/ode_solver_test.cpp PROPERTIES COMPILE_OPTIONS "${MOTRACK_JAVA_FP_OPTIONS}")
     add_test(NAME legacy_project COMMAND motrack_tests)
     add_executable(motrack_corpus_probe tests/corpus_probe.cpp)
     add_dependencies(motrack_tests motrack_corpus_probe)

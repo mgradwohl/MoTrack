@@ -17,14 +17,16 @@ a beep in `DynamicSystem`/`ParticleModel`.
 - The state ends with time, whose rate is 1: `{x, vx, y, vy, t}` for Cartesian and polar particles
   (polar forces are converted to Cartesian), `{x1, vx1, y1, vy1, x2, vx2, y2, vy2, t}` for a
   two-body `DynamicSystem` (`{t}` when empty). Time accumulates by repeated addition of the step.
-- The step is the mean clip-step duration / 100: each of 10 trace points per clip step takes 10
-  solver steps. `reset()` restores the initial state (t0 = start-frame time), calls
-  `initialize(dt)` and takes `(firstFrameInClip - startFrame) * 100 / clipStepSize` steps (integer
-  division) to the first frame in the clip.
-- `refreshSteps()` only advances, from the last computed frame to the current one, saving a copy
-  of the state at every clip step. Moving back reuses computed frames; trimming the end frame
-  restores that frame's saved state into the array without reinitializing the solver. Parameter
-  edits reset the model.
+- The step is computed with two roundings, `dt = meanStepDurationMs / (1000 * 10)` then
+  `dt /= 10` (`tracePtsPerStep` and `iterationsPerStep`, both 10): each of 10 trace points per clip
+  step takes 10 solver steps. `reset()` restores the initial state (t0 = start-frame time), calls
+  `initialize(dt)` and takes `(firstFrameInClip - startFrame) * 10 * 10 / clipStepSize` steps
+  with Java integer division (`DynamicParticle.java:208`) to the first frame in the clip.
+- `refreshSteps()` only advances, from the last computed frame to the current one, taking
+  `10 * (end - start) / clipStepSize` trace points (integer division) and saving a copy of the
+  state at every tenth. Moving back reuses computed frames; trimming the end frame restores that
+  frame's saved state into the array without reinitializing the solver. Parameter edits reset the
+  model.
 - Tracker ignores solver error codes and NaN. Positions beyond ±8000 × 6000 image pixels become NaN
   (invalid steps) with a one-time warning.
 
@@ -65,60 +67,90 @@ should signal an undefined result with NaN instead of throwing. `step()`, `advan
 `advanceTo(time)` report `Ok`, `DidNotConverge` (the OSP error code) or `NonFinite` (NaN or
 infinity, which OSP does not detect) without throwing and without changing the numbers;
 `convergenceFailure()` names the multistep reason, such as `TooManySubsteps` or `StepTooSmall` for
-a stiff interval. `advanceTo` takes whole steps until the time component is within half a step of
-the target, so fixed-step results equal Tracker's step sequence. A solver has no shared state and
-is used from one thread at a time.
+a stiff interval. `advanceTo` is a convenience that takes whole steps until the time component is
+within half a step of the target; it is not Tracker's sequence whenever Tracker's integer step
+counts truncate (for example when `firstFrameInClip - startFrame` is not a multiple of the clip
+step size), so model code reproduces Tracker with `advance(count)`. Kind lookups never throw, and
+a value outside the enumeration yields no name and no solver. A solver has no shared state and is
+used from one thread at a time.
 
 ## Deliberate differences and upstream findings
 
-- **Adams6 predictor (fixed).** OSP divides the six-step Adams-Bashforth weights, which sum to
-  1440, by 720. The doubled predicted increment makes OSP's Adams6 first-order accurate after its
-  starter. MoTrack uses 1440 and is sixth order; the oracle compares Adams6 only for its five
-  starting steps, and a test shows the Java error exceeds the corrected one by more than 10^4.
-- **Backward `ODEMultistepSolver` (fixed).** `minus()` lacks the `break` that `plus()` and
-  `RK45MultiStep` have, so after a failure Java keeps stepping and can loop forever once the engine
-  step underflows. MoTrack stops at the first failure; forward and successful steps are unchanged.
-- **Kept OSP behavior.** Verlet evaluates its second rate at the old time, so explicit time
-  dependence is first order. The embedded pairs report `DID_NOT_CONVERGE` when only the tenth
-  attempt succeeds and always advance with the last attempted step. `RK45MultiStep.setStepSize`
-  overwrites its own minimum with the full interval.
+The three reference defects are tracked in the
+[issue triage](upstream-issues.md#defects-discovered-by-the-reference-harness).
+
+- **Adams6 predictor (fixed, [MoTrack #178](https://github.com/mgradwohl/MoTrack/issues/178),
+  upstream [osp#10](https://github.com/OpenSourcePhysics/osp/issues/10)).** OSP divides the
+  six-step Adams-Bashforth weights, which sum to 1440, by 720. The doubled predicted increment
+  makes OSP's Adams6 first-order accurate after its starter. MoTrack uses 1440 and is sixth order;
+  the oracle compares Adams6 only for its five starting steps, and a test shows the Java error
+  exceeds the corrected one by more than 10^4.
+- **Backward `ODEMultistepSolver` (fixed, [MoTrack #179](https://github.com/mgradwohl/MoTrack/issues/179),
+  upstream [osp#11](https://github.com/OpenSourcePhysics/osp/issues/11)).** `minus()` lacks the
+  `break` that `plus()` and `RK45MultiStep` have. After a failure Java keeps stepping: it loops
+  forever once the engine step underflows, and otherwise finishes the interval while reporting
+  `DID_NOT_CONVERGE`. MoTrack stops at the first failure and returns the partial interval, like
+  `plus()`. The oracle case `oscillator/multistep/backward-too-many-substeps` pins the difference
+  (Java covers all of −10; MoTrack stops after 201 substeps), and forward or successful steps are
+  unchanged.
+- **Kept OSP behavior.** OSP's velocity Verlet evaluates its second rate at the advanced positions
+  with the old velocities and the old time, as its documentation states. The method is second
+  order only for position-dependent forces; velocity- or time-dependent forces make it first
+  order. Advancing the time alone would not restore second order for velocity-dependent forces
+  such as drag and would break parity, and Tracker never selects Verlet, so this is recorded as a
+  method limitation rather than fixed (pinned by `VerletUsesTheStepStartTimeForItsSecondRate`).
+  The embedded pairs report `DID_NOT_CONVERGE` when only the tenth attempt succeeds and always
+  advance with the last attempted step. `RK45MultiStep.setStepSize` overwrites its own minimum
+  with the full interval. LeapFrog steps the live state back for its prior-state estimate and then
+  restores it, so a callback that reads `state()` sees what the Java ODE sees.
 - **Not reproduced.** Console messages, the static message counters and optional exceptions are
-  replaced by statuses. A state-length change reinitializes the solver; OSP's multistep wrapper
-  fails with an index error, while the RK4 family reinitializes the same way. Factory names are
-  lowercased as ASCII; Java's locale-dependent `toLowerCase` rejects `MULTISTEP` in a Turkish locale.
-- **For C5.** `DynamicSystem.getRate` evaluates each particle's external forces from the committed
-  state (the solver's state array), not the intermediate stage state, which reduces RK4 to first
-  order for state-dependent external forces. A rate callback can reproduce this by reading
-  `solver.state()`; whether to correct it is a C5 decision with its own reference cases.
+  replaced by statuses. A state-length change reinitializes the solver. In OSP only RK4, Ralston2,
+  Heun3, Butcher5, Fehlberg8, the Adams methods, Verlet and LeapFrog reinitialize when `step()`
+  sees a new length; the other classes keep their old equation count and ignore the new components
+  or fail with an index error. Factory names are lowercased as ASCII; Java's locale-dependent
+  `toLowerCase` rejects `MULTISTEP` in a Turkish locale.
+- **For C5 ([MoTrack #192](https://github.com/mgradwohl/MoTrack/issues/192), upstream
+  [tracker#76](https://github.com/OpenSourcePhysics/tracker/issues/76), open).**
+  `DynamicSystem.getRate` evaluates each particle's external forces from the committed state (the
+  solver's state array), not the intermediate stage state, which reduces RK4 to first order for
+  state-dependent external forces. A rate callback can reproduce this by reading `solver.state()`;
+  correcting it with independent expectations belongs to C5's model slice.
 
 ## Floating point and the Java oracle
 
 Each expression keeps Java's evaluation order, `Math.max`/`Math.min` NaN and signed-zero rules and
 `Float.MIN_VALUE`. Java never fuses multiply-add, so the library and its test are compiled with
-`-ffp-contract=off` (Clang otherwise contracts on arm64). Fixed-step results are therefore
-identical to Java. The adaptive solvers call `pow`; Java's x86-64 intrinsic misrounds about 0.07%
-of these inputs, its arm64 path uses fdlibm, and C++ libraries differ again, so adaptive results
+`MOTRACK_JAVA_FP_OPTIONS` (`-ffp-contract=off`; Clang otherwise contracts on arm64). Fixed-step
+results are therefore identical to Java, which the macOS arm64 CI job confirms. The adaptive
+solvers call `pow`; Java's x86-64 intrinsic misrounds about 0.07% of these inputs, its arm64 path
+uses fdlibm, and C++ libraries differ again, so adaptive results
 can differ in the last bit between platforms in Java and in MoTrack.
 
 [`tools/reference/OdeOracle.java`](../tools/reference/OdeOracle.java) runs the pinned OSP classes,
 created through `ODESolverFactory` or by class name like Tracker, on six systems: harmonic
 oscillator, projectile with quadratic drag, Kepler two-body (Tracker's system layout), a stiff
 linear system with eigenvalues −1 and −100, quadratic forcing from t = −0.5, and an acceleration
-that turns NaN. The 274 cases cover two step sizes or tolerances per solver and system, backward,
-zero and default/`setStepSize` setups, tolerance floors, unstable overflow and too many substeps.
-It also reads Tracker's Model Builder solver list and trace-point constant from the JAR.
+that turns NaN. The 276 cases cover two step sizes or tolerances per solver and system, backward,
+zero and default/`setStepSize` setups, tolerance floors, unstable overflow and too many substeps,
+forward and backward. It also reads Tracker's default solver, Model Builder solver list,
+`tracePtsPerStep` and `iterationsPerStep` from the JAR (constructing a `DynamicParticle`
+headlessly); the step expression, step counts and frame handling above come from the 6.3.5 source.
 [`tests/science/ode-reference.json`](../tests/science/ode-reference.json) stores step counts, rate
 evaluations, error codes and states, so `motrack_tests` needs no Java.
-`python tools/corpus.py ode-oracle --java <java>` regenerates it in Linux CI and compares, and
-`--record` replaces it for review.
+`python tools/corpus.py ode-oracle --java <java>` regenerates it in CI, with x86-64 Java on Linux
+and arm64 Java (whose `pow` is fdlibm) on macOS, and compares; `--record` replaces it for review.
 
-Integer data must match exactly. Fixed-step values must be identical. Adaptive values allow 1e-12
-relative (1e-13 absolute): a last-bit `pow` difference stays near 1e-16 on these trajectories, while
-a wrong coefficient or branch shows at the truncation-error level (at least 1e-10). On the stiff
-system the controller holds the step at its stability limit and amplifies that last bit, so those
-adaptive cases allow 1e-6 relative (1e-10 absolute). On Windows at the first tested revision, every
-case except four stiff Dormand-Prince cases was bit-identical; those differ by at most 7e-9
-relative (1e-13 absolute on a decayed component), with identical integer data.
+Integer data (step counts, rate evaluations, error codes, so the accept/reject sequence) must match
+exactly and fixed-step values must be identical. The step-size controller carries a last-bit `pow`
+difference forward. Against the x86-64 Java fixture, MoTrack on Windows was bit-identical except for
+four stiff Dormand-Prince cases (at most 2e-8 relative, 2e-11 absolute on a decayed component).
+Java itself with fdlibm's `pow` (HotSpot with its libm intrinsics disabled, as on arm64) differed
+in 14 adaptive cases, at most 4e-10 relative on the non-stiff Kepler orbit and 6e-8 on the stiff
+system, with identical integer data.
+Non-stiff adaptive values therefore allow 1e-8 relative (1e-11 absolute against O(1)
+trajectories), which still rejects a wrong coefficient or branch at the truncation-error level of
+the 1e-6 cases (at least 1e-7). The stiff system holds the step at its stability limit, where the
+controller amplifies most, so its adaptive cases allow 1e-6 relative (1e-10 absolute).
 
 Independent tests guard against a consistently wrong port: the convergence order of every
 fixed-step method, exact oscillator and forced solutions, the drag terminal-velocity solution, a
@@ -129,7 +161,10 @@ exact stiff solution, Euler instability and overflow, and multistep frame times.
 
 A dynamic particle will create `TRACKER_DEFAULT_ODE_SOLVER` (or a legacy class name) with the
 `{x, vx, y, vy, t}` state and a rate that evaluates the K1 force expressions divided by the mass.
-On reset it writes the initial state, calls `initialize(clipStepDuration / 100)` and advances by
-`100 × clip steps` per frame, saving the state at each frame and restoring it by writing `state()`
-when the end frame is trimmed. Models run on immutable document snapshots off the GUI thread and
-publish results by request generation, like other long operations.
+On reset it writes the initial state, calls `initialize(dt)` with Tracker's two-rounding step
+expression above, and advances with `advance(count)` using Tracker's integer step counts, saving
+the state at each frame and restoring it by writing `state()` when the end frame is trimmed. The
+rate callback, including the expression evaluator it calls, must be compiled with
+`MOTRACK_JAVA_FP_OPTIONS` too; otherwise arm64 contraction changes the rates and Java parity is
+lost. Models run on immutable document snapshots off the GUI thread and publish results by
+request generation, like other long operations.

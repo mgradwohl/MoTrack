@@ -70,7 +70,8 @@ inline constexpr std::array TRACKER_MODEL_BUILDER_SOLVERS = {OdeSolverKind::Rk4,
 inline constexpr int OSP_NO_ERROR = 0;
 inline constexpr int OSP_DID_NOT_CONVERGE = 1;
 
-/// Fully qualified Java class name, e.g. `org.opensourcephysics.numerics.RK4`.
+/// Fully qualified Java class name, e.g. `org.opensourcephysics.numerics.RK4` (empty for a value
+/// outside the enumeration; the name and flag lookups below never throw).
 [[nodiscard]] std::string_view odeSolverClassName(OdeSolverKind kind) noexcept;
 
 /// `ODESolverFactory.createODESolver` name, or nothing for classes the factory does not create
@@ -164,8 +165,10 @@ class OdeSolver
     [[nodiscard]] std::span<double> state() noexcept;
     [[nodiscard]] std::span<const double> state() const noexcept;
 
-    /// Copies new state values. A different length reinitializes the solver with `stepSize()`,
-    /// which is what OSP's length check in `step()` does for the RK4 family.
+    /// Copies new state values. A different length reinitializes the solver with `stepSize()`.
+    /// OSP's RK4, Ralston2, Heun3, Butcher5, Fehlberg8, Adams, Verlet and LeapFrog do the same
+    /// when `step()` sees a new length; its other solvers keep the old equation count and either
+    /// ignore the new components or fail with an index error.
     void setState(std::span<const double> values);
 
     /// OSP `initialize(stepSize)`: sets the (fixed or initial) step and restarts solver history.
@@ -179,9 +182,10 @@ class OdeSolver
 
     /// Steps until the time component (the last state value) is within half of `stepSize()` of
     /// `targetTime`, in the stepping direction. Steps are never shortened, so fixed-step results
-    /// equal a whole-step sequence; use `Multistep` or `Rk45MultiStep` to land on an exact interval.
-    /// Stops without reaching the target when a step does not move time toward it, or after
-    /// `maxSteps` steps.
+    /// equal some whole-step sequence; use `Multistep` or `Rk45MultiStep` to land on an exact
+    /// interval. This is a convenience, not Tracker's sequence: Tracker computes step counts with
+    /// integer division, so reproducing a model uses `advance(count)`. Stops without reaching the
+    /// target when a step does not move time toward it, or after `maxSteps` steps.
     OdeAdvanceResult advanceTo(double targetTime, std::size_t maxSteps = 10'000'000);
 
     /// OSP `setStepSize`; adaptive solvers treat it as the next attempted step.
@@ -234,8 +238,8 @@ class OdeSolver
 };
 
 /// Creates a solver in the state its Java constructor leaves: the default step size (0.1, or
-/// 0.01 for the embedded pairs) and default tolerance 1e-6. Tracker then calls
-/// `initialize(frame step / 100)`. Returns null if `rate` is empty.
+/// 0.01 for the embedded pairs) and default tolerance 1e-6. Tracker then calls `initialize` with
+/// the step of docs/ode-solvers.md. Returns null if `rate` is empty or `kind` is not an enumerator.
 [[nodiscard]] std::unique_ptr<OdeSolver> makeOdeSolver(OdeSolverKind kind, OdeRate rate, std::span<const double> initialState);
 
 /// `ODESolverFactory.createODESolver`: null for an unknown name (or an empty `rate`).

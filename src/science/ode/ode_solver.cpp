@@ -77,25 +77,30 @@ constexpr std::array SOLVER_NAMES = {
                .factoryName = "multistep",
                .adaptive = true},
 };
-// solverName() indexes the table by enumerator value.
-static_assert(
-    SOLVER_NAMES.size() == ALL_ODE_SOLVER_KINDS.size() && std::ranges::equal(SOLVER_NAMES, ALL_ODE_SOLVER_KINDS, {}, &SolverName::kind) &&
-        []
-        {
-            for (std::size_t index = 0; index < SOLVER_NAMES.size(); ++index)
-            {
-                if (static_cast<std::size_t>(SOLVER_NAMES.at(index).kind) != index)
-                {
-                    return false;
-                }
-            }
-            return true;
-        }(),
-    "The name table must list every solver kind in enumerator order");
-
-const SolverName& solverName(OdeSolverKind kind) noexcept
+/// solverName() indexes the table by enumerator value, so entry i must describe enumerator i.
+consteval bool namesFollowEnumeratorOrder()
 {
-    return SOLVER_NAMES.at(static_cast<std::size_t>(kind));
+    if (SOLVER_NAMES.size() != ALL_ODE_SOLVER_KINDS.size())
+    {
+        return false;
+    }
+    for (std::size_t index = 0; index < SOLVER_NAMES.size(); ++index)
+    {
+        const auto kind = SOLVER_NAMES.at(index).kind;
+        if (kind != ALL_ODE_SOLVER_KINDS.at(index) || static_cast<std::size_t>(kind) != index)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+static_assert(namesFollowEnumeratorOrder(), "The name table must list every solver kind in enumerator order");
+
+/// The table entry, or null for a value outside the enumeration (for example a corrupt cast).
+const SolverName* solverName(OdeSolverKind kind) noexcept
+{
+    const auto index = static_cast<std::size_t>(kind);
+    return index < SOLVER_NAMES.size() ? &SOLVER_NAMES[index] : nullptr;
 }
 
 bool isJavaWhitespace(char character) noexcept
@@ -134,13 +139,18 @@ void record(OdeAdvanceResult& result, OdeStepStatus status) noexcept
 
 std::string_view odeSolverClassName(OdeSolverKind kind) noexcept
 {
-    return solverName(kind).className;
+    const auto* entry = solverName(kind);
+    return entry == nullptr ? std::string_view{} : entry->className;
 }
 
 std::optional<std::string_view> odeSolverFactoryName(OdeSolverKind kind) noexcept
 {
-    const auto name = solverName(kind).factoryName;
-    return name.empty() ? std::nullopt : std::optional{name};
+    const auto* entry = solverName(kind);
+    if (entry == nullptr || entry->factoryName.empty())
+    {
+        return std::nullopt;
+    }
+    return entry->factoryName;
 }
 
 std::optional<OdeSolverKind> odeSolverFromFactoryName(std::string_view name) noexcept
@@ -166,7 +176,8 @@ std::optional<OdeSolverKind> odeSolverFromClassName(std::string_view className) 
 
 bool isAdaptiveOdeSolver(OdeSolverKind kind) noexcept
 {
-    return solverName(kind).adaptive;
+    const auto* entry = solverName(kind);
+    return entry != nullptr && entry->adaptive;
 }
 
 OdeSolver::OdeSolver(OdeSolverKind kind, OdeRate rate, std::span<const double> initialState)
