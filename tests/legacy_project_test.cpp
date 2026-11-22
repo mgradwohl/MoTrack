@@ -415,6 +415,13 @@ TEST(LegacyProject, ReadsTrackArraysAsJavaAssignsTheirSlots)
     EXPECT_EQ(frames(overwritten.marks), (std::vector<int>{0, 4}));
     const auto duplicate = load(massFrame(1, 10, 10) + massFrame(1, 11, 12)).pointMasses.front();
     EXPECT_EQ(duplicate.marks, (std::vector<motrack::Mark>{{.frame = 1, .x = 11, .y = 12}}));
+    // A later object replaces an earlier null at the same index too.
+    const auto revived = load("<property name='[2]'>null</property>" + massFrame(2, 5, 6)).pointMasses.front();
+    EXPECT_EQ(revived.marks, (std::vector<motrack::Mark>{{.frame = 2, .x = 5, .y = 6}}));
+    // Java places any index below the length the last element sets, in any order: [3] [1] [4] fill slots 1, 3 and 4.
+    const auto unordered = load(massFrame(3, 3, 30) + massFrame(1, 1, 10) + massFrame(4, 4, 40)).pointMasses.front();
+    EXPECT_EQ(unordered.marks,
+              (std::vector<motrack::Mark>{{.frame = 1, .x = 1, .y = 10}, {.frame = 3, .x = 3, .y = 30}, {.frame = 4, .x = 4, .y = 40}}));
     // Java cannot place an out-of-order index; MoTrack keeps reading such an array in file order, as before (#315).
     EXPECT_EQ(frames(load(massFrame(4, 4, 4) + massFrame(2, 2, 2)).pointMasses.front().marks), (std::vector<int>{2, 4}));
     // Vectors follow the same slots.
