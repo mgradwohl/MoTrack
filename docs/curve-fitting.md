@@ -150,14 +150,16 @@ Each case stores the inputs, Java's parameters, uncertainties, band, the refitte
 overwriting it, rms, R², the warning flag, the display text and which minimizer produced the result. 76 cases
 also carry an independent expectation computed without OSP: synthetic parameters for exact data, exact
 80-digit least squares and standard errors for models linear in their parameters, and a Gauss-Newton minimum
-with linearized standard errors for the others.
+with linearized standard errors for the others. Data and expectations use `StrictMath` (fdlibm), so every JVM
+generates identical inputs; only the fits run through OSP's `Math` calls.
 
 ### Tolerances
 
 `CurveFitReference.*` in `motrack_tests` checks the Tracker dialect against Java, Java and the Corrected
 dialect against the independent expectations, the corrected band against OSP's refits, and the minimizers
 and formatting bit for bit. `python tools/corpus.py fit-oracle --java <jdk>/bin/java` regenerates the
-fixture with Java in a temporary home and applies the same rules (Linux CI runs it); `--record` rewrites it.
+fixture with Java in a temporary home and applies the same rules; CI runs it with x86-64 Java on Linux and
+with arm64 Java, whose `Math` functions are fdlibm, on macOS. `--record` rewrites it.
 
 - **Exact** (Line, Parabola, `m*x+b`, minimizers): only + − × ÷ and √, so results are bitwise identical.
 - **Polynomial** (Cubic): closed-form coefficients are bitwise; the uncertainty refits evaluate x³ with `pow`.
