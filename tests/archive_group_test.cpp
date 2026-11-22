@@ -1,9 +1,12 @@
 #include "archive_group.hpp"
 
 #include "archive_fixture.hpp"
+#include "archive_group_codec.hpp"
 #include "track_edits.hpp"
 #include "tracker_archive.hpp"
+#include "tracker_import.hpp"
 #include "tracker_writer.hpp"
+#include "workspace_document_codec.hpp"
 #include "workspace_storage.hpp"
 
 #include <QDir>
@@ -12,6 +15,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
+#include <QUuid>
 #include <gtest/gtest.h>
 
 #include <functional>
@@ -417,6 +421,54 @@ TEST(ArchiveGroup, RejectsAmbiguousGroupMetadataAndMissingPayload)
     }
     ASSERT_TRUE(writeBytes(path, storage.json));
     EXPECT_THROW((void)motrack::readArchiveGroup(path), motrack::ProjectError);
+}
+
+TEST(ArchiveGroup, MigratesEachMemberSavedByTheFirstReader)
+{
+    // A version-6 group whose two version-5 bodies MoTrack's reader before #313/#314 saved: one member's source has a
+    // frame shift that drops no mark and duplicate [0] coordinate keys, the other has neither.
+    QTemporaryDir temporary;
+    const auto fixture =
+        QJsonDocument::fromJson(readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/pre-fix-shifted-duplicate-coords.motrack")).object();
+    const auto shifted = QByteArray::fromBase64(fixture.value("trackerSource").toObject().value("xmlBase64").toString().toLatin1());
+    const auto plain = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/keyed-calibration.trk");
+    const auto archivePath = temporary.filePath("group.trz");
+    ASSERT_TRUE(motrack::test::writeArchive(archivePath, {{"shifted.trk", shifted}, {"plain.trk", plain}}));
+    const auto archive = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(archivePath));
+    QJsonArray members;
+    for (const auto* name : {"shifted.trk", "plain.trk"})
+    {
+        auto member = document(archive, name);
+        ASSERT_TRUE(member.trackerSource);
+        member.project = motrack::detail::importTracker(motrack::detail::parseTrackerXml(member.trackerSource->xml),
+                                                        motrack::TrackerReading::SavedIndices)
+                             .project;
+        auto encoded = motrack::detail::encodeWorkspaceDocument(member);
+        encoded.remove("trackerReading");
+        members.append(
+            QJsonObject{{"documentId", QUuid::createUuid().toString(QUuid::WithoutBraces)}, {"member", name}, {"document", encoded}});
+    }
+    const QJsonObject envelope{{"format", "MoTrack"},
+                               {"version", 6},
+                               {"kind", "archive-group"},
+                               {"groupId", QUuid::createUuid().toString(QUuid::WithoutBraces)},
+                               {"sourceDigest", QString::fromLatin1(archive->sourceDigest().toHex())},
+                               {"members", members}};
+    const auto group = motrack::detail::decodeArchiveGroup(envelope, archive, nullptr);
+    ASSERT_EQ(group.members.size(), 2u);
+    const auto& migrated = group.members[0].document;
+    EXPECT_TRUE(migrated.trackerReadingMigrated);
+    EXPECT_FALSE(migrated.trackerReadingOutdated);
+    EXPECT_EQ(migrated.trackerReading, motrack::CURRENT_TRACKER_READING);
+    EXPECT_EQ(migrated.project.clip.firstFrame, 1);
+    ASSERT_FALSE(migrated.project.pointMasses.empty());
+    EXPECT_EQ(migrated.project.pointMasses.front().marks.front().frame, 0);
+    EXPECT_TRUE(migrated.project.calibration.has_value());
+    const auto& unchanged = group.members[1].document;
+    EXPECT_FALSE(unchanged.trackerReadingMigrated);
+    EXPECT_FALSE(unchanged.trackerReadingOutdated);
+    ASSERT_TRUE(unchanged.trackerSource);
+    EXPECT_EQ(unchanged.project, motrack::parseLegacyProject(unchanged.trackerSource->xml));
 }
 
 } // namespace

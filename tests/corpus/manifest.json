@@ -4555,6 +4555,49 @@
       "provenance": "Authored by tools/reference/KeyedCalibrationFixture.java using checksum-pinned Tracker 6.3.5 serializers; reproduced byte-for-byte; no MoTrack output used."
     },
     {
+      "id": "frame-shift",
+      "local_file": "fixtures/frame-shift.trk",
+      "file": "frame-shift.trk",
+      "bytes": 11340,
+      "sha256": "f397b334f249a0f95cc78cae4ed1d475ce6851a07e4a5f6883baa70eacdb3817",
+      "tracker_version": "6.3.5",
+      "features": [
+        "clip-frame-shift",
+        "shifted-track-frames",
+        "unshifted-calibration-keys",
+        "single-slot-track-array",
+        "dropped-track-array",
+        "varying-calibration",
+        "java-authored-synthetic"
+      ],
+      "requirements": [
+        "R02",
+        "R09"
+      ],
+      "expected": "expected/frame-shift.json",
+      "provenance": "Authored by tools/reference/FrameDataFixture.java frame-shift mode with checksum-pinned Tracker 6.3.5 serializers (trailing null elements omitted as TrackerPanel's saver does); frameshift 2 added to the saved VideoClip through the XMLControl API because 6.3.5 never writes it (#313); reproduced byte-for-byte; no MoTrack output used."
+    },
+    {
+      "id": "duplicate-coords",
+      "local_file": "fixtures/duplicate-coords.trk",
+      "file": "duplicate-coords.trk",
+      "bytes": 6012,
+      "sha256": "ea0cc8d6568e26dd01c6b91407a9a2d7dcc3284b91bbb42c0e46300923fd68a7",
+      "tracker_version": "6.3.5",
+      "features": [
+        "duplicate-coordinate-keys",
+        "null-coordinate-key",
+        "varying-calibration",
+        "java-authored-synthetic"
+      ],
+      "requirements": [
+        "R02",
+        "R09"
+      ],
+      "expected": "expected/duplicate-coords.json",
+      "provenance": "Authored by tools/reference/FrameDataFixture.java duplicate-coords mode with checksum-pinned Tracker 6.3.5 serializers; the saved coordinate key [1] is renamed to a second [0] and a null [3] is appended, which 6.3.5's saver cannot write (#314); reproduced byte-for-byte; no MoTrack output used."
+    },
+    {
       "id": "center-of-mass",
       "native_center_name_roundtrip": true,
       "local_file": "fixtures/center-of-mass.trk",

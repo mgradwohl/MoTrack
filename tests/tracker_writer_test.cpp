@@ -4990,4 +4990,115 @@ TEST(TrackerWriter, RejectsVectorReconstructionErrorsAmplifiedByNewOrExistingCal
     }
 }
 
+/// The keyed-calibration fixture with a saved clip frame shift of 2: marks at saved [0], [3], [4], [8], [9] load at
+/// frames 1, 2, 6 and 7, while the coordinate keys stay at frames 0, 4 and 9 (#313).
+std::string frameShiftSource()
+{
+    auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/keyed-calibration.trk");
+    const std::string after = "        <property name=\"playallsteps\" type=\"boolean\">true</property>\n";
+    xml.insert(xml.find(after) + after.size(), "        <property name=\"frameshift\" type=\"int\">2</property>\n");
+    return xml;
+}
+
+std::string coordsText(const std::string& xml)
+{
+    const auto begin = xml.find(R"(<property name="coords")");
+    return xml.substr(begin, xml.find(R"(<property name="length_unit")") - begin);
+}
+
+TEST(TrackerWriter, KeepsTheFrameShiftAndSavedIndicesAndRefusesShiftedSampleEdits)
+{
+    const auto imported = motrack::parseTrackerProject(frameShiftSource());
+    ASSERT_EQ(imported.project.pointMasses.size(), 1u);
+    const auto& marks = imported.project.pointMasses.front().marks;
+    ASSERT_EQ(marks.size(), 4u);
+    EXPECT_EQ(marks.front().frame, 1);
+    EXPECT_EQ(marks.back().frame, 7);
+    EXPECT_EQ(motrack::renderTrackerProject(imported.project, imported.source), imported.source.xml);
+
+    // A mass edit keeps the frame shift, the saved mark indices and the coordinate system byte for byte.
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("shifted.trk");
+    auto project = imported.project;
+    project.pointMasses.front().mass = 3.5;
+    motrack::writeTrackerProject(output, project, imported.source);
+    const auto saved = readBytes(output);
+    EXPECT_NE(saved.find(R"(<property name="frameshift" type="int">2</property>)"), std::string::npos);
+    EXPECT_EQ(coordsText(saved), coordsText(imported.source.xml));
+    EXPECT_NE(saved.find(R"(<property name="[9]" type="object">)"), std::string::npos);
+    EXPECT_EQ(motrack::parseLegacyProject(saved), project);
+
+    // So does a calibration edit: Tracker never shifts the coordinate keys.
+    project = imported.project;
+    if (!project.calibration)
+    {
+        FAIL() << "Expected the keyed calibration.";
+    }
+    project.calibration->keyframes[1].originX = 110;
+    motrack::writeTrackerProject(output, project, imported.source);
+    EXPECT_EQ(motrack::parseLegacyProject(readBytes(output)), project);
+
+    // Changed, added and new samples would be written at other saved indices than Tracker loads them from.
+    motrack::writeTrackerProject(output, imported.project, imported.source);
+    const auto unchanged = readBytes(output);
+    const auto refuses = [&](const motrack::LegacyProject& edited)
+    {
+        try
+        {
+            motrack::writeTrackerProject(output, edited, imported.source);
+            ADD_FAILURE() << "A shifted sample edit was exported.";
+        }
+        catch (const motrack::ProjectError& error)
+        {
+            EXPECT_TRUE(std::string_view(error.what()).find("frame shift") != std::string_view::npos) << error.what();
+        }
+        EXPECT_EQ(readBytes(output), unchanged);
+    };
+    project = imported.project;
+    project.pointMasses.front().marks.front().x += 1;
+    refuses(project);
+    project = imported.project;
+    project.pointMasses.front().marks.push_back({.frame = 8, .x = 1, .y = 2});
+    refuses(project);
+    project = imported.project;
+    project.pointMasses.front().marks.pop_back();
+    refuses(project);
+    project = imported.project;
+    auto created = motrack::PointMass{.name = "new", .marks = {{.frame = 3, .x = 1, .y = 2}}, .mass = 1};
+    created.id = project.nextTrackId++;
+    project.pointMasses.push_back(created);
+    refuses(project);
+}
+
+TEST(TrackerWriter, KeepsDuplicateCalibrationKeysUnlessTheCalibrationIsEdited)
+{
+    const auto imported =
+        motrack::parseTrackerProject(readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/duplicate-coords.trk"));
+    if (!imported.project.calibration)
+    {
+        FAIL() << "Duplicate coordinate keys dropped the calibration.";
+    }
+    EXPECT_EQ(
+        imported.project.calibration->keyframes,
+        (std::vector<motrack::CalibrationKey>{{.frame = 0, .originX = 100, .originY = 50, .angleDegrees = 0, .scaleX = 5, .scaleY = 10}}));
+    EXPECT_EQ(motrack::renderTrackerProject(imported.project, imported.source), imported.source.xml);
+    QTemporaryDir temporary;
+    const auto output = temporary.filePath("duplicates.trk");
+    auto project = imported.project;
+    project.pointMasses.front().mass = 4;
+    motrack::writeTrackerProject(output, project, imported.source);
+    const auto saved = readBytes(output);
+    EXPECT_EQ(coordsText(saved), coordsText(imported.source.xml));
+    EXPECT_EQ(motrack::parseLegacyProject(saved), project);
+    // The key writer needs one element per index: an edited calibration is refused rather than written beside a duplicate.
+    project = imported.project;
+    if (!project.calibration)
+    {
+        FAIL() << "Expected the calibration.";
+    }
+    project.calibration->keyframes.front().scaleX = 6;
+    EXPECT_THROW(motrack::writeTrackerProject(output, project, imported.source), motrack::ProjectError);
+    EXPECT_EQ(readBytes(output), saved);
+}
+
 } // namespace
