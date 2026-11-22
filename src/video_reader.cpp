@@ -395,6 +395,12 @@ bool VideoReader::seekTo(std::chrono::nanoseconds time)
     return true;
 }
 
+FrameTimeBase VideoReader::timeBase() const noexcept
+{
+    const auto base = m_Impl->timeBase;
+    return base.num > 0 && base.den > 0 ? FrameTimeBase{.numerator = base.num, .denominator = base.den} : FrameTimeBase{};
+}
+
 std::optional<MovieFrame> VideoReader::readNext()
 {
     return decodeNext(true);
@@ -478,6 +484,8 @@ MovieIndex buildMovieIndex(const QString& path, VideoOrientation orientation, co
                     hasTiming = index.frameTimes.empty() || relative > index.frameTimes.back();
                     index.frameTimes.push_back(relative);
                     index.presentationTimes.push_back(*frame->presentationTime);
+                    // The time base describes the frame times, so it is known exactly when they are.
+                    index.timeBase = reader.timeBase();
                 }
                 else
                 {
@@ -487,6 +495,7 @@ MovieIndex buildMovieIndex(const QString& path, VideoOrientation orientation, co
                 {
                     index.frameTimes.clear();
                     index.presentationTimes.clear();
+                    index.timeBase = {};
                 }
             }
         }

@@ -708,6 +708,13 @@ WorkspaceDocument detail::decodeWorkspaceDocument(const QJsonObject& input, std:
         require(result.movieFrameTimes.empty() ? time == 0.0 : time > result.movieFrameTimes.back());
         result.movieFrameTimes.push_back(time);
     }
+    // Optional since #331: [numerator, denominator] of the stream time base; older documents leave it unknown.
+    if (const auto timeBase = input.value("movieTimeBase"); !timeBase.isUndefined() && !timeBase.isNull())
+    {
+        const auto parts = array(timeBase, 2);
+        result.movieTimeBase = {.numerator = integer(parts.at(0), 1), .denominator = integer(parts.at(1), 1)};
+        require(!result.movieFrameTimes.empty());
+    }
     if (preserved && (project.lengthUnit.empty() || (!project.clip.frameDurationMs && project.clip.mediaReferences.empty())))
     {
         // Native files written before MoTrack applied Tracker's loader defaults (#214) stored the unset values
@@ -808,6 +815,9 @@ QJsonObject detail::encodeWorkspaceDocument(const WorkspaceDocument& document)
     {
         frameTimes.append(time);
     }
+    // The time base describes the frame times, so it is written only with them.
+    const auto& timeBase = document.movieTimeBase;
+    const bool writeTimeBase = timeBase.known() && !document.movieFrameTimes.empty();
     const QJsonObject clipObject{{"firstFrame", clip.firstFrame},
                                  {"stepSize", clip.stepSize},
                                  {"stepCount", clip.stepCount ? QJsonValue(*clip.stepCount) : QJsonValue::Null},
@@ -837,6 +847,7 @@ QJsonObject detail::encodeWorkspaceDocument(const WorkspaceDocument& document)
         {"embeddedArchive", static_cast<bool>(document.archivePayload)},
         {"archiveMember", document.archiveMember ? QJsonValue(QString::fromStdString(*document.archiveMember)) : QJsonValue::Null},
         {"movieFrameTimes", frameTimes},
+        {"movieTimeBase", writeTimeBase ? QJsonValue(QJsonArray{timeBase.numerator, timeBase.denominator}) : QJsonValue::Null},
         {"clip", clipObject}};
 }
 

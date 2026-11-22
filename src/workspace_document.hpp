@@ -1,5 +1,6 @@
 #pragma once
 
+#include "frame_time_base.hpp"
 #include "legacy_project.hpp"
 
 #include <QHash>
@@ -39,7 +40,11 @@ struct NativeSaveResult
 struct WorkspaceDocument
 {
     LegacyProject project;
+    /// Decoded movie frame times in seconds from the first frame, indexed by original frame number.
     std::vector<double> movieFrameTimes;
+    /// The movie stream's time base those times were quantized to; unknown for documents saved before #331
+    /// until the movie is indexed again. Persisted with the frame times.
+    FrameTimeBase movieTimeBase = {};
     bool movie = false;
     bool useDisplayOrientation = false;
     bool alignMovieToClip = false;
