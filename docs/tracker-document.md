@@ -51,7 +51,7 @@ refusing, native files whose preserved source the current reader cannot read.
 | Baseline | `std::shared_ptr<const osp::Source>` of the imported Tracker XML, or none. It is immutable and shared by every copy. |
 | Associations | `None` (no baseline), `Known`, `Unknown` (native v2 and v3) or `Stale` (#317, a refused baseline or a reader conflict): whether typed objects are bound to baseline nodes. |
 | Objects | Ordered slots, each with an `ObjectId`, class, binding (a baseline `NodeId` or none), state (`Live` or `Removed`) and a `std::shared_ptr<const T>` typed value that is copied on write. Frame-keyed fields are stored in shared chunks, so an edit copies one chunk rather than a whole track. |
-| Counter | `nextObjectId`, the never-rewinding track allocator that replaces `nextTrackId` with the same values. |
+| Counter | `nextObjectId`, the never-rewinding allocator for typed tracks that replaces `nextTrackId` with the same values, and the countdown low-water mark for all other identities. |
 | Media extension | The two clip values Tracker XML does not hold in this form: the current media reference spellings and the discovered source frame count (today `Clip::mediaReferences` and `Clip::sourceFrameCount`). Decoded frame times, orientation, alignment, archive ownership and runtime media locations stay in `WorkspaceDocument`. |
 | Graph | A `std::shared_ptr<const DependencyGraph>`, derived, copied on write and never serialized. |
 
@@ -127,15 +127,19 @@ assigns:
 - **Typed tracks** take the counter: point masses and vectors get 1, 2, … in source order at import, creation
   takes the next value, the counter never rewinds and exhaustion disables creation, as now.
 - **Unknown tracks and all other objects** (the singletons and an inserted coordinate system) count down from
-  2^64 − 1 in source order, skipping every value a track identity in the document uses, live, removed or
-  recorded in a binding. Track creation never takes a value one of them holds, so the counter's capacity
-  shrinks by their number and opening never fails for lack of identities. A class that a later build types
-  keeps the identity it had as Unknown.
+  2^64 − 1 in source order, skipping every value a counter identity in the document uses, live, removed or
+  recorded in a binding. The lowest value handed out is the countdown low-water mark, which never rises.
+  Creation from the counter stops below it, so the counter's capacity shrinks by their number and opening never
+  fails for lack of identities.
 
-The counter, the parity tests and native v5/v6 output therefore concern track identities only. Until B2.5,
-counted-down identities are derived again on each open and nothing persistent refers to them; they change only
-if a file's track identities reach the top of the range, which only crafted files do. B2.5's sidecar stores
-them. Until B3, `TrackId` remains the legacy view's alias for the value.
+An identity is classified by the range it was allocated from, which the sidecar records, never by its current
+class. A class that a later build types, or a vector that only a newer reader loads, keeps its countdown
+identity and stays valid. The rule that the counter exceeds every live ID applies to counter identities only.
+The counter, the parity tests and native v5/v6 output therefore concern counter identities only. Until B2.5,
+countdown identities are derived again on each open and nothing persistent refers to them; they change only if
+a file's counter identities reach the top of the range, which only crafted files do. From B2.5 the sidecar
+stores them and the envelope stores the low-water mark, so an inserted coordinate system never reuses a value
+after undo or reopen. Until B3, `TrackId` remains the legacy view's alias for the value.
 
 ### Source bindings and preserved content
 
@@ -162,10 +166,13 @@ pointer. Archive payloads keep their existing shared ownership.
 Revisions belong to the live owner, not to the value, so copying or restoring a value cannot move them
 backward. The owner's `DocumentHistory` keeps the runtime identity and two monotonic counters: the history
 revision, as `TrackEdits` has today, and a document revision that also counts updates outside history and every
-assignment (replacement, Revert). On assignment, the incoming value's graph is moved above the current revision
-with a new C0 operation that raises the graph's revision to a floor and marks every node changed there, so
-`isCurrent(node, R)` rejects anything computed before. Caches, including the legacy view and later evaluation
-results, are keyed by (runtime identity, document revision), and snapshots carry that stamp.
+assignment (replacement, Revert). On assignment, the incoming value's graph is raised with a new C0 operation to
+a floor of the outgoing live graph's revision + 1, and every node is marked changed there, so `isCurrent(node, R)`
+rejects anything computed before. The floor comes from the outgoing graph, not the document revision, because a
+command advances the graph's revision several times; the operation ignores a floor at or below the graph's own
+revision. Caches, including the legacy view and later evaluation results, are keyed by (runtime identity,
+document revision), and snapshots carry that stamp. Revert keeps the runtime identity, so that key protects
+against a rewind only because the document revision always advances on assignment.
 
 ### Behind `WorkspaceDocument::project`
 
@@ -215,7 +222,8 @@ A command is validated completely before anything changes:
 - the value passes the descriptor's domain check: finite numbers, Tracker's frame bounds, the unit and name
   codecs, and strings that OSP can represent ([#194](https://github.com/mgradwohl/MoTrack/issues/194));
 - family invariants hold for the candidate object, such as constant clip timing and the timing-provider guard,
-  and document invariants hold: track IDs are unique and below the counter, and no ID is used twice;
+  and document invariants hold: counter identities lie below the counter, countdown identities at or above the
+  low-water mark, and no ID is used twice;
 - for `Insert` and new reference edges, `cycleIfAdded` finds no cycle.
 
 The new object values, chunks and graph are built on copies first and the history slot is reserved; the
@@ -295,29 +303,38 @@ metadata replaces the reduced model:
 | `format`, `version` | `"MoTrack"`, 7 |
 | `requires` | Feature names that a reader must implement; empty in B2 |
 | `readerRevision` | The loader revision of the writer. MoTrack advances it whenever a loader change can read an unchanged baseline differently; v1–v6 count as revision 0 |
-| `nextObjectId` | The track counter, as a decimal string |
+| `nextObjectId`, `countdownLowWater` | The counter and the countdown low-water mark, as decimal strings |
 | `baseline` | `null`, `{"xmlBase64": …}`, or `{"archiveMember": …}` when the bytes are that member of `tracker/source.trz`, so archive groups stop storing each member twice. The 32 MiB XML limit applies to both forms; `archiveMember` requires the container payload and must name one of its project members |
 | `associations` | `none`, `known`, `unknown` or `stale`; `stale` keeps earlier bindings verbatim in `staleBindings` |
-| `objects` | The identity sidecar: one entry per identity, including counted-down ones, with its ID, class, baseline path or none, and `live` or `removed` |
-| `state` | Every typed field of every live typed object, in full, by field id. For each field, and each element of a frame-keyed field, whose value differs from the writer's reading of the baseline, that reading as `base`. Also the class list of placeholders and the presentation order of `tracks` |
+| `objects` | The identity sidecar: one entry per identity with its ID, allocation range (`counter` or `countdown`), class, baseline path or none, and `live` or `removed` |
+| `state` | Every typed field of every live typed object, in full, by field id, and for each edited field the writer's reading of the baseline as `base` (below). Also the class list of placeholders and the presentation order of `tracks` |
 | `media` | The media extension and the `WorkspaceDocument` media fields that v5 stores today |
 | `extensions` | Optional named MoTrack data, written back unchanged by readers that do not know it |
 
 A baseline path lists the child ordinals from the root to the object, each with its property name; it
 generalizes v4's `sourceIndex`. On open, each path must resolve with the current reader to an object of the
-recorded class, each addressable object must have exactly one entry, track IDs must be unique and below the
-counter, and removed entries must still resolve; otherwise the associations are stale. Values are stored in full,
+recorded class, each addressable object must have exactly one entry, IDs must be unique and lie in their
+recorded range (counter identities below the counter, countdown identities at or above the low-water mark), and
+removed entries must still resolve; otherwise the associations are stale. Values are stored in full,
 so stale associations never lose a measurement. Once import applies `frameshift`
 ([#313](https://github.com/mgradwohl/MoTrack/issues/313)), frame-keyed fields hold Tracker's loaded frame numbers
 and the baseline keeps the file's. The writer decodes its output before replacing a file, as now. The graph and
 history are not stored; on open the loader retires removed identities (`retireIdentity`), and a reference to one
 binds through the baseline's original names, so it stays dangling.
 
-**Reader changes.** With the writer's `readerRevision`, `state` applies as written. With a newer reader:
+**Edited fields.** A scalar field is edited when its value differs from the writer's reading of the baseline;
+`base` is that reading. A frame-keyed field is edited when any element differs, and its `base` lists every
+differing element with the writer's reading: a changed element with its old value, an inserted one as `absent`,
+and a deleted one as a tombstone `{frame, absent, base: reading}`, because a deleted element has no entry in
+`state` that could carry it.
 
-- a field without `base` was unedited and takes the current reader's value, so loader fixes reach it;
-- an edited field keeps its value when its `base` equals the current reading; otherwise the associations become
-  stale, the edited value is kept and the note is shown;
+**Reader changes.** With the writer's `readerRevision`, `state` applies as written. With another reader, newer or
+older (the rules are symmetric):
+
+- a field without `base` was unedited and takes this reader's value, so loader fixes reach it;
+- an edited field keeps its stored values, tombstones included, when every entry of its `base` equals this
+  reader's reading; if any entry conflicts, the whole field keeps its stored values, so all its elements stay in
+  one frame space, the associations become stale and the note is shown;
 - a bound live typed object without a `state` entry, for example a class that a newer build types, takes the
   current reading;
 - a baseline that the reader refuses opens the document native-only from `state`, with the bytes kept opaque,
@@ -336,7 +353,7 @@ reduced model is a function of B2.1, used by the native reader from B2.4a.
 | 1 | None | `none`: native-only objects from JSON | Fresh |
 | 2 | XML | `unknown`: native-only objects; the baseline is preserved but not indexed | Fresh |
 | 3 | XML | `unknown` | Stored track IDs kept |
-| 4 | XML | `known`: bound objects take their JSON values, unbound JSON tracks become created objects and bound IDs missing from the JSON become removed objects; `stale` when the bindings no longer match the current reader | Stored track IDs kept; others counted down |
+| 4 | XML | `known`: bound objects take their JSON values, unbound JSON tracks become created objects and bound IDs missing from the JSON become removed objects; `stale` when the bindings no longer match the current reader | Stored track IDs kept as counter identities; others from the countdown |
 | 5 | XML or an archive member | As version 4 | As version 4 |
 | 6 | A group of version-5 bodies | As version 4, for each member | As version 4 |
 
@@ -344,9 +361,12 @@ The reduced JSON of v4–v6 was written with the reader before #313–#315, so a
 that reader's misreadings into edits. The loader-fidelity PR adds explicit transforms to the current native
 reader, and B2.1's conversion consumes its output:
 
-- **`frameshift`:** stored frame numbers are file frames. Every frame-keyed value moves by −`frameshift`. A value
-  that would fall before frame 0 stays as native-only data of its object, never dropped, and export refuses
-  while any remains.
+- **`frameshift`:** stored frame numbers are file frames. Each frame array is transformed as Tracker's
+  `adjustFrameData` treats the baseline's array: an array of more than one element loses its first `frameshift`
+  elements, so its values move by −`frameshift`; an array no longer than the shift loads empty; a one-element
+  array, such as a single calibration key, is unchanged. A stored value that falls among the dropped elements
+  stays as native-only data of its object, never dropped, and export refuses while any remains. The prerequisite
+  PR settles, with a Tracker reference case, how values of objects created in MoTrack map.
 - **Duplicate keys (#314):** a calibration that the old reader dropped takes the baseline's reading; a calibration
   created in MoTrack stays an edit.
 - **Empty `mass_unit` (#315):** a stored `kg` where the file saved an empty label is the old default, not an edit,
@@ -394,7 +414,7 @@ No worker holds a pointer into a live document, and only the GUI thread updates 
 | B2.2 | O6, MoTrack side | A JSON form of commands and `motrack_corpus_probe --apply ops.json`. Seeded random command sequences check that undoing everything returns an equal document, that revisions only grow, and that the incrementally maintained graph equals a rebuilt one. The Java applier belongs to B4. |
 | B2.3 | O7, O8 | Descriptor savers for created objects; #316's checks, with a seam that feeds doctored output. On every writer test and corpus export the descriptor composition makes B1's accept or refuse decision and, where both accept, equal bytes. |
 | B2.4b | O5, existing routes | The 237 cases through the descriptor composition, with the comparison against B1's composition a required CI test. |
-| B2.5 | O5, native route | Every corpus round trip also saves v7, reopens it and exports again; that export equals the export before closing. A test-only loader variant simulates a reader change: unedited fields follow it, a conflicting edit makes the document stale. |
+| B2.5 | O5, native route | Every corpus round trip also saves v7, reopens it and exports again; that export equals the export before closing. A test-only loader variant simulates newer and older readers: unedited fields follow them; a field with only deletions keeps them; a field with one conflicting element keeps all its stored values and makes the document stale. A class typed only by the variant keeps its countdown identity and opens with known associations. |
 
 O4 does not change in B2: data columns still come from `measurements.cpp` over the legacy view until C2.
 
@@ -478,7 +498,8 @@ R02–R04 rows of the migration plan and the status line of this document.
 - Exit: the 237 cases and the required comparison pass on all three platforms.
 
 **B2.5 — Native version 7** (after B2.4a, parallel with B2.4b; its codec needs only B2.1)
-- Content: the v7 reader and writer for standalone documents and groups, `readerRevision` handling, #317.
+- Content: the v7 reader and writer for standalone documents and groups, `readerRevision` and `base` handling,
+  allocation ranges and the countdown low-water mark, #317.
 - Files: new `src/native_document.*`; `src/workspace_document.cpp`, `src/workspace_document_codec.hpp`,
   `src/archive_group.cpp`; `tests/workspace_document_test.cpp`, `tests/archive_group_test.cpp`; `tools/corpus.py`
   for the native route; `docs/native-format.md`, `docs/workspace-sessions.md`.
