@@ -216,6 +216,56 @@ TEST(TrackerMoviePackage, RejectsCorruptAndChangedTimingInTheStagedMovie)
     }
 }
 
+TEST(TrackerMoviePackage, ComparesTheSavedTimeBaseAndAnySavedPrecisionWithTheStagedMovie)
+{
+    // The staged movie's index must describe the document's timing. A document saved before #335 has the time base
+    // but no inferred precision, and still packages; another time base or another saved precision is stale timing.
+    const std::atomic_bool cancelled{false};
+    const auto staged = motrack::buildMovieIndex(fixture("constant-rate.mov"), motrack::VideoOrientation::Encoded, cancelled);
+    const auto base = staged.timeBase;
+    ASSERT_TRUE(base.precisionKnown());
+    struct Saved
+    {
+        motrack::FrameTimeBase timeBase;
+        bool current;
+    };
+    for (const auto& [timeBase, current] :
+         {Saved{.timeBase = base, .current = true},
+          Saved{.timeBase = {.numerator = base.numerator, .denominator = base.denominator}, .current = true},
+          Saved{.timeBase = {.numerator = base.numerator, .denominator = 2 * base.denominator}, .current = false},
+          Saved{.timeBase = {.numerator = base.numerator,
+                             .denominator = base.denominator,
+                             .precisionNumerator = 2 * base.precisionNumerator,
+                             .precisionDenominator = base.precisionDenominator},
+                .current = false}})
+    {
+        SCOPED_TRACE(timeBase.precisionNumerator);
+        QTemporaryDir temporary;
+        const auto source = temporary.filePath("input.trk");
+        ASSERT_TRUE(QFile::copy(fixture(), source));
+        ASSERT_TRUE(QFile::copy(fixture("constant-rate.mov"), temporary.filePath("constant-rate.mov")));
+        auto document = indexedDocument(source);
+        document.movieTimeBase = timeBase;
+        const auto target = temporary.filePath("package.trz");
+        if (current)
+        {
+            motrack::writeTrackerMoviePackage(target, document, source);
+            EXPECT_TRUE(QFileInfo(target).isFile());
+            continue;
+        }
+        try
+        {
+            motrack::writeTrackerMoviePackage(target, document, source);
+            ADD_FAILURE() << "Stale timing must not produce a package.";
+        }
+        catch (const motrack::ProjectError& error)
+        {
+            EXPECT_NE(std::string{error.what()}.find("frame count or timing"), std::string::npos) << error.what();
+        }
+        EXPECT_FALSE(QFileInfo::exists(target));
+    }
+}
+
 TEST(TrackerMoviePackage, CopyHonorsTheSharedSaveLockAndPendingRecovery)
 {
     QTemporaryDir temporary;
