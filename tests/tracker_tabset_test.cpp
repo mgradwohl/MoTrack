@@ -1,6 +1,7 @@
 #include "tracker_tabset.hpp"
 
 #include "legacy_project.hpp"
+#include "osp_layout.hpp"
 
 #include <QDir>
 #include <QFile>
@@ -24,6 +25,8 @@ constexpr auto PANEL = R"(<?xml version="1.0" encoding="UTF-8"?>
 <object class="org.opensourcephysics.cabrillo.tracker.TrackerPanel">
 </object>
 )";
+
+constexpr std::string_view TFRAME_OPEN = R"(<object class="org.opensourcephysics.cabrillo.tracker.TFrame">)";
 
 void writeFile(const QString& path, std::string_view bytes)
 {
@@ -63,6 +66,38 @@ std::vector<TabsetItemStatus> statuses(const std::vector<TabsetItem>& items)
     return {view.begin(), view.end()};
 }
 
+std::vector<TabsetEntry> entriesOf(const std::string& xml)
+{
+    auto parsed = motrack::parseTrackerTabset(xml);
+    EXPECT_TRUE(parsed.has_value()) << (parsed ? std::string{} : parsed.error()) << '\n' << xml;
+    return parsed ? parsed->entries : std::vector<TabsetEntry>{};
+}
+
+/// A tabset as Tracker on Windows writes it: CRLF line breaks and no final one, here with a property Tracker ignores.
+constexpr std::string_view TRACKER_WRITTEN = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
+                                             "<object class=\"org.opensourcephysics.cabrillo.tracker.TFrame\">\r\n"
+                                             "    <property name=\"note\" type=\"string\">kept as written</property>\r\n"
+                                             "    <property name=\"tabs\" type=\"array\" class=\"[[Ljava.lang.String;\">\r\n"
+                                             "        <property name=\"[0]\" type=\"array\" class=\"[Ljava.lang.String;\">\r\n"
+                                             "            <property name=\"[0]\" type=\"string\">C:/old/a.trk</property>\r\n"
+                                             "            <property name=\"[1]\" type=\"string\">a.trk</property>\r\n"
+                                             "        </property>\r\n"
+                                             "        <property name=\"[1]\" type=\"array\" class=\"[Ljava.lang.String;\">\r\n"
+                                             "            <property name=\"[0]\" type=\"string\">C:/old/b.trz</property>\r\n"
+                                             "            <property name=\"[1]\" type=\"string\">b.trz</property>\r\n"
+                                             "        </property>\r\n"
+                                             "    </property>\r\n"
+                                             "</object>";
+
+std::string replaced(std::string text, std::string_view from, std::string_view to)
+{
+    const auto position = text.find(from);
+    EXPECT_NE(position, std::string::npos) << from;
+    if (position != std::string::npos)
+        text.replace(position, from.size(), to);
+    return text;
+}
+
 TEST(TrackerTabset, WritesOspXmlControlLayout)
 {
     const std::vector<TabsetEntry> entries{
@@ -71,7 +106,8 @@ TEST(TrackerTabset, WritesOspXmlControlLayout)
         relativeEntry("video.mov"),
     };
     const auto xml = motrack::writeTrackerTabset(entries);
-    ASSERT_TRUE(xml.has_value());
+    ASSERT_TRUE(xml.has_value()) << xml.error();
+    // XMLControlElement.toString, which Tracker writes without a final line break.
     EXPECT_EQ(*xml,
               R"(<?xml version="1.0" encoding="UTF-8"?>
 <object class="org.opensourcephysics.cabrillo.tracker.TFrame">
@@ -88,11 +124,8 @@ TEST(TrackerTabset, WritesOspXmlControlLayout)
             <property name="[1]" type="string">video.mov</property>
         </property>
     </property>
-</object>
-)");
-    const auto parsed = motrack::parseTrackerTabset(*xml);
-    ASSERT_TRUE(parsed.has_value()) << parsed.error();
-    EXPECT_EQ(*parsed, entries);
+</object>)");
+    EXPECT_EQ(entriesOf(*xml), entries);
     EXPECT_TRUE(motrack::isTrackerTabset(*xml));
     EXPECT_FALSE(motrack::isTrackerTabset(PANEL));
     EXPECT_FALSE(motrack::isTrackerTabset("<object"));
@@ -121,24 +154,80 @@ TEST(TrackerTabset, ParsesIndicesInAnyOrderUnicodeAndIgnoresUnknownProperties)
 </object>)";
     const auto parsed = motrack::parseTrackerTabset(xml);
     ASSERT_TRUE(parsed.has_value()) << parsed.error();
-    ASSERT_EQ(parsed->size(), 2U);
-    EXPECT_EQ((*parsed)[0].relative, "\xC3\xA9t\xC3\xA9.trk");
-    EXPECT_EQ((*parsed)[1], (TabsetEntry{.absolute = "/x/b.trk", .relative = "b.trk"}));
+    ASSERT_EQ(parsed->entries.size(), 2U);
+    EXPECT_EQ(parsed->entries[0].relative, "\xC3\xA9t\xC3\xA9.trk");
+    EXPECT_EQ(parsed->entries[1], (TabsetEntry{.absolute = "/x/b.trk", .relative = "b.trk"}));
+    EXPECT_FALSE(parsed->ordered);
+    EXPECT_FALSE(parsed->nodes[1].ordered);
+    EXPECT_TRUE(parsed->nodes[0].ordered);
 
-    const auto empty = motrack::parseTrackerTabset(R"(<object class="org.opensourcephysics.cabrillo.tracker.TFrame"/>)");
-    ASSERT_TRUE(empty.has_value());
-    EXPECT_TRUE(empty->empty());
+    const auto empty = motrack::parseTrackerTabset(std::string(TFRAME_OPEN).replace(TFRAME_OPEN.size() - 1, 1, "/>"));
+    ASSERT_TRUE(empty.has_value()) << empty.error();
+    EXPECT_TRUE(empty->entries.empty());
+    EXPECT_FALSE(empty->tabs);
+}
+
+TEST(TrackerTabset, ReadsTabsetsAsTrackersLineReaderDoes)
+{
+    const auto entry = [](std::string_view relative)
+    {
+        return std::format("        <property name=\"[0]\" type=\"array\" class=\"[Ljava.lang.String;\">\n"
+                           "            <property name=\"[1]\" type=\"string\">{}</property>\n"
+                           "        </property>\n",
+                           relative);
+    };
+    const auto document = [](std::string_view before, std::string_view tabs)
+    {
+        return std::format("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n{}\n{}"
+                           "    <property name=\"tabs\" type=\"array\" class=\"[[Ljava.lang.String;\">\n{}    </property>\n</object>",
+                           TFRAME_OPEN,
+                           before,
+                           tabs);
+    };
+    // OSP decodes no entities and reads element-like text literally; Tracker would look for exactly these files.
+    EXPECT_EQ(entriesOf(document("", entry("R&amp;D/a<b/>.trk"))), std::vector{relativeEntry("R&amp;D/a<b/>.trk")});
+    // A document type is inert text, so this is an empty TFrame, as in Tracker.
+    EXPECT_TRUE(entriesOf(std::format("<!DOCTYPE x>{}", std::string(TFRAME_OPEN).replace(TFRAME_OPEN.size() - 1, 1, "/>"))).empty());
+    // A blank line ends an array (#196): Tracker reads only the first tab, and the second becomes an unused property.
+    auto second = entry("second.trk");
+    second.replace(second.find("[0]"), 3, "[1]");
+    EXPECT_EQ(entriesOf(document("", entry("first.trk") + "\n" + second)), std::vector{relativeEntry("first.trk")});
+    // A saved basepath string replaces the tabset's folder as the base, as XMLControlElement.getString returns it.
+    const auto based =
+        motrack::parseTrackerTabset(document("    <property name=\"basepath\" type=\"string\">/elsewhere</property>\n", entry("a.trk")));
+    ASSERT_TRUE(based.has_value()) << based.error();
+    EXPECT_EQ(based->basepath, "/elsewhere");
+    EXPECT_EQ(motrack::tabsetBase(*based, "/set/tabs.trk"), "/elsewhere");
+    const auto unbased =
+        motrack::parseTrackerTabset(document("    <property name=\"basepath\" type=\"int\">3</property>\n", entry("a.trk")));
+    ASSERT_TRUE(unbased.has_value()) << unbased.error();
+    EXPECT_FALSE(unbased->basepath);
+    // CRLF, as Tracker writes on Windows.
+    EXPECT_EQ(entriesOf(std::string(TRACKER_WRITTEN)).size(), 2U);
+
+    // Unreadable XML is reported as Tracker import reports it.
+    const auto windows1252 = motrack::parseTrackerTabset(document("", entry("caf\xE9.trk")));
+    ASSERT_FALSE(windows1252.has_value());
+    EXPECT_TRUE(windows1252.error().starts_with("Invalid Tracker XML at line")) << windows1252.error();
+    EXPECT_TRUE(windows1252.error().contains("Windows-1252")) << windows1252.error();
+    const auto truncated = motrack::parseTrackerTabset(document("", entry("a.trk")).substr(0, 200));
+    ASSERT_FALSE(truncated.has_value());
+    EXPECT_TRUE(truncated.error().starts_with("Invalid Tracker XML")) << truncated.error();
 }
 
 TEST(TrackerTabset, RejectsMalformedOrUnsupportedStructure)
 {
     const auto frame = [](std::string_view tabs)
     {
-        return std::format(R"(<object class="org.opensourcephysics.cabrillo.tracker.TFrame">{}</object>)", tabs);
+        return motrack::test::ospLayout(std::format(R"(<object class="org.opensourcephysics.cabrillo.tracker.TFrame">{}</object>)", tabs));
+    };
+    const auto tabs = [](std::string_view children)
+    {
+        return std::format(R"(<property name="tabs" type="array" class="[[Ljava.lang.String;">{}</property>)", children);
     };
     const auto matrix = [&](std::string_view children)
     {
-        return frame(std::format(R"(<property name="tabs" type="array" class="[[Ljava.lang.String;">{}</property>)", children));
+        return frame(tabs(children));
     };
     const auto entry = [](std::string_view index, std::string_view children)
     {
@@ -148,23 +237,21 @@ TEST(TrackerTabset, RejectsMalformedOrUnsupportedStructure)
     const std::vector<std::string> invalid{
         "<object",
         PANEL,
-        R"(<!DOCTYPE x><object class="org.opensourcephysics.cabrillo.tracker.TFrame"/>)",
         frame(R"(<property name="tabs" type="string">a.trk</property>)"),
         frame(R"(<property name="tabs" type="array" class="[Ljava.lang.String;"/>)"),
         matrix(std::format("{}{}", entry("0", relative), entry("0", relative))),
         matrix(entry("1", relative)),
         matrix(entry("01", relative)),
         matrix(entry("-1", relative)),
+        matrix(entry("array", relative)),
         matrix(R"(<property name="[0]" type="array" class="[Ljava.lang.Object;"/>)"),
+        matrix(R"(<property name="[0]" type="string">a.trk</property>)"),
         matrix(entry("0", R"(<property name="[0]" type="string">/a.trk</property>)")),
         matrix(entry("0", R"(<property name="[1]" type="string"></property>)")),
         matrix(entry("0", R"(<property name="[1]" type="int">1</property>)")),
         matrix(entry("0", R"(<property name="[2]" type="string">x</property>)")),
         matrix(entry("0", std::format("{}{}", relative, relative))),
-        matrix(entry("0", R"(<property name="[1]" type="string">a<b/></property>)")),
-        matrix(R"(<item name="[0]"/>)"),
-        frame(
-            R"(<property name="tabs" type="array" class="[[Ljava.lang.String;"/><property name="tabs" type="array" class="[[Ljava.lang.String;"/>)"),
+        frame(tabs("") + tabs("")),
     };
     for (const auto& xml : invalid)
         EXPECT_FALSE(motrack::parseTrackerTabset(xml).has_value()) << xml;
@@ -178,7 +265,124 @@ TEST(TrackerTabset, RejectsMalformedOrUnsupportedStructure)
     EXPECT_FALSE(motrack::writeTrackerTabset(std::vector{relativeEntry("a]]>b.trk")}).has_value());
     EXPECT_FALSE(motrack::writeTrackerTabset(std::vector{TabsetEntry{.absolute = "/a]]>", .relative = "a.trk"}}).has_value());
     EXPECT_FALSE(motrack::writeTrackerTabset(std::vector{relativeEntry("")}).has_value());
+    EXPECT_FALSE(motrack::writeTrackerTabset(std::vector{relativeEntry("a\nb.trk")}).has_value());
+    EXPECT_FALSE(motrack::writeTrackerTabset(std::vector{relativeEntry("<![CDATA[a.trk")}).has_value());
     EXPECT_FALSE(motrack::writeTrackerTabset(std::vector(motrack::MAX_TABSET_ENTRIES + 1, relativeEntry("a.trk"))).has_value());
+}
+
+TEST(TrackerTabset, SavingEditsOnlyTheChangedEntriesAndLeavesAnUnchangedSetByteForByte)
+{
+    const std::string original(TRACKER_WRITTEN);
+    const auto parsed = motrack::parseTrackerTabset(original);
+    ASSERT_TRUE(parsed.has_value()) << parsed.error();
+    const auto render = [&](const std::vector<TabsetEntry>& entries)
+    {
+        auto rendered = motrack::renderTrackerTabset(*parsed, entries);
+        EXPECT_TRUE(rendered.has_value()) << (rendered ? std::string{} : rendered.error());
+        if (rendered)
+            EXPECT_EQ(entriesOf(*rendered), entries);
+        return rendered.value_or(std::string{});
+    };
+    const auto a = parsed->entries[0];
+    const auto b = parsed->entries[1];
+    const TabsetEntry c{.absolute = "D:/new/R&D.mov", .relative = "../new/R&D.mov"};
+
+    EXPECT_EQ(render(parsed->entries), original);
+    // A changed entry has only its paths replaced, with CDATA where XML.requiresCDATA asks for it.
+    EXPECT_EQ(render({a, c}),
+              replaced(replaced(original, "C:/old/b.trz", "<![CDATA[D:/new/R&D.mov]]>"), ">b.trz<", "><![CDATA[../new/R&D.mov]]><"));
+    EXPECT_EQ(render({{.absolute = std::nullopt, .relative = a.relative}, b}),
+              replaced(original, "            <property name=\"[0]\" type=\"string\">C:/old/a.trk</property>\r\n", ""));
+    EXPECT_EQ(render({b}),
+              replaced(original,
+                       "        <property name=\"[0]\" type=\"array\" class=\"[Ljava.lang.String;\">\r\n"
+                       "            <property name=\"[0]\" type=\"string\">C:/old/a.trk</property>\r\n"
+                       "            <property name=\"[1]\" type=\"string\">a.trk</property>\r\n"
+                       "        </property>\r\n"
+                       "        <property name=\"[1]\" type=\"array\" class=\"[Ljava.lang.String;\">\r\n"
+                       "            <property name=\"[0]\" type=\"string\">C:/old/b.trz</property>\r\n"
+                       "            <property name=\"[1]\" type=\"string\">b.trz</property>\r\n",
+                       "        <property name=\"[0]\" type=\"array\" class=\"[Ljava.lang.String;\">\r\n"
+                       "            <property name=\"[0]\" type=\"string\">C:/old/b.trz</property>\r\n"
+                       "            <property name=\"[1]\" type=\"string\">b.trz</property>\r\n"));
+    // A new entry follows the others in OSP's layout and the file's own line breaks.
+    EXPECT_EQ(render({a, b, relativeEntry("c.mov")}),
+              replaced(original,
+                       "    </property>\r\n</object>",
+                       "        <property name=\"[2]\" type=\"array\" class=\"[Ljava.lang.String;\">\r\n"
+                       "            <property name=\"[1]\" type=\"string\">c.mov</property>\r\n"
+                       "        </property>\r\n"
+                       "    </property>\r\n</object>"));
+
+    // Entries without an absolute path receive one before their relative path.
+    const auto relativeOnly = motrack::writeTrackerTabset(std::vector{relativeEntry("a.trk")});
+    ASSERT_TRUE(relativeOnly.has_value());
+    const auto bare = motrack::parseTrackerTabset(*relativeOnly);
+    ASSERT_TRUE(bare.has_value());
+    const auto withAbsolute = motrack::renderTrackerTabset(*bare, std::vector{a});
+    ASSERT_TRUE(withAbsolute.has_value()) << withAbsolute.error();
+    EXPECT_EQ(*withAbsolute, motrack::writeTrackerTabset(std::vector{a}).value());
+
+    // Paths OSP cannot read back are refused as for a new tabset.
+    EXPECT_FALSE(motrack::renderTrackerTabset(*parsed, std::vector{relativeEntry("a]]>.trk")}).has_value());
+}
+
+TEST(TrackerTabset, SavingAddsMissingTabsAndRewritesOrderTrackerCannotRead)
+{
+    // An empty, self-closing TFrame receives a tabs array.
+    const auto empty = motrack::parseTrackerTabset(std::string(TFRAME_OPEN).replace(TFRAME_OPEN.size() - 1, 1, "/>"));
+    ASSERT_TRUE(empty.has_value());
+    const std::vector<TabsetEntry> entries{relativeEntry("a.trk"), {.absolute = "/x/b.trk", .relative = "b.trk"}};
+    const auto filled = motrack::renderTrackerTabset(*empty, entries);
+    ASSERT_TRUE(filled.has_value()) << filled.error();
+    EXPECT_EQ(entriesOf(*filled), entries);
+
+    const auto reversed = std::string(R"(<?xml version="1.0" encoding="UTF-8"?>
+<object class="org.opensourcephysics.cabrillo.tracker.TFrame">
+    <property name="tabs" type="array" class="[[Ljava.lang.String;">
+        <property name="[1]" type="array" class="[Ljava.lang.String;">
+            <property name="[1]" type="string">b.trk</property>
+        </property>
+        <property name="[0]" type="array" class="[Ljava.lang.String;">
+            <property name="[1]" type="string">a.trk</property>
+            <property name="[0]" type="string">/x/a.trk</property>
+        </property>
+    </property>
+    <property name="after" type="string">kept</property>
+</object>)");
+    const auto parsed = motrack::parseTrackerTabset(reversed);
+    ASSERT_TRUE(parsed.has_value()) << parsed.error();
+    // Unedited, the file is kept as it was read.
+    EXPECT_EQ(motrack::renderTrackerTabset(*parsed, parsed->entries).value(), reversed);
+    // Edited, Tracker's reading order is restored; the other property is untouched.
+    const std::vector<TabsetEntry> edited{parsed->entries[0], relativeEntry("c.trk")};
+    const auto rewritten = motrack::renderTrackerTabset(*parsed, edited);
+    ASSERT_TRUE(rewritten.has_value()) << rewritten.error();
+    const auto reread = motrack::parseTrackerTabset(*rewritten);
+    ASSERT_TRUE(reread.has_value()) << reread.error();
+    EXPECT_EQ(reread->entries, edited);
+    EXPECT_TRUE(reread->ordered);
+    EXPECT_TRUE(rewritten->ends_with("    <property name=\"after\" type=\"string\">kept</property>\n</object>")) << *rewritten;
+
+    // An entry whose own paths are out of order is rewritten in order when it changes.
+    auto inner = reversed;
+    inner.replace(inner.find("[1]\" type=\"array"), 3, "[9]");
+    inner = replaced(inner,
+                     "        <property name=\"[9]\" type=\"array\" class=\"[Ljava.lang.String;\">\n"
+                     "            <property name=\"[1]\" type=\"string\">b.trk</property>\n"
+                     "        </property>\n",
+                     "");
+    const auto single = motrack::parseTrackerTabset(inner);
+    ASSERT_TRUE(single.has_value()) << single.error();
+    ASSERT_TRUE(single->ordered);
+    ASSERT_FALSE(single->nodes[0].ordered);
+    const auto moved = std::vector{TabsetEntry{.absolute = "/y/a.trk", .relative = "a.trk"}};
+    const auto edit = motrack::renderTrackerTabset(*single, moved);
+    ASSERT_TRUE(edit.has_value()) << edit.error();
+    const auto again = motrack::parseTrackerTabset(*edit);
+    ASSERT_TRUE(again.has_value()) << again.error();
+    EXPECT_EQ(again->entries, moved);
+    EXPECT_TRUE(again->nodes[0].ordered);
 }
 
 TEST(TrackerTabset, ComputesTrackerRelativePaths)
@@ -257,7 +461,9 @@ TEST(TrackerTabset, ExpandsNestedTabsetsInOpenOrder)
     writeFile(base + "/b.trz", "not inspected");
     writeFile(base + "/nested/c.trk", PANEL);
     writeFile(base + "/video \xC3\xA9.mov", "not inspected");
-    writeFile(base + "/broken.trk", R"(<object class="org.opensourcephysics.cabrillo.tracker.TFrame"><property name="tabs"/></object>)");
+    writeFile(
+        base + "/broken.trk",
+        motrack::test::ospLayout(R"(<object class="org.opensourcephysics.cabrillo.tracker.TFrame"><property name="tabs"/></object>)"));
     writeTabset(base + "/nested/inner.trk",
                 {
                     relativeEntry("c.trk"),
@@ -295,8 +501,30 @@ TEST(TrackerTabset, ExpandsNestedTabsetsInOpenOrder)
     EXPECT_EQ(items[6].entry.relative, "missing.trk");
     EXPECT_TRUE(items[6].file.isEmpty());
     EXPECT_EQ(items[7].file, canonical(base + "/broken.trk"));
-    EXPECT_FALSE(items[7].diagnostic.empty());
+    EXPECT_EQ(items[7].diagnostic, "The tabset's tabs property must be a string matrix.");
     EXPECT_EQ(items[8].file, canonical(base + "/video \xC3\xA9.mov"));
+}
+
+TEST(TrackerTabset, ResolvesAgainstASavedBasepathFirst)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const auto base = directory.path();
+    writeFile(base + "/set/a.trk", PANEL);
+    writeFile(base + "/elsewhere/a.trk", PANEL);
+    writeFile(base + "/set/b.trk", PANEL);
+    const auto xml = motrack::writeTrackerTabset(std::vector{relativeEntry("a.trk"), relativeEntry("b.trk")});
+    ASSERT_TRUE(xml.has_value());
+    const auto withBase = replaced(*xml,
+                                   "    <property name=\"tabs\"",
+                                   std::format("    <property name=\"basepath\" type=\"string\">{}</property>\n    <property name=\"tabs\"",
+                                               QDir(base).filePath("elsewhere").toStdString()));
+    writeFile(base + "/set/tabs.trk", withBase);
+    const auto items = motrack::expandTrackerTabset(base + "/set/tabs.trk", {});
+    ASSERT_EQ(items.size(), 2U);
+    // Tracker looks in the basepath, then the working directory, then the absolute path; never the tabset's folder.
+    EXPECT_EQ(items[0].file, canonical(base + "/elsewhere/a.trk"));
+    EXPECT_EQ(items[1].status, TabsetItemStatus::Missing);
 }
 
 TEST(TrackerTabset, BoundsDepthAndTotalEntries)
@@ -344,6 +572,63 @@ TEST(TrackerTabset, ExpansionFailuresThrowOnlyForTheRequestedTabset)
     EXPECT_THROW((void)motrack::expandTrackerTabset(base + "/set.trk", {}, &cancelled), motrack::ProjectError);
     const std::atomic_bool running{false};
     EXPECT_EQ(motrack::expandTrackerTabset(base + "/set.trk", {}, &running).size(), 1U);
+    EXPECT_FALSE(motrack::readTrackerTabset(base + "/missing.trk").has_value());
+    EXPECT_FALSE(motrack::isTrackerTabsetFile(base + "/missing.trk"));
+}
+
+TEST(TrackerTabset, KeepsEntriesThatStillNameTheirFiles)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    // Canonical, so that relative paths compare equal where the temporary folder is a link (macOS /var).
+    const auto base = canonical(directory.path());
+    writeFile(base + "/a.trk", PANEL);
+    writeFile(base + "/b.trz", "not inspected");
+    writeFile(base + "/c.mov", "not inspected");
+    const auto a = canonical(base + "/a.trk");
+    const auto b = canonical(base + "/b.trz");
+    const auto c = canonical(base + "/c.mov");
+    const auto set = base + "/set.trk";
+    // As Tracker writes it: stale absolute paths from before the folder moved, and the archive once per tab.
+    const std::vector<TabsetEntry> saved{
+        {.absolute = "/moved/a.trk", .relative = "a.trk"},
+        {.absolute = "/moved/b.trz", .relative = "b.trz"},
+        {.absolute = "/moved/b.trz", .relative = "b.trz"},
+    };
+    writeTabset(set, saved);
+    const auto bytes = readFile(set);
+    const auto existing = motrack::readTrackerTabset(set);
+    ASSERT_TRUE(existing.has_value()) << existing.error();
+    const auto entries = [&](std::vector<QString> files)
+    {
+        return motrack::tabsetEntries(files, set, {}, &*existing);
+    };
+
+    // Saving the same files changes nothing, byte for byte.
+    EXPECT_EQ(entries({a, b}), saved);
+    ASSERT_TRUE(motrack::saveTrackerTabset(set, entries({a, b}), &*existing).has_value());
+    EXPECT_EQ(readFile(set), bytes);
+    // Reordered, removed and added files keep the existing entries they still match.
+    EXPECT_EQ(entries({b, a}), (std::vector{saved[1], saved[2], saved[0]}));
+    EXPECT_EQ(entries({b}), (std::vector{saved[1], saved[2]}));
+    EXPECT_EQ(entries({a, b, c}), (std::vector{saved[0], saved[1], saved[2], motrack::tabsetEntry(c, base)}));
+    // Without an existing tabset every entry is new.
+    EXPECT_EQ(motrack::tabsetEntries(std::vector{a}, set, {}), std::vector{motrack::tabsetEntry(a, base)});
+
+    // A saved basepath stays the base for new entries, so Tracker finds them where MoTrack wrote them.
+    const auto based = replaced(bytes,
+                                "    <property name=\"tabs\"",
+                                std::format("    <property name=\"basepath\" type=\"string\">{}</property>\n    <property name=\"tabs\"",
+                                            QDir(base).filePath("sub").toStdString()));
+    writeFile(base + "/sub/a.trk", PANEL);
+    writeFile(set, based);
+    const auto rebased = motrack::readTrackerTabset(set);
+    ASSERT_TRUE(rebased.has_value()) << rebased.error();
+    const auto inSub = canonical(base + "/sub/a.trk");
+    const auto withBase = motrack::tabsetEntries(std::vector{inSub, c}, set, {}, &*rebased);
+    ASSERT_EQ(withBase.size(), 2U);
+    EXPECT_EQ(withBase[0], saved[0]); // "a.trk" now names sub/a.trk through the basepath.
+    EXPECT_EQ(withBase[1].relative, "../c.mov");
 }
 
 TEST(TrackerTabset, SavesAtomicallyAndPreservesExistingFilesOnFailure)
@@ -354,7 +639,7 @@ TEST(TrackerTabset, SavesAtomicallyAndPreservesExistingFilesOnFailure)
     const std::vector<TabsetEntry> entries{relativeEntry("a.trk")};
     ASSERT_TRUE(motrack::saveTrackerTabset(path, entries).has_value());
     const auto saved = readFile(path);
-    EXPECT_EQ(motrack::parseTrackerTabset(saved).value(), entries);
+    EXPECT_EQ(entriesOf(saved), entries);
 
     EXPECT_FALSE(motrack::saveTrackerTabset(path, std::vector{relativeEntry("a]]>.trk")}).has_value());
     EXPECT_EQ(readFile(path), saved);

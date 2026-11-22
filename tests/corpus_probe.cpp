@@ -472,10 +472,8 @@ QJsonObject openedExperiment(const motrack::WorkspaceDocument& document)
 
 /// Opens a .trk or .trz exactly as the workspace does (bounded archive reader, every archive member,
 /// media resolution and movie indexing), then reports what was prepared. Rejection exits nonzero.
-QJsonObject openSnapshot(const QString& path)
+void appendOpened(QJsonArray& experiments, const motrack::PreparedWorkspaceInput& prepared)
 {
-    auto prepared = motrack::prepareWorkspaceInput(path);
-    QJsonArray experiments;
     if (prepared.group)
     {
         for (const auto id : prepared.group->memberIds())
@@ -487,7 +485,48 @@ QJsonObject openSnapshot(const QString& path)
     {
         experiments.append(openedExperiment(prepared.document->document));
     }
-    return {{"experiments", experiments}};
+}
+
+QJsonObject openSnapshot(const QString& path)
+{
+    auto prepared = motrack::prepareWorkspaceInput(path);
+    QJsonArray experiments;
+    if (!prepared.tabset)
+    {
+        appendOpened(experiments, prepared);
+        return {{"experiments", experiments}};
+    }
+    // A tabset opens each file it lists, as the workspace does but without asking to locate missing files.
+    QStringList problems;
+    for (const auto& item : *prepared.tabset)
+    {
+        const auto listed = QString::fromStdString(item.entry.relative);
+        if (item.status == motrack::TabsetItemStatus::Duplicate)
+        {
+            continue;
+        }
+        if (item.status != motrack::TabsetItemStatus::Resolved)
+        {
+            problems.push_back(listed + (item.status == motrack::TabsetItemStatus::Missing ? ": not found" : ": not opened"));
+            continue;
+        }
+        try
+        {
+            const auto suffix = QFileInfo(item.file).suffix().toLower();
+            const bool project = suffix == "trk" || suffix == "trz" || suffix == "motrack";
+            appendOpened(experiments, project ? motrack::prepareWorkspaceInput(item.file) : motrack::prepareWorkspaceMediaFile(item.file));
+        }
+        catch (const motrack::ProjectError& error)
+        {
+            problems.push_back(listed + ": " + QString::fromUtf8(error.what()));
+        }
+    }
+    if (experiments.isEmpty())
+    {
+        throw motrack::ProjectError("No file listed in this Tracker tabset could be opened" +
+                                    (problems.isEmpty() ? std::string(".") : " (" + problems.front().toStdString() + ")."));
+    }
+    return {{"experiments", experiments}, {"tabset_problems", QJsonArray::fromStringList(problems)}};
 }
 
 void saveAndRecoverPair(const QString& path, const motrack::WorkspaceDocument& document, const QString& mediaPath)
@@ -878,6 +917,26 @@ try
         for (const auto& file : args.sliced(3))
             entries.push_back(motrack::tabsetEntry(QFileInfo(file).canonicalFilePath(), directory));
         if (const auto written = motrack::saveTrackerTabset(args[2], entries); !written)
+            throw motrack::ProjectError(written.error());
+        return EXIT_SUCCESS;
+    }
+    if (args.size() >= 4 && args[1] == "--save-tabset")
+    {
+        // The workspace's Save tabset as… after its prompts: an existing tabset at the destination is edited in place.
+        std::optional<motrack::TrackerTabset> existing;
+        if (QFileInfo::exists(args[2]))
+        {
+            auto read = motrack::readTrackerTabset(args[2]);
+            if (!read)
+                throw motrack::ProjectError(read.error());
+            existing = std::move(*read);
+        }
+        std::vector<QString> files;
+        for (const auto& file : args.sliced(3))
+            files.push_back(QFileInfo(file).canonicalFilePath());
+        const auto* baseline = existing ? &*existing : nullptr;
+        const auto entries = motrack::tabsetEntries(files, QFileInfo(args[2]).absoluteFilePath(), QDir::currentPath(), baseline);
+        if (const auto written = motrack::saveTrackerTabset(args[2], entries, baseline); !written)
             throw motrack::ProjectError(written.error());
         return EXIT_SUCCESS;
     }

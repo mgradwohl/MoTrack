@@ -12,6 +12,10 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QInputDialog>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QLabel>
 #include <QListWidget>
 #include <QLocale>
 #include <QMessageBox>
@@ -174,6 +178,20 @@ QMessageBox* problems(motrack::WorkspaceWindow& window)
     return box;
 }
 
+/// Dismiss a summary and wait until it is gone, so that the next one can be told apart from it.
+void dismiss(motrack::WorkspaceWindow& window, QMessageBox* box)
+{
+    box->accept();
+    ASSERT_TRUE(QTest::qWaitFor([&] { return window.findChild<QMessageBox*>("workspaceTabsetProblems") == nullptr; }));
+}
+
+QByteArray readBytes(const QString& path)
+{
+    QFile file(path);
+    EXPECT_TRUE(file.open(QIODevice::ReadOnly));
+    return file.readAll();
+}
+
 TEST(WorkspaceTabset, PreparedTabsetsOwnNoSourceAndCannotBeAdopted)
 {
     QTemporaryDir temporary;
@@ -289,13 +307,14 @@ TEST(WorkspaceTabset, SavingAsksToSaveChangedProjectsAndReopensTheSameSet)
     }
     QFile file(set);
     ASSERT_TRUE(file.open(QIODevice::ReadOnly));
-    const auto entries = motrack::parseTrackerTabset(file.readAll().toStdString());
+    const auto tabset = motrack::parseTrackerTabset(file.readAll().toStdString());
     file.close(); // Windows refuses to move an open file below.
-    ASSERT_TRUE(entries.has_value());
-    ASSERT_EQ(entries->size(), 2U);
-    EXPECT_EQ((*entries)[0].relative, "../group.trz");
-    EXPECT_EQ((*entries)[0].absolute, QDir::fromNativeSeparators(canonical(archive)).toStdString());
-    EXPECT_EQ((*entries)[1].relative, "../clip.mov");
+    ASSERT_TRUE(tabset.has_value());
+    const auto& entries = tabset->entries;
+    ASSERT_EQ(entries.size(), 2U);
+    EXPECT_EQ(entries[0].relative, "../group.trz");
+    EXPECT_EQ(entries[0].absolute, QDir::fromNativeSeparators(canonical(archive)).toStdString());
+    EXPECT_EQ(entries[1].relative, "../clip.mov");
     const auto saved = motrack::TrackerArchive::open(archive);
     EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(saved.projectPath(saved.projects().back())).project.pointMasses.front().mass, 13);
 
@@ -452,7 +471,9 @@ TEST(WorkspaceTabset, FailedFilesAreReportedWhileTheOthersOpen)
     ASSERT_TRUE(openTabset(window, set, 1));
     auto* box = problems(window);
     ASSERT_NE(box, nullptr);
-    EXPECT_TRUE(box->informativeText().contains("broken.trk"));
+    // The listed file's line is B1's import diagnostic, as a single-project window reports it.
+    EXPECT_TRUE(box->informativeText().contains("broken.trk: Invalid Tracker XML: No OSP root object"))
+        << box->informativeText().toStdString();
     box->accept();
 }
 
@@ -549,10 +570,133 @@ TEST(WorkspaceTabset, NativeOnlyAndChangedMediaSourcesAreReportedInsteadOfRefere
     box->accept();
     QFile file(set);
     ASSERT_TRUE(file.open(QIODevice::ReadOnly));
-    const auto entries = motrack::parseTrackerTabset(file.readAll().toStdString());
-    ASSERT_TRUE(entries.has_value());
-    ASSERT_EQ(entries->size(), 1U);
-    EXPECT_EQ(entries->front().relative, "clip.mov");
+    const auto tabset = motrack::parseTrackerTabset(file.readAll().toStdString());
+    ASSERT_TRUE(tabset.has_value());
+    ASSERT_EQ(tabset->entries.size(), 1U);
+    EXPECT_EQ(tabset->entries.front().relative, "clip.mov");
+}
+
+TEST(WorkspaceTabset, SavingOverTheOpenedTabsetKeepsItsBytesAndAddsOnlyNewTabs)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto set = temporary.filePath("lesson.trk");
+    // As Tracker on Windows writes a tabset (CRLF, no final line break), with a property Tracker ignores.
+    auto xml = motrack::writeTrackerTabset(
+        std::vector{absoluteEntry(fixture("linked-images/linked-images.trk")), absoluteEntry(fixture("linked-mov/constant-rate.mov"))});
+    ASSERT_TRUE(xml.has_value());
+    auto original = QByteArray::fromStdString(*xml).replace("\n", "\r\n");
+    original.replace("    <property name=\"tabs\"",
+                     "    <property name=\"note\" type=\"string\">kept</property>\r\n    <property name=\"tabs\"");
+    {
+        QFile file(set);
+        ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+        ASSERT_EQ(file.write(original), original.size());
+    }
+    motrack::WorkspaceWindow window;
+    window.show();
+    ASSERT_TRUE(openTabset(window, set, 2));
+    // Saving the unchanged set back changes nothing.
+    ASSERT_TRUE(window.saveTabset(set));
+    EXPECT_EQ(readBytes(set), original);
+
+    // Save tabset as… offers the tabset opened last.
+    QString offered;
+    {
+        DialogScript script({[&](QWidget* widget)
+                             {
+                                 auto* dialog = qobject_cast<QFileDialog*>(widget);
+                                 if (!dialog || dialog->objectName() != "workspaceTabsetSaveDialog")
+                                     return false;
+                                 offered = dialog->selectedFiles().value(0);
+                                 dialog->reject();
+                                 return true;
+                             }});
+        EXPECT_FALSE(window.saveTabset());
+        EXPECT_EQ(script.handled(), 1U);
+    }
+    EXPECT_EQ(canonical(offered).toStdString(), canonical(set).toStdString());
+
+    // Another experiment adds one entry; the listed ones, the other property and the line breaks keep their bytes.
+    QSignalSpy opened(window.context().get(), &motrack::WorkspaceContext::inputOpened);
+    ASSERT_TRUE(window.openProject(fixture("linked-images/secondary-images.trk")));
+    ASSERT_TRUE(QTest::qWaitFor([&] { return opened.count() == 1; }));
+    ASSERT_TRUE(window.saveTabset(set));
+    const auto edited = readBytes(set);
+    const auto kept = original.left(original.lastIndexOf("    </property>\r\n</object>"));
+    EXPECT_TRUE(edited.startsWith(kept)) << edited.toStdString();
+    EXPECT_TRUE(edited.endsWith("    </property>\r\n</object>")) << edited.toStdString();
+    EXPECT_FALSE(edited.contains("\n\n"));
+    EXPECT_EQ(edited.count('\n'), edited.count("\r\n"));
+    const auto reread = motrack::parseTrackerTabset(edited.toStdString());
+    ASSERT_TRUE(reread.has_value()) << reread.error();
+    ASSERT_EQ(reread->entries.size(), 3U);
+    EXPECT_EQ(reread->entries[2].absolute,
+              QDir::fromNativeSeparators(canonical(fixture("linked-images/secondary-images.trk"))).toStdString());
+
+    // A tabset MoTrack cannot read is not replaced.
+    const auto unreadable = temporary.filePath("unreadable.trk");
+    const QByteArray refused = "<object class=\"org.opensourcephysics.cabrillo.tracker.TFrame\">\n"
+                               "    <property name=\"tabs\" type=\"string\">a.trk</property>\n</object>\n";
+    {
+        QFile file(unreadable);
+        ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+        ASSERT_EQ(file.write(refused), refused.size());
+    }
+    EXPECT_FALSE(window.saveTabset(unreadable));
+    EXPECT_EQ(readBytes(unreadable), refused);
+}
+
+TEST(WorkspaceTabset, NativeMembersWithResetTrackerLinksOpenWithTheirNoticeAndStayOutOfSavedSets)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    auto input = motrack::prepareWorkspaceInput(fixture("linked-images/linked-images.trk"));
+    auto document = input.document->document;
+    const auto native = temporary.filePath("stale.motrack");
+    motrack::rebaseWorkspaceMedia(document, input.mediaProjectPath, native);
+    motrack::writeWorkspaceDocument(native, document);
+    // Associations that no longer name the source's track objects, as a native file saved before B1 can hold. B1 drops
+    // them on open, keeps the measurements and refuses Tracker export.
+    {
+        auto root = QJsonDocument::fromJson(readBytes(native)).object();
+        auto source = root.value("trackerSource").toObject();
+        source.insert("bindings", QJsonArray{});
+        root.insert("trackerSource", source);
+        QFile file(native);
+        ASSERT_TRUE(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        ASSERT_GT(file.write(QJsonDocument(root).toJson()), 0);
+    }
+    ASSERT_TRUE(motrack::readWorkspaceDocument(native).trackerBindingsReset);
+    const auto set = temporary.filePath("set.trk");
+    writeTabset(set, {absoluteEntry(native), absoluteEntry(fixture("linked-images/secondary-images.trk"))});
+    motrack::WorkspaceWindow window;
+    window.show();
+    ASSERT_TRUE(openTabset(window, set, 2));
+    auto* box = problems(window);
+    ASSERT_NE(box, nullptr);
+    EXPECT_TRUE(box->text().contains("cannot be saved as Tracker files")) << box->text().toStdString();
+    EXPECT_TRUE(box->informativeText().contains("stale.motrack: Tracker export unavailable")) << box->informativeText().toStdString();
+    dismiss(window, box);
+    // The selected first experiment's view shows B1's persistent note too.
+    const auto* view = tabs(window)->currentWidget();
+    ASSERT_NE(view, nullptr);
+    const auto* notice = view->findChild<QLabel*>("sourceNotice");
+    ASSERT_NE(notice, nullptr);
+    EXPECT_FALSE(notice->isHidden());
+
+    // Saving the set leaves it out with the reason, instead of pointing to a Tracker export that is refused.
+    const auto saved = temporary.filePath("saved.trk");
+    ASSERT_TRUE(window.saveTabset(saved));
+    box = problems(window);
+    ASSERT_NE(box, nullptr);
+    EXPECT_TRUE(box->informativeText().contains("stale.motrack: its links to the original Tracker tracks could not be restored"))
+        << box->informativeText().toStdString();
+    dismiss(window, box);
+    const auto written = motrack::readTrackerTabset(saved);
+    ASSERT_TRUE(written.has_value()) << written.error();
+    ASSERT_EQ(written->entries.size(), 1U);
+    EXPECT_TRUE(written->entries.front().relative.ends_with("secondary-images.trk"));
 }
 
 } // namespace

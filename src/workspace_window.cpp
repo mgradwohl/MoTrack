@@ -316,19 +316,8 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
                 finishOpen(request);
                 if (m_Tabset && m_Tabset->request == request)
                 {
-                    // A located file was itself a tabset: open its files in place and report the rest without new prompts.
-                    QStringList nested;
-                    for (const auto& item : items)
-                        if (item.status == TabsetItemStatus::Resolved)
-                        {
-                            // Skip files this tabset already queued or opened, including earlier tabs.
-                            if (insertNew(m_Tabset->listed, tabsetIdentityKey(item.file)))
-                                nested.push_back(item.file);
-                        }
-                        else if (auto problem = describeTabsetProblem(item))
-                            m_Tabset->problems.push_back(*problem);
-                    m_Tabset->files = nested + m_Tabset->files;
-                    m_Tabset->requestIsProject = false;
+                    // A located file was itself a tabset: open its files in place.
+                    expandInPlace(*m_Tabset, items);
                     completeTabsetInput(request, {}, {});
                     return;
                 }
@@ -513,7 +502,9 @@ void WorkspaceWindow::beginTabset(const QString& tabset, const std::vector<Tabse
             if (alive)
                 m_TabsetPrompting = false;
         });
-    PendingTabset pending{.tabset = tabset};
+    m_LastTabset = tabset;
+    OrderedOpens pending;
+    pending.tabset = tabset;
     // Every resolved file is canonical; a located file must not duplicate one of them or another located file.
     QSet<QString> resolved;
     for (const auto& item : items)
@@ -561,6 +552,22 @@ void WorkspaceWindow::beginTabset(const QString& tabset, const std::vector<Tabse
     continueTabset();
 }
 
+void WorkspaceWindow::expandInPlace(OrderedOpens& queue, const std::vector<TabsetItem>& items) const
+{
+    QStringList nested;
+    for (const auto& item : items)
+        if (item.status == TabsetItemStatus::Resolved)
+        {
+            // Skip files this queue already listed or opened, including earlier tabs.
+            if (insertNew(queue.listed, tabsetIdentityKey(item.file)))
+                nested.push_back(item.file);
+        }
+        else if (auto problem = describeTabsetProblem(item))
+            queue.problems.push_back(*problem);
+    queue.files = nested + queue.files;
+    queue.requestIsProject = false;
+}
+
 void WorkspaceWindow::continueTabset()
 {
     if (!m_Tabset || m_Tabset->request)
@@ -586,8 +593,12 @@ void WorkspaceWindow::continueTabset()
         (void)showDocument(*finished.select);
     const auto name = QFileInfo(finished.tabset).fileName();
     statusBar()->showMessage(tr("Opened tabset %1.").arg(name));
-    if (!finished.problems.isEmpty())
-        showProblems(this, tr("Some files listed in %1 were not opened.").arg(name), finished.problems, "workspaceTabsetProblems");
+    if (!finished.problems.isEmpty() || !finished.notices.isEmpty())
+        showProblems(this,
+                     finished.problems.isEmpty() ? tr("Some projects listed in %1 cannot be saved as Tracker files.").arg(name)
+                                                 : tr("Some files listed in %1 were not opened.").arg(name),
+                     finished.problems + finished.notices,
+                     "workspaceTabsetProblems");
     QTimer::singleShot(0, this, &WorkspaceWindow::beginQueuedTabset);
     Q_EMIT tabsetFinished(finished.tabset);
 }
@@ -605,6 +616,15 @@ void WorkspaceWindow::completeTabsetInput(QUuid request, const QList<QUuid>& doc
     m_Tabset->request.reset();
     if (m_Tabset->requestIsProject && !m_Tabset->select && !documents.isEmpty())
         m_Tabset->select = documents.front();
+    // B1's native-file recovery: stale links to the Tracker source were reset, so the experiment opens but cannot
+    // be exported. Its view shows the same note once it is selected.
+    const auto& session = m_Context->session();
+    if (std::ranges::any_of(documents, [&](QUuid document) { return session.document(document).trackerBindingsReset; }))
+        m_Tabset->notices.push_back(tr("%1: %2").arg(m_Tabset->current,
+                                                     QCoreApplication::translate("motrack::MainWindow",
+                                                                                 "Tracker export unavailable: the links to this project's "
+                                                                                 "Tracker tracks could not be restored. Measurements are "
+                                                                                 "unchanged.")));
     if (!problem.isEmpty())
         m_Tabset->problems.push_back(tr("%1: %2").arg(m_Tabset->current, problem));
     if (cancelled)
@@ -627,7 +647,14 @@ std::optional<QString> WorkspaceWindow::tabsetReference(QUuid source, QStringLis
     {
         if (standard().isEmpty())
         {
-            problems.push_back(tr("%1: saved only as a MoTrack project. Use Save Tracker project… to include it.").arg(name));
+            const auto documents = session.sourceDocuments(source);
+            // B1 reset this native file's stale links to its Tracker source, so Save Tracker project… is refused.
+            if (std::ranges::any_of(documents, [&](QUuid document) { return session.document(document).trackerBindingsReset; }))
+                problems.push_back(tr("%1: its links to the original Tracker tracks could not be restored, so it cannot be saved as "
+                                      "a Tracker project. Open the original Tracker file again to include it.")
+                                       .arg(name));
+            else
+                problems.push_back(tr("%1: saved only as a MoTrack project. Use Save Tracker project… to include it.").arg(name));
             return std::nullopt;
         }
         if (session.isModified(source))
@@ -729,6 +756,9 @@ bool WorkspaceWindow::saveTabset(const QString& path)
         dialog->setObjectName("workspaceTabsetSaveDialog");
         dialog->setAcceptMode(QFileDialog::AcceptSave);
         dialog->setDefaultSuffix("trk");
+        // Offer the tabset opened last, so an edited set is saved back over the file it came from.
+        if (!m_LastTabset.isEmpty())
+            dialog->selectFile(m_LastTabset);
         bool dialogAlive = true;
         connect(dialog, &QObject::destroyed, &lifetime, [&] { dialogAlive = false; });
         const bool accepted = dialog->exec() == QDialog::Accepted;
@@ -770,20 +800,35 @@ bool WorkspaceWindow::saveTabset(const QString& path)
     }
     // Edits made while confirming or saving would otherwise be missing from files the tabset presents as saved.
     const auto sources = session.sources();
-    if (std::ranges::any_of(references,
-                            [&](const auto& reference) {
-                                return std::ranges::find(sources, reference.first) == sources.end() || session.isModified(reference.first);
-                            }))
+    if (std::ranges::any_of(
+            references,
+            [&](const auto& reference)
+            { return std::ranges::find(sources, reference.first) == sources.end() || session.isModified(reference.first); }))
     {
         finish(tr("A project changed while the tabset was being prepared. Save the tabset again."));
         return false;
     }
-    const auto directory = QFileInfo(physical).path();
-    std::vector<TabsetEntry> entries;
-    entries.reserve(references.size());
+    // Replacing a tabset edits it: entries that still name their file, and everything Tracker does not read, keep
+    // their bytes. A tabset MoTrack cannot read is not replaced, since its content would be lost.
+    std::optional<TrackerTabset> existing;
+    if (QFileInfo::exists(physical))
+    {
+        auto read = readTrackerTabset(physical);
+        if (!read)
+        {
+            finish(tr("%1 is a tabset that MoTrack cannot read (%2). Choose another filename so it is not replaced.")
+                       .arg(QFileInfo(physical).fileName(), QString::fromStdString(read.error())));
+            return false;
+        }
+        existing = std::move(*read);
+    }
+    std::vector<QString> files;
+    files.reserve(references.size());
     for (const auto& [source, file] : references)
-        entries.push_back(tabsetEntry(file, directory));
-    const auto written = saveTrackerTabset(physical, entries);
+        files.push_back(file);
+    const auto* baseline = existing ? &*existing : nullptr;
+    const auto entries = tabsetEntries(files, physical, QDir::currentPath(), baseline);
+    const auto written = saveTrackerTabset(physical, entries, baseline);
     if (!written)
     {
         finish(tr("Could not save the tabset: %1").arg(QString::fromStdString(written.error())));

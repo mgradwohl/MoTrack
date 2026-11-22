@@ -1,80 +1,168 @@
 #include "tracker_tabset.hpp"
 
 #include "legacy_project.hpp"
+#include "osp/render.hpp"
+#include "osp/value.hpp"
+#include "source_edits.hpp"
+#include "tracker_import.hpp"
+#include "tracker_loaders.hpp"
 
 #include <QDir>
-#include <QDomDocument>
 #include <QFile>
 #include <QFileInfo>
 #include <QSaveFile>
-#include <QXmlStreamReader>
 
 #include <algorithm>
-#include <format>
 #include <ranges>
 #include <set>
 #include <utility>
 
 namespace motrack
 {
+static_assert(TRACKER_TABSET_CLASS == tracker::TFRAME_CLASS);
+
 namespace
 {
 
-constexpr std::string_view STRING_ARRAY_CLASS = "[Ljava.lang.String;";
-constexpr std::string_view STRING_MATRIX_CLASS = "[[Ljava.lang.String;";
+/// The bytes OSP's readInput examines for the root: the first ten lines, which in a Tracker file are short.
+constexpr qint64 MAX_ROOT_PROBE_BYTES = qint64{64} * 1024;
+constexpr int ROOT_SEARCH_LINES = 10;
 
-[[nodiscard]] std::optional<std::size_t> arrayIndex(const QString& name)
+/// XMLControlElement.readInput (OSP line 1581): the root is the first of the first ten lines containing
+/// `<object class=`; getClassName takes the text after `class="` up to the next quote, or "" without one.
+[[nodiscard]] std::optional<std::string> rootClass(std::string_view head)
 {
-    // OSP names array elements "[n]"; reject signs, padding and other spellings it would not write.
-    if (name.size() < 3 || !name.startsWith('[') || !name.endsWith(']'))
+    std::size_t position = 0;
+    for (int line = 0; line < ROOT_SEARCH_LINES && position <= head.size(); ++line)
+    {
+        // BufferedReader.readLine ends a line at "\n", "\r\n" or a lone "\r".
+        const auto end = head.find_first_of("\r\n", position);
+        const auto text = head.substr(position, end == std::string_view::npos ? std::string_view::npos : end - position);
+        if (text.contains("<object class="))
+        {
+            constexpr std::string_view ATTRIBUTE = "class=\"";
+            const auto start = text.find(ATTRIBUTE);
+            const auto close = start == std::string_view::npos ? start : text.find('"', start + ATTRIBUTE.size());
+            if (close == std::string_view::npos)
+                return std::string{};
+            return osp::effectiveClassName(text.substr(start + ATTRIBUTE.size(), close - start - ATTRIBUTE.size()));
+        }
+        if (end == std::string_view::npos)
+            break;
+        position = end + (head.substr(end, 2) == "\r\n" ? 2 : 1);
+    }
+    return std::nullopt;
+}
+
+/// OSP names array elements "[n]" (read with Integer.parseInt); refuse signs, padding and other spellings it
+/// would not write, as MoTrack's import policy.
+[[nodiscard]] std::optional<std::size_t> strictIndex(const osp::Source& source, const tracker::ArrayElement& element)
+{
+    const auto& name = source.node(element.property).name;
+    if (!name || name->size() < 3 || !name->starts_with('[') || !name->ends_with(']') || !element.index)
         return std::nullopt;
-    const auto digits = QStringView(name).sliced(1, name.size() - 2);
-    if (digits.size() > 1 && digits.front() == '0')
+    const auto digits = std::string_view(*name).substr(1, name->size() - 2);
+    if ((digits.size() > 1 && digits.front() == '0') || !std::ranges::all_of(digits, [](char c) { return c >= '0' && c <= '9'; }))
         return std::nullopt;
-    bool ok = false;
-    const auto value = digits.toULongLong(&ok);
-    return ok && std::ranges::all_of(digits, [](QChar c) { return c.isDigit(); }) ? std::optional{static_cast<std::size_t>(value)}
-                                                                                  : std::nullopt;
+    return static_cast<std::size_t>(*element.index);
 }
 
-[[nodiscard]] std::vector<QDomElement> childElements(const QDomElement& parent)
+struct ParsedEntry
 {
-    std::vector<QDomElement> result;
-    for (auto child = parent.firstChildElement(); !child.isNull(); child = child.nextSiblingElement())
-        result.push_back(child);
-    return result;
-}
+    TabsetEntry entry;
+    TrackerTabset::EntryNodes nodes;
+};
 
-[[nodiscard]] std::expected<std::string, std::string> stringValue(const QDomElement& property)
+[[nodiscard]] std::expected<ParsedEntry, std::string> parseEntry(const osp::Source& source, const tracker::TabsetTabLoad& tab)
 {
-    if (property.attribute("type") != "string" || !property.firstChildElement().isNull())
-        return std::unexpected("Tabset path entries must be strings.");
-    return property.text().toStdString();
-}
-
-[[nodiscard]] std::expected<TabsetEntry, std::string> parseEntry(const QDomElement& tab)
-{
-    if (tab.attribute("type") != "array" || tab.attribute("class") != QLatin1StringView(STRING_ARRAY_CLASS))
+    if (tab.type != osp::PropertyType::Array || tab.className != tracker::STRING_ARRAY_CLASS)
         return std::unexpected("Each tabset entry must be a string array.");
     std::optional<std::string> absolute;
     std::optional<std::string> relative;
-    for (const auto& element : childElements(tab))
+    std::optional<osp::NodeId> relativeNode;
+    TrackerTabset::EntryNodes nodes{.element = tab.element.property};
+    std::optional<std::size_t> previous;
+    for (const auto& path : tab.paths)
     {
-        const auto index = arrayIndex(element.attribute("name"));
-        if (element.tagName() != "property" || !index || *index > 1)
+        const auto index = strictIndex(source, path.element);
+        if (!index || *index > 1)
             return std::unexpected("A tabset entry has an unexpected element.");
         auto& slot = *index == 0 ? absolute : relative;
         if (slot)
             return std::unexpected("A tabset entry repeats a path.");
-        auto text = stringValue(element);
-        if (!text)
-            return std::unexpected(std::move(text).error());
-        slot = std::move(*text);
+        if (source.node(path.element.property).type != osp::PropertyType::String || !path.value)
+            return std::unexpected("Tabset path entries must be strings.");
+        slot = *path.value;
+        (*index == 0 ? nodes.absolute : relativeNode) = path.element.property;
+        nodes.ordered = nodes.ordered && (!previous || *previous < *index);
+        previous = index;
     }
     // TFrame.Loader dereferences the relative path unconditionally; only the absolute path may be absent.
-    if (!relative || relative->empty())
+    if (!relative || relative->empty() || !relativeNode)
         return std::unexpected("A tabset entry has no relative path.");
-    return TabsetEntry{.absolute = std::move(absolute), .relative = std::move(*relative)};
+    nodes.relative = *relativeNode;
+    return ParsedEntry{.entry = {.absolute = std::move(absolute), .relative = std::move(*relative)}, .nodes = nodes};
+}
+
+[[nodiscard]] bool representable(std::string_view path)
+{
+    // OSP would truncate a CDATA value at "]]>" when reading it back, and it joins multi-line values with the
+    // platform's line separator, so neither survives a Tracker round trip.
+    return !path.empty() && !path.contains("]]>") && !path.contains('\0') && !path.contains('\n') && !path.contains('\r');
+}
+
+[[nodiscard]] std::expected<void, std::string> validEntries(std::span<const TabsetEntry> entries)
+{
+    if (entries.size() > MAX_TABSET_ENTRIES)
+        return std::unexpected("The tabset lists too many files.");
+    if (!std::ranges::all_of(entries,
+                             [](const TabsetEntry& entry)
+                             { return representable(entry.relative) && (!entry.absolute || representable(*entry.absolute)); }))
+        return std::unexpected("A tabset path cannot be written in Tracker XML.");
+    return {};
+}
+
+/// XMLPropertyElement's writer for one String[] entry; `[0]` is skipped when absent.
+[[nodiscard]] osp::PropertyValue entryProperty(std::size_t index, const TabsetEntry& entry)
+{
+    std::vector<std::optional<osp::PropertyValue>> paths;
+    paths.emplace_back(entry.absolute.transform([](const std::string& path) { return osp::stringProperty("[0]", path); }));
+    paths.emplace_back(osp::stringProperty("[1]", entry.relative));
+    return osp::arrayProperty("[" + std::to_string(index) + "]", std::string(tracker::STRING_ARRAY_CLASS), paths);
+}
+
+[[nodiscard]] osp::PropertyValue tabsProperty(std::span<const TabsetEntry> entries)
+{
+    std::vector<std::optional<osp::PropertyValue>> elements;
+    elements.reserve(entries.size());
+    // std::views::enumerate is unavailable in the libc++ release used by Apple Clang.
+    for (std::size_t index = 0; index < entries.size(); ++index)
+        elements.emplace_back(entryProperty(index, entries[index]));
+    return osp::arrayProperty("tabs", std::string(tracker::STRING_MATRIX_CLASS), elements);
+}
+
+[[nodiscard]] std::size_t childPosition(const osp::Source& source, osp::NodeId parent, osp::NodeId child)
+{
+    const auto& children = source.node(parent).children;
+    return static_cast<std::size_t>(std::ranges::find(children, child) - children.begin());
+}
+
+/// Edits one existing entry in place: only the paths that differ change.
+void editEntry(SourceEdits& edits, const TrackerTabset::EntryNodes& nodes, const TabsetEntry& before, const TabsetEntry& after)
+{
+    if (after.relative != before.relative)
+        edits.setString(nodes.relative, after.relative);
+    if (after.absolute == before.absolute)
+        return;
+    if (!after.absolute)
+    {
+        if (nodes.absolute) // Present, since before.absolute differs.
+            edits.remove(*nodes.absolute);
+    }
+    else if (nodes.absolute)
+        edits.setString(*nodes.absolute, *after.absolute);
+    else
+        edits.insert(nodes.element, 0, osp::stringProperty("[0]", *after.absolute));
 }
 
 [[nodiscard]] QString forwardSlashes(const QString& path)
@@ -110,7 +198,7 @@ constexpr std::string_view STRING_MATRIX_CLASS = "[[Ljava.lang.String;";
     return !parts.isEmpty() && parts[0].isEmpty() ? 1 : 0;
 }
 
-[[nodiscard]] std::expected<QByteArray, std::string> readBounded(const QString& path)
+[[nodiscard]] std::expected<std::string, std::string> readBounded(const QString& path)
 {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly) || file.isSequential())
@@ -121,7 +209,7 @@ constexpr std::string_view STRING_MATRIX_CLASS = "[[Ljava.lang.String;";
     auto bytes = file.read(length + 1);
     if (file.error() != QFileDevice::NoError || bytes.size() != length || !file.atEnd())
         return std::unexpected("Could not read the tabset.");
-    return bytes;
+    return bytes.toStdString();
 }
 
 [[nodiscard]] std::optional<QString> existingFile(const QString& candidate)
@@ -145,11 +233,11 @@ class Expansion
         : m_WorkingDirectory(std::move(workingDirectory)), m_Cancelled(cancelled)
     {}
 
-    void expand(const QString& tabset, const std::vector<TabsetEntry>& entries, int depth)
+    void expand(const QString& tabsetPath, const TrackerTabset& tabset, int depth)
     {
-        m_Stack.push_back(tabsetIdentityKey(tabset));
-        const auto directory = QFileInfo(tabset).path();
-        for (const auto& entry : entries)
+        m_Stack.push_back(tabsetIdentityKey(tabsetPath));
+        const auto base = tabsetBase(tabset, tabsetPath);
+        for (const auto& entry : tabset.entries)
         {
             checkCancellation();
             if (m_Full)
@@ -157,50 +245,43 @@ class Expansion
             if (m_Items.size() >= MAX_TABSET_ENTRIES)
             {
                 // Report the bound once; enclosing tabsets stop at the same point.
-                append(entry, tabset, TabsetItemStatus::TooMany);
+                append(entry, tabsetPath, TabsetItemStatus::TooMany);
                 m_Full = true;
                 break;
             }
-            const auto file = resolveTabsetEntry(entry, directory, m_WorkingDirectory);
+            const auto file = resolveTabsetEntry(entry, base, m_WorkingDirectory);
             if (!file)
             {
-                append(entry, tabset, TabsetItemStatus::Missing);
+                append(entry, tabsetPath, TabsetItemStatus::Missing);
                 continue;
             }
             // Canonical keys keep large sets linear; hard-linked aliases may still open separately.
             const auto key = tabsetIdentityKey(*file);
             if (std::ranges::find(m_Stack, key) != m_Stack.end())
             {
-                append(entry, tabset, TabsetItemStatus::Cycle);
+                append(entry, tabsetPath, TabsetItemStatus::Cycle);
                 continue;
             }
             if (!m_Seen.insert(key).second)
             {
-                append(entry, tabset, TabsetItemStatus::Duplicate);
+                append(entry, tabsetPath, TabsetItemStatus::Duplicate);
                 continue;
             }
             // Only a TFrame root needs a full parse; experiments are parsed once, when they are opened.
             if (!isTrackerXmlFile(*file) || !isTrackerTabsetFile(*file))
             {
-                append(entry, tabset, TabsetItemStatus::Resolved, *file);
+                append(entry, tabsetPath, TabsetItemStatus::Resolved, *file);
                 continue;
             }
-            auto bytes = readBounded(*file);
-            if (!bytes)
-            {
-                append(entry, tabset, TabsetItemStatus::Unreadable, *file, std::move(bytes).error());
-                continue;
-            }
-            const std::string_view xml(bytes->constData(), static_cast<std::size_t>(bytes->size()));
             if (depth + 1 >= MAX_TABSET_DEPTH)
             {
-                append(entry, tabset, TabsetItemStatus::TooDeep, *file);
+                append(entry, tabsetPath, TabsetItemStatus::TooDeep, *file);
                 continue;
             }
-            auto nested = parseTrackerTabset(xml);
+            auto nested = readTrackerTabset(*file);
             if (!nested)
             {
-                append(entry, tabset, TabsetItemStatus::Unreadable, *file, std::move(nested).error());
+                append(entry, tabsetPath, TabsetItemStatus::Unreadable, *file, std::move(nested).error());
                 continue;
             }
             expand(*file, *nested, depth + 1);
@@ -239,18 +320,6 @@ class Expansion
     bool m_Full = false;
 };
 
-void appendString(std::string& xml, std::string_view indent, std::size_t index, std::string_view value)
-{
-    // Match XML.requiresCDATA: OSP keeps entity references literally in ordinary strings.
-    const auto special = std::ranges::any_of(value, [](char c) { return c == '"' || c == '<' || c == '>' || c == '&' || c == '\''; });
-    xml += std::format("{}<property name=\"[{}]\" type=\"string\">{}{}{}</property>\n",
-                       indent,
-                       index,
-                       special ? "<![CDATA[" : "",
-                       value,
-                       special ? "]]>" : "");
-}
-
 } // namespace
 
 QString tabsetIdentityKey(const QString& canonical)
@@ -266,13 +335,7 @@ QString tabsetIdentityKey(const QString& canonical)
 
 bool isTrackerTabset(std::string_view xml)
 {
-    if (xml.size() > MAX_TRACKER_XML_BYTES)
-        return false;
-    QDomDocument document;
-    if (!document.setContent(QByteArray::fromRawData(xml.data(), static_cast<qsizetype>(xml.size()))))
-        return false;
-    const auto root = document.documentElement();
-    return root.tagName() == "object" && root.attribute("class") == QLatin1StringView(TRACKER_TABSET_CLASS);
+    return rootClass(xml.substr(0, static_cast<std::size_t>(MAX_ROOT_PROBE_BYTES))) == TRACKER_TABSET_CLASS;
 }
 
 bool isTrackerTabsetFile(const QString& path)
@@ -280,88 +343,139 @@ bool isTrackerTabsetFile(const QString& path)
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly) || file.isSequential())
         return false;
-    // The root element decides; stop there instead of parsing an experiment of up to 32 MiB.
-    constexpr qint64 MAX_PROLOG_BYTES = qint64{64} * 1024;
-    QXmlStreamReader reader(&file);
-    while (!reader.atEnd() && !reader.hasError() && reader.characterOffset() <= MAX_PROLOG_BYTES)
-        if (reader.readNext() == QXmlStreamReader::StartElement)
-            return reader.name() == u"object" && reader.attributes().value("class") == QLatin1StringView(TRACKER_TABSET_CLASS);
-    return false;
+    // The root line decides; stop there instead of reading an experiment of up to 32 MiB.
+    const auto head = file.read(MAX_ROOT_PROBE_BYTES);
+    return isTrackerTabset(std::string_view(head.constData(), static_cast<std::size_t>(head.size())));
 }
 
-std::expected<std::vector<TabsetEntry>, std::string> parseTrackerTabset(std::string_view xml)
+std::expected<TrackerTabset, std::string> parseTrackerTabset(std::string_view xml)
 {
     if (xml.size() > MAX_TRACKER_XML_BYTES)
         return std::unexpected("The tabset is too large.");
-    QDomDocument document;
-    if (!document.setContent(QByteArray::fromRawData(xml.data(), static_cast<qsizetype>(xml.size()))))
-        return std::unexpected("Invalid Tracker XML.");
-    if (!document.doctype().name().isEmpty())
-        return std::unexpected("Tracker XML must not contain a document type.");
-    const auto root = document.documentElement();
-    if (root.tagName() != "object" || root.attribute("class") != QLatin1StringView(TRACKER_TABSET_CLASS))
-        return std::unexpected("Expected a Tracker tabset.");
-    std::optional<QDomElement> tabs;
-    for (const auto& property : childElements(root))
+    std::shared_ptr<const osp::Source> source;
+    try
     {
-        if (property.tagName() != "property" || property.attribute("name") != "tabs")
-            continue; // TFrame.Loader reads only "tabs"; unknown properties are ignored as in Tracker.
-        if (tabs)
-            return std::unexpected("The tabset repeats its tabs property.");
-        tabs = property;
+        // Tracker import's reader and diagnostics (line numbers, the Windows-1252 hint).
+        source = detail::parseTrackerXml(xml);
     }
-    if (!tabs)
-        return std::vector<TabsetEntry>{};
-    if (tabs->attribute("type") != "array" || tabs->attribute("class") != QLatin1StringView(STRING_MATRIX_CLASS))
-        return std::unexpected("The tabset's tabs property must be a string matrix.");
-    std::vector<std::pair<std::size_t, TabsetEntry>> indexed;
-    for (const auto& element : childElements(*tabs))
+    catch (const ProjectError& error)
     {
-        const auto index = arrayIndex(element.attribute("name"));
-        if (element.tagName() != "property" || !index)
+        return std::unexpected(error.what());
+    }
+    const auto load = tracker::loadTabset(*source);
+    if (load.className != tracker::TFRAME_CLASS)
+        return std::unexpected("Expected a Tracker tabset.");
+    // Tracker reads the last of repeated properties; which one a writer meant is unknown, so MoTrack refuses.
+    if (load.tabsProperties > 1)
+        return std::unexpected("The tabset repeats its tabs property.");
+    TrackerTabset result{.source = source,
+                         .entries = {},
+                         .basepath = load.basepath ? std::optional{*load.basepath} : std::nullopt,
+                         .tabs = load.tabs,
+                         .nodes = {},
+                         .ordered = true};
+    if (!load.tabs)
+        return result; // TFrame.Loader reads only "tabs"; unknown properties are ignored as in Tracker.
+    if (const auto& tabs = source->node(*load.tabs);
+        tabs.type != osp::PropertyType::Array || tabs.className != tracker::STRING_MATRIX_CLASS)
+        return std::unexpected("The tabset's tabs property must be a string matrix.");
+    if (load.tabElements.size() > MAX_TABSET_ENTRIES)
+        return std::unexpected("The tabset lists too many files.");
+    std::vector<std::pair<std::size_t, ParsedEntry>> indexed;
+    for (const auto& tab : load.tabElements)
+    {
+        const auto index = strictIndex(*source, tab.element);
+        if (!index)
             return std::unexpected("The tabset's tabs property has an unexpected element.");
-        if (indexed.size() >= MAX_TABSET_ENTRIES)
-            return std::unexpected("The tabset lists too many files.");
-        auto entry = parseEntry(element);
+        auto entry = parseEntry(*source, tab);
         if (!entry)
             return std::unexpected(std::move(entry).error());
+        result.ordered = result.ordered && (indexed.empty() || indexed.back().first < *index);
         indexed.emplace_back(*index, std::move(*entry));
     }
-    std::ranges::sort(indexed, {}, &std::pair<std::size_t, TabsetEntry>::first);
-    if (std::ranges::adjacent_find(indexed, {}, &std::pair<std::size_t, TabsetEntry>::first) != indexed.end())
+    // Deliberately lenient: OSP sizes an array from its last element, so Tracker cannot load out-of-order indices,
+    // but MoTrack accepts any unique dense order. Edited saves write changed entries in order (renderTrackerTabset).
+    std::ranges::stable_sort(indexed, {}, &std::pair<std::size_t, ParsedEntry>::first);
+    if (std::ranges::adjacent_find(indexed, {}, &std::pair<std::size_t, ParsedEntry>::first) != indexed.end())
         return std::unexpected("The tabset repeats an entry index.");
     // A null String[] element is simply absent from OSP output; Tracker would fail on it, so it is not skipped here.
     if (!indexed.empty() && indexed.back().first + 1 != indexed.size())
         return std::unexpected("The tabset has a missing entry.");
-    auto entries = indexed | std::views::values;
-    return std::vector<TabsetEntry>(entries.begin(), entries.end());
+    for (auto& [index, parsed] : indexed)
+    {
+        result.entries.push_back(std::move(parsed.entry));
+        result.nodes.push_back(parsed.nodes);
+    }
+    return result;
+}
+
+std::expected<TrackerTabset, std::string> readTrackerTabset(const QString& path)
+{
+    auto bytes = readBounded(path);
+    if (!bytes)
+        return std::unexpected(std::move(bytes).error());
+    return parseTrackerTabset(*bytes);
 }
 
 std::expected<std::string, std::string> writeTrackerTabset(std::span<const TabsetEntry> entries)
 {
-    if (entries.size() > MAX_TABSET_ENTRIES)
-        return std::unexpected("The tabset lists too many files.");
-    std::string xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
-    xml += std::format("<object class=\"{}\">\n", TRACKER_TABSET_CLASS);
-    xml += std::format("    <property name=\"tabs\" type=\"array\" class=\"{}\">\n", STRING_MATRIX_CLASS);
-    const auto unrepresentable = [](std::string_view value)
+    if (auto valid = validEntries(entries); !valid)
+        return std::unexpected(std::move(valid).error());
+    const osp::ObjectValue root{
+        .className = std::string(TRACKER_TABSET_CLASS), .version = std::nullopt, .properties = {tabsProperty(entries)}};
+    auto written = osp::write(root);
+    if (!written)
+        return std::unexpected("Could not write the tabset: " + written.error().message);
+    return std::move(*written);
+}
+
+std::expected<std::string, std::string> renderTrackerTabset(const TrackerTabset& original, std::span<const TabsetEntry> entries)
+{
+    if (!original.source)
+        return std::unexpected("The tabset has no source.");
+    if (auto valid = validEntries(entries); !valid)
+        return std::unexpected(std::move(valid).error());
+    if (std::ranges::equal(entries, original.entries))
+        return std::string(original.source->bytes()); // Nothing to edit: the file stays byte for byte.
+    SourceEdits edits(original.source);
+    const auto& source = *original.source;
+    const auto root = source.root();
+    if (!original.tabs)
     {
-        return value.contains("]]>") || value.contains('\0');
-    };
-    // std::views::enumerate is unavailable in the libc++ releases used by Apple Clang and Clang 18.
-    for (std::size_t index = 0; index < entries.size(); ++index)
-    {
-        const auto& entry = entries[index];
-        if (entry.relative.empty() || unrepresentable(entry.relative) || (entry.absolute && unrepresentable(*entry.absolute)))
-            return std::unexpected("A tabset path cannot be written in Tracker XML.");
-        xml += std::format("        <property name=\"[{}]\" type=\"array\" class=\"{}\">\n", index, STRING_ARRAY_CLASS);
-        if (entry.absolute)
-            appendString(xml, "            ", 0, *entry.absolute);
-        appendString(xml, "            ", 1, entry.relative);
-        xml += "        </property>\n";
+        edits.append(root, tabsProperty(entries));
     }
-    xml += "    </property>\n</object>\n";
-    return xml;
+    else if (!original.ordered)
+    {
+        // Tracker cannot read these indices; write the whole array in order where it was.
+        edits.remove(*original.tabs);
+        edits.insert(root, childPosition(source, root, *original.tabs), tabsProperty(entries));
+    }
+    else
+    {
+        const auto tabs = *original.tabs;
+        const auto kept = std::min(entries.size(), original.entries.size());
+        for (std::size_t index = 0; index < kept; ++index)
+        {
+            const auto& nodes = original.nodes[index];
+            if (entries[index] == original.entries[index])
+                continue;
+            if (nodes.ordered)
+            {
+                editEntry(edits, nodes, original.entries[index], entries[index]);
+                continue;
+            }
+            edits.remove(nodes.element);
+            edits.insert(tabs, childPosition(source, tabs, nodes.element), entryProperty(index, entries[index]));
+        }
+        for (auto index = kept; index < original.entries.size(); ++index)
+            edits.remove(original.nodes[index].element);
+        for (auto index = kept; index < entries.size(); ++index)
+            edits.append(tabs, entryProperty(index, entries[index]));
+    }
+    auto rendered = edits.render();
+    if (!rendered)
+        return std::unexpected("Could not write the tabset: " + rendered.error());
+    return std::move(rendered->xml);
 }
 
 QString tabsetRelativePath(const QString& file, const QString& baseDirectory)
@@ -406,6 +520,11 @@ std::optional<QString> resolveTabsetEntry(const TabsetEntry& entry, const QStrin
     return entry.absolute.and_then([](const std::string& absolute) { return existingFile(QString::fromStdString(absolute)); });
 }
 
+QString tabsetBase(const TrackerTabset& tabset, const QString& tabsetPath)
+{
+    return tabset.basepath ? QString::fromStdString(*tabset.basepath) : QFileInfo(tabsetPath).absolutePath();
+}
+
 std::vector<TabsetItem> expandTrackerTabset(const QString& path, const QString& workingDirectory, const std::atomic_bool* cancelled)
 {
     if (cancelled && cancelled->load())
@@ -413,21 +532,63 @@ std::vector<TabsetItem> expandTrackerTabset(const QString& path, const QString& 
     const auto physical = existingFile(path);
     if (!physical)
         throw ProjectError("The tabset file is unavailable.");
-    auto bytes = readBounded(*physical);
-    if (!bytes)
-        throw ProjectError(bytes.error());
-    auto entries = parseTrackerTabset(std::string_view(bytes->constData(), static_cast<std::size_t>(bytes->size())));
-    if (!entries)
-        throw ProjectError(entries.error());
+    auto tabset = readTrackerTabset(*physical);
+    if (!tabset)
+        throw ProjectError(tabset.error());
     Expansion expansion(workingDirectory, cancelled);
     expansion.markSeen(*physical);
-    expansion.expand(*physical, *entries, 0);
+    expansion.expand(*physical, *tabset, 0);
     return std::move(expansion).take();
 }
 
-std::expected<void, std::string> saveTrackerTabset(const QString& path, std::span<const TabsetEntry> entries)
+std::vector<TabsetEntry>
+tabsetEntries(std::span<const QString> files, const QString& tabsetPath, const QString& workingDirectory, const TrackerTabset* existing)
 {
-    auto xml = writeTrackerTabset(entries);
+    const auto base = existing ? tabsetBase(*existing, tabsetPath) : QFileInfo(tabsetPath).absolutePath();
+    // The file each existing entry names now, in Tracker's search order.
+    std::vector<QString> named;
+    if (existing)
+        for (const auto& entry : existing->entries)
+            named.push_back(resolveTabsetEntry(entry, base, workingDirectory).transform(tabsetIdentityKey).value_or(QString{}));
+    std::vector<bool> used(named.size(), false);
+    const auto find = [&](const QString& key, std::size_t begin, std::size_t end) -> std::optional<std::size_t>
+    {
+        for (auto index = begin; index < end; ++index)
+            if (!used[index] && named[index] == key)
+                return index;
+        return std::nullopt;
+    };
+    std::vector<TabsetEntry> result;
+    std::size_t next = 0; // Existing entries before this one have been kept or passed over.
+    for (const auto& file : files)
+    {
+        const auto key = tabsetIdentityKey(file);
+        auto found = find(key, next, named.size());
+        const bool ahead = found.has_value();
+        if (!found)
+            found = find(key, 0, next);
+        if (!found)
+        {
+            result.push_back(tabsetEntry(file, base));
+            continue;
+        }
+        // Keep the entry with the repeats that follow it: Tracker writes an archive once per experiment tab.
+        auto index = *found;
+        do
+        {
+            used[index] = true;
+            result.push_back(existing->entries[index]);
+            ++index;
+        } while (index < named.size() && !used[index] && named[index] == key);
+        if (ahead)
+            next = index;
+    }
+    return result;
+}
+
+std::expected<void, std::string> saveTrackerTabset(const QString& path, std::span<const TabsetEntry> entries, const TrackerTabset* existing)
+{
+    auto xml = existing ? renderTrackerTabset(*existing, entries) : writeTrackerTabset(entries);
     if (!xml)
         return std::unexpected(std::move(xml).error());
     QSaveFile file(path);

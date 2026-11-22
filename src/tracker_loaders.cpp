@@ -264,4 +264,51 @@ PanelLoad loadPanel(const osp::Source& source)
     return panel;
 }
 
+TabsetLoad loadTabset(const osp::Source& source)
+{
+    const auto root = source.root();
+    const osp::ObjectView view(source, root);
+    TabsetLoad tabset{.object = root,
+                      .className = std::string(view.className()),
+                      .basepath = view.getString("basepath"),
+                      .tabs = std::nullopt,
+                      .tabsProperties = 0,
+                      .tabElements = {}};
+    for (const auto& property : view.properties())
+    {
+        if (property.name() == "tabs")
+        {
+            ++tabset.tabsProperties;
+        }
+    }
+    const auto tabs = view.property("tabs");
+    if (!tabs)
+    {
+        return tabset;
+    }
+    tabset.tabs = tabs->id();
+    if (tabs->type() != osp::PropertyType::Array)
+    {
+        return tabset;
+    }
+    for (const auto& element : tabs->elements())
+    {
+        TabsetTabLoad tab{.element = {.property = element.id(), .index = element.elementIndex(), .object = std::nullopt},
+                          .type = element.type(),
+                          .className = {},
+                          .paths = {}};
+        if (element.type() == osp::PropertyType::Array)
+        {
+            tab.className = std::string(element.className());
+            for (const auto& path : element.elements())
+            {
+                tab.paths.push_back({.element = {.property = path.id(), .index = path.elementIndex(), .object = std::nullopt},
+                                     .value = path.stringValue()});
+            }
+        }
+        tabset.tabElements.push_back(std::move(tab));
+    }
+    return tabset;
+}
+
 } // namespace motrack::tracker

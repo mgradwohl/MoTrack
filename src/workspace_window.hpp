@@ -101,19 +101,29 @@ class WorkspaceWindow final : public QMainWindow
     QHash<QUuid, MainWindow*> m_Views; // Qt parent-owned; views hold their own shared context lease.
     QHash<QUuid, QWidget*> m_Pages;    // Lightweight placeholders until an experiment is first selected.
     QHash<QUuid, QListWidgetItem*> m_Opening;
-    /// Tracker opens a tabset's files one at a time; tabs keep the listed order.
-    struct PendingTabset
+    /// The window's one ordered open queue. Tracker opens a tabset's files one at a time, so tabs keep the listed
+    /// order within the two-input bound. A queued file that turns out to be a tabset itself (a located file)
+    /// expands in place through expandInPlace: its files open next, before the rest of the queue. Other ordered
+    /// opens, such as files requested by the operating system, are meant to join this queue rather than run a
+    /// second one that would compete for the same input slots; a tabset among them then expands in place too.
+    struct OrderedOpens
     {
-        QString tabset;
+        QString tabset;       // The tabset that started the queue; named in its summary and tabsetFinished.
         QStringList files;    // QList moves without throwing; std::deque may allocate in some libraries.
-        QSet<QString> listed; // Identity keys of every file queued or opened for this tabset.
+        QSet<QString> listed; // Identity keys of every file queued or opened by this queue.
         std::optional<QUuid> request;
         QString current;
         bool requestIsProject = false;
         std::optional<QUuid> select;
-        QStringList problems;
+        QStringList problems; // Files that were not opened.
+        QStringList notices;  // Files that opened with a limitation, such as B1's stale-link recovery.
     };
-    std::optional<PendingTabset> m_Tabset;
+    /// Queue the resolved files of a tabset that the queue's current request turned out to be, ahead of the
+    /// remaining files, and record the others as problems. No prompts: they run only for the tabset the user opened.
+    void expandInPlace(OrderedOpens& queue, const std::vector<TabsetItem>& items) const;
+    std::optional<OrderedOpens> m_Tabset;
+    /// The last tabset opened, offered by Save tabset as… so that an edited set can be saved back over it.
+    QString m_LastTabset;
     /// Expanded tabsets waiting for their missing-file prompts, which run after the context callback returns.
     struct ExpandedTabset
     {
