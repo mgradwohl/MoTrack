@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="org.opensourcephysics.tools.LibraryResource">
+    <property name="name" type="string">Copied resource</property>
+    <property name="description" type="string">A resource copied to the clipboard
+with a two-line description.</property>
+    <property name="base_path" type="string">/home/student/tracker library</property>
+    <property name="target" type="string">pendulum/simple pendulum.trz</property>
+    <property name="type" type="string">Tracker</property>
+    <property name="metadata" type="array" class="[[Ljava.lang.String;">
+        <property name="[0]" type="array" class="[Ljava.lang.String;">
+            <property name="[0]" type="string">contact</property>
+            <property name="[1]" type="string">teacher@example.org</property>
+        </property>
+        <property name="[1]" type="array" class="[Ljava.lang.String;">
+            <property name="[0]" type="string">keywords</property>
+            <property name="[1]" type="object">null</property>
+        </property>
+    </property>
+</object>

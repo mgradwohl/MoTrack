@@ -1,9 +1,14 @@
 #include "tracker_archive.hpp"
 
+#include "archive_fixture.hpp"
+
+#include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QScopeGuard>
 #include <QTemporaryDir>
+#include <QUuid>
 #include <gtest/gtest.h>
 
 #include <array>
@@ -12,6 +17,8 @@
 #include <memory>
 #include <string>
 #include <tuple>
+#include <utility>
+#include <vector>
 
 #include <archive.h>
 #include <archive_entry.h>
@@ -112,6 +119,178 @@ TEST(TrackerArchive, RejectsDangerousAndAmbiguousNames)
     writeArchive(path, {"notes.txt"});
     EXPECT_THROW(std::ignore = motrack::TrackerArchive::open(path), motrack::ProjectError);
     EXPECT_THROW(std::ignore = motrack::TrackerArchive::open(fixturePath("point-mass.trk")), motrack::ProjectError);
+}
+
+QStringList extractedFiles(const QString& root)
+{
+    QStringList files;
+    QDirIterator iterator(root, QDir::Files | QDir::Hidden | QDir::System, QDirIterator::Subdirectories);
+    while (iterator.hasNext())
+        files.push_back(QDir(root).relativeFilePath(iterator.next()));
+    files.sort();
+    return files;
+}
+
+TEST(TrackerArchive, SkipsUnsafeNonProjectMembersWithoutWritingOutsideTheExtraction)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto token = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    // A real absolute path in this test's directory: drive-letter on Windows, rooted elsewhere.
+    const auto outside = QDir(temporary.path()).filePath("outside");
+    const auto absolute = (outside + "/absolute.mp4").toUtf8();
+    const auto traversal = QString("../%1.mp4").arg(token).toUtf8();
+    const auto nestedTraversal = QString("videos/../../%1-nested.mp4").arg(token).toUtf8();
+    std::vector<motrack::test::ArchiveEntry> members{{.name = "experiment.trk", .bytes = "<object/>"},
+                                                     {.name = "videos/a.mp4", .bytes = motrack::test::duplicateMovieBytes()},
+                                                     {.name = "support|notes.txt", .bytes = "backslash-only names use '/'"}};
+    for (auto& unsafe : motrack::test::unsafeTrackerExportMembers())
+        members.push_back(std::move(unsafe));
+    // The same file name with different bytes is not a redundant copy, so saving keeps it.
+    // "//server" and "/server" stay distinct names on every platform.
+    for (const auto* name : {"D:/horHarmonic/videos/a.mp4",
+                             "C:|Users|x|b.mp4",
+                             "//server/share/a.mp4",
+                             "/server/share/a.mp4",
+                             "||server|share|b.mp4",
+                             "/rooted/a.mp4",
+                             "videos/mixed|c.mp4",
+                             absolute.constData(),
+                             traversal.constData(),
+                             nestedTraversal.constData(),
+                             "videos/tab\t.mp4",
+                             "aux.mp4"})
+        members.push_back({.name = name, .bytes = "unsafe"});
+    const auto path = temporary.filePath("unsafe.trz");
+    ASSERT_TRUE(motrack::test::writeArchiveWithBackslashes(path, members));
+    QStringList expectedSkipped;
+    for (std::size_t i = 3; i < members.size(); ++i)
+        expectedSkipped.push_back(QString::fromUtf8(members[i].name));
+    // libarchive reads a name that has only '\' separators with '/' separators; mixed names keep '\'.
+    expectedSkipped.replace(expectedSkipped.indexOf("C:|Users|x|b.mp4"), "C:/Users/x/b.mp4");
+    expectedSkipped.replace(expectedSkipped.indexOf("||server|share|b.mp4"), "//server/share/b.mp4");
+    expectedSkipped.replace(expectedSkipped.indexOf("videos/mixed|c.mp4"), "videos/mixed\\c.mp4");
+
+    const auto archive = motrack::TrackerArchive::open(path);
+    EXPECT_EQ(archive.projects(), QStringList{"experiment.trk"});
+    EXPECT_EQ(archive.skippedMembers(), expectedSkipped);
+    EXPECT_EQ(archive.omittedOnSave(), motrack::test::omittedTrackerExportMembers());
+    EXPECT_EQ(extractedFiles(archive.root()), (QStringList{"experiment.trk", "support/notes.txt", "videos/a.mp4"}));
+    EXPECT_EQ(archive.memberDigests().size(), 3);
+    EXPECT_TRUE(archive.memberMatchesSource("videos/a.mp4"));
+    EXPECT_FALSE(archive.memberMatchesSource("C:/Users/x/videos/a.mp4"));
+    EXPECT_THROW(std::ignore = archive.projectPath("C:/Users/x/videos/a.mp4"), motrack::ProjectError);
+    // Nothing escapes the private extraction directory.
+    EXPECT_FALSE(QFileInfo::exists(outside));
+    EXPECT_FALSE(QFileInfo::exists(QDir(archive.root()).filePath(QString::fromUtf8(traversal))));
+    EXPECT_FALSE(QFileInfo::exists(QDir(archive.root()).filePath(QString("../%1-nested.mp4").arg(token))));
+    EXPECT_EQ(QDir(temporary.path()).entryList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden), QStringList{"unsafe.trz"});
+}
+
+TEST(TrackerArchive, RefusesUnsafeProjectNamesAndUnsafeSpellingsOfExtractedMembers)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto path = temporary.filePath("refused.trz");
+    for (const auto* project :
+         {"D:/a/b.trk", "C:/Users/x/Experiment.TRK", "//server/share/c.trk", "nested/mixed|d.trk", "..|e.trk", "html/Icon\r.trk"})
+    {
+        SCOPED_TRACE(project);
+        ASSERT_TRUE(motrack::test::writeArchiveWithBackslashes(
+            path, {{.name = "experiment.trk", .bytes = "<object/>"}, {.name = project, .bytes = "<object/>"}}));
+        EXPECT_THROW(std::ignore = motrack::TrackerArchive::open(path), motrack::ProjectError);
+    }
+    ASSERT_TRUE(motrack::test::writeArchiveWithBackslashes(path, {{.name = "nested|d.trk", .bytes = "<object/>"}}));
+    EXPECT_EQ(motrack::TrackerArchive::open(path).projects(), QStringList{"nested/d.trk"});
+    // Another spelling of an extracted member's name, skipped or not, leaves the archive ambiguous.
+    for (const auto* alias : {"videos|a.mp4", "./videos/a.mp4", "videos/x/../A.MP4"})
+    {
+        SCOPED_TRACE(alias);
+        ASSERT_TRUE(motrack::test::writeArchiveWithBackslashes(
+            path,
+            {{.name = "experiment.trk", .bytes = "<object/>"}, {.name = "videos/a.mp4", .bytes = "a"}, {.name = alias, .bytes = "b"}}));
+        EXPECT_THROW(std::ignore = motrack::TrackerArchive::open(path), motrack::ProjectError);
+    }
+    // Entry type checks still apply before any name is skipped.
+    ASSERT_TRUE(motrack::test::writeArchive(
+        path, {{.name = "experiment.trk", .bytes = "<object/>"}, {.name = "C:/Users/x/link", .bytes = {}, .symlink = true}}));
+    EXPECT_THROW(std::ignore = motrack::TrackerArchive::open(path), motrack::ProjectError);
+    ASSERT_TRUE(motrack::test::writeArchive(path, motrack::test::unsafeTrackerExportMembers()));
+    EXPECT_THROW(std::ignore = motrack::TrackerArchive::open(path), motrack::ProjectError);
+}
+
+TEST(TrackerArchive, RefusesMediaReferencesToSkippedMembersAndNeverResolvesLocalFiles)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    // This member's name is also a real file on disk; neither may satisfy a project's reference.
+    const auto local = QDir(temporary.path()).filePath("local.mp4");
+    QFile file(local);
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly) && file.write("local") == 5);
+    file.close();
+    const auto localName = local.toUtf8();
+    std::vector<motrack::test::ArchiveEntry> members{{.name = "experiment.trk", .bytes = "<object/>"},
+                                                     {.name = "nested/inner.trk", .bytes = "<object/>"},
+                                                     {.name = "videos/a.mp4", .bytes = "movie"},
+                                                     {.name = "../escape.mp4", .bytes = "unsafe"},
+                                                     {.name = localName.constData(), .bytes = "copy"}};
+    for (auto& unsafe : motrack::test::unsafeTrackerExportMembers())
+        members.push_back(std::move(unsafe));
+    const auto path = temporary.filePath("references.trz");
+    ASSERT_TRUE(motrack::test::writeArchive(path, members));
+    const auto archive = motrack::TrackerArchive::open(path);
+
+    motrack::LegacyProject project;
+    project.clip.mediaReferences = {"videos/a.mp4", "./videos/a.mp4", "E:/elsewhere/a.mp4", "videos/missing.mp4"};
+    archive.resolveMedia(project, "experiment.trk");
+    EXPECT_EQ(project.clip.mediaReferences, (std::vector<std::string>{"videos/a.mp4", "videos/a.mp4", "", ""}));
+    const auto otherLocal = QDir(temporary.path()).filePath("references.trz").toStdString();
+    project.clip.mediaReferences = {otherLocal};
+    archive.resolveMedia(project, "experiment.trk");
+    EXPECT_EQ(project.clip.mediaReferences, std::vector<std::string>{""});
+
+    for (const auto& [reference, member] :
+         std::initializer_list<std::pair<std::string, const char*>>{{"C:/Users/x/videos/a.mp4", "experiment.trk"},
+                                                                    {R"(C:\Users\x\videos\a.mp4)", "experiment.trk"},
+                                                                    {"archive.trz!/C:/Users/x/videos/a.mp4", "experiment.trk"},
+                                                                    {local.toStdString(), "experiment.trk"},
+                                                                    {"html/Icon\r", "experiment.trk"},
+                                                                    {"videos\\..\\html\\Icon\r", "experiment.trk"},
+                                                                    {"../html/Icon\r", "nested/inner.trk"},
+                                                                    {"../escape.mp4", "experiment.trk"},
+                                                                    {"videos/./../../escape.mp4", "experiment.trk"}})
+    {
+        SCOPED_TRACE(reference);
+        project.clip.mediaReferences = {"videos/a.mp4", reference};
+        EXPECT_THROW(archive.resolveMedia(project, member), motrack::ProjectError);
+    }
+}
+
+TEST(TrackerArchive, KeepsMacMetadataAsMembersButNeverAsProjects)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto path = temporary.filePath("finder.trz");
+    const auto appleDouble = motrack::test::appleDoubleBytes();
+    // Every platform reads these entries; macOS libarchive would otherwise hide "__MACOSX/" members.
+    ASSERT_TRUE(motrack::test::writeArchive(path,
+                                            {{.name = "Experiment/experiment.trk", .bytes = "<object/>"},
+                                             {.name = "__MACOSX/Experiment/._experiment.trk", .bytes = appleDouble},
+                                             {.name = "__MACOSX/Experiment/._empty.trk", .bytes = {}},
+                                             {.name = "__MACOSX/Experiment/kept.trk", .bytes = "<object/>"},
+                                             {.name = "Experiment/._copied.trk", .bytes = appleDouble},
+                                             {.name = "__MACOSX/Experiment/html/._Icon\r", .bytes = appleDouble}}));
+    const auto archive = motrack::TrackerArchive::open(path);
+    EXPECT_EQ(archive.projects(), (QStringList{"Experiment/experiment.trk", "__MACOSX/Experiment/kept.trk"}));
+    EXPECT_EQ(archive.skippedMembers(), QStringList{"__MACOSX/Experiment/html/._Icon\r"});
+    EXPECT_TRUE(archive.omittedOnSave().isEmpty()); // The folder-icon resource fork is real metadata.
+    for (const auto* member : {"__MACOSX/Experiment/._experiment.trk", "__MACOSX/Experiment/._empty.trk", "Experiment/._copied.trk"})
+    {
+        EXPECT_TRUE(archive.memberDigests().contains(member)) << member;
+        EXPECT_TRUE(archive.memberMatchesSource(member)) << member;
+    }
+    ASSERT_TRUE(motrack::test::writeArchive(path, {{.name = "__MACOSX/._experiment.trk", .bytes = appleDouble}}));
+    EXPECT_THROW(std::ignore = motrack::TrackerArchive::open(path), motrack::ProjectError);
 }
 
 TEST(TrackerArchive, OpensAnArchiveWithAUnicodeFilename)

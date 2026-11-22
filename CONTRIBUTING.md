@@ -76,7 +76,58 @@ Features available in all three libraries include `std::expected`, `std::print`,
 
 - Keep Qt Widgets, platform APIs, and FFmpeg out of the analysis model. Convert at the boundary. Distinguish pixel coordinates from world coordinates and decoded frame numbers from clip steps and timestamps.
 - Perform long-running work off the UI thread. Use cancellable tasks and hand results back to the owning thread before updating widgets. Treat missing, malformed, and unsupported project data as distinct cases where the user can act on the distinction.
-- Keep Tracker terminology and workflows where they are clear. Wrap user-facing Qt strings with `tr()` or `QCoreApplication::translate()`. Use placeholders and Qt plural forms. Update translations or mark newly introduced strings unfinished.
+- Keep Tracker terminology and workflows where they are clear. Wrap user-facing Qt strings with `tr()` or `QCoreApplication::translate()`. Use placeholders and Qt plural forms. Add new strings to every catalog as described in [Translations](#translations).
+
+## Translations
+
+`translations/motrack_<locale>.ts` holds one Qt catalog per non-English locale in Tracker's `Tracker.getLocales()`
+(SwingJS branch). `tools/translations.py` (standard-library Python) lists them in `LOCALES`; CMake's
+`motrack_ts_files` must match. Tracker's `fil_PH`, `sn` and `sr` catalogs are not in its language list and its
+`ca_UTF` file duplicates Catalan, so MoTrack does not ship them. `translations/motrack_en.ts`
+(`PLURALS_TS_FILE`) holds only the English plural forms; write them by hand. The catalogs are hand-maintained in
+a compact layout; the tool edits only the messages it adds or fills, and Tracker-seeded entries while they keep
+their provenance comment. It never changes a human or reviewed translation.
+
+After adding or changing a user-visible string, run from an activated developer shell (lupdate on PATH):
+
+```sh
+python tools/translations.py update
+python tools/translations.py check --lrelease "$(command -v lrelease)"
+```
+
+`update` adds the string, empty and `unfinished`, to every catalog. CTest's `translation_catalogs` test fails while
+a catalog lacks a source string or has an invalid translation (placeholders, `[*]`, file patterns, line breaks,
+one `&` mnemonic when the source has one, Qt's plural-form count for the language), and checks that lrelease keeps
+every unfinished entry. `translation_tool` tests the tool itself.
+
+To fill new entries, seed them from Tracker, then machine-translate the rest:
+
+1. Clone [tracker](https://github.com/OpenSourcePhysics/tracker) (`SwingJS`) and
+   [osp](https://github.com/OpenSourcePhysics/osp) (`swingJS`) into an empty directory; only their `.properties`
+   files are read. Run `python tools/translations.py update --tracker <tracker> --osp <osp>`. Where Tracker's
+   English text matches a source string (ignoring mnemonics, ellipses, spacing and a trailing colon), the
+   translation is copied with the source's mnemonic and ellipsis and marked finished. Matches that also ignore
+   case or terminal punctuation, or where Tracker's keys disagree, stay unfinished. A translator comment records
+   the bundle and key. `STALE_KEYS`, `HOMOGRAPH_KEYS` and `LOCALE_REJECTED` exclude Tracker translations that no
+   longer mean, or never meant, the MoTrack text ([#274](https://github.com/mgradwohl/MoTrack/issues/274)); a
+   seed whose match disappears is emptied for a new translation. Turkish is not seeded because Tracker's
+   catalog omits Turkish letters.
+2. `python tools/translations.py pending --locale <locale> --out pending.json --tracker <tracker> --osp <osp>
+   --reference de fr es` lists the remaining strings with Tracker's terminology, the plural rule and finished
+   German/French/Spanish translations for context.
+3. Write a JSON object mapping each source string to its translation (a list of plural forms for numerus
+   messages) and run `python tools/translations.py import --locale <locale> --input <file>`. Invalid entries are
+   reported and nothing is written. Imported entries are `unfinished` with the comment "Machine translation;
+   review before marking finished."
+
+By maintainer decision (2026-11-22), unfinished machine translations ship visible without a label; do not pass
+`-nounfinished` to lrelease. To review a catalog, open it in Qt Linguist, check the translation against the
+English text and the translator comment, correct it, mark it done and remove the provenance comment.
+`python tools/translations.py stats` reports finished, unfinished, Tracker-derived and machine-translated counts.
+At run time `motrack::UiTranslations` loads the first language in the system's list that has a catalog
+(English included, so an English-first list stays English; Hong Kong and Macao use Traditional, Singapore
+Simplified Chinese), Qt's own catalog for that language, and a right-to-left layout for Arabic and Hebrew;
+without a match the interface is English.
 
 ## Checks before a pull request
 
@@ -117,14 +168,14 @@ developer build. It enables and builds the benchmark target before running clang
 acceptance jobs, giving each workload its own time budget as the reference corpus grows. The final
 coverage job waits for both the build and contributor-setup matrices to pass before combining reports.
 
-The workspace executable runs in six complementary CTest groups. General UI cases run in
+The workspace executable runs in seven complementary CTest groups. General UI cases run in
 `workspace`; `workspace_shell` runs the `WorkspaceShell.*` save/revert flows
 ([#283](https://github.com/mgradwohl/MoTrack/issues/283)); `workspace_saving` runs `PairedWorkspace.*` and
-`ImagePackageWorkspace.*`,
-`workspace_document` runs `WorkspaceDocument.*`, and the two session groups partition `DocumentSession.*`.
+`ImagePackageWorkspace.*`, `workspace_document` runs `WorkspaceDocument.*`, `ui_translations` runs
+`UiTranslations.*` (every catalog), and the two session groups partition `DocumentSession.*`.
 `document_session_journals` includes names matching `*Journal*`; `document_session` uses the complementary
 negative filter. Every current or future session case therefore runs exactly once. Each group retains
-a 60-second timeout, and ordinary CTest/coverage collection runs all six groups. This separates the
+a 60-second timeout, and ordinary CTest/coverage collection runs all seven groups. This separates the
 real-file journal matrices whose cumulative runtime caused the intermittent Windows timeout in
 [#137](https://github.com/mgradwohl/MoTrack/issues/137), without retries or omitted cases.
 

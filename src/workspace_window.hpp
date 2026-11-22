@@ -49,6 +49,8 @@ class WorkspaceWindow final : public QMainWindow
     [[nodiscard]] QString documentLabel(QUuid document) const;
     [[nodiscard]] std::optional<QUuid> trackOpen(std::optional<QUuid> request, const QString& label);
     void finishOpen(QUuid request);
+    /// Report skipped unsafe archive members, the ones a standard save omits, and unreadable projects.
+    void reportArchiveLimits(const QList<QUuid>& documents, const QList<UnreadableProject>& unreadable);
     bool saveSource(QUuid source);
     [[nodiscard]] std::optional<WorkspaceDiscard> confirmSourceClose(QUuid source);
     bool releaseSource(QUuid source, WorkspaceDiscard discard);
@@ -68,6 +70,7 @@ class WorkspaceWindow final : public QMainWindow
     QHash<QUuid, MainWindow*> m_Views; // Qt parent-owned; views hold their own shared context lease.
     QHash<QUuid, QWidget*> m_Pages;    // Lightweight placeholders until an experiment is first selected.
     QHash<QUuid, QListWidgetItem*> m_Opening;
+    QHash<QUuid, QList<UnreadableProject>> m_Unreadable; // Per source, listed in the Experiments menu.
     bool m_Busy = false;
 };
 

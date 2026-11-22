@@ -10,6 +10,46 @@
 namespace
 {
 
+TEST(ClipMapping, MapsOriginalFramesAndStepsWithinTheClip)
+{
+    const motrack::Clip clip{.firstFrame = 4, .stepSize = 3, .stepCount = 3};
+    EXPECT_EQ(motrack::clipStepOfFrame(clip, 4), 0);
+    EXPECT_EQ(motrack::clipStepOfFrame(clip, 10), 2);
+    for (const auto frame : {3, 5, 13, -2})
+    {
+        EXPECT_EQ(motrack::clipStepOfFrame(clip, frame), std::nullopt) << frame;
+    }
+    EXPECT_EQ(motrack::clipFrameOfStep(clip, 0), 4);
+    EXPECT_EQ(motrack::clipFrameOfStep(clip, 2), 10);
+    EXPECT_EQ(motrack::clipFrameOfStep(clip, 3), std::nullopt);
+    EXPECT_EQ(motrack::clipFrameOfStep(clip, -1), std::nullopt);
+
+    const motrack::Clip open{.firstFrame = 1, .stepSize = 2};
+    EXPECT_EQ(motrack::clipStepOfFrame(open, 1001), 500);
+    EXPECT_EQ(motrack::clipFrameOfStep(open, 500), 1001);
+    EXPECT_EQ(motrack::clipFrameOfStep(open, std::numeric_limits<int>::max()), std::nullopt);
+    for (const motrack::Clip& invalid : {motrack::Clip{.firstFrame = -1}, motrack::Clip{.stepSize = 0}})
+    {
+        EXPECT_EQ(motrack::clipStepOfFrame(invalid, 0), std::nullopt);
+        EXPECT_EQ(motrack::clipFrameOfStep(invalid, 0), std::nullopt);
+    }
+}
+
+TEST(ClipMapping, TimesFramesOnlyWithAPositiveSavedDuration)
+{
+    motrack::Clip clip{.firstFrame = 2, .stepSize = 1, .startTimeMs = -250.0};
+    EXPECT_EQ(motrack::clipFrameTimeMs(clip, 2), std::nullopt);
+    for (const auto duration : {0.0, -1.0, std::numeric_limits<double>::quiet_NaN()})
+    {
+        clip.frameDurationMs = duration;
+        EXPECT_EQ(motrack::clipFrameTimeMs(clip, 3), std::nullopt) << duration;
+    }
+    clip.frameDurationMs = 125.0;
+    EXPECT_EQ(motrack::clipFrameTimeMs(clip, 2), -250.0);
+    EXPECT_EQ(motrack::clipFrameTimeMs(clip, 6), 250.0);
+    EXPECT_EQ(motrack::clipFrameTimeMs(clip, 0), -500.0); // Defined before the clip too: it is the saved timebase.
+}
+
 TEST(Measurements, EscapesPlotLabelsAndExportsUntimedSamplesByFrame)
 {
     const motrack::PlotSeries series{.samples = {{.frame = 3, .horizontal = 3.0, .vertical = 1.5}}};

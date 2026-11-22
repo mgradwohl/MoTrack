@@ -1,0 +1,463 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+	<ComPADREOSPTrackerMirroringService xmlns="https://www.compadre.org/osp/services/REST/" xmlns:xsi="https://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://www.compadre.org/osp/services/REST/ https://www.compadre.org/osp/services/REST/osp_tracker.xsd" schemaVersion="1.00">
+		<responseDate>2026-11-22T00:07:42Z</responseDate>
+		
+			<recordCount>7</recordCount>
+			
+				<limitation type="osp-type">Tracker Video Model</limitation>
+			
+			<records> 
+				<record>
+					<compadre-identifier>10311</compadre-identifier>
+					<document-identifier>1797</document-identifier>
+					<file-identifier>11608</file-identifier>
+					<title>Uniform Motion TRZ</title>
+					<description>Video Analysis with Tracker of Uniform Motion (steel ball rolling on a track)</description>
+					<contributors><contributor role="Author">Aaron Titus</contributor></contributors> <osp-category>Curriculum</osp-category>
+					<osp-type>Tracker Video Model</osp-type>
+					<osp-subject>Classical Mechanics / Motion in One Dimension / Velocity</osp-subject>
+					<osp-subject>Education Practices / Active Learning / Modeling</osp-subject>
+					<file-name file-size="1165166">video-tracker-uniform-motion-ball-on-track.trz</file-name>
+					<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=1797</access-url>
+					<information-url>https://www.compadre.org/osp/items/detail.cfm?ID=10311</information-url>
+					<thumbnail-url>https://www.compadre.org/profiles/thumbnail.jpg</thumbnail-url>
+					<comments-url numElements="0">https://www.compadre.org/osp/items/detail.cfm?ID=10311&amp;S=2#tabNav</comments-url>
+					
+						<attached-document>
+							<document-identifier>1797</document-identifier>
+							<file-identifier>11608</file-identifier>
+							<file-type>Main</file-type>
+							<file-name file-size="1165166">video-tracker-uniform-motion-ball-on-track.trz</file-name>
+							<title>Uniform Motion TRZ</title>
+							<description>Video Analysis with Tracker of Uniform Motion (steel ball rolling on a track)</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=1797</access-url>
+							
+								<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=1797&amp;TrackerSet=1</download-url>
+							
+						</attached-document>
+					
+						<attached-document>
+							<document-identifier>1798</document-identifier>
+							<file-identifier>3058</file-identifier>
+							<file-type>Supplemental</file-type>
+							<file-name file-size="822919">VideoAnalysisOfUniformMotion.pdf</file-name>
+							<title>Video Analysis of Uniform Motion</title>
+							<description>The Video Analysis of Uniform Motion lab shows students how to use the Tracker video analysis tool to measure and analyze the motion of a steel ball rolling with constant velocity on an aluminum track.</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=1798</access-url>
+							
+						</attached-document>
+					
+						<attached-document>
+							<document-identifier>5710</document-identifier>
+							<file-identifier>11612</file-identifier>
+							<file-type>Supplemental</file-type>
+							<file-name file-size="329240">uniform-motion-ball-slow.mp4</file-name>
+							<title>Slow uniform motion video</title>
+							<description>A video clip showing a slow moving ball.</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=5710</access-url>
+							
+								<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=5710&amp;TrackerSet=1</download-url>
+							
+						</attached-document>
+					
+						<attached-document>
+							<document-identifier>5708</document-identifier>
+							<file-identifier>11610</file-identifier>
+							<file-type>Supplemental</file-type>
+							<file-name file-size="205063">uniform-motion-ball-fast.mp4</file-name>
+							<title>Fast uniform motion video</title>
+							<description>A video clip showing a fast rolling ball.</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=5708</access-url>
+							
+								<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=5708&amp;TrackerSet=1</download-url>
+							
+						</attached-document>
+					
+				</record>
+			
+				<record>
+					<compadre-identifier>10311</compadre-identifier>
+					<document-identifier>5708</document-identifier>
+					<file-identifier>11610</file-identifier>
+					<title>Fast uniform motion video</title>
+					<description>A video clip showing a fast rolling ball.</description>
+					<contributors><contributor role="Author">Aaron Titus</contributor></contributors> <osp-category>Curriculum</osp-category>
+					<osp-type>Tracker Video Model</osp-type>
+					<osp-subject>Classical Mechanics / Motion in One Dimension / Velocity</osp-subject>
+					<osp-subject>Education Practices / Active Learning / Modeling</osp-subject>
+					<file-name file-size="205063">uniform-motion-ball-fast.mp4</file-name>
+					<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=1797</access-url>
+					<information-url>https://www.compadre.org/osp/items/detail.cfm?ID=10311</information-url>
+					<thumbnail-url>https://www.compadre.org/profiles/thumbnail.jpg</thumbnail-url>
+					<comments-url numElements="0">https://www.compadre.org/osp/items/detail.cfm?ID=10311&amp;S=2#tabNav</comments-url>
+					
+						<attached-document>
+							<document-identifier>1797</document-identifier>
+							<file-identifier>11608</file-identifier>
+							<file-type>Main</file-type>
+							<file-name file-size="1165166">video-tracker-uniform-motion-ball-on-track.trz</file-name>
+							<title>Uniform Motion TRZ</title>
+							<description>Video Analysis with Tracker of Uniform Motion (steel ball rolling on a track)</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=1797</access-url>
+							
+								<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=1797&amp;TrackerSet=1</download-url>
+							
+						</attached-document>
+					
+						<attached-document>
+							<document-identifier>1798</document-identifier>
+							<file-identifier>3058</file-identifier>
+							<file-type>Supplemental</file-type>
+							<file-name file-size="822919">VideoAnalysisOfUniformMotion.pdf</file-name>
+							<title>Video Analysis of Uniform Motion</title>
+							<description>The Video Analysis of Uniform Motion lab shows students how to use the Tracker video analysis tool to measure and analyze the motion of a steel ball rolling with constant velocity on an aluminum track.</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=1798</access-url>
+							
+						</attached-document>
+					
+						<attached-document>
+							<document-identifier>5710</document-identifier>
+							<file-identifier>11612</file-identifier>
+							<file-type>Supplemental</file-type>
+							<file-name file-size="329240">uniform-motion-ball-slow.mp4</file-name>
+							<title>Slow uniform motion video</title>
+							<description>A video clip showing a slow moving ball.</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=5710</access-url>
+							
+								<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=5710&amp;TrackerSet=1</download-url>
+							
+						</attached-document>
+					
+						<attached-document>
+							<document-identifier>5708</document-identifier>
+							<file-identifier>11610</file-identifier>
+							<file-type>Supplemental</file-type>
+							<file-name file-size="205063">uniform-motion-ball-fast.mp4</file-name>
+							<title>Fast uniform motion video</title>
+							<description>A video clip showing a fast rolling ball.</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=5708</access-url>
+							
+								<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=5708&amp;TrackerSet=1</download-url>
+							
+						</attached-document>
+					
+				</record>
+			
+				<record>
+					<compadre-identifier>10311</compadre-identifier>
+					<document-identifier>5710</document-identifier>
+					<file-identifier>11612</file-identifier>
+					<title>Slow uniform motion video</title>
+					<description>A video clip showing a slow moving ball.</description>
+					<contributors><contributor role="Author">Aaron Titus</contributor></contributors> <osp-category>Curriculum</osp-category>
+					<osp-type>Tracker Video Model</osp-type>
+					<osp-subject>Classical Mechanics / Motion in One Dimension / Velocity</osp-subject>
+					<osp-subject>Education Practices / Active Learning / Modeling</osp-subject>
+					<file-name file-size="329240">uniform-motion-ball-slow.mp4</file-name>
+					<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=1797</access-url>
+					<information-url>https://www.compadre.org/osp/items/detail.cfm?ID=10311</information-url>
+					<thumbnail-url>https://www.compadre.org/profiles/thumbnail.jpg</thumbnail-url>
+					<comments-url numElements="0">https://www.compadre.org/osp/items/detail.cfm?ID=10311&amp;S=2#tabNav</comments-url>
+					
+						<attached-document>
+							<document-identifier>1797</document-identifier>
+							<file-identifier>11608</file-identifier>
+							<file-type>Main</file-type>
+							<file-name file-size="1165166">video-tracker-uniform-motion-ball-on-track.trz</file-name>
+							<title>Uniform Motion TRZ</title>
+							<description>Video Analysis with Tracker of Uniform Motion (steel ball rolling on a track)</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=1797</access-url>
+							
+								<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=1797&amp;TrackerSet=1</download-url>
+							
+						</attached-document>
+					
+						<attached-document>
+							<document-identifier>1798</document-identifier>
+							<file-identifier>3058</file-identifier>
+							<file-type>Supplemental</file-type>
+							<file-name file-size="822919">VideoAnalysisOfUniformMotion.pdf</file-name>
+							<title>Video Analysis of Uniform Motion</title>
+							<description>The Video Analysis of Uniform Motion lab shows students how to use the Tracker video analysis tool to measure and analyze the motion of a steel ball rolling with constant velocity on an aluminum track.</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=1798</access-url>
+							
+						</attached-document>
+					
+						<attached-document>
+							<document-identifier>5710</document-identifier>
+							<file-identifier>11612</file-identifier>
+							<file-type>Supplemental</file-type>
+							<file-name file-size="329240">uniform-motion-ball-slow.mp4</file-name>
+							<title>Slow uniform motion video</title>
+							<description>A video clip showing a slow moving ball.</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=5710</access-url>
+							
+								<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=5710&amp;TrackerSet=1</download-url>
+							
+						</attached-document>
+					
+						<attached-document>
+							<document-identifier>5708</document-identifier>
+							<file-identifier>11610</file-identifier>
+							<file-type>Supplemental</file-type>
+							<file-name file-size="205063">uniform-motion-ball-fast.mp4</file-name>
+							<title>Fast uniform motion video</title>
+							<description>A video clip showing a fast rolling ball.</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=5708</access-url>
+							
+								<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=10311&amp;DocID=5708&amp;TrackerSet=1</download-url>
+							
+						</attached-document>
+					
+				</record>
+			
+				<record>
+					<compadre-identifier>11617</compadre-identifier>
+					<document-identifier>2517</document-identifier>
+					<file-identifier>8946</file-identifier>
+					<title>Measurement of the Solar Rotation Rate</title>
+					<description>Measurement of the Solar Rotation Rate with Tracker. NOTE: this version contains files that are 1024 x 1024 and may require you to increase the memory size in Tracker.  If you are on a slower computer, please use the low resolution versions of these files in the supplemental documents tab below.</description>
+					<contributors><contributor role="Author">Mario Belloni</contributor></contributors> <osp-category>Curriculum</osp-category>
+					<osp-type>Tracker Video Model</osp-type>
+					<osp-subject>Astronomy / The Sun</osp-subject>
+					<osp-subject>Astronomy / Astronomy Education / Curricula</osp-subject>
+					<osp-subject>Astronomy / The Sun / Space Weather</osp-subject>
+					<osp-subject>Education Practices / Active Learning / Modeling</osp-subject>
+					<file-name file-size="11075006">tracker_solar_rotation.zip</file-name>
+					<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=11617&amp;DocID=2517</access-url>
+					<information-url>https://www.compadre.org/osp/items/detail.cfm?ID=11617</information-url>
+					<thumbnail-url>https://www.compadre.org/profiles/solar.jpg</thumbnail-url>
+					<comments-url numElements="0">https://www.compadre.org/osp/items/detail.cfm?ID=11617&amp;S=2#tabNav</comments-url>
+					
+						<attached-document>
+							<document-identifier>2517</document-identifier>
+							<file-identifier>8946</file-identifier>
+							<file-type>Main</file-type>
+							<file-name file-size="11075006">tracker_solar_rotation.zip</file-name>
+							<title>Measurement of the Solar Rotation Rate</title>
+							<description>Measurement of the Solar Rotation Rate with Tracker. NOTE: this version contains files that are 1024 x 1024 and may require you to increase the memory size in Tracker.  If you are on a slower computer, please use the low resolution versions of these files in the supplemental documents tab below.</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=11617&amp;DocID=2517</access-url>
+							
+								<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=11617&amp;DocID=2517&amp;TrackerSet=1</download-url>
+							
+						</attached-document>
+					
+						<attached-document>
+							<document-identifier>2518</document-identifier>
+							<file-identifier>6272</file-identifier>
+							<file-type>Supplemental</file-type>
+							<file-name file-size="357617">tracker_solar_rotation_instructions.pdf</file-name>
+							<title>Instructions for Measurement of the Solar Rotation Rate with Tracker</title>
+							<description>This pdf file contains the instructions for using the Measurement of the Solar Rotation Rate with Tracker files.</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=11617&amp;DocID=2518</access-url>
+							
+						</attached-document>
+					
+						<attached-document>
+							<document-identifier>2946</document-identifier>
+							<file-identifier>6271</file-identifier>
+							<file-type>Supplemental</file-type>
+							<file-name file-size="6163132">tracker_solar_rotation_LOW_RES.zip</file-name>
+							<title>Measurement of the Solar Rotation Rate with Tracker LOW RES</title>
+							<description>Measurement of the Solar Rotation Rate with Tracker files using 512 x 512 lower resolution images for slower/older computers.  The main document uses 1024 x 1024 images and therefore is a larger download and uses more memory in Tracker to run smoothly.</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=11617&amp;DocID=2946</access-url>
+							
+						</attached-document>
+					
+						<attached-document>
+							<document-identifier>3049</document-identifier>
+							<file-identifier>6268</file-identifier>
+							<file-type>Supplemental</file-type>
+							<file-name file-size="4575390">sdo_transit.mov</file-name>
+							<title>SDO Venus Transit Movie</title>
+							<description>This movie was generated by Tracker from individual images from the SDO satellite taken 90 minutes apart from June 1- June 10, 2012</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=11617&amp;DocID=3049</access-url>
+							
+						</attached-document>
+					
+				</record>
+			
+				<record>
+					<compadre-identifier>12037</compadre-identifier>
+					<document-identifier>5886</document-identifier>
+					<file-identifier>11882</file-identifier>
+					<title>uniform-motion-ball-slow TRZ</title>
+					<description>A steel ball rolls with a constant velocity on an aluminum track with negligible friction. Its speed is approximately 0.32 m/s. The length of the track, measured from end to end, is 2.2 m.</description>
+					<contributors><contributor role="Author">Aaron Titus</contributor></contributors> <osp-category>Curriculum</osp-category>
+					<osp-type>Tracker Video Model</osp-type>
+					<osp-subject>Education Practices / Active Learning / Modeling</osp-subject>
+					<osp-subject>Classical Mechanics / General</osp-subject>
+					<file-name file-size="893589">uniform-motion-ball-slow.trz</file-name>
+					<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=12037&amp;DocID=2924</access-url>
+					<information-url>https://www.compadre.org/osp/items/detail.cfm?ID=12037</information-url>
+					<thumbnail-url>https://www.compadre.org/profiles/tracker-lab-manual.jpg</thumbnail-url>
+					<comments-url numElements="0">https://www.compadre.org/osp/items/detail.cfm?ID=12037&amp;S=2#tabNav</comments-url>
+					
+						<attached-document>
+							<document-identifier>2924</document-identifier>
+							<file-identifier>4778</file-identifier>
+							<file-type>Main</file-type>
+							<file-name file-size="2979219">tracker-lab-manual.pdf</file-name>
+							<title>Tracker Lab Manual and Workshop Resources</title>
+							<description>Tracker Lab Manual and Workshop Resources</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=12037&amp;DocID=2924</access-url>
+							
+						</attached-document>
+					
+						<attached-document>
+							<document-identifier>5886</document-identifier>
+							<file-identifier>11882</file-identifier>
+							<file-type>Source Code</file-type>
+							<file-name file-size="893589">uniform-motion-ball-slow.trz</file-name>
+							<title>uniform-motion-ball-slow TRZ</title>
+							<description>A steel ball rolls with a constant velocity on an aluminum track with negligible friction. Its speed is approximately 0.32 m/s. The length of the track, measured from end to end, is 2.2 m.</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=12037&amp;DocID=5886</access-url>
+							
+								<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=12037&amp;DocID=5886&amp;TrackerSet=1</download-url>
+							
+						</attached-document>
+					
+						<attached-document>
+							<document-identifier>5888</document-identifier>
+							<file-identifier>11884</file-identifier>
+							<file-type>Source Code</file-type>
+							<file-name file-size="161834">uniform-motion-ball-fast.trz</file-name>
+							<title>uniform-motion-ball-fast TRZ</title>
+							<description>A steel ball rolls with a constant velocity on an aluminum track with negligible friction. Its speed is approximately 0.53 m/s. The length of the track, measured from end to end, is 2.2 m.</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=12037&amp;DocID=5888</access-url>
+							
+								<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=12037&amp;DocID=5888&amp;TrackerSet=1</download-url>
+							
+						</attached-document>
+					
+						<attached-document>
+							<document-identifier>5885</document-identifier>
+							<file-identifier>11881</file-identifier>
+							<file-type>Supplemental</file-type>
+							<file-name file-size="199174">uniform-motion-ball-slow.mp4</file-name>
+							<title>uniform-motion-ball-slow MP4</title>
+							<description>A steel ball rolls with a constant velocity on an aluminum track with negligible friction. Its speed is approximately 0.32 m/s. The length of the track, measured from end to end, is 2.2 m.</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=12037&amp;DocID=5885</access-url>
+							
+								<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=12037&amp;DocID=5885&amp;TrackerSet=1</download-url>
+							
+						</attached-document>
+				</record>
+			
+				<record>
+					<compadre-identifier>16672</compadre-identifier>
+					<document-identifier>5878</document-identifier>
+					<file-identifier>11869</file-identifier>
+					<title>Explosive Collision Image Stack</title>
+					<description>The Explosive Collision lab using an image stack video format.</description>
+					<contributors><contributor role="Author">Mario Belloni</contributor></contributors> <osp-category>Curriculum</osp-category>
+					<osp-type>Tracker Video Model</osp-type>
+					<osp-subject>Classical Mechanics / Linear Momentum / Collisions in One Dimension</osp-subject>
+					<osp-subject>Classical Mechanics / General</osp-subject>
+					<osp-subject>Classical Mechanics / Linear Momentum</osp-subject>
+					<osp-subject>Classical Mechanics / Motion in Two Dimensions / Center of Mass</osp-subject>
+					<osp-subject>Classical Mechanics / Newton&#39;s Third Law / Recoil</osp-subject>
+					<osp-subject>Education Practices / Active Learning / Modeling</osp-subject>
+					<osp-subject>General Physics / Curriculum</osp-subject>
+					<file-name file-size="14683253">explosiveCollision_imagestack.trz</file-name>
+					<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=16672&amp;DocID=5833</access-url>
+					<information-url>https://www.compadre.org/osp/items/detail.cfm?ID=16672</information-url>
+					<thumbnail-url>https://www.compadre.org/profiles/explosiveCollision.jpg</thumbnail-url>
+					<comments-url numElements="0">https://www.compadre.org/osp/items/detail.cfm?ID=16672&amp;S=2#tabNav</comments-url>
+					
+						<attached-document>
+							<document-identifier>5833</document-identifier>
+							<file-identifier>11796</file-identifier>
+							<file-type>Main</file-type>
+							<file-name file-size="12297091">explosiveCollision.trz</file-name>
+							<title>Explosive Collision Lab Using Tracker</title>
+							<description>Explosive Collision Lab Using Tracker</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=16672&amp;DocID=5833</access-url>
+							
+								<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=16672&amp;DocID=5833&amp;TrackerSet=1</download-url>
+							
+						</attached-document>
+					
+						<attached-document>
+							<document-identifier>5834</document-identifier>
+							<file-identifier>11783</file-identifier>
+							<file-type>Supplemental</file-type>
+							<file-name file-size="148105">ExplosiveCollisionsVideo.pdf</file-name>
+							<title>Explosive Collision Lab: Instructions</title>
+							<description>Laboratory description and procedure.</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=16672&amp;DocID=5834</access-url>
+							
+						</attached-document>
+					
+						<attached-document>
+							<document-identifier>5878</document-identifier>
+							<file-identifier>11869</file-identifier>
+							<file-type>Source Code</file-type>
+							<file-name file-size="14683253">explosiveCollision_imagestack.trz</file-name>
+							<title>Explosive Collision Image Stack</title>
+							<description>The Explosive Collision lab using an image stack video format.</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=16672&amp;DocID=5878</access-url>
+							
+								<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=16672&amp;DocID=5878&amp;TrackerSet=1</download-url>
+							
+						</attached-document>
+					
+						<attached-document>
+							<document-identifier>5835</document-identifier>
+							<file-identifier>11797</file-identifier>
+							<file-type>Supplemental</file-type>
+							<file-name file-size="12110927">explosiveCollision.mp4</file-name>
+							<title>Explosive Collision Lab MP4 Video</title>
+							<description>Associated movie that can be used to demonstrate the experiment.</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=16672&amp;DocID=5835</access-url>
+							
+								<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=16672&amp;DocID=5835&amp;TrackerSet=1</download-url>
+							
+						</attached-document>
+					
+						<attached-document>
+							<document-identifier>5836</document-identifier>
+							<file-identifier>11798</file-identifier>
+							<file-type>Supplemental</file-type>
+							<file-name file-size="24548045">explosive.zip</file-name>
+							<title>Explosive Collision Lab: Zip file</title>
+							<description>Zip of the movie, trz, and documentation files.</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=16672&amp;DocID=5836</access-url>
+							
+						</attached-document>
+					
+				</record>
+			
+				<record>
+					<compadre-identifier>16833</compadre-identifier>
+					<document-identifier>5923</document-identifier>
+					<file-identifier>11938</file-identifier>
+					<title>Tracker Experiment</title>
+					<description>Tracker Experiment file used in You Tube video.</description>
+					<contributors><contributor role="Author">Shabtai Shpigler</contributor></contributors> <osp-category>Curriculum</osp-category>
+					<osp-type>Tracker Video Model</osp-type>
+					<osp-subject>Oscillations &amp; Waves / Oscillations / Springs and Oscillators</osp-subject>
+					<osp-subject>Oscillations &amp; Waves / Oscillations / Simple Harmonic Motion</osp-subject>
+					<file-name file-size="10601128">hHarm1FNmT.trz</file-name>
+					<access-url>https://youtu.be/brEcIHwQ1TI</access-url>
+					<information-url>https://www.compadre.org/osp/items/detail.cfm?ID=16833</information-url>
+					<thumbnail-url>https://www.compadre.org/profiles/HarmonicOcillator.jpeg</thumbnail-url>
+					<comments-url numElements="0">https://www.compadre.org/osp/items/detail.cfm?ID=16833&amp;S=2#tabNav</comments-url>
+					
+						<attached-document>
+							<document-identifier>5923</document-identifier>
+							<file-identifier>11938</file-identifier>
+							<file-type>Source Code</file-type>
+							<file-name file-size="10601128">hHarm1FNmT.trz</file-name>
+							<title>Tracker Experiment</title>
+							<description>Tracker Experiment file used in You Tube video.</description>
+							<access-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=16833&amp;DocID=5923</access-url>
+							
+								<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=16833&amp;DocID=5923&amp;TrackerSet=1</download-url>
+							
+						</attached-document>
+					
+				</record>
+			</records>
+		
+	</ComPADREOSPTrackerMirroringService>

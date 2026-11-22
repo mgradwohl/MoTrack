@@ -45,7 +45,7 @@ winget install --id Microsoft.PowerShell --exact --source winget
 ./tools/setup-dev.sh --build
 ```
 
-Run `build/dev/motrack` (`motrack.exe` on Windows) from an [activated developer shell](CONTRIBUTING.md#developer-setup) and open `tests/fixtures/image-sequence.trk` or `tests/fixtures/movie.trk` from the File menu. Use the controls below the image to play, pause, or step through the clip. The interface follows the system locale and is available in English, French, German, and Spanish.
+Run `build/dev/motrack` (`motrack.exe` on Windows) from an [activated developer shell](CONTRIBUTING.md#developer-setup) and open `tests/fixtures/image-sequence.trk` or `tests/fixtures/movie.trk` from the File menu. Use the controls below the image to play, pause, or step through the clip. The interface follows the system's [preferred languages](#languages).
 
 Directly opened movies use quarter-turn rotation and reflection metadata. Tracker project imports retain their encoded frame coordinates.
 
@@ -53,7 +53,7 @@ Use File → Open images to start from an image sequence. Enter its frame rate w
 
 Choose a point mass from the toolbar or create one in the Tracks menu. Shift-click an image to mark the selected point mass and advance one clip step. Shift+Enter repeats the previous mark. The Tracks menu also lets you rename a point mass, delete it, or remove its mark on the current frame. Use File → Export measurements to save the current marks as CSV, or File → Export plot data to save the selected series with its frame numbers, times when available, and units. Use File → Save MoTrack copy as to keep the current tracks, calibration, and media references in a `.motrack` project. Keep externally linked media in place when reopening it.
 
-Open a Tracker `.trz` experiment archive from the same project chooser. Every experiment gets a tab, and each can be edited independently. Unopened tabs create their full editor only when selected. Saving the archive includes all member edits and retains its media and unknown files. A `.motrack` copy embeds the complete archive, so it can reopen after the original archive is removed.
+Open a Tracker `.trz` experiment archive from the same project chooser. Every experiment gets a tab, and each can be edited independently. Unopened tabs create their full editor only when selected. Saving the archive includes all member edits and retains its media and unknown files. A `.motrack` copy embeds the complete archive, so it can reopen after the original archive is removed. MoTrack never extracts archive members with unsafe names, such as the absolute `C:/Users/…` files some Tracker 6.1 exports contain, and the status bar reports them. Saved `.trz` files leave out the ones that only duplicate another member and keep the rest unchanged; their names can show the original author's folder or user name. Unlike Tracker, MoTrack refuses an archive whose project name is unsafe, and does not open a project that uses an unsafe-named file. macOS `__MACOSX` files are not shown as experiments. A project that cannot be read is reported while the others open, and the **Experiments** menu lists it with the reason ([details](docs/native-format.md#unsafe-and-non-project-archive-members)).
 
 Projects, videos, and image sequences open in the same workspace. Switch or reorder tabs without resetting their playheads or undo histories. The tab × and **Hide experiment view** hide a view and retain its edits; reopen it from **Experiments**. **Close project…** closes the entire source, including hidden archive members, after Save/Discard/Cancel. Closing the window resolves every project before releasing any. **Save all projects** saves each modified source once, including hidden experiments. Failed or canceled saves retain the unsaved records. If two modified copies share a save destination, save one under a different filename before using Save All or saving both during close. Tracker tabset files and cross-tab import remain unfinished.
 
@@ -117,7 +117,7 @@ standalone media projects remain unfinished.
 
 ### Analyze motion
 
-Choose position, velocity, speed, acceleration, momentum, or kinetic energy above the plot. Set the selected point mass’s value in the Tracks menu. Select a plotted point to jump to its video frame. Enable Linear fit to see the slope, intercept, and R² for the plotted samples. Position uses the frame number when the project has no known timebase. Derived quantities use frame timestamps or saved image-sequence timing, and are left blank at the clip edges and across gaps in the marks. Imported movies are indexed in the background and keep Tracker’s saved clip start time.
+Choose position, velocity, speed, acceleration, momentum, or kinetic energy above the plot. Set the selected point mass’s value in the Tracks menu. Select a plotted point to jump to its video frame. Enable Linear fit to see the slope, intercept, and R² for the plotted samples. Position uses the frame number when the project has no known timebase. Derived quantities use frame timestamps or saved image-sequence timing, and are left blank at the clip edges and across gaps in the marks. Acceleration currently uses a three-point estimate rather than Tracker's default five-point estimate, so its values differ and it reports values one step closer to clip edges and gaps than Tracker does; [#207](https://github.com/mgradwohl/MoTrack/issues/207) tracks aligning it. Imported movies are indexed in the background and keep Tracker’s saved clip start time.
 
 Use Clip Settings to choose the starting frame, ending frame, and frame interval for an experiment. Existing marks keep their original frame numbers when the clip changes.
 
@@ -130,6 +130,20 @@ Use Set Axes to place the coordinate origin and choose the positive x direction.
 Use Tools → Measure distance or Measure angle to make a measurement on the current frame. The tools use calibrated coordinates when available and otherwise measure in image pixels.
 
 Zoom from the View menu or hold Ctrl while scrolling over the video. Drag with the middle mouse button or hold Alt while dragging to pan. Fit video to view resets the display.
+
+### Languages
+
+MoTrack offers every interface language that Tracker offers: Arabic, Catalan, Chinese (Simplified and
+Traditional), Czech, Danish, Dutch, English, Finnish, French, German, Greek, Hebrew, Hungarian, Indonesian,
+Italian, Japanese, Korean, Latvian, Malay, Polish, Portuguese (Portugal and Brazil), Russian, Slovak, Slovenian,
+Spanish, Swedish, Thai, Turkish, Ukrainian and Vietnamese. It uses the first language in the system's list that
+it supports (Chinese for Hong Kong and Macao shows Traditional, for Singapore Simplified) and otherwise shows
+English. Arabic and Hebrew use a right-to-left layout.
+
+Terms such as point mass, calibration stick and clip settings reuse Tracker's own translations. Most other
+text is machine-translated and has not yet been reviewed by native speakers; corrections are welcome (see
+[Contributing](CONTRIBUTING.md#translations)). Unlike Tracker, MoTrack does not yet have a language preference
+of its own; change the system language to switch.
 
 ### Stage a local desktop build
 

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="org.opensourcephysics.tools.Library">
+    <property name="name" type="string">Fewer names than paths</property>
+    <property name="collection_paths" type="array" class="[Ljava.lang.String;">
+        <property name="[0]" type="string">a.xml</property>
+        <property name="[1]" type="string">b.xml</property>
+    </property>
+    <property name="collection_names" type="array" class="[Ljava.lang.String;">
+        <property name="[0]" type="string">A</property>
+    </property>
+</object>

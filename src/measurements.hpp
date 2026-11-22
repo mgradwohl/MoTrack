@@ -55,6 +55,17 @@ struct LinearFit
     std::optional<double> rSquared;
 };
 
+/// Clip step of an original frame (its zero-based index among the clip's frames), or nullopt when the
+/// frame is outside the clip. An unknown step count leaves the clip unbounded after its first frame.
+[[nodiscard]] std::optional<int> clipStepOfFrame(const Clip& clip, int frame);
+
+/// Original frame of a clip step, or nullopt for a step outside the clip or a frame beyond `int`.
+[[nodiscard]] std::optional<int> clipFrameOfStep(const Clip& clip, int step);
+
+/// Time of an original frame in milliseconds under the saved constant timing (start time plus the
+/// frame offset times the frame duration), or nullopt when the clip has no positive frame duration.
+[[nodiscard]] std::optional<double> clipFrameTimeMs(const Clip& clip, int frame);
+
 /// Resolves the effective calibration for an original frame, including fixed fields.
 [[nodiscard]] std::optional<CalibrationKey> calibrationAt(const Calibration& calibration, int frame);
 
