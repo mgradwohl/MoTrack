@@ -484,6 +484,48 @@ std::expected<void, DocumentError> validate(const DocumentParts& parts)
     {
         return invalid("A document has exactly one panel.");
     }
+    if (parts.associations == Associations::Known)
+    {
+        // Known associations: every addressable baseline object (the panel, its singletons and each object element of
+        // `tracks`) has exactly one object, at the place its role names.
+        const auto panel = tracker::loadPanel(*parts.baseline);
+        std::map<osp::NodeId, Role> addressable{{panel.object, Role::Panel}};
+        if (panel.videoClip)
+        {
+            addressable.emplace(panel.videoClip->object, Role::Clip);
+            if (panel.videoClip->video)
+            {
+                addressable.emplace(panel.videoClip->video->object, Role::Video);
+            }
+        }
+        if (panel.clipControl)
+        {
+            addressable.emplace(panel.clipControl->object, Role::ClipControl);
+        }
+        if (panel.coords)
+        {
+            addressable.emplace(panel.coords->object, Role::Coordinates);
+        }
+        for (const auto& item : panel.trackItems)
+        {
+            if (item.object)
+            {
+                addressable.emplace(*item.object, Role::Track);
+            }
+        }
+        for (const auto& object : parts.objects)
+        {
+            if (const auto place = object.binding ? addressable.find(*object.binding) : addressable.end();
+                object.binding && (place == addressable.end() || place->second != object.role))
+            {
+                return invalid("Document source binding is not at its role's place in the baseline.");
+            }
+        }
+        if (bound.size() != addressable.size())
+        {
+            return invalid("A known document binds every addressable baseline object exactly once.");
+        }
+    }
     std::unordered_set<ObjectId> ordered;
     for (const auto id : parts.trackOrder)
     {

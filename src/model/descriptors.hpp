@@ -21,9 +21,11 @@
 namespace motrack::model
 {
 
-/// A Qt-free scalar value: absent (`std::monostate`) or one of the OSP value types.
-using FieldValue =
-    std::variant<std::monostate, bool, std::int32_t, double, std::string, std::vector<std::string>, std::vector<std::int32_t>>;
+/// A Qt-free scalar value: one of the OSP value types; the accessor's reason when the file saves none or an unreadable
+/// one (`Missing` versus another `osp::DecodeError`, which B1's policy and native v7 tell apart); or `std::monostate`
+/// for a field that is not a scalar.
+using FieldValue = std::
+    variant<std::monostate, osp::DecodeError, bool, std::int32_t, double, std::string, std::vector<std::string>, std::vector<std::int32_t>>;
 
 enum class FieldKind : std::uint8_t
 {
@@ -43,8 +45,8 @@ struct FieldDescriptor
     FieldKind kind = FieldKind::Scalar;
     /// Whether a command edits the field. Other fields are typed so that they are stored and dumped, never edited.
     bool commandEdits = false;
-    /// The facet an edit changes (`markChanged`); absent for a label, which renames instead, and for fields no
-    /// command edits.
+    /// The facet an edit changes (`markChanged`); absent for a track name, which renames instead, for the panel's unit
+    /// labels, which change no value, and for fields no command edits.
     std::optional<Facet> facet{};
     /// Whether an edit is a rename (`renameObject`).
     bool label = false;
@@ -57,8 +59,8 @@ struct FieldDescriptor
 [[nodiscard]] std::span<const FieldDescriptor> fieldDescriptors(Family family) noexcept;
 /// The descriptor with this id, or null.
 [[nodiscard]] const FieldDescriptor* findField(Family family, std::string_view id) noexcept;
-/// A scalar field's loaded value: the accessor result when readable, otherwise absent. Frame-keyed fields are read
-/// through their series and return absent here.
+/// A scalar field's loaded value, or the accessor's reason it has none. Frame-keyed fields are read through their
+/// series and return `std::monostate` here.
 [[nodiscard]] FieldValue scalarValue(const TypedValue& value, const FieldDescriptor& field);
 
 /// The shape of a saved reference slot.

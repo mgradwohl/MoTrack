@@ -3,11 +3,14 @@
 #include "model/descriptors.hpp"
 #include "model/tracker_document.hpp"
 
+#include <QByteArrayView>
+#include <QCryptographicHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QString>
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <string>
@@ -46,6 +49,12 @@ inline QJsonValue dumpField(const motrack::model::FieldValue& value)
             if constexpr (std::is_same_v<Item, std::monostate>)
             {
                 return QJsonValue::Null;
+            }
+            else if constexpr (std::is_same_v<Item, motrack::osp::DecodeError>)
+            {
+                // Why the accessor reads no value: the file does not save the property, or saves an unreadable one.
+                static constexpr std::array<const char*, 5> NAMES{"missing", "wrong-type", "malformed", "out-of-range", "unsupported"};
+                return QJsonObject{{"unread", NAMES.at(static_cast<std::size_t>(item))}};
             }
             else if constexpr (std::is_same_v<Item, double>)
             {
@@ -213,19 +222,26 @@ inline QJsonObject documentDump(const motrack::model::TrackerDocument& document)
                                   {"reason", QString::fromStdString(issue.reason)}});
     }
     const auto& media = document.media();
-    return {
-        {"associations", QString::fromUtf8(associationsName(document.associations()).data())},
-        {"baselineBytes", document.baseline() ? QJsonValue(static_cast<qint64>(document.baseline()->bytes().size())) : QJsonValue::Null},
-        {"readerRevision", static_cast<qint64>(document.readerRevision())},
-        {"nextObjectId", dumpId(document.nextObjectId())},
-        {"countdownLowWater", dumpId(document.countdownLowWater())},
-        {"trackOrder", order},
-        {"media",
-         QJsonObject{{"references", references},
-                     {"sourceFrameCount", media.sourceFrameCount ? QJsonValue(*media.sourceFrameCount) : QJsonValue::Null}}},
-        {"objects", objects},
-        {"dependencies", dependencies},
-        {"referenceIssues", issues}};
+    QJsonValue baseline = QJsonValue::Null;
+    if (const auto& source = document.baseline())
+    {
+        const auto bytes = source->bytes();
+        const auto digest =
+            QCryptographicHash::hash(QByteArrayView(bytes.data(), static_cast<qsizetype>(bytes.size())), QCryptographicHash::Sha256);
+        baseline = QJsonObject{{"bytes", static_cast<qint64>(bytes.size())}, {"sha256", QString::fromLatin1(digest.toHex())}};
+    }
+    return {{"associations", QString::fromUtf8(associationsName(document.associations()).data())},
+            {"baseline", baseline},
+            {"readerRevision", static_cast<qint64>(document.readerRevision())},
+            {"nextObjectId", dumpId(document.nextObjectId())},
+            {"countdownLowWater", dumpId(document.countdownLowWater())},
+            {"trackOrder", order},
+            {"media",
+             QJsonObject{{"references", references},
+                         {"sourceFrameCount", media.sourceFrameCount ? QJsonValue(*media.sourceFrameCount) : QJsonValue::Null}}},
+            {"objects", objects},
+            {"dependencies", dependencies},
+            {"referenceIssues", issues}};
 }
 
 inline std::string documentDumpText(const motrack::model::TrackerDocument& document)

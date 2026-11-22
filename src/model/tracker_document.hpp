@@ -143,7 +143,9 @@ class TrackerDocument // NOLINT(bugprone-exception-escape)
     /// and countdown identities for everything else. Associations are known.
     [[nodiscard]] static std::expected<TrackerDocument, DocumentError> importBaseline(std::shared_ptr<const osp::Source> baseline);
     /// Validates the parts (identity ranges and uniqueness, roles and families, bindings to baseline objects of the
-    /// recorded class, the track order) and derives the index and the graph.
+    /// recorded class at their role's place, exactly one object per addressable baseline object with known
+    /// associations, the track order and the reader revision) and derives the index and the graph. Countdown objects
+    /// without an identity receive one, in baseline order.
     [[nodiscard]] static std::expected<TrackerDocument, DocumentError> assemble(DocumentParts parts);
 
     [[nodiscard]] const std::shared_ptr<const osp::Source>& baseline() const noexcept;

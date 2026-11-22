@@ -1,6 +1,9 @@
 {
-    "associations": "unknown",
-    "baselineBytes": 5367,
+    "associations": "known",
+    "baseline": {
+        "bytes": 5367,
+        "sha256": "7d1c746998c9a5a735dbb1ad8945aa480429341ec3071d547e90257fe405a711"
+    },
     "countdownLowWater": "18446744073709551611",
     "dependencies": [
     ],
@@ -12,17 +15,21 @@
     "nextObjectId": "5",
     "objects": [
         {
-            "binding": null,
+            "binding": "/",
             "class": "org.opensourcephysics.cabrillo.tracker.TrackerPanel",
             "family": "panel",
             "fields": {
                 "description": "Native migration baseline",
                 "length_unit": "cm",
                 "mass_unit": "g",
-                "referenceframe": null,
-                "selectedtrack": null,
+                "referenceframe": {
+                    "unread": "missing"
+                },
+                "selectedtrack": "mass A",
                 "semantic_version": "6.3.5",
-                "time_unit": "s"
+                "time_unit": {
+                    "unread": "missing"
+                }
             },
             "id": "18446744073709551615",
             "range": "countdown",
@@ -30,16 +37,20 @@
             "state": "live"
         },
         {
-            "binding": null,
+            "binding": "/2:videoclip/0:",
             "class": "org.opensourcephysics.media.core.VideoClip",
             "family": "clip",
             "fields": {
-                "frameshift": null,
+                "frameshift": {
+                    "unread": "missing"
+                },
                 "startframe": 1,
                 "starttime": 10,
                 "stepcount": 8,
                 "stepsize": 1,
-                "video_framecount": null
+                "video_framecount": {
+                    "unread": "missing"
+                }
             },
             "id": "18446744073709551614",
             "range": "countdown",
@@ -47,14 +58,18 @@
             "state": "live"
         },
         {
-            "binding": null,
+            "binding": "/3:clipcontrol/0:",
             "class": "org.opensourcephysics.media.core.StepperClipControl",
             "family": "clip-control",
             "fields": {
                 "delta_t": 50,
-                "frame": null,
-                "looping": null,
-                "rate": null
+                "frame": {
+                    "unread": "missing"
+                },
+                "looping": {
+                    "unread": "missing"
+                },
+                "rate": 1
             },
             "id": "18446744073709551613",
             "range": "countdown",
@@ -62,7 +77,7 @@
             "state": "live"
         },
         {
-            "binding": null,
+            "binding": "/4:coords/0:",
             "class": "org.opensourcephysics.media.core.ImageCoordSystem",
             "family": "coordinates",
             "fields": {
@@ -77,10 +92,10 @@
                         0,
                         100,
                         100,
-                        "native"
+                        "bound"
                     ]
                 ],
-                "locked": null
+                "locked": false
             },
             "id": "18446744073709551612",
             "range": "countdown",
@@ -88,7 +103,7 @@
             "state": "live"
         },
         {
-            "binding": null,
+            "binding": "/5:tracks/0:item/0:",
             "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
             "family": "point-mass",
             "fields": {
@@ -97,13 +112,13 @@
                         0,
                         100,
                         80,
-                        "native"
+                        "bound"
                     ],
                     [
                         1,
                         110,
                         78.5,
-                        "native"
+                        "bound"
                     ],
                     [
                         2,
@@ -112,7 +127,11 @@
                         "native"
                     ]
                 ],
-                "keyFrames": null,
+                "keyFrames": [
+                    0,
+                    1,
+                    2
+                ],
                 "mass": 3,
                 "name": "renamed A"
             },
@@ -120,6 +139,56 @@
             "range": "counter",
             "role": "track",
             "state": "live"
+        },
+        {
+            "binding": "/5:tracks/1:item/0:",
+            "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+            "family": "unknown",
+            "fields": {
+                "label": "axes"
+            },
+            "id": "18446744073709551611",
+            "range": "countdown",
+            "role": "track",
+            "state": "live"
+        },
+        {
+            "binding": "/5:tracks/2:item/0:",
+            "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+            "family": "vector",
+            "fields": {
+                "framedata": [
+                ],
+                "name": "renamed v"
+            },
+            "id": "2",
+            "range": "counter",
+            "role": "track",
+            "state": "live"
+        },
+        {
+            "binding": "/5:tracks/3:item/0:",
+            "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+            "family": "point-mass",
+            "fields": {
+                "framedata": [
+                    [
+                        0,
+                        50,
+                        60,
+                        "bound"
+                    ]
+                ],
+                "keyFrames": {
+                    "unread": "missing"
+                },
+                "mass": 1,
+                "name": "mass B"
+            },
+            "id": "3",
+            "range": "counter",
+            "role": "track",
+            "state": "removed"
         },
         {
             "binding": null,
@@ -134,60 +203,14 @@
                         "native"
                     ]
                 ],
-                "keyFrames": null,
+                "keyFrames": [
+                    4
+                ],
                 "mass": 1,
                 "name": "created"
             },
-            "id": "2",
-            "range": "counter",
-            "role": "track",
-            "state": "live"
-        },
-        {
-            "binding": null,
-            "class": "org.opensourcephysics.cabrillo.tracker.Vector",
-            "family": "vector",
-            "fields": {
-                "framedata": [
-                ],
-                "name": "renamed v"
-            },
-            "id": "3",
-            "range": "counter",
-            "role": "track",
-            "state": "live"
-        },
-        {
-            "binding": null,
-            "class": "org.opensourcephysics.cabrillo.tracker.Vector",
-            "family": "vector",
-            "fields": {
-                "framedata": [
-                    [
-                        1,
-                        1,
-                        2,
-                        3,
-                        4,
-                        "native"
-                    ]
-                ],
-                "name": "arrow"
-            },
             "id": "4",
             "range": "counter",
-            "role": "track",
-            "state": "live"
-        },
-        {
-            "binding": null,
-            "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
-            "family": "unknown",
-            "fields": {
-                "label": null
-            },
-            "id": "18446744073709551611",
-            "range": "countdown",
             "role": "track",
             "state": "live"
         }
@@ -197,8 +220,7 @@
     ],
     "trackOrder": [
         "1",
-        "2",
-        "3",
-        "4"
+        "4",
+        "2"
     ]
 }

@@ -1,6 +1,9 @@
 {
     "associations": "stale",
-    "baselineBytes": 5431,
+    "baseline": {
+        "bytes": 5431,
+        "sha256": "9edf3dbcbbc9a985897aae77f792ab2a1df1e5c79ac1c256ed781f24d844b181"
+    },
     "countdownLowWater": "18446744073709551611",
     "dependencies": [
     ],
@@ -19,8 +22,12 @@
                 "description": "Native migration baseline",
                 "length_unit": "m",
                 "mass_unit": "kg",
-                "referenceframe": null,
-                "selectedtrack": null,
+                "referenceframe": {
+                    "unread": "missing"
+                },
+                "selectedtrack": {
+                    "unread": "missing"
+                },
                 "semantic_version": "6.3.5",
                 "time_unit": "s"
             },
@@ -34,12 +41,16 @@
             "class": "org.opensourcephysics.media.core.VideoClip",
             "family": "clip",
             "fields": {
-                "frameshift": null,
+                "frameshift": {
+                    "unread": "missing"
+                },
                 "startframe": 2,
                 "starttime": 0,
                 "stepcount": 10,
                 "stepsize": 1,
-                "video_framecount": null
+                "video_framecount": {
+                    "unread": "missing"
+                }
             },
             "id": "18446744073709551614",
             "range": "countdown",
@@ -52,9 +63,15 @@
             "family": "clip-control",
             "fields": {
                 "delta_t": 100,
-                "frame": null,
-                "looping": null,
-                "rate": null
+                "frame": {
+                    "unread": "missing"
+                },
+                "looping": {
+                    "unread": "missing"
+                },
+                "rate": {
+                    "unread": "missing"
+                }
             },
             "id": "18446744073709551613",
             "range": "countdown",
@@ -80,7 +97,9 @@
                         "native"
                     ]
                 ],
-                "locked": null
+                "locked": {
+                    "unread": "missing"
+                }
             },
             "id": "18446744073709551612",
             "range": "countdown",
@@ -112,7 +131,11 @@
                         "native"
                     ]
                 ],
-                "keyFrames": null,
+                "keyFrames": [
+                    0,
+                    1,
+                    3
+                ],
                 "mass": 2,
                 "name": "mass A"
             },
@@ -134,7 +157,9 @@
                         "native"
                     ]
                 ],
-                "keyFrames": null,
+                "keyFrames": [
+                    0
+                ],
                 "mass": 1,
                 "name": "mass B"
             },

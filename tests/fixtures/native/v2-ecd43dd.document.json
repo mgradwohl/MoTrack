@@ -1,6 +1,9 @@
 {
     "associations": "unknown",
-    "baselineBytes": 5367,
+    "baseline": {
+        "bytes": 5367,
+        "sha256": "7d1c746998c9a5a735dbb1ad8945aa480429341ec3071d547e90257fe405a711"
+    },
     "countdownLowWater": "18446744073709551611",
     "dependencies": [
     ],
@@ -9,7 +12,7 @@
         ],
         "sourceFrameCount": null
     },
-    "nextObjectId": "6",
+    "nextObjectId": "5",
     "objects": [
         {
             "binding": null,
@@ -19,8 +22,12 @@
                 "description": "Native migration baseline",
                 "length_unit": "cm",
                 "mass_unit": "g",
-                "referenceframe": null,
-                "selectedtrack": null,
+                "referenceframe": {
+                    "unread": "missing"
+                },
+                "selectedtrack": {
+                    "unread": "missing"
+                },
                 "semantic_version": "6.3.5",
                 "time_unit": "s"
             },
@@ -34,12 +41,16 @@
             "class": "org.opensourcephysics.media.core.VideoClip",
             "family": "clip",
             "fields": {
-                "frameshift": null,
+                "frameshift": {
+                    "unread": "missing"
+                },
                 "startframe": 1,
                 "starttime": 10,
                 "stepcount": 8,
                 "stepsize": 1,
-                "video_framecount": null
+                "video_framecount": {
+                    "unread": "missing"
+                }
             },
             "id": "18446744073709551614",
             "range": "countdown",
@@ -52,9 +63,15 @@
             "family": "clip-control",
             "fields": {
                 "delta_t": 50,
-                "frame": null,
-                "looping": null,
-                "rate": null
+                "frame": {
+                    "unread": "missing"
+                },
+                "looping": {
+                    "unread": "missing"
+                },
+                "rate": {
+                    "unread": "missing"
+                }
             },
             "id": "18446744073709551613",
             "range": "countdown",
@@ -80,7 +97,9 @@
                         "native"
                     ]
                 ],
-                "locked": null
+                "locked": {
+                    "unread": "missing"
+                }
             },
             "id": "18446744073709551612",
             "range": "countdown",
@@ -112,7 +131,11 @@
                         "native"
                     ]
                 ],
-                "keyFrames": null,
+                "keyFrames": [
+                    0,
+                    1,
+                    2
+                ],
                 "mass": 3,
                 "name": "renamed A"
             },
@@ -134,11 +157,13 @@
                         "native"
                     ]
                 ],
-                "keyFrames": null,
+                "keyFrames": [
+                    4
+                ],
                 "mass": 1,
                 "name": "created"
             },
-            "id": "4",
+            "id": "2",
             "range": "counter",
             "role": "track",
             "state": "live"
@@ -152,7 +177,7 @@
                 ],
                 "name": "renamed v"
             },
-            "id": "2",
+            "id": "3",
             "range": "counter",
             "role": "track",
             "state": "live"
@@ -174,7 +199,7 @@
                 ],
                 "name": "arrow"
             },
-            "id": "5",
+            "id": "4",
             "range": "counter",
             "role": "track",
             "state": "live"
@@ -197,8 +222,8 @@
     ],
     "trackOrder": [
         "1",
-        "4",
         "2",
-        "5"
+        "3",
+        "4"
     ]
 }

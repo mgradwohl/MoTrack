@@ -1,6 +1,9 @@
 {
     "associations": "known",
-    "baselineBytes": 5746,
+    "baseline": {
+        "bytes": 5746,
+        "sha256": "d3974b34d0124962b8156d33fea5f7f5d701c39eeb78b251385ba59ef1bd75c3"
+    },
     "countdownLowWater": "18446744073709551610",
     "dependencies": [
     ],
@@ -20,13 +23,19 @@
             "class": "org.opensourcephysics.cabrillo.tracker.TrackerPanel",
             "family": "panel",
             "fields": {
-                "description": null,
+                "description": {
+                    "unread": "missing"
+                },
                 "length_unit": "m",
                 "mass_unit": "kg",
-                "referenceframe": null,
+                "referenceframe": {
+                    "unread": "missing"
+                },
                 "selectedtrack": "other image mass",
                 "semantic_version": "6.3.5",
-                "time_unit": null
+                "time_unit": {
+                    "unread": "missing"
+                }
             },
             "id": "18446744073709551615",
             "range": "countdown",
@@ -38,12 +47,16 @@
             "class": "org.opensourcephysics.media.core.VideoClip",
             "family": "clip",
             "fields": {
-                "frameshift": null,
+                "frameshift": {
+                    "unread": "missing"
+                },
                 "startframe": 0,
                 "starttime": -250,
                 "stepcount": 4,
                 "stepsize": 1,
-                "video_framecount": null
+                "video_framecount": {
+                    "unread": "missing"
+                }
             },
             "id": "18446744073709551614",
             "range": "countdown",
@@ -76,7 +89,9 @@
             "fields": {
                 "delta_t": 125,
                 "frame": 0,
-                "looping": null,
+                "looping": {
+                    "unread": "missing"
+                },
                 "rate": 1
             },
             "id": "18446744073709551612",

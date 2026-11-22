@@ -1,6 +1,9 @@
 {
     "associations": "known",
-    "baselineBytes": 5424,
+    "baseline": {
+        "bytes": 5424,
+        "sha256": "32f84f1bff5c4bf57a28a26809ada50daf74ea1280c64cd63f444220159e8311"
+    },
     "countdownLowWater": "18446744073709551611",
     "dependencies": [
     ],
@@ -17,12 +20,18 @@
             "family": "panel",
             "fields": {
                 "description": "Native migration baseline",
-                "length_unit": null,
+                "length_unit": {
+                    "unread": "missing"
+                },
                 "mass_unit": "",
-                "referenceframe": null,
+                "referenceframe": {
+                    "unread": "missing"
+                },
                 "selectedtrack": "mass A",
                 "semantic_version": "6.3.5",
-                "time_unit": null
+                "time_unit": {
+                    "unread": "missing"
+                }
             },
             "id": "18446744073709551615",
             "range": "countdown",
@@ -34,12 +43,16 @@
             "class": "org.opensourcephysics.media.core.VideoClip",
             "family": "clip",
             "fields": {
-                "frameshift": null,
+                "frameshift": {
+                    "unread": "missing"
+                },
                 "startframe": 0,
                 "starttime": 0,
                 "stepcount": 10,
                 "stepsize": 1,
-                "video_framecount": null
+                "video_framecount": {
+                    "unread": "missing"
+                }
             },
             "id": "18446744073709551614",
             "range": "countdown",
@@ -52,8 +65,12 @@
             "family": "clip-control",
             "fields": {
                 "delta_t": 100,
-                "frame": null,
-                "looping": null,
+                "frame": {
+                    "unread": "missing"
+                },
+                "looping": {
+                    "unread": "missing"
+                },
                 "rate": 1
             },
             "id": "18446744073709551613",
@@ -164,7 +181,9 @@
                         "bound"
                     ]
                 ],
-                "keyFrames": null,
+                "keyFrames": {
+                    "unread": "missing"
+                },
                 "mass": 1,
                 "name": "mass B"
             },

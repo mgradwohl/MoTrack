@@ -33,9 +33,10 @@ namespace motrack
 /// outdated reading), or with values of an earlier reading: the baseline preserved but not indexed (associations
 /// unknown, or stale when dropped). Otherwise the baseline's typed import with the stored identities, the stored
 /// values of edited fields, created tracks unbound and bound tracks missing from the model removed; a field whose
-/// stored value equals the baseline's reading keeps that reading, so no conversion turns it into an edit. Throws
-/// ProjectError when the result's legacy view would differ from `project`, so a conversion never changes data
-/// silently.
+/// stored value equals the baseline's reading keeps that reading, so no conversion turns it into an edit. When the
+/// stored model does not match that import beyond the bindings (an unknown track MoTrack's former DOM reader saw), every
+/// stored value is kept native-only with stale associations instead. Throws ProjectError only when even that result's
+/// legacy view would differ from `project`, so a conversion never changes data silently.
 [[nodiscard]] model::TrackerDocument typedDocumentFromReduced(const LegacyProject& project,
                                                               const std::optional<TrackerSource>& source,
                                                               bool associationsDropped = false,

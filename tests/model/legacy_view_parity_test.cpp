@@ -334,23 +334,39 @@ TEST(LegacyViewParity, ConvertsSourcesWithoutAssociationsToNativeOnlyObjects)
     EXPECT_EQ(motrack::legacyProject(motrack::typedDocumentFromReduced(project, std::nullopt)), project);
 }
 
-TEST(LegacyViewParity, RefusesConversionsThatWouldChangeStoredValues)
+TEST(LegacyViewParity, KeepsStoredValuesWithStaleAssociationsWhenTheBaselineCannotHoldThemAndRefusesOtherwise)
 {
+    // Bound values that the baseline's typed import cannot hold (here a calibration removed, which no MoTrack edit
+    // does, or bindings naming no track) are kept native-only, with stale associations, as §3 opens any such file.
     auto imported = importedBaseline();
-    // Removing a calibration that the baseline keeps is not an edit MoTrack makes; it cannot be represented.
     imported.project.calibration.reset();
-    EXPECT_THROW((void)motrack::typedDocumentFromReduced(imported.project, imported.source), motrack::ProjectError);
+    auto document = motrack::typedDocumentFromReduced(imported.project, imported.source);
+    EXPECT_EQ(document.associations(), motrack::model::Associations::Stale);
+    EXPECT_EQ(motrack::legacyProject(document), imported.project);
     imported = importedBaseline();
     if (!imported.source.bindings)
     {
         FAIL() << "Expected the import's bindings.";
     }
     imported.source.bindings->front().sourceIndex = 99;
-    EXPECT_THROW((void)motrack::typedDocumentFromReduced(imported.project, imported.source), motrack::ProjectError);
+    document = motrack::typedDocumentFromReduced(imported.project, imported.source);
+    EXPECT_EQ(document.associations(), motrack::model::Associations::Stale);
+    const auto view = motrack::trackerSourceView(document);
+    if (!view)
+    {
+        FAIL() << "Expected the preserved source.";
+    }
+    EXPECT_FALSE(view->bindings);
+    // Values no typed document can hold are refused: here identities at or above the counter.
     imported = importedBaseline();
     imported.project.nextTrackId = 1;
     EXPECT_THROW((void)motrack::typedDocumentFromReduced(imported.project, imported.source), motrack::ProjectError);
     EXPECT_THROW((void)motrack::importTypedTracker("<object class=\"Other\"/>\n"), motrack::ProjectError);
+    // The reduced model stores samples in frame order; anything else is refused rather than merged.
+    motrack::LegacyProject unordered;
+    unordered.pointMasses.push_back({.name = "m", .marks = {{.frame = 2, .x = 0, .y = 0}, {.frame = 1, .x = 0, .y = 0}}, .id = 1});
+    unordered.nextTrackId = 2;
+    EXPECT_THROW((void)motrack::typedDocumentFromReduced(unordered, std::nullopt), motrack::ProjectError);
 }
 
 // Native migration fixtures (tests/fixtures/native, provenance in tests/fixtures/README.md). Each opens with today's
@@ -405,47 +421,74 @@ QByteArray nativeExport(const motrack::WorkspaceDocument& document)
     }
 }
 
-QByteArray documentGolden(const motrack::WorkspaceDocument& document)
+motrack::model::TrackerDocument converted(const motrack::WorkspaceDocument& document)
 {
-    const auto typed = motrack::typedDocumentFromReduced(document.project,
-                                                         document.trackerSource,
-                                                         document.trackerBindingsReset || document.trackerReadingOutdated,
-                                                         document.trackerReading);
-    return QByteArray::fromStdString(motrack::test::documentDumpText(typed));
+    return motrack::typedDocumentFromReduced(document.project,
+                                             document.trackerSource,
+                                             document.trackerBindingsReset || document.trackerReadingOutdated,
+                                             document.trackerReading);
+}
+
+/// The documents of one native fixture, each with the stem of its goldens: one per member for a group.
+std::vector<std::pair<QString, motrack::WorkspaceDocument>> nativeDocuments(const QString& name)
+{
+    std::vector<std::pair<QString, motrack::WorkspaceDocument>> documents;
+    const auto stem = name.chopped(QStringLiteral(".motrack").size());
+    if (name.startsWith("v6-"))
+    {
+        for (auto& member : motrack::readArchiveGroup(nativeFixture(name)).members)
+        {
+            documents.emplace_back(stem + "." + QString::fromStdString(member.member).section('/', -1).chopped(4),
+                                   std::move(member.document));
+        }
+        return documents;
+    }
+    documents.emplace_back(stem, motrack::readWorkspaceDocument(nativeFixture(name)));
+    return documents;
 }
 
 /// The goldens of one native fixture: its typed document dump and B1's export, per member for a group.
 std::map<QString, QByteArray> nativeGoldens(const QString& name)
 {
     std::map<QString, QByteArray> goldens;
-    const auto stem = name.chopped(QStringLiteral(".motrack").size());
-    if (name.startsWith("v6-"))
+    for (const auto& [stem, document] : nativeDocuments(name))
     {
-        for (const auto& member : motrack::readArchiveGroup(nativeFixture(name)).members)
-        {
-            const auto memberStem = stem + "." + QString::fromStdString(member.member).section('/', -1).chopped(4);
-            goldens.emplace(memberStem + ".document.json", documentGolden(member.document));
-            goldens.emplace(memberStem + ".export.txt", nativeExport(member.document));
-        }
-        return goldens;
+        goldens.emplace(stem + ".document.json", QByteArray::fromStdString(motrack::test::documentDumpText(converted(document))));
+        goldens.emplace(stem + ".export.txt", nativeExport(document));
     }
-    const auto document = motrack::readWorkspaceDocument(nativeFixture(name));
-    goldens.emplace(stem + ".document.json", documentGolden(document));
-    goldens.emplace(stem + ".export.txt", nativeExport(document));
     return goldens;
 }
 
+/// Tracker's key frames (PointMass.Loader's reading) of every live point mass, by name.
+std::map<std::string, std::vector<std::int32_t>> loadedKeys(const motrack::model::TrackerDocument& document)
+{
+    std::map<std::string, std::vector<std::int32_t>> keys;
+    for (const auto& object : document.objects())
+    {
+        if (const auto* mass = std::get_if<motrack::model::PointMassState>(object.value.get());
+            mass && object.state == motrack::model::ObjectState::Live)
+        {
+            keys.emplace(motrack::model::loadedName(mass->name), motrack::model::loadedKeyFrames(*mass));
+        }
+    }
+    return keys;
+}
 const std::vector<QString>& nativeFixtures()
 {
-    static const std::vector<QString> names{"v1.motrack",
-                                            "v2-source.motrack",
-                                            "v3-source.motrack",
-                                            "v4-known.motrack",
+    static const std::vector<QString> names{"v1-2dd1d25.motrack",
+                                            "v1-f740830.motrack",
+                                            "v1-e9599bf.motrack",
+                                            "v1-cd710be.motrack",
+                                            "v2-ecd43dd.motrack",
+                                            "v3-69be876.motrack",
+                                            "v4-5367eaf.motrack",
                                             "v4-stale.motrack",
                                             "v4-frame-shift.motrack",
                                             "v4-duplicate-keys.motrack",
                                             "v4-empty-mass-unit.motrack",
+                                            "v5-0847a4d.motrack",
                                             "v5-plain.motrack",
+                                            "v5-dom-unknown-track.motrack",
                                             "v5-archive.motrack",
                                             "v6-group.motrack"};
     return names;
@@ -453,6 +496,7 @@ const std::vector<QString>& nativeFixtures()
 
 TEST(LegacyViewParity, NativeFixturesOpenToTheirDocumentDumpsAndExports)
 {
+    int exports = 0;
     for (const auto& name : nativeFixtures())
     {
         SCOPED_TRACE(name.toStdString());
@@ -463,7 +507,22 @@ TEST(LegacyViewParity, NativeFixturesOpenToTheirDocumentDumpsAndExports)
             ASSERT_FALSE(expected.isEmpty()) << "Missing golden; regenerate with MOTRACK_WRITE_NATIVE_FIXTURES.";
             EXPECT_EQ(actual.toStdString(), expected.toStdString());
         }
+        // The converted document's key frames are the ones B1's export writes, edited, created and unedited alike.
+        for (const auto& [stem, document] : nativeDocuments(name))
+        {
+            SCOPED_TRACE(stem.toStdString());
+            const auto exported = nativeExport(document);
+            if (exported.startsWith("refused: "))
+            {
+                continue;
+            }
+            const auto expected = loadedKeys(motrack::importTypedTracker(exported.toStdString()));
+            EXPECT_FALSE(expected.empty());
+            EXPECT_EQ(loadedKeys(converted(document)), expected);
+            ++exports;
+        }
     }
+    EXPECT_GE(exports, 8);
     // A baseline the current reader refuses still fails to open, with the message that names the cause; native
     // version 7 opens such a document native-only instead (B2.5).
     try
@@ -480,49 +539,136 @@ TEST(LegacyViewParity, NativeFixturesOpenToTheirDocumentDumpsAndExports)
 }
 
 // Writes the native fixtures and their goldens. Run once with MOTRACK_WRITE_NATIVE_FIXTURES set to the fixture
-// directory, then review every file: the v5 and v6 files come from this build's native writers, and v1 to v4 are
-// the same writer's output reduced to the documented older schemas (docs/native-format.md).
+// directory, then review every file. The current v5 and v6 files come from this build's native writers. The older
+// ones are the same writer's output reduced to the exact key sets of the build that introduced each version or field
+// (read with `git show <build>:src/workspace_document.cpp`), so each is shaped as that build wrote it.
 
-/// The documented schema of an older standalone version: v5 added the container fields and the optional
-/// `timeUnit`, `movieTimeBase` (#331) and `trackerReading` (#330; older files count as revision 0); v4 added source
-/// bindings; v3 added track and counter identities; v2 added the preserved source; v1 stored independent vectors
-/// nowhere.
-QJsonObject downgrade(QJsonObject object, int version)
+/// The keys one native writer wrote: at the top level, in the clip, in each point mass and vector, and in the source.
+struct NativeSchema
 {
-    object.insert("version", version);
-    for (const auto* key : {"embeddedArchive", "archiveMember", "timeUnit", "movieTimeBase", "trackerReading"})
+    const char* build;
+    int version;
+    std::vector<QString> top;
+    std::vector<QString> clip;
+    std::vector<QString> mass;
+    std::vector<QString> vector;
+    std::vector<QString> source;
+};
+
+const std::vector<NativeSchema>& nativeSchemas()
+{
+    const std::vector<QString> top1{"format",
+                                    "version",
+                                    "trackerVersion",
+                                    "description",
+                                    "lengthUnit",
+                                    "unsupportedTrackTypes",
+                                    "calibration",
+                                    "pointMasses",
+                                    "movie",
+                                    "movieFrameTimes",
+                                    "clip"};
+    const std::vector<QString> clip1{"firstFrame", "stepSize", "stepCount", "media", "frameDurationMs", "startTimeMs"};
+    const auto with = [](std::vector<QString> keys, std::initializer_list<const char*> more)
     {
-        object.remove(key);
-    }
-    if (version < 4)
-    {
-        auto source = object.value("trackerSource").toObject();
-        source.remove("bindings");
-        object.insert("trackerSource", source);
-    }
-    if (version < 3)
-    {
-        object.remove("nextTrackId");
-        for (const auto* key : {"pointMasses", "vectors"})
+        for (const auto* key : more)
         {
-            QJsonArray tracks;
-            for (const auto& entry : object.value(key).toArray())
-            {
-                auto track = entry.toObject();
-                track.remove("id");
-                tracks.append(track);
-            }
-            object.insert(key, tracks);
+            keys.emplace_back(QString::fromLatin1(key));
         }
-    }
-    if (version < 2)
-    {
-        object.remove("trackerSource");
-        object.remove("vectors");
-    }
-    return object;
+        return keys;
+    };
+    const auto top2 = with(top1, {"massUnit", "displayOrientation", "archive"});
+    const auto top3 = with(top2, {"alignMovieToClip"});
+    const auto top4 = with(top3, {"vectors"});
+    const auto top5 = with(top4, {"trackerSource"});
+    const auto top6 = with(top5, {"nextTrackId"});
+    const auto clip2 = with(clip1, {"sourceFrameCount"});
+    static const std::vector<NativeSchema> schemas{
+        // v1 as first written: no mass unit, track masses, source frame count, orientation or vectors.
+        {.build = "2dd1d25", .version = 1, .top = top1, .clip = clip1, .mass = {"name", "marks"}},
+        {.build = "f740830", .version = 1, .top = top2, .clip = clip2, .mass = {"name", "marks", "mass"}},
+        {.build = "e9599bf", .version = 1, .top = top3, .clip = clip2, .mass = {"name", "marks", "mass"}},
+        {.build = "cd710be", .version = 1, .top = top4, .clip = clip2, .mass = {"name", "marks", "mass"}, .vector = {"name", "samples"}},
+        {.build = "ecd43dd",
+         .version = 2,
+         .top = top5,
+         .clip = clip2,
+         .mass = {"name", "marks", "mass"},
+         .vector = {"name", "samples"},
+         .source = {"xmlBase64"}},
+        {.build = "69be876",
+         .version = 3,
+         .top = top6,
+         .clip = clip2,
+         .mass = {"name", "marks", "mass", "id"},
+         .vector = {"name", "samples", "id"},
+         .source = {"xmlBase64"}},
+        {.build = "5367eaf",
+         .version = 4,
+         .top = top6,
+         .clip = clip2,
+         .mass = {"name", "marks", "mass", "id"},
+         .vector = {"name", "samples", "id"},
+         .source = {"xmlBase64", "bindings"}},
+        // v5 as first written: the container fields, but not yet `timeUnit`, `movieTimeBase` (#331) or `trackerReading`
+        // (#330), so it counts as reading revision 0.
+        {.build = "0847a4d",
+         .version = 5,
+         .top = with(top6, {"embeddedArchive", "archiveMember"}),
+         .clip = clip2,
+         .mass = {"name", "marks", "mass", "id"},
+         .vector = {"name", "samples", "id"},
+         .source = {"xmlBase64", "bindings"}},
+    };
+    return schemas;
 }
 
+const NativeSchema& nativeSchema(std::string_view build)
+{
+    return *std::ranges::find(nativeSchemas(), build, &NativeSchema::build);
+}
+
+QJsonObject only(const QJsonObject& object, const std::vector<QString>& keys)
+{
+    QJsonObject result;
+    for (const auto& key : keys)
+    {
+        if (object.contains(key))
+        {
+            result.insert(key, object.value(key));
+        }
+    }
+    return result;
+}
+
+QJsonArray onlyEach(const QJsonValue& tracks, const std::vector<QString>& keys)
+{
+    QJsonArray result;
+    for (const auto& track : tracks.toArray())
+    {
+        result.append(only(track.toObject(), keys));
+    }
+    return result;
+}
+
+/// The current writer's output with exactly the keys `schema`'s build wrote.
+QByteArray shaped(const QByteArray& json, const NativeSchema& schema)
+{
+    const auto current = QJsonDocument::fromJson(json).object();
+    auto object = only(current, schema.top);
+    object.insert("version", schema.version);
+    object.insert("clip", only(current.value("clip").toObject(), schema.clip));
+    object.insert("pointMasses", onlyEach(current.value("pointMasses"), schema.mass));
+    if (object.contains("vectors"))
+    {
+        object.insert("vectors", onlyEach(current.value("vectors"), schema.vector));
+    }
+    if (object.contains("trackerSource") && current.value("trackerSource").isObject())
+    {
+        object.insert("trackerSource", only(current.value("trackerSource").toObject(), schema.source));
+    }
+    return QJsonDocument(object).toJson(QJsonDocument::Compact);
+}
 QByteArray withBaseline(const QByteArray& json, const QByteArray& xml)
 {
     auto object = QJsonDocument::fromJson(json).object();
@@ -597,20 +743,22 @@ TEST(LegacyViewParity, WriteNativeFixtures)
     auto edited = importBaseline(baselineXml);
     editBaseline(edited.project);
     const auto current = nativeJson(edited, scratch);
-    const auto current4 = QJsonDocument(downgrade(QJsonDocument::fromJson(current).object(), 4)).toJson(QJsonDocument::Compact);
+    const auto v4 = shaped(current, nativeSchema("5367eaf"));
     write("v5-plain.motrack", current);
-    write("v4-known.motrack", current4);
-    // Without associations nothing is exported, so these also hold a vector created with a sample.
+    write("v5-0847a4d.motrack", shaped(current, nativeSchema("0847a4d")));
+    write("v4-5367eaf.motrack", v4);
+    // Without associations nothing is exported, so these also hold a vector created with a sample (vectors are stored
+    // from cd710be on).
     auto withVector = edited;
     motrack::TrackEdits vectorEdits;
     ASSERT_TRUE(vectorEdits.createVector(withVector.project, "arrow"));
     ASSERT_TRUE(
         vectorEdits.markVector(withVector.project, 1, {.frame = 1, .tailX = 1.0, .tailY = 2.0, .componentX = 3.0, .componentY = 4.0}));
     const auto unassociated = nativeJson(withVector, scratch);
-    for (const int version : {1, 2, 3})
+    for (const auto* build : {"2dd1d25", "f740830", "e9599bf", "cd710be", "ecd43dd", "69be876"})
     {
-        write(version == 1 ? QStringLiteral("v1.motrack") : QStringLiteral("v%1-source.motrack").arg(version),
-              QJsonDocument(downgrade(QJsonDocument::fromJson(unassociated).object(), version)).toJson(QJsonDocument::Compact));
+        const auto& schema = nativeSchema(build);
+        write(QStringLiteral("v%1-%2.motrack").arg(schema.version).arg(QString::fromLatin1(build)), shaped(unassociated, schema));
     }
     // Saved before B1: MoTrack's former DOM reader saw the track after a blank line that ends OSP's collection.
     auto blankLine = baselineXml;
@@ -621,7 +769,24 @@ TEST(LegacyViewParity, WriteNativeFixtures)
                       "class=\"org.opensourcephysics.cabrillo.tracker.PointMass\">\n                <property name=\"mass\" "
                       "type=\"double\">1.0</property>");
     ASSERT_NE(blankLine, baselineXml);
-    write("v4-stale.motrack", withBaseline(current4, blankLine));
+    write("v4-stale.motrack", withBaseline(v4, blankLine));
+    // The same quirk where the bindings still match: the DOM reader saw the coordinate axes, last in `tracks` after a
+    // blank line, which OSP's reader leaves out of the tracks. B1 keeps the bindings; the typed document is stale.
+    const QByteArray axes = "        <property name=\"item\" type=\"object\">\n            <object "
+                            "class=\"org.opensourcephysics.cabrillo.tracker.CoordAxes\">\n                <property name=\"name\" "
+                            "type=\"string\">axes</property>\n            </object>\n        </property>\n";
+    auto axesLast = baselineXml;
+    axesLast.replace(axes, "");
+    const QByteArray tracksEnd = "    </property>\n    <property name=\"selectedtrack\"";
+    auto axesAtEnd = axesLast;
+    axesAtEnd.replace(tracksEnd, QByteArray(axes).append(tracksEnd));
+    auto axesBehindBlank = axesLast;
+    axesBehindBlank.replace(tracksEnd, QByteArray("\n").append(axes).append(tracksEnd));
+    ASSERT_NE(axesAtEnd, axesLast);
+    ASSERT_NE(axesBehindBlank, axesAtEnd);
+    auto domReading = importBaseline(axesAtEnd);
+    editBaseline(domReading.project);
+    write("v5-dom-unknown-track.motrack", withBaseline(nativeJson(domReading, scratch), axesBehindBlank));
     // A source the current reader refuses: the blank line ends the panel's tracks before a null element (#196).
     auto refused = baselineXml;
     refused.replace(
@@ -629,7 +794,7 @@ TEST(LegacyViewParity, WriteNativeFixtures)
         "\n        <property name=\"item\" type=\"object\">null</property>\n        <property name=\"item\" type=\"object\">\n            "
         "<object class=\"org.opensourcephysics.cabrillo.tracker.CoordAxes\">");
     ASSERT_NE(refused, baselineXml);
-    write("v4-refused-baseline.motrack", withBaseline(current4, refused));
+    write("v4-refused-baseline.motrack", withBaseline(v4, refused));
     // Sources whose reading the loader-fidelity fixes change (#313-#315), saved as the reader before them (revision 0)
     // read them: unedited imports, which the current reader migrates where that is safe.
     const auto variant = [&](const QString& name, const QByteArray& xml)
@@ -641,8 +806,7 @@ TEST(LegacyViewParity, WriteNativeFixtures)
         document.project = std::move(earlier.project);
         document.trackerSource = motrack::TrackerSource{.xml = xml.toStdString(), .bindings = std::move(earlier.bindings)};
         document.trackerReading = motrack::TrackerReading::SavedIndices;
-        write(name,
-              QJsonDocument(downgrade(QJsonDocument::fromJson(nativeJson(document, scratch)).object(), 4)).toJson(QJsonDocument::Compact));
+        write(name, shaped(nativeJson(document, scratch), nativeSchema("5367eaf")));
     };
     auto shifted = baselineXml;
     shifted.replace(R"(            <property name="startframe" type="int">0</property>)",
@@ -666,7 +830,6 @@ TEST(LegacyViewParity, WriteNativeFixtures)
     emptyUnit.replace(R"(    <property name="description")",
                       "    <property name=\"mass_unit\" type=\"string\"></property>\n    <property name=\"description\"");
     variant("v4-empty-mass-unit.motrack", emptyUnit);
-
     // Archive-backed documents: one member, and a group of both members of a two-tab archive.
     const auto archive = std::make_shared<motrack::TrackerArchive>(
         motrack::TrackerArchive::open(QString::fromUtf8(MOTRACK_CORPUS_FIXTURES) + "/linked-images/multitab-images.trz"));

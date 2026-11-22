@@ -103,7 +103,7 @@ template <typename T> FieldValue fromRead(const Read<T>& value)
 {
     if (!value)
     {
-        return std::monostate{};
+        return value.error();
     }
     return FieldValue(*value);
 }
@@ -338,7 +338,7 @@ FieldValue scalarValue(const TypedValue& value, const FieldDescriptor& field)
             {
                 if (id == "paths")
                 {
-                    return state.paths ? FieldValue(*state.paths) : FieldValue{};
+                    return state.paths ? FieldValue(*state.paths) : FieldValue(osp::DecodeError::Missing);
                 }
                 return id == "path" ? fromRead(state.path) : id == "delta_t" ? fromRead(state.deltaT) : FieldValue{};
             }

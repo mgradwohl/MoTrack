@@ -456,9 +456,12 @@ Order: the loader-fidelity prerequisite, B2.1, then B2.2 and B2.3 in parallel, t
 parallel. Each slice depends on merged slices only, so no stack is more than one PR deep. Each slice updates the
 R02–R04 rows of the migration plan and the status line of this document.
 
-**Prerequisite — loader fidelity** ([#330](https://github.com/mgradwohl/MoTrack/pull/330), in review)
+**Prerequisite — loader fidelity** ([#330](https://github.com/mgradwohl/MoTrack/pull/330), merged)
 - Fixes #313, #314 and #315's track slots, and adds the v≤6 migrations of §3 to the current native reader as
-  `trackerReading` revisions 1 and 2. #315's empty `mass_unit` (revision 3) and its refusals follow before B2.1.
+  `trackerReading` revisions 1 and 2. B2.1 landed before the rest of #315, so #315's empty `mass_unit` (revision 3)
+  and its refusals now gate B2.4a: until then B1's reading maps an empty saved mass or time label to its default,
+  and `typedDocumentFromReduced` refuses a native file that stores an empty `massUnit` or `timeUnit`, which would be
+  an open failure once B2.4a reads native files through it.
 
 **B2.1 — Typed document** (first)
 - Content: `motrack_model`; `TrackerDocument`, families, descriptors and reference-only descriptors; identities,
@@ -545,9 +548,10 @@ R02–R04 rows of the migration plan and the status line of this document.
    content still refers to removed objects, and a value edited and later restored would not get its original text
    back. The current XML is a deterministic render of baseline and state. The table row is marked proposed;
    B2.5 updates it.
-2. **Where do #313–#315 land?** Decided: before B2.1. #330 lands #313, #314 and #315's track slots with the v≤6
-   migrations, so B2.1's parity baseline includes the fixes and no migration turns an old misreading into an edit;
-   #315's remaining parts follow before B2.1.
+2. **Where do #313–#315 land?** Decided: #330 landed #313, #314 and #315's track slots with the v≤6 migrations
+   before B2.1, so B2.1's parity baseline includes the fixes and no migration turns an old misreading into an edit.
+   B2.1 then landed before #315's remaining parts (the empty `mass_unit` as revision 3 and the refusals), which now
+   gate B2.4a.
 3. **Should removing a referenced object be refused?** Recommended: no. Allow it in the native document with
    export refused while references dangle, as today; the families add explicit cleanup edits.
 4. **Should untyped classes get graph edges in B2?** Recommended: yes, through reference-only descriptors that

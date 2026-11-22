@@ -4,7 +4,9 @@
 #include "tracker_import.hpp"
 
 #include <algorithm>
+#include <functional>
 #include <ranges>
+#include <set>
 #include <unordered_map>
 #include <utility>
 
@@ -147,10 +149,15 @@ ObjectSlot unbound(Role role,
 }
 
 /// The elements of `items` keyed by frame, keeping each retained frame's node and every element equal to the
-/// baseline's, so an unchanged chunk stays shared.
+/// baseline's, so an unchanged chunk stays shared. The reduced model stores samples in strictly ascending frame order
+/// (the native reader requires it); anything else is refused rather than merged.
 template <typename T, typename Items, typename Convert>
 model::FrameSeries<T> overlay(const model::FrameSeries<T>& baseline, const Items& items, Convert convert)
 {
+    if (std::ranges::adjacent_find(items, std::greater_equal<>{}, [](const auto& item) { return item.frame; }) != std::ranges::end(items))
+    {
+        throw ProjectError("The native project's samples are not in frame order.");
+    }
     auto result = baseline;
     for (const auto& [frame, element] : baseline.entries())
     {
@@ -202,7 +209,9 @@ void setIfChanged(model::Read<std::int32_t>& field, const std::optional<int>& re
     }
 }
 
-/// A bound point mass: the stored values of the fields that differ from the baseline's reading.
+/// A bound point mass: the stored values of the fields that differ from the baseline's reading. Its key frames follow
+/// B1's mark export (tracker_writer.cpp, patchMarks): the baseline's keys as PointMass.Loader reads them, without the
+/// removed marks and with every changed or inserted one, so the typed state holds the keys B1 writes.
 model::PointMassState pointMassState(const PointMass& track, const model::PointMassState& baseline)
 {
     auto state = baseline;
@@ -212,6 +221,28 @@ model::PointMassState pointMassState(const PointMass& track, const model::PointM
         state.mass = track.mass;
     }
     state.marks = overlay(baseline.marks, track.marks, mark);
+    const auto baselineKeys = model::loadedKeyFrames(baseline);
+    std::set<std::int32_t> keys(baselineKeys.begin(), baselineKeys.end());
+    baseline.marks.forEach(
+        [&](std::int32_t frame, const model::FrameElement<model::Mark>& /*element*/)
+        {
+            if (!state.marks.find(frame))
+            {
+                keys.erase(frame);
+            }
+        });
+    state.marks.forEach(
+        [&](std::int32_t frame, const model::FrameElement<model::Mark>& element)
+        {
+            if (const auto* original = baseline.marks.find(frame); !original || original->value != element.value)
+            {
+                keys.insert(frame);
+            }
+        });
+    if (!std::ranges::equal(keys, baselineKeys))
+    {
+        state.keyFrames = std::vector<std::int32_t>(keys.begin(), keys.end());
+    }
     return state;
 }
 
@@ -235,9 +266,22 @@ model::CoordinatesState coordinatesState(const Calibration& stored, const model:
 
 // Objects MoTrack created, or the native-only objects of a document without associations, set every field they save.
 
+/// A created point mass: every mark is a key frame, as B1 writes a new track's `keyFrames`; without marks it saves none.
 model::PointMassState createdPointMass(const PointMass& track)
 {
-    return {.name = track.name, .mass = track.mass, .marks = overlay(model::FrameSeries<model::Mark>{}, track.marks, mark)};
+    model::PointMassState state{
+        .name = track.name, .mass = track.mass, .marks = overlay(model::FrameSeries<model::Mark>{}, track.marks, mark)};
+    if (!track.marks.empty())
+    {
+        std::vector<std::int32_t> keys;
+        keys.reserve(track.marks.size());
+        for (const auto& item : track.marks)
+        {
+            keys.push_back(item.frame);
+        }
+        state.keyFrames = std::move(keys);
+    }
+    return state;
 }
 
 model::VectorState createdVector(const VectorTrack& track)
@@ -580,48 +624,77 @@ model::TrackerDocument typedDocumentFromReduced(const LegacyProject& project,
                                                 bool associationsDropped,
                                                 TrackerReading reading)
 {
-    model::DocumentParts parts;
-    // Bindings bind typed objects to this build's reading of the baseline, so only values of that reading keep them.
-    const bool known = source && source->bindings && !associationsDropped && reading == CURRENT_TRACKER_READING;
-    if (known)
+    const auto convert = [&](bool bound)
     {
-        parts = boundObjects(project, source->xml, *source->bindings);
-    }
-    else
-    {
-        if (source)
+        model::DocumentParts parts;
+        if (bound)
         {
-            parts.baseline = detail::parseTrackerXml(source->xml);
-            parts.associations = associationsDropped || source->bindings ? model::Associations::Stale : model::Associations::Unknown;
+            parts = boundObjects(project, source->xml, *source->bindings);
         }
-        nativeObjects(parts, project);
-    }
-    parts.readerRevision = std::to_underlying(reading);
-    parts.trackOrder.clear();
-    for (const auto& track : project.pointMasses)
+        else
+        {
+            if (source)
+            {
+                parts.baseline = detail::parseTrackerXml(source->xml);
+                parts.associations = associationsDropped || source->bindings ? model::Associations::Stale : model::Associations::Unknown;
+            }
+            nativeObjects(parts, project);
+        }
+        parts.readerRevision = std::to_underlying(reading);
+        parts.trackOrder.clear();
+        for (const auto& track : project.pointMasses)
+        {
+            parts.trackOrder.push_back(model::ObjectId{track.id});
+        }
+        for (const auto& track : project.vectors)
+        {
+            parts.trackOrder.push_back(model::ObjectId{track.id});
+        }
+        parts.nextObjectId = project.nextTrackId;
+        auto document = model::TrackerDocument::assemble(std::move(parts));
+        if (!document)
+        {
+            throw ProjectError("The native project cannot be read as a typed document: " + document.error().message);
+        }
+        auto expectedSource = source;
+        if (expectedSource && !bound)
+        {
+            expectedSource->bindings.reset();
+        }
+        if (legacyProject(*document) != project || !sameSource(trackerSourceView(*document), expectedSource))
+        {
+            throw ProjectError("The native project's stored values cannot be represented as a typed document.");
+        }
+        return std::move(*document);
+    };
+    // Bindings bind typed objects to this build's reading of the baseline, so only values of that reading keep them.
+    std::string boundFailure;
+    if (source && source->bindings && !associationsDropped && reading == CURRENT_TRACKER_READING)
     {
-        parts.trackOrder.push_back(model::ObjectId{track.id});
+        try
+        {
+            return convert(true);
+        }
+        catch (const ProjectError& error)
+        {
+            // The bindings match the current reader's point masses and vectors, but the stored model does not match
+            // its typed import of the rest, as when MoTrack's former DOM reader saw an unknown track that OSP's reader
+            // does not. Every stored value is kept, native-only, and the associations are stale (§3).
+            boundFailure = error.what();
+        }
     }
-    for (const auto& track : project.vectors)
+    try
     {
-        parts.trackOrder.push_back(model::ObjectId{track.id});
+        return convert(false);
     }
-    parts.nextObjectId = project.nextTrackId;
-    auto document = model::TrackerDocument::assemble(std::move(parts));
-    if (!document)
+    catch (const ProjectError& error)
     {
-        throw ProjectError("The native project cannot be read as a typed document: " + document.error().message);
+        if (boundFailure.empty())
+        {
+            throw;
+        }
+        throw ProjectError(std::string(error.what()) + " With its source associations: " + boundFailure);
     }
-    auto expectedSource = source;
-    if (expectedSource && !known)
-    {
-        expectedSource->bindings.reset();
-    }
-    if (legacyProject(*document) != project || !sameSource(trackerSourceView(*document), expectedSource))
-    {
-        throw ProjectError("The native project's stored values cannot be represented as a typed document.");
-    }
-    return std::move(*document);
 }
 
 std::shared_ptr<const LegacyProject> LegacyViewCache::view(const model::TrackerDocument& document, DocumentStamp stamp)

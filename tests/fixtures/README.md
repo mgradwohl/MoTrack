@@ -25,29 +25,37 @@ holds documents written by OSP's own writer (`tools/reference/XmlControlDump.jav
 rather than editing them by hand.
 
 `native/` holds the native migration fixtures of slice B2.1 ([typed document design](../../docs/tracker-document.md#5-oracles-and-tests)).
-They pin how today's native reader opens each version before B2.4a switches it to typed documents.
-`baseline.trk` is a synthetic, media-free Tracker document in OSP's layout: two point masses (with saved key frames),
-a vector without samples (B1 exports no vector samples beside point masses), coordinate axes, a fixed calibration
-and a selected track. `LegacyViewParity.WriteNativeFixtures` wrote every `.motrack` file and golden with B2.1's build (on `main` with
-#330, whose native writers B2.1 does not change) on Windows, with `MOTRACK_WRITE_NATIVE_FIXTURES` naming this directory; regenerate rather than edit them,
-and review every changed golden.
+They pin how today's native reader opens each version before B2.4a switches it to typed documents. `baseline.trk`
+is a synthetic, media-free Tracker document in OSP's layout: two point masses (with saved key frames), a vector
+without samples (B1 exports no vector samples beside point masses), coordinate axes, a fixed calibration and a
+selected track. `LegacyViewParity.WriteNativeFixtures` wrote every `.motrack` file and golden with B2.1's build (on
+`main` with #330) on Windows, with `MOTRACK_WRITE_NATIVE_FIXTURES` naming this directory; regenerate rather than edit
+them, and review every changed golden.
 
-- `v5-plain.motrack` is MoTrack's version-5 writer output (`trackerReading` 2) after the fixture edits: rename, mark, unmark and weigh a
-  point mass, change the mass unit, delete the second point mass, create and mark another, rename the vector,
-  calibrate in centimeters and change the clip range and timing. `v5-archive.motrack` (one edited member) and
-  `v6-group.motrack` (both edited members) embed `tests/corpus/fixtures/linked-images/multitab-images.trz`.
-- `v4-known`, `v3-source`, `v2-source` and `v1` are that writer's output reduced by hand to the schemas
-  [docs/native-format.md](../../docs/native-format.md) documents for each version (no container fields, `timeUnit`,
-  `movieTimeBase` or `trackerReading`, so they count as reading revision 0; v3 without bindings; v2 without
-  identities; v1 without a source or vectors). v1 to v3 also
-  hold a vector created with a sample. No earlier MoTrack build was used: building one needs its own SDK pins.
+- `v5-plain.motrack` is the current version-5 writer's output (`trackerReading` 2) after the fixture edits: rename,
+  mark, unmark and weigh a point mass, change the mass unit, delete the second point mass, create and mark another,
+  rename the vector, calibrate in centimeters and change the clip range and timing. `v5-archive.motrack` (one edited
+  member) and `v6-group.motrack` (both edited members) embed
+  `tests/corpus/fixtures/linked-images/multitab-images.trz`.
+- The files named after a build hold the same writer's output reduced to exactly the keys that build's writer
+  wrote (`git show <build>:src/workspace_document.cpp`): v1 as first written by `2dd1d25` (no mass unit, track
+  masses, source frame count, orientation or vectors), then `f740830` (mass unit, masses, source frame count,
+  orientation, archive), `e9599bf` (movie alignment) and `cd710be` (vectors); v2 `ecd43dd` (the preserved source);
+  v3 `69be876` (identities); v4 `5367eaf` (bindings); and v5 `0847a4d` (the container fields, before `timeUnit`,
+  `movieTimeBase` and `trackerReading`, so it counts as reading revision 0, like every earlier version). The
+  versions without associations also hold a vector created with a sample, from `cd710be` on. They were not written
+  by those builds themselves, which need their own SDK pins.
 - `v4-stale` stores a baseline with a blank line inside `tracks`, so the bindings that MoTrack's former DOM reader
   recorded no longer match OSP's reading; `v4-refused-baseline` stores one that the current reader refuses.
+  `v5-dom-unknown-track` stores one where only the coordinate axes, last after a blank line, fall outside OSP's
+  `tracks`: B1 keeps the bindings and refuses only export, and the typed document keeps every stored value with
+  stale associations.
 - `v4-frame-shift`, `v4-duplicate-keys` and `v4-empty-mass-unit` store an unedited import of a baseline variant
   (a clip `frameshift`, a repeated calibration key, an empty saved `mass_unit`) as reading revision 0, the reader
   before the loader-fidelity fixes (#313–#315), read it. Opening migrates `v4-duplicate-keys` (the current reading's
   calibration is adopted); `v4-frame-shift` stays at revision 0 with its associations dropped, because the shift
   would drop stored marks, and the typed document keeps revision 0 without transforming its values again.
 
-Each `*.document.json` is the typed document the fixture converts into (`tests/model/document_dump.hpp`), and each
-`*.export.txt` is B1's standard export of it, the exported member for archives, or `refused:` and B1's reason.
+Each `*.document.json` is the typed document the fixture converts into (`tests/model/document_dump.hpp`), with the
+baseline's SHA-256, and each `*.export.txt` is B1's standard export of it, the exported member for archives, or
+`refused:` and B1's reason.

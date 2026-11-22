@@ -1,6 +1,9 @@
 {
     "associations": "known",
-    "baselineBytes": 5367,
+    "baseline": {
+        "bytes": 5367,
+        "sha256": "7d1c746998c9a5a735dbb1ad8945aa480429341ec3071d547e90257fe405a711"
+    },
     "countdownLowWater": "18446744073709551611",
     "dependencies": [
     ],
@@ -19,10 +22,14 @@
                 "description": "Native migration baseline",
                 "length_unit": "cm",
                 "mass_unit": "g",
-                "referenceframe": null,
+                "referenceframe": {
+                    "unread": "missing"
+                },
                 "selectedtrack": "mass A",
                 "semantic_version": "6.3.5",
-                "time_unit": null
+                "time_unit": {
+                    "unread": "missing"
+                }
             },
             "id": "18446744073709551615",
             "range": "countdown",
@@ -34,12 +41,16 @@
             "class": "org.opensourcephysics.media.core.VideoClip",
             "family": "clip",
             "fields": {
-                "frameshift": null,
+                "frameshift": {
+                    "unread": "missing"
+                },
                 "startframe": 1,
                 "starttime": 10,
                 "stepcount": 8,
                 "stepsize": 1,
-                "video_framecount": null
+                "video_framecount": {
+                    "unread": "missing"
+                }
             },
             "id": "18446744073709551614",
             "range": "countdown",
@@ -52,8 +63,12 @@
             "family": "clip-control",
             "fields": {
                 "delta_t": 50,
-                "frame": null,
-                "looping": null,
+                "frame": {
+                    "unread": "missing"
+                },
+                "looping": {
+                    "unread": "missing"
+                },
                 "rate": 1
             },
             "id": "18446744073709551613",
@@ -115,7 +130,7 @@
                 "keyFrames": [
                     0,
                     1,
-                    3
+                    2
                 ],
                 "mass": 3,
                 "name": "renamed A"
@@ -164,7 +179,9 @@
                         "bound"
                     ]
                 ],
-                "keyFrames": null,
+                "keyFrames": {
+                    "unread": "missing"
+                },
                 "mass": 1,
                 "name": "mass B"
             },
@@ -186,7 +203,9 @@
                         "native"
                     ]
                 ],
-                "keyFrames": null,
+                "keyFrames": [
+                    4
+                ],
                 "mass": 1,
                 "name": "created"
             },

@@ -467,6 +467,20 @@ TEST(TrackerDocument, AssemblyValidatesIdentitiesRolesBindingsAndTheTrackOrder)
     parts = sampleParts();
     parts.associations = Associations::Unknown;
     EXPECT_EQ(assembleError(parts), "Invalid document source binding.");
+    // Known associations bind every addressable baseline object once, at its role's place.
+    parts = sampleParts();
+    parts.objects.back().binding.reset();
+    EXPECT_EQ(assembleError(parts), "A known document binds every addressable baseline object exactly once.");
+    parts = sampleParts();
+    parts.objects.back().role = Role::Coordinates;
+    parts.objects.back().value = std::make_shared<const motrack::model::TypedValue>(motrack::model::UnknownState{});
+    EXPECT_EQ(assembleError(parts), "Document source binding is not at its role's place in the baseline.");
+    parts = sampleParts();
+    parts.readerRevision = motrack::model::CURRENT_READER_REVISION + 1;
+    EXPECT_EQ(assembleError(parts), "A newer MoTrack read this document's Tracker source.");
+    parts = sampleParts();
+    parts.readerRevision = 0;
+    EXPECT_EQ(assembleError(parts), "Known associations follow the current reader.");
     parts = sampleParts();
     parts.associations = Associations::None;
     EXPECT_EQ(assembleError(parts), "Document associations do not match its baseline.");
@@ -640,12 +654,12 @@ TEST(TrackerDocument, DescriptorsNameEveryTypedFieldAndItsSaverTree)
         return motrack::model::scalarValue(*document.singleton(role)->value, *findField(document.singleton(role)->family(), field));
     };
     EXPECT_EQ(value(Role::Panel, "description"), motrack::model::FieldValue(std::string("notes")));
-    EXPECT_EQ(value(Role::Panel, "length_unit"), motrack::model::FieldValue{});
+    EXPECT_EQ(value(Role::Panel, "length_unit"), motrack::model::FieldValue(motrack::osp::DecodeError::Missing));
     EXPECT_EQ(value(Role::Clip, "stepcount"), motrack::model::FieldValue(2));
     EXPECT_EQ(value(Role::Clip, "starttime"), motrack::model::FieldValue(0.0));
     EXPECT_EQ(value(Role::Video, "paths"), motrack::model::FieldValue(std::vector<std::string>{"frames/a.png", "frames/b.png"}));
     EXPECT_EQ(value(Role::ClipControl, "rate"), motrack::model::FieldValue(1.0));
-    EXPECT_EQ(value(Role::ClipControl, "looping"), motrack::model::FieldValue{});
+    EXPECT_EQ(value(Role::ClipControl, "looping"), motrack::model::FieldValue(motrack::osp::DecodeError::Missing));
     EXPECT_EQ(value(Role::Coordinates, "fixedorigin"), motrack::model::FieldValue(true));
     EXPECT_EQ(value(Role::Coordinates, "framedata"), motrack::model::FieldValue{});
 
