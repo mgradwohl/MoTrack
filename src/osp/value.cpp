@@ -59,8 +59,8 @@ bool sameDouble(double left, double right) noexcept
 
 bool sameValues(const CompactArray& left, const CompactArray& right) noexcept
 {
-    if (left.kind != right.kind || left.ints != right.ints || left.booleans != right.booleans || left.doubles.size() != right.doubles.size() ||
-        left.rows.size() != right.rows.size())
+    if (left.kind != right.kind || left.ints != right.ints || left.booleans != right.booleans ||
+        left.doubles.size() != right.doubles.size() || left.rows.size() != right.rows.size())
     {
         return false;
     }

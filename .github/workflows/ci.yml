@@ -151,6 +151,7 @@ jobs:
           probe=build/coverage/motrack_corpus_probe
           if [[ "$RUNNER_OS" == Windows ]]; then probe="$probe.exe"; fi
           python tools/corpus.py check --probe "$probe"
+          python tools/corpus.py xml-oracle --o2-only --probe "$probe" --reports "$RUNNER_TEMP/xml-o2"
       - name: Check OSP XMLControl reader against Java (O1/O2)
         if: runner.os == 'Linux'
         shell: bash

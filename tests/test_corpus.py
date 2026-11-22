@@ -3504,8 +3504,8 @@ class XmlOracleTests(unittest.TestCase):
         self.assertTrue(java[1][0][-2].endswith("XmlControlDump.java"))
         self.assertEqual(len(commands) - 2, 16)
         summary = json.loads((reports / "summary.json").read_text(encoding="utf-8"))
-        self.assertEqual(summary, {"schema": corpus.XML_DUMP_SCHEMA, "documents": 16, "read_by_both": 12, "rejected_by_both": 4,
-                                   "mismatches": []})
+        self.assertEqual(summary, {"schema": corpus.XML_DUMP_SCHEMA, "oracles": "O1+O2", "documents": 16, "read_by_both": 12,
+                                   "deliberate_differences": [], "rejected_by_both": 4, "mismatches": []})
         self.assertIn("16 documents", printed.call_args.args[0])
         self.assertEqual(sorted(path.name for path in reports.iterdir()), ["summary.json"])
 
@@ -3522,7 +3522,7 @@ class XmlOracleTests(unittest.TestCase):
         with patch.object(corpus, "run", side_effect=run), self.assertRaises(ValueError) as raised:
             corpus.check_xml_oracle(self.manifest, self.root, "java", "probe", reports)
         message = str(raised.exception)
-        self.assertIn("O1 failed for 4 of 16 documents", message)
+        self.assertIn("O1+O2 failed for 4 of 16 documents", message)
         self.assertIn("archive!one.trk: $.root.properties[0].int (1 != 2)", message)
         self.assertIn("osp/fail-quirk.xml[crlf]: $ (keys ['root'])", message)
         summary = json.loads((reports / "summary.json").read_text(encoding="utf-8"))
@@ -3540,6 +3540,48 @@ class XmlOracleTests(unittest.TestCase):
                 corpus.check_xml_oracle(self.manifest, self.root, "java", "probe", self.root / "reports")
             self.assertEqual(len(commands), 1)
 
+    def test_registered_rejections_still_compare_the_tree_and_others_fail(self):
+        def native(data, report):
+            if data == b'<object class="one"/>':
+                report = {**report, "motrack_rejects": "truncated"}
+            if data == b'<object class="two"/>':
+                report = {**report, "motrack_rejects": "something else"}
+            return report
+
+        _, run = self.runner(native)
+        reports = self.root / "reports"
+        with patch.object(corpus, "run", side_effect=run), self.assertRaises(ValueError) as raised:
+            corpus.check_xml_oracle(self.manifest, self.root, "java", "probe", reports)
+        self.assertIn("archive!nested/two.xml: unregistered MoTrack rejection 'something else'", str(raised.exception))
+        summary = json.loads((reports / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary["deliberate_differences"], ["archive!one.trk: truncated"])
+        self.assertEqual(len(summary["mismatches"]), 1)
+
+        # A registered rejection must still produce Java's tree.
+        def wrong_tree(data, report):
+            if data == b'<object class="one"/>':
+                report = {**report, "motrack_rejects": "truncated", "root": {"class": "other"}}
+            return report
+
+        _, run = self.runner(wrong_tree)
+        with patch.object(corpus, "run", side_effect=run), self.assertRaisesRegex(ValueError, "archive!one.trk: \\$.root"):
+            corpus.check_xml_oracle(self.manifest, self.root, "java", "probe", reports)
+
+    def test_o2_only_runs_every_document_through_the_probe_without_java(self):
+        commands, run = self.runner(lambda data, report: {**report, "motrack_rejects": "truncated"} if data == b'<object class="one"/>' else report)
+        reports = self.root / "o2"
+        with patch.object(corpus, "run", side_effect=run), patch("builtins.print") as printed:
+            corpus.check_xml_oracle(self.manifest, self.root, None, "probe", reports, o2_only=True)
+        self.assertTrue(all("--osp-dump" in command for command, _ in commands))
+        self.assertEqual(len(commands), 16)
+        summary = json.loads((reports / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual((summary["oracles"], summary["read_by_both"], summary["rejected_by_both"]), ("O2", 11, 4))
+        self.assertEqual(summary["deliberate_differences"], ["archive!one.trk: truncated"])
+        self.assertIn("--o2-only: 16 documents", printed.call_args.args[0])
+        _, run = self.runner(lambda data, report: {**report, "schema": "other"})
+        with patch.object(corpus, "run", side_effect=run), self.assertRaisesRegex(ValueError, "unexpected XML dump schema"):
+            corpus.check_xml_oracle(self.manifest, self.root, None, "probe", reports, o2_only=True)
+
     def test_unexpected_dump_schema_is_rejected(self):
         _, run = self.runner(lambda data, report: {**report, "schema": "other"})
         with patch.object(corpus, "run", side_effect=run), self.assertRaisesRegex(ValueError, "unexpected XML dump schema"):
@@ -3553,7 +3595,8 @@ class XmlOracleTests(unittest.TestCase):
         self.assertEqual(corpus.first_json_difference([1, [2, "x"]], [1, [2, "y"]]), "$[1][1] ('x' != 'y')")
 
     def test_command_line_requires_a_probe_and_limits_reports_to_the_oracle(self):
-        for arguments in (["corpus.py", "xml-oracle"], ["corpus.py", "check", "--probe", "p", "--reports", "r"]):
+        for arguments in (["corpus.py", "xml-oracle"], ["corpus.py", "check", "--probe", "p", "--reports", "r"],
+                          ["corpus.py", "check", "--probe", "p", "--o2-only"]):
             with self.subTest(arguments=arguments), patch.object(sys, "argv", arguments), \
                     patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit):
                 corpus.main()
@@ -3562,7 +3605,7 @@ class XmlOracleTests(unittest.TestCase):
                 patch.object(corpus, "load_manifest", return_value=self.manifest), \
                 patch.object(corpus, "check_xml_oracle") as check:
             corpus.main()
-        check.assert_called_once_with(self.manifest, self.root, "j", "p", self.root / "out")
+        check.assert_called_once_with(self.manifest, self.root, "j", "p", self.root / "out", False)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 /// Lossless model of Open Source Physics XMLControl files (`.trk`, `.xml`, Data Tool and preference files).
@@ -148,6 +149,8 @@ class Source;
 class Source
 {
   public:
+    /// Distinguishes parse results within the process; a Patch is bound to one source by it.
+    [[nodiscard]] std::uint64_t identity() const noexcept;
     [[nodiscard]] std::string_view bytes() const noexcept;
     [[nodiscard]] NodeId root() const noexcept;
     [[nodiscard]] std::size_t nodeCount() const noexcept;
@@ -171,6 +174,7 @@ class Source
     friend Expected<std::shared_ptr<const Source>, ParseError> parse(std::string bytes, const ParseLimits& limits);
     Source() = default;
 
+    std::uint64_t m_Identity = 0;
     std::string m_Bytes;
     std::vector<LineSpan> m_Lines;
     std::vector<Node> m_Nodes;
@@ -205,10 +209,11 @@ struct CompactArray
 [[nodiscard]] Expected<CompactArray, DecodeError> parseCompactArray(std::string_view text, std::string_view arrayClass);
 /// XMLPropertyElement.getArrayString: `{a,b}` with Java number formatting and "null" for null rows.
 [[nodiscard]] std::string formatCompactArray(const CompactArray& array);
-/// True for "[I", "[D", "[Z" and their multi-dimensional forms.
+/// True for "[I", "[D", "[Z" and their multi-dimensional forms up to the JVM's 255 dimensions.
 [[nodiscard]] bool isPrimitiveArrayClass(std::string_view arrayClass) noexcept;
 
 class ObjectView;
+struct IndexedElements;
 
 /// Borrowed view of a property node; the source must outlive it.
 class PropertyView
@@ -243,11 +248,23 @@ class PropertyView
     [[nodiscard]] Expected<std::int32_t, DecodeError> elementIndex() const;
     /// Indexed array slots as XMLControlElement.arrayValue (line 1913) fills them: the last element's index
     /// sets the length, later duplicates replace earlier ones and absent indices stay empty.
-    [[nodiscard]] Expected<std::vector<std::optional<PropertyView>>, DecodeError> indexedElements() const;
+    [[nodiscard]] Expected<IndexedElements, DecodeError> indexedElements() const;
 
   private:
     const Source* m_Source;
     NodeId m_Id;
+};
+
+/// Elements of an "[n]" array by index. `length` is the Java array length (the last element's index plus one);
+/// absent indices are null in Java and are not stored.
+struct IndexedElements
+{
+    std::size_t length = 0;
+    /// Present elements in increasing index order; for a repeated index only the last element is kept.
+    std::vector<std::pair<std::size_t, PropertyView>> elements;
+
+    /// The element at `index`, or nothing when it is absent (null in Java).
+    [[nodiscard]] std::optional<PropertyView> at(std::size_t index) const;
 };
 
 /// Borrowed view of an object node; the source must outlive it. Accessors mirror XMLControlElement.

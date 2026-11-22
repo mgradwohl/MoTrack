@@ -28,10 +28,11 @@ bool requiresCdata(std::string_view text) noexcept
 }
 
 /// OSP writes attribute values without escaping and finds them again with indexOf, so a quote, an angle
-/// bracket or a line break would change how the line is read.
+/// bracket or a line break would change how the line is read. A value ending in '=' would form `type="`,
+/// `class="` or `version="` with its closing quote and supply a later attribute.
 bool safeAttribute(std::string_view value) noexcept
 {
-    return value.find_first_of("\"<>\r\n") == std::string_view::npos;
+    return value.find_first_of("\"<>\r\n") == std::string_view::npos && !value.ends_with('=');
 }
 
 std::string_view leadingWhitespace(std::string_view line) noexcept
@@ -340,6 +341,10 @@ class Renderer
 
     Expected<std::string, RenderError> run()
     {
+        if (m_Patch.m_Source != m_Source.identity())
+        {
+            return failure(RenderError::Code::InvalidNode, "The patch was made for another source.");
+        }
         if (auto valid = collect(); !valid)
         {
             return makeUnexpected(std::move(valid.error()));
@@ -748,6 +753,9 @@ class Renderer
     std::map<NodeId, std::vector<PendingInsert>> m_Inserts;
     std::vector<Splice> m_Splices;
 };
+
+Patch::Patch(const Source& source) noexcept : m_Source(source.identity())
+{}
 
 Patch& Patch::setContent(NodeId property, std::string content)
 {

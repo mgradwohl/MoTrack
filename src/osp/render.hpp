@@ -34,6 +34,8 @@ struct RenderError
 class Patch
 {
   public:
+    /// Edits for `source`; render refuses to apply them to any other source.
+    explicit Patch(const Source& source) noexcept;
     /// Replaces a text property's logical content. For string properties, CDATA is added when required.
     Patch& setContent(NodeId property, std::string content);
     /// Typed setters require the property to have the corresponding OSP type and write Java's formatting.
@@ -82,6 +84,7 @@ class Patch
     };
     using Operation = std::variant<SetContent, Insert, Remove, Replace>;
     static constexpr std::size_t END = static_cast<std::size_t>(-1);
+    std::uint64_t m_Source = 0;
     std::vector<Operation> m_Operations;
 };
 

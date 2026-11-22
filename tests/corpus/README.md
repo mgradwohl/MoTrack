@@ -143,7 +143,10 @@ every case file and XML archive member, the committed fixtures and the synthetic
 line-ending variants) are read by the pinned Java `XMLControlElement` and by MoTrack, and both trees must be
 identical; each unedited MoTrack render must reproduce its input byte for byte. Archive members are read in
 memory and the documents are written to a temporary directory. `--reports PATH` selects where the summary and
-any mismatching dumps are written (default `CACHE/reports/xml-oracle`). It runs headless on any platform.
+any mismatching dumps are written (default `CACHE/reports/xml-oracle`). It runs headless on any platform;
+`--o2-only` skips Java and checks only the byte-identical renders, as CI does on Windows and macOS.
+Documents MoTrack deliberately refuses (registered reasons only, such as `truncated`) still have their
+trees compared with Java's.
 
 On Windows, use `build/coverage/motrack_corpus_probe.exe` and the path to `java.exe`. Python 3.10 or newer
 is supported. The reference command uses Java source-file mode and therefore needs a JDK, not just a

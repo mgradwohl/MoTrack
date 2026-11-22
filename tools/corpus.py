@@ -2960,50 +2960,80 @@ def check_generated_documents(generated):
                              "regenerate it with tools/reference/XmlControlDump.java --generate")
 
 
-def check_xml_oracle(manifest, cache, java, probe, reports=None):
+# Documents OSP reads but MoTrack deliberately refuses. The probe still dumps the tree it would read (marked
+# "motrack_rejects"), so O1 compares it with Java's; any other rejection reason fails the oracle.
+XML_DELIBERATE_REJECTIONS = {
+    "truncated": "MoTrack #243: a document that ends before its objects close is refused; OSP loads the partial tree",
+}
+
+
+def check_xml_oracle(manifest, cache, java, probe, reports=None, o2_only=False):
     """O1: MoTrack's OSP tree equals the pinned Java XMLControlElement tree. O2: the probe also requires an
-    unedited render to reproduce every document byte for byte."""
+    unedited render to reproduce every document byte for byte. `o2_only` runs O2 without Java (all platforms)."""
     for path, artifact in artifacts(manifest, cache):
         verify_file(path, artifact)
     documents = xml_oracle_inputs(manifest, cache)
     reports = Path(reports if reports is not None else cache / "reports" / "xml-oracle").resolve()
     reports.mkdir(parents=True, exist_ok=True)
-    mismatches, read = [], 0
+    mismatches, deliberate, read = [], [], 0
     with tempfile.TemporaryDirectory(prefix="motrack-xml-oracle-") as directory:
         work = Path(directory)
         home = work / "java-home"
         home.mkdir()
         java_command = [java, "-Djava.awt.headless=true", f"-Duser.home={home}", f"-Djava.io.tmpdir={home}", "-Xmx256m",
                         "--class-path", java_classpath(manifest, cache), str(ROOT / "tools/reference/XmlControlDump.java")]
-        run(java_command + ["--generate", str(work / "generated")], timeout=600)
-        check_generated_documents(work / "generated")
+        if not o2_only:
+            run(java_command + ["--generate", str(work / "generated")], timeout=600)
+            check_generated_documents(work / "generated")
         pairs = []
         for index, (label, data) in enumerate(documents):
             source = work / f"{index:04d}.xml"
             source.write_bytes(data)
             pairs.append((label, source, work / f"{index:04d}-java.json", work / f"{index:04d}-native.json"))
-        listing = work / "pairs.txt"
-        listing.write_text("".join(f"{source}\t{output}\n" for _, source, output, _ in pairs), encoding="utf-8")
-        run(java_command + [str(listing)], timeout=600)
+        if not o2_only:
+            listing = work / "pairs.txt"
+            listing.write_text("".join(f"{source}\t{output}\n" for _, source, output, _ in pairs), encoding="utf-8")
+            run(java_command + [str(listing)], timeout=600)
         for index, (label, source, java_output, native_output) in enumerate(pairs):
+            # The probe itself fails unless an unedited render reproduces the document (O2).
             run([str(Path(probe).resolve()), "--osp-dump", str(source), str(native_output)])
-            expected = json.loads(java_output.read_text(encoding="utf-8"))
             actual = json.loads(native_output.read_text(encoding="utf-8"))
-            if expected.get("schema") != XML_DUMP_SCHEMA or actual.get("schema") != XML_DUMP_SCHEMA:
+            if actual.get("schema") != XML_DUMP_SCHEMA:
+                raise ValueError(f"{label}: unexpected XML dump schema")
+            rejection = actual.pop("motrack_rejects", None)
+            if rejection is not None and rejection not in XML_DELIBERATE_REJECTIONS:
+                mismatches.append(f"{label}: unregistered MoTrack rejection {rejection!r}")
+                continue
+            if o2_only:
+                if rejection is not None:
+                    deliberate.append(f"{label}: {rejection}")
+                else:
+                    read += actual["read"] is True
+                continue
+            expected = json.loads(java_output.read_text(encoding="utf-8"))
+            if expected.get("schema") != XML_DUMP_SCHEMA:
                 raise ValueError(f"{label}: unexpected XML dump schema")
             if difference := first_json_difference(expected, actual):
                 mismatches.append(f"{label}: {difference}")
                 for output in (java_output, native_output):
                     shutil.copyfile(output, reports / f"{index:04d}-{output.name.split('-', 1)[1]}")
+            elif rejection is not None:
+                deliberate.append(f"{label}: {rejection}")
             else:
                 read += expected["read"] is True
-    summary = {"schema": XML_DUMP_SCHEMA, "documents": len(documents), "read_by_both": read,
-               "rejected_by_both": len(documents) - read - len(mismatches), "mismatches": mismatches}
+    summary = {"schema": XML_DUMP_SCHEMA, "oracles": "O2" if o2_only else "O1+O2", "documents": len(documents),
+               "read_by_both": read, "deliberate_differences": deliberate,
+               "rejected_by_both": len(documents) - read - len(mismatches) - len(deliberate), "mismatches": mismatches}
     (reports / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     if mismatches:
-        raise ValueError(f"O1 failed for {len(mismatches)} of {len(documents)} documents:\n" + "\n".join(mismatches[:20]))
+        raise ValueError(f"{summary['oracles']} failed for {len(mismatches)} of {len(documents)} documents:\n" + "\n".join(mismatches[:20]))
+    if o2_only:
+        print(f"xml-oracle --o2-only: {len(documents)} documents rendered byte-identically (O2); {len(deliberate)} truncated "
+              f"documents refused as registered differences; {summary['rejected_by_both']} rejected")
+        return
     print(f"xml-oracle: {len(documents)} documents matched the Java XMLControlElement tree (O1) and rendered "
-          f"byte-identically (O2); {summary['rejected_by_both']} were rejected by both readers")
+          f"byte-identically (O2); {len(deliberate)} are registered deliberate differences; "
+          f"{summary['rejected_by_both']} were rejected by both readers")
 
 
 def main():
@@ -3014,11 +3044,14 @@ def main():
     parser.add_argument("--probe", help="Built motrack_corpus_probe executable (check/roundtrip commands)")
     parser.add_argument("--record", action="store_true", help="Explicitly replace committed Java baselines for review")
     parser.add_argument("--reports", type=Path, help="Report directory for xml-oracle (default: CACHE/reports/xml-oracle)")
+    parser.add_argument("--o2-only", action="store_true", help="xml-oracle without Java: byte-identical renders only")
     args = parser.parse_args()
     if args.record and args.command != "reference":
         parser.error("--record is only valid for the reference command")
     if args.reports is not None and args.command != "xml-oracle":
         parser.error("--reports is only valid for the xml-oracle command")
+    if args.o2_only and args.command != "xml-oracle":
+        parser.error("--o2-only is only valid for the xml-oracle command")
     if args.command in {"check", "roundtrip", "xml-oracle"} and not args.probe:
         parser.error(f"{args.command} requires --probe")
     manifest = load_manifest()
@@ -3030,7 +3063,7 @@ def main():
     elif args.command in {"session", "roundtrip"}:
         check_sessions(manifest, cache, args.java, args.probe if args.command == "roundtrip" else None)
     elif args.command == "xml-oracle":
-        check_xml_oracle(manifest, cache, args.java, args.probe, args.reports)
+        check_xml_oracle(manifest, cache, args.java, args.probe, args.reports, args.o2_only)
     else:
         check_cases(manifest, cache, java=args.java if args.command == "reference" else None,
                     probe=args.probe, record=args.record)
