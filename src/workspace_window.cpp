@@ -196,7 +196,7 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
                 const auto path =
                     QFileDialog::getOpenFileName(this, tr("Open project"), {}, tr("MoTrack and Tracker projects (*.motrack *.trk *.trz)"));
                 if (alive && !path.isEmpty())
-                    (void)openProject(path);
+                    openChosenFile(path, LaunchFileKind::Project);
             });
     connect(openMovieAction,
             &QAction::triggered,
@@ -208,7 +208,7 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
                 connect(this, &QObject::destroyed, &lifetime, [&] { alive = false; });
                 const auto path = QFileDialog::getOpenFileName(this, tr("Open video"));
                 if (alive && !path.isEmpty())
-                    (void)openMovie(path);
+                    openChosenFile(path, LaunchFileKind::Movie);
             });
     connect(openImagesAction,
             &QAction::triggered,
@@ -323,7 +323,12 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
     connect(&m_Checks,
             &QFutureWatcher<RequestedFileCheck>::finished,
             this,
-            [this] { applyRequestedFileCheck(m_LastCheck, m_CheckedPath, m_Checks.result()); });
+            [this]
+            {
+                // A copy: applying the answer may start the next check, which replaces m_CheckedFile.
+                const auto file = m_CheckedFile;
+                applyRequestedFileCheck(m_LastCheck, file, m_Checks.result());
+            });
     connect(&m_TabsetChecks,
             &QFutureWatcher<RequestedFileCheck>::finished,
             this,
@@ -344,8 +349,9 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
                 addDocuments(documents);
                 const auto notices = reportArchiveLimits(documents, unreadable);
                 // A requested file's notices join its batch summary; the batch's next open replaces the status message.
-                // Unreadable member projects are an incomplete import; skipped or omitted members only inform.
-                if (requested && m_Requested)
+                // Unreadable member projects are an incomplete import; skipped or omitted members only inform. A file
+                // chosen in the menu keeps them in the status bar, as menu opens always have.
+                if (requested && m_Requested && !m_Requested->chosen)
                 {
                     for (const auto& notice : notices.limits)
                         m_Requested->notices.push_back(tr("%1: %2").arg(m_Requested->current, notice));
@@ -499,13 +505,15 @@ void WorkspaceWindow::finishOpen(QUuid request, const QString& problem, bool can
     refreshLabels();
     if (!m_Requested)
         return;
+    // A file chosen in the menu reports a failure or cancellation in the status bar, as inputFailed and inputCancelled
+    // do, and canceling it stops only that file.
     if (auto& batch = *m_Requested; batch.request == request)
     {
         batch.request.reset();
-        if (!problem.isEmpty())
+        if (!problem.isEmpty() && !batch.chosen)
             batch.problems.push_back(tr("%1 could not be opened: %2").arg(batch.current, problem));
         // Canceling one requested file stops its batch, which is otherwise not visible to cancel.
-        if (cancelled && !batch.files.isEmpty())
+        if (cancelled && !batch.chosen && !batch.files.isEmpty())
         {
             batch.problems.push_back(
                 tr("Opening was canceled; %n remaining file(s) were not opened.", nullptr, static_cast<int>(batch.files.size())));
@@ -1097,11 +1105,22 @@ void WorkspaceWindow::openFiles(RequestedFiles requested)
         }
         if (batch.accepted > MAX_REQUESTED_FILES)
             continue;
-        batch.files.push_back(std::move(file));
+        batch.files.push_back({.path = std::move(file), .chosen = std::nullopt});
         ++batch.accepted;
     }
     refreshLabels(); // Save tabset waits until requested files, which may include a tabset, have opened.
     // Start after the caller returns: a drop or file-open event finishes before any summary is shown.
+    QTimer::singleShot(0, this, &WorkspaceWindow::continueRequestedFiles);
+}
+
+void WorkspaceWindow::openChosenFile(const QString& path, LaunchFileKind entry)
+{
+    // The same queue as requested files: its check runs on the request worker and it waits for prompts, tabsets and a
+    // free slot. A second open of a file would let a later save silently replace the earlier one (#255).
+    if (!m_Requested)
+        m_Requested = RequestedBatch{};
+    m_Requested->files.push_back({.path = path, .chosen = entry});
+    refreshLabels(); // Save tabset waits for it too, since a chosen project may be a tabset.
     QTimer::singleShot(0, this, &WorkspaceWindow::continueRequestedFiles);
 }
 
@@ -1117,35 +1136,38 @@ void WorkspaceWindow::continueRequestedFiles()
     {
         if (batch.ready)
         {
-            const auto path = *batch.ready;
+            auto file = std::move(*batch.ready);
             batch.ready.reset();
-            batch.started.removeOne(path);
-            batch.files.prepend(path);
+            batch.started.removeOne(file.path);
+            batch.files.prepend(std::move(file));
         }
         return;
     }
     if (batch.select)
     {
-        const auto [source, path] = *batch.select;
+        auto [source, file] = std::move(*batch.select);
         batch.select.reset();
         auto& session = m_Context->session();
         const auto sources = session.sources();
         if (std::ranges::find(sources, source) != sources.end() && !session.sourceDocuments(source).empty())
         {
+            // Its tab is selected, and a hidden view is shown again.
             const auto documents = session.sourceDocuments(source);
             const auto visible = std::ranges::find_if(documents, [this](QUuid document) { return m_Pages.contains(document); });
             (void)showDocument(visible != documents.end() ? *visible : documents.front());
+            statusBar()->showMessage(tr("%1 is already open.").arg(QFileInfo(file.path).fileName()));
         }
         else
-            batch.ready = path; // Released since the worker looked; open it again.
+            batch.ready = std::move(file); // Released since the worker looked; open it again.
     }
     if (batch.ready)
     {
-        if (m_Context->canOpen()) // Otherwise menu opens hold both slots; their completion resumes the batch.
+        // Otherwise Open images or a camera recording holds both slots; their completion resumes the batch.
+        if (m_Context->canOpen())
         {
-            const auto path = *batch.ready;
+            auto file = std::move(*batch.ready);
             batch.ready.reset();
-            startRequestedOpen(batch, path);
+            startRequestedOpen(batch, file);
         }
         return;
     }
@@ -1192,17 +1214,21 @@ QList<std::pair<QUuid, QString>> WorkspaceWindow::openSourceFiles() const
 
 void WorkspaceWindow::checkNextRequestedFile(RequestedBatch& batch)
 {
-    const auto path = batch.files.takeFirst();
-    batch.current = QFileInfo(path).fileName();
+    auto file = batch.files.takeFirst();
+    batch.current = QFileInfo(file.path).fileName();
+    batch.chosen = file.chosen.has_value();
     auto sources = openSourceFiles();
+    // A file chosen again in the menu is compared with the open sources only: it is selected if it is open, and tried
+    // again if an earlier attempt failed. Nothing else of the batch is opening while it is checked.
+    auto earlier = batch.chosen ? QStringList{} : batch.started;
     batch.check = ++m_LastCheck;
-    m_CheckedPath = path;
+    m_CheckedFile = file;
     // A sleeping network share can block any file query, so the worker answers and the window acts on it. Watching
     // the new check stops delivery of a stale one, such as a check that was still running when its batch stopped.
     try
     {
         m_Checks.setFuture(QtConcurrent::run(&m_Context->services()->requestPool(),
-                                             [path, sources = std::move(sources), earlier = batch.started]
+                                             [path = std::move(file.path), sources = std::move(sources), earlier = std::move(earlier)]
                                              { return checkRequestedFile(path, sources, earlier); }));
     }
     catch (...)
@@ -1212,31 +1238,39 @@ void WorkspaceWindow::checkNextRequestedFile(RequestedBatch& batch)
     }
 }
 
-void WorkspaceWindow::applyRequestedFileCheck(std::uint64_t check, const QString& path, const RequestedFileCheck& result)
+void WorkspaceWindow::applyRequestedFileCheck(std::uint64_t check, const QueuedFile& file, const RequestedFileCheck& result)
 {
     if (!m_Requested || m_Requested->check != check)
         return; // The batch was stopped or has finished; never act on its stale answer.
     auto& batch = *m_Requested;
     batch.check = 0;
-    const auto shown = QDir::toNativeSeparators(path);
+    const auto shown = QDir::toNativeSeparators(file.path);
+    // A file chosen in the menu reports in the status bar, as menu opens always have.
+    const auto report = [&](const QString& problem)
+    {
+        if (file.chosen)
+            statusBar()->showMessage(problem);
+        else
+            batch.problems.push_back(problem);
+    };
     switch (result.state)
     {
     case RequestedFileState::Missing:
-        batch.problems.push_back(tr("%1 was not found.").arg(shown));
+        report(tr("%1 was not found.").arg(shown));
         break;
     case RequestedFileState::Folder:
-        batch.problems.push_back(tr("%1 is a folder. Use Open images… to choose its images.").arg(shown));
+        report(tr("%1 is a folder. Use Open images… to choose its images.").arg(shown));
         break;
     case RequestedFileState::Repeated:
         break;
     case RequestedFileState::AlreadyOpen:
         // Another open of the same file would let a later save silently replace the earlier one (#255).
-        batch.started.push_back(path);
-        batch.select = std::pair(result.source, path);
+        batch.started.push_back(file.path);
+        batch.select = std::pair(result.source, file);
         break;
     case RequestedFileState::Open:
-        batch.started.push_back(path);
-        batch.ready = path;
+        batch.started.push_back(file.path);
+        batch.ready = file;
         break;
     }
     continueRequestedFiles();
@@ -1244,10 +1278,12 @@ void WorkspaceWindow::applyRequestedFileCheck(std::uint64_t check, const QString
         QTimer::singleShot(0, this, &WorkspaceWindow::continueTabset);
 }
 
-void WorkspaceWindow::startRequestedOpen(RequestedBatch& batch, const QString& path)
+void WorkspaceWindow::startRequestedOpen(RequestedBatch& batch, const QueuedFile& file)
 {
+    const auto& path = file.path;
     std::optional<QUuid> request;
-    switch (launchFileKind(path))
+    // A file chosen in the menu opens through the entry point the user chose, whatever its suffix.
+    switch (file.chosen ? *file.chosen : launchFileKind(path))
     {
     case LaunchFileKind::Project:
         request = m_Context->openProject(path);
@@ -1260,6 +1296,7 @@ void WorkspaceWindow::startRequestedOpen(RequestedBatch& batch, const QString& p
         break;
     }
     batch.current = QFileInfo(path).fileName();
+    batch.chosen = file.chosen.has_value();
     batch.request = trackOpen(request, batch.current);
 }
 

@@ -762,6 +762,11 @@
         <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
         <translation type="unfinished">Einige angeforderte Dateien wurden nur eingeschränkt geöffnet.</translation>
     </message>
+    <message>
+        <source>%1 is already open.</source>
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">%1 ist bereits geöffnet.</translation>
+    </message>
 </context>
 
 <context>

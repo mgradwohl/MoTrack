@@ -117,6 +117,7 @@
     <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>Αποθέστε για να ανοίξει %n αρχείο</numerusform><numerusform>Αποθέστε για να ανοίξουν %n αρχεία</numerusform></translation></message>
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>%n σύνδεσμος προς μη τοπικά αρχεία θα παραλειφθεί.</numerusform><numerusform>%n σύνδεσμοι προς μη τοπικά αρχεία θα παραλειφθούν.</numerusform></translation></message>
     <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Ορισμένα ζητούμενα αρχεία άνοιξαν με περιορισμούς.</translation></message>
+    <message><source>%1 is already open.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Το %1 είναι ήδη ανοιχτό.</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>

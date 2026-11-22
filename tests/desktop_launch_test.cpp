@@ -18,10 +18,12 @@
 #include <QDropEvent>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QFileDialog>
 #include <QFileOpenEvent>
 #include <QImage>
 #include <QInputDialog>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QLocale>
 #include <QMessageBox>
@@ -545,6 +547,246 @@ TEST(DesktopLaunch, RequestsSelectAProjectByTheFileItWasSavedTo)
     window.openFiles({.files = {original}});
     EXPECT_TRUE(nextBatch(finished, 3).isEmpty());
     EXPECT_EQ(session.sources(), std::vector<QUuid>{source});
+}
+
+namespace
+{
+
+/// Choose a file with the File menu's `action`: type `typed` into the file name box of its dialog showing `folder`,
+/// as a user would, and accept. Returns whether the dialog was answered; a dialog that refuses the name is closed.
+bool chooseInMenu(motrack::WorkspaceWindow& window, const char* action, const QString& folder, const QString& typed)
+{
+    bool chosen = false;
+    QTimer watchdog;
+    watchdog.setSingleShot(true);
+    QObject::connect(&watchdog,
+                     &QTimer::timeout,
+                     &window,
+                     [&chosen]
+                     {
+                         // A file dialog warning that it cannot find the name, and the dialog itself.
+                         for (int depth = 0; depth < 2; ++depth)
+                             if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
+                             {
+                                 chosen = false;
+                                 dialog->reject();
+                             }
+                     });
+    watchdog.start(5000);
+    QTimer::singleShot(0,
+                       &window,
+                       [&]
+                       {
+                           auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
+                           auto* name = dialog ? dialog->findChild<QLineEdit*>("fileNameEdit") : nullptr;
+                           if (!name)
+                           {
+                               if (dialog)
+                                   dialog->reject();
+                               return;
+                           }
+                           dialog->setDirectory(folder);
+                           name->setText(typed);
+                           chosen = true;
+                           // QFileDialog::accept is protected; dispatch through the public QDialog slot.
+                           QMetaObject::invokeMethod(dialog, "accept");
+                       });
+    window.findChild<QAction*>(action)->trigger();
+    return chosen;
+}
+
+/// The window's status message in composed form: a dialog may return a file name as the file system spells it.
+QString statusMessage(motrack::WorkspaceWindow& window)
+{
+    return window.statusBar()->currentMessage().normalized(QString::NormalizationForm_C);
+}
+
+} // namespace
+
+TEST(DesktopLaunch, TheMenuSelectsAnOpenProjectThroughEverySpellingAndShowsAHiddenView)
+{
+    QTemporaryDir temporary;
+    const auto folder = unicodeFolder(temporary);
+    const auto name = QString::fromUtf8("menu project ü.motrack");
+    const auto project = nativeCopy(folder, name);
+    const auto other = nativeCopy(folder, "other.motrack");
+    auto context = std::make_shared<motrack::WorkspaceContext>();
+    motrack::WorkspaceWindow window(context);
+    window.show();
+    QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
+    auto& session = context->session();
+    int batches = 0;
+    // Each choice selects the open project rather than opening a second copy whose later save would replace the
+    // first (#255), and says so under the name it was chosen by. The dialog may normalize a typed name, so only a
+    // spelling passed on directly names the message.
+    const auto expectSelected = [&](const QString& spelling, QUuid document, bool direct)
+    {
+        SCOPED_TRACE(spelling.toStdString());
+        EXPECT_TRUE(nextBatch(finished, ++batches).isEmpty());
+        EXPECT_EQ(session.sources().size(), 2u);
+        EXPECT_EQ(window.currentDocument(), document);
+        const auto message = statusMessage(window);
+        if (direct)
+            EXPECT_EQ(message, QFileInfo(spelling).fileName().normalized(QString::NormalizationForm_C) + " is already open.");
+        else
+            EXPECT_TRUE(message.endsWith(" is already open.")) << message.toStdString();
+    };
+    ASSERT_TRUE(chooseInMenu(window, "workspaceOpenProject", folder.path(), name));
+    EXPECT_TRUE(nextBatch(finished, ++batches).isEmpty());
+    ASSERT_EQ(session.sources().size(), 1u);
+    const auto document = selectedDocument(window);
+    ASSERT_TRUE(chooseInMenu(window, "workspaceOpenProject", folder.path(), "other.motrack"));
+    EXPECT_TRUE(nextBatch(finished, ++batches).isEmpty());
+    ASSERT_EQ(session.sources().size(), 2u);
+    const auto otherDocument = selectedDocument(window);
+    // The same name, and a name typed relative to the dialog's folder.
+    ASSERT_TRUE(chooseInMenu(window, "workspaceOpenProject", folder.path(), name));
+    expectSelected(name, document, true);
+    ASSERT_TRUE(window.showDocument(otherDocument));
+    const auto relative = QDir::toNativeSeparators("./" + name);
+    ASSERT_TRUE(chooseInMenu(window, "workspaceOpenProject", folder.path(), relative));
+    expectSelected(relative, document, false);
+    // The spelling the menu passes on is checked as given, whatever the dialog makes of a typed name.
+    ASSERT_TRUE(window.showDocument(otherDocument));
+    const auto dotted = QDir::toNativeSeparators(folder.path() + "/./" + name);
+    window.openChosenFile(dotted, motrack::LaunchFileKind::Project);
+    expectSelected(dotted, document, true);
+    // A hidden view is shown again.
+    ASSERT_TRUE(window.hideDocument(document));
+    ASSERT_EQ(window.currentDocument(), otherDocument);
+    ASSERT_TRUE(chooseInMenu(window, "workspaceOpenProject", folder.path(), name));
+    expectSelected(name, document, true);
+    EXPECT_EQ(window.findChild<QTabWidget*>("experimentTabs")->count(), 2);
+    // Where the file system ignores case (Windows and macOS by default), a case variant names the same file.
+    if (const auto variant = name.toUpper(); QFileInfo::exists(folder.filePath(variant)))
+    {
+        ASSERT_TRUE(window.showDocument(otherDocument));
+        ASSERT_TRUE(chooseInMenu(window, "workspaceOpenProject", folder.path(), variant));
+        expectSelected(variant, document, false);
+        ASSERT_TRUE(window.showDocument(otherDocument));
+        window.openChosenFile(folder.filePath(variant), motrack::LaunchFileKind::Project);
+        expectSelected(folder.filePath(variant), document, true);
+    }
+    // A hard link of the open file.
+    const auto link = folder.filePath("hard link.motrack");
+    std::error_code error;
+    std::filesystem::create_hard_link(motrack::toFilesystemPath(project), motrack::toFilesystemPath(link), error);
+    if (!error)
+    {
+        ASSERT_TRUE(window.showDocument(otherDocument));
+        ASSERT_TRUE(chooseInMenu(window, "workspaceOpenProject", folder.path(), "hard link.motrack"));
+        expectSelected(link, document, true);
+    }
+    // A chosen file's problems go to the status bar, as menu opens always have, not to the requested files' summary.
+    window.openChosenFile(folder.filePath("missing.motrack"), motrack::LaunchFileKind::Project);
+    EXPECT_TRUE(nextBatch(finished, ++batches).isEmpty());
+    EXPECT_TRUE(statusMessage(window).endsWith("missing.motrack was not found."));
+    const auto broken = folder.filePath("broken.motrack");
+    {
+        QFile file(broken);
+        ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+        file.write("not a MoTrack project");
+    }
+    window.openChosenFile(broken, motrack::LaunchFileKind::Project);
+    EXPECT_TRUE(nextBatch(finished, ++batches).isEmpty());
+    EXPECT_TRUE(statusMessage(window).startsWith("Could not open: "));
+    EXPECT_EQ(session.sources().size(), 2u);
+    EXPECT_FALSE(window.findChild<QMessageBox*>("workspaceRequestedFileProblems"));
+}
+
+TEST(DesktopLaunch, TheMenuSelectsAProjectByTheFileItWasSavedTo)
+{
+    QTemporaryDir temporary;
+    const auto folder = unicodeFolder(temporary);
+    const auto original = nativeCopy(folder, "original.motrack");
+    const auto savedName = QString::fromUtf8("saved as ü.motrack");
+    const auto savedAs = folder.filePath(savedName);
+    auto context = std::make_shared<motrack::WorkspaceContext>();
+    motrack::WorkspaceWindow window(context);
+    window.show();
+    QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
+    ASSERT_TRUE(chooseInMenu(window, "workspaceOpenProject", folder.path(), "original.motrack"));
+    EXPECT_TRUE(nextBatch(finished).isEmpty());
+    auto* view = dynamic_cast<motrack::MainWindow*>(window.findChild<QTabWidget*>("experimentTabs")->currentWidget());
+    ASSERT_TRUE(view);
+    ASSERT_TRUE(view->saveWorkspace(savedAs));
+    auto& session = context->session();
+    ASSERT_EQ(session.sources().size(), 1u);
+    const auto source = session.sources().front();
+    ASSERT_TRUE(motrack::sameLocalFile(session.nativeSavePath(source), savedAs));
+    // Open project… now offers the saved file; a second copy's save would replace this one (#255).
+    ASSERT_TRUE(chooseInMenu(window, "workspaceOpenProject", folder.path(), savedName));
+    EXPECT_TRUE(nextBatch(finished, 2).isEmpty());
+    EXPECT_EQ(session.sources(), std::vector<QUuid>{source});
+    EXPECT_EQ(statusMessage(window), QString::fromUtf8("saved as ü.motrack is already open."));
+    // The file it was opened from still names the same source.
+    ASSERT_TRUE(chooseInMenu(window, "workspaceOpenProject", folder.path(), "original.motrack"));
+    EXPECT_TRUE(nextBatch(finished, 3).isEmpty());
+    EXPECT_EQ(session.sources(), std::vector<QUuid>{source});
+}
+
+TEST(DesktopLaunch, TheMenuSelectsAnOpenMovie)
+{
+    QTemporaryDir temporary;
+    const auto folder = unicodeFolder(temporary);
+    const auto movieName = QString::fromUtf8("clip ñ.mov");
+    (void)copied(corpusFixture("linked-mov/constant-rate.mov"), folder, movieName);
+    (void)nativeCopy(folder, "project.motrack");
+    auto context = std::make_shared<motrack::WorkspaceContext>();
+    motrack::WorkspaceWindow window(context);
+    window.show();
+    QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
+    ASSERT_TRUE(chooseInMenu(window, "workspaceOpenMovie", folder.path(), movieName));
+    EXPECT_TRUE(nextBatch(finished).isEmpty());
+    auto& session = context->session();
+    ASSERT_EQ(session.sources().size(), 1u);
+    const auto movie = selectedDocument(window);
+    EXPECT_TRUE(session.document(movie).movie);
+    ASSERT_TRUE(chooseInMenu(window, "workspaceOpenProject", folder.path(), "project.motrack"));
+    EXPECT_TRUE(nextBatch(finished, 2).isEmpty());
+    ASSERT_EQ(session.sources().size(), 2u);
+    ASSERT_NE(window.currentDocument(), movie);
+    ASSERT_TRUE(chooseInMenu(window, "workspaceOpenMovie", folder.path(), movieName));
+    EXPECT_TRUE(nextBatch(finished, 3).isEmpty());
+    EXPECT_EQ(session.sources().size(), 2u);
+    EXPECT_EQ(window.currentDocument(), movie);
+    EXPECT_EQ(statusMessage(window), QString::fromUtf8("clip ñ.mov is already open."));
+}
+
+TEST(DesktopLaunch, AMenuOpenDuringASavePromptWaitsAndHoldsTheTabsetSave)
+{
+    QTemporaryDir temporary;
+    const auto folder = unicodeFolder(temporary);
+    // Save tabset asks about unsaved Tracker projects, so the edited project is a Tracker file.
+    const auto edited = copied(fixture("point-mass.trk"), folder, QString::fromUtf8("edited ü.trk"));
+    (void)nativeCopy(folder, "chosen during the prompt.motrack");
+    auto context = std::make_shared<motrack::WorkspaceContext>();
+    motrack::WorkspaceWindow window(context);
+    window.show();
+    QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
+    window.openFiles({.files = {edited}});
+    (void)nextBatch(finished);
+    ASSERT_TRUE(editMass(window, 5));
+    auto& session = context->session();
+    // A file chosen from the menu while the question runs its nested event loop waits for the question.
+    bool chosen = false;
+    std::size_t sourcesDuringQuestion = 0;
+    ModalQuestion question(
+        "workspaceTabsetSaveQuestion",
+        QMessageBox::No,
+        [&] { chosen = chooseInMenu(window, "workspaceOpenProject", folder.path(), "chosen during the prompt.motrack"); },
+        [&] { sourcesDuringQuestion = session.sources().size(); });
+    const auto tabset = folder.filePath("set.trk");
+    // The chosen file may be a tabset, so the tabset is not saved while it is opening (#169).
+    EXPECT_FALSE(window.saveTabset(tabset));
+    EXPECT_TRUE(question.answered());
+    EXPECT_TRUE(chosen);
+    EXPECT_EQ(sourcesDuringQuestion, 1u);
+    EXPECT_FALSE(QFileInfo::exists(tabset));
+    EXPECT_EQ(statusMessage(window), "Wait until every file has finished opening before saving a tabset.");
+    EXPECT_TRUE(nextBatch(finished, 2).isEmpty());
+    EXPECT_EQ(session.sources().size(), 2u);
+    EXPECT_TRUE(session.isModified(session.sourceId(session.tabs().front())));
 }
 
 TEST(DesktopLaunch, AStaleCheckResultAfterTheWindowClosedOpensNothing)

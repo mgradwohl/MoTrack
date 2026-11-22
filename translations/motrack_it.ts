@@ -117,6 +117,7 @@
     <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>Rilascia per aprire %n file</numerusform><numerusform>Rilascia per aprire %n file</numerusform></translation></message>
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>%n collegamento a file non locali verrà ignorato.</numerusform><numerusform>%n collegamenti a file non locali verranno ignorati.</numerusform></translation></message>
     <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Alcuni file richiesti sono stati aperti con limitazioni.</translation></message>
+    <message><source>%1 is already open.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">%1 è già aperto.</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>
