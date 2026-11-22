@@ -44,6 +44,8 @@ UPDATES = b"""<Updates>
   </Operations>
  </PackageUpdate>
 </Updates>"""
+ESSENTIALS = "windows_x86/qt.qt6.683.win64_msvc2022_64/"
+MULTIMEDIA = "windows_x86/qt.qt6.683.addons.qtmultimedia.win64_msvc2022_64/"
 
 
 class ToolchainPinTests(unittest.TestCase):
@@ -72,7 +74,7 @@ class ToolchainPinTests(unittest.TestCase):
 
 class QtArchiveListTests(unittest.TestCase):
     def test_extract_operations_place_archives_and_default_to_the_prefix(self):
-        archives = dev_sdk.package_archives(UPDATES, "qt.qt6.683.win64_msvc2022_64", "6.8.3", "msvc2022_64")
+        archives = dev_sdk.essential_archives(UPDATES, "qt.qt6.683.win64_msvc2022_64", "6.8.3", "msvc2022_64")
         self.assertEqual(archives, [("6.8.3-0-1qtbase.7z", "6.8.3/msvc2022_64"),
                                     ("6.8.3-0-1d3d.7z", "6.8.3/msvc2022_64/bin"),
                                     ("6.8.3-0-1plain.7z", "6.8.3/msvc2022_64")])
@@ -81,9 +83,9 @@ class QtArchiveListTests(unittest.TestCase):
         for target in ("@TargetDir@/6.8.3/other", "@TargetDir@/6.8.3/msvc2022_64/../../x", "@TargetDir@"):
             updates = UPDATES.replace(b"@TargetDir@/6.8.3/msvc2022_64/bin", target.encode())
             with self.subTest(target=target), self.assertRaises(SystemExit):
-                dev_sdk.package_archives(updates, "qt.qt6.683.win64_msvc2022_64", "6.8.3", "msvc2022_64")
+                dev_sdk.essential_archives(updates, "qt.qt6.683.win64_msvc2022_64", "6.8.3", "msvc2022_64")
         with self.assertRaises(SystemExit):
-            dev_sdk.package_archives(UPDATES, "qt.qt6.683.linux_gcc_64", "6.8.3", "gcc_64")
+            dev_sdk.essential_archives(UPDATES, "qt.qt6.683.linux_gcc_64", "6.8.3", "gcc_64")
 
     def test_metadata_is_read_only_from_download_qt_io(self):
         with self.assertRaises(SystemExit):
@@ -115,8 +117,7 @@ class QtDirectInstallTests(unittest.TestCase):
             return UPDATES
         if url == base + "Updates.xml.sha256":
             return f"{hashlib.sha256(UPDATES).hexdigest()}  Updates.xml\n".encode()
-        name = url.rsplit("/", 1)[1].removesuffix(".sha256")
-        return f"{self.checksums[name]}  {name}\n".encode()
+        raise AssertionError(f"only Updates.xml and its checksum come from the server; asked for {url}")
 
     def download(self, url, target):
         self.downloads.append(url)
@@ -127,9 +128,19 @@ class QtDirectInstallTests(unittest.TestCase):
             (destination / relative).parent.mkdir(parents=True, exist_ok=True)
             (destination / relative).write_text(content, encoding="utf-8")
 
+    def pins(self):
+        """The pins as tools/qt-archives.sha256 keys: the module archive under its add-on package."""
+        return {(MULTIMEDIA if "-0-2" in name else ESSENTIALS) + name: checksum for name, checksum in self.checksums.items()}
+
     def install(self):
         with patch.object(dev_sdk, "fetch_trusted", self.fetch), patch.object(dev_sdk, "download", self.download):
-            dev_sdk.install_qt_direct(self.root, "win64_msvc2022_64", "msvc2022_64", "windows_x86", "6.8.3", self.extract)
+            dev_sdk.install_qt_direct(self.root, "win64_msvc2022_64", "msvc2022_64", "windows_x86", "6.8.3", self.extract,
+                                      self.pins())
+
+    def amend(self):
+        with patch.object(dev_sdk, "fetch_trusted", self.fetch), patch.object(dev_sdk, "download", self.download):
+            dev_sdk.add_qt_modules_direct(self.root, "win64_msvc2022_64", "msvc2022_64", "windows_x86", ["qtmultimedia"],
+                                          "6.8.3", self.extract, self.pins())
 
     def test_installs_verified_archives_into_the_prefix(self):
         stale = self.root / "qt/6.8.3/msvc2022_64/stale.txt"
@@ -158,16 +169,50 @@ class QtDirectInstallTests(unittest.TestCase):
         self.install()
         self.assertEqual(len(self.downloads), 3)
 
+    def test_a_checksum_mismatch_stops_before_anything_is_installed(self):
+        self.checksums["6.8.3-0-1d3d.7z"] = "0" * 64
+        with self.assertRaisesRegex(SystemExit, "d3d.7z has SHA-256 .*qt-archives.sha256 pins 0{64}"):
+            self.install()
+        self.assertFalse((self.root / "qt").exists())
+        self.assertFalse((self.root / "qt-downloads/6.8.3-0-1d3d.7z").exists())
+
+    def test_archives_the_pins_do_not_list_are_refused_before_any_download(self):
+        for change in ("extra", "missing"):
+            with self.subTest(change=change):
+                checksums = dict(self.checksums)
+                if change == "extra":
+                    checksums["6.8.3-0-1qtmultimedia.7z"] = "1" * 64
+                else:
+                    del checksums["6.8.3-0-1plain.7z"]
+                with patch.object(self, "checksums", checksums), self.assertRaisesRegex(SystemExit, "differ from tools/qt-archives.sha256"):
+                    self.install()
+                self.assertEqual(self.downloads, [])
+
+    def test_the_pinned_checksums_cover_every_platform_at_the_pinned_qt(self):
+        pins = dev_sdk.pinned_archives()
+        compact = dev_sdk.QT_VERSION.replace(".", "")
+        for archive, _directory, repository_os in dev_sdk.QT_PACKAGES:
+            names = [key for key in pins if key.startswith(f"{repository_os}/qt.qt6.{compact}.{archive}/")]
+            self.assertTrue(names, repository_os)
+            self.assertTrue(all(key.rsplit("/", 1)[1].startswith(dev_sdk.QT_VERSION + "-") for key in names), names)
+            self.assertTrue(any("qtbase" in key for key in names), repository_os)
+            for module in dev_sdk.QT_MODULES:
+                prefix = f"{repository_os}/qt.qt6.{compact}.addons.{module}.{archive}/"
+                self.assertTrue(any(key.startswith(prefix) for key in pins), prefix)
+        self.assertEqual(len(pins), sum(1 for line in dev_sdk.QT_ARCHIVE_PINS.read_text(encoding="utf-8").splitlines()
+                                        if line and not line.startswith("#")))
+
+    def test_updates_xml_must_match_its_published_checksum(self):
+        def fetch(url):
+            return b"0" * 64 if url.endswith("Updates.xml.sha256") else self.fetch(url)
+        with patch.object(dev_sdk, "fetch_trusted", fetch), self.assertRaisesRegex(SystemExit, "Updates.xml"):
+            dev_sdk.install_qt_direct(self.root, "win64_msvc2022_64", "msvc2022_64", "windows_x86", "6.8.3", self.extract)
+
     def test_archives_without_a_module_package_are_not_installed(self):
         del self.archives["6.8.3-0-2qtmultimedia.7z"]["lib/cmake/Qt6Multimedia/Qt6MultimediaConfig.cmake"]
         with self.assertRaisesRegex(SystemExit, "Qt6MultimediaConfig.cmake"):
             self.install()
         self.assertFalse((self.root / "qt").exists())
-
-    def amend(self):
-        with patch.object(dev_sdk, "fetch_trusted", self.fetch), patch.object(dev_sdk, "download", self.download):
-            dev_sdk.add_qt_modules_direct(self.root, "win64_msvc2022_64", "msvc2022_64", "windows_x86", ["qtmultimedia"],
-                                          "6.8.3", self.extract)
 
     def test_a_module_is_added_to_an_installed_prefix_without_replacing_its_files(self):
         prefix = self.root / "qt/6.8.3/msvc2022_64"
@@ -179,7 +224,7 @@ class QtDirectInstallTests(unittest.TestCase):
         self.assertEqual(dev_sdk.missing_modules(prefix), [])
         self.assertEqual((prefix / "bin/Qt6Core.dll").read_text(encoding="utf-8"), "core")
         self.assertEqual((prefix / "bin/avcodec-61.dll").read_text(encoding="utf-8"), "ffmpeg")
-        self.assertEqual(len(self.downloads), 1)
+        self.assertEqual(len(self.downloads), 1)  # Only the module archive; the essentials stay as installed.
         self.assertFalse((self.root / "qt.partial").exists())
 
     def test_a_module_file_that_differs_from_the_prefix_stops_the_amendment(self):
@@ -192,18 +237,13 @@ class QtDirectInstallTests(unittest.TestCase):
         self.assertFalse((prefix / "bin/avcodec-61.dll").exists())
         self.assertEqual(dev_sdk.missing_modules(prefix), ["qtmultimedia"])
 
-    def test_a_checksum_mismatch_stops_before_anything_is_installed(self):
-        self.checksums["6.8.3-0-1d3d.7z"] = "0" * 64
-        with self.assertRaisesRegex(SystemExit, "d3d.7z has SHA-256"):
-            self.install()
-        self.assertFalse((self.root / "qt").exists())
-        self.assertFalse((self.root / "qt-downloads/6.8.3-0-1d3d.7z").exists())
-
-    def test_updates_xml_must_match_its_published_checksum(self):
-        def fetch(url):
-            return b"0" * 64 if url.endswith("Updates.xml.sha256") else self.fetch(url)
-        with patch.object(dev_sdk, "fetch_trusted", fetch), self.assertRaisesRegex(SystemExit, "Updates.xml"):
-            dev_sdk.install_qt_direct(self.root, "win64_msvc2022_64", "msvc2022_64", "windows_x86", "6.8.3", self.extract)
+    def test_a_module_checksum_mismatch_adds_nothing(self):
+        self.checksums["6.8.3-0-2qtmultimedia.7z"] = "0" * 64
+        prefix = self.root / "qt/6.8.3/msvc2022_64"
+        (prefix / "bin").mkdir(parents=True)
+        with self.assertRaisesRegex(SystemExit, "qtmultimedia.7z has SHA-256 .*pins 0{64}"):
+            self.amend()
+        self.assertFalse((prefix / "bin/avcodec-61.dll").exists())
 
     def test_archives_without_qt6config_are_not_installed(self):
         del self.archives["6.8.3-0-1qtbase.7z"]["lib/cmake/Qt6/Qt6Config.cmake"]
@@ -279,7 +319,7 @@ class BashScriptTests(unittest.TestCase):
     """The Bash scripts' row functions, sourced with stub tools first on PATH."""
 
     # bash itself too: the stubs start with #!/usr/bin/env bash, which looks bash up on PATH.
-    UTILITIES = ("bash", "cat", "cut", "dirname", "grep", "head", "sed", "sort", "tr")
+    UTILITIES = ("awk", "bash", "cat", "cut", "dirname", "grep", "head", "sed", "sort", "tr")
 
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -345,6 +385,33 @@ class BashScriptTests(unittest.TestCase):
         rows = self.rows(f"check_apple_tool clang++ {minimum}; check_apple_tool clang {minimum}; check_apple_tool llvm-cov {minimum}")
         self.assertEqual([r[:3] for r in rows], [["ok", "clang++", "17.0.0"], ["fail", "clang", "23.1.6"], ["fail", "llvm-cov", "16.0.0"]])
         self.assertIn("system libc++", rows[1][5])
+
+    def test_existing_apt_llvm_sources_are_found_in_both_formats(self):
+        apt = Path(self.directory.name) / "apt"
+        (apt / "sources.list.d").mkdir(parents=True)
+        own = apt / "sources.list.d/motrack-llvm-23.list"
+        cases = {
+            "deb822.sources": ("Types: deb\nURIs: http://apt.llvm.org/noble/\nSuites: llvm-toolchain-noble-23\n"
+                               "Components: main\nSigned-By: /etc/apt/keyrings/llvm.asc\n", True),
+            "two-stanzas.sources": ("Types: deb\nURIs: http://archive.ubuntu.com/ubuntu\nSuites: noble noble-updates\n\n"
+                                    "Types: deb\nURIs: https://apt.llvm.org/noble/\nSuites: llvm-toolchain-noble llvm-toolchain-noble-23\n", True),
+            "other-major.sources": ("Types: deb\nURIs: http://apt.llvm.org/noble/\nSuites: llvm-toolchain-noble-22\n", False),
+            "disabled.sources": ("Enabled: no\nTypes: deb\nURIs: http://apt.llvm.org/noble/\nSuites: llvm-toolchain-noble-23\n", False),
+            "llvm.list": ("deb [arch=amd64] http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main\n", True),
+            "commented.list": ("# deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main\n", False),
+            "suffix.list": ("deb http://apt.llvm.org/noble/ llvm-toolchain-noble-230 main\n", False),
+        }
+        for name, (content, _) in cases.items():
+            (apt / "sources.list.d" / name).write_text(content, encoding="utf-8", newline="\n")
+        own.write_text("deb [signed-by=/usr/share/keyrings/motrack-apt-llvm-org.gpg] https://apt.llvm.org/noble/ llvm-toolchain-noble-23 main\n",
+                       encoding="utf-8", newline="\n")
+        apt_posix = subprocess.run([BASH, "-c", 'cd "$1" && pwd', "bash", str(apt)], capture_output=True, text=True,
+                                   check=True, env={**os.environ, "PATH": os.pathsep.join((str(self.stubs), str(self.utilities)))}).stdout.strip()
+        script = 'source tools/add-llvm-apt-source.sh; existing_llvm_sources "$1" noble 23 "$1/sources.list.d/motrack-llvm-23.list"'
+        result = subprocess.run([BASH, "-c", script, "bash", apt_posix], cwd=ROOT, capture_output=True, text=True, check=True,
+                                env={**os.environ, "PATH": os.pathsep.join((str(self.stubs), str(self.utilities)))})
+        found = sorted(Path(line).name for line in result.stdout.splitlines())
+        self.assertEqual(found, sorted(name for name, (_, expected) in cases.items() if expected))
 
     def test_qt_must_include_qt_multimedia(self):
         prefix = Path(self.directory.name) / "qt"

@@ -92,13 +92,14 @@ foreach ($case in @(
 
 # -- LLVM: one install, of the pinned major ---------------------------------------------------------
 function New-Registration {
-    param([string]$Version, [string]$ProductCode, [string]$UninstallString, [string]$QuietUninstallString)
+    param([string]$Version, [string]$ProductCode, [string]$UninstallString, [string]$QuietUninstallString, [string]$Location)
     [pscustomobject]@{
         Version              = $Version
         Major                = if ($Version -match '^(\d+)') { [int]$Matches[1] } else { $null }
         ProductCode          = if ($ProductCode) { $ProductCode } else { $null }
         UninstallString      = if ($UninstallString) { $UninstallString } elseif ($ProductCode) { "MsiExec.exe /X$ProductCode" } else { '"C:\Program Files\LLVM\Uninstall.exe"' }
         QuietUninstallString = $QuietUninstallString
+        Location             = if ($Location) { $Location } else { 'C:\Program Files\LLVM' }
         Key                  = "HKCU:\Software\MoTrackTests\absent-$([guid]::NewGuid().ToString('N'))"
     }
 }
@@ -107,6 +108,8 @@ $msi22 = New-Registration -Version '22.1.5' -ProductCode '{22222222-2222-2222-22
 $nsis18 = New-Registration -Version '18.1.8'
 $msi23a = New-Registration -Version '23.1.5' -ProductCode '{F51D2584-CF0B-491B-8D94-5883E3B254B0}'
 $msi23b = New-Registration -Version '23.1.6' -ProductCode '{2B2859B7-37CF-4E78-B617-72952CADA59B}'
+$nsisElsewhere = New-Registration -Version '20.1.8' -UninstallString '"D:\LLVM\Uninstall.exe"' -Location 'D:\LLVM'
+$ReplaceLlvm = $true
 
 foreach ($case in @(
         @{ Name = 'none installed'; Installed = @(); Clang = $null; Action = 'Install'; Remove = 0; Note = $null }
@@ -159,22 +162,28 @@ $msiexec = { param($Registration) "start msiexec.exe /x $($Registration.ProductC
 foreach ($case in @(
         @{ Name = 'none installed'; Installed = @(); Release = $null; Calls = @($download, 'start msiexec.exe /i *') }
         @{ Name = 'pinned major, other release'; Installed = @($msi23b); Release = '23.1.6'; Calls = @() }
-        @{ Name = 'NSIS 18'; Installed = @($nsis18); Release = '18.1.8'; Calls = @('start C:\Program Files\LLVM\Uninstall.exe /S', $download, 'start msiexec.exe /i *') }
-        @{ Name = 'MSI 22 + MSI 23'; Installed = @($msi22, $msi23b); Release = '23.1.6'; Calls = @((& $msiexec $msi22), (& $msiexec $msi23b), $download, 'start msiexec.exe /i *') }
+        @{ Name = 'NSIS 18'; Installed = @($nsis18); Release = '18.1.8'; Calls = @($download, 'start C:\Program Files\LLVM\Uninstall.exe /S', 'start msiexec.exe /i *') }
+        @{ Name = 'MSI 22 + MSI 23'; Installed = @($msi22, $msi23b); Release = '23.1.6'; Calls = @($download, (& $msiexec $msi22), (& $msiexec $msi23b), 'start msiexec.exe /i *') }
+        @{ Name = 'NSIS elsewhere, LLVM 23 here'; Installed = @($nsisElsewhere, $msi23a); Release = '23.1.5'; Calls = @() }
+        @{ Name = 'NSIS elsewhere only'; Installed = @($nsisElsewhere); Release = $null; Calls = @($download, 'start msiexec.exe /i *') }
     )) {
     Set-LlvmStub -Installed $case.Installed -Release $case.Release
     $text = (Install-PinnedLlvm 6>&1 | ForEach-Object { "$_" }) -join "`n"
     Assert-True ($calls.Count -eq $case.Calls.Count) "$($case.Name): calls [$($calls -join '; ')]"
     for ($i = 0; $i -lt $calls.Count; $i++) { Assert-True ($calls[$i] -like $case.Calls[$i]) "$($case.Name): call $i [$($calls[$i])]" }
-    if ($case.Calls.Count -eq 0) { Assert-True ($text -like "*LLVM 23 is already installed; leaving it. CI installs $LlvmVersion*") "$($case.Name): [$text]" }
+    if ($case.Calls.Count -eq 0) {
+        $suffix = if ($case.Release -ne $LlvmVersion) { " CI installs $LlvmVersion*" } else { '' }
+        Assert-True ($text -like "*LLVM 23 is already installed; leaving it.$suffix") "$($case.Name): [$text]"
+    }
     else { Assert-True ($text -like "*clang.exe is LLVM $LlvmVersion.*") "$($case.Name): [$text]" }
 }
 
 foreach ($case in @(
-        @{ Name = 'SHA-256 mismatch'; Installed = @(); Release = $null; Hash = ('0' * 64); Message = "LLVM-$LlvmVersion-win64.msi has SHA-256 0000*Nothing was installed."; Calls = 1 }
+        @{ Name = 'SHA-256 mismatch'; Installed = @(); Release = $null; Hash = ('0' * 64); Message = "LLVM-$LlvmVersion-win64.msi has SHA-256 0000*Nothing was uninstalled or installed."; Calls = 1 }
+        @{ Name = 'SHA-256 mismatch before a replace'; Installed = @($nsis18); Release = '18.1.8'; Hash = ('0' * 64); Message = '*has SHA-256 0000*Nothing was uninstalled or installed.'; Calls = 1 }
         @{ Name = 'msiexec fails'; Installed = @(); Release = $null; ExitCode = 1603; Message = "Installing LLVM-$LlvmVersion-win64.msi failed with msiexec exit code 1603*"; Calls = 2 }
         @{ Name = 'wrong release afterwards'; Installed = @(); Release = $null; After = '22.1.8'; Message = "After installing LLVM $LlvmVersion, *reports LLVM 22.1.8*"; Calls = 2 }
-        @{ Name = 'uninstall fails'; Installed = @($nsis18); Release = '18.1.8'; ExitCode = 2; Message = 'Uninstalling LLVM 18.1.8 failed with exit code 2*'; Calls = 1 }
+        @{ Name = 'uninstall fails'; Installed = @($nsis18); Release = '18.1.8'; ExitCode = 2; Message = 'Uninstalling LLVM 18.1.8 failed with exit code 2*'; Calls = 2 }
     )) {
     $stub = @{ Installed = $case.Installed; Release = $case.Release }
     foreach ($key in 'After', 'ExitCode', 'Hash') { if ($case.ContainsKey($key)) { $stub[$key] = $case[$key] } }
@@ -185,29 +194,47 @@ foreach ($case in @(
     Assert-True ($calls.Count -eq $case.Calls) "$($case.Name): calls [$($calls -join '; ')]"
 }
 
-# -DryRun prints each uninstall, the download, the install and the check, and runs none of them.
+# Without -ReplaceLlvm, nothing is downloaded or uninstalled: a real run stops, a dry run says it would.
+$ReplaceLlvm = $false
+Set-LlvmStub -Installed @($nsis18, $nsisElsewhere) -Release '18.1.8'
+$thrown = $null
+try { $null = Install-PinnedLlvm 6>$null } catch { $thrown = $_.Exception.Message }
+Assert-True ($thrown -like '*first means uninstalling LLVM 18.1.8 there. Rerun with -ReplaceLlvm*') "no -ReplaceLlvm: [$thrown]"
+Assert-True ($calls.Count -eq 0) "no -ReplaceLlvm: calls [$($calls -join '; ')]"
 $DryRun = $true
+$text = @(Install-PinnedLlvm 6>&1 | ForEach-Object { "$_" })
+Assert-True ($calls.Count -eq 0) "no -ReplaceLlvm dry-run: calls [$($calls -join '; ')]"
+$dryRunLines = @($text | Where-Object { $_ -like '`[dry-run`]*' })
+Assert-True ($dryRunLines.Count -eq 1 -and $dryRunLines[0] -like '`[dry-run`] stop: *Rerun with -ReplaceLlvm*') "no -ReplaceLlvm dry-run: [$($text -join "`n")]"
+Assert-True (@($text | Where-Object { $_ -like '*Registered: LLVM 18.1.8 (NSIS .exe) in C:\Program Files\LLVM' }).Count -eq 1) "registered line lacks the location: [$($text -join "`n")]"
+Assert-True (@($text | Where-Object { $_ -like '*Registered: LLVM 20.1.8 (NSIS .exe) in D:\LLVM; leaving it*' }).Count -eq 1) "registration elsewhere is not left: [$($text -join "`n")]"
+
+# -DryRun -ReplaceLlvm prints the download, each uninstall, the install and the check, in that order.
+$ReplaceLlvm = $true
 Set-LlvmStub -Installed @($msi22, $msi23b) -Release '23.1.6'
 $lines = @(Install-PinnedLlvm 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -like '`[dry-run`]*' })
 $DryRun = $false
 Assert-True ($calls.Count -eq 0) "LLVM dry-run: calls [$($calls -join '; ')]"
 $expected = @(
+    "[dry-run] $download (SHA-256 $LlvmSha256)"
     "[dry-run] msiexec.exe /x $($msi22.ProductCode) /passive /norestart"
     "[dry-run] msiexec.exe /x $($msi23b.ProductCode) /passive /norestart"
-    "[dry-run] $download (SHA-256 $LlvmSha256)"
     "[dry-run] msiexec.exe /i *LLVM-$LlvmVersion-win64.msi`" /passive /norestart /l*v *"
     "[dry-run] C:\Program Files\LLVM\bin\clang.exe --version (must report LLVM $LlvmVersion)"
 )
 Assert-True ($lines.Count -eq $expected.Count) "LLVM dry-run: lines [$($lines -join "`n")]"
 for ($i = 0; $i -lt $lines.Count; $i++) { Assert-True ($lines[$i] -like (ConvertTo-Pattern $expected[$i])) "LLVM dry-run line $i [$($lines[$i])]" }
 
-# The registry reader, against a scratch uninstall root: only the LLVM installs in $LlvmDir count.
+# The registry reader, against a scratch uninstall root. LLVM's NSIS installers (before 23) record no
+# InstallLocation, only $INSTDIR\Uninstall.exe, so the directory comes from the uninstaller's path.
 $scratch = "HKCU:\Software\MoTrackTests-setup-dev-$([guid]::NewGuid().ToString('N'))"
 try {
     $entries = @(
         @{ Key = 'LLVM'; Values = @{ DisplayName = 'LLVM'; DisplayVersion = '18.1.8'; UninstallString = '"C:\Program Files\LLVM\Uninstall.exe"' } }
         @{ Key = '{C261B515-7573-457D-AA83-FE1826A77ECE}'; Values = @{ DisplayName = 'LLVM'; DisplayVersion = '23.1.5'; WindowsInstaller = 1; InstallLocation = 'C:\Program Files\LLVM\'; UninstallString = 'MsiExec.exe /X{C261B515-7573-457D-AA83-FE1826A77ECE}' } }
-        @{ Key = 'LLVM32'; Values = @{ DisplayName = 'LLVM'; DisplayVersion = '21.1.0'; InstallLocation = 'C:\Program Files (x86)\LLVM' } }
+        @{ Key = 'LLVM32'; Values = @{ DisplayName = 'LLVM'; DisplayVersion = '21.1.0'; UninstallString = '"C:\Program Files (x86)\LLVM\Uninstall.exe"' } }
+        @{ Key = 'LLVMD'; Values = @{ DisplayName = 'LLVM'; DisplayVersion = '20.1.8'; UninstallString = 'D:\LLVM\Uninstall.exe' } }
+        @{ Key = '{0D0D0D0D-0000-4000-8000-000000000000}'; Values = @{ DisplayName = 'LLVM'; DisplayVersion = '22.1.0'; WindowsInstaller = 1; UninstallString = 'MsiExec.exe /X{0D0D0D0D-0000-4000-8000-000000000000}' } }
         @{ Key = 'OpenMP'; Values = @{ DisplayName = 'LLVM OpenMP Runtime'; DisplayVersion = '19.0.0' } }
     )
     foreach ($entry in $entries) {
@@ -219,10 +246,26 @@ try {
         }
     }
     $LlvmUninstallKeys = @($scratch)
-    $found = @(& $realGetInstalledLlvm | Sort-Object Version)
-    Assert-True ($found.Count -eq 2) "registry: found [$(($found | ForEach-Object Version) -join ', ')]"
-    Assert-True ($found[0].Version -eq '18.1.8' -and $null -eq $found[0].ProductCode) "registry: NSIS entry [$($found[0] | Out-String)]"
-    Assert-True ($found[1].Major -eq 23 -and $found[1].ProductCode -eq '{C261B515-7573-457D-AA83-FE1826A77ECE}') "registry: MSI entry [$($found[1] | Out-String)]"
+    $found = @{}
+    foreach ($registration in & $realGetInstalledLlvm) { $found[$registration.Version] = $registration }
+    Assert-True ($found.Count -eq 5 -and -not $found.ContainsKey('19.0.0')) "registry: found [$($found.Keys -join ', ')]"
+    Assert-True ($found['18.1.8'].Location -eq 'C:\Program Files\LLVM' -and $null -eq $found['18.1.8'].ProductCode) "registry: NSIS here [$($found['18.1.8'] | Out-String)]"
+    Assert-True ($found['23.1.5'].Location -eq 'C:\Program Files\LLVM' -and $found['23.1.5'].ProductCode -eq '{C261B515-7573-457D-AA83-FE1826A77ECE}') "registry: MSI here [$($found['23.1.5'] | Out-String)]"
+    Assert-True ($found['21.1.0'].Location -eq 'C:\Program Files (x86)\LLVM') "registry: 32-bit NSIS [$($found['21.1.0'].Location)]"
+    Assert-True ($found['20.1.8'].Location -eq 'D:\LLVM') "registry: NSIS elsewhere [$($found['20.1.8'].Location)]"
+    Assert-True ($null -eq $found['22.1.0'].Location) "registry: MSI without InstallLocation [$($found['22.1.0'].Location)]"
+
+    # Install-PinnedLlvm against that registry: only the NSIS 18 and MSI 23 in C:\Program Files\LLVM count.
+    ${function:Get-InstalledLlvm} = $realGetInstalledLlvm
+    $DryRun = $true
+    $ReplaceLlvm = $false
+    $LlvmState.Release = '23.1.5'
+    $text = @(Install-PinnedLlvm 6>&1 | ForEach-Object { "$_" })
+    $DryRun = $false
+    Assert-True (@($text | Where-Object { $_ -like '`[dry-run`] stop: *uninstalling LLVM 18.1.8, LLVM 23.1.5 there*' }).Count -eq 1) "registry plan: [$($text -join "`n")]"
+    foreach ($elsewhere in 'C:\Program Files (x86)\LLVM', 'D:\LLVM', 'an unrecorded directory') {
+        Assert-True (@($text | Where-Object { $_ -like "*Registered: LLVM * in $elsewhere; leaving it*" }).Count -eq 1) "registry plan leaves $elsewhere`: [$($text -join "`n")]"
+    }
 } finally {
     Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue
 }
@@ -239,7 +282,9 @@ try {
     Assert-True ($LASTEXITCODE -eq 0) "setup-dev.ps1 -DryRun exited $LASTEXITCODE`:`n$output"
     Assert-True (-not $output.Contains('STUB WINGET RAN')) "-DryRun ran winget:`n$output"
     Assert-True ($output.Contains("LLVM $LlvmVersion, CMake $($pinned.MOTRACK_CMAKE_VERSION), Ninja $($pinned.MOTRACK_NINJA_VERSION)")) "-DryRun does not print the pins:`n$output"
-    Assert-True ($output.Contains("[dry-run] download https://github.com/llvm/llvm-project/releases/download/llvmorg-$LlvmVersion/") -or $output -match "LLVM $LlvmMajor is already installed; leaving it\.") "-DryRun has no LLVM install or keep line:`n$output"
+    # The LLVM step depends on this machine: it installs the pin, keeps the pinned major, or (on a CI
+    # image with another LLVM registered in C:\Program Files\LLVM) stops for -ReplaceLlvm.
+    Assert-True ($output.Contains("[dry-run] download https://github.com/llvm/llvm-project/releases/download/llvmorg-$LlvmVersion/") -or $output -match "LLVM $LlvmMajor is already installed; leaving it\." -or $output -match '\[dry-run\] stop: .*Rerun with -ReplaceLlvm') "-DryRun has no LLVM install, keep or stop line:`n$output"
     Assert-True ($output.Contains('[dry-run] cmake --workflow --preset dev')) "-DryRun -Build does not preview the build:`n$output"
     Assert-True ($output -notmatch 'VisualStudio\.20\d\d\.BuildTools') "-DryRun installs a year-specific Visual Studio package:`n$output"
     Write-Host 'setup-dev.ps1 tests passed'

@@ -71,7 +71,7 @@ frames from it.
 | | Windows x64 | macOS | Linux x64 |
 | --- | --- | --- | --- |
 | Camera interface | Media Foundation | AVFoundation (the macOS FFmpeg backend's camera) | V4L2 (`/dev/video*`; the user needs access, usually the `video` group) |
-| Qt Multimedia | `qtmultimedia` add-on, installed by `tools/dev_sdk.py` and CI | same | same |
+| Qt Multimedia | `qtmultimedia` add-on, installed by `tools/dev_sdk.py` (archives pinned in `tools/qt-archives.sha256`) and CI | same | same |
 | Qt's bundled FFmpeg | FFmpeg 7.1 DLLs (`avcodec-61.dll` …) in Qt's `bin` | FFmpeg 7.1 dylibs in Qt's `lib` | FFmpeg 7.1 (`libavcodec.so.61` …) in Qt's `lib`, with Qt's VA-API stub libraries |
 | MoTrack's FFmpeg (decoding, recording) | vcpkg FFmpeg 9 DLLs (`avcodec-63.dll` …) | vcpkg FFmpeg 9, linked statically | vcpkg FFmpeg 9 linked statically, or a system FFmpeg 6.1+ |
 | System requirements | Camera allowed under Settings → Privacy & security → Camera | Camera permission (MoTrack asks on first use) | `libpulse0` (Qt Multimedia links PulseAudio's client library); the camera backend loads `libEGL`, `libX11`, `libXext` and `libXrandr` |
@@ -90,7 +90,7 @@ message with a hint about privacy settings.
 
 ## Differences from Tracker
 
-Tracker after 6.3.5 captures through **Video → Capture…** ([upstream delta U4](https://github.com/mgradwohl/MoTrack/blob/main/docs/upstream-delta.md)):
+Tracker after 6.3.5 captures through **Video → Capture…** ([upstream delta U4](upstream-delta.md)):
 it starts an HTTP server on `127.0.0.1` with an ephemeral port, opens the system browser at
 `/capture`, and receives either an MP4 recorded by the browser (imported with its encoded timing) or a
 stack of JPEG frames (written to temporary files and imported at the frame rate the page sends), into

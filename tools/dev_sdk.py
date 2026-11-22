@@ -2,17 +2,19 @@
 
 Qt comes from aqtinstall (PyPI) when it is reachable. When PyPI or aqt fails, or with
 ``--qt-source direct``, the same essential archives aqt would install come straight from the Qt
-online repository: the package list and each archive's SHA-256 are read from download.qt.io itself
-(never through a mirror redirect), every archive is checked before it is extracted with a
-libarchive ``bsdtar`` (7z support), and the result is moved into the prefix ``qt-prefix`` prints.
+online repository: the package list is read from download.qt.io itself (never through a mirror
+redirect), every archive is checked against the SHA-256 pinned in tools/qt-archives.sha256 before it
+is extracted with a libarchive ``bsdtar`` (7z support), and the result is moved into the prefix
+``qt-prefix`` prints.
 
-Both ways also install the add-on modules in ``QT_MODULES`` (Qt Multimedia, for camera capture). A
-prefix installed before a module was added gets just that module: its verified archives are added
-without replacing or deleting any file already in the prefix (``--qt-source aqt`` uses aqt's
-``--noarchives`` amendment instead).
+Both ways also install the add-on modules in ``QT_MODULES`` (Qt Multimedia, for camera capture), whose
+archives are pinned the same way. A prefix installed before a module was added gets just that module:
+its pinned archives are added without replacing or deleting any file already in the prefix
+(``--qt-source aqt`` uses aqt's ``--noarchives`` amendment instead).
 """
 
 import argparse
+import datetime
 import hashlib
 import os
 from pathlib import Path
@@ -45,9 +47,24 @@ def toolchain():
 
 
 QT_VERSION = toolchain()["MOTRACK_QT_VERSION"]
+QT_ARCHIVE_PINS = ROOT / "tools" / "qt-archives.sha256"
 # Qt add-on modules beyond the essentials, by aqt module name, with the CMake package each provides.
-# Qt Multimedia (camera preview and frames) bundles its own FFmpeg for its backend; see README.md.
+# Qt Multimedia supplies cameras and their frames; it bundles its own FFmpeg (docs/camera-capture.md).
 QT_MODULES = {"qtmultimedia": "lib/cmake/Qt6Multimedia/Qt6MultimediaConfig.cmake"}
+# Every platform's packages (essentials and QT_MODULES), as (aqt arch, Qt directory, online-repository OS).
+QT_PACKAGES = (("win64_msvc2022_64", "msvc2022_64", "windows_x86"), ("linux_gcc_64", "gcc_64", "linux_x64"),
+               ("clang_64", "macos", "mac_x64"))
+
+
+def pinned_archives(path=QT_ARCHIVE_PINS):
+    """{'<repository OS>/<package>/<archive>': sha256} from tools/qt-archives.sha256."""
+    pins = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line and not line.startswith("#"):
+            if not (match := re.fullmatch(r"([0-9a-f]{64})  (\S+)", line)):
+                raise SystemExit(f"Malformed line in {path.name}: {line}")
+            pins[match[2]] = match[1]
+    return pins
 
 
 def platform_config():
@@ -104,12 +121,11 @@ def repository_url(repository_os, version):
     return f"{QT_REPOSITORY}/{repository_os}/desktop/qt6_{compact}/qt6_{compact}/"
 
 
-def package_archives(updates, package, version, directory):
+def essential_archives(updates, package, version, directory):
     """[(archive file name, target relative to the qt directory)] for package's archives.
 
     Qt 6.8 archives carry no '<version>/<directory>' prefix; the repository's Extract operations name
     each archive's target (d3dcompiler_47 and opengl32sw go to bin/), and the prefix is the default.
-    The essentials and add-on module packages (qt.qt6.683.addons.<module>.<arch>) share this layout.
     """
     record = next((p for p in ET.fromstring(updates).iter("PackageUpdate") if p.findtext("Name") == package), None)
     if record is None:
@@ -168,37 +184,68 @@ def missing_modules(prefix):
     return [module for module, config in QT_MODULES.items() if not (Path(prefix) / config).is_file()]
 
 
-def module_package(version, module, archive):
-    return f"qt.qt6.{version.replace('.', '')}.addons.{module}.{archive}"
+def qt_packages(archive, version=QT_VERSION, modules=tuple(QT_MODULES), essentials=True):
+    """The essential package for archive and its add-on module packages (qt.qt6.683.addons.<module>.<arch>)."""
+    compact = version.replace(".", "")
+    return ([f"qt.qt6.{compact}.{archive}"] if essentials else []) + \
+        [f"qt.qt6.{compact}.addons.{module}.{archive}" for module in modules]
 
 
-def stage_packages(root, packages, repository_os, version, directory, extract):
-    """Download, verify and extract each package's archives under root/qt.partial; the archive count.
-
-    Every archive's SHA-256 must match the value download.qt.io publishes before it is extracted.
-    """
+def repository_archives(archive, directory, repository_os, version=QT_VERSION, modules=tuple(QT_MODULES), essentials=True):
+    """(base URL, [(package, [(archive file name, target)])]) from download.qt.io's current Updates.xml."""
     base = repository_url(repository_os, version)
     updates = fetch_trusted(base + "Updates.xml")
-    expected = published_sha256(base + "Updates.xml")
-    if hashlib.sha256(updates).hexdigest() != expected:
+    if hashlib.sha256(updates).hexdigest() != published_sha256(base + "Updates.xml"):
         raise SystemExit("Qt's Updates.xml does not match its published SHA-256.")
+    return base, [(package, essential_archives(updates, package, version, directory))
+                  for package in qt_packages(archive, version, modules, essentials)]
+
+
+def print_archive_checksums():
+    """Print a new tools/qt-archives.sha256 from download.qt.io's published checksums."""
+    lines = [line for line in QT_ARCHIVE_PINS.read_text(encoding="utf-8").splitlines() if line.startswith("#")]
+    lines = [re.sub(r"on \d{4}-\d{2}-\d{2}", f"on {datetime.date.today().isoformat()}", line) for line in lines]
+    for archive, directory, repository_os in QT_PACKAGES:
+        base, packages = repository_archives(archive, directory, repository_os)
+        for package, archives in packages:
+            lines += [f"{published_sha256(f'{base}{package}/{name}')}  {repository_os}/{package}/{name}" for name, _ in archives]
+    print("\n".join(lines))
+
+
+def stage_packages(root, archive, directory, repository_os, version, extract, pins, modules, essentials):
+    """Download, check and extract the packages' archives under root/qt.partial; the archive count.
+
+    Each package's archive list must equal its entries in tools/qt-archives.sha256, and every archive
+    must match its pinned SHA-256, before anything is extracted from it.
+    """
+    base, packages = repository_archives(archive, directory, repository_os, version, modules, essentials)
+    pins = pinned_archives() if pins is None else pins
+    for package, archives in packages:
+        prefix_key = f"{repository_os}/{package}/"
+        listed = {prefix_key + name for name, _ in archives}
+        pinned = {key for key in pins if key.startswith(prefix_key)}
+        if listed != pinned:
+            names = ", ".join(sorted(key.removeprefix(prefix_key) for key in listed ^ pinned))
+            raise SystemExit(f"download.qt.io's {package} archives differ from tools/qt-archives.sha256 ({names}). "
+                             "If Qt republished them, review the change, then run python tools/dev_sdk.py "
+                             "qt-archive-checksums.")
     downloads = root / "qt-downloads"
     staging = root / "qt.partial"
     downloads.mkdir(parents=True, exist_ok=True)
     shutil.rmtree(staging, ignore_errors=True)
     tar = None if extract else find_bsdtar()
     count = 0
-    for package in packages:
-        for name, target in package_archives(updates, package, version, directory):
+    for package, archives in packages:
+        for name, target in archives:
             url = f"{base}{package}/{name}"
-            checksum = published_sha256(url)
+            checksum = pins[f"{repository_os}/{package}/{name}"]
             path = downloads / name
             if not path.is_file() or sha256(path) != checksum:
                 print(f"Downloading {name}", flush=True)
                 download(url, path)
             if (actual := sha256(path)) != checksum:
                 path.unlink()
-                raise SystemExit(f"{name} has SHA-256 {actual}, but download.qt.io publishes {checksum}.")
+                raise SystemExit(f"{name} has SHA-256 {actual}, but tools/qt-archives.sha256 pins {checksum}.")
             destination = staging / target
             destination.mkdir(parents=True, exist_ok=True)
             print(f"Extracting {name}", flush=True)
@@ -210,13 +257,13 @@ def stage_packages(root, packages, repository_os, version, directory, extract):
     return count
 
 
-def install_qt_direct(root, archive, directory, repository_os, version=QT_VERSION, extract=None, modules=tuple(QT_MODULES)):
+def install_qt_direct(root, archive, directory, repository_os, version=QT_VERSION, extract=None, pins=None,
+                      modules=tuple(QT_MODULES)):
     """Install Qt's essential archives and modules for archive (win64_msvc2022_64, ...) from download.qt.io."""
-    packages = [f"qt.qt6.{version.replace('.', '')}.{archive}"] + [module_package(version, m, archive) for m in modules]
-    count = stage_packages(root, packages, repository_os, version, directory, extract)
+    count = stage_packages(root, archive, directory, repository_os, version, extract, pins, modules, True)
     staging = root / "qt.partial"
     staged = staging / version / directory
-    for config in ["lib/cmake/Qt6/Qt6Config.cmake"] + [QT_MODULES[m] for m in modules]:
+    for config in ["lib/cmake/Qt6/Qt6Config.cmake"] + [QT_MODULES[module] for module in modules]:
         if not (staged / config).is_file():
             raise SystemExit(f"The Qt archives did not provide {config} under {staged}.")
     mark_open_source(staged)
@@ -229,25 +276,25 @@ def install_qt_direct(root, archive, directory, repository_os, version=QT_VERSIO
     print(f"Installed Qt {version} ({count} verified archives) in {prefix}", flush=True)
 
 
-def add_qt_modules_direct(root, archive, directory, repository_os, modules, version=QT_VERSION, extract=None):
-    """Add modules' verified archives to an installed prefix without replacing or deleting its files.
+def add_qt_modules_direct(root, archive, directory, repository_os, modules, version=QT_VERSION, extract=None, pins=None):
+    """Add modules' pinned archives to an installed prefix without replacing or deleting its files.
 
     A staged file that already exists in the prefix with other content stops the amendment before
     anything is added; identical files are left as they are.
     """
+    count = stage_packages(root, archive, directory, repository_os, version, extract, pins, modules, False)
     prefix = root / "qt" / version / directory
-    count = stage_packages(root, [module_package(version, m, archive) for m in modules], repository_os, version, directory, extract)
     staging = root / "qt.partial"
     staged = staging / version / directory
     for module in modules:
         if not (staged / QT_MODULES[module]).is_file():
             raise SystemExit(f"The Qt archives did not provide {QT_MODULES[module]} under {staged}.")
-    additions = []
     # Links (macOS framework Versions/Current, Linux library sonames) move as links, never followed.
     entries = []
     for directory_path, directories, files in os.walk(staged):
         entries += [Path(directory_path) / name for name in files]
         entries += [Path(directory_path) / name for name in directories if (Path(directory_path) / name).is_symlink()]
+    additions = []
     for source in sorted(entries):
         target = prefix / source.relative_to(staged)
         if target.is_symlink() or target.exists():
@@ -278,7 +325,7 @@ def install_qt_aqt(python, root, host, archive, modules=tuple(QT_MODULES), amend
 
 
 def amend(python, root, host, archive, directory, repository_os, source, prefix):
-    """Add the modules an existing prefix lacks: verified add-only archives first (aqt with --qt-source aqt)."""
+    """Add the modules an existing prefix lacks: pinned add-only archives first (aqt with --qt-source aqt)."""
     modules = missing_modules(prefix)
     if not modules:
         return
@@ -327,7 +374,7 @@ def install(root, host, archive, directory, repository_os, source):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=["install", "qt-prefix", "tools-root"])
+    parser.add_argument("command", choices=["install", "qt-prefix", "tools-root", "qt-archive-checksums"])
     parser.add_argument("--qt-source", choices=["auto", "aqt", "direct"],
                         default=os.environ.get("MOTRACK_QT_SOURCE", "auto"),
                         help="aqt, the verified download.qt.io archives, or aqt with that fallback (default; "
@@ -338,6 +385,8 @@ def main():
     prefix = root / "qt" / QT_VERSION / directory
     if args.command == "install":
         install(root, host, archive, directory, repository_os, args.qt_source)
+    elif args.command == "qt-archive-checksums":
+        print_archive_checksums()
     elif args.command == "qt-prefix":
         print(prefix)
     else:
