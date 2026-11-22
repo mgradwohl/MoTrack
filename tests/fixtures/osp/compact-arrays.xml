@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="test.Compact">
+    <property name="ints" type="array" class="[I">
+        <property name="array" type="string">{1,-2,+3}</property>
+    </property>
+    <property name="doubles" type="array" class="[D">
+        <property name="array" type="string">{1.0, 2.5 ,NaN,-Infinity,1e400,-0.0}</property>
+    </property>
+    <property name="booleans" type="array" class="[Z">
+        <property name="array" type="string">{true,TRUE,false,yes,}</property>
+    </property>
+    <property name="nested" type="array" class="[[D">
+        <property name="array" type="string">{{1.0,2.0},,{3.0}}</property>
+    </property>
+    <property name="nested trailing" type="array" class="[[I">
+        <property name="array" type="string">{{1},}</property>
+    </property>
+    <property name="nested leading" type="array" class="[[I">
+        <property name="array" type="string">{,{1}}</property>
+    </property>
+    <property name="nested null text" type="array" class="[[I">
+        <property name="array" type="string">{null,{1}}</property>
+    </property>
+    <property name="nested spaced" type="array" class="[[I">
+        <property name="array" type="string">{ {1}, {2} }</property>
+    </property>
+    <property name="nested empty" type="array" class="[[I">
+        <property name="array" type="string">{}</property>
+    </property>
+    <property name="nested empty row" type="array" class="[[I">
+        <property name="array" type="string">{{}}</property>
+    </property>
+    <property name="int empty" type="array" class="[I">
+        <property name="array" type="string">{}</property>
+    </property>
+    <property name="int comma" type="array" class="[I">
+        <property name="array" type="string">{,}</property>
+    </property>
+    <property name="boolean empty" type="array" class="[Z">
+        <property name="array" type="string">{}</property>
+    </property>
+    <property name="int trailing" type="array" class="[I">
+        <property name="array" type="string">{1,2,,}</property>
+    </property>
+    <property name="int gap" type="array" class="[I">
+        <property name="array" type="string">{1,,2}</property>
+    </property>
+    <property name="int spaced" type="array" class="[I">
+        <property name="array" type="string">{1, 2}</property>
+    </property>
+    <property name="not braces" type="array" class="[I">
+        <property name="array" type="string">1,2</property>
+    </property>
+    <property name="deep" type="array" class="[[[I">
+        <property name="array" type="string">{{{1},{2}},{{3}}}</property>
+    </property>
+    <property name="unbalanced" type="array" class="[[I">
+        <property name="array" type="string">{{1,2}</property>
+    </property>
+    <property name="typed holder" type="array" class="[D">
+        <property name="array" type="int">{1.0}</property>
+    </property>
+    <property name="cdata holder" type="array" class="[I">
+        <property name="array" type="string"><![CDATA[{4}]]></property>
+    </property>
+    <property name="object class" type="array" class="[Ljava.lang.Object;">
+        <property name="array" type="string">{1}</property>
+    </property>
+    <property name="indexed" type="array" class="[D">
+        <property name="[0]" type="double">1.0</property>
+    </property>
+    <property name="media class" type="array" class="[[Z">
+        <property name="array" type="string">{{true},{false,true}}</property>
+    </property>
+</object>

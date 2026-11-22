@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="test.Numbers">
+    <property name="int plus" type="int">+5</property>
+    <property name="int minus zero" type="int">-0</property>
+    <property name="int max" type="int">2147483647</property>
+    <property name="int min" type="int">-2147483648</property>
+    <property name="int overflow" type="int">2147483648</property>
+    <property name="int space" type="int"> 5</property>
+    <property name="int empty" type="int"></property>
+    <property name="int sign only" type="int">-</property>
+    <property name="int decimal" type="int">1.0</property>
+    <property name="double trim" type="double"> 1.5 </property>
+    <property name="double suffix" type="double">1.5f</property>
+    <property name="double d" type="double">2d</property>
+    <property name="double exponent suffix" type="double">1e3D</property>
+    <property name="double two suffixes" type="double">1fd</property>
+    <property name="double hex" type="double">0x1.8p1</property>
+    <property name="double hex tie" type="double">-0X.8P-1074</property>
+    <property name="double hex no exponent" type="double">0x1.8</property>
+    <property name="double hex long" type="double">0x1.00000000000008000000001p0</property>
+    <property name="double under" type="double">1e-400</property>
+    <property name="double over" type="double">-1e400</property>
+    <property name="double huge exponent" type="double">1e99999999999999999999</property>
+    <property name="double point" type="double">.5</property>
+    <property name="double trailing point" type="double">5.</property>
+    <property name="double lone point" type="double">.</property>
+    <property name="double missing exponent" type="double">1e</property>
+    <property name="double nan" type="double">NaN</property>
+    <property name="double signed nan" type="double">-NaN</property>
+    <property name="double inf" type="double">-Infinity</property>
+    <property name="double lower nan" type="double">nan</property>
+    <property name="double comma" type="double">1,5</property>
+    <property name="double long" type="double">0.1000000000000000055511151231257827021181583404541015625</property>
+    <property name="double halfway" type="double">9007199254740993</property>
+    <property name="double above halfway" type="double">9007199254740993.000000000000000000000000000001</property>
+    <property name="double min" type="double">4.9e-324</property>
+    <property name="double below half min" type="double">2.4703282292062327e-324</property>
+    <property name="double above half min" type="double">2.4703282292062328e-324</property>
+    <property name="double max" type="double">1.7976931348623157e308</property>
+    <property name="double past max" type="double">1.7976931348623159e308</property>
+    <property name="double negative zero" type="double">-0.0</property>
+    <property name="double typical" type="double">33.333333333333336</property>
+    <property name="bool true" type="boolean">true</property>
+    <property name="bool upper" type="boolean">True</property>
+    <property name="bool other" type="boolean">yes</property>
+    <property name="string cdata" type="string"><![CDATA[x]]></property>
+</object>

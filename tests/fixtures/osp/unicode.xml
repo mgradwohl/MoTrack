@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="test.Unicode">
+    <property name="élève β" type="string">Péndulo 😀 中文</property>
+    <property name="separators" type="string">a b cd</property>
+    <property name="cdata" type="string"><![CDATA[< ü > 𝄞]]></property>
+    <property name="Ω" type="int">7</property>
+</object>

@@ -134,8 +134,16 @@ python tools/corpus.py check --probe build/coverage/motrack_corpus_probe
 python tools/corpus.py reference --java /path/to/jdk-17/bin/java
 python tools/corpus.py session --java /path/to/jdk-17/bin/java
 python tools/corpus.py roundtrip --probe build/coverage/motrack_corpus_probe --java /path/to/jdk-17/bin/java
+python tools/corpus.py xml-oracle --probe build/coverage/motrack_corpus_probe --java /path/to/jdk-17/bin/java
 python -m unittest discover -s tests -p test_corpus.py
 ```
+
+`xml-oracle` runs oracles O1 and O2 of the [OSP XMLControl library](../../docs/osp-xmlcontrol.md#oracles):
+every case file and XML archive member, the committed fixtures and the synthetic reader fixtures (in four
+line-ending variants) are read by the pinned Java `XMLControlElement` and by MoTrack, and both trees must be
+identical; each unedited MoTrack render must reproduce its input byte for byte. Archive members are read in
+memory and the documents are written to a temporary directory. `--reports PATH` selects where the summary and
+any mismatching dumps are written (default `CACHE/reports/xml-oracle`). It runs headless on any platform.
 
 On Windows, use `build/coverage/motrack_corpus_probe.exe` and the path to `java.exe`. Python 3.10 or newer
 is supported. The reference command uses Java source-file mode and therefore needs a JDK, not just a

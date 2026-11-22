@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="test.UnclosedArrayLine">
+    <property name="empty" type="array" class="[D"/>
+    <property name="open" type="array" class="[D"></property>
+    <property name="next" type="int">4</property>
+    <property name="items" type="collection" class="java.util.ArrayList">
+        <property name="item" type="string">a</property>
+        <property name="item" type="object">null</property>
+    </property>
+</object>
