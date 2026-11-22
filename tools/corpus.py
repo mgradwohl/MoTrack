@@ -21,6 +21,10 @@ import xml.dom.minidom as minidom
 import xml.etree.ElementTree as ET
 import zipfile
 
+# tools/, for dev_sdk: python -I leaves the script's directory off sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from dev_sdk import dev_tools_root  # noqa: E402
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CORPUS = ROOT / "tests/corpus"
@@ -3305,7 +3309,7 @@ def check_sampling_oracle(manifest, cache, java, *, record=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=[*CORPUS_COMMANDS, *sorted(KERNEL_ORACLES)])
-    parser.add_argument("--cache", type=Path, default=ROOT / ".dev-tools/tracker-reference")
+    parser.add_argument("--cache", type=Path, default=dev_tools_root() / "tracker-reference")
     parser.add_argument("--java", default="java",
                         help="Java 17+ JDK executable (reference, session, roundtrip and *-oracle commands)")
     parser.add_argument("--probe", help="Built motrack_corpus_probe executable (check/roundtrip commands)")

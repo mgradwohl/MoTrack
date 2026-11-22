@@ -1,3 +1,4 @@
+#Requires -Version 7
 <#
 .SYNOPSIS
 Installs the pinned MoTrack developer toolchain on Windows x64 and downloads the local Qt and media SDKs.
@@ -446,15 +447,18 @@ Install-MoTrackTool -Name Python -Id "Python.Python.$($pythonSeries.Major).$($py
 Write-Host "==> LLVM $LlvmVersion (one LLVM $LlvmMajor in $LlvmDir)..."
 Install-PinnedLlvm
 
+# The SDKs go in the one .dev-tools a checkout shares with its linked worktrees (CONTRIBUTING.md#developer-setup).
 if ($DryRun) {
-    Write-Host "[dry-run] python tools/dev_sdk.py install (Qt $($pins.MOTRACK_QT_VERSION) through aqtinstall, or verified archives from download.qt.io)"
-    Write-Host '[dry-run] python tools/media_sdk.py install (FFmpeg and libarchive through the pinned vcpkg)'
+    $sdks = if ($python) { & $python (Join-Path $PSScriptRoot 'dev_sdk.py') dev-tools } else { 'the shared .dev-tools' }
+    Write-Host "[dry-run] python tools/dev_sdk.py install (Qt $($pins.MOTRACK_QT_VERSION) through aqtinstall, or verified archives from download.qt.io, into $sdks)"
+    Write-Host "[dry-run] python tools/media_sdk.py install (FFmpeg and libarchive through the pinned vcpkg, into $sdks)"
     Write-Host '[dry-run] tools/check-prereqs.ps1'
     if ($Build) { Write-Host '[dry-run] cmake --workflow --preset dev' }
 } else {
     Initialize-MoTrackEnvironment
     $python = Get-MoTrackPython
     if (-not $python) { throw "Python $($pins.MOTRACK_PYTHON_VERSION) or newer is required. Open a new PowerShell and rerun setup." }
+    Write-Host "==> Qt, FFmpeg and libarchive SDKs in $(& $python (Join-Path $PSScriptRoot 'dev_sdk.py') dev-tools)"
     & $python (Join-Path $PSScriptRoot 'dev_sdk.py') install
     if ($LASTEXITCODE -ne 0) { throw 'MoTrack SDK installation failed.' }
     & $python (Join-Path $PSScriptRoot 'media_sdk.py') install

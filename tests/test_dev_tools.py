@@ -1,5 +1,6 @@
-"""Tests for the developer setup tools: the toolchain pins, tools/dev_sdk.py's verified Qt fallback,
-and the Bash setup and prerequisite scripts (no network; nothing is installed)."""
+"""Tests for the developer setup tools: the toolchain pins, the .dev-tools a checkout shares with its
+worktrees, tools/dev_sdk.py's verified Qt fallback, and the Bash setup, activation and prerequisite
+scripts (no network; nothing is installed)."""
 
 import hashlib
 import os
@@ -18,11 +19,54 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import dev_sdk
+import media_sdk
 
 PINS = dev_sdk.toolchain()
 # The Bash tests need a POSIX shell. On Windows they run only when MOTRACK_TEST_BASH names Git's bash.exe
 # and MOTRACK_TEST_UTILITIES its usr\bin (a directory with grep and sed but no LLVM).
 BASH = os.environ.get("MOTRACK_TEST_BASH") or (None if sys.platform == "win32" else shutil.which("bash"))
+GIT = shutil.which("git")
+# What the copy of the tools in a scratch checkout needs to resolve and print the SDK locations.
+SDK_TOOLS = ("dev_sdk.py", "media_sdk.py", "toolchain.env")
+
+
+def make_worktree(base):
+    """(main, linked): a scratch repository at base/main and a linked worktree of it at base/linked.
+
+    git runs without the user's configuration, so no hook, template or signing setting applies.
+    """
+    config = base / "gitconfig"
+    config.write_text("", encoding="utf-8")
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    environment.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(config))
+    main, linked = base / "main", base / "linked"
+    for arguments in (["init", "--quiet", str(main)],
+                      ["-C", str(main), "-c", "user.name=MoTrack", "-c", "user.email=motrack@example.invalid",
+                       "commit", "--quiet", "--allow-empty", "-m", "init"],
+                      ["-C", str(main), "worktree", "add", "--quiet", "--detach", str(linked)]):
+        subprocess.run([GIT, *arguments], env=environment, capture_output=True, encoding="utf-8", errors="replace",
+                       check=True)
+    return main, linked
+
+
+def fake_sdk(dev_tools, label):
+    """Qt's and FFmpeg's CMake package files for this platform under dev_tools, each holding label."""
+    name, _host, _archive, directory, _repository_os = dev_sdk.platform_config()
+    qt = dev_tools / name / "qt" / dev_sdk.QT_VERSION / directory
+    media = dev_tools / "vcpkg" / "installed" / media_sdk.triplet()
+    for path in (qt / "lib/cmake/Qt6/Qt6Config.cmake", media / "share/ffmpeg/FindFFMPEG.cmake"):
+        path.parent.mkdir(parents=True)
+        path.write_text(label + "\n", encoding="utf-8")
+    return qt, media
+
+
+def supported_platform():
+    try:
+        dev_sdk.platform_config()
+        media_sdk.triplet()
+    except SystemExit:
+        return False
+    return True
 
 UPDATES = b"""<Updates>
  <PackageUpdate>
@@ -60,6 +104,107 @@ class ToolchainPinTests(unittest.TestCase):
             self.assertTrue(PINS[key] not in workflow, f"ci.yml repeats {key}; read it from tools/toolchain.env")
         self.assertNotRegex(workflow, r"\b(clang|llvm|clang-format|clang-tidy)-1\d\b")
         self.assertIn("tools/toolchain.env", workflow)
+
+
+@unittest.skipUnless(GIT, "needs git")
+class SharedDevToolsTests(unittest.TestCase):
+    """dev_sdk.dev_tools_root and the commands built on it, in a scratch repository with a linked worktree."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.base = Path(directory.name).resolve()
+        self.main, self.linked = make_worktree(self.base)
+        self.shared = self.main / ".dev-tools"
+
+    def root(self, checkout, environ=None, git="git"):
+        return dev_sdk.dev_tools_root(checkout, {} if environ is None else environ, git).resolve()
+
+    def test_motrack_dev_tools_overrides_every_checkout(self):
+        override = self.base / "sdk"
+        (self.linked / ".dev-tools/windows").mkdir(parents=True)
+        (self.shared / "windows").mkdir(parents=True)
+        for checkout in (self.main, self.linked, self.base):
+            with self.subTest(checkout=checkout.name):
+                # The override needs no git: a git that would fail is never run.
+                self.assertEqual(self.root(checkout, {"MOTRACK_DEV_TOOLS": str(override)}, str(self.base / "no-git")),
+                                 override)
+        self.assertFalse(override.exists())
+
+    def test_a_checkout_with_its_own_dev_tools_uses_it(self):
+        self.assertEqual(self.root(self.main), self.shared)  # the main checkout, before setup
+        (self.shared / "windows").mkdir(parents=True)
+        (self.linked / ".dev-tools/windows").mkdir(parents=True)
+        self.assertEqual(self.root(self.main), self.shared)
+        self.assertEqual(self.root(self.linked), self.linked / ".dev-tools")
+
+    def test_a_linked_worktree_without_one_shares_the_main_checkouts(self):
+        # Before setup too, so setup in the worktree installs into the main checkout, never a second copy.
+        self.assertEqual(self.root(self.linked), self.shared)
+        (self.shared / "windows").mkdir(parents=True)
+        self.assertEqual(self.root(self.linked), self.shared)
+        (self.linked / ".dev-tools").mkdir()  # an empty one, as an interrupted run can leave
+        self.assertEqual(self.root(self.linked), self.shared)
+        self.assertEqual(sorted(path.name for path in self.linked.iterdir()), [".dev-tools", ".git"])
+        self.assertEqual([path.name for path in self.shared.iterdir()], ["windows"])
+
+    def test_without_an_answer_from_git_a_checkout_uses_its_own(self):
+        self.assertEqual(self.root(self.linked, git=str(self.base / "no-git" / "git")), self.linked / ".dev-tools")
+        plain = self.base / "plain"  # git runs, but finds no repository
+        plain.mkdir()
+        self.assertEqual(self.root(plain), plain / ".dev-tools")
+        self.assertIsNone(dev_sdk.main_checkout(plain))
+        self.assertIsNone(dev_sdk.main_checkout(self.main))
+        self.assertEqual(dev_sdk.main_checkout(self.linked), self.main)
+
+    @unittest.skipUnless(supported_platform(), "no automatic SDK setup on this platform")
+    def test_the_commands_print_the_shared_locations_from_a_worktree(self):
+        name, _host, _archive, directory, _repository_os = dev_sdk.platform_config()
+        tools = self.linked / "tools"
+        tools.mkdir()
+        for file in SDK_TOOLS:
+            shutil.copyfile(ROOT / "tools" / file, tools / file)
+
+        def command(script, name, env=None):
+            environment = {key: value for key, value in os.environ.items() if key != "MOTRACK_DEV_TOOLS"}
+            environment.update(env or {})
+            # -I as the encoding policy runs the tools: media_sdk.py still finds dev_sdk.py beside it.
+            result = subprocess.run([sys.executable, "-I", "-X", "utf8", str(tools / script), name], env=environment,
+                                    capture_output=True, encoding="utf-8", check=True)
+            return Path(result.stdout.strip()).resolve()
+
+        for env, expected in ((None, self.shared), ({"MOTRACK_DEV_TOOLS": str(self.base / "sdk")}, self.base / "sdk"),
+                              # No git on PATH: the worktree falls back to its own directory.
+                              ({"PATH": str(self.base / "empty")}, self.linked / ".dev-tools")):
+            with self.subTest(env=env):
+                self.assertEqual(command("dev_sdk.py", "dev-tools", env), expected)
+                self.assertEqual(command("dev_sdk.py", "tools-root", env), expected / name)
+                self.assertEqual(command("dev_sdk.py", "qt-prefix", env), expected / name / "qt" / dev_sdk.QT_VERSION / directory)
+                self.assertEqual(command("media_sdk.py", "prefix", env), expected / "vcpkg/installed" / media_sdk.triplet())
+        self.assertFalse(self.shared.exists() or (self.linked / ".dev-tools").exists())
+
+    @unittest.skipUnless(supported_platform(), "no automatic SDK setup on this platform")
+    def test_install_goes_into_the_shared_location(self):
+        name = dev_sdk.platform_config()[0]
+        with patch.object(dev_sdk, "ROOT", self.linked), patch.object(sys, "argv", ["dev_sdk.py", "install"]), \
+                patch.dict(os.environ), patch.object(dev_sdk, "install") as install:
+            os.environ.pop("MOTRACK_DEV_TOOLS", None)
+            dev_sdk.main()
+        self.assertEqual(install.call_args.args[0].resolve(), self.shared / name)
+
+    @unittest.skipUnless(BASH and sys.platform != "win32" and supported_platform(), "needs Bash on Linux or macOS")
+    def test_dev_env_sh_in_a_worktree_activates_the_main_checkouts_sdks(self):
+        tools = self.linked / "tools"
+        tools.mkdir()
+        for file in (*SDK_TOOLS, "dev-env.sh"):
+            shutil.copyfile(ROOT / "tools" / file, tools / file)
+        qt, media = fake_sdk(self.shared, "main")
+        script = ('unset CMAKE_PREFIX_PATH MOTRACK_FFMPEG_ROOT MOTRACK_DEV_TOOLS; source "$1/tools/dev-env.sh"; '
+                  'printf "%s\\n" "${CMAKE_PREFIX_PATH%%:*}" "${MOTRACK_FFMPEG_ROOT:-}"')
+        result = subprocess.run([BASH, "-c", script, "bash", str(self.linked)], capture_output=True, encoding="utf-8",
+                                check=True)
+        self.assertEqual([Path(line).resolve() for line in result.stdout.splitlines()], [qt, media])
+        self.assertFalse((self.linked / ".dev-tools").exists())
 
 
 class QtArchiveListTests(unittest.TestCase):
@@ -327,8 +472,10 @@ class BashScriptTests(unittest.TestCase):
         os_release = Path("/etc/os-release").read_text(encoding="utf-8")
         if 'VERSION_ID="24.04"' not in os_release or "ID=ubuntu" not in os_release:
             self.skipTest("setup-dev.sh targets Ubuntu 24.04")
+        shared = Path(self.directory.name) / "sdk"
         output = subprocess.run([BASH, "tools/setup-dev.sh", "--dry-run", "--build"], cwd=ROOT, capture_output=True,
-                                text=True, check=True).stdout
+                                env={**os.environ, "MOTRACK_DEV_TOOLS": str(shared)}, encoding="utf-8", check=True).stdout
+        self.assertIn(f"==> Qt, FFmpeg and libarchive SDKs in {shared}\n", output)
         llvm, gcc = PINS["MOTRACK_LLVM_MAJOR"], PINS["MOTRACK_GCC_MAJOR"]
         for package in (f"clang-{llvm}", f"clang-format-{llvm}", f"clang-tidy-{llvm}", f"llvm-{llvm}",
                         f"libclang-rt-{llvm}-dev", f"g++-{gcc}", "libarchive-tools"):

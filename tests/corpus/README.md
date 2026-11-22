@@ -80,8 +80,8 @@ round trips, desktop export UI and paired saves remain unfinished.
 
 [manifest.json](manifest.json) pins each upstream URL, byte count and SHA-256, the upstream revision,
 recorded producing Tracker version, relevant requirement IDs and known features. Examples and the
-reference JAR are downloaded unchanged into ignored `.dev-tools/tracker-reference`; they are not
-vendored. The manifest links the upstream license and records the unaudited media-redistribution limit.
+reference JAR are downloaded unchanged into ignored `.dev-tools/tracker-reference`, in the `.dev-tools` a
+checkout [shares with its worktrees](../../CONTRIBUTING.md#developer-setup); they are not vendored. The manifest links the upstream license and records the unaudited media-redistribution limit.
 The fourth case is a small committed synthetic fixture authored by Tracker 6.3.5's own serializers using
 [VectorFixture.java](../../tools/reference/VectorFixture.java), with LF-normalized bytes and a pinned
 checksum. Its expected snapshot comes from the Java reference, never from MoTrack. Local fixtures are

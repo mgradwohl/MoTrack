@@ -6,6 +6,9 @@ online repository: the package list is read from download.qt.io itself (never th
 redirect), every archive is checked against the SHA-256 pinned in tools/qt-archives.sha256 before it
 is extracted with a libarchive ``bsdtar`` (7z support), and the result is moved into the prefix
 ``qt-prefix`` prints.
+
+Everything goes in the ``.dev-tools`` directory ``dev_tools_root`` picks (``dev-tools`` prints it), which a
+checkout shares with its linked git worktrees; tools/media_sdk.py and tools/corpus.py use it too.
 """
 
 import argparse
@@ -30,6 +33,46 @@ AQT_VERSION = "3.3.0"
 QT_REPOSITORY = "https://download.qt.io/online/qtsdkrepository"
 QT_HOST = "download.qt.io"
 TIMEOUT = 120
+
+
+def main_checkout(checkout, git="git"):
+    """The main working tree of checkout's repository when checkout is a linked git worktree, else None.
+
+    The main working tree is the parent of git's common directory, its .git; a linked worktree's own git
+    directory is inside that. None too when git is missing, older than 2.31 (no --path-format) or finds
+    no repository. GIT_DIR and the like are dropped, so the answer is about checkout itself.
+    """
+    environment = {key: value for key, value in os.environ.items()
+                   if key not in {"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR"}}
+    try:
+        result = subprocess.run([git, "-C", str(checkout), "rev-parse", "--path-format=absolute", "--git-dir",
+                                 "--git-common-dir"], capture_output=True, encoding="utf-8", errors="replace",
+                                env=environment, check=False, timeout=TIMEOUT)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    paths = result.stdout.splitlines()
+    if result.returncode != 0 or len(paths) != 2 or not all(Path(path).is_absolute() for path in paths):
+        return None
+    git_dir, common_dir = (Path(path).resolve() for path in paths)
+    return common_dir.parent if git_dir != common_dir else None
+
+
+def dev_tools_root(checkout=None, environ=None, git="git"):
+    """The .dev-tools directory holding the SDKs, one for a checkout and all of its linked worktrees.
+
+    MOTRACK_DEV_TOOLS when it is set; else checkout's own .dev-tools when it has one (an empty directory
+    does not count); else, in a linked worktree, the main checkout's .dev-tools, even before setup has
+    created it, so setup installs there; else checkout's own. Nothing is created, linked or moved.
+    """
+    checkout = ROOT if checkout is None else Path(checkout)
+    environ = os.environ if environ is None else environ
+    if override := environ.get("MOTRACK_DEV_TOOLS"):
+        return Path(override).expanduser().absolute()
+    local = checkout / ".dev-tools"
+    if local.is_dir() and any(local.iterdir()):
+        return local
+    main = main_checkout(checkout, git)
+    return main / ".dev-tools" if main else local
 
 
 def toolchain():
@@ -268,14 +311,17 @@ def install(root, host, archive, directory, repository_os, source):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=["install", "qt-prefix", "tools-root", "qt-archive-checksums"])
+    parser.add_argument("command", choices=["install", "qt-prefix", "tools-root", "dev-tools", "qt-archive-checksums"])
     parser.add_argument("--qt-source", choices=["auto", "aqt", "direct"],
                         default=os.environ.get("MOTRACK_QT_SOURCE", "auto"),
                         help="aqt, the verified download.qt.io archives, or aqt with that fallback (default; "
                              "MOTRACK_QT_SOURCE overrides it)")
     args = parser.parse_args()
+    if args.command == "dev-tools":
+        print(dev_tools_root())
+        return
     name, host, archive, directory, repository_os = platform_config()
-    root = ROOT / ".dev-tools" / name
+    root = dev_tools_root() / name
     prefix = root / "qt" / QT_VERSION / directory
     if args.command == "install":
         install(root, host, archive, directory, repository_os, args.qt_source)

@@ -1,6 +1,8 @@
+#Requires -Version 7
 # Tests for tools/check-prereqs.ps1, adapted from TaskSmack's tools/test-check-prereqs.ps1. The checker
 # is dot-sourced (it returns before its checks then) so its row functions run on chosen inputs; then it
-# runs whole with -ToolsOnly, and its table has to agree with its exit code.
+# runs whole with -ToolsOnly from a linked worktree, where it must report the main checkout's Qt, and
+# from this checkout, where its table has to agree with its exit code.
 # Run with: pwsh -NoProfile -File tools/test-check-prereqs.ps1
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -62,7 +64,7 @@ try {
     $qt = Join-Path $root 'Qt\6.8.3\msvc2022_64'
     $config = Join-Path $qt 'lib\cmake\Qt6'
     New-Item -ItemType Directory -Force -Path $config | Out-Null
-    Set-Content -LiteralPath (Join-Path $config 'Qt6ConfigVersionImpl.cmake') -Value 'set(PACKAGE_VERSION "6.8.3")'
+    Set-Content -LiteralPath (Join-Path $config 'Qt6ConfigVersionImpl.cmake') -Value 'set(PACKAGE_VERSION "6.8.3")' -Encoding utf8
     Remove-Item Env:Qt6_DIR, Env:QT_ROOT_DIR -ErrorAction SilentlyContinue
     $env:CMAKE_PREFIX_PATH = "C:\missing;$qt"
     $env:Path = "$env:SystemRoot\System32"
@@ -83,8 +85,57 @@ try {
     Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# The checker as a script: one row per tool, and exit 1 exactly when a row failed.
 $pwsh = (Get-Process -Id $PID).Path
+
+# From a linked worktree without a .dev-tools, the checker reports the main checkout's Qt: a scratch
+# repository (git without the user's configuration) whose main checkout has a fake Qt, and a linked
+# worktree with a copy of the checker and the tools it runs.
+if (-not (Get-Command git -CommandType Application -ErrorAction SilentlyContinue)) {
+    Write-Warning 'git is not on PATH; skipping the worktree check.'
+} else {
+    $work = Join-Path ([IO.Path]::GetTempPath()) "motrack-check-prereqs-worktree-$([guid]::NewGuid().ToString('N'))"
+    $names = 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'MOTRACK_DEV_TOOLS', 'CMAKE_PREFIX_PATH', 'Qt6_DIR', 'QT_ROOT_DIR', 'VCToolsInstallDir', 'WindowsSdkDir', 'VSCMD_ARG_TGT_ARCH'
+    $savedEnv = @{}
+    foreach ($name in $names) { $savedEnv[$name] = [Environment]::GetEnvironmentVariable($name) }
+    function Invoke-ScratchGit {
+        git @args
+        if ($LASTEXITCODE -ne 0) { throw "git $($args -join ' ') exited $LASTEXITCODE" }
+    }
+    try {
+        New-Item -ItemType Directory -Path $work | Out-Null
+        $env:GIT_CONFIG_GLOBAL = Join-Path $work 'gitconfig'
+        $env:GIT_CONFIG_NOSYSTEM = '1'
+        Set-Content -LiteralPath $env:GIT_CONFIG_GLOBAL -Value '' -Encoding utf8
+        Remove-Item Env:MOTRACK_DEV_TOOLS, Env:CMAKE_PREFIX_PATH, Env:Qt6_DIR, Env:QT_ROOT_DIR -ErrorAction SilentlyContinue
+        # Only the Qt row is under test, so Visual Studio's developer shell is skipped.
+        $env:VCToolsInstallDir = 'C:\stub\'
+        $env:WindowsSdkDir = 'C:\stub\'
+        $env:VSCMD_ARG_TGT_ARCH = 'x64'
+        $main = Join-Path $work 'main'
+        $linked = Join-Path $work 'linked'
+        Invoke-ScratchGit init --quiet $main
+        Invoke-ScratchGit -C $main -c user.name=MoTrack -c user.email=motrack@example.invalid commit --quiet --allow-empty -m init
+        Invoke-ScratchGit -C $main worktree add --quiet --detach $linked
+        $tools = (New-Item -ItemType Directory -Path (Join-Path $linked 'tools')).FullName
+        foreach ($file in 'check-prereqs.ps1', 'dev-env.ps1', 'dev_sdk.py', 'media_sdk.py', 'toolchain.env') {
+            Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $tools
+        }
+        $qtVersion = $pinned.MOTRACK_QT_VERSION
+        $config = Join-Path $main ".dev-tools\windows\qt\$qtVersion\msvc2022_64\lib\cmake\Qt6"
+        New-Item -ItemType Directory -Force -Path $config | Out-Null
+        Set-Content -LiteralPath (Join-Path $config 'Qt6Config.cmake') -Value '' -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $config 'Qt6ConfigVersionImpl.cmake') -Value "set(PACKAGE_VERSION `"$qtVersion`")" -Encoding utf8
+        $output = & $pwsh -NoProfile -File (Join-Path $tools 'check-prereqs.ps1') -ToolsOnly 2>&1 | Out-String
+        $qtRows = @($output -split '\r?\n' | Where-Object { $_ -match '^\S Qt\s' })
+        Assert-True ($qtRows.Count -eq 1 -and $qtRows[0] -like "* Qt *$qtVersion *\main\.dev-tools\windows\qt\$qtVersion\msvc2022_64") "worktree: Qt row is not the main checkout's:`n$output"
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $linked '.dev-tools'))) 'check-prereqs.ps1 created a .dev-tools in the worktree'
+    } finally {
+        foreach ($name in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($name, $savedEnv[$name]) }
+        if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
+    }
+}
+
+# The checker as a script: one row per tool, and exit 1 exactly when a row failed.
 $output = & $pwsh -NoProfile -File $checker -ToolsOnly 2>&1 | Out-String
 $exit = $LASTEXITCODE
 $lines = $output -split '\r?\n'
