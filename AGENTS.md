@@ -53,8 +53,10 @@ to it elsewhere. Do not describe planned functionality or unavailable tooling as
   A `.motrack` companion is allowed alongside standard files; native-only saving is not the compatibility
   target. Retain unknown source content and validate exported edits by reopening them in Java Tracker.
 - Follow the [full-port implementation order](docs/migration-plan.md#implementation-order-and-exit-gates).
-  Update its requirement/status matrix and evidence with each completed slice. A working prototype,
-  preserved unknown object, or green coverage result does not by itself establish full Tracker parity.
+  Update its requirement/status matrix with each completed slice. Keep status docs concise: the matrix
+  row, user-facing docs and a PR link; detailed validation evidence belongs in the PR description.
+  A working prototype, preserved unknown object, or green coverage result does not by itself establish
+  full Tracker parity.
 - The maintainer extended completion on 2026-11-08: after the full port, resolve the remaining MoTrack
   issues in prioritized, coherent PR groups; then review the entire codebase, file actionable findings
   and resolve those issues with the same process. Follow migration-plan phases 13–14. Do not postpone
