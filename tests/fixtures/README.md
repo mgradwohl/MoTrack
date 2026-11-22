@@ -28,8 +28,8 @@ rather than editing them by hand.
 They pin how today's native reader opens each version before B2.4a switches it to typed documents.
 `baseline.trk` is a synthetic, media-free Tracker document in OSP's layout: two point masses (with saved key frames),
 a vector without samples (B1 exports no vector samples beside point masses), coordinate axes, a fixed calibration
-and a selected track. `LegacyViewParity.WriteNativeFixtures` wrote every `.motrack` file and golden at the B2.1 base
-(`d5c0a26`) on Windows, with `MOTRACK_WRITE_NATIVE_FIXTURES` naming this directory; regenerate rather than edit them,
+and a selected track. `LegacyViewParity.WriteNativeFixtures` wrote every `.motrack` file and golden with B2.1's build (based on
+`d5c0a26`, whose native writers B2.1 does not change) on Windows, with `MOTRACK_WRITE_NATIVE_FIXTURES` naming this directory; regenerate rather than edit them,
 and review every changed golden.
 
 - `v5-plain.motrack` is MoTrack's version-5 writer output after the fixture edits: rename, mark, unmark and weigh a
