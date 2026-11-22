@@ -135,6 +135,7 @@ python tools/corpus.py reference --java /path/to/jdk-17/bin/java
 python tools/corpus.py session --java /path/to/jdk-17/bin/java
 python tools/corpus.py roundtrip --probe build/coverage/motrack_corpus_probe --java /path/to/jdk-17/bin/java
 python tools/corpus.py expression-oracle --java /path/to/jdk-17/bin/java
+python tools/corpus.py xml-oracle --probe build/coverage/motrack_corpus_probe --java /path/to/jdk-17/bin/java
 python tools/corpus.py ode-oracle --java /path/to/jdk-17/bin/java
 python tools/corpus.py sampling-oracle --java /path/to/jdk-17/bin/java
 python -m unittest discover -s tests -p test_corpus.py
@@ -146,6 +147,16 @@ Java home and compares the result with
 [`expression-reference.json`](../science/expression-reference.json) under the rules in the
 [expression engine notes](../../docs/expression-engine.md#kernel-oracle). `--record` rewrites that fixture
 for review. The C++ tests read the committed fixture and need no Java.
+
+`xml-oracle` runs oracles O1 and O2 of the [OSP XMLControl library](../../docs/osp-xmlcontrol.md#oracles):
+every case file and XML archive member, the committed fixtures and the synthetic reader fixtures (in four
+line-ending variants) are read by the pinned Java `XMLControlElement` and by MoTrack, and both trees must be
+identical; each unedited MoTrack render must reproduce its input byte for byte. Archive members are read in
+memory and the documents are written to a temporary directory. `--reports PATH` selects where the summary and
+any mismatching dumps are written (default `CACHE/reports/xml-oracle`). It runs headless on any platform;
+`--o2-only` skips Java and checks only the byte-identical renders, as CI does on Windows and macOS.
+Documents MoTrack deliberately refuses (registered reasons only, such as `truncated`) still have their
+trees compared with Java's.
 
 `ode-oracle` integrates the [ODE solver kernel](../../docs/ode-solvers.md) test systems with the pinned
 OSP classes and compares them with `tests/science/ode-reference.json`, using that kernel's own

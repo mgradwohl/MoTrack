@@ -3651,6 +3651,224 @@ class ExpressionOracleTests(unittest.TestCase):
             corpus.main()
         self.assertEqual(check.call_args.args[2], "jdk")
         self.assertTrue(check.call_args.kwargs["record"])
+
+class XmlOracleTests(unittest.TestCase):
+    """O1/O2 runner: inputs, comparison and reports, with the Java and probe processes mocked."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix="motrack-xml-oracle-test-")
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name).resolve()
+        self.committed = self.root / "committed"
+        self.osp = self.root / "osp"
+        for directory in (self.committed, self.osp, self.root / "fixtures"):
+            directory.mkdir()
+        (self.committed / "fixture.trk").write_bytes(b'<object class="a"/>\n')
+        (self.committed / "notes.txt").write_bytes(b"not xml")
+        (self.osp / "quirk.xml").write_bytes(b'<object class="q">\n</object>\n')
+        (self.osp / "fail-quirk.xml").write_bytes(b"fail\n")
+        (self.osp / "generated").mkdir()
+        self.generated = b'<?xml version="1.0" encoding="UTF-8"?>\n<object class="java.lang.Object"/>'
+        (self.osp / "generated" / "demo.xml").write_bytes(self.generated)
+        (self.root / "fixtures" / "experiment.trk").write_bytes(b'<object class="e"/>\r\n')
+        with zipfile.ZipFile(self.root / "fixtures" / "archive.trz", "w") as archive:
+            archive.writestr("one.trk", '<object class="one"/>')
+            archive.writestr("nested/two.xml", '<object class="two"/>')
+            archive.writestr("duplicate.trk", '<object class="one"/>')
+            archive.writestr("image.png", b"\x89PNG")
+            archive.writestr("folder/", "")
+        self.manifest = {"reference": {"file": "tracker.jar"},
+                         "cases": [{"id": "experiment", "file": "experiment.trk"}, {"id": "archive", "file": "archive.trz"}]}
+        for replacement in (patch.object(corpus, "COMMITTED_FIXTURES", self.committed), patch.object(corpus, "OSP_FIXTURES", self.osp),
+                            patch.object(corpus, "verify_file")):
+            replacement.start()
+            self.addCleanup(replacement.stop)
+
+    @staticmethod
+    def dump(data):
+        report = {"schema": corpus.XML_DUMP_SCHEMA, "read": b"fail" not in data}
+        if report["read"]:
+            report["root"] = {"class": "x", "version": None,
+                              "properties": [{"name": "n", "type": "int", "content": "1", "int": 1}]}
+        return report
+
+    def runner(self, native=None, generated=None):
+        """A run() replacement: the Java tool writes OSP's documents or every listed dump; the probe writes one."""
+        commands = []
+
+        def run(command, timeout=45):
+            commands.append((command, timeout))
+            if "--generate" in command:
+                output = Path(command[-1])
+                output.mkdir()
+                for name, data in (generated if generated is not None else {"demo.xml": self.generated}).items():
+                    (output / name).write_bytes(data)
+                return
+            if "--osp-dump" in command:
+                source, output = Path(command[2]), Path(command[3])
+                report = self.dump(source.read_bytes())
+                if native is not None:
+                    report = native(source.read_bytes(), report)
+                output.write_text(json.dumps(report), encoding="utf-8")
+                return
+            for line in Path(command[-1]).read_text(encoding="utf-8").splitlines():
+                source, output = line.split("\t")
+                Path(output).write_text(json.dumps(self.dump(Path(source).read_bytes())), encoding="utf-8")
+
+        return commands, run
+
+    def test_inputs_cover_cases_archive_members_fixtures_and_line_ending_variants(self):
+        documents = corpus.xml_oracle_inputs(self.manifest, self.root)
+        labels = [label for label, _ in documents]
+        self.assertEqual(labels, ["experiment", "archive!one.trk", "archive!nested/two.xml", "fixtures/fixture.trk",
+                                  "osp/fail-quirk.xml[lf]", "osp/fail-quirk.xml[crlf]", "osp/fail-quirk.xml[cr]",
+                                  "osp/fail-quirk.xml[bom-crlf]", "osp/quirk.xml[lf]", "osp/quirk.xml[crlf]", "osp/quirk.xml[cr]",
+                                  "osp/quirk.xml[bom-crlf]", "osp/generated/demo.xml[lf]", "osp/generated/demo.xml[crlf]",
+                                  "osp/generated/demo.xml[cr]", "osp/generated/demo.xml[bom-crlf]"])
+        data = dict(documents)
+        self.assertEqual(data["experiment"], b'<object class="e"/>\r\n')
+        self.assertEqual(data["osp/quirk.xml[cr]"], b'<object class="q">\r</object>\r')
+        self.assertEqual(data["osp/quirk.xml[bom-crlf]"], b'\xef\xbb\xbf<object class="q">\r\n</object>\r\n')
+        self.assertEqual(corpus.xml_oracle_variants(b"a\r\nb\rc\n")["lf"], b"a\nb\nc\n")
+
+    def test_inputs_are_bounded(self):
+        with patch.object(corpus, "MAX_XML_BYTES", 10), self.assertRaisesRegex(ValueError, "experiment: document exceeds"):
+            corpus.xml_oracle_inputs(self.manifest, self.root)
+        archive_only = {**self.manifest, "cases": [self.manifest["cases"][1]]}
+        with patch.object(corpus, "MAX_XML_BYTES", 15), self.assertRaisesRegex(ValueError, "one.trk.*exceeds"):
+            corpus.xml_oracle_inputs(archive_only, self.root)
+        with patch.object(corpus, "MAX_XML_ORACLE_DOCUMENTS", 2), self.assertRaisesRegex(ValueError, "Too many"):
+            corpus.xml_oracle_inputs(self.manifest, self.root)
+        with patch.object(corpus, "MAX_ARCHIVE_MEMBERS", 4), self.assertRaisesRegex(ValueError, "archive: archive has too many members"):
+            corpus.xml_oracle_inputs(archive_only, self.root)
+        # Two members with one name are ambiguous: which one a reader takes is not defined.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            with zipfile.ZipFile(self.root / "fixtures" / "archive.trz", "a") as archive:
+                archive.writestr("one.trk", '<object class="other"/>')
+        with self.assertRaisesRegex(ValueError, "ambiguous archive member 'one.trk'"):
+            corpus.xml_oracle_inputs(archive_only, self.root)
+
+    def test_matching_dumps_pass_and_report_reads_and_shared_rejections(self):
+        commands, run = self.runner()
+        reports = self.root / "reports"
+        with patch.object(corpus, "run", side_effect=run), patch("builtins.print") as printed:
+            corpus.check_xml_oracle(self.manifest, self.root, "java", "probe", reports)
+        java = [(command, timeout) for command, timeout in commands if "--osp-dump" not in command]
+        self.assertEqual([command[-2] for command, _ in java][0], "--generate")
+        self.assertEqual(len(java), 2)
+        for command, timeout in java:
+            self.assertEqual(timeout, 600)
+            self.assertIn("-Djava.awt.headless=true", command)
+            self.assertIn("-Xmx256m", command)
+            self.assertEqual(command[command.index("--class-path") + 1], str(self.root / "tracker.jar"))
+        self.assertTrue(java[1][0][-2].endswith("XmlControlDump.java"))
+        self.assertEqual(len(commands) - 2, 16)
+        summary = json.loads((reports / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary, {"schema": corpus.XML_DUMP_SCHEMA, "oracles": "O1+O2", "documents": 16, "read_by_both": 12,
+                                   "deliberate_differences": [], "rejected_by_both": 4, "mismatches": []})
+        self.assertIn("16 documents", printed.call_args.args[0])
+        self.assertEqual(sorted(path.name for path in reports.iterdir()), ["summary.json"])
+
+    def test_any_difference_fails_and_keeps_both_dumps(self):
+        def native(data, report):
+            if data == b'<object class="one"/>':
+                report["root"]["properties"][0]["int"] = 2
+            if b"fail" in data and b"\r" in data:
+                report = {**report, "read": True, "root": {}}
+            return report
+
+        _, run = self.runner(native)
+        reports = self.root / "reports"
+        with patch.object(corpus, "run", side_effect=run), self.assertRaises(ValueError) as raised:
+            corpus.check_xml_oracle(self.manifest, self.root, "java", "probe", reports)
+        message = str(raised.exception)
+        self.assertIn("O1+O2 failed for 4 of 16 documents", message)
+        self.assertIn("archive!one.trk: $.root.properties[0].int (1 != 2)", message)
+        self.assertIn("osp/fail-quirk.xml[crlf]: $ (keys ['root'])", message)
+        summary = json.loads((reports / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(summary["mismatches"]), 4)
+        self.assertEqual(len(list(reports.glob("*-java.json"))), 4)
+        self.assertEqual(len(list(reports.glob("*-native.json"))), 4)
+
+    def test_committed_osp_writer_documents_must_match_a_fresh_java_run(self):
+        for generated, pattern in [({"demo.xml": b"changed"}, "differs from OSP's writer output"),
+                                   ({}, "OSP writer documents differ"),
+                                   ({"demo.xml": self.generated, "extra.xml": b"x"}, "OSP writer documents differ")]:
+            commands, run = self.runner(generated=generated)
+            with self.subTest(generated=sorted(generated)), patch.object(corpus, "run", side_effect=run), \
+                    self.assertRaisesRegex(ValueError, pattern):
+                corpus.check_xml_oracle(self.manifest, self.root, "java", "probe", self.root / "reports")
+            self.assertEqual(len(commands), 1)
+
+    def test_registered_rejections_still_compare_the_tree_and_others_fail(self):
+        def native(data, report):
+            if data == b'<object class="one"/>':
+                report = {**report, "motrack_rejects": "truncated"}
+            if data == b'<object class="two"/>':
+                report = {**report, "motrack_rejects": "something else"}
+            return report
+
+        _, run = self.runner(native)
+        reports = self.root / "reports"
+        with patch.object(corpus, "run", side_effect=run), self.assertRaises(ValueError) as raised:
+            corpus.check_xml_oracle(self.manifest, self.root, "java", "probe", reports)
+        self.assertIn("archive!nested/two.xml: unregistered MoTrack rejection 'something else'", str(raised.exception))
+        summary = json.loads((reports / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary["deliberate_differences"], ["archive!one.trk: truncated"])
+        self.assertEqual(len(summary["mismatches"]), 1)
+
+        # A registered rejection must still produce Java's tree.
+        def wrong_tree(data, report):
+            if data == b'<object class="one"/>':
+                report = {**report, "motrack_rejects": "truncated", "root": {"class": "other"}}
+            return report
+
+        _, run = self.runner(wrong_tree)
+        with patch.object(corpus, "run", side_effect=run), self.assertRaisesRegex(ValueError, "archive!one.trk: \\$.root"):
+            corpus.check_xml_oracle(self.manifest, self.root, "java", "probe", reports)
+
+    def test_o2_only_runs_every_document_through_the_probe_without_java(self):
+        commands, run = self.runner(lambda data, report: {**report, "motrack_rejects": "truncated"} if data == b'<object class="one"/>' else report)
+        reports = self.root / "o2"
+        with patch.object(corpus, "run", side_effect=run), patch("builtins.print") as printed:
+            corpus.check_xml_oracle(self.manifest, self.root, None, "probe", reports, o2_only=True)
+        self.assertTrue(all("--osp-dump" in command for command, _ in commands))
+        self.assertEqual(len(commands), 16)
+        summary = json.loads((reports / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual((summary["oracles"], summary["read_by_both"], summary["rejected_by_both"]), ("O2", 11, 4))
+        self.assertEqual(summary["deliberate_differences"], ["archive!one.trk: truncated"])
+        self.assertIn("--o2-only: 16 documents", printed.call_args.args[0])
+        _, run = self.runner(lambda data, report: {**report, "schema": "other"})
+        with patch.object(corpus, "run", side_effect=run), self.assertRaisesRegex(ValueError, "unexpected XML dump schema"):
+            corpus.check_xml_oracle(self.manifest, self.root, None, "probe", reports, o2_only=True)
+
+    def test_unexpected_dump_schema_is_rejected(self):
+        _, run = self.runner(lambda data, report: {**report, "schema": "other"})
+        with patch.object(corpus, "run", side_effect=run), self.assertRaisesRegex(ValueError, "unexpected XML dump schema"):
+            corpus.check_xml_oracle(self.manifest, self.root, "java", "probe", self.root / "reports")
+
+    def test_json_difference_requires_identical_types_keys_and_order(self):
+        self.assertIsNone(corpus.first_json_difference({"a": [1, {"b": None}]}, {"a": [1, {"b": None}]}))
+        self.assertEqual(corpus.first_json_difference({"a": True}, {"a": 1}), "$.a (type)")
+        self.assertEqual(corpus.first_json_difference({"a": 1}, {"b": 1}), "$ (keys ['a', 'b'])")
+        self.assertEqual(corpus.first_json_difference([1, 2], [1]), "$ (length 2 != 1)")
+        self.assertEqual(corpus.first_json_difference([1, [2, "x"]], [1, [2, "y"]]), "$[1][1] ('x' != 'y')")
+
+    def test_command_line_requires_a_probe_and_limits_reports_to_the_oracle(self):
+        for arguments in (["corpus.py", "xml-oracle"], ["corpus.py", "check", "--probe", "p", "--reports", "r"],
+                          ["corpus.py", "check", "--probe", "p", "--o2-only"]):
+            with self.subTest(arguments=arguments), patch.object(sys, "argv", arguments), \
+                    patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit):
+                corpus.main()
+        with patch.object(sys, "argv", ["corpus.py", "xml-oracle", "--probe", "p", "--java", "j", "--cache", str(self.root),
+                                        "--reports", str(self.root / "out")]), \
+                patch.object(corpus, "load_manifest", return_value=self.manifest), \
+                patch.object(corpus, "check_xml_oracle") as check:
+            corpus.main()
+        check.assert_called_once_with(self.manifest, self.root, "j", "p", self.root / "out", False)
+
+
 class OdeOracleTests(unittest.TestCase):
     """The ODE kernel oracle (tools/reference/OdeOracle.java) without running Java."""
 

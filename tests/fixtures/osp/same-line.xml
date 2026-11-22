@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?><object class="test.SameLine">
+    <property name="inline" type="object"><object class="test.Inline"/></property>
+    <property name="taken as object tag" type="int">1</property>
+    </property>
+    <property name="after" type="int">2</property>
+</object>

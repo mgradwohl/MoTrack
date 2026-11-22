@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="java.lang.Object" version="6.3.5">
+    <property name="text" type="string"><![CDATA[Ball & "toss" <1>]]></property>
+    <property name="empty" type="string"></property>
+    <property name="multiline" type="string">first
+second</property>
+    <property name="count" type="int">-7</property>
+    <property name="small" type="double">1.0E-5</property>
+    <property name="large" type="double">1.0E7</property>
+    <property name="shown" type="boolean">true</property>
+    <property name="no ints" type="array" class="[I"/>
+    <property name="flags" type="array" class="[Z">
+        <property name="array" type="string">{true,false}</property>
+    </property>
+    <property name="rows" type="array" class="[[D">
+        <property name="array" type="string">{null,{0.5}}</property>
+    </property>
+    <property name="labels" type="array" class="[Ljava.lang.String;">
+        <property name="[0]" type="string">a</property>
+        <property name="[2]" type="string">c</property>
+        <property name="[3]" type="object">null</property>
+    </property>
+    <property name="list" type="collection" class="java.util.ArrayList">
+        <property name="item" type="string">x</property>
+        <property name="item" type="double">2.5</property>
+        <property name="item" type="int">3</property>
+    </property>
+    <property name="point" type="object">
+    <object class="java.awt.Point">
+        <property name="location" type="array" class="[I">
+            <property name="array" type="string">{3,4}</property>
+        </property>
+    </object>
+    </property>
+</object>

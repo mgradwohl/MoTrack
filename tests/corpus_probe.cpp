@@ -4,6 +4,8 @@
 #include "measurements.hpp"
 #include "media_vectors.hpp"
 #include "movie_authoring.hpp"
+#include "osp/render.hpp"
+#include "osp/source.hpp"
 #include "paired_save.hpp"
 #include "track_edits.hpp"
 #include "tracker_archive.hpp"
@@ -27,14 +29,20 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <optional>
+#include <string>
+#include <string_view>
 
 namespace
 {
@@ -216,6 +224,153 @@ void editKeyedMovieCalibration(motrack::WorkspaceDocument& document, motrack::Tr
         throw motrack::ProjectError("Redo changed the edited keyed movie project.");
 }
 
+QJsonValue ospText(std::string_view text)
+{
+    return QString::fromUtf8(text.data(), static_cast<qsizetype>(text.size()));
+}
+
+/// Double.doubleToLongBits: every NaN has the canonical bits.
+QString ospDoubleBits(double value)
+{
+    const auto bits = std::isnan(value) ? std::uint64_t{0x7ff8000000000000} : std::bit_cast<std::uint64_t>(value);
+    return QStringLiteral("%1").arg(bits, 16, 16, QLatin1Char('0'));
+}
+
+QJsonValue ospCompact(const motrack::osp::CompactArray& array)
+{
+    using Kind = motrack::osp::CompactArray::Kind;
+    QJsonArray values;
+    switch (array.kind)
+    {
+    case Kind::Null:
+        return QJsonValue::Null;
+    case Kind::Int:
+        for (const auto value : array.ints)
+            values.append(value);
+        break;
+    case Kind::Double:
+        for (const auto value : array.doubles)
+            values.append(ospDoubleBits(value));
+        break;
+    case Kind::Boolean:
+        for (const auto value : array.booleans)
+            values.append(static_cast<bool>(value));
+        break;
+    case Kind::Nested:
+        for (const auto& row : array.rows)
+            values.append(ospCompact(row));
+        break;
+    }
+    return values;
+}
+
+QJsonObject ospObject(const motrack::osp::Source& source, motrack::osp::NodeId id, bool root);
+
+/// One property in the O1 dump schema shared with tools/reference/XmlControlDump.java (docs/osp-xmlcontrol.md).
+QJsonObject ospProperty(const motrack::osp::Source& source, motrack::osp::NodeId id)
+{
+    using motrack::osp::PropertyType;
+    const auto& node = source.node(id);
+    QJsonObject result{{"name", node.name ? ospText(*node.name) : QJsonValue::Null},
+                       {"type", ospText(motrack::osp::propertyTypeName(node.type))}};
+    switch (node.type)
+    {
+    case PropertyType::Array:
+    case PropertyType::Collection:
+    {
+        result["class"] = ospText(node.className);
+        QJsonArray elements;
+        for (const auto child : node.children)
+            elements.append(ospProperty(source, child));
+        result["elements"] = elements;
+        if (node.type == PropertyType::Array && motrack::osp::isPrimitiveArrayClass(node.className) && !node.children.empty())
+        {
+            const auto& first = source.node(node.children.front());
+            if (first.name == "array" && motrack::osp::isTextType(first.type))
+            {
+                const auto compact = motrack::osp::parseCompactArray(first.content, node.className);
+                result["compact"] = compact ? ospCompact(*compact) : QJsonValue::Null;
+            }
+        }
+        break;
+    }
+    case PropertyType::Object:
+        result["object"] = node.children.empty() ? QJsonValue::Null : QJsonValue(ospObject(source, node.children.front(), false));
+        break;
+    default:
+    {
+        result["content"] = ospText(node.content);
+        const motrack::osp::PropertyView property(source, id);
+        if (node.type == PropertyType::Int)
+        {
+            const auto value = property.intValue();
+            result["int"] = value ? QJsonValue(*value) : QJsonValue::Null;
+        }
+        else if (node.type == PropertyType::Double)
+        {
+            const auto value = property.doubleValue();
+            result["double"] = value ? QJsonValue(ospDoubleBits(*value)) : QJsonValue::Null;
+        }
+        else if (node.type == PropertyType::Boolean)
+        {
+            result["boolean"] = *property.booleanValue();
+        }
+        else if (node.type == PropertyType::String)
+        {
+            const auto value = property.stringValue();
+            result["string"] = value ? ospText(*value) : QJsonValue::Null;
+        }
+        break;
+    }
+    }
+    return result;
+}
+
+QJsonObject ospObject(const motrack::osp::Source& source, motrack::osp::NodeId id, bool root)
+{
+    const auto& node = source.node(id);
+    QJsonObject result{{"class", ospText(node.className)}};
+    if (root)
+        result["version"] = node.version ? ospText(*node.version) : QJsonValue::Null;
+    QJsonArray properties;
+    for (const auto child : node.children)
+        properties.append(ospProperty(source, child));
+    result["properties"] = properties;
+    return result;
+}
+
+/// Oracles O1/O2 for one document: dumps MoTrack's OSP tree and requires an unedited render to be byte-identical.
+QJsonObject ospDump(const std::filesystem::path& input)
+{
+    std::ifstream stream(input, std::ios::binary);
+    if (!stream)
+        throw motrack::ProjectError("Could not open the OSP document.");
+    std::string bytes((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+    QJsonObject report{{"schema", "motrack.osp-xmlcontrol-dump/1"}};
+    motrack::osp::ParseLimits limits;
+    auto source = motrack::osp::parse(bytes, limits);
+    if (!source && source.error().code == motrack::osp::ParseError::Code::Truncated)
+    {
+        // Deliberate difference (#243): MoTrack refuses what OSP loads partially. The partial tree is still
+        // dumped so that O1 checks it; the runner requires the rejection to be a registered difference.
+        report["motrack_rejects"] = "truncated";
+        limits.acceptTruncated = true;
+        source = motrack::osp::parse(bytes, limits);
+    }
+    report["read"] = source.has_value();
+    if (!source)
+    {
+        const auto message = "MoTrack OSP reader: " + source.error().message + " (line " + std::to_string(source.error().line) + ")\n";
+        std::fputs(message.c_str(), stderr);
+        return report;
+    }
+    const auto rendered = motrack::osp::render(**source, motrack::osp::Patch(**source), limits);
+    if (!rendered || *rendered != bytes)
+        throw motrack::ProjectError("O2 failed: an unedited render does not reproduce the document byte for byte.");
+    report["root"] = ospObject(**source, (*source)->root(), true);
+    return report;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -223,6 +378,19 @@ try
 {
     const QCoreApplication application(argc, argv);
     const auto args = application.arguments();
+    if (args.size() == 4 && args[1] == "--osp-dump")
+    {
+#ifdef _WIN32
+        const std::filesystem::path input(args[2].toStdWString());
+#else
+        const std::filesystem::path input(args[2].toStdString());
+#endif
+        const auto bytes = QJsonDocument(ospDump(input)).toJson(QJsonDocument::Compact);
+        QSaveFile output(args[3]);
+        if (!output.open(QIODevice::WriteOnly) || output.write(bytes) != bytes.size() || !output.commit())
+            throw motrack::ProjectError("Could not write the OSP dump.");
+        return 0;
+    }
     if (args.size() == 4 && args[1] == "--interrupt-paired-save")
     {
         // Run only as a short-lived test child: simulate abrupt process loss without destructors.
@@ -1086,8 +1254,9 @@ try
     const bool timing = args.size() == 4 && args[1] == "--timing";
     if (args.size() != 3 && !references && !timing)
     {
-        std::fputs("Usage: motrack_corpus_probe [--references|--timing] input.trk output.json | --export-<case> input.trk output.trk\n",
-                   stderr);
+        std::fputs(
+            "Usage: motrack_corpus_probe [--references|--timing|--osp-dump] input.trk output.json | --export-<case> input.trk output.trk\n",
+            stderr);
         return 1;
     }
     const auto& inputArgument = args[references || timing ? 2 : 1];
