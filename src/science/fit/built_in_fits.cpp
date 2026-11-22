@@ -1,5 +1,6 @@
 #include "science/fit/curve_fit.hpp"
 #include "science/fit/fit_internal.hpp"
+#include "science/java_math.hpp"
 
 #include <algorithm>
 #include <array>
@@ -26,44 +27,6 @@ namespace motrack::science
 namespace
 {
 
-// Java Math.min/max (NaN-propagating, -0.0 below +0.0) and the Math.pow special cases that differ
-// from C (pow(x, NaN) and pow(+-1, +-inf) are NaN). Local until the shared Java math module of K1/K5
-// lands (#191, #248), which these calls should then use.
-double javaMin(double a, double b) noexcept
-{
-    if (std::isnan(a) || std::isnan(b))
-    {
-        return std::numeric_limits<double>::quiet_NaN();
-    }
-    if (a == 0.0 && b == 0.0)
-    {
-        return std::signbit(a) ? a : b;
-    }
-    return a <= b ? a : b;
-}
-
-double javaMax(double a, double b) noexcept
-{
-    if (std::isnan(a) || std::isnan(b))
-    {
-        return std::numeric_limits<double>::quiet_NaN();
-    }
-    if (a == 0.0 && b == 0.0)
-    {
-        return std::signbit(a) ? b : a;
-    }
-    return a >= b ? a : b;
-}
-
-double javaPow(double base, double exponent) noexcept
-{
-    if (std::isnan(exponent) || (std::abs(base) == 1.0 && std::isinf(exponent)))
-    {
-        return std::numeric_limits<double>::quiet_NaN();
-    }
-    return std::pow(base, exponent);
-}
-
 constexpr std::size_t MAX_POLYNOMIAL_DEGREE = 5;
 constexpr std::array<std::string_view, MAX_POLYNOMIAL_DEGREE + 1> POLYNOMIAL_NAMES = {"A", "B", "C", "D", "E", "F"};
 
@@ -77,7 +40,7 @@ double power(double x, std::size_t exponent)
     case 2:
         return x * x;
     default:
-        return javaPow(x, static_cast<double>(exponent));
+        return java::pow(x, static_cast<double>(exponent));
     }
 }
 
@@ -208,8 +171,8 @@ SortedData sortData(std::span<const double> x, std::span<const double> y, FitDia
         {
             data.x[index] = key;
             data.y[index] = value;
-            data.maximum = javaMax(value, data.maximum);
-            data.minimum = javaMin(value, data.minimum);
+            data.maximum = java::max(value, data.maximum);
+            data.minimum = java::min(value, data.minimum);
             ++index;
         }
         return data;
@@ -224,8 +187,8 @@ SortedData sortData(std::span<const double> x, std::span<const double> y, FitDia
     {
         data.x[i] = x[order[i]];
         data.y[i] = y[order[i]];
-        data.maximum = javaMax(data.y[i], data.maximum);
-        data.minimum = javaMin(data.y[i], data.minimum);
+        data.maximum = java::max(data.y[i], data.maximum);
+        data.minimum = java::min(data.y[i], data.minimum);
     }
     return data;
 }
@@ -307,7 +270,7 @@ void exponentialGuess(const SortedData& data, std::vector<double>& params)
     }
     params[2] = ((sy[mid] * sy[mid]) - (sy[0] * sy[tail])) / (((2 * sy[mid]) - sy[0]) - sy[tail]);
     // The offset stays below the data so that the logarithm below is defined.
-    params[2] = javaMin(data.minimum - (0.001 * range), params[2]);
+    params[2] = java::min(data.minimum - (0.001 * range), params[2]);
     const double offset = params[2];
     params[1] = std::log((sy[tail] - offset) / (sy[0] - offset)) / (sx[tail] - sx[0]);
     params[0] = (sy[mid] - offset) / std::exp(params[1] * sx[mid]);
@@ -436,7 +399,7 @@ FitFunction builtInFit(BuiltInFit kind)
             "Power function with offsets",
             "A*x^B",
             {parameter("A", 1.0, "Coefficient"), parameter("B", 1.0, "Power")},
-            [](double x, std::span<const double> p) { return p[0] * javaPow(x, p[1]); },
+            [](double x, std::span<const double> p) { return p[0] * java::pow(x, p[1]); },
             kind);
     case BuiltInFit::Log:
         return userFunction(

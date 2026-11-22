@@ -46,15 +46,6 @@ constexpr double NOT_A_NUMBER = std::numeric_limits<double>::quiet_NaN();
 // User-defined fit models of tools/reference/FitOracle.java, written in SuryonoParser's operation
 // order (this file is compiled with -ffp-contract=off). Slice I4 replaces them with K1 expressions.
 
-double javaPow(double base, double exponent)
-{
-    if (std::isnan(exponent) || (std::abs(base) == 1.0 && std::isinf(exponent)))
-    {
-        return NOT_A_NUMBER;
-    }
-    return std::pow(base, exponent);
-}
-
 const std::map<std::string, FitModel>& userModels()
 {
     static const std::map<std::string, FitModel> models = {
