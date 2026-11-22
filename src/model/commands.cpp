@@ -396,7 +396,8 @@ std::expected<Command, CommandError> applySet(Working& working, const SetField& 
     auto written = set.after;
     if (mode == ApplyMode::New)
     {
-        if (!validNewValue(family, *field, written) && !baselineKeyFrames(working.original, set.object, written))
+        if (!validNewValue(family, *field, written) &&
+            !(field->id == "keyFrames" && baselineKeyFrames(working.original, set.object, written)))
         {
             return refuse(CommandErrorCode::InvalidValue, "The value cannot be stored in the field '" + set.field + "'.");
         }

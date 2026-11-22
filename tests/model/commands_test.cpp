@@ -1054,6 +1054,37 @@ TEST(Commands, NewValuesSaveOnlyWhatTheirFieldsAccept)
                             required(motrack::model::createSingleton(
                                 bare, Role::Coordinates, motrack::model::CoordinatesState{.fixedOrigin = true, .locked = false}))));
     ASSERT_TRUE(other.apply(bare, required(motrack::model::createSingleton(bare, Role::Clip, motrack::model::ClipState{.stepCount = 5}))));
+
+    // Only a key list may take the baseline's unsaved reading: no other field becomes unsaved through a new command, even
+    // on an object without saved key frames.
+    const auto missing = motrack::osp::DecodeError::Missing;
+    const auto panel = document.singleton(Role::Panel)->id;
+    const auto clip = document.singleton(Role::Clip)->id;
+    const auto created = required(motrack::model::createTrack(document, Family::PointMass, "C"));
+    ASSERT_TRUE(history.apply(document, created));
+    for (const auto& command :
+         {Command{SetField{.object = B, .field = "mass", .before = missing, .after = 2.0}},
+          Command{SetField{.object = panel, .field = "mass_unit", .before = std::string("g"), .after = missing}},
+          Command{SetField{.object = panel, .field = "time_unit", .before = missing, .after = std::string("ms")}},
+          Command{SetField{.object = clip, .field = "stepcount", .before = 10, .after = missing}},
+          Command{SetField{.object = created.object.id, .field = "mass", .before = 1.0, .after = missing}},
+          Command{SetField{.object = created.object.id, .field = "name", .before = std::string("C"), .after = missing}}})
+    {
+        if (const auto* set = std::get_if<SetField>(&command); set->after == CommandValue(missing))
+        {
+            SCOPED_TRACE(set->field);
+            EXPECT_EQ(refusal(document, history, command), CommandErrorCode::InvalidValue);
+        }
+        else
+        {
+            // A field the file does not save can be set; the refusals above are of the reverse.
+            EXPECT_TRUE(history.apply(document, command));
+        }
+    }
+    EXPECT_EQ(refusal(document, history, SetField{.object = B, .field = "mass", .before = 2.0, .after = missing}),
+              CommandErrorCode::InvalidValue);
+    EXPECT_EQ(refusal(document, history, SetField{.object = panel, .field = "time_unit", .before = std::string("ms"), .after = missing}),
+              CommandErrorCode::InvalidValue);
 }
 
 TEST(DocumentHistory, RestorationsSurviveAGraphRebuiltByAnUpdate)
