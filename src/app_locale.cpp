@@ -38,6 +38,7 @@ const char* realSetLocale(int category, const char* name)
     return std::setlocale(category, name);
 }
 
+// NOLINTNEXTLINE(modernize-use-string-view) - the CRuntime signature; nl_langinfo reuses its buffer
 std::string realCodeset()
 {
 #ifdef _WIN32

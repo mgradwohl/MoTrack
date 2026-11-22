@@ -33,11 +33,30 @@ namespace
 {
 
 // Built from UTF-8 literals; the sources are compiled as UTF-8 (motrack_apply_text_encoding).
-const auto CJK = QString::fromUtf8("实验");
-const auto EMOJI = QString::fromUtf8("😀");
-const auto LATIN = QString::fromUtf8("élève");
-const auto ARABIC = QString::fromUtf8("تجربة");
-const auto ALL = CJK + ' ' + EMOJI + ' ' + LATIN + ' ' + ARABIC;
+QString cjk()
+{
+    return QString::fromUtf8("实验");
+}
+
+QString emoji()
+{
+    return QString::fromUtf8("😀");
+}
+
+QString latin()
+{
+    return QString::fromUtf8("élève");
+}
+
+QString arabic()
+{
+    return QString::fromUtf8("تجربة");
+}
+
+QString allNames()
+{
+    return cjk() + ' ' + emoji() + ' ' + latin() + ' ' + arabic();
+}
 
 QString corpusFixture(const QString& name)
 {
@@ -79,7 +98,7 @@ class NonAsciiRoundTrip : public testing::Test
     void SetUp() override
     {
         ASSERT_TRUE(m_Temporary.isValid());
-        m_Root = m_Temporary.filePath(ALL);
+        m_Root = m_Temporary.filePath(allNames());
         ASSERT_TRUE(QDir().mkpath(m_Root));
         // The helper and Qt agree on the name; std::filesystem sees the same directory.
         ASSERT_TRUE(std::filesystem::is_directory(motrack::toFilesystemPath(m_Root)));
@@ -98,20 +117,20 @@ class NonAsciiRoundTrip : public testing::Test
 
 TEST_F(NonAsciiRoundTrip, LinkedImagesProjectSavesAndReopensAsTrackerAndNative)
 {
-    const auto images = EMOJI + ' ' + CJK;
+    const auto images = emoji() + ' ' + cjk();
     ASSERT_TRUE(QDir(path({})).mkpath(images));
     for (int frame = 0; frame < 4; ++frame)
     {
-        ASSERT_TRUE(writeAll(path(QStringLiteral("%1/%2 %3.png").arg(images, ARABIC).arg(frame)), frameBytes(frame)));
+        ASSERT_TRUE(writeAll(path(QStringLiteral("%1/%2 %3.png").arg(images, arabic()).arg(frame)), frameBytes(frame)));
     }
-    const auto input = path(LATIN + ' ' + CJK + ".trk");
-    ASSERT_TRUE(writeAll(input, renamedExperiment(images, ARABIC)));
+    const auto input = path(latin() + ' ' + cjk() + ".trk");
+    ASSERT_TRUE(writeAll(input, renamedExperiment(images, arabic())));
 
     auto prepared = motrack::prepareWorkspaceInput(input);
     ASSERT_TRUE(prepared.document);
     auto document = prepared.document->document;
     ASSERT_EQ(document.project.clip.mediaReferences.size(), 4u);
-    EXPECT_EQ(QString::fromStdString(document.project.clip.mediaReferences.front()), images + '/' + ARABIC + " 0.png");
+    EXPECT_EQ(QString::fromStdString(document.project.clip.mediaReferences.front()), images + '/' + arabic() + " 0.png");
     // Images open by their non-ASCII paths.
     const auto sequence = motrack::ImageSequence::open(prepared.mediaProjectPath, document.project.clip, document.mediaLocations);
     if (!sequence)
@@ -123,16 +142,16 @@ TEST_F(NonAsciiRoundTrip, LinkedImagesProjectSavesAndReopensAsTrackerAndNative)
 
     motrack::TrackEdits edits;
     ASSERT_TRUE(edits.setPointMassValue(document.project, 0, 9.5));
-    ASSERT_TRUE(edits.renamePointMass(document.project, 0, (ARABIC + ' ' + EMOJI).toStdString()));
+    ASSERT_TRUE(edits.renamePointMass(document.project, 0, (arabic() + ' ' + emoji()).toStdString()));
 
-    const auto standard = path(ARABIC + ' ' + EMOJI + ".trk");
+    const auto standard = path(arabic() + ' ' + emoji() + ".trk");
     motrack::writeTrackerDocument(standard, document, prepared.mediaProjectPath);
     const auto reopened = motrack::readTrackerProject(motrack::toFilesystemPath(standard)).project;
     EXPECT_EQ(reopened.pointMasses.front().mass, 9.5);
-    EXPECT_EQ(QString::fromStdString(reopened.pointMasses.front().name), ARABIC + ' ' + EMOJI);
+    EXPECT_EQ(QString::fromStdString(reopened.pointMasses.front().name), arabic() + ' ' + emoji());
     EXPECT_EQ(reopened.clip.mediaReferences, document.project.clip.mediaReferences);
 
-    const auto native = path(CJK + ' ' + LATIN + ".motrack");
+    const auto native = path(cjk() + ' ' + latin() + ".motrack");
     auto snapshot = document;
     motrack::rebaseWorkspaceMedia(snapshot, prepared.mediaProjectPath, native);
     motrack::writeWorkspaceDocument(native, snapshot);
@@ -147,21 +166,21 @@ TEST_F(NonAsciiRoundTrip, LinkedImagesProjectSavesAndReopensAsTrackerAndNative)
 
 TEST_F(NonAsciiRoundTrip, ArchiveWithNonAsciiNameAndMembersSavesAndReopens)
 {
-    const auto experiment = CJK + ' ' + LATIN;
-    const auto images = EMOJI + ' ' + ARABIC;
-    const auto projectMember = (experiment + '/' + ARABIC + ".trk").toUtf8();
+    const auto experiment = cjk() + ' ' + latin();
+    const auto images = emoji() + ' ' + arabic();
+    const auto projectMember = (experiment + '/' + arabic() + ".trk").toUtf8();
     std::vector<QByteArray> names{projectMember};
-    std::vector<motrack::test::ArchiveEntry> members{{.name = nullptr, .bytes = renamedExperiment(images, CJK)}};
+    std::vector<motrack::test::ArchiveEntry> members{{.name = nullptr, .bytes = renamedExperiment(images, cjk())}};
     for (int frame = 0; frame < 4; ++frame)
     {
-        names.push_back(QStringLiteral("%1/%2/%3 %4.png").arg(experiment, images, CJK).arg(frame).toUtf8());
+        names.push_back(QStringLiteral("%1/%2/%3 %4.png").arg(experiment, images, cjk()).arg(frame).toUtf8());
         members.push_back({.name = nullptr, .bytes = frameBytes(frame)});
     }
     for (std::size_t i = 0; i < members.size(); ++i)
     {
         members[i].name = names[i].constData();
     }
-    const auto input = path(EMOJI + ' ' + CJK + ".trz");
+    const auto input = path(emoji() + ' ' + cjk() + ".trz");
     ASSERT_TRUE(motrack::test::writeArchive(input, members));
 
     auto prepared = motrack::prepareWorkspaceInput(input);
@@ -177,7 +196,7 @@ TEST_F(NonAsciiRoundTrip, ArchiveWithNonAsciiNameAndMembersSavesAndReopens)
     const auto snapshot = prepared.group->prepareSave().snapshot;
 
     // Standard save: the member names keep their UTF-8 bytes and flag, so Tracker and MoTrack read them back.
-    const auto standard = path(ARABIC + ' ' + LATIN + ".trz");
+    const auto standard = path(arabic() + ' ' + latin() + ".trz");
     motrack::writeTrackerArchiveDocument(standard, snapshot.members.front().document);
     const auto reopened = motrack::TrackerArchive::open(standard);
     EXPECT_EQ(reopened.projects(), QStringList{QString::fromUtf8(projectMember)});
@@ -188,7 +207,7 @@ TEST_F(NonAsciiRoundTrip, ArchiveWithNonAsciiNameAndMembersSavesAndReopens)
     EXPECT_TRUE(reopened.memberMatchesSource(QString::fromUtf8(names.back())));
 
     // Native save: the bundle stores the original archive and reopens it under another non-ASCII name.
-    const auto native = path(LATIN + ' ' + EMOJI + ".motrack");
+    const auto native = path(latin() + ' ' + emoji() + ".motrack");
     motrack::writeArchiveGroup(native, snapshot);
     auto nativeInput = motrack::prepareWorkspaceInput(native);
     ASSERT_TRUE(nativeInput.group);
@@ -201,7 +220,7 @@ TEST_F(NonAsciiRoundTrip, ArchiveWithNonAsciiNameAndMembersSavesAndReopens)
 
 TEST_F(NonAsciiRoundTrip, MovieOpensByANonAsciiPath)
 {
-    const auto movie = path(ALL + ".mp4");
+    const auto movie = path(allNames() + ".mp4");
     ASSERT_TRUE(QFile::copy(QString::fromUtf8(MOTRACK_FIXTURES) + "/vfr.mp4", movie));
     motrack::VideoReader reader(movie);
     const auto frame = reader.readNext();

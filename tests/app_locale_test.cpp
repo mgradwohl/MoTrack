@@ -11,7 +11,9 @@
 #include <algorithm>
 #include <array>
 #include <clocale>
+#include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <locale>
 #include <map>
 #include <optional>
@@ -41,38 +43,43 @@ struct FakeRuntime
     std::map<int, std::string> current{{LC_ALL, "C"}, {LC_CTYPE, "C"}, {LC_NUMERIC, "C"}};
     std::vector<std::pair<int, std::string>> calls;
 };
-FakeRuntime fake;
+
+FakeRuntime& fake()
+{
+    static FakeRuntime instance;
+    return instance;
+}
 
 const char* fakeSetLocale(int category, const char* name)
 {
     if (name == nullptr)
     {
-        return fake.current[category].c_str();
+        return fake().current[category].c_str();
     }
-    fake.calls.emplace_back(category, name);
-    const std::string value = *name == '\0' ? fake.environment : std::string(name);
-    if (value != "C" && std::ranges::find(fake.installed, value) == fake.installed.end())
+    fake().calls.emplace_back(category, name);
+    const std::string value = *name == '\0' ? fake().environment : std::string(name);
+    if (value != "C" && std::ranges::find(fake().installed, value) == fake().installed.end())
     {
         return nullptr;
     }
     if (category == LC_ALL)
     {
-        for (auto& entry : fake.current)
+        for (auto& entry : fake().current)
         {
             entry.second = value;
         }
     }
     else
     {
-        fake.current[category] = value;
-        fake.current[LC_ALL] = "mixed";
+        fake().current[category] = value;
+        fake().current[LC_ALL] = "mixed";
     }
-    return fake.current[category].c_str();
+    return fake().current[category].c_str();
 }
 
 std::string fakeCodeset()
 {
-    const auto& ctype = fake.current[LC_CTYPE];
+    const auto& ctype = fake().current[LC_CTYPE];
     const auto dot = ctype.find('.');
     if (dot != std::string::npos)
     {
@@ -83,7 +90,7 @@ std::string fakeCodeset()
 
 std::string fakeUser()
 {
-    return fake.user;
+    return fake().user;
 }
 
 constexpr motrack::CRuntime FAKE{.setLocale = &fakeSetLocale, .codeset = &fakeCodeset, .userLocaleName = &fakeUser};
@@ -93,7 +100,7 @@ class LocaleSelection : public testing::Test
   protected:
     void SetUp() override
     {
-        fake = {};
+        fake() = {};
     }
 };
 
@@ -125,85 +132,85 @@ TEST_F(LocaleSelection, ListsWindowsAndPosixCandidatesInOrder)
 
 TEST_F(LocaleSelection, WindowsUsesTheUserLocaleWithUtf8AndClassicNumbers)
 {
-    fake.user = "de-DE";
-    fake.installed = {"de-DE.UTF-8"};
+    fake().user = "de-DE";
+    fake().installed = {"de-DE.UTF-8"};
     const auto outcome = motrack::applyWindowsCLocale(FAKE);
     EXPECT_EQ(outcome.chosen, "de-DE.UTF-8");
     EXPECT_TRUE(outcome.warnings.empty());
-    EXPECT_EQ(fake.current[LC_CTYPE], "de-DE.UTF-8");
-    EXPECT_EQ(fake.current[LC_NUMERIC], "C");
-    EXPECT_EQ(fake.calls.back(), (std::pair<int, std::string>{LC_NUMERIC, "C"}));
+    EXPECT_EQ(fake().current[LC_CTYPE], "de-DE.UTF-8");
+    EXPECT_EQ(fake().current[LC_NUMERIC], "C");
+    EXPECT_EQ(fake().calls.back(), (std::pair<int, std::string>{LC_NUMERIC, "C"}));
 }
 
 TEST_F(LocaleSelection, WindowsFallsBackAndWarns)
 {
-    fake.user = "xx-YY";
-    fake.installed = {".UTF-8"};
+    fake().user = "xx-YY";
+    fake().installed = {".UTF-8"};
     auto outcome = motrack::applyWindowsCLocale(FAKE);
     EXPECT_EQ(outcome.chosen, ".UTF-8");
     ASSERT_EQ(outcome.warnings.size(), 1u);
     EXPECT_NE(outcome.warnings.front().find("xx-YY.UTF-8"), std::string::npos);
-    EXPECT_EQ(fake.current[LC_NUMERIC], "C");
+    EXPECT_EQ(fake().current[LC_NUMERIC], "C");
 
-    fake = {};
+    fake() = {};
     outcome = motrack::applyWindowsCLocale(FAKE);
     EXPECT_TRUE(outcome.chosen.empty());
     ASSERT_EQ(outcome.warnings.size(), 1u);
     EXPECT_NE(outcome.warnings.front().find("no UTF-8 C locale"), std::string::npos);
-    EXPECT_EQ(fake.current[LC_NUMERIC], "C");
+    EXPECT_EQ(fake().current[LC_NUMERIC], "C");
 }
 
 TEST_F(LocaleSelection, PosixKeepsAUtf8EnvironmentButNotItsNumbers)
 {
-    fake.environment = "de_DE.UTF-8";
-    fake.installed = {"de_DE.UTF-8"};
+    fake().environment = "de_DE.UTF-8";
+    fake().installed = {"de_DE.UTF-8"};
     const auto outcome = motrack::applyPosixCLocale(FAKE);
     EXPECT_EQ(outcome.chosen, "de_DE.UTF-8");
     EXPECT_TRUE(outcome.warnings.empty());
-    EXPECT_EQ(fake.current[LC_CTYPE], "de_DE.UTF-8");
-    EXPECT_EQ(fake.current[LC_NUMERIC], "C");
+    EXPECT_EQ(fake().current[LC_CTYPE], "de_DE.UTF-8");
+    EXPECT_EQ(fake().current[LC_NUMERIC], "C");
 }
 
 TEST_F(LocaleSelection, PosixReplacesALegacyCtypeWithUtf8)
 {
-    fake.environment = "de_DE.ISO8859-1";
-    fake.installed = {"de_DE.ISO8859-1", "C.UTF-8"};
+    fake().environment = "de_DE.ISO8859-1";
+    fake().installed = {"de_DE.ISO8859-1", "C.UTF-8"};
     const auto outcome = motrack::applyPosixCLocale(FAKE);
     EXPECT_EQ(outcome.chosen, "C.UTF-8");
     ASSERT_EQ(outcome.warnings.size(), 1u);
     EXPECT_NE(outcome.warnings.front().find("de_DE.ISO8859-1"), std::string::npos);
-    EXPECT_EQ(fake.current[LC_CTYPE], "C.UTF-8");
-    EXPECT_EQ(fake.current[LC_NUMERIC], "C");
+    EXPECT_EQ(fake().current[LC_CTYPE], "C.UTF-8");
+    EXPECT_EQ(fake().current[LC_NUMERIC], "C");
 }
 
 TEST_F(LocaleSelection, PosixQuietlyGivesTheDefaultLocaleAUtf8Ctype)
 {
     // No LANG or LC_* at all, as for an application started from the macOS Finder.
-    fake.installed = {"C.UTF-8"};
+    fake().installed = {"C.UTF-8"};
     const auto outcome = motrack::applyPosixCLocale(FAKE);
     EXPECT_EQ(outcome.chosen, "C.UTF-8");
     EXPECT_TRUE(outcome.warnings.empty());
-    EXPECT_EQ(fake.current[LC_CTYPE], "C.UTF-8");
-    EXPECT_EQ(fake.current[LC_NUMERIC], "C");
+    EXPECT_EQ(fake().current[LC_CTYPE], "C.UTF-8");
+    EXPECT_EQ(fake().current[LC_NUMERIC], "C");
 }
 
 TEST_F(LocaleSelection, PosixWarnsAboutAMissingEnvironmentLocale)
 {
-    fake.environment = "xx_XX.UTF-8";
-    fake.installed = {"UTF-8"};
+    fake().environment = "xx_XX.UTF-8";
+    fake().installed = {"UTF-8"};
     const auto outcome = motrack::applyPosixCLocale(FAKE);
     EXPECT_EQ(outcome.chosen, "UTF-8");
     ASSERT_EQ(outcome.warnings.size(), 1u); // replacing the resulting default "C" LC_CTYPE is routine
     EXPECT_NE(outcome.warnings.front().find("not installed"), std::string::npos);
-    EXPECT_EQ(fake.current[LC_CTYPE], "UTF-8");
+    EXPECT_EQ(fake().current[LC_CTYPE], "UTF-8");
 
-    fake = {};
-    fake.environment = "C";
+    fake() = {};
+    fake().environment = "C";
     const auto none = motrack::applyPosixCLocale(FAKE);
     EXPECT_TRUE(none.chosen.empty());
     ASSERT_EQ(none.warnings.size(), 1u);
     EXPECT_NE(none.warnings.front().find("no UTF-8 locale"), std::string::npos);
-    EXPECT_EQ(fake.current[LC_NUMERIC], "C");
+    EXPECT_EQ(fake().current[LC_NUMERIC], "C");
 }
 
 TEST(ProcessLocale, ResetsTheNumericLocaleTheApplicationObjectSet)
@@ -258,6 +265,7 @@ TEST(ProcessLocale, ReappliesTheSameSettings)
 } // namespace
 
 int main(int argc, char** argv)
+try
 {
 #ifndef _WIN32
     // Start as a German or French desktop session would, so the test sees what QCoreApplication does to the C
@@ -277,4 +285,10 @@ int main(int argc, char** argv)
     configured = motrack::configureProcessLocale();
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
+}
+catch (const std::exception& error)
+{
+    std::fputs(error.what(), stderr);
+    std::fputc('\n', stderr);
+    return EXIT_FAILURE;
 }
