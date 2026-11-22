@@ -425,6 +425,15 @@ public final class MatchOracle {
                 0.0, PATTERN, 0, 0, null, null);
             specs.add(new MatchSpec("beyond(" + shift[0] + "," + shift[1] + ")", moved, key, 1, new int[] {cx - 2, cy - 2, 5, 5}, null, null));
         }
+        // Targets just beyond the top and left edges, where Tracker's missing or wrapped neighbor also
+        // changes the peak width and with it whether the match is accepted.
+        Mask edgeMask = new Mask(true, 28.5, 19.75, 18, 18);
+        for (double[] shift : new double[][] {{0.0, -3.5}, {-3.4, 0.2}, {0.4, -3.0}}) {
+            Scene moved = new Scene(80, 60, BACKGROUND, CLUTTER, new double[] {37.5, 28.75}, shift, ZERO, BLOB, 0.0, bright, NO_DRIFT,
+                0.0, PATTERN, 0, 0, null, null);
+            specs.add(new MatchSpec("beyond-edge(" + shift[0] + "," + shift[1] + ")", moved, edgeMask, 1, new int[] {35, 26, 5, 5}, null,
+                null));
+        }
         // Even-sized trimmed template (rectangle mask, integer frame) and an evolved template.
         Mask rectangle = new Mask(false, 30, 22, 11, 14);
         Scene drift = scene(80, 60, 35.6, 29.2, 0.8, -0.45, 9.0, bright, 4, 99);
@@ -455,6 +464,17 @@ public final class MatchOracle {
             specs.add(new MatchSpec("line-trimmed(" + angle + ")", edge, edgeKey, 1, new int[] {0, 20, 24, 21},
                 new double[] {9.6, 30.2, angle}, null));
         }
+        // Lattice-aligned axes through a pixel corner: grid crossings coincide, so the points depend on
+        // the last bits of Math.tan.
+        Mask latticeKey = keyFrameMask(true, 37.0, 29.0, 9);
+        double[][] lattice = {{-Math.PI / 4, 1.9, 0.707107, -0.707107}, {Math.PI / 4, -1.9, 0.707107, 0.707107},
+            {Math.atan(0.5), 2.2, 0.894427, 0.447214}};
+        for (double[] axis : lattice) {
+            Scene moved = new Scene(80, 60, BACKGROUND, CLUTTER, new double[] {37.0, 29.0}, new double[] {axis[1] * axis[2], -axis[1] * axis[3]},
+                ZERO, BLOB, 0.0, bright, NO_DRIFT, 0.0, PATTERN, 0, 0, null, null);
+            specs.add(new MatchSpec("line-lattice(" + axis[0] + ")", moved, latticeKey, 1, new int[] {27, 19, 21, 21},
+                new double[] {37.0, 29.0, axis[0]}, null));
+        }
         specs.add(new MatchSpec("line-misses-area", still, key, 0, new int[] {cx - 10, cy - 10, 21, 21}, new double[] {0, 5, 0.0}, null));
         specs.add(new MatchSpec("line-outside-trimmed-area", still, key, 0, new int[] {60, 20, 20, 20}, new double[] {75, 0, Math.PI / 2},
             null));
@@ -483,6 +503,69 @@ public final class MatchOracle {
         return json.append('}').toString();
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // Math.sin/cos/tan, which getSearchPoints and getMatchLocation use. HotSpot x86-64 intrinsics
+    // are correctly rounded for all but a few arguments; MoTrack's java_math is correctly rounded.
+
+    static final int TRIG_FIRST = -20000, TRIG_LAST = 20000;
+    static final double TRIG_STEP = 0.000157;
+    static final MathContext TRIG_PRECISION = new MathContext(50, RoundingMode.HALF_EVEN);
+    static final BigDecimal PI = new BigDecimal("3.14159265358979323846264338327950288419716939937510582097494459230781640628620899863");
+    static final BigDecimal HALF_PI = PI.divide(BigDecimal.valueOf(2), TRIG_PRECISION);
+
+    /** sin, cos and tan of the exact double `angle` to about 45 digits. */
+    static BigDecimal[] exactTrig(double angle) {
+        BigDecimal x = new BigDecimal(angle);
+        BigDecimal k = x.divide(HALF_PI, TRIG_PRECISION).setScale(0, RoundingMode.HALF_EVEN);
+        BigDecimal r = x.subtract(k.multiply(HALF_PI, TRIG_PRECISION), TRIG_PRECISION);
+        BigDecimal r2 = r.multiply(r, TRIG_PRECISION);
+        BigDecimal sin = r, cos = BigDecimal.ONE, sinTerm = r, cosTerm = BigDecimal.ONE;
+        for (int n = 1; n <= 24; n++) {
+            sinTerm = sinTerm.multiply(r2, TRIG_PRECISION).divide(BigDecimal.valueOf((2L * n) * (2L * n + 1)), TRIG_PRECISION).negate();
+            cosTerm = cosTerm.multiply(r2, TRIG_PRECISION).divide(BigDecimal.valueOf((2L * n - 1) * (2L * n)), TRIG_PRECISION).negate();
+            sin = sin.add(sinTerm, TRIG_PRECISION);
+            cos = cos.add(cosTerm, TRIG_PRECISION);
+        }
+        BigDecimal s, c;
+        switch (Math.floorMod(k.intValueExact(), 4)) {
+            case 0 -> { s = sin; c = cos; }
+            case 1 -> { s = cos; c = sin.negate(); }
+            case 2 -> { s = sin.negate(); c = cos.negate(); }
+            default -> { s = cos.negate(); c = sin; }
+        }
+        return new BigDecimal[] {s, c, s.divide(c, TRIG_PRECISION)};
+    }
+
+    static String bits(double value) {
+        return "\"" + String.format("%016x", Double.doubleToRawLongBits(value)) + "\"";
+    }
+
+    static String trig() {
+        String[] names = {"sin", "cos", "tan"};
+        long[] hashes = {0xcbf29ce484222325L, 0xcbf29ce484222325L, 0xcbf29ce484222325L};
+        List<String> exceptions = new ArrayList<>();
+        for (int k = TRIG_FIRST; k <= TRIG_LAST; k++) {
+            double angle = k * TRIG_STEP;
+            double[] java = {Math.sin(angle), Math.cos(angle), Math.tan(angle)};
+            BigDecimal[] exact = angle == 0 ? null : exactTrig(angle);
+            for (int f = 0; f < 3; f++) {
+                long value = Double.doubleToRawLongBits(java[f]);
+                for (int b = 0; b < 8; b++) {
+                    hashes[f] ^= (value >>> (8 * b)) & 0xff;
+                    hashes[f] *= 0x100000001b3L;
+                }
+                double correct = exact == null ? java[f] : exact[f].doubleValue();
+                if (Double.doubleToRawLongBits(correct) != value) {
+                    exceptions.add("{\"k\":" + k + ",\"function\":\"" + names[f] + "\",\"java\":" + bits(java[f]) + ",\"correct\":"
+                        + bits(correct) + "}");
+                }
+            }
+        }
+        return "{\"first\":" + TRIG_FIRST + ",\"last\":" + TRIG_LAST + ",\"step\":" + number(TRIG_STEP) + ",\"hashes\":{\"sin\":\""
+            + String.format("%016x", hashes[0]) + "\",\"cos\":\"" + String.format("%016x", hashes[1]) + "\",\"tan\":\""
+            + String.format("%016x", hashes[2]) + "\"},\"not_correctly_rounded\":[" + String.join(",", exceptions) + "]}";
+    }
+
     static String searchPointCases() {
         Object[][] specs = {
             {new int[] {10, 20, 21, 15}, new double[] {5, 27.5, 0.0}}, {new int[] {10, 20, 21, 15}, new double[] {5, 27.5, Math.PI}},
@@ -494,6 +577,11 @@ public final class MatchOracle {
             {new int[] {-7, -5, 12, 9}, new double[] {-3.3, -2.2, 0.7}}, {new int[] {-7, -5, 12, 9}, new double[] {-7, -1.5, 0.0}},
             {new int[] {4, 4, 0, 6}, new double[] {4, 5.5, 0.4}}, {new int[] {4, 4, 6, 0}, new double[] {2, 4, 0.0}},
             {new int[] {0, 0, 60, 40}, new double[] {30.0, 20.0, 1.234}}, {new int[] {0, 0, 60, 40}, new double[] {13.0, 7.0, -2.5}},
+            // A platform tan one ulp off Java's changes this point count (independent review of #239).
+            {new int[] {10, 20, 21, 15}, new double[] {11, 32, -17490 * 0.000157}},
+            // Lattice-aligned axes from the rectangle's corners.
+            {new int[] {10, 20, 21, 15}, new double[] {10, 20, -Math.atan(0.5)}},
+            {new int[] {10, 20, 21, 15}, new double[] {31, 35, 3 * Math.PI / 4}},
         };
         List<String> rows = new ArrayList<>();
         TemplateMatcher matcher = new TemplateMatcher(new BufferedImage(3, 3, BufferedImage.TYPE_INT_RGB), null);
@@ -628,6 +716,7 @@ public final class MatchOracle {
         for (Object[] mask : masks()) masks.add(maskCase((String) mask[0], (Mask) mask[1]));
         json.append("  \"masks\": [\n    ").append(String.join(",\n    ", masks)).append("\n  ],\n");
         json.append("  \"evolution\": ").append(evolution()).append(",\n");
+        json.append("  \"trig\": ").append(trig()).append(",\n");
         json.append("  \"search_points\": [\n    ").append(searchPointCases()).append("\n  ],\n");
         List<String> matches = new ArrayList<>();
         for (MatchSpec spec : matchSpecs()) matches.add(matchCase(spec));

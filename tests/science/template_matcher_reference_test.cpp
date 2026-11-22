@@ -3,6 +3,7 @@
 // true positions. The scene renderer repeats MatchOracle.render operation by operation; this target is
 // compiled with -ffp-contract=off so that every frame hash matches the Java frame bit for bit.
 
+#include "science/common/java_math.hpp"
 #include "science/matching/matching_internal.hpp"
 #include "science/matching/template_matcher.hpp"
 
@@ -16,12 +17,14 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <optional>
 #include <set>
 #include <span>
@@ -599,12 +602,147 @@ TEST(TemplateMatcherReference, LineSearchPointsMatchGetSearchPoints)
     }
 }
 
+// An independent evaluation of a 2D search for boundary cases: brute-force squared RGB differences,
+// the closed-form three-point parabola through the real neighbors (NaN where the template leaves the
+// frame) and Tracker's score formula. It shares no code with the library.
+struct BoundaryExpectation
+{
+    double peakHeight = NOT_A_NUMBER;
+    double peakWidth = NOT_A_NUMBER;
+};
+
+double bruteDifference(const motrack::science::MatchTemplate& matchTemplate, const ArgbImage& frame, long long left, long long top)
+{
+    const auto& image = matchTemplate.image;
+    if (left < 0 || top < 0 || left + image.width() > frame.width() || top + image.height() > frame.height())
+    {
+        return NOT_A_NUMBER;
+    }
+    double total = 0;
+    for (int y = 0; y < image.height(); ++y)
+    {
+        for (int x = 0; x < image.width(); ++x)
+        {
+            const ArgbPixel model = image.pixel(x, y);
+            if ((model >> 24U) == 0)
+            {
+                continue;
+            }
+            const ArgbPixel pixel = frame.pixel(static_cast<int>(left) + x, static_cast<int>(top) + y);
+            for (const unsigned shift : {16U, 8U, 0U})
+            {
+                const double d = static_cast<double>((model >> shift) & 0xffU) - static_cast<double>((pixel >> shift) & 0xffU);
+                total += d * d;
+            }
+        }
+    }
+    return total;
+}
+
+BoundaryExpectation boundaryExpectation(const motrack::science::MatchTemplate& matchTemplate, const ArgbImage& frame, PixelRect area)
+{
+    const long long originX = area.x - matchTemplate.image.width() / 2;
+    const long long originY = area.y - matchTemplate.image.height() / 2;
+    double minimum = std::numeric_limits<double>::infinity();
+    long long bestX = 0;
+    long long bestY = 0;
+    double sum = 0;
+    for (int x = 0; x < area.width; ++x)
+    {
+        for (int y = 0; y < area.height; ++y)
+        {
+            const double value = bruteDifference(matchTemplate, frame, originX + x, originY + y);
+            sum += value;
+            if (value < minimum)
+            {
+                minimum = value;
+                bestX = originX + x;
+                bestY = originY + y;
+            }
+        }
+    }
+    BoundaryExpectation expected;
+    expected.peakHeight = sum / (static_cast<double>(area.width) * area.height) / minimum - 1;
+    if (!std::isinf(expected.peakHeight))
+    {
+        const auto width = [&](double before, double after)
+        {
+            return std::sqrt(2 * minimum / ((before + after) / 2 - minimum));
+        };
+        const double horizontal =
+            width(bruteDifference(matchTemplate, frame, bestX - 1, bestY), bruteDifference(matchTemplate, frame, bestX + 1, bestY));
+        const double vertical =
+            width(bruteDifference(matchTemplate, frame, bestX, bestY - 1), bruteDifference(matchTemplate, frame, bestX, bestY + 1));
+        expected.peakWidth = 0.5 * (horizontal + vertical);
+        if (!std::isnan(expected.peakWidth) && expected.peakWidth > 1)
+        {
+            expected.peakHeight /= expected.peakWidth;
+        }
+    }
+    return expected;
+}
+
+motrack::science::MatchQuality quality(double peakHeight)
+{
+    MatchResult result;
+    result.status = MatchStatus::Matched;
+    result.peakHeight = peakHeight;
+    return motrack::science::classifyMatch(result);
+}
+
+TEST(TemplateMatcherReference, TrigonometryMatchesHotSpotExceptWhereItIsNotCorrectlyRounded)
+{
+    // Math.tan/sin/cos as getSearchPoints and getMatchLocation call them. java_math is correctly
+    // rounded; HotSpot x86-64 is too except for the recorded arguments.
+    const auto trig = reference()[QStringLiteral("trig")].toObject();
+    const int first = integer(trig[QStringLiteral("first")]);
+    const int last = integer(trig[QStringLiteral("last")]);
+    const double step = number(trig[QStringLiteral("step")]);
+    ASSERT_LT(first, last);
+    std::map<std::pair<int, std::string>, std::pair<std::uint64_t, std::uint64_t>> exceptions;
+    for (const auto& entry : trig[QStringLiteral("not_correctly_rounded")].toArray())
+    {
+        const auto object = entry.toObject();
+        exceptions[{integer(object[QStringLiteral("k")]), text(object[QStringLiteral("function")])}] = {
+            object[QStringLiteral("java")].toString().toULongLong(nullptr, 16),
+            object[QStringLiteral("correct")].toString().toULongLong(nullptr, 16)};
+    }
+    const std::array<std::pair<std::string, double (*)(double) noexcept>, 3> functions = {
+        {{"sin", &motrack::science::java::sin}, {"cos", &motrack::science::java::cos}, {"tan", &motrack::science::java::tan}}};
+    int platformDifferences = 0;
+    for (const auto& [name, function] : functions)
+    {
+        std::vector<ArgbPixel> words;
+        int corrected = 0;
+        for (int k = first; k <= last; ++k)
+        {
+            const double angle = k * step;
+            auto value = std::bit_cast<std::uint64_t>(function(angle));
+            if (const auto exception = exceptions.find({k, name}); exception != exceptions.end())
+            {
+                EXPECT_EQ(value, exception->second.second) << name << " at k = " << k << " is not correctly rounded";
+                value = exception->second.first; // hash HotSpot's value
+                ++corrected;
+            }
+            const double platform = name == "sin" ? std::sin(angle) : name == "cos" ? std::cos(angle) : std::tan(angle);
+            platformDifferences += std::bit_cast<std::uint64_t>(platform) != std::bit_cast<std::uint64_t>(function(angle)) ? 1 : 0;
+            words.push_back(static_cast<ArgbPixel>(value & 0xffffffffU));
+            words.push_back(static_cast<ArgbPixel>(value >> 32U));
+        }
+        EXPECT_EQ(hash(words), text(trig[QStringLiteral("hashes")].toObject()[QString::fromStdString(name)])) << name;
+        std::cout << "[ java_math ] " << name << ": equal to HotSpot for " << (last - first + 1 - corrected) << " of " << (last - first + 1)
+                  << " angles; correctly rounded where HotSpot is not (" << corrected << ")\n";
+    }
+    std::cout << "[ java_math ] this platform's <cmath> differs from java_math for " << platformDifferences << " of "
+              << 3 * (last - first + 1) << " values\n";
+}
+
 // Cases whose MoTrack result deliberately differs from the reference (docs/template-matching.md).
 // Each maps to the independent expectation the test checks instead.
 enum class Difference : std::uint8_t
 {
     None,
-    BoundaryFit,    ///< Best position on the search-area boundary: true neighbors, no extrapolation.
+    BoundaryFit,    ///< Best position on the search-area boundary: true neighbors (position, width, score).
     LineDirection,  ///< 1D offset converted along the line pixels instead of (cos, sin).
     LineTrimmed,    ///< 1D points computed for the adjusted search area.
     LineMissesArea, ///< Java falls back to a 2D search.
@@ -613,11 +751,12 @@ enum class Difference : std::uint8_t
 
 Difference difference(const std::string& id)
 {
-    if (id.starts_with("beyond("))
+    if (id.starts_with("beyond"))
     {
         return Difference::BoundaryFit;
     }
-    if (id == "line(3.141592653589793)" || id == "line(0.3)" || id == "line(2.0)" || id == "line(-0.7853981633974483)")
+    if (id == "line(3.141592653589793)" || id == "line(0.3)" || id == "line(2.0)" || id == "line(-0.7853981633974483)" ||
+        id.starts_with("line-lattice("))
     {
         return Difference::LineDirection;
     }
@@ -639,7 +778,8 @@ Difference difference(const std::string& id)
 TEST(TemplateMatcherReference, SearchesMatchGetMatchLocation)
 {
     std::set<std::string> seen;
-    double javaWildest = 0; // the reference's largest boundary move away from its whole-pixel match
+    double javaWildest = 0;   // the reference's largest boundary move away from its whole-pixel match
+    int changedDecisions = 0; // boundary matches AutoTracker would classify differently
     for (const auto& entry : section("matches"))
     {
         const auto object = entry.toObject();
@@ -704,24 +844,31 @@ TEST(TemplateMatcherReference, SearchesMatchGetMatchLocation)
             break;
         case Difference::BoundaryFit:
         {
-            // Same search, scores and whole-pixel choice; only the fit on the area's boundary differs.
+            // Same search and whole-pixel choice. The fit uses the real neighbors, so the subpixel
+            // position, the peak width and therefore the score (and possibly AutoTracker's decision)
+            // differ from Tracker's; they must equal an independent evaluation.
             ASSERT_TRUE(java.point) << id;
             EXPECT_EQ(actual.searchArea, java.after) << id;
             ASSERT_EQ(actual.status, MatchStatus::Matched) << id;
             EXPECT_TRUE(actual.atSearchEdge) << id;
+            const auto independent = boundaryExpectation(matcher.matchTemplate(), frame, actual.searchArea);
+            EXPECT_NEAR(actual.peakHeight, independent.peakHeight, 1e-9 * std::abs(independent.peakHeight)) << id;
+            EXPECT_TRUE(same(actual.peakWidth, independent.peakWidth) || std::abs(actual.peakWidth - independent.peakWidth) < 1e-9) << id;
+            EXPECT_EQ(motrack::science::classifyMatch(actual), quality(independent.peakHeight)) << id;
+            changedDecisions += quality(java.height) != motrack::science::classifyMatch(actual) ? 1 : 0;
             // MoTrack never moves the match beyond the neighbors of the best searched position.
             EXPECT_LE(std::abs(actual.x - actual.pixel.x), 1.0) << id;
             EXPECT_LE(std::abs(actual.y - actual.pixel.y), 1.0) << id;
             javaWildest = std::max({javaWildest, std::abs(javaPoint[0] - actual.pixel.x), std::abs(javaPoint[1] - actual.pixel.y)});
             std::cout << "[ boundary ] " << label(id, 28) << " MoTrack (" << fixed(actual.x) << ", " << fixed(actual.y) << "), reference ("
                       << fixed(javaPoint[0]) << ", " << fixed(javaPoint[1]) << "), truth (" << fixed(expected[0]) << ", "
-                      << fixed(expected[1]) << ")\n";
+                      << fixed(expected[1]) << "); score " << fixed(actual.peakHeight) << " (reference " << fixed(java.height) << ")\n";
             break;
         }
         case Difference::LineDirection:
         {
             // Identical search and score; the reference moves the subpixel offset along (cos, sin),
-            // MoTrack toward the neighboring line pixel, which lands closer to the truth on the line.
+            // MoTrack along the axis by the 2D peak fit, which lands closer to the truth on the line.
             ASSERT_TRUE(java.point) << id;
             EXPECT_EQ(actual.searchArea, java.after) << id;
             EXPECT_TRUE(same(actual.peakHeight, java.height)) << id;
@@ -761,8 +908,10 @@ TEST(TemplateMatcherReference, SearchesMatchGetMatchLocation)
         }
     }
     EXPECT_TRUE(seen.contains("exact") && seen.contains("uniform") && seen.contains("line(0.0)")) << "fixture lacks core cases";
-    // Evidence for the boundary difference: the reference extrapolates a concave fit by many pixels.
+    // Evidence for the boundary difference: the reference extrapolates a concave fit by many pixels,
+    // and the real neighbors change whether AutoTracker accepts some boundary matches.
     EXPECT_GT(javaWildest, 5.0);
+    EXPECT_GE(changedDecisions, 1);
 }
 
 // The oracle's sequence driver: search around the velocity-predicted center of the latest good matches.

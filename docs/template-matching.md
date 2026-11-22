@@ -63,7 +63,7 @@ C6 will reproduce this protocol on top of the kernel:
 | Pixel inclusion | A pixel of the mask bounds is in the template only when all four corners are inside the translated mask, by `Path2D` containment: the ellipse is Java's four-cubic Bezier approximation, and boundaries are half-open, so whole-pixel rectangles lose their last row and column. Excluded pixels get alpha 0 and are trimmed from the edges (`trimLeft`, `trimTop`). |
 | Score | For each test position, the sum over included pixels of the squared red, green and blue differences (alpha ignored) is computed exactly. The score is `mean/minimum - 1` over all searched positions. The first strict minimum in column-major order wins. A perfect match scores +inf; an area where every position matches perfectly scores 0/0 = NaN. |
 | Search area | Positions are those of the trimmed template's pixel `(w/2, h/2)`. The area's origin is clamped to `[w/2, frame - (w/2 + w%2)]` (moved, not clipped), and its size is cut at the right and bottom so that one more column and row remain for the peak fit. With no room left the result is null, with width and height NaN. |
-| Subpixel peak | `KnownPolynomial.fitData({-1, 0, 1}, ...)` through the best position and its horizontal and vertical neighbors (a least-squares parabola solved by OSP's LUP decomposition, ported operation for operation). The offset is `-c1/(2 c2)`, the width is `sqrt(2 c0/c2)` averaged over both axes, and a NaN offset becomes 0. A width above 1 divides the score. |
+| Subpixel peak | `KnownPolynomial.fitData({-1, 0, 1}, ...)` through the best position and its horizontal and vertical neighbors (a least-squares parabola solved by OSP's LUP decomposition, ported operation for operation). The offset is `-c1/(2 c2)`, the width is `sqrt(2 c0/c2)` averaged over both axes, and a NaN offset becomes 0. A width above 1 divides the score. On the area's boundary MoTrack differs (below). |
 | Evolution | The crop, at alpha `evolve/255`, and then the key-frame original, at alpha `tether/255`, are drawn onto the working image with `AlphaComposite.SRC_OVER`. This uses libawt's IntArgb SrcOver MaskBlit: `extraA = (int)(alpha*255.0+0.5)` from the float alpha, then 8-bit `mul8table`/`div8table` arithmetic. Excluded pixels are cleared and the template is recut. Alphas are recorded unclamped and clamped to 0 to 255; with both 0 nothing changes. |
 | 1D points | `getSearchPoints` intersects the axis with the area's edges. The axis passes through `(x0, y0)` with slope `-tan angle`; it is treated as horizontal below `1e-10` and vertical above `1e10`. The function collects the grid-line crossings in a `TreeMap` (Java `Double` order, where -0.0 is distinct) and returns the truncated midpoints of consecutive crossings, which are the edge-adjacent pixels of the axis in order of increasing x. |
 
@@ -85,19 +85,39 @@ for a worker and evolve it on the owning thread. Frames are owned `ArgbImage` bu
 `0xAARRGGBB` pixels, so the adapter that converts decoded, filtered frames is the only Qt/FFmpeg
 boundary.
 
+## Trigonometry
+
+`getSearchPoints` uses `Math.tan`, and the 1D fit and projection use `Math.cos/sin`. Java only bounds
+these to 1 ulp, and platform libms differ more: Windows UCRT differs from Java for 3 to 4% of angles
+on the oracle's domain. A 1-ulp difference can change which pixels a tilted axis crosses, and so the
+1D score.
+
+MoTrack therefore uses `java::sin/cos/tan` (`src/science/common/java_math.hpp`), which are correctly
+rounded through a double-double evaluation and identical on every platform. Correct rounding was
+chosen over an fdlibm (`StrictMath`) port because it agrees better with HotSpot x86-64, the oracle's
+JVM. Over 40,001 angles in [-pi, pi], HotSpot's intrinsics differ from correct rounding for 36 sines,
+54 cosines and 108 tangents, and from fdlibm for about 1,300 of each.
+
+The oracle records HotSpot's hashes and its non-correctly-rounded arguments. The C++ test proves
+agreement everywhere else, so tilted-axis results match Tracker except where Tracker's JVM is not
+correctly rounded.
+
 ## Deliberate differences and reference defects
 
-Interior matches, every template, every evolution step and every horizontal 1D search equal Tracker's
-bit for bit. MoTrack departs only where the reference is demonstrably wrong:
+Away from the boundary of the search area, every 2D search equals Tracker's bit for bit, as do every
+template and every evolution step. So does every 1D search whose area needs no adjustment, as long as
+its best position is not at either end of the line. MoTrack departs only where the reference is
+demonstrably wrong:
 
 | Case | Tracker 6.3.5 | MoTrack | Tracking |
 | --- | --- | --- | --- |
-| Best position on the search-area boundary | Neighbors come from a copy of the area that has no column on the left or row on top. The left neighbor in the first column wraps to the previous row's end, and the upper neighbor in the first row is NaN. A concave or flat fit is extrapolated without bound: the oracle shows a match moved 9.65 px *away* from a target beyond the right edge. | All four neighbors are scored in the frame (NaN only outside it). The vertex is used only when the parabola opens upward and lies within one pixel; otherwise the axis is not refined. `atSearchEdge` reports such matches. | [MoTrack #216](https://github.com/mgradwohl/MoTrack/issues/216) |
-| 1D subpixel offset | Moved by `offset x (cos, sin)`. Along the axis that is `sign(cos) x cos 2 angle`: reversed for axes pointing left or steeper than 45 degrees, zero at 45 degrees, and NaN is kept. Index units are also uneven along tilted axes. | The along-axis component of the 2D peak fit. It is identical for horizontal axes. On tilted and reversed axes, errors on the line are 0.01 to 0.05 px, against Tracker's 0.13 to 0.69 px. | [MoTrack #217](https://github.com/mgradwohl/MoTrack/issues/217) |
+| Best position on the search-area boundary | Neighbors come from a copy of the area that has no column on the left or row on top. In the first column the left neighbor wraps to the previous row's end, and in the first row the upper neighbor is NaN, which drops that axis from the peak width. A concave or flat fit is extrapolated without bound: the oracle shows a match moved 9.65 px *away* from a target beyond the right edge. | All four neighbors are scored in the frame (NaN only outside it). The vertex is used only when the parabola opens upward, and is limited to ±1 px. Because the width now comes from real neighbors, **scores, and with them AutoTracker's good/possible/none decision, also differ at the top and left edges**. In the oracle a match Tracker accepts at 4.06 scores 2.30 (possible); others move from possible to none, or the reverse. These scores equal an independent brute-force evaluation. `atSearchEdge` flags such matches. | [MoTrack #216](https://github.com/mgradwohl/MoTrack/issues/216) |
+| 1D subpixel offset | Moved by `offset x (cos, sin)` in point-index units. For axes that are not treated as vertical, the move along the axis is `sign(cos) x cos 2 angle`: reversed for axes pointing left or steeper than 45 degrees, and zero at 45 degrees. Of the exactly vertical axes, +90 degrees is correct and -90 degrees reversed. A NaN offset is kept. | The along-axis component of the 2D peak fit. Scores keep Tracker's line-fit width. On tilted, reversed and lattice-aligned axes the errors on the line are 0.01 to 0.05 px, against Tracker's 0.13 to 0.69 px. | [MoTrack #217](https://github.com/mgradwohl/MoTrack/issues/217) |
 | 1D near image edges | Points are computed for the unadjusted rectangle and read against the adjusted one, so a shifted parallel line is searched. | Points are computed for the searched area. | #217 |
 | 1D axis misses the area | `getSearchPoints` returns null, and `getMatchLocation` silently searches the whole area in 2D. | `NoSearchPoints`. | #217 |
 | 1D with no point inside the area | `ArrayIndexOutOfBoundsException`; an empty rectangle throws `NegativeArraySizeException`. | `NoSearchPoints`; an empty point list. | #217 |
-| Match preview | `refreshMatchImage` cuts the preview at `match + (1, 1)` instead of the trim offset. Whole-pixel rectangle masks (trim 0) preview pixels one row and column off. This is display only. | Not built by the kernel. C6 must cut previews at the trim offset. | [MoTrack #218](https://github.com/mgradwohl/MoTrack/issues/218) (with #71 / Tracker #24) |
+| 1D best position at a line end | Falls back to the 2D fit with Tracker's boundary neighbors. | The boundary fit above, kept along the axis. | #216, #217 |
+| Match preview | `refreshMatchImage` cuts the preview at `match + (1, 1)` instead of the trim offset, so whole-pixel rectangle masks (trim 0) preview pixels one row and column off. This is display only. | Not built by the kernel. C6 must cut previews at the trim offset. | [MoTrack #218](https://github.com/mgradwohl/MoTrack/issues/218) (with #71 / Tracker #24) |
 | Mask with no included pixel | A 1 x 1 transparent template that scores NaN everywhere. AutoTracker's minimum mask size makes this unreachable. | `TemplateMatcher::create` refuses it, as it refuses masks above 2^22 bounds pixels. | Defensive. |
 
 None of these has an upstream report (searched 2026-11-21). They are recorded in the
@@ -105,44 +125,33 @@ None of these has an upstream report (searched 2026-11-21). They are recorded in
 quirks are kept for compatibility because neither misplaces a match. At 100%, evolution blends 254/255
 of the new crop. NaN scores, from uniform areas, count as possible matches.
 
+`TemplateMatcher::create` runs synchronously and cannot be cancelled. It runs one recursive Path2D
+containment test per pixel corner, about 10^4 for AutoTracker's largest (99 x 99) mask. C6 must
+enforce the wizard's mask limit (`TRACKER_MAX_MASK_SIZE`) on user input.
+
 ## Verification
 
 `tools/reference/MatchOracle.java` runs the pinned `TemplateMatcher` headless on deterministic synthetic
 scenes. Each scene is an opaque textured, optionally spinning, growing and recoloring disc with a known
 subpixel trajectory over a static cluttered background, with seeded noise and an optional occluder.
-Rendering uses only integer arithmetic and IEEE `+ - * /`, `floor` and `abs`. The C++ tests re-render
-every frame and check its hash, so the generator itself is cross-checked. `python tools/corpus.py
-match-oracle --java ...` regenerates and diffs `tests/science/match-reference.json` (`--record` replaces
-it for review). CI runs the check on Linux. Comparisons are exact, except for 1D positions, which
-depend on `Math.tan/cos/sin` and are allowed 1e-9 px.
+Scenes use only integer arithmetic and IEEE `+ - * /`, `floor` and `abs`, so the C++ tests re-render
+every frame and check its hash.
 
-| Fixture section | Cases | Result |
-| --- | --- | --- |
-| `composite` | Every alpha 1 to 255 over all 65,536 channel pairs, opaque and translucent | Bit-identical to Java2D. |
-| `masks` | 14 ellipse/rectangle frames: whole-pixel, fractional, AutoTracker default, minimum, tiny, empty, elongated, negative, far, maximum | Containment on a quarter-pixel grid, trims, templates and working images bit-identical; the empty mask is a documented difference. |
-| `evolution` | Ten `buildTemplate` steps: defaults, extremes, both-zero no-op, negative and clamped alphas, crops beyond the frame | Templates, working images and alphas bit-identical. |
-| `search_points` | 18 axes: horizontal, reversed, vertical, near-vertical, diagonal through corners, missing, negative rectangles, empty rectangles | Identical; the empty rectangle is a documented difference. |
-| `matches` | Exact, outside, partly outside, oversized, uniform, template larger than frame, 1-pixel template, six subpixel shifts, six beyond-the-edge targets, even rectangle, evolved, low contrast, six 1D axes, 1D edge and failure cases | Non-defect cases are bit-identical. Fixed-template shifts are within 0.15 px of the truth. |
-| `sequences` | 12 tracked runs: clean, noisy, occluded, low contrast, evolving appearance with and without evolution, fast, rectangle mask, leaving the frame, tilted and horizontal 1D | Every step equals Java except the documented boundary fits and the tilted 1D run. Every accepted match is within the declared tolerance of the true path. |
+`python tools/corpus.py match-oracle --java ...` regenerates and diffs
+`tests/science/match-reference.json` (`--record` replaces it for review), and CI runs it on Linux. The
+fixture covers:
+- Java2D blending for every alpha;
+- 14 masks;
+- the evolution steps;
+- 21 line-point cases;
+- 39 searches (subpixel shifts, boundary targets, and 1D axes including lattice-aligned ones);
+- 12 tracked sequences;
+- `Math.sin/cos/tan`.
 
-Independent accuracy (worst accepted match against the true center, from the C++ test output):
-
-| Sequence | Good matches | Worst error | Declared |
-| --- | --- | --- | --- |
-| clean, fixed template | 30/30 | 0.09 px | 0.15 |
-| clean, 20% evolution / 5% tether | 30/30 | 0.33 px | 0.40 |
-| noisy (+/-12 levels) | 30/30 | 0.34 px | 0.40 |
-| occlusion (frames 6 to 9 covered) | 20/24 | 0.18 px | 0.30 |
-| low contrast | 19/25 | 0.33 px | 0.50 |
-| evolving appearance, with evolution / fixed template | 17/30 / 7/30 | 0.61 / 0.06 px | 0.75 / 0.15 |
-| fast (2.65, 1.9 px/frame) | 24/24 | 0.52 px | 0.60 |
-| tilted 1D axis (MoTrack / Tracker) | 30/30 | 0.08 / 0.30 px | 0.30 |
-
-Evolution drifts by design: each step blends a crop taken at the *rounded* match position. That is why
-evolving runs are less accurate than fixed templates on stable targets, and more robust when the
-appearance changes (17 against 7 accepted frames). The 2D unit tests cover the API contracts:
-construction and refusal, evolution arithmetic, search-area adjustment, NaN and infinite scores,
-classification, cancellation, concurrent searches, line points and projection.
+The C++ tests require bit-identical results outside the differences above, and accepted matches within
+each sequence's declared tolerance of the true path. Fixed-template shifts are within 0.15 px, and
+sequences within 0.09 to 0.61 px. Evolving templates drift by design: each step blends a crop taken at
+the *rounded* match position.
 
 ## Remaining work for C6
 

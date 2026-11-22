@@ -1,5 +1,6 @@
 #include "science/matching/template_matcher.hpp"
 
+#include "science/common/java_math.hpp"
 #include "science/matching/matching_internal.hpp"
 
 #include <algorithm>
@@ -170,14 +171,14 @@ struct PeakFit
 };
 
 // The vertex offset -c1 / (2 c2) of a parabola fitted through a position and its two neighbors. Java
-// only replaces NaN by 0. MoTrack also uses 0 unless the parabola opens upward and its vertex lies
-// within the neighbors: otherwise the "peak" is a maximum or an extrapolation beyond the sampled
-// positions, which Tracker reports unbounded (even infinite) at the edge of a search area. For a best
-// position that is a local minimum both conditions always hold, so interior matches equal Tracker's.
+// only replaces NaN by 0. MoTrack also uses 0 when the parabola does not open upward (its "peak" is a
+// maximum) and limits the vertex to the sampled neighbors (+/-1 pixel): Tracker extrapolates without
+// bound, even to infinity, at the edge of a search area. For a best position that is a local minimum
+// the vertex already lies within +/-0.5, so interior matches equal Tracker's.
 double vertexOffset(const matching_detail::Parabola& parabola)
 {
     const double offset = -parabola.c1 / (2 * parabola.c2);
-    return std::isnan(offset) || !(parabola.c2 > 0) || std::abs(offset) > 1 ? 0.0 : offset;
+    return std::isnan(offset) || !(parabola.c2 > 0) ? 0.0 : std::clamp(offset, -1.0, 1.0);
 }
 
 // The two-dimensional branch of getMatchLocation's subpixel fit around the best test position, whose
@@ -283,7 +284,8 @@ std::optional<TemplateMatcher> TemplateMatcher::create(const ArgbImage& frame, c
     auto included = maskPixels(mask);
     // Tracker trims the template to the opaque pixels. Included pixels stay opaque through every build
     // (SrcOver onto an opaque pixel is opaque) and excluded ones are cleared, so the trim is the bounding
-    // box of the included pixels. Java fails for a mask that includes nothing; MoTrack refuses it.
+    // box of the included pixels. For a mask that includes nothing Java keeps a 1 x 1 transparent
+    // template that scores NaN everywhere; MoTrack refuses the mask.
     int minX = bounds->width;
     int minY = bounds->height;
     int maxX = -1;
@@ -515,8 +517,8 @@ MatchResult findMatchAlongLine(
             const auto parabola = fitParabola(score((*points)[*best - 1]), minimum, score((*points)[*best + 1]));
             fit.width = std::sqrt(2 * parabola.c0 / parabola.c2);
         }
-        const double ux = std::cos(line.angle);
-        const double uy = -std::sin(line.angle);
+        const double ux = java::cos(line.angle);
+        const double uy = -java::sin(line.angle);
         const double along = planar.dx * ux + planar.dy * uy;
         fit.dx = along * ux;
         fit.dy = along * uy;
@@ -532,10 +534,10 @@ std::array<double, 2> projectOntoLine(const SearchLine& line, double x, double y
     // the axis, then a perpendicular move by that distance.
     const double x0 = line.x0;
     const double y0 = line.y0;
-    const double x1 = x0 + std::cos(line.angle);
-    const double y1 = y0 - std::sin(line.angle);
+    const double x1 = x0 + java::cos(line.angle);
+    const double y1 = y0 - java::sin(line.angle);
     const double distance = ((y1 - y0) * x - (x1 - x0) * y + x1 * y0 - x0 * y1) / std::sqrt((y1 - y0) * (y1 - y0) + (x1 - x0) * (x1 - x0));
-    return {x + distance * std::sin(line.angle), y + distance * std::cos(line.angle)};
+    return {x + distance * java::sin(line.angle), y + distance * java::cos(line.angle)};
 }
 
 MatchQuality classifyMatch(const MatchResult& result, int goodMatch, int possibleMatch) noexcept

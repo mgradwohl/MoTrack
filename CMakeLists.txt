@@ -121,12 +121,17 @@ if(MOTRACK_BUILD_BENCHMARKS)
     list(APPEND motrack_targets motrack_import_benchmark)
 endif()
 
+# Correctly rounded Math.sin/cos/tan, identical on every platform (src/science/common/java_math.hpp).
+add_library(motrack_java_math STATIC src/science/common/java_math.cpp)
+target_include_directories(motrack_java_math PUBLIC src)
+target_compile_options(motrack_java_math PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
 # Qt-free port of OSP's TemplateMatcher behind Tracker's AutoTracker (docs/template-matching.md).
 add_library(motrack_matching STATIC src/science/matching/template_matcher.cpp src/science/matching/java_geometry.cpp
     src/science/matching/java_numerics.cpp)
 target_include_directories(motrack_matching PUBLIC src)
+target_link_libraries(motrack_matching PRIVATE motrack_java_math)
 target_compile_options(motrack_matching PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
-list(APPEND motrack_targets motrack_matching)
+list(APPEND motrack_targets motrack_java_math motrack_matching)
 
 foreach(target IN LISTS motrack_targets)
     if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
@@ -218,7 +223,7 @@ if(BUILD_TESTING)
     add_test(NAME video_reader COMMAND motrack_media_tests)
     # The matching kernel's tests read the Java oracle fixture with Qt Core's JSON support only.
     add_executable(motrack_matching_tests tests/science/template_matcher_test.cpp tests/science/template_matcher_reference_test.cpp)
-    target_link_libraries(motrack_matching_tests PRIVATE motrack_matching GTest::gtest_main Qt6::Core)
+    target_link_libraries(motrack_matching_tests PRIVATE motrack_matching motrack_java_math GTest::gtest_main Qt6::Core)
     target_compile_definitions(motrack_matching_tests PRIVATE
         MOTRACK_MATCH_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/match-reference.json")
     # The synthetic frame generator must round like tools/reference/MatchOracle.java.

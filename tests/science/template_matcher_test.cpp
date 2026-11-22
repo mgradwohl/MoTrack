@@ -4,6 +4,7 @@
 
 #include "science/matching/template_matcher.hpp"
 
+#include "science/common/java_math.hpp"
 #include "science/matching/matching_internal.hpp"
 
 #include <gtest/gtest.h>
@@ -201,6 +202,43 @@ TEST(TemplateMatcher, AlphaTablesAndSrcOverFollowLibawt)
     EXPECT_EQ(detail::srcOver(0xffff0000U, 0xff0000ffU, 128) >> 24U, 0xffU);
     // A translucent result divides by its alpha.
     EXPECT_EQ(detail::srcOver(0xffff0000U, 0x00000000U, 128), 0x80ff0000U);
+}
+
+TEST(TemplateMatcher, JavaTrigonometryIsCorrectlyRoundedAndPlatformIndependent)
+{
+    namespace java = motrack::science::java;
+    // Values Java's Math returns (HotSpot x86-64; correctly rounded for these arguments).
+    EXPECT_EQ(java::tan(std::numbers::pi / 4), 0.9999999999999999);
+    EXPECT_EQ(java::tan(-std::numbers::pi / 4), -0.9999999999999999);
+    EXPECT_EQ(java::tan(std::numbers::pi / 2), 1.633123935319537E16);
+    EXPECT_EQ(java::tan(std::numbers::pi), -1.2246467991473532E-16);
+    EXPECT_EQ(java::tan(0.3), 0.30933624960962325);
+    EXPECT_EQ(java::tan(2.0), -2.185039863261519);
+    EXPECT_EQ(java::tan(-1.0), -1.5574077246549023);
+    EXPECT_EQ(java::sin(std::numbers::pi), 1.2246467991473532E-16);
+    EXPECT_EQ(java::cos(std::numbers::pi / 2), 6.123233995736766E-17);
+    EXPECT_EQ(java::cos(std::numbers::pi), -1.0);
+    EXPECT_EQ(java::sin(-std::numbers::pi / 2), -1.0);
+    EXPECT_EQ(java::tan(1e-11), 1e-11);
+    // Signed zeros, non-finite and far arguments follow <cmath>.
+    EXPECT_TRUE(std::signbit(java::sin(-0.0)));
+    EXPECT_TRUE(std::signbit(java::tan(-0.0)));
+    EXPECT_EQ(java::cos(0.0), 1.0);
+    EXPECT_TRUE(std::isnan(java::sin(NOT_A_NUMBER)));
+    EXPECT_TRUE(std::isnan(java::cos(INFINITE)));
+    EXPECT_TRUE(std::isnan(java::tan(-INFINITE)));
+    EXPECT_EQ(java::sin(1e300), std::sin(1e300));
+    EXPECT_EQ(java::cos(-1e300), std::cos(-1e300));
+    EXPECT_EQ(java::tan(3e7), std::tan(3e7));
+    // Every quadrant: sin^2 + cos^2 = 1 and tan = sin / cos to rounding.
+    for (const double angle : {0.7, 2.4, -2.4, -0.7, 4.0, -4.0, 1000.25})
+    {
+        const double s = java::sin(angle);
+        const double c = java::cos(angle);
+        EXPECT_NEAR(s * s + c * c, 1.0, 1e-15) << angle;
+        EXPECT_NEAR(java::tan(angle), s / c, 4e-16 * std::abs(s / c)) << angle;
+        EXPECT_NEAR(s, std::sin(angle), 2e-16) << angle;
+    }
 }
 
 TEST(TemplateMatcher, ParabolaFitsThreeEquallySpacedPoints)

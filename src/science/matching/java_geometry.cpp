@@ -1,3 +1,4 @@
+#include "science/common/java_math.hpp"
 #include "science/matching/matching_internal.hpp"
 #include "science/matching/template_matcher.hpp"
 
@@ -327,20 +328,29 @@ std::vector<std::uint8_t> maskPixels(const MatchMask& mask)
         return {};
     }
     const PixelPoint origin{.x = bounds->x, .y = bounds->y};
-    std::vector<std::uint8_t> included(static_cast<std::size_t>(bounds->width) * static_cast<std::size_t>(bounds->height));
-    std::size_t index = 0;
-    for (int y = 0; y < bounds->height; ++y)
+    // TemplateMatcher tests the four corners of every pixel. Containment has no side effects, so each
+    // of the (width + 1) x (height + 1) shared corners is tested once instead.
+    const auto columns = static_cast<std::size_t>(bounds->width) + 1;
+    std::vector<std::uint8_t> corners(columns * (static_cast<std::size_t>(bounds->height) + 1));
+    for (int y = 0; y <= bounds->height; ++y)
     {
-        for (int x = 0; x < bounds->width; ++x)
+        for (int x = 0; x <= bounds->width; ++x)
         {
-            bool inside = true;
-            for (int j = 0; j < 2; ++j)
-            {
-                for (int k = 0; k < 2; ++k)
-                {
-                    inside = inside && matching_detail::maskContains(mask, origin, x + j, y + k);
-                }
-            }
+            corners[static_cast<std::size_t>(y) * columns + static_cast<std::size_t>(x)] =
+                matching_detail::maskContains(mask, origin, x, y) ? 1 : 0;
+        }
+    }
+    const auto width = static_cast<std::size_t>(bounds->width);
+    const auto height = static_cast<std::size_t>(bounds->height);
+    std::vector<std::uint8_t> included(width * height);
+    std::size_t index = 0;
+    for (std::size_t y = 0; y < height; ++y)
+    {
+        for (std::size_t x = 0; x < width; ++x)
+        {
+            const std::size_t corner = y * columns + x;
+            const bool inside =
+                corners[corner] != 0 && corners[corner + 1] != 0 && corners[corner + columns] != 0 && corners[corner + columns + 1] != 0;
             included[index++] = inside ? 1 : 0;
         }
     }
@@ -356,7 +366,8 @@ std::optional<std::vector<PixelPoint>> lineSearchPoints(PixelRect searchArea, co
     const double bottom = static_cast<double>(searchArea.y) + searchArea.height;
     const double x0 = searchLine.x0;
     const double y0 = searchLine.y0;
-    const double slope = -std::tan(searchLine.angle);
+    // Math.tan, correctly rounded on every platform (science/common/java_math.hpp).
+    const double slope = -java::tan(searchLine.angle);
     Line line{.x1 = x0, .y1 = y0, .x2 = x0 + 1, .y2 = y0 + slope};
     if (std::abs(slope) > LARGE_NUMBER)
     {

@@ -130,6 +130,10 @@ class TemplateMatcher
     /// `AutoTracker.createTemplateMatcher`: crops the mask bounds from `frame` (black where they leave
     /// the frame) and builds the template from it at full opacity. Nothing when the bounds are empty,
     /// unrepresentable or too large, or when the mask includes no pixel.
+    ///
+    /// Runs synchronously without cancellation: one recursive Path2D containment test per pixel corner,
+    /// about 10^4 for AutoTracker's largest (99 x 99) mask. Callers that accept masks from users (C6)
+    /// must enforce that wizard limit (TRACKER_MAX_MASK_SIZE) rather than rely on MAX_TEMPLATE_PIXELS.
     [[nodiscard]] static std::optional<TemplateMatcher> create(const ArgbImage& frame, const MatchMask& mask);
 
     [[nodiscard]] const MatchMask& mask() const noexcept;

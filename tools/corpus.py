@@ -253,8 +253,16 @@ def validate_match_reference(document, manifest):
     if (not isinstance(document, dict) or document.get("schema_version") != 1
             or document.get("reference_version") != manifest["reference"]["version"]):
         raise ValueError("Unexpected template-matching oracle schema or reference version")
-    if set(document) != {"schema_version", "reference_version", "evolution", *MATCH_LISTS}:
+    if set(document) != {"schema_version", "reference_version", "evolution", "trig", *MATCH_LISTS}:
         raise ValueError("Unexpected template-matching oracle sections")
+    trig = document["trig"]
+    if (not isinstance(trig, dict) or not isinstance(trig.get("hashes"), dict)
+            or set(trig["hashes"]) != {"sin", "cos", "tan"}
+            or not all(isinstance(value, str) and MATCH_HASH.fullmatch(value) for value in trig["hashes"].values())
+            or not isinstance(trig.get("not_correctly_rounded"), list)
+            or any(not isinstance(entry, dict) or entry.get("function") not in {"sin", "cos", "tan"}
+                   or type(entry.get("k")) is not int for entry in trig["not_correctly_rounded"])):
+        raise ValueError("Invalid Math.sin/cos/tan oracle section")
     for section in MATCH_LISTS:
         entries = document[section]
         if (not isinstance(entries, list) or not entries or len(entries) > MAX_MATCH_ENTRIES
@@ -329,6 +337,7 @@ def check_match_oracle(manifest, cache, java, *, record=False):
     expected = json.loads(MATCH_REFERENCE.read_text(encoding="utf-8"))
     validate_match_reference(expected, manifest)
     compare(expected["evolution"], actual["evolution"], MATCH_EXACT, "match-reference.evolution")
+    compare(expected["trig"], actual["trig"], MATCH_EXACT, "match-reference.trig")
     for section in MATCH_LISTS:
         if len(expected[section]) != len(actual[section]):
             raise ValueError(f"match-reference.{section}: the Java case list differs from the fixture")
