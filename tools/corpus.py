@@ -26,6 +26,22 @@ ROOT = Path(__file__).resolve().parents[1]
 CORPUS = ROOT / "tests/corpus"
 MAX_XML_BYTES = 32 * 1024 * 1024
 
+# Commands that check the reference corpus; kernel oracles register themselves below with @kernel_oracle.
+CORPUS_COMMANDS = ["fetch", "verify", "reference", "check", "session", "roundtrip"]
+# Kernel oracle commands -> the name of their check function. Each oracle is defined as
+# `check_<x>_oracle(manifest, cache, java, *, record=False)` and registered where it is defined, so a new
+# kernel adds no lines to main().
+KERNEL_ORACLES = {}
+
+
+def kernel_oracle(command):
+    def register(function):
+        if command in KERNEL_ORACLES or command in CORPUS_COMMANDS:
+            raise ValueError(f"Duplicate corpus command {command}")
+        KERNEL_ORACLES[command] = function.__name__
+        return function
+    return register
+
 
 def load_manifest(path=CORPUS / "manifest.json"):
     manifest = json.loads(path.read_text(encoding="utf-8"))
@@ -244,6 +260,115 @@ def run(command, *, display=None):
                             timeout=45, env=environment)
     if result.returncode:
         raise ValueError(f"Probe failed ({result.returncode}):\n{(result.stdout + result.stderr)[-5000:]}")
+
+
+MATCH_REFERENCE = ROOT / "tests/science/match-reference.json"
+MATCH_LISTS = ("composite", "masks", "search_points", "matches", "sequences")
+MATCH_EXACT = {"relative": 0.0, "absolute": 0.0}
+# One-dimensional cases build the line with Math.tan and convert the subpixel offset with Math.cos and
+# Math.sin, which Java specifies only to within 1 ulp; positions derived from them get this slack.
+MATCH_TRIG_TOLERANCE = {"relative": 0.0, "absolute": 1e-9}
+MAX_MATCH_ENTRIES = 1000
+MATCH_HASH = re.compile(r"[0-9a-f]{16}")
+
+
+def validate_match_reference(document, manifest):
+    """Check the template-matching oracle schema before comparing or recording it."""
+    if (not isinstance(document, dict) or document.get("schema_version") != 1
+            or document.get("reference_version") != manifest["reference"]["version"]):
+        raise ValueError("Unexpected template-matching oracle schema or reference version")
+    if set(document) != {"schema_version", "reference_version", "evolution", "trig", *MATCH_LISTS}:
+        raise ValueError("Unexpected template-matching oracle sections")
+    trig = document["trig"]
+    if (not isinstance(trig, dict) or not isinstance(trig.get("hashes"), dict)
+            or set(trig["hashes"]) != {"sin", "cos", "tan"}
+            or not all(isinstance(value, str) and MATCH_HASH.fullmatch(value) for value in trig["hashes"].values())
+            or not isinstance(trig.get("not_correctly_rounded"), list)
+            or any(not isinstance(entry, dict) or entry.get("function") not in {"sin", "cos", "tan"}
+                   or type(entry.get("k")) is not int for entry in trig["not_correctly_rounded"])):
+        raise ValueError("Invalid Math.sin/cos/tan oracle section")
+    for section in MATCH_LISTS:
+        entries = document[section]
+        if (not isinstance(entries, list) or not entries or len(entries) > MAX_MATCH_ENTRIES
+                or not all(isinstance(entry, dict) for entry in entries)):
+            raise ValueError(f"Invalid template-matching oracle section {section}")
+    composite = document["composite"]
+    if ([entry.get("alpha") for entry in composite] != list(range(1, 256))
+            or not all(isinstance(entry.get(key), str) and MATCH_HASH.fullmatch(entry[key])
+                       for entry in composite for key in ("opaque", "translucent"))):
+        raise ValueError("The compositing oracle must hash every alpha from 1 to 255")
+    for section in ("masks", "matches", "sequences"):
+        ids = [entry.get("id") for entry in document[section]]
+        if not all(isinstance(value, str) for value in ids) or len(set(ids)) != len(ids):
+            raise ValueError(f"Missing or duplicate template-matching oracle id in {section}")
+    if any(not isinstance(case.get("result"), dict) for case in document["matches"]):
+        raise ValueError("Every template-matching oracle case needs a result")
+    evolution = document["evolution"]
+    if not isinstance(evolution, dict) or not isinstance(evolution.get("steps"), list) or not evolution["steps"]:
+        raise ValueError("Invalid template-evolution oracle case")
+    for sequence in document["sequences"]:
+        steps = sequence.get("steps")
+        if (type(sequence.get("frames")) is not int or not isinstance(steps, list)
+                or [step.get("k") if isinstance(step, dict) else None for step in steps] != list(range(sequence["frames"]))):
+            raise ValueError(f"Template-matching sequence {sequence['id']!r} must record every frame")
+
+
+def match_reference_text(document):
+    """Render the fixture with one case per line so that review diffs stay readable."""
+    compact = {"separators": (",", ":"), "ensure_ascii": False}
+    lines = ["{"]
+    keys = list(document)
+    for index, key in enumerate(keys):
+        separator = "," if index + 1 < len(keys) else ""
+        value = document[key]
+        if key in MATCH_LISTS:
+            lines.append(f"  {json.dumps(key)}: [")
+            lines.extend(f"    {json.dumps(entry, **compact)}{',' if position + 1 < len(value) else ''}"
+                         for position, entry in enumerate(value))
+            lines.append(f"  ]{separator}")
+        else:
+            lines.append(f"  {json.dumps(key)}: {json.dumps(value, **compact)}{separator}")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def match_tolerance(section, entry):
+    one_dimensional = (section == "matches" and entry.get("line") is not None) or (
+        section == "sequences" and entry.get("angle") is not None)
+    return MATCH_TRIG_TOLERANCE if one_dimensional else MATCH_EXACT
+
+
+@kernel_oracle("match-oracle")
+def check_match_oracle(manifest, cache, java, *, record=False):
+    """Run the pinned TemplateMatcher on the synthetic template-matching scenes and diff the fixture."""
+    verify_file(cache / manifest["reference"]["file"], manifest["reference"])
+    # A private home keeps OSP preference files out of the shared reference cache.
+    with tempfile.TemporaryDirectory(prefix="match-oracle-") as temporary:
+        home = Path(temporary) / "home"
+        home.mkdir()
+        output = Path(temporary) / "match-java.json"
+        run([java, "-Djava.awt.headless=true", f"-Duser.home={home}", f"-Djava.io.tmpdir={home}",
+             "-Xmx256m", "--class-path", java_classpath(manifest, cache),
+             str(ROOT / "tools/reference/MatchOracle.java"), str(output)])
+        actual = json.loads(output.read_text(encoding="utf-8"))
+    validate_match_reference(actual, manifest)
+    location = MATCH_REFERENCE.relative_to(ROOT).as_posix() if MATCH_REFERENCE.is_relative_to(ROOT) else str(MATCH_REFERENCE)
+    count = sum(len(actual[section]) for section in MATCH_LISTS) + 1
+    if record:
+        MATCH_REFERENCE.parent.mkdir(parents=True, exist_ok=True)
+        MATCH_REFERENCE.write_text(match_reference_text(actual), encoding="utf-8", newline="\n")
+        print(f"match-oracle: recorded {count} Java template-matching cases in {location}")
+        return
+    expected = json.loads(MATCH_REFERENCE.read_text(encoding="utf-8"))
+    validate_match_reference(expected, manifest)
+    compare(expected["evolution"], actual["evolution"], MATCH_EXACT, "match-reference.evolution")
+    compare(expected["trig"], actual["trig"], MATCH_EXACT, "match-reference.trig")
+    for section in MATCH_LISTS:
+        if len(expected[section]) != len(actual[section]):
+            raise ValueError(f"match-reference.{section}: the Java case list differs from the fixture")
+        for index, (want, got) in enumerate(zip(expected[section], actual[section])):
+            compare(want, got, match_tolerance(section, want), f"match-reference.{section}[{index}]")
+    print(f"match-oracle: {count} Java template-matching cases match {location}")
 
 
 def session_file_diagnostic(path):
@@ -2937,6 +3062,7 @@ def compare_expression_reference(expected, actual):
             compare_expression_values(evaluation, got["evaluations"][index], want["compare"], ulps, f"{location}[{index}]")
 
 
+@kernel_oracle("expression-oracle")
 def check_expression_oracle(manifest, cache, java, record=False):
     """Regenerates the expression kernel oracle with the pinned Tracker JAR and diffs it with the fixture."""
     verify_file(cache / manifest["reference"]["file"], manifest["reference"])
@@ -3016,6 +3142,7 @@ def ode_reference_text(document):
     return "\n".join(lines) + "\n"
 
 
+@kernel_oracle("ode-oracle")
 def check_ode_oracle(manifest, cache, java, *, record=False):
     """Integrate the ODE kernel test systems with the pinned OSP solvers and diff the fixture."""
     verify_file(cache / manifest["reference"]["file"], manifest["reference"])
@@ -3052,16 +3179,144 @@ def compare_ode_reference(expected, actual):
         compare(want, got, ode_case_tolerance(want, adaptive), f"ode-reference.{want['id']}")
 
 
+SAMPLING_REFERENCE = ROOT / "tests/science/sampling-reference.json"
+SAMPLING_FRAME_KINDS = {"noise", "bright", "sparse", "gradient", "checker", "edge", "vedge", "band", "white"}
+SAMPLING_SHAPES = {"ellipse", "rectangle", "polygon"}
+SAMPLING_REGION_COLUMNS = ["R", "G", "B", "luma", "pixels", "Rsd", "Gsd", "Bsd"]
+SAMPLING_PROFILE_COLUMNS = ["x", "y", "R", "G", "B", "luma", "pixels", "n"]
+# The same agreement classes as tests/science/sampling_reference_test.cpp. Region statistics and
+# horizontal profiles are integer sums and IEEE arithmetic, identical on every JVM. Tilted probes
+# start from Math.atan2/cos/sin, whose last bit may differ between HotSpot intrinsics and CPUs.
+SAMPLING_EXACT = {"relative": 0.0, "absolute": 0.0}
+SAMPLING_TILTED_TOLERANCE = {"relative": 0.0, "absolute": 1e-9}
+SAMPLING_HORIZONTAL_SINE = 1e-5
+MAX_SAMPLING_CASES = 500
+
+
+def sampling_profile_is_tilted(case):
+    """LineProfileStep.getProfileData's choice between its horizontal and tilted algorithms."""
+    return not case["always_horizontal"] and abs(math.sin(case["axis_angle"])) >= SAMPLING_HORIZONTAL_SINE
+
+
+def _sampling_numeric(value):
+    return (type(value) in {int, float} and math.isfinite(value)) or value == "NaN"
+
+
+def _sampling_point(value):
+    return isinstance(value, list) and len(value) == 2 and all(type(v) in {int, float} and math.isfinite(v) for v in value)
+
+
+def _valid_sampling_region(case, frame_ids):
+    result, vertices = case.get("result"), case.get("vertices")
+    return (isinstance(case.get("id"), str) and case.get("frame") in frame_ids and case.get("shape") in SAMPLING_SHAPES
+            and _sampling_point(case.get("position"))
+            and isinstance(case.get("size"), list) and len(case["size"]) == 2 and all(type(v) is int for v in case["size"])
+            and (vertices is None) == (case["shape"] != "polygon")
+            and (vertices is None or (isinstance(vertices, list) and all(_sampling_point(v) for v in vertices)))
+            and isinstance(case.get("bounds"), list) and len(case["bounds"]) == 4 and all(type(v) is int for v in case["bounds"])
+            and type(case.get("mask_pixels")) is int and re.fullmatch(r"[0-9a-f]{16}", str(case.get("mask_fnv1a64"))) is not None
+            and (result is None or (isinstance(result, dict) and list(result) == SAMPLING_REGION_COLUMNS
+                                    and all(_sampling_numeric(v) for v in result.values()))))
+
+
+def _valid_sampling_profile(case, frame_ids):
+    result, ends = case.get("result"), case.get("ends")
+    columns = list(result.values()) if isinstance(result, dict) else []
+    return (isinstance(case.get("id"), str) and case.get("frame") in frame_ids
+            and type(case.get("always_horizontal")) is bool and type(case.get("axis_angle")) in {int, float}
+            and isinstance(ends, list) and len(ends) == 2 and all(_sampling_point(end) for end in ends)
+            and type(case.get("spread")) is int and 0 <= case["spread"] <= 100
+            and (result is None or (isinstance(result, dict) and list(result) == SAMPLING_PROFILE_COLUMNS
+                                    and all(isinstance(column, list) and all(_sampling_numeric(v) for v in column) for column in columns)
+                                    and len({len(column) for column in columns}) == 1)))
+
+
+def validate_sampling_reference(document, manifest):
+    """Check the sampling oracle schema before comparing or recording it."""
+    if (not isinstance(document, dict) or document.get("schema_version") != 1
+            or document.get("reference_version") != manifest["reference"]["version"]):
+        raise ValueError("Unexpected sampling oracle schema or reference version")
+    frames, regions, profiles = document.get("frames"), document.get("regions"), document.get("profiles")
+    if (not isinstance(frames, list) or not isinstance(regions, list) or not isinstance(profiles, list)
+            or not frames or not regions or not profiles or len(regions) + len(profiles) > MAX_SAMPLING_CASES
+            or not isinstance(document.get("tracker"), dict)):
+        raise ValueError("Invalid sampling oracle frame, region or profile list")
+    frame_ids = set()
+    for frame in frames:
+        if (not isinstance(frame, dict) or frame.get("id") in frame_ids or frame.get("kind") not in SAMPLING_FRAME_KINDS
+                or any(type(frame.get(key)) is not int or not 0 < frame[key] <= 4096 for key in ("width", "height"))
+                or re.fullmatch(r"[0-9a-f]{16}", str(frame.get("fnv1a64"))) is None):
+            raise ValueError("Invalid or duplicate sampling frame")
+        frame_ids.add(frame["id"])
+    seen = set()
+    for key, valid in (("regions", _valid_sampling_region), ("profiles", _valid_sampling_profile)):
+        for case in document[key]:
+            if not isinstance(case, dict) or case.get("id") in seen or not valid(case, frame_ids):
+                raise ValueError(f"Invalid or duplicate sampling case {case.get('id') if isinstance(case, dict) else case!r}")
+            seen.add(case["id"])
+    if not any(sampling_profile_is_tilted(case) for case in profiles) or all(sampling_profile_is_tilted(case) for case in profiles):
+        raise ValueError("The sampling oracle needs both horizontal and tilted profiles")
+
+
+def sampling_reference_text(document):
+    """Render the fixture with one frame or case per line so that review diffs stay readable."""
+    compact = {"separators": (",", ":"), "ensure_ascii": False}
+    lists = ("frames", "regions", "profiles")
+    lines = ["{"]
+    lines.extend(f"  {json.dumps(key)}: {json.dumps(value, **compact)}," for key, value in document.items() if key not in lists)
+    for position, key in enumerate(lists):
+        items = document[key]
+        lines.append(f"  {json.dumps(key)}: [")
+        lines.extend(f"    {json.dumps(item, **compact)}{',' if index + 1 < len(items) else ''}" for index, item in enumerate(items))
+        lines.append("  ]," if position + 1 < len(lists) else "  ]")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+@kernel_oracle("sampling-oracle")
+def check_sampling_oracle(manifest, cache, java, *, record=False):
+    """Measure the sampling kernel's synthetic frames with the pinned RGBStep/LineProfileStep and diff the fixture."""
+    verify_file(cache / manifest["reference"]["file"], manifest["reference"])
+    # A private home keeps OSP preference files out of the shared reference cache.
+    with tempfile.TemporaryDirectory(prefix="sampling-oracle-") as temporary:
+        home = Path(temporary) / "home"
+        home.mkdir()
+        output = Path(temporary) / "sampling-java.json"
+        run([java, "-Djava.awt.headless=true", f"-Duser.home={home}", f"-Djava.io.tmpdir={home}",
+             "-Xmx256m", "--class-path", java_classpath(manifest, cache),
+             str(ROOT / "tools/reference/SamplingOracle.java"), str(output)])
+        actual = json.loads(output.read_text(encoding="utf-8"))
+    validate_sampling_reference(actual, manifest)
+    location = (SAMPLING_REFERENCE.relative_to(ROOT).as_posix() if SAMPLING_REFERENCE.is_relative_to(ROOT)
+                else str(SAMPLING_REFERENCE))
+    cases = len(actual["regions"]) + len(actual["profiles"])
+    if record:
+        SAMPLING_REFERENCE.parent.mkdir(parents=True, exist_ok=True)
+        SAMPLING_REFERENCE.write_text(sampling_reference_text(actual), encoding="utf-8", newline="\n")
+        print(f"sampling-oracle: recorded {cases} Java sampling cases in {location}")
+        return
+    expected = json.loads(SAMPLING_REFERENCE.read_text(encoding="utf-8"))
+    validate_sampling_reference(expected, manifest)
+    compare({key: value for key, value in expected.items() if key not in {"regions", "profiles"}},
+            {key: value for key, value in actual.items() if key not in {"regions", "profiles"}}, SAMPLING_EXACT, "sampling-reference")
+    for key in ("regions", "profiles"):
+        if [case["id"] for case in expected[key]] != [case["id"] for case in actual[key]]:
+            raise ValueError(f"sampling-reference: the Java {key} list differs from the fixture")
+        for want, got in zip(expected[key], actual[key]):
+            tilted = key == "profiles" and sampling_profile_is_tilted(want)
+            compare(want, got, SAMPLING_TILTED_TOLERANCE if tilted else SAMPLING_EXACT, f"sampling-reference.{want['id']}")
+    print(f"sampling-oracle: {cases} Java sampling cases match {location}")
+
+
 LIBRARY_COMMANDS = ("discover-library", "fetch-library", "verify-library", "library-census", "library-projects")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command",
-                        choices=["fetch", "verify", "reference", "check", "session", "roundtrip", "expression-oracle",
-                                 "ode-oracle", *LIBRARY_COMMANDS])
+    # Library commands are corpus-level commands with their own dispatch (tools/corpus_library.py).
+    parser.add_argument("command", choices=[*CORPUS_COMMANDS, *LIBRARY_COMMANDS, *sorted(KERNEL_ORACLES)])
     parser.add_argument("--cache", type=Path, default=ROOT / ".dev-tools/tracker-reference")
-    parser.add_argument("--java", help="Java 17+ JDK executable (reference/session/roundtrip/expression-oracle/ode-oracle; "
+    parser.add_argument("--java", help="Java 17+ JDK executable (reference, session, roundtrip and *-oracle commands; "
                                        "optional for library-census)")
     parser.add_argument("--probe", help="Built motrack_corpus_probe executable (check/roundtrip/library-census commands)")
     parser.add_argument("--record", action="store_true", help="Explicitly replace committed Java baselines for review")
@@ -3070,8 +3325,8 @@ def main():
     parser.add_argument("--check", action="store_true", help="library-census: compare with the committed census instead of writing it")
     parser.add_argument("--jobs", type=int, default=1, help="library-census: experiments processed concurrently (local only)")
     args = parser.parse_args()
-    if args.record and args.command not in {"reference", "expression-oracle", "ode-oracle"}:
-        parser.error("--record is only valid for the reference, expression-oracle and ode-oracle commands")
+    if args.record and args.command != "reference" and args.command not in KERNEL_ORACLES:
+        parser.error("--record is only valid for the reference and *-oracle commands")
     if args.command in {"check", "roundtrip", "library-census"} and not args.probe:
         parser.error(f"{args.command} requires --probe")
     if args.source and args.command not in {"discover-library", "fetch-library", "verify-library"}:
@@ -3093,12 +3348,10 @@ def main():
         for path, artifact in artifacts(manifest, cache):
             (fetch_file if args.command == "fetch" and "local_file" not in artifact else verify_file)(path, artifact)
         print(f"Verified {len(manifest['cases'])} cases and Tracker {manifest['reference']['version']}")
-    elif args.command == "expression-oracle":
-        check_expression_oracle(manifest, cache, args.java, record=args.record)
+    elif args.command in KERNEL_ORACLES:
+        globals()[KERNEL_ORACLES[args.command]](manifest, cache, args.java, record=args.record)
     elif args.command in {"session", "roundtrip"}:
         check_sessions(manifest, cache, args.java, args.probe if args.command == "roundtrip" else None)
-    elif args.command == "ode-oracle":
-        check_ode_oracle(manifest, cache, args.java, record=args.record)
     else:
         check_cases(manifest, cache, java=args.java if args.command == "reference" else None,
                     probe=args.probe, record=args.record)
