@@ -20,6 +20,9 @@ struct ImportedTracker
     tracker::PanelLoad panel;
     LegacyProject project;
     std::vector<TrackSourceBinding> bindings;
+    /// The positive saved `frameshift` Tracker's application loader subtracts from every track's `framedata` index,
+    /// or 0 (#313). `project` already holds the shifted frames; the source keeps the saved indices.
+    int trackFrameShift = 0;
 };
 
 /// Parses bounded Tracker XML with `motrack_osp`. Throws ProjectError for oversized or unreadable input.

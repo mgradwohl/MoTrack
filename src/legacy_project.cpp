@@ -9,6 +9,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <limits>
+#include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -72,7 +76,43 @@ std::string text(const Read<std::string>& value)
     return value ? *value : std::string{};
 }
 
-Clip readClip(const tracker::PanelLoad& panel)
+/// VideoClip.Loader's `frameshift` (#313), or 0 when the file saves none. Like Java's getInt, another property type
+/// or Integer.MIN_VALUE reads as unsaved; MoTrack refuses unreadable int text instead of guessing.
+int clipFrameShift(const tracker::PanelLoad& panel)
+{
+    if (!panel.videoClip || !savedInteger(panel.videoClip->frameShift))
+    {
+        return 0;
+    }
+    const auto& shift = panel.videoClip->frameShift;
+    if (!shift)
+    {
+        throw ProjectError("Invalid project integer.");
+    }
+    return *shift == std::numeric_limits<std::int32_t>::min() ? 0 : *shift;
+}
+
+/// How many leading slots Tracker's application loader removes from a track's `framedata` before the track reads it,
+/// or none when it removes the whole array (#313). TrackerIO.AsyncLoader.adjustFrameData, reached through
+/// XMLControlElement.getAdjustedFrameData, drops the first `shift` slots (when positive) of every track array of Java
+/// length above 1, so saved index n loads at frame n - shift. An array no longer than the shift becomes null and loads
+/// no frames; one of length 1 (only `[0]`) is unchanged. The Java length is the last element's index plus one
+/// (XMLControlElement.arrayValue). TrackerPanel loads the coordinate system without the adjuster: its keys never move.
+template <typename Data> std::optional<int> droppedSlots(const tracker::FrameArray<Data>& array, int shift)
+{
+    if (shift <= 0 || array.frames.empty())
+    {
+        return 0;
+    }
+    const auto length = std::int64_t{arrayIndex(array.frames.back().element)} + 1;
+    if (length <= 1)
+    {
+        return 0;
+    }
+    return shift >= length ? std::nullopt : std::optional(shift);
+}
+
+Clip readClip(const tracker::PanelLoad& panel, int frameShift)
 {
     Clip clip;
     const auto* video = panel.videoClip && panel.videoClip->video ? &*panel.videoClip->video : nullptr;
@@ -81,7 +121,15 @@ Clip readClip(const tracker::PanelLoad& panel)
         const auto& loaded = *panel.videoClip;
         if (savedInteger(loaded.startFrame))
         {
-            clip.firstFrame = integer(loaded.startFrame, 0);
+            // VideoClip.Loader subtracts a saved frame shift from the start frame, and setStartFrameNumber keeps the
+            // result at or after frame 0 (#313). Without a saved start frame Java subtracts the shift from
+            // Integer.MIN_VALUE, which wraps; MoTrack keeps frame 0. A result beyond Java's int range is refused.
+            const auto start = std::int64_t{integer(loaded.startFrame, 0)} - frameShift;
+            if (start > std::numeric_limits<int>::max())
+            {
+                throw ProjectError("Invalid project integer.");
+            }
+            clip.firstFrame = static_cast<int>(std::max<std::int64_t>(start, 0));
         }
         if (savedInteger(loaded.stepSize))
         {
@@ -141,17 +189,28 @@ Clip readClip(const tracker::PanelLoad& panel)
     return clip;
 }
 
-PointMass readPointMass(const tracker::PointMassLoad& loaded)
+/// The frame a saved track index loads at, or none when Tracker drops that slot (see `droppedSlots`).
+std::optional<int> loadedFrame(const tracker::ArrayElement& element, std::optional<int> dropped)
+{
+    const auto index = arrayIndex(element);
+    return dropped && index >= *dropped ? std::optional(index - *dropped) : std::nullopt;
+}
+
+PointMass readPointMass(const tracker::PointMassLoad& loaded, int frameShift)
 {
     const auto mass = std::max(MIN_POINT_MASS, std::abs(finiteNumber(loaded.mass).value_or(1.0)));
     PointMass track{.name = text(loaded.name), .marks = {}, .mass = mass};
     if (loaded.frames)
     {
+        const auto dropped = droppedSlots(*loaded.frames, frameShift);
         for (const auto& frame : loaded.frames->frames)
         {
             if (frame.element.object)
             {
-                track.marks.push_back({.frame = arrayIndex(frame.element), .x = coordinate(frame.data.x), .y = coordinate(frame.data.y)});
+                if (const auto number = loadedFrame(frame.element, dropped))
+                {
+                    track.marks.push_back({.frame = *number, .x = coordinate(frame.data.x), .y = coordinate(frame.data.y)});
+                }
             }
         }
     }
@@ -163,16 +222,21 @@ PointMass readPointMass(const tracker::PointMassLoad& loaded)
     return track;
 }
 
-VectorTrack readVector(const tracker::VectorLoad& loaded)
+VectorTrack readVector(const tracker::VectorLoad& loaded, int frameShift)
 {
     VectorTrack track{.name = text(loaded.name), .samples = {}};
     if (loaded.frames)
     {
+        const auto dropped = droppedSlots(*loaded.frames, frameShift);
         for (const auto& frame : loaded.frames->frames)
         {
-            if (frame.element.object)
+            if (!frame.element.object)
             {
-                track.samples.push_back({.frame = arrayIndex(frame.element),
+                continue;
+            }
+            if (const auto number = loadedFrame(frame.element, dropped))
+            {
+                track.samples.push_back({.frame = *number,
                                          .tailX = coordinate(frame.data.xtail),
                                          .tailY = coordinate(frame.data.ytail),
                                          .componentX = coordinate(frame.data.xcomponent),
@@ -188,7 +252,7 @@ VectorTrack readVector(const tracker::VectorLoad& loaded)
     return track;
 }
 
-std::optional<Calibration> readCalibration(const tracker::PanelLoad& panel)
+std::optional<Calibration> readCalibration(const osp::Source& source, const tracker::PanelLoad& panel)
 {
     if (!panel.coords || panel.coords->className != tracker::COORD_SYSTEM_CLASS || !text(panel.referenceFrame).empty())
     {
@@ -199,15 +263,29 @@ std::optional<Calibration> readCalibration(const tracker::PanelLoad& panel)
                             .fixedOrigin = coords.fixedOrigin && *coords.fixedOrigin,
                             .fixedAngle = coords.fixedAngle && *coords.fixedAngle,
                             .fixedScale = coords.fixedScale && *coords.fixedScale};
-    try
+    if (coords.frames)
     {
-        if (coords.frames)
+        // ImageCoordSystem.Loader reads `framedata` as XMLControlElement.arrayValue fills a Java array: a later element
+        // with the same index replaces an earlier one, a null one included, so Tracker keeps the last saved key (#314).
+        const auto keys = osp::PropertyView(source, coords.frames->property).indexedElements();
+        if (!keys)
         {
-            for (const auto& frame : coords.frames->frames)
+            // An unreadable or out-of-order index makes Java's array loader throw, so Tracker cannot load the file.
+            throw ProjectError("Invalid Tracker coordinate system.");
+        }
+        std::map<osp::NodeId, const tracker::Frame<tracker::CoordFrameData>*> decoded;
+        for (const auto& frame : coords.frames->frames)
+        {
+            decoded.emplace(frame.element.property, &frame);
+        }
+        try
+        {
+            for (const auto& [index, element] : keys->elements)
             {
+                const auto& frame = *decoded.at(element.id());
                 if (frame.element.object)
                 {
-                    calibration.keyframes.push_back({.frame = arrayIndex(frame.element),
+                    calibration.keyframes.push_back({.frame = static_cast<int>(index),
                                                      .originX = coordinate(frame.data.xorigin),
                                                      .originY = coordinate(frame.data.yorigin),
                                                      .angleDegrees = coordinate(frame.data.angle),
@@ -216,14 +294,12 @@ std::optional<Calibration> readCalibration(const tracker::PanelLoad& panel)
                 }
             }
         }
+        catch (const ProjectError&)
+        {
+            return std::nullopt;
+        }
     }
-    catch (const ProjectError&)
-    {
-        return std::nullopt;
-    }
-    auto& keys = calibration.keyframes;
-    std::ranges::sort(keys, {}, &CalibrationKey::frame);
-    if (keys.empty() || std::ranges::adjacent_find(keys, {}, &CalibrationKey::frame) != keys.end())
+    if (calibration.keyframes.empty())
     {
         return std::nullopt;
     }
@@ -275,13 +351,19 @@ detail::ImportedTracker detail::importTracker(std::shared_ptr<const osp::Source>
     {
         throw ProjectError("Expected a TrackerPanel project.");
     }
-    ImportedTracker result{.source = std::move(source), .panel = std::move(panel), .project = {}, .bindings = {}};
+    const auto frameShift = clipFrameShift(panel);
+    ImportedTracker result{.source = std::move(source),
+                           .panel = std::move(panel),
+                           .project = {},
+                           .bindings = {},
+                           .trackFrameShift = std::max(frameShift, 0)};
     const auto& loaded = result.panel;
+    const auto& xml = *result.source;
     auto& project = result.project;
     project = LegacyProject{.version = text(loaded.semanticVersion),
                             .description = text(loaded.description),
-                            .clip = readClip(loaded),
-                            .calibration = readCalibration(loaded),
+                            .clip = readClip(loaded, frameShift),
+                            .calibration = readCalibration(xml, loaded),
                             // TrackerPanel keeps its preferred unit unless the file saves one (#214).
                             .lengthUnit = present(loaded.lengthUnit) ? text(loaded.lengthUnit) : std::string(tracker::DEFAULT_LENGTH_UNIT),
                             .pointMasses = {},
@@ -294,7 +376,6 @@ detail::ImportedTracker detail::importTracker(std::shared_ptr<const osp::Source>
     {
         project.timeUnit = std::move(unit);
     }
-    const auto& xml = *result.source;
     for (const auto& item : loaded.trackItems)
     {
         if (!item.object)
@@ -303,7 +384,7 @@ detail::ImportedTracker detail::importTracker(std::shared_ptr<const osp::Source>
         }
         if (item.className == tracker::POINT_MASS_CLASS)
         {
-            project.pointMasses.push_back(readPointMass(tracker::loadPointMass(xml, *item.object)));
+            project.pointMasses.push_back(readPointMass(tracker::loadPointMass(xml, *item.object), result.trackFrameShift));
             project.pointMasses.back().id = allocateTrackId(project);
             result.bindings.push_back(
                 {.trackId = project.pointMasses.back().id, .sourceIndex = item.ordinal, .kind = TrackKind::PointMass});
@@ -312,7 +393,7 @@ detail::ImportedTracker detail::importTracker(std::shared_ptr<const osp::Source>
         {
             try
             {
-                project.vectors.push_back(readVector(tracker::loadVector(xml, *item.object)));
+                project.vectors.push_back(readVector(tracker::loadVector(xml, *item.object), result.trackFrameShift));
                 project.vectors.back().id = allocateTrackId(project);
                 result.bindings.push_back({.trackId = project.vectors.back().id, .sourceIndex = item.ordinal, .kind = TrackKind::Vector});
             }
