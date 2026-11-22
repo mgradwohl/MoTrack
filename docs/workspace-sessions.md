@@ -226,8 +226,7 @@ input cancellation, destruction during modal operations, shared-destination refu
 replacement prompts, and AutoTracker continuing through another tab's switch, reorder and close.
 Merged in [#164](https://github.com/mgradwohl/MoTrack/pull/164), which closed native tab-isolation
 issue [#69](https://github.com/mgradwohl/MoTrack/issues/69); upstream Tracker #18 remains open.
-Tracker TFrame tabsets ([#150](https://github.com/mgradwohl/MoTrack/issues/150)), cross-tab import
-and saved layouts are not implemented by this shell.
+Cross-tab import and saved layouts are not implemented by this shell; tabsets are described below.
 
 ## Saved models and per-experiment revert
 
@@ -293,10 +292,120 @@ it does not downgrade that obligation to an ordinary cancelled write. A request 
 worker needs even if the workspace is destroyed;
 destruction cancels its flag instead of leaving borrowed model pointers in the worker.
 
+## Tracker tabsets
+
+A tabset is a `.trk` whose root is Tracker's `TFrame` instead of a `TrackerPanel`. Its `tabs` property is a
+`String[][]` of {absolute, relative} paths, one per Tracker tab; it owns no experiment data. `tracker_tabset`
+reads and writes it through [`motrack_osp`](osp-xmlcontrol.md#tracker-import-and-export), like every Tracker import
+and export since B1. `tracker::loadTabset` reads `tabs` and `basepath` with Tracker's accessors and MoTrack's import
+policy refuses malformed entries on top of it. Files therefore read as Tracker reads them: entities and element-like
+text stay literal, a document type is inert and a blank line ends the `tabs` array. A saved `basepath` string replaces
+the tabset's folder as the first base, as `XMLControlElement.getString` returns it (Tracker never writes one).
+Unreadable XML is reported with Tracker import's diagnostic, including its Windows-1252 hint. Only the root line
+decides whether a `.trk` is a tabset, so experiments are still parsed once.
+
+**Opening.** `prepareWorkspaceInput` detects the root off the GUI thread and returns an expansion instead of a
+source; adoption refuses it. Each entry resolves in Tracker's order: relative to the tabset's folder, relative to
+the process working directory (OSP's user directory), then the absolute path. A relative slot that is itself
+absolute uses only the absolute path, as `java.io.File(parent, child)` would. Nested tabsets expand in place,
+depth-first, to depth 8 and 256 entries in total. Each physical file is listed once: a tabset already being
+expanded is a cycle, any other repeat is a duplicate. Only a `TFrame` root is parsed in full; listed experiments
+are parsed once, when they open. The window then opens the resolved files one at a time through the ordinary
+two-input bound, so tabs keep the listed order and each file becomes an independent source with its own history,
+jobs and save state. A missing file offers Yes/No to locate it; a located file that is itself a tabset opens its
+files in place. Duplicates are opened once without a warning; cycles, unreadable nested tabsets, files that fail
+to open and bound overflows are summarized afterward; a file that fails shows the same diagnostic a single
+project would. A listed `.motrack` whose stale links to its Tracker source were reset on open
+([native recovery](native-format.md#original-object-associations)) opens with B1's note in the summary and on its
+view. Canceling one open skips the remaining files. One tabset opens at a time: another that arrives, even during
+the first one's prompts, waits its turn. Closing the window drops queued tabset work before its prompts. As in
+Tracker, the first listed experiment file is selected afterward, not a leading video. `tabsetFinished` signals that
+the selection is final.
+
+The files open through the window's one ordered queue (`OrderedOpens`). When the queue's current file turns out to
+be a tabset, `expandInPlace` puts its files next, ahead of the rest, without further prompts. Other ordered opens,
+such as files the operating system asks to open ([#259](https://github.com/mgradwohl/MoTrack/pull/259)), should feed
+this queue rather than run a second one that competes for the two input slots; a tabset among them then expands in
+place.
+
+**Saving.** **Save tabset as…** lists sources in tab order, followed by hidden-only sources. A source with a
+standard Tracker file is referenced by that file. If it has unsaved changes, Yes saves them first (a failed or
+canceled save writes no tabset, as in Tracker), No lists the file as it was last saved (Tracker lists every tab that
+has a file) with a note, and Cancel stops. An unchanged raw single movie or image is referenced by its own path.
+MoTrack-only sources, image sequences and changed raw media are reported as not included, because Tracker could not
+reopen them from one path; so is a native file whose Tracker links were reset, because its Tracker export is refused.
+The dialog offers the tabset opened last. As Tracker's `fixXML` does, a name not ending in `.trk` gets `.trk` in
+place of its extension (`set.trz` and `Lab 3.5` become `set.trk` and `Lab 3.trk`); an existing file of that new name
+is not replaced unless it was chosen. The destination may not be an open source's experiment file, companion or raw
+media file, and an existing file that is not a tabset is never replaced. **Save tabset as…** is unavailable while any
+file is opening, since it may turn out to be a tabset, and it checks again after each of its prompts and saves, so a
+set is never saved with only some of its files. If a referenced source changes while prompts are open, nothing is
+written. Reading the existing tabset, resolving its entries and writing run on the save worker while the window
+keeps painting, and the file is staged and committed atomically.
+
+A new tabset is written as `XMLControlElement.toString` writes it (LF line breaks, no final one). Saving over an
+existing tabset edits it instead, with the same O8 check as every standard export: each entry that still names its
+listed file in Tracker's search order keeps its bytes, together with the repeats Tracker writes for each further tab
+of an archive. An entry is rewritten only when its relative path no longer finds the file from the base, for
+example after the tabset moved alone. Entries whose files are not open keep their place: a file that failed to open,
+was not found, was not opened because an open was canceled or the window closed, or names an archive member (#325)
+stays listed, and the summary says so. Only entries of files the user closed are removed, unless a tabset opened
+since then lists the file again; a repeat that does not follow its file's entry is removed too, since each file opens
+once. The summary names every removed entry. A nested tabset whose files are open stays one entry. Saving an
+unchanged set therefore leaves the file byte for byte, except entries whose relative path no longer finds their file,
+which are repaired. Otherwise only the changed paths, removed entries and new entries differ; new entries follow the
+kept ones, and other properties and line breaks stay. Entries that Tracker cannot read because of their index order are rewritten in order whenever
+anything changes. A tabset MoTrack cannot read is not replaced.
+
+**Deliberate differences from Tracker 6.3.5.**
+
+- OSP's relative-path search uses `String.startsWith`, so it treats `/data/a` as an ancestor of `/data/ab`;
+  MoTrack requires a path-component boundary. Both keep OSP's five-level climb, the Windows drive root and the
+  absolute fallback, so Tracker resolves MoTrack's output. OSP has no UNC case and can climb above a share;
+  MoTrack treats `//server/share` like a drive root.
+- Tracker writes a `.trz` once per experiment tab, and reopening such a tabset duplicates those tabs; MoTrack
+  opens each file once. Identity folds case only on Windows, so distinct files on case-sensitive volumes stay distinct.
+- Tracker silently lists a saved file even when its tab has newer edits; MoTrack asks first, and also lists it as
+  last saved when told not to save. Tracker offers to save changed or new media as a project; MoTrack reports them as
+  not included until saved as Tracker projects.
+- Tracker never opens a file located for a missing entry, and fails to load a tabset whose only experiment was
+  located; MoTrack opens it where the entry is listed
+  ([#333](https://github.com/mgradwohl/MoTrack/issues/333), reproduced in the Tracker 6.3.5 GUI).
+- Tracker saves only open tabs; saving over an existing tabset, MoTrack keeps the entries of files that did not open
+  and drops only those of files the user closed.
+- Tracker does not check whether the tabset would overwrite an experiment; MoTrack refuses.
+- Tracker offers to load a listed numbered image as its whole sequence; MoTrack opens that single image. An
+  animated image opens as a movie so its frames are kept.
+- Tracker requires ascending `[n]` indices; MoTrack also reads other orders. It keeps such a file as it was read when
+  nothing changes and writes changed entries in ascending order.
+- Tracker opens an archive's experiments after every file listed after the archive (its loader queues them last),
+  so a resave loses the listed order ([#326](https://github.com/mgradwohl/MoTrack/issues/326)); MoTrack opens them
+  where the archive is listed.
+- Entries that name an experiment inside an archive (`archive.trz!/member.trk`), which Tracker's resource loader
+  opens and a published tabset uses, are reported as not found
+  ([#325](https://github.com/mgradwohl/MoTrack/issues/325)).
+
+**Evidence.** Unit tests cover the exact OSP layout, reading as Tracker's line reader does, parser refusals, in-place
+edits with exact expected bytes (CRLF, CDATA, removed and inserted paths, appended entries, out-of-order indices),
+entry reuse, `basepath`, relative paths on each platform, resolution order, nesting/duplicate/cycle/depth/size bounds,
+cancellation, atomic writes and Unicode paths. Desktop tests cover ordered opening of a movie, an experiment and an
+archive with selection and independent histories; locating and skipping missing files, including a located tabset; two
+tabsets arriving together; a listed file that fails, with B1's diagnostic; a native file with reset Tracker links;
+canceling partway; destroying the window during a prompt; Yes/No/Cancel for unsaved changes; saving an unchanged set
+back byte for byte and adding a tab; keeping entries of files that failed to open or were not found and dropping one
+the user closed; listing a file as last saved; saving refused while any file opens, including one started during a
+save prompt; Tracker's `.trk` name; refusal to replace open project files, an unopened experiment or an unreadable
+tabset; unsupported sources; and saving then reopening after the whole folder moves. In Linux CI the pinned Tracker
+opens MoTrack's tabset through its normal loader after the folder is moved (so only relative paths resolve), must load
+all three experiments in order with their independently expected masses and samples, and writes its own tabset.
+MoTrack must resolve that to the same two files after everything moves again and save the same files over it without
+changing a byte. MoTrack then edits its own tabset in place (the archive first, another experiment added), and Tracker
+must reopen every tab of the edited set, in Tracker's own order, with its data.
+
 ## Remaining integration
 
 The registry/routing foundation merged in [#160](https://github.com/mgradwohl/MoTrack/pull/160);
 services, editors, input preparation, the shell and Revert followed in #161–#165. The remaining phase-4
-order is in the [full-port plan](migration-plan.md#phase-4-remaining-work): persisted views,
-then Tracker tabsets ([#150](https://github.com/mgradwohl/MoTrack/issues/150)) and cross-tab import.
+order is in the [full-port plan](migration-plan.md#phase-4-remaining-work): persisted views and
+cross-tab import. Tracker tabsets are above.
 Source records and visible views must not be conflated at any close step.

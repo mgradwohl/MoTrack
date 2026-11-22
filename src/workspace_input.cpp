@@ -141,6 +141,12 @@ PreparedWorkspaceInput prepareWorkspaceInput(const QString& path, const std::ato
     }
     else if (path.endsWith(".trk", Qt::CaseInsensitive))
     {
+        if (isTrackerTabsetFile(physical))
+        {
+            // XML.getUserDirectory() is the JVM's launch directory; the process working directory is its analogue.
+            result.tabset = expandTrackerTabset(physical, QDir::currentPath(), cancelled);
+            return result;
+        }
         document = importTrackerDocument(physical);
         document.alignMovieToClip = true;
     }
@@ -218,10 +224,20 @@ PreparedWorkspaceInput prepareWorkspaceImages(const QStringList& paths, double f
     return result;
 }
 
+PreparedWorkspaceInput prepareWorkspaceMediaFile(const QString& path, const std::atomic_bool* cancelled)
+{
+    checkCancellation(cancelled);
+    // Counting an animated image's frames can read the whole file, so decide here rather than on the GUI thread.
+    if (QImageReader::supportedImageFormats().contains(QFileInfo(path).suffix().toLower().toLatin1()))
+        if (const QImageReader reader(path); !(reader.supportsAnimation() && reader.imageCount() != 1))
+            return prepareWorkspaceImages({path}, 0.0, cancelled);
+    return prepareWorkspaceMovie(path, cancelled);
+}
+
 WorkspaceSession::OpenedSource
 adoptWorkspaceInput(WorkspaceSession& workspace, PreparedWorkspaceInput& incoming, WorkspaceActivation activation)
 {
-    if (static_cast<bool>(incoming.document) == static_cast<bool>(incoming.group))
+    if (incoming.tabset || static_cast<bool>(incoming.document) == static_cast<bool>(incoming.group))
         throw ProjectError("A prepared workspace input requires exactly one source.");
     return incoming.group ? workspace.addGroup(incoming.group, activation)
                           : workspace.addDocument(incoming.document, incoming.mediaProjectPath, activation);
