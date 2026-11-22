@@ -206,6 +206,12 @@ def java_classpath(manifest, cache, *, classes=None, dependencies=()):
     return os.pathsep.join(map(str, paths))
 
 
+def java_reference_command(java, home, classpath, program, *arguments):
+    """Headless pinned-reference JVM with a private home and bounded heap (corpus and library checks)."""
+    return [str(java), "-Djava.awt.headless=true", f"-Duser.home={home}", f"-Djava.io.tmpdir={home}", "-Xmx256m",
+            "--class-path", classpath, str(program), *map(str, arguments)]
+
+
 def project_path(case, cache):
     source = local_fixture_path(case) if "local_file" in case else cache / "fixtures" / case["file"]
     if "project_member" not in case:
@@ -234,7 +240,9 @@ def compare(expected, actual, tolerance, location="project"):
         for key in expected:
             compare(expected[key], actual[key], tolerance, f"{location}.{key}")
     elif isinstance(expected, list):
-        if not isinstance(actual, list) or len(expected) != len(actual):
+        if not isinstance(actual, list):
+            raise ValueError(f"{location}: expected a list, got {json.dumps(actual)[:80]}")
+        if len(expected) != len(actual):
             raise ValueError(f"{location}: list length differs")
         for index, value in enumerate(expected):
             compare(value, actual[index], tolerance, f"{location}[{index}]")
@@ -426,11 +434,9 @@ def check_cases(manifest, cache, *, java=None, probe=None, record=False):
         output = reports / (case["id"] + ("-java.json" if java else "-native.json"))
         output.unlink(missing_ok=True)
         if java:
-            run([java, "-Djava.awt.headless=true", f"-Duser.home={reference_home}", f"-Djava.io.tmpdir={reference_home}",
-                 "-Xmx256m", "--class-path",
-                 java_classpath(manifest, cache, dependencies=case.get("reference_dependencies", [])),
-                 str(ROOT / "tools/reference/TrackerReference.java"),
-                 str(project), str(output)])
+            run(java_reference_command(java, reference_home,
+                                       java_classpath(manifest, cache, dependencies=case.get("reference_dependencies", [])),
+                                       ROOT / "tools/reference/TrackerReference.java", project, output))
         else:
             run([str(Path(probe).resolve()), str(project), str(output)])
         actual = json.loads(output.read_text(encoding="utf-8"))
@@ -5148,17 +5154,26 @@ def check_sampling_oracle(manifest, cache, java, *, record=False):
     print(f"sampling-oracle: {cases} Java sampling cases match {location}")
 
 
+LIBRARY_COMMANDS = ("discover-library", "fetch-library", "verify-library", "library-census", "library-projects")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=[*CORPUS_COMMANDS, *sorted(KERNEL_ORACLES)])
+    # Library commands are corpus-level commands with their own dispatch (tools/corpus_library.py).
+    parser.add_argument("command", choices=[*CORPUS_COMMANDS, *LIBRARY_COMMANDS, *sorted(KERNEL_ORACLES)])
     parser.add_argument("dumps", nargs="*", type=Path, help="state-diff only: expected and actual dump files")
     parser.add_argument("--cache", type=Path, default=ROOT / ".dev-tools/tracker-reference")
-    parser.add_argument("--java", default="java",
-                        help="Java 17+ JDK executable (reference, session, roundtrip, state-oracle and *-oracle commands)")
-    parser.add_argument("--probe", help="Built motrack_corpus_probe executable (check/roundtrip/xml-oracle/state-check commands)")
+    parser.add_argument("--java", help="Java 17+ JDK executable (reference, session, roundtrip, state-oracle and *-oracle "
+                                       "commands; optional for library-census)")
+    parser.add_argument("--probe", help="Built motrack_corpus_probe executable "
+                                        "(check/roundtrip/xml-oracle/state-check/library-census commands)")
     parser.add_argument("--record", action="store_true", help="Explicitly replace committed Java baselines for review")
     parser.add_argument("--reports", type=Path, help="Report directory for xml-oracle (default: CACHE/reports/xml-oracle)")
     parser.add_argument("--o2-only", action="store_true", help="xml-oracle without Java: byte-identical renders only")
+    parser.add_argument("--source", action="append", help="Limit library commands to this source ID (repeatable)")
+    parser.add_argument("--redownload", action="store_true", help="discover-library: re-pin every file instead of reusing verified ones")
+    parser.add_argument("--check", action="store_true", help="library-census: compare with the committed census instead of writing it")
+    parser.add_argument("--jobs", type=int, default=1, help="library-census: experiments processed concurrently (local only)")
     args = parser.parse_args()
     if args.record and args.command not in {"reference", "state-oracle", "state-check"} and args.command not in KERNEL_ORACLES:
         parser.error("--record is only valid for the reference, state-oracle and state-check commands and the kernel oracles")
@@ -5166,10 +5181,23 @@ def main():
         parser.error("--reports is only valid for the xml-oracle command")
     if args.o2_only and args.command != "xml-oracle":
         parser.error("--o2-only is only valid for the xml-oracle command")
-    if args.command in {"check", "roundtrip", "xml-oracle", "state-check"} and not args.probe:
+    if args.command in {"check", "roundtrip", "xml-oracle", "state-check", "library-census"} and not args.probe:
         parser.error(f"{args.command} requires --probe")
     if (args.command == "state-diff") != bool(args.dumps) or (args.dumps and len(args.dumps) != 2):
         parser.error("state-diff takes exactly two dump files; other commands take none")
+    if args.source and args.command not in {"discover-library", "fetch-library", "verify-library"}:
+        parser.error("--source is only valid for library discovery, fetching and verification")
+    if args.redownload and args.command != "discover-library":
+        parser.error("--redownload is only valid for discover-library")
+    if (args.check or args.jobs != 1) and args.command != "library-census":
+        parser.error("--check and --jobs are only valid for library-census")
+    if args.command in LIBRARY_COMMANDS:
+        # The library module reuses this module's helpers; share one instance when run as a script.
+        sys.modules.setdefault("corpus", sys.modules[__name__])
+        import corpus_library
+        corpus_library.main(args)
+        return
+    args.java = args.java or "java"
     manifest = load_manifest()
     cache = args.cache.resolve()
     if args.command == "state-oracle":

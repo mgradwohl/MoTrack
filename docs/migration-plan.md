@@ -289,7 +289,7 @@ numbers until each row is re-mapped with its slice.
 | Former phase | Delivered by | Status |
 | --- | --- | --- |
 | 0 Stabilize | every wave | Ongoing gate for every slice: three-platform builds/tests/static analysis and coverage pass; the current supported workflow remains usable. Fix data loss, crashes and incorrect science before unrelated features. |
-| 1 Reference and corpus | wave 0 (A2) | Open: post-6.3.5 reference build, inventory, provenance, source mapping, codec matrix. |
+| 1 Reference and corpus | wave 0 (A2) | Partial: [#238](https://github.com/mgradwohl/MoTrack/pull/238) adds the hash-pinned real-world library corpus (Tracker 3.00–6.3.3) and its census. Gap: no file from 6.3.5 or a later upstream build yet, so the gate's "4.x–6.3.5 and later upstream builds" range is not covered. Open: post-6.3.5 reference build, inventory, provenance, source mapping, codec matrix. |
 | 2 Preserve documents and identities | waves 0–1 (A1, B2) | Audited slices merged; ObjectId generalization in B2. |
 | 3 Standard round trips | wave 1 | Audited slices merged; open until its gate above passes for the complete baseline. |
 | 4 Multi-document and shared UI | waves 1–2 (B3, C7) | Workspace, shell and Revert merged; Tracker tabsets (#150) under development on the current XML layer, moving to A1 in B1; saved views and cross-tab import open. |
@@ -436,6 +436,7 @@ Current inventory, checked on 2026-11-06:
 | `binary_star.trz` | Local development sample; project records Tracker 6.2.0 and contains `DynamicSystem` and `DynamicParticle` objects. | Useful future model/preservation case; no automated corpus baseline yet. |
 | `bouncing_cart.trz` | Local development sample; project records Tracker 6.1.1 and contains `DynamicParticle` and `TapeMeasure` objects. | Useful future model/tool/preservation case; displaying its media does not implement those tracks. |
 | `tab_video.trz` | Local development sample; project records Tracker 4.62 and contains a `TapeMeasure`. | Useful older-format case; despite its name, the inspected archive contains only one `.trk`. |
+| Library corpus (514 files, 492 unique, 0.83 GB; refreshed 2026-11-21) | Real experiments from Tracker's default Library Browser collections (ComPADRE, Tracker Home Library, Shared Library). They are pinned by URL, size and SHA-256 in [library-manifest.json](../tests/corpus/library-manifest.json) together with verbatim rights statements, fetched into the ignored cache and checked monthly by `library-corpus.yml`. | A census of the Tracker features that real files use, MoTrack's desktop open result for each file and the 6.3.5 XML/coordinate reference for each project. Findings: #211, #212, #213, #224, #229. This is not round-trip or parity evidence (slice A2, corpus part). |
 
 The older `binary_star`, `bouncing_cart` and `tab_video` downloads are not in the reproducible corpus.
 Record provenance, redistribution terms, download location and hashes before promoting them into automated reference tests.

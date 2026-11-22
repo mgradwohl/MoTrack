@@ -48,8 +48,27 @@
 #include <utility>
 #include <vector>
 
+#if defined(_WIN32) && defined(_DEBUG)
+#include <crtdbg.h>
+#endif
+
 namespace
 {
+
+#if defined(_WIN32) && defined(_DEBUG)
+/// Debug-CRT assertions and heap checks normally open a modal dialog and block an unattended probe.
+/// Report them on stderr and fail at once so corpus runs record the defect instead of timing out.
+int reportCrtFailure(int type, char* message, int* /*result*/)
+{
+    if (type == _CRT_WARN)
+    {
+        return 0; // Default handling for warnings.
+    }
+    std::fputs(message, stderr);
+    std::fflush(stderr);
+    std::_Exit(3);
+}
+#endif
 
 QJsonObject referenceSnapshot(const motrack::ImportedTrackerProject& imported)
 {
@@ -428,6 +447,44 @@ QJsonObject stateSnapshot(const motrack::ImportedTrackerProject& imported)
             {"panel", panel}};
 }
 
+/// Summarizes one experiment prepared through the desktop open path, without measurements.
+QJsonObject openedExperiment(const motrack::WorkspaceDocument& document)
+{
+    QJsonArray unsupported;
+    for (const auto& type : document.project.unsupportedTrackTypes)
+    {
+        unsupported.append(QString::fromStdString(type));
+    }
+    return {{"member", document.archiveMember ? QJsonValue(QString::fromStdString(*document.archiveMember)) : QJsonValue::Null},
+            {"source_version", QString::fromStdString(document.project.version)},
+            {"point_masses", static_cast<qint64>(document.project.pointMasses.size())},
+            {"vectors", static_cast<qint64>(document.project.vectors.size())},
+            {"unsupported_tracks", unsupported},
+            {"media_references", static_cast<qint64>(document.project.clip.mediaReferences.size())},
+            {"movie", document.movie},
+            {"movie_frames", static_cast<qint64>(document.movieFrameTimes.size())}};
+}
+
+/// Opens a .trk or .trz exactly as the workspace does (bounded archive reader, every archive member,
+/// media resolution and movie indexing), then reports what was prepared. Rejection exits nonzero.
+QJsonObject openSnapshot(const QString& path)
+{
+    auto prepared = motrack::prepareWorkspaceInput(path);
+    QJsonArray experiments;
+    if (prepared.group)
+    {
+        for (const auto id : prepared.group->memberIds())
+        {
+            experiments.append(openedExperiment(prepared.group->document(id)));
+        }
+    }
+    else
+    {
+        experiments.append(openedExperiment(prepared.document->document));
+    }
+    return {{"experiments", experiments}};
+}
+
 void saveAndRecoverPair(const QString& path, const motrack::WorkspaceDocument& document, const QString& mediaPath)
 {
     std::atomic_bool cancelled{false};
@@ -638,6 +695,9 @@ QJsonObject ospDump(const std::filesystem::path& input)
 int main(int argc, char** argv)
 try
 {
+#if defined(_WIN32) && defined(_DEBUG)
+    _CrtSetReportHook2(_CRT_RPTHOOK_INSTALL, reportCrtFailure);
+#endif
     const QCoreApplication application(argc, argv);
     const auto args = application.arguments();
     if (args.size() == 4 && args[1] == "--osp-dump")
@@ -1515,11 +1575,12 @@ try
     const bool references = args.size() == 4 && args[1] == "--references";
     const bool timing = args.size() == 4 && args[1] == "--timing";
     const bool state = args.size() == 4 && args[1] == "--state";
-    const bool flagged = references || timing || state;
+    const bool open = args.size() == 4 && args[1] == "--open";
+    const bool flagged = references || timing || state || open;
     if (args.size() != 3 && !flagged)
     {
-        std::fputs("Usage: motrack_corpus_probe [--references|--timing|--state|--osp-dump] input.trk output.json | --export-<case> "
-                   "input.trk output.trk\n",
+        std::fputs("Usage: motrack_corpus_probe [--references|--timing|--state|--osp-dump] input.trk output.json"
+                   " | --open input.trk|.trz output.json | --export-<case> input.trk output.trk\n",
                    stderr);
         return 1;
     }
@@ -1531,6 +1592,10 @@ try
 #endif
     const auto report = [&]() -> QJsonObject
     {
+        if (open)
+        {
+            return openSnapshot(inputArgument);
+        }
         if (references)
         {
             return referenceSnapshot(motrack::readTrackerProject(input));

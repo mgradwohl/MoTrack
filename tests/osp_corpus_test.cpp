@@ -144,7 +144,10 @@ const std::vector<Document>& corpus()
             std::vector<std::filesystem::path> paths;
             for (const auto& entry : std::filesystem::recursive_directory_iterator(root))
             {
-                if (entry.is_regular_file())
+                // library/ holds ComPADRE web-service responses for the library census (A2), which are
+                // plain XML rather than OSP XMLControl documents.
+                const auto relative = std::filesystem::relative(entry.path(), root).generic_string();
+                if (entry.is_regular_file() && !relative.starts_with("library/"))
                 {
                     paths.push_back(entry.path());
                 }
