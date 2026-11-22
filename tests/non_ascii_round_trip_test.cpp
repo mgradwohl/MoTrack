@@ -114,10 +114,12 @@ TEST_F(NonAsciiRoundTrip, LinkedImagesProjectSavesAndReopensAsTrackerAndNative)
     EXPECT_EQ(QString::fromStdString(document.project.clip.mediaReferences.front()), images + '/' + ARABIC + " 0.png");
     // Images open by their non-ASCII paths.
     const auto sequence = motrack::ImageSequence::open(prepared.mediaProjectPath, document.project.clip, document.mediaLocations);
-    ASSERT_TRUE(sequence.has_value());
+    if (!sequence)
+    {
+        FAIL() << "The renamed images did not open.";
+    }
     const auto frame = sequence->readStep(0);
-    ASSERT_TRUE(frame.has_value());
-    EXPECT_FALSE(frame->image.isNull());
+    EXPECT_TRUE(frame && !frame->image.isNull());
 
     motrack::TrackEdits edits;
     ASSERT_TRUE(edits.setPointMassValue(document.project, 0, 9.5));
@@ -203,8 +205,7 @@ TEST_F(NonAsciiRoundTrip, MovieOpensByANonAsciiPath)
     ASSERT_TRUE(QFile::copy(QString::fromUtf8(MOTRACK_FIXTURES) + "/vfr.mp4", movie));
     motrack::VideoReader reader(movie);
     const auto frame = reader.readNext();
-    ASSERT_TRUE(frame.has_value());
-    EXPECT_FALSE(frame->image.isNull());
+    EXPECT_TRUE(frame && !frame->image.isNull());
     auto prepared = motrack::prepareWorkspaceMovie(movie);
     ASSERT_TRUE(prepared.document);
     EXPECT_TRUE(prepared.document->document.movie);

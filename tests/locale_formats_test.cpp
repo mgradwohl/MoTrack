@@ -13,7 +13,6 @@
 
 #include <QFile>
 #include <QJsonDocument>
-#include <QJsonObject>
 #include <QTemporaryDir>
 #include <gtest/gtest.h>
 
@@ -28,7 +27,6 @@ namespace
 
 using motrack::test::availableLocale;
 using motrack::test::ScopedProcessLocale;
-using motrack::test::TestLocale;
 
 QString corpusFixture(const QString& name)
 {
@@ -46,12 +44,12 @@ class CommaLocale : public testing::TestWithParam<std::pair<const char*, const c
   protected:
     void SetUp() override
     {
-        m_Locale = availableLocale(GetParam().first, GetParam().second);
-        if (!m_Locale)
+        const auto locale = availableLocale(GetParam().first, GetParam().second);
+        if (!locale)
         {
             GTEST_SKIP() << "The " << GetParam().first << '-' << GetParam().second << " UTF-8 locale is not installed";
         }
-        m_Scope.emplace(*m_Locale);
+        m_Scope.emplace(*locale);
         // The simulation must really change the C runtime and the global C++ locale, or the cases prove nothing.
         ASSERT_EQ(std::string(std::localeconv()->decimal_point), ",");
         std::ostringstream stream;
@@ -64,13 +62,7 @@ class CommaLocale : public testing::TestWithParam<std::pair<const char*, const c
         m_Scope.reset();
     }
 
-    [[nodiscard]] const TestLocale& locale() const
-    {
-        return *m_Locale;
-    }
-
   private:
-    std::optional<TestLocale> m_Locale;
     std::optional<ScopedProcessLocale> m_Scope;
 };
 

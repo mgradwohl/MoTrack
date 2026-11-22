@@ -264,7 +264,8 @@ int main(int argc, char** argv)
     // locale. Without either locale installed the test still checks the setup, but not Qt's side of it.
     for (const auto& [language, region] : std::array{std::pair{"de", "DE"}, std::pair{"fr", "FR"}})
     {
-        if ((environmentLocale = motrack::test::availableLocale(language, region)))
+        environmentLocale = motrack::test::availableLocale(language, region);
+        if (environmentLocale)
         {
             setenv("LC_ALL", environmentLocale->name.c_str(), 1);
             break;
