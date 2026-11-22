@@ -2867,8 +2867,10 @@ def main():
         parser.error("--record is only valid for the reference command")
     if args.command in {"check", "roundtrip", "library-census"} and not args.probe:
         parser.error(f"{args.command} requires --probe")
-    if (args.source or args.redownload) and args.command not in {"discover-library", "fetch-library", "verify-library"}:
-        parser.error("--source and --redownload are only valid for library discovery and fetching")
+    if args.source and args.command not in {"discover-library", "fetch-library", "verify-library"}:
+        parser.error("--source is only valid for library discovery, fetching and verification")
+    if args.redownload and args.command != "discover-library":
+        parser.error("--redownload is only valid for discover-library")
     if (args.check or args.jobs != 1) and args.command != "library-census":
         parser.error("--check and --jobs are only valid for library-census")
     if args.command in LIBRARY_COMMANDS:
