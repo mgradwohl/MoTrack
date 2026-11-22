@@ -142,7 +142,7 @@ $realGetInstalledLlvm = ${function:Get-InstalledLlvm}
 $LlvmState = @{ Installed = @(); Release = $null; After = $LlvmVersion; ExitCode = 0; Hash = $LlvmSha256 }
 function Get-InstalledLlvm { $LlvmState.Installed }
 function Get-LlvmClangRelease { $LlvmState.Release }
-function Invoke-WebRequest { param([string]$Uri, [string]$OutFile) $script:Calls.Add("download $Uri"); Set-Content -LiteralPath $OutFile -Value 'stub' }
+function Invoke-WebRequest { param([string]$Uri, [string]$OutFile) $script:Calls.Add("download $Uri"); Set-Content -LiteralPath $OutFile -Value 'stub' -Encoding utf8 }
 function Get-FileHash { param([string]$LiteralPath, [string]$Algorithm) [pscustomobject]@{ Hash = $LlvmState.Hash.ToUpperInvariant() } }
 function Start-Process {
     param([string]$FilePath, [string]$ArgumentList, [switch]$Wait, [switch]$PassThru)

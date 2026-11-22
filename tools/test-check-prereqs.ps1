@@ -62,7 +62,7 @@ try {
     $qt = Join-Path $root 'Qt\6.8.3\msvc2022_64'
     $config = Join-Path $qt 'lib\cmake\Qt6'
     New-Item -ItemType Directory -Force -Path $config | Out-Null
-    Set-Content -LiteralPath (Join-Path $config 'Qt6ConfigVersionImpl.cmake') -Value 'set(PACKAGE_VERSION "6.8.3")'
+    Set-Content -LiteralPath (Join-Path $config 'Qt6ConfigVersionImpl.cmake') -Value 'set(PACKAGE_VERSION "6.8.3")' -Encoding utf8
     Remove-Item Env:Qt6_DIR, Env:QT_ROOT_DIR -ErrorAction SilentlyContinue
     $env:CMAKE_PREFIX_PATH = "C:\missing;$qt"
     $env:Path = "$env:SystemRoot\System32"

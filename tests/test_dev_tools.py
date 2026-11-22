@@ -251,7 +251,7 @@ class BashScriptTests(unittest.TestCase):
         script = f'source tools/check-prereqs.sh\n{commands}\nprintf "%s\\n" "${{rows[@]}}"\n'
         environment = {key: value for key, value in os.environ.items() if key != "MOTRACK_GCC_INSTALL_DIR"}
         environment.update(env or {}, PATH=os.pathsep.join((str(self.stubs), str(self.utilities))))
-        result = subprocess.run([BASH, "-c", script], cwd=ROOT, env=environment, capture_output=True, text=True, check=True)
+        result = subprocess.run([BASH, "-c", script], cwd=ROOT, env=environment, capture_output=True, text=True, encoding="utf-8", check=True)
         return [line.split("\x1f") for line in result.stdout.splitlines()]
 
     def test_llvm_tools_must_be_the_pinned_major(self):
@@ -309,10 +309,10 @@ class BashScriptTests(unittest.TestCase):
             (apt / "sources.list.d" / name).write_text(content, encoding="utf-8", newline="\n")
         own.write_text("deb [signed-by=/usr/share/keyrings/motrack-apt-llvm-org.gpg] https://apt.llvm.org/noble/ llvm-toolchain-noble-23 main\n",
                        encoding="utf-8", newline="\n")
-        apt_posix = subprocess.run([BASH, "-c", 'cd "$1" && pwd', "bash", str(apt)], capture_output=True, text=True,
+        apt_posix = subprocess.run([BASH, "-c", 'cd "$1" && pwd', "bash", str(apt)], capture_output=True, text=True, encoding="utf-8",
                                    check=True, env={**os.environ, "PATH": os.pathsep.join((str(self.stubs), str(self.utilities)))}).stdout.strip()
         script = 'source tools/add-llvm-apt-source.sh; existing_llvm_sources "$1" noble 23 "$1/sources.list.d/motrack-llvm-23.list"'
-        result = subprocess.run([BASH, "-c", script, "bash", apt_posix], cwd=ROOT, capture_output=True, text=True, check=True,
+        result = subprocess.run([BASH, "-c", script, "bash", apt_posix], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=True,
                                 env={**os.environ, "PATH": os.pathsep.join((str(self.stubs), str(self.utilities)))})
         found = sorted(Path(line).name for line in result.stdout.splitlines())
         self.assertEqual(found, sorted(name for name, (_, expected) in cases.items() if expected))
@@ -328,7 +328,7 @@ class BashScriptTests(unittest.TestCase):
         if 'VERSION_ID="24.04"' not in os_release or "ID=ubuntu" not in os_release:
             self.skipTest("setup-dev.sh targets Ubuntu 24.04")
         output = subprocess.run([BASH, "tools/setup-dev.sh", "--dry-run", "--build"], cwd=ROOT, capture_output=True,
-                                text=True, check=True).stdout
+                                text=True, encoding="utf-8", check=True).stdout
         llvm, gcc = PINS["MOTRACK_LLVM_MAJOR"], PINS["MOTRACK_GCC_MAJOR"]
         for package in (f"clang-{llvm}", f"clang-format-{llvm}", f"clang-tidy-{llvm}", f"llvm-{llvm}",
                         f"libclang-rt-{llvm}-dev", f"g++-{gcc}", "libarchive-tools"):
@@ -341,7 +341,7 @@ class BashScriptTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == "darwin", "macOS only")
     def test_macos_setup_dry_run_installs_homebrew_llvm(self):
         output = subprocess.run([BASH, "tools/setup-dev.sh", "--dry-run"], cwd=ROOT, capture_output=True,
-                                text=True, check=True).stdout
+                                text=True, encoding="utf-8", check=True).stdout
         self.assertRegex(output, rf"\[dry-run\] brew install .*llvm@{PINS['MOTRACK_LLVM_MAJOR']}\b")
 
 
