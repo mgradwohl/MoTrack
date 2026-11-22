@@ -125,7 +125,7 @@ def write_desktop_entry(prefix):
             str(source / "cmake" / "MoTrackDesktopEntry.cmake"),
         ],
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8",
     )
 
 
@@ -181,10 +181,10 @@ def launch_linux(stage, root):
         # The fast type comes from the name alone, as a file manager lists it before reading content.
         info = subprocess.run(
             ["gio", "info", "--attributes=standard::fast-content-type", str(probe)],
-            env=environment, check=True, capture_output=True, text=True,
+            env=environment, check=True, capture_output=True, text=True, encoding="utf-8",
         ).stdout
         require(f"standard::fast-content-type: {mime_type}" in info, f"{probe.name} is not {mime_type}: {info}")
-        handlers = subprocess.run(["gio", "mime", mime_type], env=environment, check=True, capture_output=True, text=True).stdout
+        handlers = subprocess.run(["gio", "mime", mime_type], env=environment, check=True, capture_output=True, text=True, encoding="utf-8").stdout
         require(f"{APP_ID}.desktop" in handlers, f"{mime_type} is not registered to MoTrack: {handlers}")
     # Write the entry again for a prefix that needs the Exec escapes, reaching the staged binary via a link.
     # CMake turns a backslash into a path separator, so an install prefix cannot contain one.
@@ -227,7 +227,7 @@ def launch_macos(stage, root):
             "var app = $.NSWorkspace.sharedWorkspace.URLForApplicationToOpenURL(url);"
             "app.isNil() ? '' : app.path.js"
         )
-        handler = subprocess.run(["osascript", "-l", "JavaScript", "-e", script], check=True, capture_output=True, text=True)
+        handler = subprocess.run(["osascript", "-l", "JavaScript", "-e", script], check=True, capture_output=True, text=True, encoding="utf-8")
         require(same_path(handler.stdout.strip()) == same_path(bundle), f".{extension} opens with {handler.stdout.strip() or 'nothing'}")
     output = root / "stdout.txt"
     errors = root / "stderr.txt"
