@@ -29,11 +29,11 @@ refusing, native files whose preserved source the current reader cannot read.
 ## Starting point after B1
 
 - `LegacyProject` ([legacy_project.hpp](../src/legacy_project.hpp)) is the editable model, built from B1's typed
-  loads ([tracker_loaders.hpp](../src/tracker_loaders.hpp)), which keep each object's `osp::NodeId` and are then
+  loads ([tracker_loaders.hpp](../src/model/tracker_loaders.hpp)), which keep each object's `osp::NodeId` and are then
   discarded. `TrackEdits` ([track_edits.hpp](../src/track_edits.hpp)) resolves list positions to a `TrackId`
   when an edit is recorded.
 - The standard writer ([tracker_writer.cpp](../src/tracker_writer.cpp)) diffs a fresh import of the preserved XML
-  against the live model and composes [`SourceEdits`](../src/source_edits.hpp); its patch functions mix edits with
+  against the live model and composes [`SourceEdits`](../src/model/source_edits.hpp); its patch functions mix edits with
   Tracker-behavior checks, and it refuses unless importing its output gives exactly the intended project. Renames
   and deletions also rewrite reference slots of untyped owners and saved views ([tracker_rename.cpp](../src/tracker_rename.cpp)).
 - Native v5 and v6 store the original XML, the reduced model as JSON and, since v4, bindings as ordinals in
