@@ -173,7 +173,8 @@ LOCALE_REJECTED = {
     "pl": {("Length Unit", "DŁugość jednostek")},  # Typo, "length of units".
     "uk": {("Zoom In", "Зменшити"), ("Zoom Out", "Збільшити"), ("Track", "Спостереження"),  # Swapped; "observation".
            ("Frame", "Фрейм")},  # Window frame, not a video frame ("кадр").
-    "vi": {("Undo", "Hủy bỏ")},  # "Cancel".
+    "vi": {("Undo", "Hủy bỏ"), ("View", "Tầm nhìn"), ("View", "Nhìn"), ("View", "Lượt xem"),  # "Cancel"; "eyesight";
+           ("Step size", "Khích thước bước")},  # "look"; "view count"; typo.
     "zh_CN": {("Zoom In", "缩小"), ("Zoom Out", "放大"), ("Clip Settings", "视频剪辑固定")},  # Swapped; "clip fixed".
     "zh_TW": {("Start frame", "開啟視窗"), ("End frame", "末頁框"), ("Frame", "視窗")},  # "Open window"; "window".
 }
