@@ -2963,11 +2963,12 @@ FILTER_REFERENCE = ROOT / "tests/science/video-filter-reference.json"
 FILTER_CLASSES = ["DeinterlaceFilter", "GhostFilter", "StrobeFilter", "DarkGhostFilter", "NegativeFilter", "GrayScaleFilter",
                   "LogFilter", "BrightnessFilter", "BaselineFilter", "SumFilter", "ResizeFilter", "RotateFilter", "PerspectiveFilter",
                   "RadialDistortionFilter"]
-FILTER_PATTERNS = {"gradient", "noise", "checker", "blob", "darkblob", "argb"}
+FILTER_PATTERNS = {"gradient", "noise", "checker", "blob", "darkblob", "solid", "argb"}
 FILTER_OPS = {"apply", "step", "set", "enable", "clear", "baseline", "replace_source"}
 FILTER_LINE_KEYS = ("frames", "cases")
 MAX_FILTER_CASES = 500
 MAX_FILTER_SIDE = 4096
+MAX_FILTER_REPEAT = 1000
 FULL_FILTER_IMAGE_PIXELS = 48
 SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 
@@ -3015,7 +3016,8 @@ def validate_filter_reference(document, manifest):
         for op in ops:
             if (not isinstance(op, dict) or op.get("op") not in FILTER_OPS
                     or ("frame" in op and not (type(op["frame"]) is int and 0 <= op["frame"] < len(case_frames)))
-                    or ("filter" in op and not (type(op["filter"]) is int and 0 <= op["filter"] < len(filters)))):
+                    or ("filter" in op and not (type(op["filter"]) is int and 0 <= op["filter"] < len(filters)))
+                    or ("repeat" in op and not (type(op["repeat"]) is int and 0 < op["repeat"] <= MAX_FILTER_REPEAT))):
                 raise ValueError(f"Invalid video filter operation in {case['id']!r}: {op!r}")
             applies += op["op"] == "apply"
         if len(results) != applies:

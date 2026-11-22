@@ -3649,7 +3649,7 @@ class FilterOracleTests(unittest.TestCase):
     def test_validation_rejects_malformed_or_incomplete_documents(self):
         mutations = ["version", "schema", "registry", "no-cases", "duplicate-case", "case-type", "unknown-class", "unknown-frame",
                      "frame-size", "duplicate-frame", "bad-op", "op-frame", "op-filter", "result-count", "result-hash", "rgb-on-large",
-                     "rgb-missing", "rgb-length", "uncovered-class", "persistence", "lists"]
+                     "rgb-missing", "rgb-length", "uncovered-class", "persistence", "lists", "repeat"]
         for mutation in mutations:
             document = copy.deepcopy(self.fixture)
             case = document["cases"][0]
@@ -3674,6 +3674,7 @@ class FilterOracleTests(unittest.TestCase):
             elif mutation == "uncovered-class":
                 document["cases"] = [c for c in document["cases"] if not c["id"].startswith(("sum-", "stack-"))]
             elif mutation == "persistence": document["persistence"].pop()
+            elif mutation == "repeat": self.case(document, "darkghost-black-then-white")["ops"][1]["repeat"] = 0
             else: document["composites"] = {}
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
                 corpus.validate_filter_reference(document, self.manifest)

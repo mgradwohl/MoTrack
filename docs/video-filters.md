@@ -20,8 +20,8 @@ has 16 numbered sections, of which 14 describe filters; that is where earlier pl
 | Brightness/contrast (`BrightnessFilter`) | `brightness` int (0), `contrast` (50) | `(int)(tan θ (c + sin²θ b − 127) + 127 + cos²θ b)` clamped to 0..255, θ = π contrast / 200 | — |
 | Highlight/shadow (`LogFilter`) | `level` int (0), `grayscale` (false) | 256-entry log lookup of the HSB brightness (single-precision `java.awt.Color`), or of (r + g + b) / 3 shown grey | — |
 | Deinterlace (`DeinterlaceFilter`) | `field` `even`/`odd` (even) | rows 0, 2, 4… (or 1, 3, 5…) written twice; an odd last row copied | — |
-| Strobe (`StrobeFilter`) | `fade` (0), `bright_trails` (false) | faded previous output replaces pixels whose mean it outshines (bright) or undercuts (dark) | previous output |
-| Ghost / dark ghost (`GhostFilter`, `DarkGhostFilter`) | `fade` (0.05) | remembered grey (int)((1 − f) g) (dark: (int)(255 − (1 − f)(255 − g))) shown where brighter (darker) than the input mean | grey per pixel |
+| Strobe (`StrobeFilter`) | `fade` (0), `bright_trails` (false) | faded previous output replaces pixels whose mean it outshines (bright) or undercuts (dark); dark trails fade toward white as the dark ghost does | previous output |
+| Ghost / dark ghost (`GhostFilter`, `DarkGhostFilter`) | `fade` (0.05) | remembered grey (int)((1 − f) g) (dark: 255 − (int)((1 − f)(255 − g)); Tracker (int)(255 − (1 − f)(255 − g))) shown where brighter (darker) than the input mean | grey per pixel |
 | Grayscale (`GrayScaleFilter`) | `weights` (0.30, 0.59, 0.11) | (int)((wr r + wg g + wb b) / (wr + wg + wb)) with Java int packing | — |
 | Negative (`NegativeFilter`) | — | 255 − c | — |
 | Baseline (`BaselineFilter`) | `imagepath` | max(c − baseline, 0); the frame size selects the baseline's top-left region | baseline image |
@@ -62,12 +62,18 @@ Temporal filters advance on **every evaluation**, not on frame numbers:
   the current state with whatever frame it is given.
 - Re-evaluating the same frame advances the state again: a ghost or strobe trail fades one more step. Tracker
   evaluates after each frame change and after any filter property change (each fires `PROPERTY_FILTER_IMAGE`), so
-  dragging an unrelated filter's slider fades trails. C6 decides when to evaluate; the kernel only defines one step.
+  dragging an unrelated filter's slider fades trails. That makes results depend on repaint cadence
+  ([#282](https://github.com/mgradwohl/MoTrack/issues/282)); C6 decides when to evaluate, and the kernel only defines one step.
 - `SumFilter` adds the input of the first evaluation after each `stepChanged()` (`addNextImage`). Tracker calls it on
   every step-number change, forward or backward, even while the filter is disabled; repeated evaluations of a frame
   add nothing. Clear restarts the sum from the last input and resets the fraction to 1.
 - `BaselineFilter` accepts a baseline at least as large as the current frame (any size before the first frame); a later,
   larger frame drops a baseline that no longer covers it, as Tracker does.
+
+A filter or stack belongs to one worker; parameter changes are marshalled to it, not made while it evaluates.
+`VideoFilter::clone()` and `VideoFilterStack::clone()` snapshot every parameter, temporal state, output buffer and
+identity, including a pending sum step, so a seek that may be cancelled can be evaluated on a copy and then kept or
+discarded without advancing the original (a dropped evaluation must not fade trails or consume `stepChanged()`).
 
 Perspective corners are key-framed by **video frame number** (`VideoPanel.getFrameNumber`, not the clip step), passed
 to `apply`. A fixed plane always uses key 0; otherwise a frame uses the latest key at or before it. Tracker's corner
@@ -89,6 +95,10 @@ coordinates; the maps below convert them.
 | Radial distortion | `outputToInput(p, w, h)` = c + s(r)(p − c), c = (w/2, h/2), r = \|p − c\| | output pixel (i, j) samples c + s(r)(p − c) + (0.0001, 0.0001), taking the nearer pixel of the 2 × 2 neighbourhood |
 
 `ProjectiveTransform::map` follows OSP, including leaving a point with a zero homogeneous coordinate in place.
+Perspective and radial sampling treat a pixel's top-left corner, not its centre, as its position in both images (OSP's
+convention, kept for parity). Under a magnification s the content is therefore offset by ½(1 − 1/s) input pixels
+relative to centre-based resampling (¼ px at 2×), and RGB/line sampling (K8) and position mapping in C6 must use the
+same corner convention, or convert explicitly, when they relate filtered and unfiltered pixels.
 The radial inverse has no closed form and is not provided; RGB/line sampling (K8) should state which image it samples.
 
 ## Reference oracle
@@ -103,8 +113,8 @@ representative and edge parameters (degenerate weights and quads, extreme bright
 every projection as input and as output), temporal
 sequences with repeats, backward seeks, clears, enable toggles and source changes, and stacks that exercise the reset
 cascade. The fixture `tests/science/video-filter-reference.json` stores per-evaluation SHA-256 hashes of the RGB bytes
-(every pixel for images of at most 48 pixels), `sin`/`cos` bits, log lookup hashes, compositing, the saved properties
-of each loader and the Java exceptions below.
+(every pixel for images of at most 48 pixels; an `apply` may repeat a frame and record only its last evaluation),
+`sin`/`cos` bits, log lookup hashes, compositing, the saved properties of each loader and the Java exceptions below.
 
 ```sh
 python tools/corpus.py filter-oracle --java /path/to/jdk-17/bin/java            # regenerate and diff exactly
@@ -113,35 +123,49 @@ python tools/corpus.py filter-oracle --java /path/to/jdk-17/bin/java --record   
 
 Every comparison is **exact**. With `FilterArithmetic::Tracker635`, all 123 cases match pixel for pixel. Brightness
 truncation exposes the last bit of `sin`/`cos`: HotSpot's x86-64 `Math.sin/cos` returned the correctly rounded value at
-all 107 probed contrasts, while the Windows UCRT is one ulp off at 9 of them, so the kernel computes correctly rounded
-`sin`/`cos` (double-double) for any |θ| ≤ 2²⁰. The other transcendental uses keep the platform library because their
-results have wide margins: log lookups stay at least 2.6 × 10⁻⁷ (relative) from a rounding tie, and the radial samples
-in the fixture at least 5.8 × 10⁻⁶ px from a pixel or half-pixel edge. Only the radial output field of view, an internal
-value probed for diagnosis, is compared within 4 ulps.
+all 107 probed contrasts, while the Windows UCRT is one ulp off at 9 of them, so the kernel evaluates `sin`/`cos` in
+double-double arithmetic for |θ| ≤ 2²⁰, verified correctly rounded on a sweep (the oracle contrasts and, in review,
+139,578 arguments against a 90-digit evaluation). The other transcendental uses keep the platform library: log lookups
+stay at least 2.6 × 10⁻⁷ (relative) from a rounding tie for every level −100..100, but the radial margin of
+5.8 × 10⁻⁶ px from a pixel or half-pixel edge covers only the fixture's samples; on arbitrary frames a sample can fall
+within an ulp of an edge, so a one-pixel cross-platform difference is possible. Only the radial output field of view,
+an internal value probed for diagnosis, is compared within 4 ulps. These helpers are private to the filters for now;
+[#263](https://github.com/mgradwohl/MoTrack/issues/263) consolidates the kernels' Java-math ports.
 
 ## Deliberate differences and upstream findings
 
 - **Perspective bilinear weights ([#219](https://github.com/mgradwohl/MoTrack/issues/219), corrected).** OSP weights the right neighbour by the vertical fraction and the
   lower one by the horizontal fraction. MoTrack interpolates correctly by default; `Tracker635` reproduces OSP.
-- **Brightness truncation ([#220](https://github.com/mgradwohl/MoTrack/issues/220), corrected).** At contrast 50 the mapping is exactly c + brightness, but the reference
-  slope is 0.9999999999999999, so results a few ulps below an integer lose a level (64 of 256 values at brightness
-  128). MoTrack truncates `value + 1e-9`; `Tracker635` reproduces the reference.
+- **Brightness truncation ([#220](https://github.com/mgradwohl/MoTrack/issues/220), corrected).** Where the mapping
+  is an exact integer (c + b at contrast 50, 127 + b at contrast 75 for c = 127 − b/2, 127 + b/2 at contrast 25 for
+  c = 127 − b), Java can land a few ulps below it and lose a level: 6,939 results over integer contrasts 0–99,
+  brightness −128..128 and channels 0..255, e.g. 64 of 256 values at brightness 128, contrast 50. MoTrack truncates
+  `value + 1e-9`, exact on that whole grid; `Tracker635` reproduces the reference.
+- **Dark trails ([#281](https://github.com/mgradwohl/MoTrack/issues/281), corrected).** OSP's dark ghost and dark
+  strobe fade `(int)(255 − (1 − f)(255 − g))` rounds the remaining darkness up, so trails stop at grey 236 for fade 0.05.
+  MoTrack fades to `255 − (int)((1 − f)(255 − g))`, mirroring the bright fade; `Tracker635` reproduces the reference.
+- `FilterArithmetic::Tracker635` exists for the oracle tests only; MoTrack has no user-facing Tracker-compatible mode
+  (maintainer decision, 2026-11-22).
 - **Exceptions ([#222](https://github.com/mgradwohl/MoTrack/issues/222)).** A resize whose output has a zero dimension throws `IllegalArgumentException` in Java; MoTrack
-  leaves the image unchanged and the filter uninitialized. Perspective corners without key 0 (edited XML) throw
+  leaves the image unchanged and the filter uninitialized, as it does for any output above INT_MAX pixels (Java cannot
+  allocate one either). Below that limit resize allocates what Tracker would: ×10 of a 4K frame is 3.3 GB, so C6 should
+  bound or confirm large factors. Perspective corners without key 0 (edited XML) throw
   `NullPointerException` for earlier frames; MoTrack uses the first key.
 - **Saved state ([#221](https://github.com/mgradwohl/MoTrack/issues/221), for C6).** Only the perspective filter saves its enabled state; the other 13 reopen enabled. A
   saved disabled perspective filter makes its loader throw `NullPointerException` (observed headless). `SumFilter` saves
   neither its mean flag nor its fraction. Tracker also saves values the filters adjust themselves: a 720 × 480 input at
   unit factors sets the resize width factor to 0.889, and the radial filter can move its fixed radius to its lower limit.
 - **Sum clear** restarts from the last input the filter saw; Java uses the current content of the shared input buffer,
-  which is the same frame whenever Clear can be pressed (the button is disabled while the filter is).
+  which is the same frame whenever Clear can be pressed (the button is disabled while the filter is). Keeping that copy
+  costs 4 bytes per pixel beside the 12 of the channel sums; it keeps Clear exact even when a step change arrives before
+  the next evaluation.
 
 ## C6 integration
 
 - Decode each frame and flatten it into a per-video buffer with `compositeSourceOver` (onto the previous frame, as
   `VideoAdapter` does), then evaluate one `VideoFilterStack` per video off the GUI thread with the video frame number.
-  Keep the stack on one worker at a time; cancellation discards an evaluation, but a temporal filter's state must then be
-  restored or rebuilt, because each evaluation advances it.
+  Keep the stack on one worker at a time and marshal parameter changes to it. For a seek that may be cancelled,
+  evaluate a `clone()` and keep it only if the result is used, because each evaluation advances temporal state.
 - Choose evaluation points deliberately: Tracker's repaint-driven evaluation makes trails depend on UI activity. A
   cache of filtered frames is valid only for stacks without temporal filters (`isTemporalVideoFilter`), keyed by
   the frame, the stack's parameters and its revision.

@@ -6,10 +6,14 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <memory>
 #include <utility>
 
 namespace motrack::science
 {
+
+// The filters' Java arithmetic (science/filters/java_arithmetic.hpp).
+namespace detail = filters::detail;
 
 namespace
 {
@@ -19,10 +23,24 @@ int meanValue(std::uint32_t pixel) noexcept
     return (redOf(pixel) + greenOf(pixel) + blueOf(pixel)) / 3;
 }
 
+/**
+ * A value faded toward white by `keep` = 1 - fade. OSP truncates 255 - keep (255 - v), which rounds the
+ * remaining darkness 255 - v up: it stops shrinking once keep (255 - v) > 254 - v, so dark trails never
+ * reach white (#281). Corrected truncates the darkness instead, mirroring the bright-trail fade.
+ */
+std::int32_t fadeTowardWhite(double keep, std::int32_t value, FilterArithmetic arithmetic) noexcept
+{
+    if (arithmetic == FilterArithmetic::Tracker635)
+    {
+        return detail::toInt(255 - (keep * (255 - value)));
+    }
+    return 255 - detail::toInt(keep * (255 - value));
+}
+
 /// GhostFilter.setFade / StrobeFilter.setFade: Math.min(Math.abs(fade), 1).
 double limitFade(double fade) noexcept
 {
-    return java::min(std::abs(fade), 1);
+    return detail::min(std::abs(fade), 1);
 }
 
 } // namespace
@@ -66,10 +84,10 @@ void GhostFilter::render(const FilterImage& input, FilterImage& output, int /*vi
         const std::uint32_t pixel = in[i];
         const int value = meanValue(pixel);
         const std::int32_t previous = m_Values[i];
-        const std::int32_t ghost = dark ? java::toInt(255 - ((1 - m_Fade) * (255 - previous))) : java::toInt((1 - m_Fade) * previous);
+        const std::int32_t ghost = dark ? fadeTowardWhite(1 - m_Fade, previous, m_Arithmetic) : detail::toInt((1 - m_Fade) * previous);
         if (dark ? ghost < value : ghost > value)
         {
-            out[i] = java::packGray(ghost);
+            out[i] = detail::packGray(ghost);
             m_Values[i] = ghost;
         }
         else
@@ -128,12 +146,12 @@ void StrobeFilter::render(const FilterImage& input, FilterImage& output, int /*v
         const int previousValue = (red + green + blue) / 3;
         if (m_BrightTrails) // bright trails fade to black
         {
-            if (java::toInt(keep * previousValue) > value)
+            if (detail::toInt(keep * previousValue) > value)
             {
-                red = java::toInt(keep * red);
-                green = java::toInt(keep * green);
-                blue = java::toInt(keep * blue);
-                out[i] = java::packBits(red, green, blue);
+                red = detail::toInt(keep * red);
+                green = detail::toInt(keep * green);
+                blue = detail::toInt(keep * blue);
+                out[i] = detail::packBits(red, green, blue);
             }
             else
             {
@@ -142,12 +160,12 @@ void StrobeFilter::render(const FilterImage& input, FilterImage& output, int /*v
         }
         else // dark trails fade to white
         {
-            if (value > java::toInt(255 - (keep * (255 - previousValue))))
+            if (value > fadeTowardWhite(keep, previousValue, m_Arithmetic))
             {
-                red = java::toInt(255 - (keep * (255 - red)));
-                green = java::toInt(255 - (keep * (255 - green)));
-                blue = java::toInt(255 - (keep * (255 - blue)));
-                out[i] = java::packBits(red, green, blue);
+                red = fadeTowardWhite(keep, red, m_Arithmetic);
+                green = fadeTowardWhite(keep, green, m_Arithmetic);
+                blue = fadeTowardWhite(keep, blue, m_Arithmetic);
+                out[i] = detail::packBits(red, green, blue);
             }
             else
             {
@@ -199,9 +217,9 @@ void SumFilter::addPixels(std::span<const std::uint32_t> pixels)
     ++m_ImageCount;
     for (std::size_t i = 0; i < pixels.size(); ++i)
     {
-        m_Red[i] = java::addWrapping(m_Red[i], redOf(pixels[i]));
-        m_Green[i] = java::addWrapping(m_Green[i], greenOf(pixels[i]));
-        m_Blue[i] = java::addWrapping(m_Blue[i], blueOf(pixels[i]));
+        m_Red[i] = detail::addWrapping(m_Red[i], redOf(pixels[i]));
+        m_Green[i] = detail::addWrapping(m_Green[i], greenOf(pixels[i]));
+        m_Blue[i] = detail::addWrapping(m_Blue[i], blueOf(pixels[i]));
     }
 }
 
@@ -218,11 +236,11 @@ void SumFilter::render(const FilterImage& input, FilterImage& output, int /*vide
     const double factor = m_Mean ? 1.0 / m_ImageCount : m_Brightness;
     const auto scale = [factor](std::int32_t sum)
     {
-        return java::toInt(java::min(sum * factor, 255));
+        return detail::toInt(detail::min(sum * factor, 255));
     };
     for (std::size_t i = 0; i < out.size(); ++i)
     {
-        out[i] = java::packBits(scale(m_Red[i]), scale(m_Green[i]), scale(m_Blue[i]));
+        out[i] = detail::packBits(scale(m_Red[i]), scale(m_Green[i]), scale(m_Blue[i]));
     }
 }
 
@@ -295,6 +313,34 @@ void BaselineFilter::render(const FilterImage& input, FilterImage& output, int /
         out[i] =
             opaqueRgb(subtract(redOf(pixel), redOf(base)), subtract(greenOf(pixel), greenOf(base)), subtract(blueOf(pixel), blueOf(base)));
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// clone()
+
+std::unique_ptr<VideoFilter> GhostFilter::clone() const
+{
+    return std::make_unique<GhostFilter>(*this);
+}
+
+std::unique_ptr<VideoFilter> DarkGhostFilter::clone() const
+{
+    return std::make_unique<DarkGhostFilter>(*this);
+}
+
+std::unique_ptr<VideoFilter> StrobeFilter::clone() const
+{
+    return std::make_unique<StrobeFilter>(*this);
+}
+
+std::unique_ptr<VideoFilter> SumFilter::clone() const
+{
+    return std::make_unique<SumFilter>(*this);
+}
+
+std::unique_ptr<VideoFilter> BaselineFilter::clone() const
+{
+    return std::make_unique<BaselineFilter>(*this);
 }
 
 } // namespace motrack::science

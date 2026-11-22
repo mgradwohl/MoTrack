@@ -9,11 +9,16 @@
 #include <cstddef>
 #include <iterator>
 #include <limits>
+#include <memory>
 #include <numbers>
+#include <optional>
 #include <ranges>
 
 namespace motrack::science
 {
+
+// The filters' Java arithmetic (science/filters/java_arithmetic.hpp).
+namespace detail = filters::detail;
 
 namespace
 {
@@ -62,7 +67,7 @@ std::int32_t refine(std::int32_t origin,
                     std::int32_t sourceTarget,
                     std::int32_t sourceIncrement) noexcept
 {
-    std::int32_t destination = java::toInt(std::ceil(doubleOrigin + (sourceTarget / scale) - 0.5));
+    std::int32_t destination = detail::toInt(std::ceil(doubleOrigin + (sourceTarget / scale) - 0.5));
     bool wasNegative = false;
     bool wasPositive = false;
     while (true)
@@ -135,8 +140,8 @@ void scaleImage(const FilterImage& source, FilterImage& destination, double dest
     // ScaledBlit underflow branches never apply.
     const double scaleX = (static_cast<double>(sourceWidth) / destinationWidth) * (1 << shift);
     const double scaleY = (static_cast<double>(sourceHeight) / destinationHeight) * (1 << shift);
-    const std::int32_t xIncrement = java::toInt(scaleX);
-    const std::int32_t yIncrement = java::toInt(scaleY);
+    const std::int32_t xIncrement = detail::toInt(scaleX);
+    const std::int32_t yIncrement = detail::toInt(scaleY);
     const std::int32_t tileSize = pow2TileSize(shift, xIncrement, yIncrement);
     // ceil(0 - 0.5) is 0: the destination origin is pixel (0, 0).
     const int x2 = std::min(refine(0, 0.0, tileSize, scaleX, sourceWidth << shift, xIncrement), destination.width());
@@ -148,15 +153,15 @@ void scaleImage(const FilterImage& source, FilterImage& destination, double dest
     const ScaledBlit blit{.source = source, .destination = destination, .shift = shift, .xIncrement = xIncrement, .yIncrement = yIncrement};
     if (tileSize >= destinationWidth && tileSize >= destinationHeight)
     {
-        blit.blit(0, 0, x2, y2, java::toInt(sourceLocation(0, 0.0, scaleX)), java::toInt(sourceLocation(0, 0.0, scaleY)));
+        blit.blit(0, 0, x2, y2, detail::toInt(sourceLocation(0, 0.0, scaleX)), detail::toInt(sourceLocation(0, 0.0, scaleY)));
         return;
     }
     for (std::int32_t tileY = 0; tileY < y2; tileY += tileSize)
     {
-        const std::int32_t yLocation = java::toInt(sourceLocation(tileY, 0.0, scaleY));
+        const std::int32_t yLocation = detail::toInt(sourceLocation(tileY, 0.0, scaleY));
         for (std::int32_t tileX = 0; tileX < x2; tileX += tileSize)
         {
-            const std::int32_t xLocation = java::toInt(sourceLocation(tileX, 0.0, scaleX));
+            const std::int32_t xLocation = detail::toInt(sourceLocation(tileX, 0.0, scaleX));
             blit.blit(tileX, tileY, std::min(tileX + tileSize, x2), std::min(tileY + tileSize, y2), xLocation, yLocation);
         }
     }
@@ -237,43 +242,78 @@ ProjectiveTransform concatenate(const Matrix& m1, const Matrix& m2) noexcept
     return t;
 }
 
-/// PerspectiveFilter / RadialDistortionFilter getColor: interpolation 2 (bilinear) or 1 (nearest).
-std::uint32_t sampleColor(double x, double y, const FilterImage& image, bool bilinear, bool transposed) noexcept
+/// OSP getColor's base pixel and fractions for a sample position; nullopt outside the image. `edge` is set
+/// for the last row and column, which OSP copies without interpolating.
+struct SampleCell
 {
-    const int w = image.width();
-    const int h = image.height();
-    const auto pixels = image.pixels();
-    const std::int32_t column = java::toInt(std::floor(x));
-    const std::int32_t row = java::toInt(std::floor(y));
+    std::int32_t column;
+    std::int32_t row;
+    double u;
+    double v;
+    bool edge;
+};
+
+std::optional<SampleCell> sampleCell(double x, double y, int w, int h) noexcept
+{
+    const std::int32_t column = detail::toInt(std::floor(x));
+    const std::int32_t row = detail::toInt(std::floor(y));
     if (column < 0 || column >= w || row < 0 || row >= h)
     {
-        return OPAQUE_ALPHA; // black outside the image
+        return std::nullopt;
     }
-    if (column + 1 == w || row + 1 == h)
+    // OSP's fractional parts: x % col equals x - col for 0 <= x - col < col.
+    return SampleCell{.column = column,
+                      .row = row,
+                      .u = column == 0 ? x : std::fmod(x, column),
+                      .v = row == 0 ? y : std::fmod(y, row),
+                      .edge = column + 1 == w || row + 1 == h};
+}
+
+/// PerspectiveFilter getColor with interpolation 2 (bilinear); outside the image is black.
+std::uint32_t sampleBilinear(double x, double y, const FilterImage& image, bool transposed) noexcept
+{
+    const int w = image.width();
+    const auto pixels = image.pixels();
+    const auto cell = sampleCell(x, y, w, image.height());
+    if (!cell)
+    {
+        return OPAQUE_ALPHA;
+    }
+    const auto [column, row, u, v, edge] = *cell;
+    if (edge)
     {
         return OPAQUE_ALPHA | (pixels[index(column, row, w)] & RGB_MASK);
     }
-    // OSP's fractional parts: x % col equals x - col for 0 <= x - col < col.
-    const double u = column == 0 ? x : std::fmod(x, column);
-    const double v = row == 0 ? y : std::fmod(y, row);
     const std::array<std::uint32_t, 4> values{pixels[index(column, row, w)],
                                               pixels[index(column + 1, row, w)],
                                               pixels[index(column, row + 1, w)],
                                               pixels[index(column + 1, row + 1, w)]};
-    if (!bilinear)
-    {
-        return OPAQUE_ALPHA | (values[(u < 0.5 ? 0U : 1U) + (v < 0.5 ? 0U : 2U)] & RGB_MASK);
-    }
     // OSP evaluates (1 - v)((1 - u) a0 + u a2) + v((1 - u) a1 + u a3) with a = (c, r), (c + 1, r),
     // (c, r + 1), (c + 1, r + 1), weighting the wrong neighbours. Swapping a1 and a2 corrects it.
     const std::size_t right = transposed ? 2 : 1;
     const std::size_t below = transposed ? 1 : 2;
+    const double fu = u;
+    const double fv = v;
     const auto interpolate = [&](int (*channel)(std::uint32_t) noexcept)
     {
-        return java::toInt(((1 - v) * (((1 - u) * channel(values[0])) + (u * channel(values[right])))) +
-                           (v * (((1 - u) * channel(values[below])) + (u * channel(values[3])))));
+        return detail::toInt(((1 - fv) * (((1 - fu) * channel(values[0])) + (fu * channel(values[right])))) +
+                             (fv * (((1 - fu) * channel(values[below])) + (fu * channel(values[3])))));
     };
-    return java::packBits(interpolate(redOf), interpolate(greenOf), interpolate(blueOf));
+    return detail::packBits(interpolate(redOf), interpolate(greenOf), interpolate(blueOf));
+}
+
+/// RadialDistortionFilter getColor with interpolation 1: the input pixel index OSP's nearest-of-2x2 rule
+/// picks, or -1 (black) outside the image.
+std::int32_t nearestSource(double x, double y, int w, int h) noexcept
+{
+    const auto cell = sampleCell(x, y, w, h);
+    if (!cell)
+    {
+        return -1;
+    }
+    const int column = cell->column + (cell->edge || cell->u < 0.5 ? 0 : 1);
+    const int row = cell->row + (cell->edge || cell->v < 0.5 ? 0 : 1);
+    return static_cast<std::int32_t>(index(column, row, w));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -334,7 +374,8 @@ double derivativeAtRadius(double r, RadialProjection projection, double fov) noe
 double pixelsToCorner(int width, int height) noexcept
 {
     // Math.sqrt(w * w + h * h) / 2 with Java int arithmetic.
-    return std::sqrt(static_cast<double>(java::addWrapping(java::multiplyWrapping(width, width), java::multiplyWrapping(height, height)))) /
+    return std::sqrt(
+               static_cast<double>(detail::addWrapping(detail::multiplyWrapping(width, width), detail::multiplyWrapping(height, height)))) /
            2;
 }
 
@@ -346,13 +387,13 @@ double pixelsToCorner(int width, int height) noexcept
 void ResizeFilter::setWidthFactor(double factor) noexcept
 {
     invalidateSource();
-    m_WidthFactor = java::max(java::min(std::abs(factor), 10), 0.01);
+    m_WidthFactor = detail::max(detail::min(std::abs(factor), 10), 0.01);
 }
 
 void ResizeFilter::setHeightFactor(double factor) noexcept
 {
     invalidateSource();
-    m_HeightFactor = java::max(java::min(std::abs(factor), 10), 0.01);
+    m_HeightFactor = detail::max(detail::min(std::abs(factor), 10), 0.01);
 }
 
 FilterPoint ResizeFilter::inputToOutput(FilterPoint point) const noexcept
@@ -372,7 +413,7 @@ std::pair<int, int> ResizeFilter::outputSize(int width, int height)
     {
         m_WidthFactor = 0.889;
     }
-    return {java::toInt(width * m_WidthFactor), java::toInt(height * m_HeightFactor)};
+    return {detail::toInt(width * m_WidthFactor), detail::toInt(height * m_HeightFactor)};
 }
 
 void ResizeFilter::render(const FilterImage& input, FilterImage& output, int /*videoFrame*/)
@@ -657,7 +698,7 @@ void PerspectiveFilter::render(const FilterImage& input, FilterImage& output, in
         for (int i = 0; i < input.width(); ++i)
         {
             const FilterPoint sample = transform.map({static_cast<double>(i), static_cast<double>(j)});
-            out[index(i, j, input.width())] = sampleColor(sample.x, sample.y, input, true, transposed);
+            out[index(i, j, input.width())] = sampleBilinear(sample.x, sample.y, input, transposed);
         }
     }
 }
@@ -777,7 +818,7 @@ RadialDistortionFilter::Scale RadialDistortionFilter::refreshScale(Scale scale) 
         }
         if (!m_HasLowerLimit)
         {
-            scale.lowerRadiusLimit = java::toInt(100 * MIN_RADIUS);
+            scale.lowerRadiusLimit = detail::toInt(100 * MIN_RADIUS);
             return scale;
         }
         // findRadiusLimit: Newton's method for the radius whose source angle equals a 180-degree output.
@@ -793,7 +834,7 @@ RadialDistortionFilter::Scale RadialDistortionFilter::refreshScale(Scale scale) 
         }
         if (iteration < 10 && !std::isnan(limit) && limit > .005 && limit < 1.01)
         {
-            scale.lowerRadiusLimit = std::max(java::toInt(std::floor(100 * limit)), java::toInt(100 * MIN_RADIUS));
+            scale.lowerRadiusLimit = std::max(detail::toInt(std::floor(100 * limit)), detail::toInt(100 * MIN_RADIUS));
         }
         if (scale.outputFov > MAX_FOV && scale.fixedRadius != scale.lowerRadiusLimit / 100.0)
         {
@@ -863,8 +904,7 @@ void RadialDistortionFilter::render(const FilterImage& input, FilterImage& outpu
         const double xCenter = w / 2.0;
         const double yCenter = h / 2.0;
         constexpr double NUDGE = 0.0001;
-        m_SampleX.resize(input.pixels().size());
-        m_SampleY.resize(input.pixels().size());
+        m_Sources.resize(input.pixels().size());
         for (int j = 0; j < h; ++j)
         {
             for (int i = 0; i < w; ++i)
@@ -872,19 +912,41 @@ void RadialDistortionFilter::render(const FilterImage& input, FilterImage& outpu
                 const double dx = i - xCenter;
                 const double dy = j - yCenter;
                 const double s = stretch(std::sqrt((dx * dx) + (dy * dy)), m_OutputFov, toCorner);
-                m_SampleX[index(i, j, w)] = xCenter + (s * dx) + NUDGE;
-                m_SampleY[index(i, j, w)] = yCenter + (s * dy) + NUDGE;
+                m_Sources[index(i, j, w)] = nearestSource(xCenter + (s * dx) + NUDGE, yCenter + (s * dy) + NUDGE, w, h);
             }
         }
         m_ValidTransform = true;
         m_TransformWidth = w;
         m_TransformHeight = h;
     }
-    auto out = output.pixels();
-    for (std::size_t p = 0; p < out.size(); ++p)
-    {
-        out[p] = sampleColor(m_SampleX[p], m_SampleY[p], input, false, false);
-    }
+    const auto in = input.pixels();
+    std::ranges::transform(m_Sources,
+                           output.pixels().begin(),
+                           [&](std::int32_t source)
+                           { return source < 0 ? OPAQUE_ALPHA : OPAQUE_ALPHA | (in[static_cast<std::size_t>(source)] & RGB_MASK); });
+}
+
+// ---------------------------------------------------------------------------------------------
+// clone()
+
+std::unique_ptr<VideoFilter> ResizeFilter::clone() const
+{
+    return std::make_unique<ResizeFilter>(*this);
+}
+
+std::unique_ptr<VideoFilter> RotateFilter::clone() const
+{
+    return std::make_unique<RotateFilter>(*this);
+}
+
+std::unique_ptr<VideoFilter> PerspectiveFilter::clone() const
+{
+    return std::make_unique<PerspectiveFilter>(*this);
+}
+
+std::unique_ptr<VideoFilter> RadialDistortionFilter::clone() const
+{
+    return std::make_unique<RadialDistortionFilter>(*this);
 }
 
 } // namespace motrack::science

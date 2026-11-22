@@ -43,7 +43,8 @@ enum class VideoFilterKind : std::uint8_t
 [[nodiscard]] bool isTemporalVideoFilter(VideoFilterKind kind) noexcept;
 
 /// Where Tracker 6.3.5 has an arithmetic defect, a filter either corrects it (MoTrack's default) or
-/// reproduces the reference bit for bit, for oracle comparisons. See docs/video-filters.md.
+/// reproduces the reference bit for bit. Tracker635 exists for the oracle tests only: by the maintainer's
+/// decision of 2026-11-22 MoTrack offers no user-facing Tracker-compatible mode. See docs/video-filters.md.
 enum class FilterArithmetic : std::uint8_t
 {
     Corrected,
@@ -54,8 +55,9 @@ enum class FilterArithmetic : std::uint8_t
 [[nodiscard]] std::uint64_t newFilterImageIdentity() noexcept;
 
 /**
- * Base of the OSP `Filter` ports. A filter owns its output image and its temporal state, and is used
- * from one thread at a time.
+ * Base of the OSP `Filter` ports. A filter owns its output image and its temporal state. It is not
+ * thread-safe: one worker owns it, and parameter changes must be marshalled to that worker (or applied to a
+ * clone()) rather than made while it evaluates.
  *
  * As in OSP, a filter (re)initializes when it is evaluated for the first time, when its input is a
  * different image buffer than last time (a different identity or size), and after a change that OSP
@@ -68,7 +70,6 @@ class VideoFilter
 {
   public:
     virtual ~VideoFilter() = default;
-    VideoFilter(const VideoFilter&) = delete;
     VideoFilter& operator=(const VideoFilter&) = delete;
     VideoFilter(VideoFilter&&) = delete;
     VideoFilter& operator=(VideoFilter&&) = delete;
@@ -88,6 +89,11 @@ class VideoFilter
     /// Tracker's Clear (or Reset) button; filters without one ignore it.
     virtual void clear();
 
+    /// An independent copy with the same parameters, temporal state, output image and buffer identities, so
+    /// that the copy continues exactly where this filter stands. Used to evaluate speculatively (a seek
+    /// that may be cancelled) and keep only the surviving state.
+    [[nodiscard]] virtual std::unique_ptr<VideoFilter> clone() const = 0;
+
     /**
      * One evaluation: OSP `Filter.getFilteredImage` for an enabled filter. Temporal filters advance their
      * state on every evaluation, including a repeated evaluation of the same frame.
@@ -97,8 +103,8 @@ class VideoFilter
      *        same value while successive frames are drawn into the same buffer.
      * @param videoFrame the video frame number shown (not the clip step); perspective key frames use it.
      * @return the filter's output, valid until its next evaluation or destruction. A disabled filter, an
-     *         empty input or an output size with a zero dimension (where OSP throws, #222) returns `input`
-     *         itself unchanged.
+     *         empty input, or an output size with a zero dimension or more than INT_MAX pixels (where OSP
+     *         throws, #222), returns `input` itself unchanged and leaves the filter uninitialized.
      */
     const FilterImage& apply(const FilterImage& input, std::uint64_t inputIdentity, int videoFrame = 0);
     /// The result may be the argument itself, so a temporary would dangle.
@@ -119,6 +125,9 @@ class VideoFilter
   protected:
     explicit VideoFilter(VideoFilterKind kind) noexcept : m_Kind(kind)
     {}
+
+    /// For clone(): copies every member, including the output image and its identity.
+    VideoFilter(const VideoFilter&) = default;
 
     /// OSP's `source = null`: the next evaluation re-initializes.
     void invalidateSource() noexcept
@@ -154,7 +163,7 @@ class VideoFilter
  * The stack stands in for VideoAdapter's single TYPE_INT_RGB frame buffer: successive frames of one
  * size count as the same buffer, so temporal state carries across frame changes in either direction,
  * frame skips and clip changes. A new frame size, or replaceSource() (for example a different video),
- * re-initializes every enabled filter.
+ * re-initializes every enabled filter. Like its filters, a stack belongs to one worker at a time.
  */
 class VideoFilterStack
 {
@@ -188,6 +197,10 @@ class VideoFilterStack
     void stepChanged();
     /// Treats the next frame as a new frame buffer.
     void replaceSource() noexcept;
+
+    /// A copy of every filter and the source state (see VideoFilter::clone), including pending sum steps:
+    /// evaluate the copy for a seek that may be cancelled, then keep it or discard it.
+    [[nodiscard]] VideoFilterStack clone() const;
 
     /**
      * Evaluates the stack once for `frame` (VideoAdapter.getImage with an invalid filtered image).

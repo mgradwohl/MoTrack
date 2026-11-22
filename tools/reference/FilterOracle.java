@@ -93,6 +93,7 @@ public final class FilterOracle {
                         : rgb(30 + (noise & 15), 35 + ((noise >>> 4) & 15), 40 + ((noise >>> 8) & 15));
                     case "darkblob" -> disk ? rgb(25, 45, 70)
                         : rgb(215 + (noise & 15), 220 + ((noise >>> 4) & 15), 225 + ((noise >>> 8) & 15));
+                    case "solid" -> rgb(frame.seed() & 0xff, frame.seed() & 0xff, frame.seed() & 0xff);
                     case "argb" -> {
                         int phase = (x + y) % 7;
                         int alpha = phase == 0 ? 0 : phase == 1 ? 255 : (x * 37 + y * 61 + frame.seed()) & 0xff;
@@ -144,6 +145,12 @@ public final class FilterOracle {
 
         Case apply(int... frameIndices) {
             for (int frame : frameIndices) ops.add(map("op", "apply", "frame", frame));
+            return this;
+        }
+
+        /** Evaluates one frame `count` times and records only the last result. */
+        Case applyRepeated(int frame, int count) {
+            ops.add(map("op", "apply", "frame", frame, "repeat", count));
             return this;
         }
 
@@ -234,6 +241,11 @@ public final class FilterOracle {
                 .filter("BrightnessFilter", "brightness", (int) bc[0], "contrast", bc[1]).frame("gradient", w, h, 0, 0)
                 .frame("noise", w, h, 4, 0).apply(0, 1));
         }
+        // Contrasts 25 and 75 have exact-integer mappings that Java truncates one level low (see #220).
+        for (double[] bc : new double[][] {{34, 25}, {114, 25}, {-64, 75}, {-124, 75}}) {
+            cases.add(new Case("brightness-" + (int) bc[0] + "-" + bc[1], "every channel value 0..255 in red")
+                .filter("BrightnessFilter", "brightness", (int) bc[0], "contrast", bc[1]).frame("gradient", 256, 1, 0, 0).apply(0));
+        }
         cases.add(new Case("brightness-clear", "inspector edits, then Reset").filter("BrightnessFilter").frame("noise", w, h, 4, 0)
             .apply(0).set(0, "brightness", 40).apply(0).set(0, "contrast", 70.0).apply(0).clear(0).apply(0));
         int[] levels = {0, 1, 25, 100, -40, -100, 250, -1000};
@@ -262,6 +274,21 @@ public final class FilterOracle {
             cases.add(new Case("darkghost-" + fade, "dark ghost trail").filter("DarkGhostFilter", "fade", fade)
                 .frames("darkblob", w, h, 7, 6).apply(0, 1, 2, 3, 4, 5));
         }
+        // A dark object leaves, then the scene is white: dark trails should fade to white, bright ones to black.
+        Case darkGhost = new Case("darkghost-black-then-white", "OSP's truncation stops the fade toward white (grey 236)")
+            .filter("DarkGhostFilter", "fade", 0.05).frame("solid", 2, 2, 0, 0).frame("solid", 2, 2, 255, 0).apply(0);
+        Case darkStrobe = new Case("strobe-dark-black-then-white", "dark strobe trails stop fading the same way")
+            .filter("StrobeFilter", "fade", 0.05).frame("solid", 2, 2, 0, 0).frame("solid", 2, 2, 255, 0).apply(0);
+        Case brightGhost = new Case("ghost-white-then-black", "bright trails fade all the way to black")
+            .filter("GhostFilter", "fade", 0.05).frame("solid", 2, 2, 255, 0).frame("solid", 2, 2, 0, 0).apply(0);
+        for (int count : new int[] {10, 50, 40}) {
+            darkGhost.applyRepeated(1, count);
+            darkStrobe.applyRepeated(1, count);
+            brightGhost.applyRepeated(1, count);
+        }
+        cases.add(darkGhost);
+        cases.add(darkStrobe);
+        cases.add(brightGhost);
         cases.add(new Case("ghost-reevaluate-seek", "state advances per evaluation, also on repeats and backward seeks")
             .filter("GhostFilter", "fade", 0.2).frames("blob", w, h, 7, 6).apply(0, 1, 2, 2, 2, 5, 1, 0, 3));
         cases.add(new Case("ghost-clear-enable", "clear and enable changes restart from the next frame")
@@ -515,7 +542,11 @@ public final class FilterOracle {
                             refreshCorners.invoke(filter, videoFrame);
                         }
                     }
-                    results.add(describe(stack.getFilteredImage(buffer)));
+                    BufferedImage filtered = null;
+                    for (int repeat = (Integer) op.getOrDefault("repeat", 1); repeat > 0; repeat--) {
+                        filtered = stack.getFilteredImage(buffer);
+                    }
+                    results.add(describe(filtered));
                 }
                 case "step" -> {
                     for (Filter filter : filters) {

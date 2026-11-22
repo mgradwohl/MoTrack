@@ -1,6 +1,7 @@
 #pragma once
 
-// Java language arithmetic the OSP filters rely on. Internal to motrack_filters.
+// Java language arithmetic the OSP filters rely on. Private to motrack_filters: the namespace keeps
+// these helpers distinct from other kernels' Java math (consolidation is tracked in #263).
 
 #include "science/filters/filter_image.hpp"
 
@@ -9,7 +10,7 @@
 #include <limits>
 #include <utility>
 
-namespace motrack::science::java
+namespace motrack::science::filters::detail
 {
 
 /// Java's (int) narrowing of a double: truncation toward zero, NaN -> 0, saturating at the int range.
@@ -72,15 +73,33 @@ inline std::int32_t lowBits(std::int64_t value) noexcept
     return static_cast<std::int32_t>(static_cast<std::uint32_t>(static_cast<std::uint64_t>(value)));
 }
 
-/// Math.min/Math.max for doubles: NaN if either operand is NaN.
+/// Math.min for doubles, as java.lang.Math implements it: NaN if either operand is NaN, and -0.0 is
+/// smaller than +0.0.
 inline double min(double a, double b) noexcept
 {
-    return std::isnan(a) || std::isnan(b) ? std::numeric_limits<double>::quiet_NaN() : (a <= b ? a : b);
+    if (std::isnan(a))
+    {
+        return a;
+    }
+    if (a == 0.0 && b == 0.0 && std::signbit(b))
+    {
+        return b;
+    }
+    return a <= b ? a : b;
 }
 
+/// Math.max for doubles: NaN if either operand is NaN, and +0.0 is larger than -0.0.
 inline double max(double a, double b) noexcept
 {
-    return std::isnan(a) || std::isnan(b) ? std::numeric_limits<double>::quiet_NaN() : (a >= b ? a : b);
+    if (std::isnan(a))
+    {
+        return a;
+    }
+    if (a == 0.0 && b == 0.0 && std::signbit(a))
+    {
+        return b;
+    }
+    return a >= b ? a : b;
 }
 
 /// Java's `(r << 16) | (g << 8) | b` on ints (any values, two's-complement bits), made opaque.
@@ -105,10 +124,12 @@ inline std::int32_t addWrapping(std::int32_t a, std::int32_t b) noexcept
 }
 
 /**
- * Correctly rounded sin and cos (double-double evaluation), for |theta| <= 2^20; larger or non-finite
- * arguments use the platform's std::sin/std::cos. HotSpot's x86-64 Math.sin/cos intrinsics returned the
- * correctly rounded value at every argument the filter oracle probes, whereas some C runtimes (the
- * Windows UCRT among them) are off by one ulp, which brightness truncation makes visible.
+ * sin and cos evaluated in double-double arithmetic and rounded once, for |theta| <= 2^20; larger or
+ * non-finite arguments use the platform's std::sin/std::cos. The results were verified correctly rounded
+ * on a sweep (every oracle contrast, and 139,578 arguments against a 90-digit evaluation in review); this
+ * is not a proof for every argument. HotSpot's x86-64 Math.sin/cos intrinsics returned the correctly
+ * rounded value at every probed contrast, whereas some C runtimes (the Windows UCRT among them) are one
+ * ulp off, which brightness truncation makes visible.
  */
 std::pair<double, double> sinCos(double theta) noexcept;
 
@@ -118,4 +139,4 @@ inline std::int32_t multiplyWrapping(std::int32_t a, std::int32_t b) noexcept
     return static_cast<std::int32_t>(static_cast<std::uint32_t>(a) * static_cast<std::uint32_t>(b));
 }
 
-} // namespace motrack::science::java
+} // namespace motrack::science::filters::detail

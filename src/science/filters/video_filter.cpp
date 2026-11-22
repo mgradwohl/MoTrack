@@ -6,6 +6,7 @@
 #include <array>
 #include <atomic>
 #include <iterator>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 
@@ -110,7 +111,8 @@ const FilterImage& VideoFilter::apply(const FilterImage& input, std::uint64_t in
     {
         // OSP throws IllegalArgumentException from new BufferedImage for a zero dimension.
         const auto [width, height] = outputSize(input.width(), input.height());
-        if (width <= 0 || height <= 0)
+        // Java cannot allocate an int raster above INT_MAX pixels either.
+        if (width <= 0 || height <= 0 || static_cast<std::int64_t>(width) * height > std::numeric_limits<int>::max())
         {
             m_Initialized = false;
             return input;
@@ -224,6 +226,20 @@ void VideoFilterStack::stepChanged()
 void VideoFilterStack::replaceSource() noexcept
 {
     m_SourceIdentity = newFilterImageIdentity();
+}
+
+VideoFilterStack VideoFilterStack::clone() const
+{
+    VideoFilterStack copy;
+    copy.m_SourceIdentity = m_SourceIdentity;
+    copy.m_SourceWidth = m_SourceWidth;
+    copy.m_SourceHeight = m_SourceHeight;
+    copy.m_Filters.reserve(m_Filters.size());
+    for (const auto& filter : m_Filters)
+    {
+        copy.m_Filters.push_back(filter->clone());
+    }
+    return copy;
 }
 
 const FilterImage& VideoFilterStack::apply(const FilterImage& frame, int videoFrame)

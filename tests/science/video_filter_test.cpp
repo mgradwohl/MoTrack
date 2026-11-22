@@ -131,6 +131,11 @@ FilterImage generate(const FrameSpec& frame)
             {
                 pixel = disk ? rgb(25, 45, 70) : rgb(215 + (noise & 15U), 220 + ((noise >> 4U) & 15U), 225 + ((noise >> 8U) & 15U));
             }
+            else if (frame.pattern == "solid")
+            {
+                const auto level = static_cast<std::uint32_t>(frame.seed) & 0xffU;
+                pixel = rgb(level, level, level);
+            }
             else if (frame.pattern == "argb")
             {
                 const int phase = (x + y) % 7;
@@ -442,6 +447,29 @@ void useTrackerArithmetic(VideoFilter& filter)
     {
         perspective->setArithmetic(FilterArithmetic::Tracker635);
     }
+    if (auto* ghost = dynamic_cast<GhostFilter*>(&filter))
+    {
+        ghost->setArithmetic(FilterArithmetic::Tracker635);
+    }
+    if (auto* strobe = dynamic_cast<StrobeFilter*>(&filter))
+    {
+        strobe->setArithmetic(FilterArithmetic::Tracker635);
+    }
+}
+
+/// True when a case uses a filter whose corrected arithmetic differs from Tracker's somewhere.
+bool usesCorrectedFilter(const QJsonObject& json)
+{
+    for (const QJsonValue spec : json["filters"].toArray())
+    {
+        const auto kind = motrack::science::videoFilterKindFromClassName(text(spec["class"]));
+        if (kind == VideoFilterKind::Brightness || kind == VideoFilterKind::Perspective || kind == VideoFilterKind::DarkGhost ||
+            kind == VideoFilterKind::Strobe)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 QJsonValue probe(const VideoFilter& filter, const std::string& name)
@@ -493,7 +521,12 @@ CaseRun runCase(const QJsonObject& json, FilterArithmetic arithmetic)
         const std::string kind = text(op["op"]);
         if (kind == "apply")
         {
-            const FilterImage& output = stack.apply(frames.at(static_cast<std::size_t>(op["frame"].toInt())), op["video_frame"].toInt(0));
+            const FilterImage& frame = frames.at(static_cast<std::size_t>(op["frame"].toInt()));
+            for (int repeat = op["repeat"].toInt(1); repeat > 1; --repeat)
+            {
+                (void)stack.apply(frame, op["video_frame"].toInt(0));
+            }
+            const FilterImage& output = stack.apply(frame, op["video_frame"].toInt(0));
             const QJsonObject expected = results[run.evaluations].toObject();
             const std::string where = id + " evaluation " + std::to_string(run.evaluations);
             if (output.width() != expected["width"].toInt() || output.height() != expected["height"].toInt())
@@ -614,7 +647,7 @@ TEST(VideoFilterReference, EveryCaseMatchesTrackerPixelForPixel)
     EXPECT_GT(evaluations, 300);
 }
 
-TEST(VideoFilterReference, CorrectedArithmeticChangesOnlyBrightnessAndPerspectiveCases)
+TEST(VideoFilterReference, CorrectedArithmeticChangesOnlyTheCorrectedFilters)
 {
     // The corrections are deliberate differences; every other filter is identical in both modes.
     std::vector<std::string> changed;
@@ -624,17 +657,22 @@ TEST(VideoFilterReference, CorrectedArithmeticChangesOnlyBrightnessAndPerspectiv
         if (!runCase(json, FilterArithmetic::Corrected).failures.empty())
         {
             changed.push_back(text(json["id"]));
+            EXPECT_TRUE(usesCorrectedFilter(json)) << text(json["id"]);
         }
     }
-    for (const std::string& id : changed)
+    for (const char* id : {"brightness-128-50.0",
+                           "brightness-34-25.0",
+                           "brightness--64-75.0",
+                           "perspective-trapezoid",
+                           "darkghost-black-then-white",
+                           "strobe-dark-black-then-white"})
     {
-        EXPECT_TRUE(id.starts_with("brightness-") || id.starts_with("perspective-") || id == "stack-brightness-ghost" ||
-                    id == "stack-geometry")
-            << id;
+        EXPECT_NE(std::ranges::find(changed, id), changed.end()) << id;
     }
-    EXPECT_NE(std::ranges::find(changed, "brightness-128-50.0"), changed.end());
-    EXPECT_EQ(std::ranges::find(changed, "brightness-0-50.0"), changed.end());
-    EXPECT_NE(std::ranges::find(changed, "perspective-trapezoid"), changed.end());
+    for (const char* id : {"brightness-0-50.0", "ghost-white-then-black", "strobe-bright-0.2"})
+    {
+        EXPECT_EQ(std::ranges::find(changed, id), changed.end()) << id;
+    }
 }
 
 TEST(VideoFilterReference, JavaExceptionsBecomeDefinedResults)
@@ -690,7 +728,7 @@ TEST(VideoFilterReference, TranscendentalsAgreeWithJavaToTheLastBit)
     for (const QJsonValue value : reference()["math"]["brightness_trig"].toArray())
     {
         const QJsonObject entry = value.toObject();
-        const auto [sin, cos] = motrack::science::java::sinCos(std::numbers::pi * entry["contrast"].toDouble() / 200);
+        const auto [sin, cos] = motrack::science::filters::detail::sinCos(std::numbers::pi * entry["contrast"].toDouble() / 200);
         EXPECT_EQ(std::bit_cast<std::uint64_t>(sin), std::stoull(text(entry["sin"]), nullptr, 16)) << entry["contrast"].toDouble();
         EXPECT_EQ(std::bit_cast<std::uint64_t>(cos), std::stoull(text(entry["cos"]), nullptr, 16)) << entry["contrast"].toDouble();
     }
@@ -723,51 +761,57 @@ TEST(VideoFilterReference, CorrectlyRoundedSinCosStaysWithinAnUlpOfTheLibrary)
     for (int step = -1620; step <= 1620; ++step)
     {
         const double theta = step * 0.01234;
-        const auto [sin, cos] = motrack::science::java::sinCos(theta);
+        const auto [sin, cos] = motrack::science::filters::detail::sinCos(theta);
         EXPECT_LE(ulps(sin, std::sin(theta)), 1) << theta;
         EXPECT_LE(ulps(cos, std::cos(theta)), 1) << theta;
     }
-    EXPECT_EQ(motrack::science::java::sinCos(0.0), (std::pair{0.0, 1.0}));
+    EXPECT_EQ(motrack::science::filters::detail::sinCos(0.0), (std::pair{0.0, 1.0}));
     // cos(fl(pi / 2)) is the remainder of pi / 2, which the three-part reduction keeps exactly.
-    EXPECT_EQ(motrack::science::java::sinCos(std::numbers::pi / 2).second, 6.123233995736766e-17);
-    EXPECT_TRUE(std::isnan(motrack::science::java::sinCos(std::numeric_limits<double>::infinity()).first));
-    EXPECT_EQ(motrack::science::java::sinCos(1e7).first, std::sin(1e7));
+    EXPECT_EQ(motrack::science::filters::detail::sinCos(std::numbers::pi / 2).second, 6.123233995736766e-17);
+    EXPECT_TRUE(std::isnan(motrack::science::filters::detail::sinCos(std::numeric_limits<double>::infinity()).first));
+    EXPECT_EQ(motrack::science::filters::detail::sinCos(1e7).first, std::sin(1e7));
 }
 
 TEST(JavaArithmetic, NarrowingRoundingAndPackingFollowTheJavaLanguage)
 {
-    namespace java = motrack::science::java;
+    namespace detail = motrack::science::filters::detail;
     constexpr double NAN_VALUE = std::numeric_limits<double>::quiet_NaN();
     constexpr auto INT_MAX_VALUE = std::numeric_limits<std::int32_t>::max();
     constexpr auto INT_MIN_VALUE = std::numeric_limits<std::int32_t>::min();
-    EXPECT_EQ(java::toInt(NAN_VALUE), 0);
-    EXPECT_EQ(java::toInt(3.99), 3);
-    EXPECT_EQ(java::toInt(-3.99), -3);
-    EXPECT_EQ(java::toInt(1e10), INT_MAX_VALUE);
-    EXPECT_EQ(java::toInt(-1e10), INT_MIN_VALUE);
-    EXPECT_EQ(java::toInt(2.75F), 2);
-    EXPECT_EQ(java::toLong(NAN_VALUE), 0);
-    EXPECT_EQ(java::toLong(1e19), std::numeric_limits<std::int64_t>::max());
-    EXPECT_EQ(java::toLong(-1e19), std::numeric_limits<std::int64_t>::min());
+    EXPECT_EQ(detail::toInt(NAN_VALUE), 0);
+    EXPECT_EQ(detail::toInt(3.99), 3);
+    EXPECT_EQ(detail::toInt(-3.99), -3);
+    EXPECT_EQ(detail::toInt(1e10), INT_MAX_VALUE);
+    EXPECT_EQ(detail::toInt(-1e10), INT_MIN_VALUE);
+    EXPECT_EQ(detail::toInt(2.75F), 2);
+    EXPECT_EQ(detail::toLong(NAN_VALUE), 0);
+    EXPECT_EQ(detail::toLong(1e19), std::numeric_limits<std::int64_t>::max());
+    EXPECT_EQ(detail::toLong(-1e19), std::numeric_limits<std::int64_t>::min());
     // Math.round: ties toward positive infinity, without the floor(x + 0.5) error at 0.49999999999999994.
-    EXPECT_EQ(java::round(2.5), 3);
-    EXPECT_EQ(java::round(-2.5), -2);
-    EXPECT_EQ(java::round(-0.5), 0);
-    EXPECT_EQ(java::round(0.49999999999999994), 0);
-    EXPECT_EQ(java::round(NAN_VALUE), 0);
-    EXPECT_EQ(java::round(1e300), std::numeric_limits<std::int64_t>::max());
-    EXPECT_EQ(java::lowBits(std::numeric_limits<std::int64_t>::max()), -1);
-    EXPECT_EQ(java::lowBits(0x100000005LL), 5);
-    EXPECT_TRUE(std::isnan(java::min(NAN_VALUE, 1.0)));
-    EXPECT_TRUE(std::isnan(java::min(1.0, NAN_VALUE)));
-    EXPECT_TRUE(std::isnan(java::max(NAN_VALUE, 1.0)));
-    EXPECT_EQ(java::min(1.0, 2.0), 1.0);
-    EXPECT_EQ(java::max(1.0, 2.0), 2.0);
+    EXPECT_EQ(detail::round(2.5), 3);
+    EXPECT_EQ(detail::round(-2.5), -2);
+    EXPECT_EQ(detail::round(-0.5), 0);
+    EXPECT_EQ(detail::round(0.49999999999999994), 0);
+    EXPECT_EQ(detail::round(NAN_VALUE), 0);
+    EXPECT_EQ(detail::round(1e300), std::numeric_limits<std::int64_t>::max());
+    EXPECT_EQ(detail::lowBits(std::numeric_limits<std::int64_t>::max()), -1);
+    EXPECT_EQ(detail::lowBits(0x100000005LL), 5);
+    EXPECT_TRUE(std::isnan(detail::min(NAN_VALUE, 1.0)));
+    EXPECT_TRUE(std::isnan(detail::min(1.0, NAN_VALUE)));
+    EXPECT_TRUE(std::isnan(detail::max(NAN_VALUE, 1.0)));
+    EXPECT_EQ(detail::min(1.0, 2.0), 1.0);
+    EXPECT_EQ(detail::max(1.0, 2.0), 2.0);
+    // Math.min/max order -0.0 below +0.0 whichever side it is on.
+    EXPECT_TRUE(std::signbit(detail::min(0.0, -0.0)));
+    EXPECT_TRUE(std::signbit(detail::min(-0.0, 0.0)));
+    EXPECT_FALSE(std::signbit(detail::max(-0.0, 0.0)));
+    EXPECT_FALSE(std::signbit(detail::max(0.0, -0.0)));
+    EXPECT_TRUE(std::isnan(detail::max(1.0, NAN_VALUE)));
     // (v << 16) | (v << 8) | v on a negative int sets every high bit.
-    EXPECT_EQ(java::packGray(-3) & motrack::science::RGB_MASK, 0xFFFFFDU);
-    EXPECT_EQ(java::packGray(300) & motrack::science::RGB_MASK, 0x2D2D2CU);
-    EXPECT_EQ(java::addWrapping(INT_MAX_VALUE, 1), INT_MIN_VALUE);
-    EXPECT_EQ(java::multiplyWrapping(65536, 65536), 0);
+    EXPECT_EQ(detail::packGray(-3) & motrack::science::RGB_MASK, 0xFFFFFDU);
+    EXPECT_EQ(detail::packGray(300) & motrack::science::RGB_MASK, 0x2D2D2CU);
+    EXPECT_EQ(detail::addWrapping(INT_MAX_VALUE, 1), INT_MIN_VALUE);
+    EXPECT_EQ(detail::multiplyWrapping(65536, 65536), 0);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -844,6 +888,22 @@ TEST(VideoFilterRegistry, NamesRoundTripAndUnknownClassesAreRejected)
     EXPECT_TRUE(motrack::science::isTemporalVideoFilter(VideoFilterKind::Sum));
     EXPECT_FALSE(motrack::science::isTemporalVideoFilter(VideoFilterKind::Baseline));
     EXPECT_NE(motrack::science::newFilterImageIdentity(), motrack::science::newFilterImageIdentity());
+}
+
+TEST(VideoFilterRegistry, EveryFilterClonesItsState)
+{
+    const FilterImage first = pattern("blob", 20, 12, 3, 0);
+    const FilterImage second = pattern("blob", 20, 12, 3, 2);
+    for (const VideoFilterKind kind : motrack::science::trackerVideoFilterKinds())
+    {
+        const auto filter = motrack::science::makeVideoFilter(kind);
+        (void)filter->apply(first, 5);
+        const auto copy = filter->clone();
+        ASSERT_EQ(copy->kind(), kind);
+        EXPECT_EQ(copy->outputIdentity(), filter->outputIdentity());
+        const FilterImage expected = filter->apply(second, 5);
+        EXPECT_TRUE(copy->apply(second, 5).sameColors(expected)) << motrack::science::videoFilterClassName(kind);
+    }
 }
 
 TEST(VideoFilterStack, ManagesFiltersInOrder)
@@ -960,6 +1020,42 @@ TEST(BrightnessFilter, CorrectedModeIsExactAtTheDefaultContrast)
     }
 }
 
+TEST(BrightnessFilter, CorrectedModeIsExactWhereTheMappingIsAnIntegerAtOtherContrasts)
+{
+    // tan(3 pi / 8) = 1 + sqrt 2 makes contrast 75 map c = 127 - b / 2 to exactly 127 + b, and contrast 25
+    // maps c = 127 - b to exactly 127 + b / 2 (even b). Tracker truncates some of these below the integer.
+    const auto mapped = [](BrightnessFilter& filter, int channel)
+    {
+        const FilterImage frame(1, 1, static_cast<std::uint32_t>(channel) * 0x010101U);
+        return motrack::science::redOf(applyOnce(filter, frame).at(0, 0));
+    };
+    for (const double contrast : {75.0, 25.0})
+    {
+        int lowered = 0;
+        for (int brightness = -128; brightness <= 128; brightness += 2)
+        {
+            const int channel = contrast == 75.0 ? 127 - (brightness / 2) : 127 - brightness;
+            const int expected = std::clamp(contrast == 75.0 ? 127 + brightness : 127 + (brightness / 2), 0, 255);
+            if (channel < 0 || channel > 255)
+            {
+                continue;
+            }
+            BrightnessFilter corrected;
+            corrected.setBrightness(brightness);
+            corrected.setContrast(contrast);
+            EXPECT_EQ(mapped(corrected, channel), expected) << contrast << " " << brightness;
+            BrightnessFilter tracker;
+            tracker.setBrightness(brightness);
+            tracker.setContrast(contrast);
+            tracker.setArithmetic(FilterArithmetic::Tracker635);
+            const int java = mapped(tracker, channel);
+            EXPECT_TRUE(java == expected || java == expected - 1) << contrast << " " << brightness;
+            lowered += java != expected;
+        }
+        EXPECT_GT(lowered, 0) << contrast;
+    }
+}
+
 TEST(BrightnessFilter, ResetRestoresDefaultsAndExtremeContrastSaturates)
 {
     BrightnessFilter filter;
@@ -1020,6 +1116,18 @@ TEST(PerspectiveFilter, CorrectedBilinearWeightsTheRightNeighbours)
             EXPECT_EQ(value(0, 0), (0x00 + 0x0a) / 2);
             EXPECT_EQ(value(1, 1), (0x6e + 0x78) / 2);
         }
+        // A quarter-pixel horizontal, half-pixel vertical shift: u = 0.25, v = 0.5 at pixel (0, 0).
+        PerspectiveFilter shifted;
+        shifted.setArithmetic(arithmetic);
+        shifted.setFixed(PerspectivePlane::Input, true, 0);
+        shifted.loadKeyFrame(
+            PerspectivePlane::Input, 0, {FilterPoint(0.25, 0.5), FilterPoint(2.25, 0.5), FilterPoint(2.25, 2.5), FilterPoint(0.25, 2.5)});
+        shifted.loadKeyFrame(PerspectivePlane::Output, 0, out);
+        const int sample = motrack::science::redOf(applyOnce(shifted, frame).at(0, 0));
+        // a0..a3 = (0, 0), (1, 0), (0, 1), (1, 1) = 0x00, 0x64, 0x0a, 0x6e.
+        const double right = arithmetic == FilterArithmetic::Corrected ? 0x64 : 0x0a;
+        const double below = arithmetic == FilterArithmetic::Corrected ? 0x0a : 0x64;
+        EXPECT_EQ(sample, static_cast<int>((0.5 * ((0.75 * 0x00) + (0.25 * right))) + (0.5 * ((0.75 * below) + (0.25 * 0x6e)))));
         // The last row and column are copied from the containing pixel.
         EXPECT_EQ(value(3, 0), 0xff);
         EXPECT_EQ(value(2, 2), 0xdc);
@@ -1234,6 +1342,96 @@ TEST(TemporalFilters, StateRestartsOnlyForTheDocumentedChanges)
 
     DarkGhostFilter dark;
     EXPECT_EQ(dark.kind(), VideoFilterKind::DarkGhost);
+}
+
+TEST(TemporalFilters, CorrectedDarkTrailsFadeToWhite)
+{
+    // A dark object leaves a white scene: OSP's truncation stops the fade at 255 - 19 (#281).
+    const FilterImage black(2, 2, 0xFF000000U);
+    const FilterImage white(2, 2, 0xFFFFFFFFU);
+    for (const FilterArithmetic arithmetic : {FilterArithmetic::Corrected, FilterArithmetic::Tracker635})
+    {
+        DarkGhostFilter ghost;
+        StrobeFilter strobe;
+        strobe.setFade(GhostFilter::DEFAULT_FADE); // the strobe's own default, 0, never fades
+        ghost.setArithmetic(arithmetic);
+        strobe.setArithmetic(arithmetic);
+        EXPECT_EQ(ghost.arithmetic(), arithmetic);
+        EXPECT_EQ(strobe.arithmetic(), arithmetic);
+        (void)ghost.apply(black, 1);
+        (void)strobe.apply(black, 1);
+        int ghostLevel = 0;
+        int strobeLevel = 0;
+        for (int i = 0; i < 200; ++i)
+        {
+            ghostLevel = motrack::science::redOf(ghost.apply(white, 1).at(1, 1));
+            strobeLevel = motrack::science::redOf(strobe.apply(white, 1).at(1, 1));
+        }
+        EXPECT_EQ(ghostLevel, arithmetic == FilterArithmetic::Corrected ? 255 : 236);
+        EXPECT_EQ(strobeLevel, arithmetic == FilterArithmetic::Corrected ? 255 : 236);
+    }
+    // Bright trails already fade to black in both modes.
+    GhostFilter bright;
+    (void)bright.apply(white, 1);
+    int level = 255;
+    for (int i = 0; i < 200; ++i)
+    {
+        level = motrack::science::redOf(bright.apply(black, 1).at(0, 0));
+    }
+    EXPECT_EQ(level, 0);
+}
+
+TEST(VideoFilterStack, ClonesContinueExactlyAndIndependently)
+{
+    VideoFilterStack stack;
+    stack.add(std::make_unique<BrightnessFilter>());
+    stack.add(std::make_unique<GhostFilter>());
+    stack.add(std::make_unique<SumFilter>());
+    stack.add(std::make_unique<PerspectiveFilter>());
+    std::vector<FilterImage> frames;
+    frames.reserve(6);
+    for (int t = 0; t < 6; ++t)
+    {
+        frames.push_back(pattern("blob", 20, 12, 3, t));
+    }
+    (void)stack.apply(frames[0]);
+    stack.stepChanged();
+    (void)stack.apply(frames[1]);
+    stack.stepChanged(); // a pending sum step is part of the snapshot
+    VideoFilterStack speculative = stack.clone();
+    ASSERT_EQ(speculative.size(), stack.size());
+    for (std::size_t i = 0; i < stack.size(); ++i)
+    {
+        EXPECT_EQ(speculative.at(i).kind(), stack.at(i).kind());
+        EXPECT_EQ(speculative.at(i).outputIdentity(), stack.at(i).outputIdentity());
+    }
+    // Evaluating the copy leaves the original untouched...
+    for (std::size_t t = 2; t < 6; ++t)
+    {
+        (void)speculative.apply(frames[t]);
+    }
+    VideoFilterStack replay = stack.clone();
+    // ...and every copy continues exactly as the original does.
+    for (std::size_t t = 2; t < 6; ++t)
+    {
+        const FilterImage expected = stack.apply(frames[t]);
+        EXPECT_TRUE(replay.apply(frames[t]).sameColors(expected)) << t;
+    }
+    const FilterImage last = stack.apply(frames[5]);
+    EXPECT_TRUE(speculative.apply(frames[5]).sameColors(last));
+    EXPECT_EQ(dynamic_cast<SumFilter&>(replay.at(2)).imageCount(), dynamic_cast<SumFilter&>(stack.at(2)).imageCount());
+    EXPECT_EQ(dynamic_cast<SumFilter&>(stack.at(2)).imageCount(), 3);
+}
+
+TEST(VideoFilter, OutputsAboveIntMaxPixelsLeaveTheImageUnchanged)
+{
+    // 4700 x 4700 at factor 10 would be 2.2e9 pixels: Java cannot allocate it, MoTrack passes the frame through.
+    ResizeFilter resize;
+    resize.setWidthFactor(10);
+    resize.setHeightFactor(10);
+    const FilterImage frame(4700, 4700);
+    EXPECT_EQ(&applyOnce(resize, frame), &frame);
+    EXPECT_FALSE(resize.isInitialized());
 }
 
 TEST(SumFilter, CountsImagesAndKeepsJavaFractionRules)

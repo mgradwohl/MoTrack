@@ -5,12 +5,17 @@
 #include "science/filters/video_filters.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
+#include <memory>
 #include <numbers>
 
 namespace motrack::science
 {
+
+// The filters' Java arithmetic (science/filters/java_arithmetic.hpp).
+namespace detail = filters::detail;
 
 namespace
 {
@@ -65,7 +70,7 @@ Hsb rgbToHsb(int r, int g, int b) noexcept
 
 std::int32_t channel(float value) noexcept
 {
-    return java::toInt((value * 255.0F) + 0.5F);
+    return detail::toInt((value * 255.0F) + 0.5F);
 }
 
 std::uint32_t hsbToRgb(float hue, float saturation, float brightness) noexcept
@@ -84,7 +89,7 @@ std::uint32_t hsbToRgb(float hue, float saturation, float brightness) noexcept
         const float p = brightness * (1.0F - saturation);
         const float q = brightness * (1.0F - (saturation * f));
         const float t = brightness * (1.0F - (saturation * (1.0F - f)));
-        switch (java::toInt(h))
+        switch (detail::toInt(h))
         {
         case 0:
             r = channel(brightness);
@@ -118,7 +123,7 @@ std::uint32_t hsbToRgb(float hue, float saturation, float brightness) noexcept
             break;
         }
     }
-    return java::packBits(r, g, b);
+    return detail::packBits(r, g, b);
 }
 
 } // namespace
@@ -150,7 +155,7 @@ void GrayScaleFilter::render(const FilterImage& input, FilterImage& output, int 
                            {
                                const double gray =
                                    (((red * redOf(pixel)) + (green * greenOf(pixel))) + (blue * blueOf(pixel))) / m_WeightSum;
-                               return java::packGray(java::toInt(gray));
+                               return detail::packGray(detail::toInt(gray));
                            });
 }
 
@@ -183,7 +188,7 @@ void BrightnessFilter::clear()
 void BrightnessFilter::updateFactors() noexcept
 {
     const double theta = PI * m_Contrast / 200;
-    const auto [sin, cos] = java::sinCos(theta);
+    const auto [sin, cos] = detail::sinCos(theta);
     m_Offset1 = (sin * sin * m_Brightness) - 127;
     m_Offset2 = 127 + (cos * cos * m_Brightness);
     m_Slope = sin / cos;
@@ -193,14 +198,21 @@ void BrightnessFilter::render(const FilterImage& input, FilterImage& output, int
 {
     // Tracker truncates the exact double; the correction absorbs a few ulps of error below an integer.
     const double guard = m_Arithmetic == FilterArithmetic::Corrected ? 1e-9 : 0.0;
-    const auto map = [&](int value)
+    // The mapping depends on the channel value alone, so a 256-entry table is bit for bit the same.
+    std::array<std::uint32_t, 256> table{};
+    for (std::size_t value = 0; value < table.size(); ++value)
     {
-        const std::int32_t mapped = java::toInt((m_Slope * (value + m_Offset1)) + m_Offset2 + guard);
-        return static_cast<std::uint32_t>(std::min(std::max(mapped, 0), 255));
-    };
+        const std::int32_t mapped = detail::toInt((m_Slope * (static_cast<int>(value) + m_Offset1)) + m_Offset2 + guard);
+        table[value] = static_cast<std::uint32_t>(std::min(std::max(mapped, 0), 255));
+    }
     std::ranges::transform(input.pixels(),
                            output.pixels().begin(),
-                           [&](std::uint32_t pixel) { return opaqueRgb(map(redOf(pixel)), map(greenOf(pixel)), map(blueOf(pixel))); });
+                           [&](std::uint32_t pixel)
+                           {
+                               return opaqueRgb(table[static_cast<std::size_t>(redOf(pixel))],
+                                                table[static_cast<std::size_t>(greenOf(pixel))],
+                                                table[static_cast<std::size_t>(blueOf(pixel))]);
+                           });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -229,7 +241,7 @@ void LogFilter::setLevel(int level) noexcept
         return;
     }
     double limit = std::abs(0.01 * level);
-    limit = java::min(1, 5 * limit) * std::exp(6 * limit);
+    limit = detail::min(1, 5 * limit) * std::exp(6 * limit);
     const double c = 255 / limit;
     const double bc = 255 / std::log10(limit + 1);
     for (std::size_t i = 0; i < m_Lookup.size(); ++i)
@@ -237,11 +249,11 @@ void LogFilter::setLevel(int level) noexcept
         const auto index = static_cast<int>(i);
         if (level > 0)
         {
-            m_Lookup[i] = java::lowBits(java::round(bc * std::log10(1 + (index / c))));
+            m_Lookup[i] = detail::lowBits(detail::round(bc * std::log10(1 + (index / c))));
         }
         else
         {
-            m_Lookup[i] = 255 - java::lowBits(java::round(bc * std::log10(1 + ((255 - index) / c))));
+            m_Lookup[i] = 255 - detail::lowBits(detail::round(bc * std::log10(1 + ((255 - index) / c))));
         }
     }
 }
@@ -257,10 +269,10 @@ void LogFilter::render(const FilterImage& input, FilterImage& output, int /*vide
                                const int b = blueOf(pixel);
                                if (m_Grayscale)
                                {
-                                   return java::packGray(m_Lookup[static_cast<std::size_t>((r + g + b) / 3)]);
+                                   return detail::packGray(m_Lookup[static_cast<std::size_t>((r + g + b) / 3)]);
                                }
                                const Hsb hsb = rgbToHsb(r, g, b);
-                               const std::int32_t gray = java::toInt(hsb.brightness * 255.0F);
+                               const std::int32_t gray = detail::toInt(hsb.brightness * 255.0F);
                                const std::int32_t mapped = m_Lookup[static_cast<std::size_t>(gray)];
                                return hsbToRgb(hsb.hue, hsb.saturation, static_cast<float>(mapped / 255.0));
                            });
@@ -290,6 +302,34 @@ void DeinterlaceFilter::render(const FilterImage& input, FilterImage& output, in
             out[p] = OPAQUE_ALPHA | (in[p] & RGB_MASK);
         }
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// clone()
+
+std::unique_ptr<VideoFilter> NegativeFilter::clone() const
+{
+    return std::make_unique<NegativeFilter>(*this);
+}
+
+std::unique_ptr<VideoFilter> GrayScaleFilter::clone() const
+{
+    return std::make_unique<GrayScaleFilter>(*this);
+}
+
+std::unique_ptr<VideoFilter> BrightnessFilter::clone() const
+{
+    return std::make_unique<BrightnessFilter>(*this);
+}
+
+std::unique_ptr<VideoFilter> LogFilter::clone() const
+{
+    return std::make_unique<LogFilter>(*this);
+}
+
+std::unique_ptr<VideoFilter> DeinterlaceFilter::clone() const
+{
+    return std::make_unique<DeinterlaceFilter>(*this);
 }
 
 } // namespace motrack::science

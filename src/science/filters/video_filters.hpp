@@ -9,6 +9,7 @@
 #include <array>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -35,6 +36,8 @@ struct FilterPoint
 class NegativeFilter final : public VideoFilter
 {
   public:
+    [[nodiscard]] std::unique_ptr<VideoFilter> clone() const override;
+
     NegativeFilter() noexcept : VideoFilter(VideoFilterKind::Negative)
     {}
 
@@ -46,6 +49,8 @@ class NegativeFilter final : public VideoFilter
 class GrayScaleFilter final : public VideoFilter
 {
   public:
+    [[nodiscard]] std::unique_ptr<VideoFilter> clone() const override;
+
     /// Tracker's "video" weights (the default) and its "flat" weights.
     static constexpr std::array<double, 3> VIDEO_WEIGHTS{0.30, 0.59, 0.11};
     static constexpr std::array<double, 3> FLAT_WEIGHTS{1.0 / 3, 1.0 / 3, 1.0 / 3};
@@ -84,6 +89,8 @@ class GrayScaleFilter final : public VideoFilter
 class BrightnessFilter final : public VideoFilter
 {
   public:
+    [[nodiscard]] std::unique_ptr<VideoFilter> clone() const override;
+
     static constexpr int DEFAULT_BRIGHTNESS = 0;
     static constexpr double DEFAULT_CONTRAST = 50.0;
 
@@ -137,6 +144,8 @@ class BrightnessFilter final : public VideoFilter
 class LogFilter final : public VideoFilter
 {
   public:
+    [[nodiscard]] std::unique_ptr<VideoFilter> clone() const override;
+
     LogFilter() noexcept;
 
     void setLevel(int level) noexcept;
@@ -175,6 +184,8 @@ class LogFilter final : public VideoFilter
 class DeinterlaceFilter final : public VideoFilter
 {
   public:
+    [[nodiscard]] std::unique_ptr<VideoFilter> clone() const override;
+
     DeinterlaceFilter() noexcept : VideoFilter(VideoFilterKind::Deinterlace)
     {}
 
@@ -204,6 +215,8 @@ class DeinterlaceFilter final : public VideoFilter
 class GhostFilter : public VideoFilter
 {
   public:
+    [[nodiscard]] std::unique_ptr<VideoFilter> clone() const override;
+
     static constexpr double DEFAULT_FADE = 0.05;
 
     GhostFilter() noexcept : GhostFilter(VideoFilterKind::Ghost)
@@ -214,6 +227,17 @@ class GhostFilter : public VideoFilter
     [[nodiscard]] double fade() const noexcept
     {
         return m_Fade;
+    }
+
+    /// Applies to the dark ghost's fade toward white only (#281).
+    void setArithmetic(FilterArithmetic arithmetic) noexcept
+    {
+        m_Arithmetic = arithmetic;
+    }
+
+    [[nodiscard]] FilterArithmetic arithmetic() const noexcept
+    {
+        return m_Arithmetic;
     }
 
     void setEnabled(bool enabled) override;
@@ -228,14 +252,18 @@ class GhostFilter : public VideoFilter
 
   private:
     double m_Fade = DEFAULT_FADE;
+    FilterArithmetic m_Arithmetic = FilterArithmetic::Corrected;
     std::vector<std::int32_t> m_Values;
 };
 
-/// The dark-object ghost: grey values fade toward white, (int)(255 - (1 - fade)(255 - g)), and show where
-/// they are darker than the input.
+/// The dark-object ghost: grey values fade toward white and show where they are darker than the input.
+/// Corrected (the default) fades to 255 - (int)((1 - fade)(255 - g)); Tracker635 keeps OSP's
+/// (int)(255 - (1 - fade)(255 - g)), which never reaches white (#281).
 class DarkGhostFilter final : public GhostFilter
 {
   public:
+    [[nodiscard]] std::unique_ptr<VideoFilter> clone() const override;
+
     DarkGhostFilter() noexcept : GhostFilter(VideoFilterKind::DarkGhost)
     {}
 };
@@ -244,11 +272,14 @@ class DarkGhostFilter final : public GhostFilter
  * Strobe trail ("fade", |fade| limited to 1, default 0; "bright_trails", default false). It remembers the
  * previous output; a faded copy of it (per channel) replaces the input pixel where the faded mean is
  * brighter (bright trails) or darker (dark trails) than the input's mean. The first frame initializes it.
- * Enabling, disabling, clearing or switching the trail type restarts from the next frame.
+ * Enabling, disabling, clearing or switching the trail type restarts from the next frame. Dark trails fade
+ * toward white as the dark ghost does, corrected by default (#281).
  */
 class StrobeFilter final : public VideoFilter
 {
   public:
+    [[nodiscard]] std::unique_ptr<VideoFilter> clone() const override;
+
     StrobeFilter() noexcept : VideoFilter(VideoFilterKind::Strobe)
     {}
 
@@ -267,6 +298,17 @@ class StrobeFilter final : public VideoFilter
         return m_BrightTrails;
     }
 
+    /// Applies to dark trails' fade toward white only (#281).
+    void setArithmetic(FilterArithmetic arithmetic) noexcept
+    {
+        m_Arithmetic = arithmetic;
+    }
+
+    [[nodiscard]] FilterArithmetic arithmetic() const noexcept
+    {
+        return m_Arithmetic;
+    }
+
     void setEnabled(bool enabled) override;
     void clear() override;
 
@@ -277,6 +319,7 @@ class StrobeFilter final : public VideoFilter
   private:
     double m_Fade = 0.0;
     bool m_BrightTrails = false;
+    FilterArithmetic m_Arithmetic = FilterArithmetic::Corrected;
     std::vector<std::uint32_t> m_Previous;
 };
 
@@ -290,6 +333,8 @@ class StrobeFilter final : public VideoFilter
 class SumFilter final : public VideoFilter
 {
   public:
+    [[nodiscard]] std::unique_ptr<VideoFilter> clone() const override;
+
     SumFilter() noexcept : VideoFilter(VideoFilterKind::Sum)
     {}
 
@@ -348,6 +393,8 @@ class SumFilter final : public VideoFilter
 class BaselineFilter final : public VideoFilter
 {
   public:
+    [[nodiscard]] std::unique_ptr<VideoFilter> clone() const override;
+
     BaselineFilter() noexcept : VideoFilter(VideoFilterKind::Baseline)
     {}
 
@@ -386,6 +433,8 @@ class BaselineFilter final : public VideoFilter
 class ResizeFilter final : public VideoFilter
 {
   public:
+    [[nodiscard]] std::unique_ptr<VideoFilter> clone() const override;
+
     ResizeFilter() noexcept : VideoFilter(VideoFilterKind::Resize)
     {}
 
@@ -435,6 +484,8 @@ enum class FilterRotation : std::uint8_t
 class RotateFilter final : public VideoFilter
 {
   public:
+    [[nodiscard]] std::unique_ptr<VideoFilter> clone() const override;
+
     RotateFilter() noexcept : VideoFilter(VideoFilterKind::Rotate)
     {}
 
@@ -503,6 +554,8 @@ enum class PerspectivePlane : std::uint8_t
 class PerspectiveFilter final : public VideoFilter
 {
   public:
+    [[nodiscard]] std::unique_ptr<VideoFilter> clone() const override;
+
     PerspectiveFilter() : VideoFilter(VideoFilterKind::Perspective)
     {}
 
@@ -589,6 +642,8 @@ enum class RadialProjection : std::uint8_t
 class RadialDistortionFilter final : public VideoFilter
 {
   public:
+    [[nodiscard]] std::unique_ptr<VideoFilter> clone() const override;
+
     RadialDistortionFilter() noexcept : VideoFilter(VideoFilterKind::RadialDistortion)
     {}
 
@@ -658,8 +713,7 @@ class RadialDistortionFilter final : public VideoFilter
     bool m_ValidTransform = false;
     int m_TransformWidth = -1;
     int m_TransformHeight = -1;
-    std::vector<double> m_SampleX;
-    std::vector<double> m_SampleY;
+    std::vector<std::int32_t> m_Sources; // input pixel per output pixel, -1 for black
 };
 
 } // namespace motrack::science

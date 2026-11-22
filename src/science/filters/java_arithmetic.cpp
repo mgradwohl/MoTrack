@@ -3,7 +3,7 @@
 #include <cmath>
 #include <utility>
 
-namespace motrack::science::java
+namespace motrack::science::filters::detail
 {
 
 namespace
@@ -114,4 +114,4 @@ std::pair<double, double> sinCos(double theta) noexcept
     }
 }
 
-} // namespace motrack::science::java
+} // namespace motrack::science::filters::detail
