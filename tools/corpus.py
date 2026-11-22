@@ -456,6 +456,10 @@ def validate_known_session_issue(case, report, manifest, saved):
             "tracker_session": report}
 
 
+XVFB_READY_SECONDS = 30
+XVFB_LOG_BYTES = 2000
+
+
 @contextmanager
 def private_display():
     if sys.platform != "linux":
@@ -465,18 +469,27 @@ def private_display():
         raise ValueError("Install Xvfb to run the isolated session checks")
     reader, writer = os.pipe()
     server = None
+    # Xvfb's diagnostics explain a failed start; keep them in a bounded temporary file (#208).
+    log = tempfile.TemporaryFile()
+
+    def failure(message):
+        log.seek(0)
+        detail = log.read(XVFB_LOG_BYTES).decode("utf-8", "replace").strip()
+        return ValueError(f"{message}: {detail}" if detail else message)
+
     try:
         try:
             server = subprocess.Popen([executable, "-displayfd", str(writer), "-screen", "0", "1280x800x24",
                                        "-nolisten", "tcp"], pass_fds=(writer,),
-                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                      stdout=subprocess.DEVNULL, stderr=log)
         finally:
             os.close(writer)
-        if not select.select([reader], [], [], 5)[0]:
-            raise ValueError("Private Xvfb display did not become ready")
+        # A cold start on a loaded runner can exceed a few seconds; a healthy server answers at once.
+        if not select.select([reader], [], [], XVFB_READY_SECONDS)[0]:
+            raise failure(f"Private Xvfb display did not become ready within {XVFB_READY_SECONDS} s")
         number = os.read(reader, 32).decode("ascii")
         if not re.fullmatch(r"[0-9]+\n", number) or server.poll() is not None:
-            raise ValueError("Private Xvfb display failed to start")
+            raise failure("Private Xvfb display failed to start")
         yield ":" + number.strip()
     finally:
         os.close(reader)
@@ -488,6 +501,7 @@ def private_display():
             except subprocess.TimeoutExpired:
                 server.kill()
                 server.wait(timeout=5)
+        log.close()
 
 
 MOVIE_TRACK_SCENARIOS = ("selected-name", "unselected-name", "create", "delete-selected", "delete-unselected", "delete-all", "replace")
