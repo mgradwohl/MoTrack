@@ -51,6 +51,13 @@ publication (R27) are outside the current completion contract; local staging rem
 that Tracker ships is in scope: catalogs are seeded from Tracker's own translations where strings
 correspond, remaining strings are machine-translated and marked `unfinished` for later human review.
 
+**Maintainer decisions of 2026-11-22.** Machine-translated strings ship visible, without a label; they stay
+`unfinished` in the catalogs for review, so builds must not pass `-nounfinished`. The interface keeps every
+Tracker capability but may modernize its layout: menus, toolbars and panels can be reorganized where a
+cleaner design helps, and the user guide maps each Tracker command to its MoTrack location. Where MoTrack
+corrects a Tracker defect, the user guide lists the difference and an opened experiment shows a quiet,
+non-blocking indicator (status or diagnostics, no pop-up) naming the corrections that apply to it.
+
 ## Current status
 
 Snapshot **2026-11-21**, main at [`b22029b`](https://github.com/mgradwohl/MoTrack/commit/b22029b4e1bdf9eb5911d3a2ca53d3b779fb3edc)
