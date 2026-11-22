@@ -312,7 +312,7 @@ QJsonObject stateSnapshot(const motrack::ImportedTrackerProject& imported)
     QJsonObject units{{"mass", QString::fromStdString(project.massUnit)}, {"time", QString::fromStdString(project.timeUnit)}};
     if (!project.lengthUnit.empty())
     {
-        // Tracker materializes its default length unit when the file has none; MoTrack does not (a gap).
+        // Tracker materializes its default length unit when the file has none; MoTrack does not yet (#214).
         units.insert("length", QString::fromStdString(project.lengthUnit));
     }
     const auto& clip = project.clip;

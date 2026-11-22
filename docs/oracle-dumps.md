@@ -104,8 +104,9 @@ schema with `kind: "motrack"` and `supported_classes` (point mass and vector). T
 source order. Point masses carry `mass`, their marks as steps and the data columns MoTrack computes (`t`,
 `x`, `y`, `v_{x}`, `v_{y}`, `v`, `a_{x}`, `a_{y}`, `p_{x}`, `p_{y}`, `K`, `step`, `frame`, `pixel_{x}`,
 `pixel_{y}`); vectors carry their samples as steps. Time and derivative columns are omitted for untimed clips,
-world quantities for uncalibrated projects, and the length unit when the file has none (Tracker materializes
-its default). The comparison reports each omission as a gap.
+world quantities for uncalibrated projects, and the length unit when the file has none. The comparison reports
+each omission as a gap. Tracker materializes a 100 ms frame duration and the `m` label when a media-free file
+saves neither; MoTrack does not yet (#214).
 
 ## Comparing dumps
 
