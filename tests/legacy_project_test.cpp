@@ -341,10 +341,16 @@ TEST(LegacyProject, LeavesFramesWhereTrackersLoaderIgnoresTheFrameShift)
     const auto shift = std::string("<property name='frameshift' type='int'>2</property>");
     EXPECT_EQ(load(start(1), shift).clip.firstFrame, 0);
     EXPECT_EQ(load(start(2147483647), "<property name='frameshift' type='int'>-1</property>").clip.firstFrame, 0);
-    // Without a saved start frame the clip keeps frame 0; the marks still shift.
+    // MoTrack policy, not Tracker's: without a saved start frame (Tracker always saves one) Java's wrapped sentinel is
+    // clamped to the clip's last frame, while MoTrack keeps frame 0. The marks still shift.
     const auto unstarted = load("", shift);
     EXPECT_EQ(unstarted.clip.firstFrame, 0);
     EXPECT_EQ(frames(unstarted.pointMasses.front().marks), (std::vector<int>{2}));
+    // Java cannot load an array whose last index is unreadable; MoTrack keeps it unshifted, as it read it before #313.
+    const auto unreadable = motrack::parseLegacyProject(
+        projectXml(shiftedClip(start(3), shift) + "<property name='tracks'>" +
+                   massTrack("mass", massFrame(2, 2, 2) + "<property name='[x]'>null</property>") + "</property>"));
+    EXPECT_EQ(frames(unreadable.pointMasses.front().marks), (std::vector<int>{2}));
 }
 
 TEST(LegacyProject, KeepsTheLastOfDuplicateCalibrationKeysAsTrackerDoes)

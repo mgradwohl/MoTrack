@@ -5060,6 +5060,9 @@ TEST(TrackerWriter, KeepsTheFrameShiftAndSavedIndicesAndRefusesShiftedSampleEdit
     project.pointMasses.front().marks.push_back({.frame = 8, .x = 1, .y = 2});
     refuses(project);
     project = imported.project;
+    project.pointMasses.front().marks.pop_back();
+    refuses(project);
+    project = imported.project;
     auto created = motrack::PointMass{.name = "new", .marks = {{.frame = 3, .x = 1, .y = 2}}, .mass = 1};
     created.id = project.nextTrackId++;
     project.pointMasses.push_back(created);

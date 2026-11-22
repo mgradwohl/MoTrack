@@ -91,13 +91,16 @@ int clipFrameShift(const tracker::PanelLoad& panel)
 /// length above 1, so saved index n loads at frame n - shift. An array no longer than the shift becomes null and loads
 /// no frames; one of length 1 (only `[0]`) is unchanged. The Java length is the last element's index plus one
 /// (XMLControlElement.arrayValue). TrackerPanel loads the coordinate system without the adjuster: its keys never move.
+/// Java cannot load an array whose last index is unreadable or negative; MoTrack keeps such an array unshifted, as it
+/// read it before #313, rather than refuse a file (and the native documents preserving it) that it opened before.
 template <typename Data> std::optional<int> droppedSlots(const tracker::FrameArray<Data>& array, int shift)
 {
-    if (shift <= 0 || array.frames.empty())
+    const auto last = array.frames.empty() ? tracker::Read<std::int32_t>(0) : array.frames.back().element.index;
+    if (shift <= 0 || !last || *last < 0)
     {
         return 0;
     }
-    const auto length = std::int64_t{arrayIndex(array.frames.back().element)} + 1;
+    const auto length = std::int64_t{*last} + 1;
     if (length <= 1)
     {
         return 0;
@@ -116,7 +119,8 @@ Clip readClip(const tracker::PanelLoad& panel, int frameShift)
         {
             // VideoClip.Loader subtracts a saved frame shift from the start frame with Java's wrapping int arithmetic,
             // and setStartFrameNumber keeps the result at or after frame 0 (#313). Without a saved start frame Java
-            // subtracts the shift from Integer.MIN_VALUE, which also wraps; MoTrack keeps frame 0 then.
+            // subtracts a positive shift from the Integer.MIN_VALUE sentinel, which wraps to a large start that the
+            // clamp moves to the clip's last frame; MoTrack deliberately keeps frame 0 then (Tracker always saves it).
             const auto start = static_cast<std::int32_t>(static_cast<std::uint32_t>(integer(loaded.startFrame, 0)) -
                                                          static_cast<std::uint32_t>(frameShift));
             clip.firstFrame = std::max<std::int32_t>(start, 0);

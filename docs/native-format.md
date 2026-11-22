@@ -167,20 +167,23 @@ names that reading; a file without it was written by reading 1. Reading 2 (#313,
   0) and removes that many leading slots from each track's `framedata` when the array's Java length (last index + 1)
   is above 1: saved index *n* becomes frame *n* − shift, lower indices and arrays no longer than the shift load nothing,
   and a lone `[0]` stays. Coordinate keys and a negative shift's track frames do not move. Unreadable or other-typed
-  shifts are ignored, as Java's `getInt` makes them. [MoTrack #327](https://github.com/mgradwohl/MoTrack/issues/327)
+  shifts are ignored, as Java's `getInt` makes them. Without a saved `startframe` (which Tracker always writes), Java's
+  wrapping arithmetic and clamp put the clip at its last frame; MoTrack deliberately keeps frame 0. A track array whose
+  last index Java cannot read stays unshifted, as before #313. [MoTrack #327](https://github.com/mgradwohl/MoTrack/issues/327)
   records how this differs from the property's pre-2016 meaning.
 - **Duplicate coordinate keys.** The last `[n]` element wins, a null one included, as OSP's array loader assigns slots.
   Reading 1 stored no calibration for such a source.
 
-Opening a reading-1 file compares its stored values with both readings of the preserved source, per fix:
+Opening a reading-1 file compares its stored values with both readings of the preserved source and takes the current
+reading's values, all or nothing, when both conditions hold where the readings differ:
 
-- The clip's first frame and every bound track's samples are migrated only together, when they all still equal
-  reading 1 exactly, every track is bound and none was created or deleted, and the shift drops no sample and moves
-  none off its clip step (for example when the clip start is held at frame 0, or for a negative shift).
-- A calibration is migrated only when reading 1 and the stored document both have none.
+- **Frames:** the clip's first frame and every bound track's samples still equal reading 1 exactly, every track is
+  bound and none was created or deleted, and the shift drops no sample and moves none off its clip step. A clip start
+  held at frame 0 and a negative shift both move samples off their steps, so such documents are not migrated.
+- **Calibration:** reading 1 and the stored document both have none.
 
-A native file cannot tell an edit from an unedited reading-1 value, so anything else keeps every stored value of that
-fix: nothing is shifted, dropped or overwritten. The source associations are then dropped as for stale bindings, so
+A native file cannot tell an edit from an unedited reading-1 value, so anything else keeps every stored value: nothing
+is shifted, dropped or overwritten. The source associations are then dropped as for stale bindings, so
 standard export refuses, and the window shows a persistent note. The document keeps `trackerReading: 1`, so every
 later open explains it again; importing the original Tracker file again gives Tracker's values. A migrated document
 is saved with the current reading and is never migrated again, edited or not.

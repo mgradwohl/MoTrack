@@ -6,6 +6,7 @@
 #include "paired_save.hpp"
 #include "track_edits.hpp"
 #include "tracker_archive.hpp"
+#include "tracker_import.hpp"
 #include "tracker_writer.hpp"
 #include "workspace_storage.hpp"
 
@@ -21,9 +22,11 @@
 #include <QTemporaryDir>
 #include <gtest/gtest.h>
 
+#include <functional>
 #include <limits>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace
 {
@@ -609,8 +612,8 @@ TEST(WorkspaceDocument, KeepsEditedOrLossyFirstReadingValuesAndExplainsWhy)
     EXPECT_EQ(document.project.pointMasses[0].marks.front(), (motrack::Mark{.frame = 2, .x = 31, .y = 30}));
     EXPECT_EQ(markFrames(document.project.pointMasses[0]), (std::vector<int>{2, 3, 5, 6}));
     EXPECT_EQ(markFrames(document.project.pointMasses[1]), (std::vector<int>{4, 7}));
-    // The duplicate-key fix covers only the calibration, which neither the first reader nor the user set.
-    EXPECT_TRUE(document.project.calibration.has_value());
+    // Migration is all or nothing: the calibration the first reader dropped stays dropped with the marks.
+    EXPECT_FALSE(document.project.calibration.has_value());
     const auto refused = [&](const motrack::WorkspaceDocument& outdated)
     {
         try
@@ -653,6 +656,151 @@ TEST(WorkspaceDocument, KeepsEditedOrLossyFirstReadingValuesAndExplainsWhy)
     refused(lossy);
     ASSERT_TRUE(window.loadProject(preFixFixture("pre-fix-frame-shift.motrack")));
     EXPECT_FALSE(notice->isHidden());
+}
+
+/// A native file as MoTrack's first reader saved it: its values are that reading of `xml` (optionally edited) and it
+/// records no `trackerReading`. FirstReaderDocumentsMatchThePreFixFixtures checks this against real pre-fix files.
+QString firstReaderDocument(const QTemporaryDir& directory,
+                            const QString& name,
+                            const std::string& xml,
+                            const std::function<void(motrack::WorkspaceDocument&)>& edit = {})
+{
+    const auto earlier = motrack::detail::importTracker(motrack::detail::parseTrackerXml(xml), motrack::TrackerReading::SavedIndices);
+    motrack::WorkspaceDocument document{.project = earlier.project,
+                                        .movieFrameTimes = {},
+                                        .trackerSource = motrack::TrackerSource{.xml = xml, .bindings = earlier.bindings}};
+    if (edit)
+        edit(document);
+    const auto path = directory.filePath(name);
+    motrack::writeWorkspaceDocument(path, document);
+    auto root = QJsonDocument::fromJson(readBytes(path)).object();
+    root.remove("trackerReading");
+    EXPECT_TRUE(writeBytes(path, QJsonDocument(root).toJson()));
+    return path;
+}
+
+TEST(WorkspaceDocument, FirstReaderDocumentsMatchThePreFixFixtures)
+{
+    QTemporaryDir temporary;
+    for (const auto* name : {"pre-fix-shifted-duplicate-coords.motrack", "pre-fix-frame-shift.motrack"})
+    {
+        const auto authentic = QJsonDocument::fromJson(readBytes(preFixFixture(name))).object();
+        const auto source = QByteArray::fromBase64(authentic.value("trackerSource").toObject().value("xmlBase64").toString().toLatin1());
+        const auto reproduced =
+            QJsonDocument::fromJson(readBytes(firstReaderDocument(temporary, "first.motrack", source.toStdString()))).object();
+        EXPECT_EQ(reproduced, authentic) << name;
+    }
+}
+
+/// A media-free clip of six steps from `start` with frameshift `shift`, then `tracks`, in OSP's line layout.
+std::string shiftedSource(int start, int shift, std::string_view tracks)
+{
+    return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+           "<object class=\"org.opensourcephysics.cabrillo.tracker.TrackerPanel\">\n"
+           "    <property name=\"videoclip\" type=\"object\">\n"
+           "    <object class=\"org.opensourcephysics.media.core.VideoClip\">\n"
+           "        <property name=\"startframe\" type=\"int\">" +
+           std::to_string(start) +
+           "</property>\n"
+           "        <property name=\"stepsize\" type=\"int\">1</property>\n"
+           "        <property name=\"stepcount\" type=\"int\">6</property>\n"
+           "        <property name=\"frameshift\" type=\"int\">" +
+           std::to_string(shift) +
+           "</property>\n"
+           "    </object>\n"
+           "    </property>\n"
+           "    <property name=\"tracks\" type=\"collection\" class=\"java.util.ArrayList\">\n" +
+           std::string(tracks) +
+           "    </property>\n"
+           "</object>\n";
+}
+
+/// A point mass or vector whose `framedata` holds one element per saved index in `frames` (one digit each).
+std::string trackXml(std::string_view kind, std::string_view frames)
+{
+    const auto type = "org.opensourcephysics.cabrillo.tracker." + std::string(kind);
+    std::string result = "        <property name=\"item\" type=\"object\">\n        <object class=\"" + type +
+                         "\">\n            <property name=\"framedata\" type=\"array\" class=\"[L" + type + "$FrameData;\">\n";
+    const auto value = [&result](std::string_view name, std::string_view number)
+    {
+        result += R"(                    <property name=")";
+        result += name;
+        result += R"(" type="double">)";
+        result += number;
+        result += "</property>\n";
+    };
+    for (const auto frame : frames)
+    {
+        const auto index = std::string(1, frame);
+        result += R"(                <property name="[)";
+        result += index;
+        result += R"(]" type="object">)";
+        result += "\n                <object class=\"";
+        result += type;
+        result += "$FrameData\">\n";
+        if (kind == "Vector")
+        {
+            value("xtail", "1.0");
+            value("ytail", "2.0");
+            value("xcomponent", "3.0");
+            value("ycomponent", "4.0");
+        }
+        else
+        {
+            value("x", index + ".0");
+            value("y", "2.0");
+        }
+        result += "                </object>\n                </property>\n";
+    }
+    return result + "            </property>\n        </object>\n        </property>\n";
+}
+
+TEST(WorkspaceDocument, MigratesFirstReaderFramesOnlyWhenEverySampleKeepsItsTrackAndStep)
+{
+    QTemporaryDir temporary;
+    // Vectors migrate like marks: saved [2] [4] load at frames 0 and 2, and the clip from 3 starts at 1.
+    const auto vectors = motrack::readWorkspaceDocument(
+        firstReaderDocument(temporary, "vectors.motrack", shiftedSource(3, 2, trackXml("Vector", "24") + trackXml("PointMass", "35"))));
+    EXPECT_FALSE(vectors.trackerReadingOutdated);
+    EXPECT_EQ(vectors.project.clip.firstFrame, 1);
+    ASSERT_EQ(vectors.project.vectors.size(), 1u);
+    EXPECT_EQ(vectors.project.vectors.front().samples.front().frame, 0);
+    EXPECT_EQ(vectors.project.vectors.front().samples.back().frame, 2);
+    EXPECT_EQ(markFrames(vectors.project.pointMasses.front()), (std::vector<int>{1, 3}));
+
+    // Everything else keeps the stored values and explains why.
+    const auto kept = [&](const QString& path, int firstFrame, const std::vector<int>& marks)
+    {
+        const auto document = motrack::readWorkspaceDocument(path);
+        EXPECT_TRUE(document.trackerReadingOutdated) << path.toStdString();
+        EXPECT_EQ(document.trackerReading, motrack::TrackerReading::SavedIndices);
+        EXPECT_EQ(document.project.clip.firstFrame, firstFrame) << path.toStdString();
+        ASSERT_FALSE(document.project.pointMasses.empty());
+        EXPECT_EQ(markFrames(document.project.pointMasses.front()), marks) << path.toStdString();
+    };
+    // The clip start 1 is held at frame 0 while the marks move by 2, so they would leave their steps 1 and 2.
+    kept(firstReaderDocument(temporary, "clamped.motrack", shiftedSource(1, 2, trackXml("PointMass", "23"))), 1, {2, 3});
+    // A negative shift moves only the clip start, from 1 to 2, so the marks would move from steps 1 and 2.
+    kept(firstReaderDocument(temporary, "negative.motrack", shiftedSource(1, -1, trackXml("PointMass", "23"))), 1, {2, 3});
+    const auto source = shiftedSource(3, 2, trackXml("PointMass", "35") + trackXml("PointMass", "46"));
+    // A track created or deleted after import, or a document without source associations, cannot be verified.
+    kept(firstReaderDocument(temporary,
+                             "created.motrack",
+                             source,
+                             [](auto& document)
+                             {
+                                 auto created = motrack::PointMass{.name = "new", .marks = {{.frame = 4, .x = 1, .y = 1}}, .mass = 1};
+                                 created.id = document.project.nextTrackId++;
+                                 document.project.pointMasses.push_back(created);
+                             }),
+         3,
+         {3, 5});
+    kept(firstReaderDocument(temporary, "deleted.motrack", source, [](auto& document) { document.project.pointMasses.pop_back(); }),
+         3,
+         {3, 5});
+    kept(firstReaderDocument(temporary, "unbound.motrack", source, [](auto& document) { document.trackerSource->bindings.reset(); }),
+         3,
+         {3, 5});
 }
 
 TEST(WorkspaceDocument, KeepsEditsOfTheCurrentReadingAndRejectsUnknownReadings)

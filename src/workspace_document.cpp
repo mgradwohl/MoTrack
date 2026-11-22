@@ -414,11 +414,11 @@ bool keepsSamples(
                               });
 }
 
-/// Takes the values a fix of the current reading changes from that reading, when the stored ones still are exactly
-/// what the document's earlier reading gave the same source (#313/#314). A native file cannot tell an unedited old
-/// reading from an edit, so any other stored value, and a frame shift that would drop marks or move them off their
-/// clip steps, leaves every stored value as it is: the source associations are dropped, so standard export refuses,
-/// and the document keeps its earlier reading, so every later open explains it again.
+/// Takes the values the current reading's fixes change (#313/#314) from that reading, all or nothing, when every stored
+/// value they cover is exactly what the document's earlier reading gave the same source. A native file cannot tell an
+/// unedited old reading from an edit, so any other stored value, or a frame shift that would drop marks or move them off
+/// their clip steps, leaves every stored value as it is: the source associations are dropped, so standard export
+/// refuses, and the document keeps its earlier reading, so every later open explains it again.
 void migrateTrackerReading(WorkspaceDocument& document, const detail::ImportedTracker& current)
 {
     if (!document.trackerSource || document.trackerReading == CURRENT_TRACKER_READING)
@@ -439,7 +439,8 @@ void migrateTrackerReading(WorkspaceDocument& document, const detail::ImportedTr
         return;
     }
     const auto& earlier = *reproduced;
-    auto& project = document.project;
+    const auto& project = document.project;
+    auto migrated = project;
     const auto& before = earlier.project;
     const auto& after = current.project;
     bool outdated = false;
@@ -447,7 +448,7 @@ void migrateTrackerReading(WorkspaceDocument& document, const detail::ImportedTr
     if (before.calibration != after.calibration && project.calibration != after.calibration)
     {
         if (!before.calibration && !project.calibration)
-            project.calibration = after.calibration;
+            migrated.calibration = after.calibration;
         else
             outdated = true;
     }
@@ -469,10 +470,10 @@ void migrateTrackerReading(WorkspaceDocument& document, const detail::ImportedTr
                 {
                     return std::ranges::find(bindings.value(), id, &TrackSourceBinding::trackId)->sourceIndex;
                 };
-                project.clip.firstFrame = after.clip.firstFrame;
-                for (auto& track : project.pointMasses)
+                migrated.clip.firstFrame = after.clip.firstFrame;
+                for (auto& track : migrated.pointMasses)
                     track.marks = boundTrack(currentTracks.masses, sourceIndex(track.id)).marks;
-                for (auto& track : project.vectors)
+                for (auto& track : migrated.vectors)
                     track.samples = boundTrack(currentTracks.vectors, sourceIndex(track.id)).samples;
             }
             else
@@ -487,6 +488,7 @@ void migrateTrackerReading(WorkspaceDocument& document, const detail::ImportedTr
         document.trackerReadingOutdated = true;
         return;
     }
+    document.project = std::move(migrated);
     document.trackerReading = CURRENT_TRACKER_READING;
 }
 
