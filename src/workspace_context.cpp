@@ -65,6 +65,7 @@ std::optional<QUuid> WorkspaceContext::beginOpen(std::function<PreparedWorkspace
                     return;
                 }
                 std::optional<WorkspaceSession::OpenedSource> opened;
+                const auto unreadable = input->unreadableProjects;
                 try
                 {
                     if (diagnostic.isEmpty())
@@ -80,7 +81,7 @@ std::optional<QUuid> WorkspaceContext::beginOpen(std::function<PreparedWorkspace
                     QList<QUuid> documents;
                     for (const auto id : opened->documents)
                         documents.push_back(id);
-                    Q_EMIT inputOpened(request, opened->source, documents);
+                    Q_EMIT inputOpened(request, opened->source, documents, unreadable);
                 }
                 else
                     Q_EMIT inputFailed(request, diagnostic);

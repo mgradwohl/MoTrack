@@ -2,22 +2,36 @@
 
 #include "workspace_session.hpp"
 
+#include <QList>
+#include <QMetaType>
 #include <QStringList>
 
 namespace motrack
 {
 
+/// A standard-archive .trk member that opened no experiment, with the user-facing reason.
+struct UnreadableProject
+{
+    QString member;
+    QString reason;
+    bool operator==(const UnreadableProject&) const = default;
+};
+
 /// An idle source prepared off the owner thread. Exactly one session is present; no live jobs or views.
-/// Native group files retain their exact saved membership; standard archives prepare every experiment.
+/// Native group files retain their exact saved membership; standard archives prepare every readable experiment.
 struct PreparedWorkspaceInput
 {
     std::unique_ptr<DocumentSession> document;
     std::unique_ptr<ArchiveGroupSession> group;
     QString mediaProjectPath;
+    /// Archive order. Their bytes stay in the archive and in saved copies, as Tracker keeps a failed tab.
+    QList<UnreadableProject> unreadableProjects;
 };
 
 /// Read a local .trk, .trz or .motrack with bounded archive/native readers and cancellation boundaries.
-/// Never changes a live registry. A malformed archive member rejects the entire prepared source.
+/// Never changes a live registry. An archive opens when at least one project is readable. A project
+/// that fails to import or uses an unsafe member name is reported instead; an unsafe project name,
+/// invalid media and malformed native files reject the entire source.
 /// Legacy standalone native archive companions stay standalone; no member association is invented.
 /// This adapter probes/indexes available movies off the owner thread, including members without views.
 [[nodiscard]] PreparedWorkspaceInput prepareWorkspaceInput(const QString& path, const std::atomic_bool* cancelled = nullptr);
@@ -31,3 +45,5 @@ prepareWorkspaceImages(const QStringList& paths, double frameRate, const std::at
                                                                  WorkspaceActivation activation = WorkspaceActivation::SelectNew);
 
 } // namespace motrack
+
+Q_DECLARE_METATYPE(motrack::UnreadableProject)

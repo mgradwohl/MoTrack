@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+	<ComPADREOSPTrackerMirroringService xmlns="https://www.compadre.org/osp/services/REST/" schemaVersion="1.00">
+		<responseDate>2026-11-22T00:00:00Z</responseDate>
+			<Identify>
+				<searchServiceName>Synthetic ComPADRE tree for MoTrack tests</searchServiceName>
+				<service-url>https://www.compadre.org/osp/services/REST/osp_tracker.cfm</service-url>
+					<sub-tree-set type="osp-category" filter-parameter="OSPCategory">
+						<sub-tree name="Curriculum" service-parameter="OSPCategory=Curriculum"></sub-tree>
+					</sub-tree-set>
+					<sub-tree-set type="osp-subject" filter-parameter="OSPSubject">
+						<sub-tree name="Classical Mechanics" service-parameter="OSPSubject=223">
+							<sub-tree-set type="osp-subject-detail" filter-parameter="OSPSubjectDetail">
+								<sub-tree name="Applications of Newton&#39;s Laws" service-parameter="OSPSubjectDetail=241"> <sub-tree-set type="osp-subject-detail-detail" filter-parameter="OSPSubjectDetailDetail">
+										<sub-tree name="Friction" service-parameter="OSPSubjectDetailDetail=1001" />
+										<sub-tree name="Unclassified" service-parameter="OSPSubjectDetailDetail=0&amp;Extra=x?y" />
+									</sub-tree-set>
+								</sub-tree>
+								<sub-tree name="Motion in One Dimension" service-parameter="OSPSubjectDetail=250">
+								</sub-tree>
+								<sub-tree name="  Padded name  " service-parameter="OSPSubjectDetail=251%20b"/>
+								<sub-tree name="Wrong detail type" service-parameter="OSPSubjectDetail=252">
+									<sub-tree-set type="osp-category" filter-parameter="OSPCategory">
+										<sub-tree name="Ignored" service-parameter="OSPCategory=1"/>
+									</sub-tree-set>
+								</sub-tree>
+							</sub-tree-set>
+						</sub-tree>
+						<sub-tree name="Optics" service-parameter="OSPSubject=231"><!-- a leaf subject --></sub-tree>
+						<sub-tree service-parameter="OSPSubject=999"/>
+						<sub-tree name="Unclassified" service-parameter="OSPSubject=0"/>
+					</sub-tree-set>
+			</Identify>
+	</ComPADREOSPTrackerMirroringService>

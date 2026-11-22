@@ -27,6 +27,17 @@
     ]
   },
   "tolerance": { "absolute": 1e-10, "relative": 1e-12 },
+  "state_tolerance": {
+    "default": { "absolute": 1e-10, "relative": 1e-12 },
+    "dimensions": {
+      "L/T": { "absolute": 1e-9, "relative": 1e-9 },
+      "ML/T": { "absolute": 1e-9, "relative": 1e-9 },
+      "A/T": { "absolute": 1e-9, "relative": 1e-9 },
+      "MLL/TT": { "absolute": 1e-9, "relative": 1e-9 },
+      "L/TT": { "absolute": 1e-7, "relative": 1e-9 },
+      "A/TT": { "absolute": 1e-7, "relative": 1e-9 }
+    }
+  },
   "upstream": {
     "repository": "https://github.com/OpenSourcePhysics/tracker",
     "revision": "020692a3d23781763dd8a7a19d73bf004c3faefe",
@@ -4399,7 +4410,11 @@
       "tracker_version": "5.1.5",
       "features": ["point-mass", "calibration", "leading-unmarked-frames", "embedded-media", "unsupported-tape-measure"],
       "requirements": ["R02", "R05", "R06", "R09", "R10"],
-      "expected": "expected/ball-toss.json"
+      "expected": "expected/ball-toss.json",
+      "reference_dependencies": [
+        "xuggle-xuggler-server-all-5.7.0-20210422.000415-2.jar",
+        "slf4j-api-1.7.30.jar"
+      ]
     },
     {
       "id": "protractor",

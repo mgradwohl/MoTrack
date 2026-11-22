@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+	<ComPADREOSPTrackerMirroringService xmlns="https://www.compadre.org/osp/services/REST/" schemaVersion="1.00">
+		<responseDate>2026-11-22T00:00:00Z</responseDate>
+			<recordCount>7</recordCount>
+			<records>
+				<record>
+					<compadre-identifier>90001</compadre-identifier>
+					<file-identifier>11</file-identifier>
+					<title>Rolling Ball TRZ</title>
+					<description>A synthetic ball rolling on a track.
+Second line.</description>
+					<contributors><contributor role="Author">A. Author</contributor><contributor role="Editor">E. Editor</contributor><contributor role="Author">B. Author</contributor></contributors>
+					<osp-type>Tracker Video Model</osp-type>
+					<osp-subject>Classical Mechanics / Motion in One Dimension / Velocity</osp-subject>
+					<osp-subject>General / Classical Mechanics / Acceleration</osp-subject>
+					<information-url>https://www.compadre.org/osp/items/detail.cfm?ID=90001</information-url>
+					<thumbnail-url>https://www.compadre.org/profiles/thumbnail.jpg</thumbnail-url>
+						<attached-document>
+							<file-identifier>11</file-identifier>
+							<file-type>Main</file-type>
+							<file-name file-size="1165166">rolling-ball.trz</file-name>
+							<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=90001&amp;DocID=1&amp;TrackerSet=1</download-url>
+						</attached-document>
+						<attached-document>
+							<file-identifier>12</file-identifier>
+							<file-type>Supplemental</file-type>
+							<file-name file-size="329240">rolling-ball.mp4</file-name>
+							<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=90001&amp;DocID=2&amp;TrackerSet=1</download-url>
+						</attached-document>
+				</record>
+				<record>
+					<compadre-identifier>90001</compadre-identifier>
+					<file-identifier>12</file-identifier>
+					<title>Rolling ball video</title>
+					<description>The record's own file is the supplemental movie (#213).</description>
+					<contributors><contributor role="Author">A. Author</contributor></contributors>
+					<osp-type>Tracker Video Model</osp-type>
+					<osp-subject>Classical Mechanics / Motion in One Dimension</osp-subject>
+						<attached-document>
+							<file-identifier>11</file-identifier>
+							<file-type>Main</file-type>
+							<file-name file-size="1165166">rolling-ball.trz</file-name>
+							<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=90001&amp;DocID=1&amp;TrackerSet=1</download-url>
+						</attached-document>
+						<attached-document>
+							<file-identifier>12</file-identifier>
+							<file-type>Supplemental</file-type>
+							<file-name file-size="329240">rolling-ball.mp4</file-name>
+							<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=90001&amp;DocID=2&amp;TrackerSet=1</download-url>
+						</attached-document>
+				</record>
+				<record>
+					<compadre-identifier>90002</compadre-identifier>
+					<file-identifier>21</file-identifier>
+					<title>Experiment attached as source code</title>
+					<description>Only a Source Code attachment holds the experiment (#213).</description>
+					<contributors><contributor role="Author">C. Author</contributor></contributors>
+					<osp-type>Tracker Model</osp-type>
+					<osp-subject>Oscillations &amp; Waves / Simple Harmonic Motion</osp-subject>
+						<attached-document>
+							<file-identifier>21</file-identifier>
+							<file-type>Source Code</file-type>
+							<file-name file-size="52428">harmonic.trz</file-name>
+							<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=90002&amp;DocID=3&amp;TrackerSet=1</download-url>
+						</attached-document>
+				</record>
+				<record>
+					<compadre-identifier>90003</compadre-identifier>
+					<file-identifier>31</file-identifier>
+					<title>  Record without contributors  </title>
+					<description>Tracker stops filling this record at the missing contributors.</description>
+					<osp-type>Tracker Video Model</osp-type>
+					<osp-subject>Optics</osp-subject>
+					<thumbnail-url>https://www.compadre.org/profiles/other.jpg</thumbnail-url>
+						<attached-document>
+							<file-identifier>31</file-identifier>
+							<file-type>Main</file-type>
+							<file-name file-size="262144">optics.zip</file-name>
+							<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=90003&amp;amp;DocID=4</download-url>
+						</attached-document>
+				</record>
+				<record>
+					<compadre-identifier>90004</compadre-identifier>
+					<file-identifier>41</file-identifier>
+					<title>An EJS model</title>
+					<contributors><contributor role="Author">D. Author</contributor></contributors>
+					<osp-type>EJS Model</osp-type>
+						<attached-document>
+							<file-identifier>41</file-identifier>
+							<file-type>Main</file-type>
+							<file-name file-size="1000">model.jar</file-name>
+							<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=90004&amp;DocID=5</download-url>
+						</attached-document>
+				</record>
+				<record>
+					<compadre-identifier>90005</compadre-identifier>
+					<file-identifier>52</file-identifier>
+					<title>Paragraph description</title>
+					<description>&lt;p&gt;Already an HTML paragraph.&lt;/p&gt;</description>
+					<contributors><contributor role="Author">E. Author</contributor></contributors>
+					<osp-type>Tracker Video Model</osp-type>
+					<osp-subject>Optics / Lenses</osp-subject>
+					<osp-subject>Optics / Mirrors</osp-subject>
+					<information-url>www.example.org/no-protocol</information-url>
+						<attached-document>
+							<file-identifier>51</file-identifier>
+							<file-type>Primary</file-type>
+							<file-name file-size="2000000">first.trz</file-name>
+							<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=90005&amp;DocID=6&amp;TrackerSet=1</download-url>
+						</attached-document>
+						<attached-document>
+							<file-identifier>52</file-identifier>
+							<file-type>Main</file-type>
+							<file-name file-size="3000000">second.trz</file-name>
+							<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=90005&amp;DocID=7&amp;TrackerSet=1</download-url>
+						</attached-document>
+				</record>
+				<record>
+					<compadre-identifier>90006</compadre-identifier>
+					<file-identifier>61</file-identifier>
+					<title>No downloadable attachment</title>
+					<contributors><contributor role="Author">F. Author</contributor></contributors>
+					<osp-type>Tracker Video Model</osp-type>
+						<attached-document>
+							<file-identifier>61</file-identifier>
+							<file-type>Main</file-type>
+							<file-name file-size="10">readme.pdf</file-name>
+						</attached-document>
+				</record>
+			</records>
+	</ComPADREOSPTrackerMirroringService>

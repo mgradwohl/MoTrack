@@ -19,12 +19,6 @@ namespace motrack::science::detail
 /// Java `Float.MIN_VALUE` widened to double, used by OSP as a "negligible" threshold.
 inline constexpr double FLOAT_MIN_VALUE = static_cast<double>(std::numeric_limits<float>::denorm_min());
 
-/// Java `Math.max`: NaN if either argument is NaN, and +0.0 is greater than -0.0.
-[[nodiscard]] double javaMax(double a, double b) noexcept;
-
-/// Java `Math.min`: NaN if either argument is NaN, and -0.0 is less than +0.0.
-[[nodiscard]] double javaMin(double a, double b) noexcept;
-
 /// `AbstractODESolver`: a fixed step size (default 0.1) and the equation count.
 class AbstractSolver : public OdeSolver
 {

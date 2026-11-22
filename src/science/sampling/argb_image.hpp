@@ -1,5 +1,7 @@
 #pragma once
 
+#include "science/argb_pixel.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -80,11 +82,6 @@ class ArgbImage
     std::size_t m_Stride = 0;
     std::vector<std::uint32_t> m_Pixels;
 };
-
-/// 8-bit channel values of a 0xAARRGGBB word (Tracker: `(pixel >> 16) & 0xff`, ...).
-[[nodiscard]] int redOf(std::uint32_t argb) noexcept;
-[[nodiscard]] int greenOf(std::uint32_t argb) noexcept;
-[[nodiscard]] int blueOf(std::uint32_t argb) noexcept;
 
 /// `RGBRegion.getLuma`: CCIR 601 weights `0.299 R + 0.587 G + 0.114 B`, evaluated left to right
 /// with two roundings per product and sum like Java (the library is built with -ffp-contract=off).

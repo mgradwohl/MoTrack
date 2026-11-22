@@ -10,6 +10,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QScopeGuard>
+#include <QSet>
 #include <QTemporaryDir>
 #include <QtEndian>
 #include <gtest/gtest.h>
@@ -17,7 +18,9 @@
 #include <algorithm>
 #include <array>
 #include <functional>
+#include <iterator>
 #include <ranges>
+#include <vector>
 
 namespace
 {
@@ -161,6 +164,83 @@ TEST(TrackerArchiveWriter, MultiMemberExportRetainsUntouchedJavaCompressedRecord
     const auto reopened = motrack::TrackerArchive::open(destination);
     EXPECT_EQ(readBytes(reopened.projectPath("experiment.trk")).toStdString(), first);
     EXPECT_EQ(readBytes(reopened.projectPath("second.trk")).toStdString(), EDITED_XML);
+}
+
+TEST(TrackerArchiveWriter, OmitsOnlyMembersTheReaderSkipsAndRetainsEveryOtherRecordExactly)
+{
+    QTemporaryDir temporary;
+    const auto original = temporary.filePath("original.trz");
+    const auto destination = temporary.filePath("saved.trz");
+    // Stored members have exact sizes; libarchive streams deflated members with data descriptors.
+    for (const auto* options : {"zip:compression=store", "zip:compression=deflate"})
+    {
+        SCOPED_TRACE(options);
+        std::vector<motrack::test::ArchiveEntry> members{{.name = "experiment.trk", .bytes = originalXml()}};
+        for (auto& unsafe : motrack::test::unsafeTrackerExportMembers())
+            members.push_back(std::move(unsafe));
+        members.insert(members.end(),
+                       {{.name = "videos/a.mp4", .bytes = motrack::test::duplicateMovieBytes()},
+                        {.name = "__MACOSX/._experiment.trk", .bytes = motrack::test::appleDoubleBytes()},
+                        {.name = "support|data.bin", .bytes = QByteArray::fromHex("00ff017e")},
+                        {.name = "support/mixed|name.bin", .bytes = "unsafe"},
+                        {.name = "second.trk", .bytes = originalXml()}});
+        ASSERT_TRUE(motrack::test::writeArchiveWithBackslashes(original, members, options));
+        const auto bytes = readBytes(original);
+        const auto source = motrack::TrackerArchive::open(original);
+        ASSERT_EQ(source.skippedMembers().size(), 5);
+        ASSERT_EQ(source.omittedOnSave(), motrack::test::omittedTrackerExportMembers());
+        motrack::writeTrackerArchive(destination, source, "experiment.trk", EDITED_XML);
+
+        // Only the duplicate movie goes; the unique info page, the Finder icons and the other unsafe name
+        // stay byte-for-byte and are skipped again on reopen.
+        QSet<QByteArray> omitted;
+        for (const auto& name : motrack::test::omittedTrackerExportMembers())
+            omitted.insert(name.toUtf8());
+        std::vector<ZipRecord> expected;
+        std::ranges::copy_if(
+            zipRecords(bytes), std::back_inserter(expected), [&](const auto& record) { return !omitted.contains(record.name); });
+        const auto output = readBytes(destination);
+        const auto after = zipRecords(output);
+        ASSERT_EQ(after.size(), expected.size());
+        for (std::size_t i = 0; i < expected.size(); ++i)
+        {
+            SCOPED_TRACE(expected[i].name.toStdString());
+            EXPECT_EQ(after[i].name, expected[i].name);
+            if (expected[i].name == "experiment.trk")
+                continue;
+            EXPECT_EQ(after[i].local, expected[i].local);
+            auto central = after[i].central;
+            qToLittleEndian<quint32>(expected[i].offset, central.data() + 42);
+            EXPECT_EQ(central, expected[i].central);
+        }
+        const auto end = output.lastIndexOf(QByteArray::fromHex("504b0506"));
+        ASSERT_GE(end, 0);
+        EXPECT_EQ(qFromLittleEndian<quint16>(output.constData() + end + 8), static_cast<quint16>(expected.size()));
+        EXPECT_EQ(qFromLittleEndian<quint16>(output.constData() + end + 10), static_cast<quint16>(expected.size()));
+        EXPECT_EQ(qFromLittleEndian<quint32>(output.constData() + end + 16) + qFromLittleEndian<quint32>(output.constData() + end + 12),
+                  static_cast<quint32>(end));
+
+        const auto reopened = motrack::TrackerArchive::open(destination);
+        EXPECT_EQ(reopened.projects(), (QStringList{"experiment.trk", "second.trk"}));
+        EXPECT_EQ(reopened.skippedMembers(),
+                  (QStringList{"C:/Users/x/AppData/Local/Temp/tracker1/html/experiment_info.html",
+                               "html/Icon\r",
+                               "images/Icon\r",
+                               R"(support/mixed\name.bin)"}));
+        EXPECT_TRUE(reopened.omittedOnSave().isEmpty());
+        EXPECT_EQ(readBytes(reopened.projectPath("experiment.trk")), EDITED_XML);
+        EXPECT_EQ(reopened.memberDigests().size(), source.memberDigests().size());
+        for (const auto& member : {"second.trk", "videos/a.mp4", "__MACOSX/._experiment.trk", "support/data.bin"})
+        {
+            ASSERT_TRUE(source.memberDigests().contains(member)) << member;
+            EXPECT_EQ(reopened.memberDigests().value(member), source.memberDigests().value(member)) << member;
+        }
+        // The immutable snapshot still holds every original member for native saves.
+        EXPECT_EQ(readBytes(source.sourcePath()), bytes);
+        // A second edit of that output has nothing left to omit and keeps every record.
+        motrack::writeTrackerArchive(temporary.filePath("again.trz"), reopened, "second.trk", EDITED_XML);
+        EXPECT_EQ(zipRecords(readBytes(temporary.filePath("again.trz"))).size(), expected.size());
+    }
 }
 
 TEST(TrackerArchiveWriter, InvalidSecondReplacementCannotPartiallyReplaceDestination)

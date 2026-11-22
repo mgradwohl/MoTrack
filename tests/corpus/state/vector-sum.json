@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "producer": {"kind":"tracker","version":"6.3.5","loading":"tracker_session","view_preparation":"expand_visit_custom_tables_bounded_restore_selection"},
+  "panel": {
+    "units": {"length":"m","mass":"kg","time":"s","angles_in_radians":false},
+    "selected_track": "resultant",
+    "properties": {"@class":"org.opensourcephysics.cabrillo.tracker.TrackerPanel","width":640.0,"height":480.0,"videoclip":{"@class":"org.opensourcephysics.media.core.VideoClip","startframe":0,"stepsize":1,"stepcount":5,"starttime":0.0,"readout":"frame","playallsteps":true},"clipcontrol":{"@class":"org.opensourcephysics.media.core.StepperClipControl","rate":1.0,"delta_t":100.0},"coords":{"@class":"org.opensourcephysics.media.core.ImageCoordSystem","fixedorigin":true,"fixedangle":true,"fixedscale":true,"locked":false,"framedata":{"@array":"[Lorg.opensourcephysics.media.core.ImageCoordSystem$FrameData;","items":[{"@class":"org.opensourcephysics.media.core.ImageCoordSystem$FrameData","xorigin":400.0,"yorigin":400.0,"angle":0.0,"xscale":2.0,"yscale":4.0}]}},"time_unit":"s","length_unit":"m","mass_unit":"kg","radians":false,"units_visible":true,"selectedtrack":"resultant"},
+    "clip": {
+      "first_frame": 0,
+      "step_size": 1,
+      "step_count": 5,
+      "end_frame": 4,
+      "frame_count": 10,
+      "frame_shift": 0,
+      "extra_frames": 0,
+      "start_time_ms": 0.0,
+      "frame_duration_ms": 100.0,
+      "rate": 1.0,
+      "looping": false,
+      "steps": [
+        [0,0,0.0],
+        [1,1,100.0],
+        [2,2,200.0],
+        [3,3,300.0],
+        [4,4,400.0]
+      ]
+    },
+    "video": null,
+    "coords": {
+      "class": "org.opensourcephysics.media.core.ImageCoordSystem",
+      "fixed_origin": true,
+      "fixed_angle": true,
+      "fixed_scale": true,
+      "locked": false,
+      "key_frames": [],
+      "frames": [
+        [0,400.0,400.0,0.0,2.0,4.0,[0.5,0.0,0.0,-0.25,-200.0,100.0]],
+        [1,400.0,400.0,0.0,2.0,4.0,[0.5,0.0,0.0,-0.25,-200.0,100.0]],
+        [2,400.0,400.0,0.0,2.0,4.0,[0.5,0.0,0.0,-0.25,-200.0,100.0]],
+        [3,400.0,400.0,0.0,2.0,4.0,[0.5,0.0,0.0,-0.25,-200.0,100.0]],
+        [4,400.0,400.0,0.0,2.0,4.0,[0.5,0.0,0.0,-0.25,-200.0,100.0]],
+        [5,400.0,400.0,0.0,2.0,4.0,[0.5,0.0,0.0,-0.25,-200.0,100.0]],
+        [6,400.0,400.0,0.0,2.0,4.0,[0.5,0.0,0.0,-0.25,-200.0,100.0]],
+        [7,400.0,400.0,0.0,2.0,4.0,[0.5,0.0,0.0,-0.25,-200.0,100.0]],
+        [8,400.0,400.0,0.0,2.0,4.0,[0.5,0.0,0.0,-0.25,-200.0,100.0]],
+        [9,400.0,400.0,0.0,2.0,4.0,[0.5,0.0,0.0,-0.25,-200.0,100.0]]
+      ]
+    },
+    "tracks": [
+      {
+        "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+        "name": "axes",
+        "properties": {"name":"axes","color":{"@class":"java.awt.Color","red":200,"green":0,"blue":200,"alpha":255},"footprint":"Footprint.BoldSimpleAxes","visible":true,"trail":false},
+        "steps": [],
+        "data": {
+          "columns": [],
+          "constants": {},
+          "rows": []
+        }
+      },
+      {
+        "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+        "name": "vector A",
+        "properties": {"name":"vector A","color":{"@class":"java.awt.Color","red":255,"green":0,"blue":255,"alpha":255},"footprint":"Footprint.BoldArrow","visible":true,"trail":true,"framedata":{"@array":"[Lorg.opensourcephysics.cabrillo.tracker.Vector$FrameData;","items":[{"@class":"org.opensourcephysics.cabrillo.tracker.Vector$FrameData","xtail":10.0,"ytail":20.0,"xcomponent":3.0,"ycomponent":-4.0},{"@class":"org.opensourcephysics.cabrillo.tracker.Vector$FrameData","xtail":30.0,"ytail":40.0,"xcomponent":5.0,"ycomponent":6.0},{"@class":"org.opensourcephysics.cabrillo.tracker.Vector$FrameData","xtail":50.0,"ytail":60.0,"xcomponent":-5.0,"ycomponent":12.0},null,{"@class":"org.opensourcephysics.cabrillo.tracker.Vector$FrameData","xtail":70.0,"ytail":80.0,"xcomponent":4.0,"ycomponent":8.0}]}},
+        "steps": [
+          {"frame":0,"tail":[10.0,20.0],"tip":[13.0,16.0],"components":[3.0,-4.0]},
+          {"frame":1,"tail":[30.0,40.0],"tip":[35.0,46.0],"components":[5.0,6.0]},
+          {"frame":2,"tail":[50.0,60.0],"tip":[45.0,72.0],"components":[-5.0,12.0]},
+          {"frame":4,"tail":[70.0,80.0],"tip":[74.0,88.0],"components":[4.0,8.0]}
+        ],
+        "data": {
+          "columns": [{"name":"t","dimensions":"T"},{"name":"x","dimensions":"L"},{"name":"y","dimensions":"L"},{"name":"mag","dimensions":"L"},{"name":"θ","dimensions":"A"},{"name":"x_{tail}","dimensions":"L"},{"name":"y_{tail}","dimensions":"L"},{"name":"step","dimensions":"I"},{"name":"frame","dimensions":"I"}],
+          "constants": {},
+          "rows": [
+            [0.0,1.5,1.0,1.8027756377319946,0.5880026035475675,-195.0,95.0,0.0,0.0],
+            [0.1,2.5,-1.5,2.9154759474226504,-0.5404195002705842,-185.0,90.0,1.0,1.0],
+            [0.2,-2.5,-3.0,3.905124837953327,-2.2655346029916,-175.0,85.0,2.0,2.0],
+            [0.4,2.0,-2.0,2.8284271247461903,-0.7853981633974483,-165.0,80.0,4.0,4.0]
+          ]
+        }
+      },
+      {
+        "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+        "name": "vector B",
+        "properties": {"name":"vector B","color":{"@class":"java.awt.Color","red":255,"green":0,"blue":255,"alpha":255},"footprint":"Footprint.BoldArrow","visible":true,"trail":true,"framedata":{"@array":"[Lorg.opensourcephysics.cabrillo.tracker.Vector$FrameData;","items":[{"@class":"org.opensourcephysics.cabrillo.tracker.Vector$FrameData","xtail":100.0,"ytail":120.0,"xcomponent":7.0,"ycomponent":8.0},null,{"@class":"org.opensourcephysics.cabrillo.tracker.Vector$FrameData","xtail":130.0,"ytail":140.0,"xcomponent":5.0,"ycomponent":-12.0},{"@class":"org.opensourcephysics.cabrillo.tracker.Vector$FrameData","xtail":160.0,"ytail":170.0,"xcomponent":1.0,"ycomponent":2.0},{"@class":"org.opensourcephysics.cabrillo.tracker.Vector$FrameData","xtail":190.0,"ytail":200.0,"xcomponent":-6.0,"ycomponent":-4.0}]}},
+        "steps": [
+          {"frame":0,"tail":[100.0,120.0],"tip":[107.0,128.0],"components":[7.0,8.0]},
+          {"frame":2,"tail":[130.0,140.0],"tip":[135.0,128.0],"components":[5.0,-12.0]},
+          {"frame":3,"tail":[160.0,170.0],"tip":[161.0,172.0],"components":[1.0,2.0]},
+          {"frame":4,"tail":[190.0,200.0],"tip":[184.0,196.0],"components":[-6.0,-4.0]}
+        ],
+        "data": {
+          "columns": [{"name":"t","dimensions":"T"},{"name":"x","dimensions":"L"},{"name":"y","dimensions":"L"},{"name":"mag","dimensions":"L"},{"name":"θ","dimensions":"A"},{"name":"x_{tail}","dimensions":"L"},{"name":"y_{tail}","dimensions":"L"},{"name":"step","dimensions":"I"},{"name":"frame","dimensions":"I"}],
+          "constants": {},
+          "rows": [
+            [0.0,3.5,-2.0,4.031128874149275,-0.5191461142465229,-150.0,70.0,0.0,0.0],
+            [0.2,2.5,3.0,3.905124837953327,0.8760580505981934,-135.0,65.0,2.0,2.0],
+            [0.3,0.5,-0.5,0.7071067811865476,-0.7853981633974483,-120.0,57.5,3.0,3.0],
+            [0.4,-3.0,1.0,3.1622776601683795,2.819842099193151,-105.0,50.0,4.0,4.0]
+          ]
+        }
+      },
+      {
+        "class": "org.opensourcephysics.cabrillo.tracker.VectorSum",
+        "name": "resultant",
+        "properties": {"vectors":{"@collection":"java.util.ArrayList","items":[]},"name":"resultant","color":{"@class":"java.awt.Color","red":51,"green":204,"blue":51,"alpha":255},"footprint":"Footprint.BoldArrow","visible":true,"trail":true,"locked":true,"framedata":{"@array":"[Lorg.opensourcephysics.cabrillo.tracker.Vector$FrameData;","items":[]}},
+        "steps": [],
+        "data": {
+          "columns": [{"name":"t","dimensions":"T"},{"name":"x","dimensions":"L"},{"name":"y","dimensions":"L"},{"name":"mag","dimensions":"L"},{"name":"θ","dimensions":"A"},{"name":"x_{tail}","dimensions":"L"},{"name":"y_{tail}","dimensions":"L"},{"name":"step","dimensions":"I"},{"name":"frame","dimensions":"I"}],
+          "constants": {},
+          "rows": []
+        }
+      }
+    ],
+    "views": {"tables":[],"plots":[]}
+  }
+}

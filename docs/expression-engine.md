@@ -143,7 +143,7 @@ code limit.
 
 ## Java and C++ numerics
 
-`science/java_math.hpp` implements the `Math` special cases that differ from `<cmath>`: `pow` returns NaN for
+`science/java_math.hpp` (the `motrack_java_math` library, shared with the ODE and analysis kernels) implements the `Math` special cases that differ from `<cmath>`: `pow` returns NaN for
 `pow(1, NaN)` and `pow(±1, ±∞)`, `round`, `rint`, `signum`, `min`, `max` and `IEEEremainder`.
 `science/decimal_conversion.hpp` converts decimal text with fixed-size big-integer arithmetic instead of
 `strtod`, which follows the process locale that Qt applications set. Expression code is compiled with

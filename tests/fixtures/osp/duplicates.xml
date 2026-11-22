@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="test.Duplicates">
+    <property name="value" type="int">1</property>
+    <property name="value" type="object">
+    <object class="test.First"/>
+    </property>
+    <property name="value" type="string">last</property>
+    <property name="child" type="object">
+    <object class="test.Child">
+        <property name="x" type="double">1.0</property>
+    </object>
+    </property>
+    <property name="child" type="object">
+    <object class="test.Child">
+        <property name="x" type="double">2.0</property>
+    </object>
+    </property>
+</object>

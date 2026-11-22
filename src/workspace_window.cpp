@@ -2,6 +2,7 @@
 
 #include "local_media_path.hpp"
 #include "main_window.hpp"
+#include "tracker_archive.hpp"
 
 #include <QAction>
 #include <QCloseEvent>
@@ -215,6 +216,7 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
     m_EmptyFileMenu->addActions({m_SaveAll, m_Revert, m_HideView, m_CloseSource, m_Quit});
     m_ExperimentsMenu = new QMenu(tr("&Experiments"), this);
     m_ExperimentsMenu->setObjectName("workspaceExperimentsMenu");
+    m_ExperimentsMenu->setToolTipsVisible(true);
     connect(m_ExperimentsMenu, &QMenu::aboutToShow, this, &WorkspaceWindow::rebuildExperimentsMenu);
     auto* toolbar = addToolBar(tr("Workspace"));
     toolbar->addActions(m_OpenActions);
@@ -250,10 +252,14 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
     connect(m_Context.get(),
             &WorkspaceContext::inputOpened,
             this,
-            [this](QUuid request, QUuid, const QList<QUuid>& documents)
+            [this](QUuid request, QUuid source, const QList<QUuid>& documents, const QList<UnreadableProject>& unreadable)
             {
                 finishOpen(request);
+                // Kept for the source's lifetime so the Experiments menu can list them, as Tracker keeps a failed tab.
+                if (!unreadable.isEmpty())
+                    m_Unreadable.insert(source, unreadable);
                 addDocuments(documents);
+                reportArchiveLimits(documents, unreadable);
             });
     connect(m_Context.get(),
             &WorkspaceContext::inputFailed,
@@ -337,6 +343,36 @@ void WorkspaceWindow::finishOpen(QUuid request)
 {
     delete m_Opening.take(request);
     m_Pending->setVisible(m_Pending->count() > 0);
+}
+
+void WorkspaceWindow::reportArchiveLimits(const QList<QUuid>& documents, const QList<UnreadableProject>& unreadable)
+{
+    if (documents.isEmpty())
+        return;
+    QStringList notices;
+    if (const auto& archive = m_Context->session().document(documents.front()).archivePayload)
+    {
+        const auto skipped = static_cast<int>(archive->skippedMembers().size());
+        const auto omitted = static_cast<int>(archive->omittedOnSave().size());
+        if (skipped > 0)
+            notices.push_back(tr("%n archive member(s) with unsafe names were not extracted.", nullptr, skipped));
+        if (omitted > 0)
+            notices.push_back(tr("Saving this Tracker archive omits %n duplicate copy(ies) among them.", nullptr, omitted));
+        if (skipped > omitted)
+            notices.push_back(tr("Saved archives keep the other %n unchanged; their names may show the author's folder or user names.",
+                                 nullptr,
+                                 skipped - omitted));
+    }
+    // Name one project so a large archive cannot flood the status bar; the Experiments menu lists them all.
+    if (unreadable.size() == 1)
+        notices.push_back(tr("Could not read the Tracker project %1; see the Experiments menu.").arg(unreadable.front().member));
+    else if (unreadable.size() > 1)
+        notices.push_back(tr("Could not read %1 and %n other Tracker project(s); see the Experiments menu.",
+                             nullptr,
+                             static_cast<int>(unreadable.size() - 1))
+                              .arg(unreadable.front().member));
+    if (!notices.isEmpty())
+        statusBar()->showMessage(notices.join(' '));
 }
 
 std::optional<QUuid> WorkspaceWindow::currentDocument() const
@@ -559,6 +595,20 @@ void WorkspaceWindow::rebuildExperimentsMenu()
             action->setChecked(currentDocument() == document);
             connect(action, &QAction::triggered, this, [this, document] { (void)showDocument(document); });
         }
+    for (const auto source : m_Context->session().sources())
+    {
+        const auto name = QFileInfo(m_Context->session().sourcePath(source)).fileName();
+        for (const auto& project : m_Unreadable.value(source))
+        {
+            // Choosing the entry states the reason; the text alone tells keyboard and screen-reader users.
+            auto* action = m_ExperimentsMenu->addAction(tr("%1 — %2 (could not be read)").arg(name, project.member));
+            action->setToolTip(project.reason);
+            connect(action,
+                    &QAction::triggered,
+                    this,
+                    [this, project] { statusBar()->showMessage(tr("Could not read %1: %2").arg(project.member, project.reason)); });
+        }
+    }
 }
 
 bool WorkspaceWindow::saveSource(QUuid source)
@@ -611,8 +661,12 @@ bool WorkspaceWindow::saveSource(QUuid source)
         return false;
     if (!selected.isNull() && std::ranges::find(context->session().tabs(), selected) != context->session().tabs().end())
         context->session().showDocument(selected);
+    // A temporary editor for hidden experiments is gone now; carry its result (such as omitted archive
+    // members) to this window either way.
     if (!saved)
         statusBar()->showMessage(tr("Save canceled or failed: %1").arg(diagnostic));
+    else if (!diagnostic.isEmpty())
+        statusBar()->showMessage(diagnostic);
     refreshLabels();
     return saved;
 }
@@ -670,6 +724,8 @@ bool WorkspaceWindow::releaseSource(QUuid source, WorkspaceDiscard discard)
     for (const auto document : m_Context->session().sourceDocuments(source))
         removeView(document, false);
     const bool released = m_Context->session().releaseSource(source, discard);
+    if (released)
+        m_Unreadable.remove(source);
     if (const auto active = currentDocument())
         (void)showDocument(*active);
     refreshMenus();
