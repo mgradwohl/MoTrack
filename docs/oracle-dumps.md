@@ -197,7 +197,7 @@ signature, changed; re-pinning the reference therefore surfaces every entry for 
 The entries cover the unaccepted cases in the corpus guide: vector-sum members, steps and data (#63), the
 omitted negative-time vector rows (#146), the AVI archive load failure (#140), and the custom table columns,
 formats and selections Tracker loses (#64). The first dumps also found that Tracker's Xuggle engine indexes 11 of
-the 13 samples of BallToss's MP4 (#209): `XuggleVideo.finalizeLoading` counts `packetCount - firstDisplayPacket`
+the 13 samples of BallToss's MP4 (#209, reported upstream as [Tracker #77](https://github.com/OpenSourcePhysics/tracker/issues/77)): `XuggleVideo.finalizeLoading` counts `packetCount - firstDisplayPacket`
 and never drains the decoder at the end of the stream, so an H.264 file with a reorder delay of N loses its last
 N frames. The clip is cut to frames 0–10, the ball's frames 11–12 lose their rows, and the velocity at frame 10
 and accelerations at frames 9–10 become NaN.

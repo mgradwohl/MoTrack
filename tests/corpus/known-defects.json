@@ -195,7 +195,7 @@
       "object": null,
       "path": "video.frame_count",
       "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
-      "upstream": null,
+      "upstream": "https://github.com/OpenSourcePhysics/tracker/issues/77",
       "summary": "Xuggle indexes 11 of the MP4's 13 samples (stsz 13, stts 13 x 66 ms).",
       "expected": 13,
       "tracker": 11
@@ -206,7 +206,7 @@
       "object": null,
       "path": "clip.step_count",
       "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
-      "upstream": null,
+      "upstream": "https://github.com/OpenSourcePhysics/tracker/issues/77",
       "summary": "The loaded clip is cut from the saved 13 steps to the 11 indexed frames.",
       "expected": 13,
       "tracker": 11
@@ -217,7 +217,7 @@
       "object": null,
       "path": "clip.end_frame",
       "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
-      "upstream": null,
+      "upstream": "https://github.com/OpenSourcePhysics/tracker/issues/77",
       "summary": "The loaded clip ends at frame 10 instead of the saved frame 12.",
       "expected": 12,
       "tracker": 10
@@ -228,7 +228,7 @@
       "object": null,
       "path": "clip.steps[11]",
       "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
-      "upstream": null,
+      "upstream": "https://github.com/OpenSourcePhysics/tracker/issues/77",
       "summary": "Clip step 11 (frame 11 at 726 ms in the MP4 sample table) is cut.",
       "expected": [11, 11, 726.0],
       "tracker": "@absent"
@@ -239,7 +239,7 @@
       "object": {"track": "ball"},
       "path": "data.rows[frame=11]",
       "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
-      "upstream": null,
+      "upstream": "https://github.com/OpenSourcePhysics/tracker/issues/77",
       "summary": "The mark at frame 11 lies outside the shortened clip, so its data row is omitted.",
       "expected": {"t": 0.726, "step": 11, "frame": 11, "x": 1.0385765309139832, "y": -0.38709161050766444, "pixel_{x}": 545.4848800834202, "pixel_{y}": 361.8769551616267},
       "tracker": "@absent"
@@ -250,7 +250,7 @@
       "object": null,
       "path": "clip.steps[12]",
       "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
-      "upstream": null,
+      "upstream": "https://github.com/OpenSourcePhysics/tracker/issues/77",
       "summary": "Clip step 12 (frame 12 at 792 ms in the MP4 sample table) is cut.",
       "expected": [12, 12, 792.0],
       "tracker": "@absent"
@@ -261,7 +261,7 @@
       "object": {"track": "ball"},
       "path": "data.rows[frame=12]",
       "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
-      "upstream": null,
+      "upstream": "https://github.com/OpenSourcePhysics/tracker/issues/77",
       "summary": "The mark at frame 12 lies outside the shortened clip, so its data row is omitted.",
       "expected": {"t": 0.792, "step": 12, "frame": 12, "x": 1.161392997274509, "y": -0.6583428063942824, "pixel_{x}": 594.5359749739312, "pixel_{y}": 469.9895724713243},
       "tracker": "@absent"
@@ -272,7 +272,7 @@
       "object": {"track": "ball"},
       "path": "data.rows[frame=9]",
       "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
-      "upstream": null,
+      "upstream": "https://github.com/OpenSourcePhysics/tracker/issues/77",
       "summary": "Tracker's five-point acceleration at frame 9 needs frame 11, which the shortened clip excludes (NaN).",
       "expected": {"a_{x}": 0.23895424787029482, "a_{y}": -10.498534384805007, "a": 10.501253418592864},
       "tracker": {"a_{x}": "NaN", "a_{y}": "NaN", "a": "NaN"}
@@ -283,7 +283,7 @@
       "object": {"track": "ball"},
       "path": "data.rows[frame=10]",
       "issue": "https://github.com/mgradwohl/MoTrack/issues/209",
-      "upstream": null,
+      "upstream": "https://github.com/OpenSourcePhysics/tracker/issues/77",
       "summary": "Velocity at frame 10 needs frame 11 and acceleration frames 11-12, which the shortened clip excludes (NaN).",
       "expected": {"v_{x}": 1.7951166369838845, "v_{y}": -3.0256452358946664, "v": 3.5180922150888003, "a_{x}": 0.5269859502692836, "a_{y}": -10.704605688347469, "a": 10.717569553531352},
       "tracker": {"v_{x}": "NaN", "v_{y}": "NaN", "v": "NaN", "a_{x}": "NaN", "a_{y}": "NaN", "a": "NaN"}

@@ -3567,7 +3567,12 @@ def fixed_world(root):
 
 
 def iso_video_frames(data):
-    """Frame start times (ms) of the first video track of an MP4/QuickTime file, from its sample tables."""
+    """Frame start times (ms) of the first video track of an MP4/QuickTime file, from its sample tables.
+
+    Times are decode times accumulated from `stts` deltas. Composition offsets (`ctts`) and edit lists (`elst`)
+    are not applied, so this is exact only for constant-rate files whose presentation starts at zero without
+    reordering offsets, as the corpus movies used here are; callers must not rely on it for other media.
+    """
     def boxes(start, end):
         position = start
         while position + 8 <= end:
