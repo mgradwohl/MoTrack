@@ -37,7 +37,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
-#include <optional>
+#include <stdexcept>
 
 namespace
 {
@@ -109,12 +109,19 @@ QStringList canonicalPaths(const QStringList& paths)
     return result;
 }
 
-/// Wait for the next finished batch and return its problems.
-std::optional<QStringList> nextBatch(QSignalSpy& finished, int count = 1)
+/// Wait for the given finished batch and return its problems; a batch that never finishes fails the test.
+QStringList nextBatch(QSignalSpy& finished, int count = 1)
 {
     if (!QTest::qWaitFor([&] { return finished.count() >= count; }, 20000))
-        return std::nullopt;
+        throw std::runtime_error("The requested files did not finish opening.");
     return finished.at(count - 1).front().toStringList();
+}
+
+QUuid selectedDocument(const motrack::WorkspaceWindow& window)
+{
+    if (const auto document = window.currentDocument())
+        return *document;
+    throw std::runtime_error("Expected a selected experiment.");
 }
 
 bool contains(const QStringList& problems, const QString& text)
@@ -318,18 +325,17 @@ TEST(DesktopLaunch, OpensRequestedFilesInOrderOnceWithinTheTwoInputBound)
         EXPECT_FALSE(window.statusBar()->currentMessage().contains("already opening"));
     }
     const auto problems = nextBatch(finished);
-    ASSERT_TRUE(problems);
     EXPECT_EQ(requestedAtOnce, 1);
     const auto sources = tabSources(window);
     ASSERT_EQ(sources.size(), 7);
     // The two menu opens may finish in either order; requested files follow in their requested order.
     EXPECT_EQ(QSet<QString>(sources.begin(), sources.begin() + 2), (QSet<QString>{canonical(menuFirst), canonical(menuSecond)}));
     EXPECT_EQ(sources.sliced(2), canonicalPaths({project, image, archive, native, movie}));
-    EXPECT_EQ(problems->size(), 4) << problems->join('\n').toStdString();
-    EXPECT_TRUE(contains(*problems, "missing file.trk was not found."));
-    EXPECT_TRUE(contains(*problems, "subfolder is a folder"));
-    EXPECT_TRUE(contains(*problems, "broken.trk could not be opened"));
-    EXPECT_TRUE(contains(*problems, "https://example.com/remote.trk is not a local file"));
+    EXPECT_EQ(problems.size(), 4) << problems.join('\n').toStdString();
+    EXPECT_TRUE(contains(problems, "missing file.trk was not found."));
+    EXPECT_TRUE(contains(problems, "subfolder is a folder"));
+    EXPECT_TRUE(contains(problems, "broken.trk could not be opened"));
+    EXPECT_TRUE(contains(problems, "https://example.com/remote.trk is not a local file"));
     auto& session = context->session();
     const auto& tabs = session.tabs();
     EXPECT_EQ(session.project(tabs[3]).clip.stepCount, 1);
@@ -355,12 +361,11 @@ TEST(DesktopLaunch, LargeBatchesAreBoundedAndTheirSummaryIsAbbreviated)
     window.openFiles({.files = missing.first(150)});
     window.openFiles({.files = missing.sliced(150)}); // A later request joins the same batch and bound.
     const auto problems = nextBatch(finished);
-    ASSERT_TRUE(problems);
     EXPECT_EQ(finished.count(), 1);
-    ASSERT_EQ(problems->size(), 257);
-    EXPECT_TRUE(contains(*problems, "Only 256 files can be requested at a time"));
-    EXPECT_TRUE(contains(*problems, "missing 255.trk was not found."));
-    EXPECT_FALSE(contains(*problems, "missing 256.trk"));
+    ASSERT_EQ(problems.size(), 257);
+    EXPECT_TRUE(contains(problems, "Only 256 files can be requested at a time"));
+    EXPECT_TRUE(contains(problems, "missing 255.trk was not found."));
+    EXPECT_FALSE(contains(problems, "missing 256.trk"));
     auto* summary = window.findChild<QMessageBox*>("workspaceRequestedFileProblems");
     ASSERT_TRUE(summary);
     EXPECT_EQ(summary->informativeText().count('\n'), 20);
@@ -389,8 +394,7 @@ TEST(DesktopLaunch, CancelingARequestedFileStopsItsBatchAndClosingStopsQueuedFil
         window.findChild<QPushButton*>("cancelWorkspaceOpen")->click();
     }
     auto problems = nextBatch(finished);
-    ASSERT_TRUE(problems);
-    EXPECT_EQ(*problems, QStringList{"Opening was canceled; 2 remaining file(s) were not opened."});
+    EXPECT_EQ(problems, QStringList{"Opening was canceled; 2 remaining file(s) were not opened."});
     EXPECT_TRUE(context->session().sources().empty());
     window.findChild<QMessageBox*>("workspaceRequestedFileProblems")->accept();
     ASSERT_TRUE(QTest::qWaitFor([&] { return !window.findChild<QMessageBox*>("workspaceRequestedFileProblems"); }));
@@ -401,8 +405,7 @@ TEST(DesktopLaunch, CancelingARequestedFileStopsItsBatchAndClosingStopsQueuedFil
         EXPECT_TRUE(window.close());
     }
     problems = nextBatch(finished, 2);
-    ASSERT_TRUE(problems);
-    EXPECT_EQ(*problems, QStringList{"Closing the window stopped 1 requested file(s) from opening."});
+    EXPECT_EQ(problems, QStringList{"Closing the window stopped 1 requested file(s) from opening."});
     EXPECT_TRUE(context->session().sources().empty());
     // A hidden window shows no summary after it has been closed.
     EXPECT_FALSE(window.findChild<QMessageBox*>("workspaceRequestedFileProblems"));
@@ -449,8 +452,7 @@ TEST(DesktopLaunch, DropsLocalFilesAsCopiesOntoTheWorkspaceAndExperimentViews)
     EXPECT_EQ(drop.dropAction(), Qt::CopyAction);
     EXPECT_FALSE(overlay->isVisible());
     auto problems = nextBatch(finished);
-    ASSERT_TRUE(problems);
-    EXPECT_EQ(*problems, QStringList{"https://example.com/linked.trk is not a local file. Download it, then open the downloaded copy."});
+    EXPECT_EQ(problems, QStringList{"https://example.com/linked.trk is not a local file. Download it, then open the downloaded copy."});
     EXPECT_EQ(tabSources(window), canonicalPaths({first}));
     window.findChild<QMessageBox*>("workspaceRequestedFileProblems")->accept();
 
@@ -472,8 +474,7 @@ TEST(DesktopLaunch, DropsLocalFilesAsCopiesOntoTheWorkspaceAndExperimentViews)
     EXPECT_TRUE(dropView.isAccepted());
     EXPECT_FALSE(overlay->isVisible());
     problems = nextBatch(finished, 2);
-    ASSERT_TRUE(problems);
-    EXPECT_TRUE(problems->isEmpty());
+    EXPECT_TRUE(problems.isEmpty());
     EXPECT_EQ(tabSources(window), canonicalPaths({first, second}));
 
     // Remote-only links, move-only drags and data without files are refused without opening anything.
@@ -526,14 +527,13 @@ TEST(DesktopLaunch, OperatingSystemOpenRequestsBeforeAndAfterTheWindowExistOpenI
         window.show();
         QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
         requests.attach(&window);
+        requests.attach(&window); // Re-attaching replaces the destruction watch rather than adding another.
         QFileOpenEvent afterWindow(QUrl::fromLocalFile(later));
         QFileOpenEvent link(QUrl("https://example.com/linked.trz"));
         EXPECT_TRUE(QApplication::sendEvent(&target, &afterWindow));
         EXPECT_TRUE(QApplication::sendEvent(&target, &link));
         const auto problems = nextBatch(finished);
-        ASSERT_TRUE(problems);
-        EXPECT_EQ(*problems,
-                  QStringList{"https://example.com/linked.trz is not a local file. Download it, then open the downloaded copy."});
+        EXPECT_EQ(problems, QStringList{"https://example.com/linked.trz is not a local file. Download it, then open the downloaded copy."});
         EXPECT_EQ(tabSources(window), canonicalPaths({early, later}));
         window.findChild<QMessageBox*>("workspaceRequestedFileProblems")->accept();
     }
@@ -545,8 +545,7 @@ TEST(DesktopLaunch, OperatingSystemOpenRequestsBeforeAndAfterTheWindowExistOpenI
     QSignalSpy finished(&next, &motrack::WorkspaceWindow::filesOpened);
     requests.attach(&next);
     const auto problems = nextBatch(finished);
-    ASSERT_TRUE(problems);
-    EXPECT_TRUE(problems->isEmpty());
+    EXPECT_TRUE(problems.isEmpty());
     EXPECT_EQ(tabSources(next), canonicalPaths({reopened}));
 }
 
@@ -581,10 +580,8 @@ TEST(DesktopLaunch, ASecondInstanceOpeningTheSameProjectLeavesTheFirstInstanceAn
     window.show();
     QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
     window.openFiles({.files = {project}});
-    ASSERT_TRUE(nextBatch(finished));
-    const auto current = window.currentDocument();
-    ASSERT_TRUE(current);
-    const auto document = current.value();
+    (void)nextBatch(finished);
+    const auto document = selectedDocument(window);
     const auto source = context->session().sourceId(document);
     ASSERT_TRUE(editMass(window, 42));
     QFile original(project);
@@ -629,8 +626,7 @@ TEST(DesktopLaunch, OpensLongPathsIncludingWindowsExtendedLengthSpellings)
     QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
     window.openFiles(motrack::parseLaunchArguments({"motrack", argument}, {}).requested);
     const auto problems = nextBatch(finished);
-    ASSERT_TRUE(problems);
-    EXPECT_TRUE(problems->isEmpty()) << problems->join('\n').toStdString();
+    EXPECT_TRUE(problems.isEmpty()) << problems.join('\n').toStdString();
     EXPECT_EQ(tabSources(window), canonicalPaths({project}));
     const auto result = runSmokeLaunch({argument}, temporary.path());
     EXPECT_EQ(result.exitCode, 0) << result.errors.toStdString();

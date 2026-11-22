@@ -53,18 +53,20 @@ LaunchFileKind launchFileKind(const QString& path)
     return LaunchFileKind::Movie;
 }
 
-QString launchFilePath(QString path, const QString& workingDirectory)
+QString launchFilePath(const QString& path, const QString& workingDirectory)
 {
 #ifdef Q_OS_WIN
     // Shells may pass Win32 extended-length spellings. Qt's file engine adds its own prefix to long
     // absolute paths, so retaining this one would give it an unusable doubled prefix.
-    path = QDir::fromNativeSeparators(path);
-    if (path.startsWith(QLatin1StringView("//?/UNC/"), Qt::CaseInsensitive))
-        path = "//" + path.mid(8);
-    else if (path.startsWith(QLatin1StringView("//?/")))
-        path = path.mid(4);
+    auto local = QDir::fromNativeSeparators(path);
+    if (local.startsWith(QLatin1StringView("//?/UNC/"), Qt::CaseInsensitive))
+        local = "//" + local.mid(8);
+    else if (local.startsWith(QLatin1StringView("//?/")))
+        local = local.mid(4);
+#else
+    const auto& local = path;
 #endif
-    return QDir::isAbsolutePath(path) ? path : QDir(workingDirectory).absoluteFilePath(path);
+    return QDir::isAbsolutePath(local) ? local : QDir(workingDirectory).absoluteFilePath(local);
 }
 
 LaunchArguments parseLaunchArguments(const QStringList& arguments, const QString& workingDirectory)
@@ -108,7 +110,12 @@ RequestedFiles droppedFiles(const QMimeData& data)
 
 void FileOpenRequests::attach(WorkspaceWindow* window)
 {
+    if (m_Window)
+        disconnect(m_Window, nullptr, this, nullptr);
     m_Window = window;
+    // A destroyed() connection rather than QPointer: Linux Clang 18's analyzer misreports QWeakPointer's release.
+    if (m_Window)
+        connect(m_Window, &QObject::destroyed, this, [this] { m_Window = nullptr; });
     deliver();
 }
 

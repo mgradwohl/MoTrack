@@ -1,7 +1,6 @@
 #pragma once
 
 #include <QObject>
-#include <QPointer>
 #include <QStringList>
 
 #include <cstdint>
@@ -40,7 +39,7 @@ struct LaunchArguments
 
 /// Absolute local spelling of a path handed over by a launcher. Relative paths use the launch directory.
 /// Windows extended-length prefixes are removed because Qt adds its own for long paths; nothing is canonicalized.
-[[nodiscard]] QString launchFilePath(QString path, const QString& workingDirectory);
+[[nodiscard]] QString launchFilePath(const QString& path, const QString& workingDirectory);
 /// Argument 0 is the program. Local `file:` URLs become paths; other URLs are remote. Empty arguments and the
 /// legacy macOS `-psn_` process serial number are ignored.
 [[nodiscard]] LaunchArguments parseLaunchArguments(const QStringList& arguments, const QString& workingDirectory);
@@ -65,7 +64,7 @@ class FileOpenRequests final : public QObject
   private:
     void deliver();
 
-    QPointer<WorkspaceWindow> m_Window;
+    WorkspaceWindow* m_Window = nullptr; // Borrowed; cleared when the window is destroyed.
     RequestedFiles m_Pending;
 };
 

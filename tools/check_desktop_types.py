@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import unicodedata
 import xml.etree.ElementTree as ElementTree
 
 APP_ID = "com.github.mgradwohl.motrack"
@@ -129,14 +130,19 @@ def sample_files(root):
     return sample
 
 
+def same_path(path):
+    """macOS reports file names decomposed (NFD); its file systems treat both forms as one name."""
+    return unicodedata.normalize("NFC", str(Path(path).resolve()))
+
+
 def wait_for_report(output, errors, sample):
     deadline = time.monotonic() + LAUNCH_SECONDS
     expected = f"opened\t{sample.resolve()}"
     while time.monotonic() < deadline:
         lines = [line.strip() for line in output.read_text(encoding="utf-8", errors="replace").splitlines()]
-        opened = [Path(line.split("\t", 1)[1]).resolve() for line in lines if line.startswith("opened\t")]
+        opened = [same_path(line.split("\t", 1)[1]) for line in lines if line.startswith("opened\t")]
         if opened:
-            require(opened == [sample.resolve()], f"opened {opened}, expected {expected}")
+            require(opened == [same_path(sample)], f"opened {opened}, expected {expected}")
             return
         if errors.exists() and "MoTrack:" in errors.read_text(encoding="utf-8", errors="replace"):
             raise SystemExit(errors.read_text(encoding="utf-8", errors="replace"))
@@ -151,12 +157,13 @@ def launch_linux(stage, root):
     for extension, (_, _, _, mime_type) in TYPES.items():
         probe = sample.with_suffix("." + extension)
         if not probe.exists():
-            probe.write_bytes(b"")
+            probe.write_bytes(b"probe")  # GIO reports any empty file as application/x-zerosize.
+        # The fast type comes from the name alone, as a file manager lists it before reading content.
         info = subprocess.run(
-            ["gio", "info", "--attributes=standard::content-type", str(probe)],
+            ["gio", "info", "--attributes=standard::fast-content-type", str(probe)],
             env=environment, check=True, capture_output=True, text=True,
         ).stdout
-        require(f"standard::content-type: {mime_type}" in info, f"{probe.name} is not {mime_type}: {info}")
+        require(f"standard::fast-content-type: {mime_type}" in info, f"{probe.name} is not {mime_type}: {info}")
         handlers = subprocess.run(["gio", "mime", mime_type], env=environment, check=True, capture_output=True, text=True).stdout
         require(f"{APP_ID}.desktop" in handlers, f"{mime_type} is not registered to MoTrack: {handlers}")
     # Write the entry again for a prefix that needs every Exec escape, reaching the staged binary via a link.
@@ -197,7 +204,7 @@ def launch_macos(stage, root):
     for extension in TYPES:
         probe = sample.with_suffix("." + extension)
         if not probe.exists():
-            probe.write_bytes(b"")
+            probe.write_bytes(b"probe")
         script = (
             "ObjC.import('AppKit');"
             f"var url = $.NSURL.fileURLWithPath({str(probe)!r});"
@@ -205,7 +212,7 @@ def launch_macos(stage, root):
             "app.isNil() ? '' : app.path.js"
         )
         handler = subprocess.run(["osascript", "-l", "JavaScript", "-e", script], check=True, capture_output=True, text=True)
-        require(Path(handler.stdout.strip()).resolve() == bundle, f".{extension} opens with {handler.stdout.strip() or 'nothing'}")
+        require(same_path(handler.stdout.strip()) == same_path(bundle), f".{extension} opens with {handler.stdout.strip() or 'nothing'}")
     output = root / "stdout.txt"
     errors = root / "stderr.txt"
     # LaunchServices delivers the document as an Apple Event, which Qt turns into a QFileOpenEvent.
