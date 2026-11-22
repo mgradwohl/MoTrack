@@ -135,6 +135,7 @@ python tools/corpus.py reference --java /path/to/jdk-17/bin/java
 python tools/corpus.py session --java /path/to/jdk-17/bin/java
 python tools/corpus.py roundtrip --probe build/coverage/motrack_corpus_probe --java /path/to/jdk-17/bin/java
 python tools/corpus.py xml-oracle --probe build/coverage/motrack_corpus_probe --java /path/to/jdk-17/bin/java
+python tools/corpus.py ode-oracle --java /path/to/jdk-17/bin/java
 python -m unittest discover -s tests -p test_corpus.py
 ```
 
@@ -147,6 +148,10 @@ any mismatching dumps are written (default `CACHE/reports/xml-oracle`). It runs 
 `--o2-only` skips Java and checks only the byte-identical renders, as CI does on Windows and macOS.
 Documents MoTrack deliberately refuses (registered reasons only, such as `truncated`) still have their
 trees compared with Java's.
+
+`ode-oracle` integrates the [ODE solver kernel](../../docs/ode-solvers.md) test systems with the pinned
+OSP classes and compares them with `tests/science/ode-reference.json`, using that kernel's own
+per-solver tolerances; `--record` replaces the fixture for review.
 
 On Windows, use `build/coverage/motrack_corpus_probe.exe` and the path to `java.exe`. Python 3.10 or newer
 is supported. The reference command uses Java source-file mode and therefore needs a JDK, not just a
