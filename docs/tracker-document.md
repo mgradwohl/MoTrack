@@ -6,7 +6,7 @@ This is the design and implementation plan for slice B2 of wave 1 in the
 **Status:** B2.1 is implemented ([PR #337](https://github.com/mgradwohl/MoTrack/pull/337)): `motrack_model` holds the
 typed document, its families, descriptors, identities, bindings and graph, and `motrack_project` the cached legacy
 view and the conversion from the reduced model; nothing in the application uses them yet. B2.3 is implemented
-([`tracker_compose.hpp`](../src/tracker_compose.hpp)): the descriptor composition makes B1's decision, with B1's bytes,
+([PR #355](https://github.com/mgradwohl/MoTrack/pull/355), [`tracker_compose.hpp`](../src/tracker_compose.hpp)): the descriptor composition makes B1's decision, with B1's bytes,
 on every writer test, corpus case and fixture, and O8 covers the bytes outside nodes (#316); production export still
 uses B1's composition. B2.2, B2.4 and B2.5 are not implemented. The sections below describe the intended behavior and name the existing code each part replaces. B3
 then moves the track list, selection and inspector to identities and deletes
