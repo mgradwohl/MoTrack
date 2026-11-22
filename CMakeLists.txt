@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
+include(cmake/MoTrackLibstdcxx.cmake)
 project(MoTrack VERSION 0.1.0 LANGUAGES CXX)
+motrack_check_libstdcxx()
 
 if(NOT CMAKE_CXX_COMPILER_ID MATCHES "^(Apple)?Clang$")
     message(FATAL_ERROR "MoTrack requires Clang or Apple Clang.")
