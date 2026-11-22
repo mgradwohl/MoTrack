@@ -236,35 +236,49 @@ void requireTypedParity(const motrack::model::TrackerDocument& document, const m
 /// B1's import of a Tracker file and its typed document, which must agree: the same view, or the same refusal.
 std::pair<motrack::ImportedTrackerProject, motrack::model::TrackerDocument> readTrackerProjectWithParity(const std::filesystem::path& input)
 {
+    std::optional<motrack::ImportedTrackerProject> imported;
+    std::string refusal;
     try
     {
-        auto imported = motrack::readTrackerProject(input);
-        auto document = motrack::importTypedTracker(imported.source.xml);
-        requireTypedParity(document, imported);
-        return {std::move(imported), std::move(document)};
+        imported = motrack::readTrackerProject(input);
     }
     catch (const motrack::ProjectError& error)
     {
-        std::ifstream stream(input, std::ios::binary);
-        const std::string bytes{std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
-        if (stream.bad() || bytes.empty() || std::string_view(error.what()).starts_with("The typed document"))
-        {
-            throw;
-        }
+        refusal = error.what();
+    }
+    if (imported)
+    {
+        std::optional<motrack::model::TrackerDocument> document;
         try
         {
-            static_cast<void>(motrack::importTypedTracker(bytes));
+            document = motrack::importTypedTracker(imported->source.xml);
         }
         catch (const motrack::ProjectError& typed)
         {
-            if (std::string_view(typed.what()) == error.what())
-            {
-                throw;
-            }
-            throw motrack::ProjectError(std::string("The typed document refuses differently: ") + typed.what() + " / " + error.what());
+            throw motrack::ProjectError(std::string("The typed document refuses what B1 accepts: ") + typed.what());
         }
-        throw motrack::ProjectError(std::string("The typed document accepts what B1 refuses: ") + error.what());
+        requireTypedParity(*document, *imported);
+        return {std::move(*imported), std::move(*document)};
     }
+    std::ifstream stream(input, std::ios::binary);
+    const std::string bytes{std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+    if (stream.bad() || bytes.empty())
+    {
+        throw motrack::ProjectError(refusal); // An unreadable file: B1's I/O refusal, before either reader runs.
+    }
+    try
+    {
+        static_cast<void>(motrack::importTypedTracker(bytes));
+    }
+    catch (const motrack::ProjectError& typed)
+    {
+        if (std::string_view(typed.what()) == refusal)
+        {
+            throw motrack::ProjectError(refusal);
+        }
+        throw motrack::ProjectError("The typed document refuses differently: " + std::string(typed.what()) + " / " + refusal);
+    }
+    throw motrack::ProjectError("The typed document accepts what B1 refuses: " + refusal);
 }
 
 /// A reopened native document, which must also convert into a typed document whose legacy view it is (B2.1).
