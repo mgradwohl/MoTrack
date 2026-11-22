@@ -751,12 +751,11 @@ class Saver
     /// list has (array or collection).
     [[nodiscard]] bool keepsChildren(const Resource& baseline, const Resource& current) const
     {
-        return std::ranges::equal(baseline.children,
-                                  current.children,
-                                  [this](const Resource& before, const Resource& after) {
-                                      return after.origin && after.origin->source == m_Document->source &&
-                                             after.origin->object == before.origin->object;
-                                  });
+        return std::ranges::equal(
+            baseline.children,
+            current.children,
+            [this](const Resource& before, const Resource& after)
+            { return after.origin && after.origin->source == m_Document->source && after.origin->object == before.origin->object; });
     }
 
     /// Edits a child in place, or replaces its element when its class changed.
