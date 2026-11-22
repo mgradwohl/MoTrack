@@ -3481,6 +3481,42 @@ class CorpusTests(unittest.TestCase):
         server.terminate.assert_called_once()
         server.wait.assert_called_once_with(timeout=5)
 
+    def test_abstract_socket_display_disables_only_the_unix_socket_listener(self):
+        commands = []
+
+        def start(command, **kwargs):
+            commands.append(command)
+            corpus.os.write(int(command[command.index("-displayfd") + 1]), b"78\n")
+            server = Mock()
+            server.poll.return_value = None
+            return server
+
+        for abstract_socket, extra in [(False, []), (True, ["-nolisten", "unix"])]:
+            commands.clear()
+            with self.subTest(abstract_socket=abstract_socket), patch.object(corpus.sys, "platform", "linux"), \
+                    patch.object(corpus.shutil, "which", return_value="/usr/bin/Xvfb"), \
+                    patch.object(corpus.subprocess, "Popen", side_effect=start), \
+                    patch.object(corpus.select, "select", side_effect=lambda readers, *_: (readers, [], [])):
+                with corpus.private_display(abstract_socket=abstract_socket) as display:
+                    self.assertEqual(display, ":78")
+                self.assertEqual(commands[0][commands[0].index("-screen"):],
+                                 ["-screen", "0", "1280x800x24", "-nolisten", "tcp", *extra])
+
+        # The command line passes the option to the Xvfb commands only.
+        for argv, target in [(["session"], "check_sessions"), (["roundtrip", "--probe", "p"], "check_sessions"),
+                             (["state-oracle"], "check_state_oracle")]:
+            for flag in [False, True]:
+                arguments = ["corpus.py", *argv, "--java", "j", *(["--xvfb-abstract-socket"] if flag else [])]
+                with self.subTest(argv=arguments), patch.object(sys, "argv", arguments), \
+                        patch.object(corpus, "load_manifest", return_value={}), patch.object(corpus, target) as check:
+                    corpus.main()
+                self.assertIs(check.call_args.kwargs["abstract_socket"], flag)
+        for argv in [["state-check", "--probe", "p"], ["reference"], ["check", "--probe", "p"]]:
+            with self.subTest(argv=argv), patch.object(sys, "argv", ["corpus.py", *argv, "--xvfb-abstract-socket"]), \
+                    patch("sys.stderr", new_callable=io.StringIO) as error, self.assertRaises(SystemExit):
+                corpus.main()
+            self.assertIn("--xvfb-abstract-socket is only valid", error.getvalue())
+
     def test_display_startup_timeout_terminates_only_its_owned_server(self):
         server = Mock()
         server.poll.return_value = None
@@ -4295,8 +4331,50 @@ class TrackerStateTests(unittest.TestCase):
         self.assertNotIn("units.length", baseline["independent-vectors"])
         self.assertNotIn("PointMass.data.a_{x}", baseline["attachments"])
         self.assertNotIn("PointMass.data.x", baseline["ball-toss"])  # Calibrated positions are compared.
+        # Finite velocities and five-point accelerations are compared with Tracker's own refreshData (#332).
+        for column in ["t", "v_{x}", "v_{y}", "a_{x}", "a_{y}", "p_{x}", "K"]:
+            self.assertNotIn("PointMass.data." + column, baseline["finite-derivatives"])
         self.assertEqual(corpus.STATE_GAPS.read_bytes().decode("utf-8"),
                          corpus.gap_baseline_text(corpus.gap_baseline(baseline)))
+
+    def test_finite_derivatives_dump_matches_independent_closed_forms(self):
+        # FiniteDerivativesFixture.java's marks are cubic in the clip step k, so Tracker's stencils have closed forms:
+        # velocity b + 2ck + 3dk² + d px per step and acceleration 2c + 6dk px per step². Step times are
+        # k · duration · step size + start (StepperClipControl, VideoPlayer); world components undo the fixed
+        # calibration (125 and 100 px per m, 30°). Windows that include the missing step 8 stay blank (#332).
+        dump = corpus.read_state(corpus.state_path("finite-derivatives"), self.manifest)
+        track = next(track for track in dump["panel"]["tracks"] if track["name"] == "projectile")
+        names = [column["name"] for column in track["data"]["columns"]]
+        rows = {row[names.index("frame")]: dict(zip(names, row)) for row in track["data"]["rows"]}
+        marked = [k for k in range(16) if k != 8]
+        self.assertEqual(sorted(rows), [4 + 3 * k for k in marked])
+        cos, sin = math.cos(math.pi / 6), math.sin(math.pi / 6)
+
+        def world(dx, dy):
+            u, w = dx / 125, -dy / 100
+            return u * cos + w * sin, -u * sin + w * cos
+
+        def time(k):
+            return (k * (1000.0 / 30) * 3 + 400) / 1000
+
+        compared = {"v_{x}": 0, "a_{x}": 0}
+        for k in marked:
+            row, expected = rows[4 + 3 * k], {"t": time(k), "step": k}
+            if {k - 1, k + 1} <= set(marked):
+                dt = (time(k + 1) - time(k - 1)) / 2
+                vx, vy = (value / dt for value in world(15.9375 + 1.5 * k - 0.1875 * k * k, -39.96875 + 5 * k + 0.09375 * k * k))
+                expected.update({"v_{x}": vx, "v_{y}": vy, "p_{x}": 0.75 * vx, "p_{y}": 0.75 * vy, "K": 0.375 * (vx * vx + vy * vy)})
+            if set(range(k - 2, k + 3)) <= set(marked):
+                dt2 = ((time(k + 2) - time(k - 2)) / 4) ** 2
+                ax, ay = (value / dt2 for value in world(1.5 - 0.375 * k, 5 + 0.1875 * k))
+                expected.update({"a_{x}": ax, "a_{y}": ay})
+            for name in ["v_{x}", "v_{y}", "a_{x}", "a_{y}", "K"]:
+                if name not in expected:
+                    self.assertEqual(row[name], "NaN", (k, name))
+            for name, value in expected.items():
+                compared[name] = compared.get(name, 0) + 1
+                self.assertAlmostEqual(row[name], value, delta=1e-9 * max(1.0, abs(value)), msg=(k, name))
+        self.assertEqual((compared["v_{x}"], compared["a_{x}"]), (11, 7))
 
     def test_state_diff_command_compares_two_files_and_rejects_misuse(self):
         expected, actual = self.root / "tracker.json", self.root / "motrack.json"

@@ -125,13 +125,16 @@ MoTrack's importer applies a 100 ms frame duration and the `m` label when a medi
 The XML-only probe does not decode media, so movie cases are untimed here even though MoTrack's decoder times
 them in the application.
 
-**What O4 covers today:** positions (`x`, `y`), pixels, steps and frames, compared in 45 point-mass cases, plus
-vector tails, tips and components in 37 cases, and clip timing, including Tracker's 100 ms default in 21
+**What O4 covers today:** positions (`x`, `y`), pixels, steps and frames, compared in 46 point-mass cases, plus
+vector tails, tips and components in 37 cases, and clip timing, including Tracker's 100 ms default in 22
 media-free cases. Finite velocity, speed, momentum and kinetic energy are compared in three point masses of
-`attachments` and `model-dependencies`. Each has three marks, so its acceleration is compared as blank: Tracker's
-five-point stencil has no window there (#207). Tracker's other finite derivatives (BallToss and the 14 keyed
-movies) are untimed in the probe, so **no finite acceleration is compared yet**. `MotionReference.MeasurementPlotMatchesTrackersDefaultDerivatives`
-checks `measurementPlot` against the pinned derivative classes instead (see [motion kernels](motion-kernels.md)).
+`attachments` and `model-dependencies`, whose three marks leave acceleration blank (#207), and in
+`finite-derivatives` (#332). That calibrated case has step size 3, start frame 4, a 30 fps clip from 400 ms and a
+missing step, and compares 11 finite velocities and 7 finite five-point accelerations computed by Tracker's own
+`refreshData`; a test also checks that dump against closed-form values. Tracker's other finite derivatives
+(BallToss and the 14 keyed movies) are untimed in the probe.
+`MotionReference.MeasurementPlotMatchesTrackersDefaultDerivatives` checks `measurementPlot` against the pinned
+derivative classes as well (see [motion kernels](motion-kernels.md)).
 
 ## Comparing dumps
 
@@ -146,8 +149,8 @@ checks `measurementPlot` against the pinned derivative classes instead (see [mot
   central differences divide rounded position differences by Δt and Δt², so differentiating world positions
   instead of image displacements differs by rounding amplified by those factors. They do not cover an algorithm
   difference, such as the three-point acceleration MoTrack used before it adopted Tracker's five-point fit
-  (#207). The first-derivative tolerances are exercised by the three velocity rows above; the second-derivative
-  tolerance is **not exercised yet**. These bounds are for this oracle, not a universal rule for future fits,
+  (#207). Both are exercised by the finite rows above; in `finite-derivatives` MoTrack differs from Tracker by at
+  most 6e-15 m/s in velocity and 1.4e-14 m/s² in acceleration. These bounds are for this oracle, not a universal rule for future fits,
   tracking or solvers.
 - Data rows are matched by their `frame` column and clip steps by their index, so missing, extra and remapped
   rows or steps are reported individually.
@@ -220,6 +223,7 @@ and accelerations at frames 9–10 become NaN.
 ```sh
 python tools/corpus.py state-oracle --java /path/to/jdk-17/bin/java            # Linux with Xvfb
 python tools/corpus.py state-oracle --java /path/to/jdk-17/bin/java --record   # replace dumps for review
+python tools/corpus.py state-oracle --java /path/to/jdk-17/bin/java --xvfb-abstract-socket   # WSLg (-nolisten unix)
 python tools/corpus.py state-check --probe build/dev/motrack_corpus_probe       # any platform, no Java
 python tools/corpus.py state-check --probe build/dev/motrack_corpus_probe --record   # re-record the gaps
 python tools/corpus.py state-diff expected.json actual.json
