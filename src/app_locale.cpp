@@ -49,6 +49,7 @@ std::string realCodeset()
 #endif
 }
 
+// NOLINTNEXTLINE(modernize-use-string-view) - the CRuntime signature; Windows returns a converted string
 std::string realUserLocaleName()
 {
 #ifdef _WIN32

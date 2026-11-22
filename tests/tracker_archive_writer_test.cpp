@@ -965,7 +965,8 @@ bool writeFile(const QString& path, const QByteArray& value)
     return output.open(QIODevice::WriteOnly) && output.write(value) == value.size();
 }
 
-/// The general-purpose flags of the central-directory record for @p name, or nullopt when there is none.
+/// The general-purpose flags of the central-directory record for @p name, or nullopt when there is none. Names
+/// compare in NFC: on macOS libarchive stores a different normalization than the one it was given (#308).
 std::optional<unsigned> centralFlags(const QByteArray& zip, const QByteArray& name)
 {
     const auto u16 = [&zip](qsizetype offset)
@@ -975,7 +976,8 @@ std::optional<unsigned> centralFlags(const QByteArray& zip, const QByteArray& na
     };
     for (auto at = zip.indexOf("PK\x01\x02"); at >= 0 && at + 46 <= zip.size(); at = zip.indexOf("PK\x01\x02", at + 4))
     {
-        if (zip.mid(at + 46, u16(at + 28)) == name)
+        if (QString::fromUtf8(zip.mid(at + 46, u16(at + 28))).normalized(QString::NormalizationForm_C) ==
+            QString::fromUtf8(name).normalized(QString::NormalizationForm_C))
         {
             return u16(at + 8);
         }
