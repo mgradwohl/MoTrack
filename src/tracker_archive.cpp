@@ -141,6 +141,9 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
         {
             member.chop(1);
         }
+        // Member identities are NFC. libarchive gives macOS callers NFD names, and names that differ only in
+        // normalization are refused as duplicates below anyway; lookups normalize the same way (#308).
+        member = member.normalized(QString::NormalizationForm_C);
         if (member.contains(QChar::ReplacementCharacter))
         {
             refuseNonUtf8Name(); // Windows' UTF-8 decoding substitutes U+FFFD instead of failing
@@ -189,8 +192,9 @@ const QStringList& TrackerArchive::projects() const
 
 QString TrackerArchive::projectPath(const QString& member) const
 {
-    require(m_Projects.contains(member));
-    return m_Directory.filePath(member);
+    const auto key = member.normalized(QString::NormalizationForm_C);
+    require(m_Projects.contains(key));
+    return m_Directory.filePath(key);
 }
 
 QString TrackerArchive::root() const
@@ -211,10 +215,11 @@ const QByteArray& TrackerArchive::sourceDigest() const
 bool TrackerArchive::memberMatchesSource(const QString& member, const std::atomic_bool* cancelled) const
 {
     require(!cancelled || !*cancelled);
-    const auto expected = m_MemberDigests.constFind(member);
+    const auto key = member.normalized(QString::NormalizationForm_C);
+    const auto expected = m_MemberDigests.constFind(key);
     if (expected == m_MemberDigests.cend())
         return false;
-    QFile input(m_Directory.filePath(member));
+    QFile input(m_Directory.filePath(key));
     const QFileInfo info(input);
     if (!info.isFile() || !info.canonicalFilePath().startsWith(m_CanonicalRoot + '/') || !input.open(QIODevice::ReadOnly) ||
         input.size() > MAX_TRACKER_EXTRACTED_BYTES)
@@ -255,7 +260,7 @@ void TrackerArchive::resolveMedia(LegacyProject& project, const QString& project
         {
             value = parent + '/' + value;
         }
-        const auto member = QDir::cleanPath(value);
+        const auto member = QDir::cleanPath(value).normalized(QString::NormalizationForm_C);
         reference = m_MemberDigests.contains(member) ? member.toStdString() : std::string{};
     }
 }

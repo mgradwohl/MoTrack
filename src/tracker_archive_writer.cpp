@@ -130,7 +130,8 @@ Directory readDirectory(QFile& input, const QHash<QString, std::size_t>& replace
         require(number<quint16>(central, 6) <= 20 && (flags & ~0x080e) == 0 && (method == 0 || method == 8) &&
                 (method != 0 || (flags & 6) == 0) && nameSize > 0 && name.toUtf8() == nameBytes &&
                 ((flags & 0x0800) != 0 || std::ranges::all_of(nameBytes, [](char c) { return static_cast<unsigned char>(c) < 128; })));
-        const auto match = replacements.constFind(name);
+        // TrackerArchive member identities are NFC; the stored bytes are kept as they are.
+        const auto match = replacements.constFind(name.normalized(QString::NormalizationForm_C));
         const bool selected = match != replacements.cend();
         std::optional<std::size_t> replacement;
         if (selected)
@@ -253,13 +254,14 @@ void writeTrackerArchive(const QString& path,
     {
         checkCancelled(cancelled);
         const auto& replacement = replacements[i];
-        require(source.projects().contains(replacement.member) && !replacementIndexes.contains(replacement.member) &&
-                !replacement.xml.empty() && replacement.xml.size() <= MAX_TRACKER_XML_BYTES);
+        const auto member = replacement.member.normalized(QString::NormalizationForm_C);
+        require(source.projects().contains(member) && !replacementIndexes.contains(member) && !replacement.xml.empty() &&
+                replacement.xml.size() <= MAX_TRACKER_XML_BYTES);
         const auto size = static_cast<qint64>(replacement.xml.size());
         require(size <= remaining);
         remaining -= size;
         static_cast<void>(parseLegacyProject(replacement.xml));
-        replacementIndexes.insert(replacement.member, i);
+        replacementIndexes.insert(member, i);
     }
     const QFileInfo target(path);
     require(!target.isSymLink(), "Tracker archive output cannot replace a file alias.");
