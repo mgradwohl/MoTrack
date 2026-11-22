@@ -2865,16 +2865,145 @@ def check_sessions(manifest, cache, java, probe=None):
                 json.dumps(saved_report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+SAMPLING_REFERENCE = ROOT / "tests/science/sampling-reference.json"
+SAMPLING_FRAME_KINDS = {"noise", "bright", "sparse", "gradient", "checker", "edge", "vedge", "band", "white"}
+SAMPLING_SHAPES = {"ellipse", "rectangle", "polygon"}
+SAMPLING_REGION_COLUMNS = ["R", "G", "B", "luma", "pixels", "Rsd", "Gsd", "Bsd"]
+SAMPLING_PROFILE_COLUMNS = ["x", "y", "R", "G", "B", "luma", "pixels", "n"]
+# The same agreement classes as tests/science/sampling_reference_test.cpp. Region statistics and
+# horizontal profiles are integer sums and IEEE arithmetic, identical on every JVM. Tilted probes
+# start from Math.atan2/cos/sin, whose last bit may differ between HotSpot intrinsics and CPUs.
+SAMPLING_EXACT = {"relative": 0.0, "absolute": 0.0}
+SAMPLING_TILTED_TOLERANCE = {"relative": 0.0, "absolute": 1e-9}
+SAMPLING_HORIZONTAL_SINE = 1e-5
+MAX_SAMPLING_CASES = 500
+
+
+def sampling_profile_is_tilted(case):
+    """LineProfileStep.getProfileData's choice between its horizontal and tilted algorithms."""
+    return not case["always_horizontal"] and abs(math.sin(case["axis_angle"])) >= SAMPLING_HORIZONTAL_SINE
+
+
+def _sampling_numeric(value):
+    return (type(value) in {int, float} and math.isfinite(value)) or value == "NaN"
+
+
+def _sampling_point(value):
+    return isinstance(value, list) and len(value) == 2 and all(type(v) in {int, float} and math.isfinite(v) for v in value)
+
+
+def _valid_sampling_region(case, frame_ids):
+    result, vertices = case.get("result"), case.get("vertices")
+    return (isinstance(case.get("id"), str) and case.get("frame") in frame_ids and case.get("shape") in SAMPLING_SHAPES
+            and _sampling_point(case.get("position"))
+            and isinstance(case.get("size"), list) and len(case["size"]) == 2 and all(type(v) is int for v in case["size"])
+            and (vertices is None) == (case["shape"] != "polygon")
+            and (vertices is None or (isinstance(vertices, list) and all(_sampling_point(v) for v in vertices)))
+            and isinstance(case.get("bounds"), list) and len(case["bounds"]) == 4 and all(type(v) is int for v in case["bounds"])
+            and type(case.get("mask_pixels")) is int and re.fullmatch(r"[0-9a-f]{16}", str(case.get("mask_fnv1a64"))) is not None
+            and (result is None or (isinstance(result, dict) and list(result) == SAMPLING_REGION_COLUMNS
+                                    and all(_sampling_numeric(v) for v in result.values()))))
+
+
+def _valid_sampling_profile(case, frame_ids):
+    result, ends = case.get("result"), case.get("ends")
+    columns = list(result.values()) if isinstance(result, dict) else []
+    return (isinstance(case.get("id"), str) and case.get("frame") in frame_ids
+            and type(case.get("always_horizontal")) is bool and type(case.get("axis_angle")) in {int, float}
+            and isinstance(ends, list) and len(ends) == 2 and all(_sampling_point(end) for end in ends)
+            and type(case.get("spread")) is int and 0 <= case["spread"] <= 100
+            and (result is None or (isinstance(result, dict) and list(result) == SAMPLING_PROFILE_COLUMNS
+                                    and all(isinstance(column, list) and all(_sampling_numeric(v) for v in column) for column in columns)
+                                    and len({len(column) for column in columns}) == 1)))
+
+
+def validate_sampling_reference(document, manifest):
+    """Check the sampling oracle schema before comparing or recording it."""
+    if (not isinstance(document, dict) or document.get("schema_version") != 1
+            or document.get("reference_version") != manifest["reference"]["version"]):
+        raise ValueError("Unexpected sampling oracle schema or reference version")
+    frames, regions, profiles = document.get("frames"), document.get("regions"), document.get("profiles")
+    if (not isinstance(frames, list) or not isinstance(regions, list) or not isinstance(profiles, list)
+            or not frames or not regions or not profiles or len(regions) + len(profiles) > MAX_SAMPLING_CASES
+            or not isinstance(document.get("tracker"), dict)):
+        raise ValueError("Invalid sampling oracle frame, region or profile list")
+    frame_ids = set()
+    for frame in frames:
+        if (not isinstance(frame, dict) or frame.get("id") in frame_ids or frame.get("kind") not in SAMPLING_FRAME_KINDS
+                or any(type(frame.get(key)) is not int or not 0 < frame[key] <= 4096 for key in ("width", "height"))
+                or re.fullmatch(r"[0-9a-f]{16}", str(frame.get("fnv1a64"))) is None):
+            raise ValueError("Invalid or duplicate sampling frame")
+        frame_ids.add(frame["id"])
+    seen = set()
+    for key, valid in (("regions", _valid_sampling_region), ("profiles", _valid_sampling_profile)):
+        for case in document[key]:
+            if not isinstance(case, dict) or case.get("id") in seen or not valid(case, frame_ids):
+                raise ValueError(f"Invalid or duplicate sampling case {case.get('id') if isinstance(case, dict) else case!r}")
+            seen.add(case["id"])
+    if not any(sampling_profile_is_tilted(case) for case in profiles) or all(sampling_profile_is_tilted(case) for case in profiles):
+        raise ValueError("The sampling oracle needs both horizontal and tilted profiles")
+
+
+def sampling_reference_text(document):
+    """Render the fixture with one frame or case per line so that review diffs stay readable."""
+    compact = {"separators": (",", ":"), "ensure_ascii": False}
+    lists = ("frames", "regions", "profiles")
+    lines = ["{"]
+    lines.extend(f"  {json.dumps(key)}: {json.dumps(value, **compact)}," for key, value in document.items() if key not in lists)
+    for position, key in enumerate(lists):
+        items = document[key]
+        lines.append(f"  {json.dumps(key)}: [")
+        lines.extend(f"    {json.dumps(item, **compact)}{',' if index + 1 < len(items) else ''}" for index, item in enumerate(items))
+        lines.append("  ]," if position + 1 < len(lists) else "  ]")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def check_sampling_oracle(manifest, cache, java, *, record=False):
+    """Measure the sampling kernel's synthetic frames with the pinned RGBStep/LineProfileStep and diff the fixture."""
+    verify_file(cache / manifest["reference"]["file"], manifest["reference"])
+    # A private home keeps OSP preference files out of the shared reference cache.
+    with tempfile.TemporaryDirectory(prefix="sampling-oracle-") as temporary:
+        home = Path(temporary) / "home"
+        home.mkdir()
+        output = Path(temporary) / "sampling-java.json"
+        run([java, "-Djava.awt.headless=true", f"-Duser.home={home}", f"-Djava.io.tmpdir={home}",
+             "-Xmx256m", "--class-path", java_classpath(manifest, cache),
+             str(ROOT / "tools/reference/SamplingOracle.java"), str(output)])
+        actual = json.loads(output.read_text(encoding="utf-8"))
+    validate_sampling_reference(actual, manifest)
+    location = (SAMPLING_REFERENCE.relative_to(ROOT).as_posix() if SAMPLING_REFERENCE.is_relative_to(ROOT)
+                else str(SAMPLING_REFERENCE))
+    cases = len(actual["regions"]) + len(actual["profiles"])
+    if record:
+        SAMPLING_REFERENCE.parent.mkdir(parents=True, exist_ok=True)
+        SAMPLING_REFERENCE.write_text(sampling_reference_text(actual), encoding="utf-8", newline="\n")
+        print(f"sampling-oracle: recorded {cases} Java sampling cases in {location}")
+        return
+    expected = json.loads(SAMPLING_REFERENCE.read_text(encoding="utf-8"))
+    validate_sampling_reference(expected, manifest)
+    compare({key: value for key, value in expected.items() if key not in {"regions", "profiles"}},
+            {key: value for key, value in actual.items() if key not in {"regions", "profiles"}}, SAMPLING_EXACT, "sampling-reference")
+    for key in ("regions", "profiles"):
+        if [case["id"] for case in expected[key]] != [case["id"] for case in actual[key]]:
+            raise ValueError(f"sampling-reference: the Java {key} list differs from the fixture")
+        for want, got in zip(expected[key], actual[key]):
+            tilted = key == "profiles" and sampling_profile_is_tilted(want)
+            compare(want, got, SAMPLING_TILTED_TOLERANCE if tilted else SAMPLING_EXACT, f"sampling-reference.{want['id']}")
+    print(f"sampling-oracle: {cases} Java sampling cases match {location}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["fetch", "verify", "reference", "check", "session", "roundtrip"])
+    parser.add_argument("command", choices=["fetch", "verify", "reference", "check", "session", "roundtrip",
+                                            "sampling-oracle"])
     parser.add_argument("--cache", type=Path, default=ROOT / ".dev-tools/tracker-reference")
-    parser.add_argument("--java", default="java", help="Java 17+ JDK executable (reference/session/roundtrip commands)")
+    parser.add_argument("--java", default="java", help="Java 17+ JDK executable (reference/session/roundtrip/oracle commands)")
     parser.add_argument("--probe", help="Built motrack_corpus_probe executable (check/roundtrip commands)")
     parser.add_argument("--record", action="store_true", help="Explicitly replace committed Java baselines for review")
     args = parser.parse_args()
-    if args.record and args.command != "reference":
-        parser.error("--record is only valid for the reference command")
+    if args.record and args.command not in {"reference", "sampling-oracle"}:
+        parser.error("--record is only valid for the reference and sampling-oracle commands")
     if args.command in {"check", "roundtrip"} and not args.probe:
         parser.error(f"{args.command} requires --probe")
     manifest = load_manifest()
@@ -2885,6 +3014,8 @@ def main():
         print(f"Verified {len(manifest['cases'])} cases and Tracker {manifest['reference']['version']}")
     elif args.command in {"session", "roundtrip"}:
         check_sessions(manifest, cache, args.java, args.probe if args.command == "roundtrip" else None)
+    elif args.command == "sampling-oracle":
+        check_sampling_oracle(manifest, cache, args.java, record=args.record)
     else:
         check_cases(manifest, cache, java=args.java if args.command == "reference" else None,
                     probe=args.probe, record=args.record)

@@ -134,8 +134,13 @@ python tools/corpus.py check --probe build/coverage/motrack_corpus_probe
 python tools/corpus.py reference --java /path/to/jdk-17/bin/java
 python tools/corpus.py session --java /path/to/jdk-17/bin/java
 python tools/corpus.py roundtrip --probe build/coverage/motrack_corpus_probe --java /path/to/jdk-17/bin/java
+python tools/corpus.py sampling-oracle --java /path/to/jdk-17/bin/java
 python -m unittest discover -s tests -p test_corpus.py
 ```
+
+`sampling-oracle` measures the [image sampling kernel](../../docs/image-sampling.md) frames with the pinned
+`RGBStep`/`LineProfileStep` classes and compares them with `tests/science/sampling-reference.json`: exactly,
+except tilted profiles within 10⁻⁹. `--record` replaces the fixture for review.
 
 On Windows, use `build/coverage/motrack_corpus_probe.exe` and the path to `java.exe`. Python 3.10 or newer
 is supported. The reference command uses Java source-file mode and therefore needs a JDK, not just a
