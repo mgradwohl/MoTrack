@@ -4,6 +4,7 @@
 #include "desktop_launch.hpp"
 #include "workspace_context.hpp"
 
+#include <QFutureWatcher>
 #include <QMainWindow>
 #include <QPointer>
 #include <QSet>
@@ -193,7 +194,9 @@ class WorkspaceWindow final : public QMainWindow
     void applyRequestedFileCheck(std::uint64_t check, const QString& path, const RequestedFileCheck& result);
     void startRequestedOpen(RequestedBatch& batch, const QString& path);
     std::optional<RequestedBatch> m_Requested;
-    std::uint64_t m_LastCheck = 0;
+    std::uint64_t m_LastCheck = 0; // The check m_Checks watches; a stopped batch no longer expects it.
+    QString m_CheckedPath;
+    QFutureWatcher<RequestedFileCheck> m_Checks;
     QLabel* m_DropOverlay = nullptr;
     bool m_Busy = false;
 };

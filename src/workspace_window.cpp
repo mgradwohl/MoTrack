@@ -320,6 +320,10 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
                     m_Context->session().moveDocument(document, static_cast<std::size_t>(to));
             });
     connect(m_Context.get(), &WorkspaceContext::sourceChanged, this, [this] { refreshLabels(); });
+    connect(&m_Checks,
+            &QFutureWatcher<RequestedFileCheck>::finished,
+            this,
+            [this] { applyRequestedFileCheck(m_LastCheck, m_CheckedPath, m_Checks.result()); });
     connect(m_Context.get(),
             &WorkspaceContext::inputOpened,
             this,
@@ -1119,28 +1123,18 @@ void WorkspaceWindow::checkNextRequestedFile(RequestedBatch& batch)
             if (!owned.isEmpty())
                 sources.emplace_back(source, owned);
     batch.check = ++m_LastCheck;
-    // A sleeping network share can block any file query, so the worker answers and the window acts on it.
-    auto* watcher = new QFutureWatcher<RequestedFileCheck>(this);
-    connect(watcher,
-            &QFutureWatcher<RequestedFileCheck>::finished,
-            this,
-            [this, watcher, check = batch.check, path]
-            {
-                const auto result = watcher->result();
-                watcher->deleteLater();
-                applyRequestedFileCheck(check, path, result);
-            });
+    m_CheckedPath = path;
+    // A sleeping network share can block any file query, so the worker answers and the window acts on it. Watching
+    // the new check stops delivery of a stale one, such as a check that was still running when its batch stopped.
     try
     {
-        watcher->setFuture(QtConcurrent::run(&m_Context->services()->requestPool(),
+        m_Checks.setFuture(QtConcurrent::run(&m_Context->services()->requestPool(),
                                              [path, sources = std::move(sources), earlier = batch.started]
                                              { return checkRequestedFile(path, sources, earlier); }));
     }
     catch (...)
     {
-        // Nothing will answer this check, so the batch must not wait for it.
-        batch.check = 0;
-        delete watcher;
+        batch.check = 0; // Nothing will answer this check, so the batch must not wait for it.
         throw;
     }
 }
