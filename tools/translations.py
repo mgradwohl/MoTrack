@@ -163,7 +163,7 @@ PREFERRED_KEYS = {
 
 # (English, translation) pairs in Tracker catalogs that do not mean the English text, reviewed across every matched
 # MoTrack string on 2026-11-21. Other keys with the same English text may still match.
-LOCALE_REJECTED = {
+LOCALE_REJECTED = {  # Upstream reports: MoTrack #274.
     "ca": {("Edit", "Edia")},  # Typo.
     "da": {("Redo", "Fortryd fortryd"), ("Track", "Markeringer")},  # "Undo undo"; "markings" (MoTrack's marks).
     "fi": {("New Point Mass", "Uusi paikka")},  # "New place".

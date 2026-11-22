@@ -69,8 +69,10 @@ To fill new entries, seed them from Tracker, then machine-translate the rest:
    English text matches a source string (ignoring mnemonics, ellipses, spacing and a trailing colon), the
    translation is copied with the source's mnemonic and ellipsis and marked finished; title case versus
    sentence case is also accepted. Matches that need a different initial capital or sentence punctuation, or
-   where Tracker's keys disagree, stay unfinished. A translator comment records the bundle and key. `STALE_KEYS` and `LOCALE_REJECTED` exclude reviewed Tracker translations that no longer mean
-   their English text; Turkish is not seeded because Tracker's catalog omits Turkish letters.
+   where Tracker's keys disagree, stay unfinished. A translator comment records the bundle and key.
+   `STALE_KEYS` and `LOCALE_REJECTED` exclude reviewed Tracker translations that no longer mean their English
+   text ([#274](https://github.com/mgradwohl/MoTrack/issues/274)); Turkish is not seeded because Tracker's
+   catalog omits Turkish letters.
 2. `python tools/translations.py pending --locale <locale> --out pending.json --tracker <tracker> --osp <osp>
    --reference de fr es` lists the remaining strings with Tracker's terminology, the plural rule and finished
    German/French/Spanish translations for context.
