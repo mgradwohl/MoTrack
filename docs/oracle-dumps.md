@@ -112,15 +112,18 @@ vectors carry their samples as steps. Clip step rows exist for untimed clips too
 `ImageCoordSystem`.
 
 What MoTrack does not report is a gap, never a silent pass (see [the gap baseline](#gap-baseline)). Time and
-derivative columns are absent for untimed clips, world quantities for uncalibrated projects, and the length unit
-when the file has none. Tracker materializes a 100 ms frame duration and the `m` label when a media-free file
-saves neither; MoTrack does not yet (#214). The XML-only probe does not decode media, so movie cases are untimed
-here even though MoTrack's decoder times them in the application.
+derivative columns are absent for untimed clips and world quantities for uncalibrated projects. Like Tracker,
+MoTrack's importer applies a 100 ms frame duration and the `m` label when a media-free file saves neither (#214).
+The XML-only probe does not decode media, so movie cases are untimed here even though MoTrack's decoder times
+them in the application.
 
 **What O4 covers today:** positions (`x`, `y`), pixels, steps and frames, compared in 45 point-mass cases, plus
-vector tails, tips and components in 37 cases. **No finite derivative value is compared in any case.** Tracker
-has finite velocities in 17 cases (BallToss, the 14 keyed movies, `attachments` and `model-dependencies`), all of
-which are untimed in the probe; the remaining timed cases have no three consecutive marks.
+vector tails, tips and components in 37 cases, and clip timing, including Tracker's 100 ms default in 21
+media-free cases. Finite velocity, speed, momentum and kinetic energy are compared in three point masses of
+`attachments` and `model-dependencies`. Each has three marks, so its acceleration is compared as blank: Tracker's
+five-point stencil has no window there (#207). Tracker's other finite derivatives (BallToss and the 14 keyed
+movies) are untimed in the probe, so **no finite acceleration is compared yet**. `MotionReference.MeasurementPlotMatchesTrackersDefaultDerivatives`
+checks `measurementPlot` against the pinned derivative classes instead (see [motion kernels](motion-kernels.md)).
 
 ## Comparing dumps
 
@@ -134,9 +137,10 @@ which are untimed in the probe; the remaining timed cases have no three consecut
   relative `1e-9`; second derivatives (`L/TT`, `A/TT`) allow absolute `1e-7`. These bounds cover rounding only:
   central differences divide rounded position differences by Δt and Δt², so differentiating world positions
   instead of image displacements differs by rounding amplified by those factors. They do not cover an algorithm
-  difference: MoTrack's acceleration uses a three-point formula where Tracker uses a five-point fit (#207), which
-  these tolerances must not hide. The derivative tolerances are **not exercised yet** (see above). These bounds are
-  for this oracle, not a universal rule for future fits, tracking or solvers.
+  difference, such as the three-point acceleration MoTrack used before it adopted Tracker's five-point fit
+  (#207). The first-derivative tolerances are exercised by the three velocity rows above; the second-derivative
+  tolerance is **not exercised yet**. These bounds are for this oracle, not a universal rule for future fits,
+  tracking or solvers.
 - Data rows are matched by their `frame` column and clip steps by their index, so missing, extra and remapped
   rows or steps are reported individually.
 
@@ -150,8 +154,9 @@ example `panel.tracks[name=mass A].data.rows[frame=3].v_{x}: expected 1.5, got 1
 Everything Tracker reports that MoTrack does not (an unmodeled class, column, property or section, a timing or
 calibration value, coordinate frames beyond the clip) is a gap. [`tests/corpus/state-gaps.json`](../tests/corpus/state-gaps.json)
 commits every case's gaps, each with its reason: `unmodeled-class`, `unmodeled-field`, `unmodeled-column`,
-`probe-media-timing` (the XML-only probe cannot time a movie), `default-timing` and `default-length-unit`
-(Tracker's defaults, #214), `uncalibrated`, `coords-range` and `known-defect-unmodeled`. `state-check` is a
+`probe-media-timing` (the XML-only probe cannot time a movie), `uncalibrated`, `coords-range` and
+`known-defect-unmodeled`. A missing timing or length unit in a media-free case is not expected since MoTrack
+applies Tracker's defaults (#214), so it takes the reason of any other unreported value. `state-check` is a
 ratchet: a **new** gap fails, so a value MoTrack stops reporting (lost calibration or timing, missing steps or
 mass, fewer coordinate frames) cannot pass unnoticed; a **closed** gap or a changed reason fails until the
 baseline is re-recorded with `state-check --record` and reviewed. Gaps shared by every case are listed once.
