@@ -450,7 +450,7 @@ struct ReferenceReader
                 result.malformedPaths.push_back(plotPath);
                 continue;
             }
-            const auto guests = xml.property(*object, "guests");
+            const auto guests = xml.property(object, "guests");
             if (!guests.node)
             {
                 continue;
@@ -515,7 +515,7 @@ struct ReferenceReader
                 result.malformedPaths.push_back(childPath);
                 continue;
             }
-            panelReference(*child, "track", TrackerReferenceKind::PlotOwner, childPath, true);
+            panelReference(child, "track", TrackerReferenceKind::PlotOwner, childPath, true);
             plotGuests(*child, childPath);
         }
     }
@@ -772,7 +772,7 @@ TrackerReferenceIndex detail::indexTrackerReferences(const osp::Source& xml, con
             else
             {
                 sourceObjects.emplace_back(index, *object);
-                if (auto name = reader.stringValue(reader.property(*object, "name"), MAX_NAME_UNITS))
+                if (auto name = reader.stringValue(reader.property(object, "name"), MAX_NAME_UNITS))
                 {
                     track.originalName = std::move(*name);
                     names.byName[*track.originalName].push_back(index);

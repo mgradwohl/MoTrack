@@ -170,11 +170,12 @@ TEST(TrackerLoaders, ReadPointMassKeysAndFramesLikeTrackersLoaders)
         EXPECT_EQ(*mass.name, "mass");
         EXPECT_EQ(*mass.mass, 2.5);
         ASSERT_TRUE(mass.frames);
-        ASSERT_EQ(mass.frames->frames.size(), 2u);
-        EXPECT_EQ(*mass.frames->frames[0].element.index, 1);
-        EXPECT_EQ(*mass.frames->frames[0].data.x, 3.0);
-        EXPECT_EQ(mass.frames->frames[0].data.y.error(), motrack::osp::DecodeError::Missing);
-        EXPECT_FALSE(mass.frames->frames[1].element.object);
+        const auto& frames = mass.frames.value().frames;
+        ASSERT_EQ(frames.size(), 2u);
+        EXPECT_EQ(*frames[0].element.index, 1);
+        EXPECT_EQ(*frames[0].data.x, 3.0);
+        EXPECT_EQ(frames[0].data.y.error(), motrack::osp::DecodeError::Missing);
+        EXPECT_FALSE(frames[1].element.object);
         EXPECT_EQ(*mass.keyFrames, (std::vector<std::int32_t>{1, 4}));
     }
     {

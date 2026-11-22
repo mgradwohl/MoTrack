@@ -193,7 +193,10 @@ the case:
   and then truncates them or fails in `XML.removeCDATA` on reload. MoTrack refuses to write them
   (`InvalidValue`), including multi-line values that would inject a property
   ([#194](https://github.com/mgradwohl/MoTrack/issues/194), [osp#21](https://github.com/OpenSourcePhysics/osp/issues/21)).
-- Invalid UTF-8: Java substitutes U+FFFD; MoTrack refuses the file. A declared encoding other than UTF-8 is
+- Invalid UTF-8: Java substitutes U+FFFD; MoTrack refuses the file. When the bytes read as Windows-1252, which
+  Tracker's File > Export > Tracker file can write under a UTF-8 declaration
+  ([#277](https://github.com/mgradwohl/MoTrack/issues/277)), the refusal names that encoding; opening such a file
+  with a warning is [#302](https://github.com/mgradwohl/MoTrack/issues/302). A declared encoding other than UTF-8 is
   ignored by OSP but refused by MoTrack.
 - Encrypted (`Cryptic`) roots are refused instead of decrypted.
 - `Integer.parseInt` accepts non-ASCII Unicode decimal digits; MoTrack reports them as `Unsupported`.

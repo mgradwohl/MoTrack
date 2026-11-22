@@ -72,7 +72,7 @@ std::string_view sourceXml()
 std::string withPanelLines(std::string_view lines)
 {
     std::string xml(sourceXml());
-    xml.insert(xml.find("    <property name=\"tracks\""), lines);
+    xml.insert(xml.find(R"(    <property name="tracks")"), lines);
     return xml;
 }
 
@@ -873,14 +873,14 @@ TEST(TrackerWriter, SavesMovieDefaultNumberFormatsAndRejectsCustomFormatsAfterNa
         QTemporaryDir temporary;
         const auto source = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-movie/linked-movie.trk";
         auto document = indexedMovieDocument(source);
-        const std::string token = "<object class=\"org.opensourcephysics.cabrillo.tracker.PointMass\">";
+        const std::string token = R"(<object class="org.opensourcephysics.cabrillo.tracker.PointMass">)";
         auto& xml = retainedSource(document).xml;
         const auto at = xml.find(token);
         ASSERT_NE(at, std::string::npos);
         const auto formats =
-            QString("<property name=\"number_formats\" type=\"array\" class=\"[Ljava.lang.String;\">"
-                    "<property name=\"[0]\" type=\"string\">frame</property><property name=\"[1]\" type=\"string\">0</property>"
-                    "<property name=\"[2]\" type=\"string\">t</property><property name=\"[3]\" type=\"string\">%1</property></property>")
+            QString(R"(<property name="number_formats" type="array" class="[Ljava.lang.String;">)"
+                    R"(<property name="[0]" type="string">frame</property><property name="[1]" type="string">0</property>)"
+                    R"(<property name="[2]" type="string">t</property><property name="[3]" type="string">%1</property></property>)")
                 .arg(custom ? "0.0000" : "0.000");
         insertLinesAfter(xml, at, formats.toStdString());
         motrack::TrackEdits edits;
@@ -971,7 +971,7 @@ TEST(TrackerWriter, RejectsUnsupportedMovieStateBeforeReplacingExistingOutput)
         [](auto& doc)
         {
             auto& xml = retainedSource(doc).xml;
-            const auto at = xml.find("<property name=\"path\"");
+            const auto at = xml.find(R"(<property name="path")");
             ASSERT_NE(at, std::string::npos);
             xml.insert(at, "<property name=\"filters\" type=\"collection\" class=\"java.util.ArrayList\"/>\n");
         }};
@@ -1070,7 +1070,7 @@ TEST(TrackerWriter, SavesTrimmedImageClipsWithStrideAndPreservesAllSourceFrames)
             auto document = motrack::importTrackerDocument(input);
             if (explicitCount)
             {
-                const std::string start = "<object class=\"org.opensourcephysics.media.core.VideoClip\">";
+                const std::string start = R"(<object class="org.opensourcephysics.media.core.VideoClip">)";
                 const auto position = retainedSource(document).xml.find(start);
                 ASSERT_NE(position, std::string::npos);
                 retainedSource(document).xml.insert(position + start.size(),
@@ -1273,7 +1273,7 @@ TEST(TrackerWriter, RejectsUnsafeLinkedImageExportsBeforeReplacingTheDestination
         },
         [](auto& doc)
         {
-            const std::string start = "<object class=\"org.opensourcephysics.media.core.ImageVideo\">";
+            const std::string start = R"(<object class="org.opensourcephysics.media.core.ImageVideo">)";
             const auto position = retainedSource(doc).xml.find(start);
             ASSERT_NE(position, std::string::npos);
             retainedSource(doc).xml.insert(position + start.size(),
@@ -1314,14 +1314,14 @@ TEST(TrackerWriter, AuditsSavedImageFrameCountsAndNeverReplacesALinkedImage)
     const auto input = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images/linked-images.trk";
     auto document = motrack::importTrackerDocument(input);
     const auto output = temporary.filePath("output.trk");
-    const std::string start = "<object class=\"org.opensourcephysics.media.core.VideoClip\">";
+    const std::string start = R"(<object class="org.opensourcephysics.media.core.VideoClip">)";
     const auto position = retainedSource(document).xml.find(start);
     ASSERT_NE(position, std::string::npos);
     retainedSource(document).xml.insert(position + start.size(), "\n<property name=\"video_framecount\" type=\"int\">4</property>\n");
     document.project.clip.sourceFrameCount = 4;
     motrack::writeTrackerDocument(output, document, input);
     const auto correct = readBytes(output);
-    EXPECT_NE(correct.find("name=\"video_framecount\""), std::string::npos);
+    EXPECT_NE(correct.find(R"(name="video_framecount")"), std::string::npos);
     const std::string count = R"(name="video_framecount" type="int">4)";
     const auto countPosition = retainedSource(document).xml.find(count);
     ASSERT_NE(countPosition, std::string::npos);
@@ -1559,7 +1559,7 @@ TEST(TrackerWriter, PatchesTheBoundMassAfterNativeReopenAndKeepsUnknownContent)
     const auto output = temporary.filePath(QString::fromUtf8("élève.trk"));
     motrack::writeTrackerProject(output, reopened.project, *reopened.trackerSource);
     const auto bytes = readBytes(output);
-    EXPECT_NE(bytes.find("encoding=\"UTF-8\""), std::string::npos);
+    EXPECT_NE(bytes.find(R"(encoding="UTF-8")"), std::string::npos);
     EXPECT_NE(bytes.find("<!-- untouched comment -->"), std::string::npos);
     EXPECT_NE(bytes.find("<!-- mass comment -->"), std::string::npos);
     EXPECT_NE(bytes.find("<![CDATA[<unknown>]]>"), std::string::npos);
@@ -1592,8 +1592,8 @@ TEST(TrackerWriter, PreservesUntouchedScalarMixedAndExplicitWhitespace)
     const auto output = motrack::renderTrackerProject(imported.project, imported.source);
     EXPECT_NE(output.find(untouched), std::string::npos);
     auto expected = xml;
-    const std::string mass = "<property name=\"mass\" type=\"double\">1.0</property>";
-    expected.replace(expected.find(mass), mass.size(), "<property name=\"mass\" type=\"double\">2.5</property>");
+    const std::string mass = R"(<property name="mass" type="double">1.0</property>)";
+    expected.replace(expected.find(mass), mass.size(), R"(<property name="mass" type="double">2.5</property>)");
     EXPECT_EQ(output, expected); // Only the edited value changed, in the file's CRLF layout.
     EXPECT_EQ(motrack::parseLegacyProject(output).pointMasses.front().mass, 2.5);
 }
@@ -1659,7 +1659,7 @@ std::string namedSourceCompact(const std::string& extra = "")
            "</object></property>\n"
            "<property name=\"item\" type=\"object\"><object class=\"org.opensourcephysics.cabrillo.tracker.Protractor\">\n"
            "<property name=\"name\" type=\"string\">protractor</property>\n"
-           "<property name=\"framedata\" type=\"array\" class=\"[[D\"><property name=\"array\" "
+           R"(<property name="framedata" type="array" class="[[D"><property name="array" )"
            "type=\"string\">{{0,0,1,0,0,1}}</property></property>\n"
            "</object></property>\n"
            "<property name=\"item\" type=\"object\"><object class=\"org.opensourcephysics.cabrillo.tracker.PointMass\">\n"
@@ -1675,7 +1675,7 @@ std::string namedSourceCompact(const std::string& extra = "")
            "<property name=\"[0]\" type=\"string\">mass B</property><property name=\"[1]\" type=\"string\">mass B</property>\n"
            "</property></property>\n"
            "<property name=\"column_formats\" type=\"array\" class=\"[[[Ljava.lang.String;\">\n"
-           "<property name=\"[0]\" type=\"array\" class=\"[[Ljava.lang.String;\"><property name=\"[0]\" type=\"array\" "
+           R"(<property name="[0]" type="array" class="[[Ljava.lang.String;"><property name="[0]" type="array" )"
            "class=\"[Ljava.lang.String;\">\n"
            "<property name=\"[0]\" type=\"string\">mass B</property><property name=\"[1]\" type=\"string\">mass B</property>\n"
            "<property name=\"[2]\" type=\"string\"></property></property></property></property>\n"
@@ -1691,8 +1691,8 @@ std::string namedSource(const std::string& extra = "")
 TEST(TrackerWriter, DeletedSelectionsUseRenamedSurvivorsOrRetainedToolsAfterNativeReopen)
 {
     auto xml = namedSource();
-    const std::string oldOwner = "<property name=\"[0]\" type=\"string\">mass B</property>";
-    const std::string toolOwner = "<property name=\"[0]\" type=\"string\">protractor</property>";
+    const std::string oldOwner = R"(<property name="[0]" type="string">mass B</property>)";
+    const std::string toolOwner = R"(<property name="[0]" type="string">protractor</property>)";
     for (auto position = xml.find(oldOwner); position != std::string::npos; position = xml.find(oldOwner, position + toolOwner.size()))
         xml.replace(position, oldOwner.size(), toolOwner);
     const auto imported = motrack::parseTrackerProject(xml);
@@ -1721,7 +1721,7 @@ TEST(TrackerWriter, DeletedSelectionsUseRenamedSurvivorsOrRetainedToolsAfterNati
         EXPECT_EQ(output.project.pointMasses.size(), allMasses ? 0u : 1u);
         const auto references = motrack::indexTrackerReferences(output.source, output.project);
         EXPECT_TRUE(references.malformedPaths.empty());
-        EXPECT_EQ(output.source.xml.find("name=\"selectedtrack\""), std::string::npos);
+        EXPECT_EQ(output.source.xml.find(R"(name="selectedtrack")"), std::string::npos);
         int replaced = 0;
         for (const auto& reference : references.references)
         {
@@ -1745,10 +1745,10 @@ TEST(TrackerWriter, DeletingAllSelectedVectorsClearsSelectionsWithoutChoosingAxe
                motrack::test::ospProperties(
                    "<property name=\"selectedtrack\" type=\"string\">vector A</property>\n"
                    "<property name=\"selected_track_views\" type=\"string\">vector A,null;null,vector B;null,null;null,null</property>\n"
-                   "<property name=\"views\" type=\"array\" class=\"[[Lorg.opensourcephysics.cabrillo.tracker.TView;\">"
-                   "<property name=\"[1]\" type=\"array\" class=\"[Lorg.opensourcephysics.cabrillo.tracker.TView;\">"
-                   "<property name=\"[1]\" type=\"object\"><object class=\"org.opensourcephysics.cabrillo.tracker.TableTView\">"
-                   "<property name=\"selected_track\" type=\"string\">vector B</property></object></property></property></property>"));
+                   R"(<property name="views" type="array" class="[[Lorg.opensourcephysics.cabrillo.tracker.TView;">)"
+                   R"(<property name="[1]" type="array" class="[Lorg.opensourcephysics.cabrillo.tracker.TView;">)"
+                   R"(<property name="[1]" type="object"><object class="org.opensourcephysics.cabrillo.tracker.TableTView">)"
+                   R"(<property name="selected_track" type="string">vector B</property></object></property></property></property>)"));
     const auto imported = motrack::parseTrackerProject(xml);
     auto project = imported.project;
     motrack::TrackEdits edits;
@@ -1756,8 +1756,8 @@ TEST(TrackerWriter, DeletingAllSelectedVectorsClearsSelectionsWithoutChoosingAxe
     ASSERT_TRUE(edits.removeVector(project, 0));
     const auto output = motrack::parseTrackerProject(motrack::renderTrackerProject(project, imported.source));
     EXPECT_TRUE(output.project.vectors.empty());
-    EXPECT_EQ(output.source.xml.find("name=\"selectedtrack\""), std::string::npos);
-    EXPECT_EQ(output.source.xml.find("name=\"selected_track\""), std::string::npos);
+    EXPECT_EQ(output.source.xml.find(R"(name="selectedtrack")"), std::string::npos);
+    EXPECT_EQ(output.source.xml.find(R"(name="selected_track")"), std::string::npos);
     EXPECT_EQ(output.source.xml.find("TableTView"), std::string::npos);
     const auto references = motrack::indexTrackerReferences(output.source, output.project);
     ASSERT_EQ(references.references.size(), 8);
@@ -1850,9 +1850,9 @@ TEST(TrackerWriter, DeletionCompactsParsedIdsAcrossInterleavedMassesAndVectors)
                       "<property name=\"tracks\" type=\"collection\" class=\"java.util.ArrayList\">\n";
     for (int index = 0; index < 5; ++index)
     {
-        xml += "<property name=\"item\" type=\"object\"><object class='org.opensourcephysics.cabrillo.tracker.";
+        xml += R"(<property name="item" type="object"><object class='org.opensourcephysics.cabrillo.tracker.)";
         xml += index % 2 == 0 ? "PointMass" : "Vector";
-        xml += "'><property name=\"name\" type=\"string\">track " + std::to_string(index) + "</property></object></property>\n";
+        xml += R"('><property name="name" type="string">track )" + std::to_string(index) + "</property></object></property>\n";
     }
     xml += "</property></object>\n";
     xml = osp(xml);
@@ -1968,9 +1968,9 @@ TEST(TrackerWriter, RejectsMalformedOrCustomPointMassNumberFormats)
         QByteArray::fromStdString(readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/table-default-format-owners.trk"))));
     QDomDocument defaults;
     ASSERT_TRUE(defaults.setContent(
-        QString("<property name=\"number_formats\" type=\"array\" class=\"[Ljava.lang.String;\">"
-                "<property name=\"[0]\" type=\"string\">frame</property><property name=\"[1]\" type=\"string\">0</property>"
-                "<property name=\"[2]\" type=\"string\">t</property><property name=\"[3]\" type=\"string\">0.000</property></property>")));
+        QString(R"(<property name="number_formats" type="array" class="[Ljava.lang.String;">)"
+                R"(<property name="[0]" type="string">frame</property><property name="[1]" type="string">0</property>)"
+                R"(<property name="[2]" type="string">t</property><property name="[3]" type="string">0.000</property></property>)")));
     const auto objects = baseline.elementsByTagName("object");
     bool added = false;
     for (int i = 0; i < objects.size() && !added; ++i)
@@ -2129,8 +2129,8 @@ TEST(TrackerWriter, OmitsAnEmptyCustomTableAfterDeletingItsLastOwner)
             if (retainOtherViews)
             {
                 QDomDocument other;
-                ASSERT_TRUE(other.setContent(QString("<property name=\"[0]\" type=\"object\"><object "
-                                                     "class=\"org.opensourcephysics.cabrillo.tracker.PlotTView\"/></property>")));
+                ASSERT_TRUE(other.setContent(QString(R"(<property name="[0]" type="object"><object )"
+                                                     R"(class="org.opensourcephysics.cabrillo.tracker.PlotTView"/></property>)")));
                 auto chooser = table.parentNode().parentNode();
                 chooser.appendChild(source.importNode(other.documentElement(), true));
                 auto secondChooser = source.createElement("property");
@@ -2192,12 +2192,12 @@ TEST(TrackerWriter, OmitsAnEmptyCustomTableAfterDeletingItsLastOwner)
 TEST(TrackerWriter, RefusesDependentAndTableDatasetDeletionBeforeTouchingTheDestination)
 {
     auto xml = namedSource();
-    const auto tableColumns = xml.find("<property name=\"track_columns\"");
+    const auto tableColumns = xml.find(R"(<property name="track_columns")");
     ASSERT_NE(tableColumns, std::string::npos);
     xml.insert(tableColumns,
-               "<property name=\"dataset_indices\" type=\"array\" class=\"[[Ljava.lang.String;\">"
-               "<property name=\"[0]\" type=\"array\" class=\"[Ljava.lang.String;\">"
-               "<property name=\"[0]\" type=\"string\">mass B</property><property name=\"[1]\" type=\"string\">0</property>"
+               R"(<property name="dataset_indices" type="array" class="[[Ljava.lang.String;">)"
+               R"(<property name="[0]" type="array" class="[Ljava.lang.String;">)"
+               R"(<property name="[0]" type="string">mass B</property><property name="[1]" type="string">0</property>)"
                "</property></property>");
     const auto imported = motrack::parseTrackerProject(xml);
     QTemporaryDir temporary;
@@ -2279,12 +2279,12 @@ TEST(TrackerWriter, RejectsUnsafeCreatedTrackNamesReferencesAndSourceSchemasAtom
     const auto original = namedSource();
     std::vector<std::string> sources{original};
     for (const auto& [before, after] : std::vector<std::pair<std::string, std::string>>{
-             {"<property name=\"selectedtrack\" type=\"string\">mass B", "<property name=\"selectedtrack\" type=\"string\">new mass"},
-             {"<property name=\"name\" type=\"string\">mass B", "<property name=\"name\" type=\"string\">mass A"},
-             {"<property name=\"name\" type=\"string\">protractor</property>", ""},
+             {R"(<property name="selectedtrack" type="string">mass B)", R"(<property name="selectedtrack" type="string">new mass)"},
+             {R"(<property name="name" type="string">mass B)", R"(<property name="name" type="string">mass A)"},
+             {R"(<property name="name" type="string">protractor</property>)", ""},
              {"tracker.Protractor", "tracker.Unknown"},
-             {"name=\"tracks\" type=\"collection\" class=\"java.util.ArrayList\"",
-              "name=\"tracks\" type=\"collection\" class=\"java.util.LinkedList\""},
+             {R"(name="tracks" type="collection" class="java.util.ArrayList")",
+              R"(name="tracks" type="collection" class="java.util.LinkedList")"},
              {"</object>\n", "<property name=\"unknown_link\" type=\"string\">new mass</property>\n</object>\n"}})
     {
         auto xml = original;
@@ -2397,15 +2397,15 @@ TEST(TrackerWriter, CreatedMassCountsRetainedFrameArraysAndNullPlaceholdersBefor
             {
                 xml +=
                     "<property name=\"item\" type=\"object\"><object class=\"org.opensourcephysics.cabrillo.tracker.PointMass\">\n"
-                    "<property name=\"name\" type=\"string\">mass " +
+                    R"(<property name="name" type="string">mass )" +
                     std::to_string(index) +
                     "</property>\n"
                     "<property name=\"framedata\" type=\"array\" class=\"[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;\">\n"
                     "<property name='[" +
-                    std::to_string(lastFrame) + "]' type=\"object\">";
+                    std::to_string(lastFrame) + R"(]' type="object">)";
                 xml += nullFrames ? "null"
-                                  : "<object class=\"org.opensourcephysics.cabrillo.tracker.PointMass$FrameData\">"
-                                    "<property name=\"x\" type=\"double\">1</property><property name=\"y\" type=\"double\">2</property>"
+                                  : R"(<object class="org.opensourcephysics.cabrillo.tracker.PointMass$FrameData">)"
+                                    R"(<property name="x" type="double">1</property><property name="y" type="double">2</property>)"
                                     "</object>";
                 xml += "</property>\n</property>\n</object></property>\n";
             }
@@ -2436,17 +2436,17 @@ TEST(TrackerWriter, RetainedInheritedMassArraysCountTowardTheExportAllocationLim
 {
     std::string xml = "<object class=\"org.opensourcephysics.cabrillo.tracker.TrackerPanel\">\n"
                       "<property name=\"tracks\" type=\"collection\" class=\"java.util.ArrayList\">\n"
-                      "<property name=\"item\" type=\"object\"><object class=\"org.opensourcephysics.cabrillo.tracker.PointMass\">"
+                      R"(<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">)"
                       "<property name=\"name\" type=\"string\">mass A</property></object></property>\n";
     for (int index = 0; index < 2; ++index)
     {
-        xml += "<property name=\"item\" type=\"object\"><object class=\"org.opensourcephysics.cabrillo.tracker.CenterOfMass\">"
-               "<property name=\"name\" type=\"string\">center " +
+        xml += R"(<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.CenterOfMass">)"
+               R"(<property name="name" type="string">center )" +
                std::to_string(index) +
                "</property>"
-               "<property name=\"framedata\" type=\"array\" class=\"[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;\">"
-               "<property name=\"[500000]\" type=\"object\">null</property></property>"
-               "<property name=\"masses\" type=\"collection\" class=\"java.util.ArrayList\">"
+               R"(<property name="framedata" type="array" class="[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;">)"
+               R"(<property name="[500000]" type="object">null</property></property>)"
+               R"(<property name="masses" type="collection" class="java.util.ArrayList">)"
                "<property name=\"item\" type=\"string\">mass A</property></property></object></property>\n";
     }
     xml += "</property>\n</object>\n";
@@ -2485,18 +2485,18 @@ TEST(TrackerWriter, CreatedTrackMetadataMustFitTheFinalSchemaBudget)
 
 TEST(TrackerWriter, CreatedMassRejectsPresentButUnusableCalibrationAtomically)
 {
-    for (const auto& fields : {std::string("<property name=\"xscale\" type=\"double\">1</property>"),
-                               std::string("<property name=\"angle\" type=\"double\">0</property>"
-                                           "<property name=\"xscale\" type=\"double\">NaN</property>")})
+    for (const auto& fields : {std::string(R"(<property name="xscale" type="double">1</property>)"),
+                               std::string(R"(<property name="angle" type="double">0</property>)"
+                                           R"(<property name="xscale" type="double">NaN</property>)")})
     {
         const auto source = namedSource(
-            "<property name=\"coords\" type=\"object\"><object class=\"org.opensourcephysics.media.core.ImageCoordSystem\">"
-            "<property name=\"fixedorigin\" type=\"boolean\">true</property><property name=\"fixedangle\" type=\"boolean\">true</property>"
-            "<property name=\"fixedscale\" type=\"boolean\">true</property>"
-            "<property name=\"framedata\" type=\"array\" class=\"[Lorg.opensourcephysics.media.core.ImageCoordSystem$FrameData;\">"
-            "<property name=\"[0]\" type=\"object\"><object class=\"org.opensourcephysics.media.core.ImageCoordSystem$FrameData\">"
-            "<property name=\"xorigin\" type=\"double\">0</property><property name=\"yorigin\" type=\"double\">0</property>" +
-            fields + "<property name=\"yscale\" type=\"double\">1</property></object></property></property></object></property>");
+            R"(<property name="coords" type="object"><object class="org.opensourcephysics.media.core.ImageCoordSystem">)"
+            R"(<property name="fixedorigin" type="boolean">true</property><property name="fixedangle" type="boolean">true</property>)"
+            R"(<property name="fixedscale" type="boolean">true</property>)"
+            R"(<property name="framedata" type="array" class="[Lorg.opensourcephysics.media.core.ImageCoordSystem$FrameData;">)"
+            R"(<property name="[0]" type="object"><object class="org.opensourcephysics.media.core.ImageCoordSystem$FrameData">)"
+            R"(<property name="xorigin" type="double">0</property><property name="yorigin" type="double">0</property>)" +
+            fields + R"(<property name="yscale" type="double">1</property></object></property></property></object></property>)");
         auto imported = motrack::parseTrackerProject(source);
         ASSERT_FALSE(imported.project.calibration);
         QTemporaryDir temporary;
@@ -2518,14 +2518,14 @@ TEST(TrackerWriter, CreatedMassRejectsPresentButUnusableCalibrationAtomically)
 TEST(TrackerWriter, CreatedMassRejectsCoordinateCancellationWithoutChangingCalibrationOrDestination)
 {
     const auto xml = namedSource(
-        "<property name=\"coords\" type=\"object\"><object class=\"org.opensourcephysics.media.core.ImageCoordSystem\">"
-        "<property name=\"fixedorigin\" type=\"boolean\">true</property><property name=\"fixedangle\" type=\"boolean\">true</property>"
-        "<property name=\"fixedscale\" type=\"boolean\">true</property>"
-        "<property name=\"framedata\" type=\"array\" class=\"[Lorg.opensourcephysics.media.core.ImageCoordSystem$FrameData;\">"
-        "<property name=\"[0]\" type=\"object\"><object class=\"org.opensourcephysics.media.core.ImageCoordSystem$FrameData\">"
-        "<property name=\"xorigin\" type=\"double\">16</property><property name=\"yorigin\" type=\"double\">16</property>"
-        "<property name=\"angle\" type=\"double\">0</property><property name=\"xscale\" type=\"double\">1e-100</property>"
-        "<property name=\"yscale\" type=\"double\">2e-100</property></object></property></property></object></property>");
+        R"(<property name="coords" type="object"><object class="org.opensourcephysics.media.core.ImageCoordSystem">)"
+        R"(<property name="fixedorigin" type="boolean">true</property><property name="fixedangle" type="boolean">true</property>)"
+        R"(<property name="fixedscale" type="boolean">true</property>)"
+        R"(<property name="framedata" type="array" class="[Lorg.opensourcephysics.media.core.ImageCoordSystem$FrameData;">)"
+        R"(<property name="[0]" type="object"><object class="org.opensourcephysics.media.core.ImageCoordSystem$FrameData">)"
+        R"(<property name="xorigin" type="double">16</property><property name="yorigin" type="double">16</property>)"
+        R"(<property name="angle" type="double">0</property><property name="xscale" type="double">1e-100</property>)"
+        R"(<property name="yscale" type="double">2e-100</property></object></property></property></object></property>)");
     const auto imported = motrack::parseTrackerProject(xml);
     auto project = imported.project;
     motrack::TrackEdits edits;
@@ -2745,9 +2745,9 @@ TEST(TrackerWriter, VectorRenamesKeepSnappingUnknownDataAndNameCollisionGuards)
     EXPECT_THROW(motrack::writeTrackerProject(path, snapping, imported.source), motrack::ProjectError);
     EXPECT_EQ(readBytes(path), imported.source.xml);
     for (const auto& [from, to] :
-         std::vector<std::pair<std::string, std::string>>{{"type=\"object\">null", "type=\"object\">missing"},
+         std::vector<std::pair<std::string, std::string>>{{R"(type="object">null)", R"(type="object">missing)"},
                                                           {"cabrillo.tracker.Vector$FrameData", "cabrillo.tracker.FutureFrameData"},
-                                                          {"name=\"footprint\"", "name=\"attachments\""}})
+                                                          {R"(name="footprint")", R"(name="attachments")"}})
     {
         auto xml = namedVectorSource();
         ASSERT_NE(xml.find(from), std::string::npos);
@@ -2834,7 +2834,7 @@ TEST(TrackerWriter, DeletedPlotOwnersAndGuestsStayDeletedThroughNativeReopenAndL
         // Qt's general XML reader. A surviving child must not share its container's line.
         for (const std::string field : {"guests", "track_views"})
         {
-            const auto name = "name=\"" + field + "\"";
+            const auto name = R"(name=")" + field + R"(")";
             for (auto position = bytes.find(name); position != std::string::npos; position = bytes.find(name, position + name.size()))
             {
                 const auto end = bytes.find('>', position);
@@ -2934,7 +2934,7 @@ TEST(TrackerWriter, PlotGuestDeletionPreservesNumericIndicesWhenSourceCellsAreOu
 TEST(TrackerWriter, PlotDeletionResolvesAllOriginalCollectionOrdinalsBeforeRemovingOwners)
 {
     auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/plot-guests.trk");
-    const auto collection = xml.find("name=\"track_views\"");
+    const auto collection = xml.find(R"(name="track_views")");
     ASSERT_NE(collection, std::string::npos);
     const auto first = xml.find(R"(                    <property name="item" type="object">)", collection);
     ASSERT_NE(first, std::string::npos);
@@ -2975,27 +2975,27 @@ TEST(TrackerWriter, PlotDeletionResolvesAllOriginalCollectionOrdinalsBeforeRemov
 TEST(TrackerWriter, RenameWalksPlotCollectionsByOrdinalAndLeavesVariableTextAlone)
 {
     const std::string xml =
-        "<object class=\"org.opensourcephysics.cabrillo.tracker.TrackerPanel\">"
-        "<property name=\"tracks\" type=\"collection\" class=\"java.util.ArrayList\">"
-        "<property name=\"item\" type=\"object\"><object class=\"org.opensourcephysics.cabrillo.tracker.PointMass\">"
-        "<property name=\"name\" type=\"string\">A</property></object></property>"
-        "<property name=\"item\" type=\"object\"><object class=\"org.opensourcephysics.cabrillo.tracker.PointMass\">"
-        "<property name=\"name\" type=\"string\">B</property></object></property></property>"
-        "<property name=\"views\" type=\"array\" class=\"[[Lorg.opensourcephysics.cabrillo.tracker.TView;\">"
-        "<property name=\"[0]\" type=\"array\" class=\"[Lorg.opensourcephysics.cabrillo.tracker.TView;\">"
-        "<property name=\"[0]\" type=\"object\"><object class=\"org.opensourcephysics.cabrillo.tracker.PlotTView\">"
-        "<property name=\"selected_track\" type=\"string\">A</property>"
-        "<property name=\"track_views\" type=\"collection\" class=\"java.util.ArrayList\">"
-        "<property name=\"item\" type=\"object\"><object class=\"org.opensourcephysics.cabrillo.tracker.PlotTrackView\">"
-        "<property name=\"linked\" type=\"boolean\">false</property>"
-        "<property name=\"track\" type=\"string\">A</property></object></property>"
-        "<property name=\"item\" type=\"object\"><object class=\"org.opensourcephysics.cabrillo.tracker.PlotTrackView\">"
-        "<property name=\"linked\" type=\"boolean\">false</property>"
-        "<property name=\"track\" type=\"string\">B</property>"
-        "<property name=\"plot0\" type=\"object\"><object class=\"org.opensourcephysics.cabrillo.tracker.TrackPlottingPanel\">"
-        "<property name=\"x_var\" type=\"string\">A</property><property name=\"y_var\" type=\"string\">B</property>"
-        "<property name=\"guests\" type=\"array\" class=\"[Ljava.lang.String;\">"
-        "<property name=\"[0]\" type=\"string\">A</property></property></object></property>"
+        R"(<object class="org.opensourcephysics.cabrillo.tracker.TrackerPanel">)"
+        R"(<property name="tracks" type="collection" class="java.util.ArrayList">)"
+        R"(<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">)"
+        R"(<property name="name" type="string">A</property></object></property>)"
+        R"(<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">)"
+        R"(<property name="name" type="string">B</property></object></property></property>)"
+        R"(<property name="views" type="array" class="[[Lorg.opensourcephysics.cabrillo.tracker.TView;">)"
+        R"(<property name="[0]" type="array" class="[Lorg.opensourcephysics.cabrillo.tracker.TView;">)"
+        R"(<property name="[0]" type="object"><object class="org.opensourcephysics.cabrillo.tracker.PlotTView">)"
+        R"(<property name="selected_track" type="string">A</property>)"
+        R"(<property name="track_views" type="collection" class="java.util.ArrayList">)"
+        R"(<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.PlotTrackView">)"
+        R"(<property name="linked" type="boolean">false</property>)"
+        R"(<property name="track" type="string">A</property></object></property>)"
+        R"(<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.PlotTrackView">)"
+        R"(<property name="linked" type="boolean">false</property>)"
+        R"(<property name="track" type="string">B</property>)"
+        R"(<property name="plot0" type="object"><object class="org.opensourcephysics.cabrillo.tracker.TrackPlottingPanel">)"
+        R"(<property name="x_var" type="string">A</property><property name="y_var" type="string">B</property>)"
+        R"(<property name="guests" type="array" class="[Ljava.lang.String;">)"
+        R"(<property name="[0]" type="string">A</property></property></object></property>)"
         "</object></property></property></object></property></property></property></object>";
     auto imported = motrack::parseTrackerProject(osp(xml));
     imported.project.pointMasses[0].name = "new A";
@@ -3315,8 +3315,8 @@ TEST(TrackerWriter, RejectsUnknownOrLossyModelDependenciesAndFunctionDefinitions
              {R"(name="name" type="string">fy</property>)", R"(name="name" type="string">fx</property>)"},
              {R"(<property name="function" type="string">1.0</property>)", ""},
              {R"(<property name="expression" type="string">0</property>)", ""},
-             {"class=\"org.opensourcephysics.cabrillo.tracker.DynamicParticle\"",
-              "class=\"org.opensourcephysics.cabrillo.tracker.DynamicParticlePolar\""}})
+             {R"(class="org.opensourcephysics.cabrillo.tracker.DynamicParticle")",
+              R"(class="org.opensourcephysics.cabrillo.tracker.DynamicParticlePolar")"}})
     {
         SCOPED_TRACE(from);
         auto xml = original;
@@ -3412,7 +3412,7 @@ TEST(TrackerWriter, RejectsForceFunctionsWithWrongStateWidthBeforeReplacingDesti
             auto xml = original;
             if (count < 5)
             {
-                const auto firstRemoved = xml.find("<property name=\"[" + std::to_string(count) + "]\"", variables);
+                const auto firstRemoved = xml.find(R"(<property name="[)" + std::to_string(count) + R"(]")", variables);
                 ASSERT_NE(firstRemoved, std::string::npos);
                 xml.erase(firstRemoved, end - firstRemoved);
             }
@@ -3493,16 +3493,16 @@ TEST(TrackerWriter, RejectsNonViewablePlotAndTableSelectionsBeforeReplacingDesti
         if (selection < 3)
         {
             const std::string field = selection == 0 ? "selected_track" : selection == 1 ? "track" : "[0]";
-            const auto old = "name=\"" + field + R"(" type="string">)" + (selection == 2 ? "mass C" : "mass A") + "</property>";
+            const auto old = R"(name=")" + field + R"(" type="string">)" + (selection == 2 ? "mass C" : "mass A") + "</property>";
             ASSERT_NE(xml.find(old), std::string::npos);
-            xml.replace(xml.find(old), old.size(), "name=\"" + field + R"(" type="string">axes</property>)");
+            xml.replace(xml.find(old), old.size(), R"(name=")" + field + R"(" type="string">axes</property>)");
         }
         else
         {
             const auto end = xml.rfind("</object>");
             xml.insert(end,
-                       "<property name=\"selected_track_views\" type=\"string\">" +
-                           std::string(selection == 3 ? "axes,null" : "null,axes") + ";null,null;null,null;null,null</property>\n");
+                       R"(<property name="selected_track_views" type="string">)" + std::string(selection == 3 ? "axes,null" : "null,axes") +
+                           ";null,null;null,null;null,null</property>\n");
         }
         auto imported = motrack::parseTrackerProject(xml);
         imported.project.pointMasses[1].name = "renamed";
@@ -3515,15 +3515,16 @@ TEST(TrackerWriter, RejectsNonViewablePlotAndTableSelectionsBeforeReplacingDesti
 TEST(TrackerWriter, BoundsRenameSchemaAndRejectsUnclassifiedFieldsAndEncodings)
 {
     for (const auto& [from, to] : std::vector<std::pair<std::string, std::string>>{
-             {"class=\"org.opensourcephysics.cabrillo.tracker.TableTView\"", "class=\"org.opensourcephysics.cabrillo.tracker.PlotTView\""},
-             {"name=\"[1]\" type=\"array\" class=\"[Lorg", "name=\"[10000]\" type=\"array\" class=\"[Lorg"},
-             {"name=\"[1]\" type=\"array\" class=\"[Lorg", "name=\"[01]\" type=\"array\" class=\"[Lorg"},
-             {"name=\"column_formats\"", "name=\"dataset_indices\""},
-             {"name=\"description\" type=\"string\"", "name=\"attachments\" type=\"string\""},
-             {"name=\"selectedtrack\" type=\"string\">mass B", "name=\"selectedtrack\" type=\"string\"><!-- cannot patch -->mass B"},
-             {"class=\"java.util.ArrayList\"", "class=\"java.util.LinkedList\""},
-             {"name=\"[0]\" type=\"string\">mass B", "name=\"[0]\" type=\"object\">mass B"},
-             {"type=\"array\" class=\"[[D\"", "type=\"array\" class=\"[[I\""}})
+             {R"(class="org.opensourcephysics.cabrillo.tracker.TableTView")",
+              R"(class="org.opensourcephysics.cabrillo.tracker.PlotTView")"},
+             {R"(name="[1]" type="array" class="[Lorg)", R"(name="[10000]" type="array" class="[Lorg)"},
+             {R"(name="[1]" type="array" class="[Lorg)", R"(name="[01]" type="array" class="[Lorg)"},
+             {R"(name="column_formats")", R"(name="dataset_indices")"},
+             {R"(name="description" type="string")", R"(name="attachments" type="string")"},
+             {R"(name="selectedtrack" type="string">mass B)", R"(name="selectedtrack" type="string"><!-- cannot patch -->mass B)"},
+             {R"(class="java.util.ArrayList")", R"(class="java.util.LinkedList")"},
+             {R"(name="[0]" type="string">mass B)", R"(name="[0]" type="object">mass B)"},
+             {R"(type="array" class="[[D")", R"(type="array" class="[[I")"}})
     {
         auto xml = namedSource();
         ASSERT_NE(xml.find(from), std::string::npos);
@@ -3535,17 +3536,17 @@ TEST(TrackerWriter, BoundsRenameSchemaAndRejectsUnclassifiedFieldsAndEncodings)
     }
     // QDom refused attributes outside its audited layout; OSP's reader ignores them, so the line is kept verbatim.
     auto attributed = namedSource();
-    const std::string description = "<property name=\"description\" type=\"string\">";
-    const std::string unknownAttribute = "<property name=\"description\" type=\"string\" future=\"mass B\">";
+    const std::string description = R"(<property name="description" type="string">)";
+    const std::string unknownAttribute = R"(<property name="description" type="string" future="mass B">)";
     attributed.replace(attributed.find(description), description.size(), unknownAttribute);
     auto renamed = motrack::parseTrackerProject(attributed);
     renamed.project.pointMasses[1].name = "new name";
     const auto output = motrack::renderTrackerProject(renamed.project, renamed.source);
     EXPECT_NE(output.find(unknownAttribute + "mass A and mass B are words in this note.</property>"), std::string::npos);
     EXPECT_EQ(motrack::parseLegacyProject(output).pointMasses[1].name, "new name");
-    std::string many = "<property name=\"selected_view_types\" type=\"array\" class=\"[I\">";
+    std::string many = R"(<property name="selected_view_types" type="array" class="[I">)";
     for (int i = 0; i < 10000; ++i)
-        many += "<property name=\"[" + std::to_string(i) + "]\" type=\"int\">0</property>";
+        many += R"(<property name="[)" + std::to_string(i) + R"(]" type="int">0</property>)";
     many += "</property>";
     auto bounded = motrack::parseTrackerProject(namedSource(many));
     bounded.project.pointMasses[1].name = "new name";
@@ -3575,10 +3576,10 @@ TEST(TrackerWriter, RejectsUnsafeRenameNamesAndUnknownRelationshipsWithoutReplac
         EXPECT_THROW(motrack::writeTrackerProject(path, project, imported.source), motrack::ProjectError);
         EXPECT_EQ(readBytes(path), imported.source.xml);
     }
-    for (const auto& field : {"<property name=\"future_link\" type=\"string\">mass B</property>",
-                              "<property name=\"referenceframe\" type=\"string\">mass B</property>",
-                              "<property name=\"description\" type=\"string\">duplicate</property>",
-                              "<property name=\"description\" type=\"object\"><object class=\"Future\"/></property>"})
+    for (const auto& field : {R"(<property name="future_link" type="string">mass B</property>)",
+                              R"(<property name="referenceframe" type="string">mass B</property>)",
+                              R"(<property name="description" type="string">duplicate</property>)",
+                              R"(<property name="description" type="object"><object class="Future"/></property>)"})
     {
         auto unknown = motrack::parseTrackerProject(namedSource(field));
         unknown.project.pointMasses[1].name = "renamed";
@@ -3590,8 +3591,8 @@ TEST(TrackerWriter, RejectsUnsafeRenameNamesAndUnknownRelationshipsWithoutReplac
              {">mass B</property>\n    <property name=\"selected_track_views\"",
               ">missing</property>\n    <property name=\"selected_track_views\""},
              {"cabrillo.tracker.Protractor", "cabrillo.tracker.FutureTrack"},
-             {"type=\"string\">mass B,null", "type=\"double\">mass B,null"},
-             {"name=\"[1]\" type=\"array\" class=\"[Lorg", "name=\"[9]\" type=\"array\" class=\"[Lorg"}})
+             {R"(type="string">mass B,null)", R"(type="double">mass B,null)"},
+             {R"(name="[1]" type="array" class="[Lorg)", R"(name="[9]" type="array" class="[Lorg)"}})
     {
         auto xml = namedSource();
         ASSERT_NE(xml.find(from), std::string::npos);
@@ -3607,23 +3608,23 @@ TEST(TrackerWriter, PatchesTheMassTrackerReadsAndRejectsStructuredMassProperties
 {
     const auto massSource = [](std::string_view mass)
     {
-        return osp(std::string("<object class=\"org.opensourcephysics.cabrillo.tracker.TrackerPanel\"><property name=\"tracks\">") +
-                   "<property name=\"item\"><object class=\"org.opensourcephysics.cabrillo.tracker.PointMass\">" + std::string(mass) +
+        return osp(std::string(R"(<object class="org.opensourcephysics.cabrillo.tracker.TrackerPanel"><property name="tracks">)") +
+                   R"(<property name="item"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">)" + std::string(mass) +
                    "</object></property></property></object>");
     };
     // XMLControl keeps duplicates but reads the last one. QDom could not tell which one Tracker used and refused
     // the edit; MoTrack now reads and patches the value Tracker reads and keeps the earlier duplicate verbatim.
     auto duplicate = motrack::parseTrackerProject(
-        massSource("<property name=\"mass\" type=\"double\">1</property><property name=\"mass\" type=\"double\">2</property>"));
+        massSource(R"(<property name="mass" type="double">1</property><property name="mass" type="double">2</property>)"));
     EXPECT_EQ(duplicate.project.pointMasses.front().mass, 2.0);
     duplicate.project.pointMasses.front().mass = 2.5;
     const auto patched = motrack::renderTrackerProject(duplicate.project, duplicate.source);
-    EXPECT_NE(patched.find("<property name=\"mass\" type=\"double\">1</property>"), std::string::npos);
-    EXPECT_NE(patched.find("<property name=\"mass\" type=\"double\">2.5</property>"), std::string::npos);
+    EXPECT_NE(patched.find(R"(<property name="mass" type="double">1</property>)"), std::string::npos);
+    EXPECT_NE(patched.find(R"(<property name="mass" type="double">2.5</property>)"), std::string::npos);
     EXPECT_EQ(motrack::parseLegacyProject(patched).pointMasses.front().mass, 2.5);
     // A structured value is not a double Tracker could read back.
     auto structured =
-        motrack::parseTrackerProject(massSource("<property name=\"mass\" type=\"object\"><object class=\"Future\"/></property>"));
+        motrack::parseTrackerProject(massSource(R"(<property name="mass" type="object"><object class="Future"/></property>)"));
     structured.project.pointMasses.front().mass = 2.5;
     EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(structured.project, structured.source)), motrack::ProjectError);
 }
@@ -3640,18 +3641,18 @@ TEST(TrackerWriter, RejectsMediaUntilRelocationAndPackagingAreSupported)
 
 std::string markedXmlCompact(const std::string& keys = "{0}")
 {
-    const auto keyValue = keys.empty() ? std::string{} : "<property name=\"array\" type=\"string\">" + keys + "</property>";
-    return "<object class=\"org.opensourcephysics.cabrillo.tracker.TrackerPanel\"><property name=\"tracks\">"
-           "<property name=\"item\" type=\"object\"><object class=\"org.opensourcephysics.cabrillo.tracker.PointMass\">"
-           "<property name=\"name\" type=\"string\">mass</property>"
-           "<property name=\"framedata\" type=\"array\" class=\"[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;\">"
-           "<property name=\"[0]\" type=\"object\"><object class=\"org.opensourcephysics.cabrillo.tracker.PointMass$FrameData\">"
-           "<property name=\"x\" type=\"double\">1</property><property name=\"y\" type=\"double\">2</property></object></property>"
-           "<property name=\"[2]\" type=\"object\"><object class=\"org.opensourcephysics.cabrillo.tracker.PointMass$FrameData\">"
-           "<property name=\"x\" type=\"double\">3</property><property name=\"y\" type=\"double\">4</property>"
-           "<property name=\"future\">keep-step</property></object></property>"
-           "<property name=\"[3]\" type=\"object\">null</property>"
-           "</property><property name=\"keyFrames\" type=\"array\" class=\"[I\">" +
+    const auto keyValue = keys.empty() ? std::string{} : R"(<property name="array" type="string">)" + keys + "</property>";
+    return R"(<object class="org.opensourcephysics.cabrillo.tracker.TrackerPanel"><property name="tracks">)"
+           R"(<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">)"
+           R"(<property name="name" type="string">mass</property>)"
+           R"(<property name="framedata" type="array" class="[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;">)"
+           R"(<property name="[0]" type="object"><object class="org.opensourcephysics.cabrillo.tracker.PointMass$FrameData">)"
+           R"(<property name="x" type="double">1</property><property name="y" type="double">2</property></object></property>)"
+           R"(<property name="[2]" type="object"><object class="org.opensourcephysics.cabrillo.tracker.PointMass$FrameData">)"
+           R"(<property name="x" type="double">3</property><property name="y" type="double">4</property>)"
+           R"(<property name="future">keep-step</property></object></property>)"
+           R"(<property name="[3]" type="object">null</property>)"
+           R"(</property><property name="keyFrames" type="array" class="[I">)" +
            keyValue + "</property></object></property></property></object>";
 }
 
@@ -3733,25 +3734,25 @@ TEST(TrackerWriter, FrameArraysFollowOspLineSemantics)
     // QDom refused frame edits next to markup it could not re-serialize. OSP ignores attributes it does not
     // read, so the edited array keeps that line verbatim and its null placeholder becomes the new frame.
     auto xml = markedXml();
-    const std::string array = "<property name=\"framedata\" type=\"array\"";
-    xml.replace(xml.find(array), array.size(), "<property xml:space=\"preserve\" name=\"framedata\" type=\"array\"");
+    const std::string array = R"(<property name="framedata" type="array")";
+    xml.replace(xml.find(array), array.size(), R"(<property xml:space="preserve" name="framedata" type="array")");
     auto imported = motrack::parseTrackerProject(xml);
     motrack::TrackEdits edits;
     ASSERT_TRUE(edits.markPointMass(imported.project, 0, {.frame = 3, .x = 1, .y = 2}));
     const auto output = motrack::renderTrackerProject(imported.project, imported.source);
-    EXPECT_NE(output.find("<property xml:space=\"preserve\" name=\"framedata\" type=\"array\""), std::string::npos);
+    EXPECT_NE(output.find(R"(<property xml:space="preserve" name="framedata" type="array")"), std::string::npos);
     EXPECT_EQ(motrack::parseLegacyProject(output), imported.project);
     // A line without "<property" ends an OSP array: the later elements become PointMass properties, and the null
     // placeholder directly in the object makes Tracker (and MoTrack) refuse the whole file.
     auto interrupted = markedXml();
-    interrupted.insert(interrupted.find("            <property name=\"[0]\""), "            <!-- not an array element -->\n");
+    interrupted.insert(interrupted.find(R"(            <property name="[0]")"), "            <!-- not an array element -->\n");
     EXPECT_THROW((void)motrack::parseTrackerProject(interrupted), motrack::ProjectError);
 }
 
 TEST(TrackerWriter, ExportsBoundVectorEditsAfterNativeReopenAndUndoRedo)
 {
     auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk");
-    const auto position = xml.find("<property name=\"xtail\"");
+    const auto position = xml.find(R"(<property name="xtail")");
     ASSERT_NE(position, std::string::npos);
     xml.insert(position, "<property name=\"future\" type=\"string\"><!-- retained -->  keep  </property>\n");
     auto imported = motrack::parseTrackerProject(xml);
@@ -4094,8 +4095,8 @@ TEST(TrackerWriter, RejectsInvalidClipRangesTimingAndUnverifiedLegacyFrameMappin
     for (const auto* property : {"video", "frameshift", "video_framecount"})
     {
         auto xml = original;
-        xml.insert(xml.find("<property name=\"startframe\""),
-                   "<property name=\"" + std::string(property) + "\" type=\"int\">0</property>\n");
+        xml.insert(xml.find(R"(<property name="startframe")"),
+                   R"(<property name=")" + std::string(property) + "\" type=\"int\">0</property>\n");
         auto legacy = motrack::parseTrackerProject(xml);
         legacy.project.clip.firstFrame = 2;
         EXPECT_THROW(static_cast<void>(motrack::renderTrackerProject(legacy.project, legacy.source)), motrack::ProjectError);
@@ -4111,7 +4112,7 @@ TEST(TrackerWriter, RejectsInvalidClipRangesTimingAndUnverifiedLegacyFrameMappin
 std::string timingSource()
 {
     auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk");
-    xml.insert(xml.find("<property name=\"coords\""), R"xml(
+    xml.insert(xml.find(R"(<property name="coords")"), R"xml(
 <property name="clipcontrol" type="object">
 <object class="org.opensourcephysics.media.core.StepperClipControl">
 <property name="rate" type="double">1.25</property>
@@ -4299,7 +4300,7 @@ TEST(TrackerWriter, RejectsOriginAndVectorSnappingWithoutReplacingTheDestination
 TEST(TrackerWriter, ExportsExistingFixedCalibrationThroughNativeReopenAndUndoRedo)
 {
     auto xml = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk");
-    xml.insert(xml.find("<property name=\"xorigin\""), "<property name=\"future\" type=\"string\">  keep calibration  </property>\n");
+    xml.insert(xml.find(R"(<property name="xorigin")"), "<property name=\"future\" type=\"string\">  keep calibration  </property>\n");
     const auto imported = motrack::parseTrackerProject(xml);
     motrack::WorkspaceDocument document{.project = imported.project, .movieFrameTimes = {}, .trackerSource = imported.source};
     motrack::TrackEdits edits;
@@ -4448,13 +4449,13 @@ TEST(TrackerWriter, BoundsDenseVectorFrameArraysBeforeReplacingTheDestination)
 TEST(TrackerWriter, RejectsCalibrationCoordinateCancellationAtOriginAndRetainedMarks)
 {
     const auto fixture = readBytes(QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/independent-vectors.trk");
-    const auto start = fixture.find("<property name=\"coords\"");
-    const auto end = fixture.find("<property name=\"tracks\"");
+    const auto start = fixture.find(R"(<property name="coords")");
+    const auto end = fixture.find(R"(<property name="tracks")");
     ASSERT_NE(start, std::string::npos);
     ASSERT_NE(end, std::string::npos);
     ASSERT_LT(start, end);
     auto xml = markedXmlCompact();
-    xml.insert(xml.find("<property name=\"tracks\">"), fixture.substr(start, end - start));
+    xml.insert(xml.find(R"(<property name="tracks">)"), fixture.substr(start, end - start));
     xml = osp(xml);
     const auto imported = motrack::parseTrackerProject(xml);
     if (!imported.project.calibration)
@@ -4943,7 +4944,7 @@ TEST(TrackerWriter, RejectsUnsupportedOrUnstableCalibrationKeysWithoutReplacingF
         EXPECT_EQ(readBytes(output), xml);
     }
     auto withPlaceholder = xml;
-    const auto data = withPlaceholder.find("<property name=\"framedata\"");
+    const auto data = withPlaceholder.find(R"(<property name="framedata")");
     const auto index = withPlaceholder.find("</property>\n    </object>", data);
     ASSERT_NE(index, std::string::npos);
     withPlaceholder.insert(index, "<property name=\"[500001]\" type=\"object\">null</property>\n");

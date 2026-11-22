@@ -259,6 +259,26 @@ TEST(LegacyProject, ReadsDocumentsWithTrackersLineOrientedReader)
                                                                 R"(  <property name="mass_unit" type="string">mg</property>)"));
     EXPECT_EQ(duplicate.massUnit, "mg");
 
+    // #277: Tracker's Export can write Windows-1252 under a UTF-8 declaration. The strict reader refuses it and
+    // names the likely encoding (#302 tracks opening it with a warning); other invalid bytes are refused plainly.
+    const auto refusal = [](const std::string& xml)
+    {
+        try
+        {
+            static_cast<void>(motrack::parseLegacyProject(xml));
+        }
+        catch (const motrack::ProjectError& error)
+        {
+            return std::string(error.what());
+        }
+        return std::string("accepted");
+    };
+    const auto windows1252 = refusal(replaced(source, "P\xC3\xA9ndulo", "P\xE9ndulo"));
+    EXPECT_TRUE(windows1252.starts_with("Invalid Tracker XML at line ")) << windows1252;
+    EXPECT_NE(windows1252.find("The document is not valid UTF-8. It reads as Windows-1252 text"), std::string::npos) << windows1252;
+    const auto undecodable = refusal(replaced(source, "P\xC3\xA9ndulo", "P\xE9\x81ndulo"));
+    EXPECT_TRUE(undecodable.ends_with(": The document is not valid UTF-8.")) << undecodable;
+
     // Content after the root's opening line on the same line is not read, so the root never closes: Tracker
     // loads an empty panel from such a truncated document, which MoTrack refuses (#243).
     EXPECT_THROW(static_cast<void>(motrack::parseLegacyProject(R"(<object class="org.opensourcephysics.cabrillo.tracker.TrackerPanel">)"

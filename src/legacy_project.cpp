@@ -7,6 +7,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -226,6 +228,17 @@ std::optional<Calibration> readCalibration(const tracker::PanelLoad& panel)
     return calibration;
 }
 
+/// Whether every byte has a Windows-1252 character; the code page leaves 0x81, 0x8D, 0x8F, 0x90 and 0x9D undefined.
+bool decodesAsWindows1252(std::string_view bytes) noexcept
+{
+    return std::ranges::none_of(bytes,
+                                [](char byte)
+                                {
+                                    const auto value = static_cast<unsigned char>(byte);
+                                    return value == 0x81 || value == 0x8D || value == 0x8F || value == 0x90 || value == 0x9D;
+                                });
+}
+
 } // namespace
 
 std::shared_ptr<const osp::Source> detail::parseTrackerXml(std::string_view xml)
@@ -239,8 +252,16 @@ std::shared_ptr<const osp::Source> detail::parseTrackerXml(std::string_view xml)
     {
         // Name what Tracker's line-oriented reader cannot read, for example a blank line ending an array (#196).
         const auto& error = parsed.error();
-        throw ProjectError("Invalid Tracker XML" + (error.line > 0 ? " at line " + std::to_string(error.line) : std::string{}) + ": " +
-                           error.message);
+        auto message =
+            "Invalid Tracker XML" + (error.line > 0 ? " at line " + std::to_string(error.line) : std::string{}) + ": " + error.message;
+        // Tracker's File > Export > Tracker file writes the platform charset under a UTF-8 declaration (#277).
+        // The reader stays strict; opening such a file with a visible warning is #302.
+        if (error.code == osp::ParseError::Code::InvalidUtf8 && decodesAsWindows1252(xml))
+        {
+            message += " It reads as Windows-1252 text, which Tracker's File > Export > Tracker file writes on some systems. "
+                       "Convert the file to UTF-8, for example in a text editor, and open it again.";
+        }
+        throw ProjectError(message);
     }
     return std::move(*parsed);
 }
