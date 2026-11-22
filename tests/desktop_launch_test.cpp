@@ -3,6 +3,7 @@
 #include "archive_fixture.hpp"
 #include "local_media_path.hpp"
 #include "main_window.hpp"
+#include "tracker_tabset.hpp"
 #include "workspace_document.hpp"
 #include "workspace_input.hpp"
 #include "workspace_window.hpp"
@@ -575,6 +576,36 @@ TEST(DesktopLaunch, AStaleCheckResultAfterTheWindowClosedOpensNothing)
     QTest::qWait(50); // Deliver the worker's late answer.
     EXPECT_TRUE(context->session().sources().empty());
     EXPECT_EQ(finished.count(), 1);
+}
+
+TEST(DesktopLaunch, ARequestedTabsetOpensItsFilesInPlaceBeforeTheNextRequestedFile)
+{
+    QTemporaryDir temporary;
+    const auto folder = unicodeFolder(temporary);
+    const auto first = nativeCopy(folder, "first.motrack");
+    const auto listedA = nativeCopy(folder, QString::fromUtf8("listed a ü.motrack"));
+    const auto listedB = nativeCopy(folder, "listed b.motrack");
+    const auto last = nativeCopy(folder, "last.motrack");
+    const auto tabset = folder.filePath(QString::fromUtf8("set 測定.trk"));
+    const auto directory = canonical(folder.path());
+    const std::vector<motrack::TabsetEntry> entries{motrack::tabsetEntry(canonical(listedA), directory),
+                                                    motrack::tabsetEntry(canonical(listedB), directory)};
+    ASSERT_TRUE(motrack::saveTrackerTabset(tabset, entries).has_value());
+    auto context = std::make_shared<motrack::WorkspaceContext>();
+    motrack::WorkspaceWindow window(context);
+    window.show();
+    QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
+    QSignalSpy tabsetFinished(&window, &motrack::WorkspaceWindow::tabsetFinished);
+    // The command line or a drop: the tabset's files take its place, and a file it opened is selected, not reopened.
+    window.openFiles({.files = {first, tabset, last, listedA}});
+    EXPECT_TRUE(nextBatch(finished).isEmpty());
+    EXPECT_EQ(tabsetFinished.count(), 1);
+    EXPECT_EQ(tabSources(window), canonicalPaths({first, listedA, listedB, last}));
+    EXPECT_EQ(context->session().sources().size(), 4u);
+    // The same through the real executable's arguments.
+    const auto result = runSmokeLaunch({tabset, last}, folder.path());
+    EXPECT_EQ(result.exitCode, 0) << result.errors.toStdString();
+    EXPECT_EQ(result.opened, canonicalPaths({listedA, listedB, last}));
 }
 
 TEST(DesktopLaunch, FileChecksRunOffTheGuiThread)

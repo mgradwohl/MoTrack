@@ -57,7 +57,7 @@ target_include_directories(motrack_library PUBLIC src)
 target_link_libraries(motrack_library PUBLIC motrack_osp)
 
 add_library(motrack_project STATIC src/archive_group.cpp src/archive_group_session.cpp src/document_session.cpp src/legacy_project.cpp src/local_media_path.cpp src/paired_save.cpp src/save_state.cpp src/save_observation.cpp src/measurements.cpp src/source_edits.cpp src/track_edits.cpp src/track_identity.cpp
-    src/tracker_archive.cpp src/tracker_archive_writer.cpp src/tracker_loaders.cpp src/tracker_references.cpp src/tracker_rename.cpp src/tracker_writer.cpp src/workspace_document.cpp src/workspace_session.cpp src/workspace_storage.cpp)
+    src/tracker_archive.cpp src/tracker_archive_writer.cpp src/tracker_loaders.cpp src/tracker_references.cpp src/tracker_rename.cpp src/tracker_tabset.cpp src/tracker_writer.cpp src/workspace_document.cpp src/workspace_session.cpp src/workspace_storage.cpp)
 target_include_directories(motrack_project PUBLIC src)
 # Tracker import/export reads and patches XML through motrack_osp only; QtXml is a test diagnostic dependency.
 target_link_libraries(motrack_project PUBLIC Qt6::Core motrack_osp PRIVATE motrack_archive motrack_motion)
@@ -298,7 +298,7 @@ if(BUILD_TESTING)
     FetchContent_MakeAvailable(googletest)
 
     add_executable(motrack_tests tests/workspace_session_test.cpp tests/archive_group_session_test.cpp tests/archive_group_save_test.cpp tests/archive_group_test.cpp tests/paired_save_test.cpp tests/legacy_project_test.cpp tests/measurements_test.cpp tests/track_edits_test.cpp
-        tests/tracker_archive_test.cpp tests/tracker_archive_writer_test.cpp tests/tracker_image_package_test.cpp tests/tracker_movie_package_test.cpp tests/tracker_references_test.cpp tests/tracker_writer_test.cpp
+        tests/tracker_archive_test.cpp tests/tracker_archive_writer_test.cpp tests/tracker_image_package_test.cpp tests/tracker_movie_package_test.cpp tests/tracker_references_test.cpp tests/tracker_tabset_test.cpp tests/tracker_writer_test.cpp
         tests/science/decimal_conversion_test.cpp tests/science/expression_reference_test.cpp tests/science/expression_test.cpp tests/science/java_math_test.cpp
         tests/osp_java_text_test.cpp tests/osp_source_test.cpp tests/source_edits_test.cpp tests/osp_render_test.cpp tests/osp_corpus_test.cpp
         tests/science/ode_solver_test.cpp tests/science/data_analysis_test.cpp tests/science/fft_test.cpp tests/science/analysis_reference_test.cpp
@@ -350,6 +350,7 @@ if(BUILD_TESTING)
     add_executable(motrack_workspace_tests
         tests/desktop_launch_test.cpp
         tests/workspace_shell_test.cpp
+        tests/workspace_tabset_test.cpp
         tests/workspace_input_test.cpp
         tests/bound_workspace_test.cpp
         tests/workspace_services_test.cpp

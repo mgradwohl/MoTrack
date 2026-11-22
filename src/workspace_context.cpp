@@ -44,6 +44,11 @@ std::optional<QUuid> WorkspaceContext::openImages(const QStringList& paths, doub
     return beginOpen([paths, frameRate](const auto* cancelled) { return prepareWorkspaceImages(paths, frameRate, cancelled); }, activation);
 }
 
+std::optional<QUuid> WorkspaceContext::openMediaFile(const QString& path, WorkspaceActivation activation)
+{
+    return beginOpen([path](const auto* cancelled) { return prepareWorkspaceMediaFile(path, cancelled); }, activation);
+}
+
 std::optional<QUuid> WorkspaceContext::beginOpen(std::function<PreparedWorkspaceInput(const std::atomic_bool*)> prepare,
                                                  WorkspaceActivation activation)
 {
@@ -65,6 +70,13 @@ std::optional<QUuid> WorkspaceContext::beginOpen(std::function<PreparedWorkspace
                 if (cancelled->load())
                 {
                     Q_EMIT inputCancelled(request);
+                    return;
+                }
+                if (diagnostic.isEmpty() && input->tabset)
+                {
+                    // Notification is last; the observer may destroy this context.
+                    const auto items = std::move(*input->tabset);
+                    Q_EMIT tabsetOpened(request, input->mediaProjectPath, items);
                     return;
                 }
                 std::optional<WorkspaceSession::OpenedSource> opened;

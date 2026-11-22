@@ -6,11 +6,14 @@
 
 #include <QMainWindow>
 #include <QPointer>
+#include <QSet>
+#include <QStringList>
 
 #include <cstdint>
 #include <functional>
 #include <optional>
 #include <utility>
+#include <vector>
 
 class QAction;
 class QLabel;
@@ -45,6 +48,9 @@ class WorkspaceWindow final : public QMainWindow
     bool revertDocument(QUuid document);
     bool saveAll();
     bool closeSource(QUuid source);
+    /// Write a Tracker tabset listing every open source's saved Tracker file, or its unchanged single movie or
+    /// image, in tab order. Unsaved sources are offered Save/Skip/Cancel first. An empty path asks for one.
+    bool saveTabset(const QString& path = {});
     /// Cameras for Capture from camera; Qt Multimedia's by default. Tests supply cameras without hardware.
     void setCameraSourceFactory(CameraSourceFactory factory);
     /// Opens the capture window, or raises the open one. A clip it saves opens as a new movie experiment.
@@ -61,6 +67,10 @@ class WorkspaceWindow final : public QMainWindow
     /// incompletely (an unreadable archive member); notices are limits of files that opened, such as skipped
     /// unsafe archive members. Both are user-visible sentences.
     void filesOpened(const QStringList& problems, const QStringList& notices);
+
+  Q_SIGNALS:
+    /// Every listed file has finished opening, failed or been skipped, and the selection is final.
+    void tabsetFinished(const QString& tabset);
 
   protected:
     void closeEvent(QCloseEvent* event) override;
@@ -96,6 +106,15 @@ class WorkspaceWindow final : public QMainWindow
     /// Returns them too, so a batch of requested files can keep them for its summary.
     [[nodiscard]] ArchiveNotices reportArchiveLimits(const QList<QUuid>& documents, const QList<UnreadableProject>& unreadable);
     bool saveSource(QUuid source);
+    [[nodiscard]] std::optional<QUuid> requestInput(const QString& path, WorkspaceActivation activation);
+    void beginQueuedTabset();
+    [[nodiscard]] std::optional<QString> describeTabsetProblem(const TabsetItem& item) const;
+    void beginTabset(const QString& tabset, const std::vector<TabsetItem>& items);
+    void continueTabset();
+    void completeTabsetInput(QUuid request, const QList<QUuid>& documents, const QString& problem, bool cancelled = false);
+    [[nodiscard]] std::optional<QString> tabsetReference(QUuid source, QStringList& problems, QStringList& notices, bool& cancelled);
+    /// Identity keys of a source's files (source, standard and native paths) for tabset saving.
+    [[nodiscard]] QStringList sourceFileKeys(QUuid source) const;
     [[nodiscard]] std::optional<WorkspaceDiscard> confirmSourceClose(QUuid source);
     bool releaseSource(QUuid source, WorkspaceDiscard discard);
 
@@ -107,6 +126,7 @@ class WorkspaceWindow final : public QMainWindow
     QMenu* m_ExperimentsMenu = nullptr;
     QList<QAction*> m_OpenActions;
     QAction* m_SaveAll = nullptr;
+    QAction* m_SaveTabset = nullptr;
     QAction* m_HideView = nullptr;
     QAction* m_Revert = nullptr;
     QAction* m_CloseSource = nullptr;
@@ -116,6 +136,41 @@ class WorkspaceWindow final : public QMainWindow
     QHash<QUuid, MainWindow*> m_Views; // Qt parent-owned; views hold their own shared context lease.
     QHash<QUuid, QWidget*> m_Pages;    // Lightweight placeholders until an experiment is first selected.
     QHash<QUuid, QListWidgetItem*> m_Opening;
+    /// The window's one ordered open queue. Tracker opens a tabset's files one at a time, so tabs keep the listed
+    /// order within the two-input bound. A queued file that turns out to be a tabset itself (a located file)
+    /// expands in place through expandInPlace: its files open next, before the rest of the queue. Other ordered
+    /// opens, such as files requested by the operating system, are meant to join this queue rather than run a
+    /// second one that would compete for the same input slots; a tabset among them then expands in place too.
+    struct OrderedOpens
+    {
+        QString tabset;       // The tabset that started the queue; named in its summary and tabsetFinished.
+        QStringList files;    // QList moves without throwing; std::deque may allocate in some libraries.
+        QSet<QString> listed; // Identity keys of every file queued or opened by this queue.
+        std::optional<QUuid> request;
+        QString current;
+        bool requestIsProject = false;
+        std::optional<QUuid> select;
+        QStringList problems; // Files that were not opened.
+        QStringList notices;  // Files that opened with a limitation, such as B1's stale-link recovery.
+    };
+    /// Queue the resolved files of a tabset that the queue's current request turned out to be, ahead of the
+    /// remaining files, and record the others as problems. No prompts: they run only for the tabset the user opened.
+    void expandInPlace(OrderedOpens& queue, const std::vector<TabsetItem>& items);
+    /// A file or tabset is opening, or a tabset is prompting or opening its files; saving a tabset waits for it.
+    [[nodiscard]] bool tabsetOpening() const;
+    std::optional<OrderedOpens> m_Tabset;
+    /// The last tabset opened, offered by Save tabset as… so that an edited set can be saved back over it.
+    QString m_LastTabset;
+    /// Identity keys of files the user closed; saving over a tabset drops only their entries among unopened ones.
+    QSet<QString> m_ClosedFiles;
+    /// Expanded tabsets waiting for their missing-file prompts, which run after the context callback returns.
+    struct ExpandedTabset
+    {
+        QString tabset;
+        std::vector<TabsetItem> items;
+    };
+    std::vector<ExpandedTabset> m_ExpandedTabsets;
+    bool m_TabsetPrompting = false;
     QHash<QUuid, QList<UnreadableProject>> m_Unreadable; // Per source, listed in the Experiments menu.
     /// Files requested from outside the menus, opened one at a time in their requested order. Each file is
     /// first checked on a worker; `check` identifies the running check, `ready` a checked file awaiting a slot
@@ -129,6 +184,7 @@ class WorkspaceWindow final : public QMainWindow
         std::optional<QString> ready;
         std::optional<std::pair<QUuid, QString>> select;
         std::optional<QUuid> request;
+        bool awaitingTabset = false; // The last requested file was a tabset whose files are still opening.
         QString current;
         QStringList problems;
         QStringList notices;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "tracker_tabset.hpp"
 #include "workspace_input.hpp"
 #include "workspace_services.hpp"
 #include "workspace_session.hpp"
@@ -11,6 +12,7 @@
 #include <QStringList>
 
 #include <functional>
+#include <vector>
 
 namespace motrack
 {
@@ -30,6 +32,8 @@ class WorkspaceContext final : public QObject
     [[nodiscard]] std::optional<QUuid> openMovie(const QString& path, WorkspaceActivation activation = WorkspaceActivation::SelectNew);
     [[nodiscard]] std::optional<QUuid>
     openImages(const QStringList& paths, double frameRate, WorkspaceActivation activation = WorkspaceActivation::SelectNew);
+    /// A single media file whose image/movie route is chosen on the worker (see prepareWorkspaceMediaFile).
+    [[nodiscard]] std::optional<QUuid> openMediaFile(const QString& path, WorkspaceActivation activation = WorkspaceActivation::SelectNew);
     [[nodiscard]] bool cancelOpen(QUuid request);
     /// Whether another input can start now without exceeding the two-input bound.
     [[nodiscard]] bool canOpen() const;
@@ -45,6 +49,8 @@ class WorkspaceContext final : public QObject
     void jobsCancelled(QUuid document);
     /// unreadableProjects lists archive members that opened no experiment (PreparedWorkspaceInput).
     void inputOpened(QUuid request, QUuid source, QList<QUuid> documents, QList<motrack::UnreadableProject> unreadableProjects);
+    /// A Tracker tabset owns no source; observers open its resolved items in order.
+    void tabsetOpened(QUuid request, QString tabset, const std::vector<motrack::TabsetItem>& items);
     void inputFailed(QUuid request, QString diagnostic);
     void inputCancelled(QUuid request);
 
