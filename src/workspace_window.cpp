@@ -380,8 +380,10 @@ void WorkspaceWindow::finishOpen(QUuid request, const QString& problem, bool can
 void WorkspaceWindow::openFiles(RequestedFiles requested)
 {
     constexpr qsizetype MAX_REQUESTED_FILES = 256;
+    // Assign rather than emplace: libstdc++ checks the nested type's default construction while this class is
+    // still incomplete, when its default member initializers are not yet usable.
     if (!m_Requested)
-        m_Requested.emplace();
+        m_Requested = RequestedBatch{};
     auto& batch = *m_Requested;
     for (const auto& link : requested.remote)
         batch.problems.push_back(tr("%1 is not a local file. Download it, then open the downloaded copy.").arg(link));

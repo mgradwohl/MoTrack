@@ -566,7 +566,9 @@ TEST(DesktopLaunch, ProcessArgumentsKeepSpacesUnicodeRelativePathsAndOrder)
     result = runSmokeLaunch({folder.filePath("missing ü.trk"), second}, folder.path());
     EXPECT_EQ(result.exitCode, 1);
     EXPECT_EQ(result.opened, canonicalPaths({second}));
-    EXPECT_TRUE(result.errors.contains(QString::fromUtf8("missing ü.trk was not found."))) << result.errors.toStdString();
+    // macOS passes file-name arguments decomposed (NFD); compare the text in composed form.
+    EXPECT_TRUE(result.errors.normalized(QString::NormalizationForm_C).contains(QString::fromUtf8("missing ü.trk was not found.")))
+        << result.errors.toStdString();
 }
 
 TEST(DesktopLaunch, ASecondInstanceOpeningTheSameProjectLeavesTheFirstInstanceAndFilesIntact)
