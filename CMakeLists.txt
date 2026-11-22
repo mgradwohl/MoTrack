@@ -432,7 +432,8 @@ if(BUILD_TESTING)
         # passes only if the modification below supplies both: the executable needs Qt's and FFmpeg's DLLs to load.
         file(TO_CMAKE_PATH "$ENV{SystemRoot}/System32" motrack_system32)
         add_test(NAME test_runtime_path COMMAND motrack_workspace_tests --gtest_list_tests)
-        set_tests_properties(test_runtime_path PROPERTIES ENVIRONMENT "PATH=${motrack_system32}" TIMEOUT 60)
+        set_tests_properties(test_runtime_path PROPERTIES
+            ENVIRONMENT "PATH=${motrack_system32};QT_QPA_PLATFORM=offscreen" TIMEOUT 15)
         get_property(motrack_all_tests DIRECTORY PROPERTY TESTS)
         set(motrack_test_path "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
         if(MOTRACK_FFMPEG_ROOT)
