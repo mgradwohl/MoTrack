@@ -456,6 +456,20 @@ def validate_known_session_issue(case, report, manifest, saved):
             "tracker_session": report}
 
 
+XVFB_READY_SECONDS = 30
+XVFB_LOG_BYTES = 2000
+
+
+def file_tail(file, limit):
+    """Last `limit` bytes of a file another process may still append to, without moving the shared offset."""
+    fd = file.fileno()
+    start = max(0, os.fstat(fd).st_size - limit)
+    if hasattr(os, "pread"):
+        return os.pread(fd, limit, start)
+    file.seek(start)  # Windows has no pread; Xvfb itself only runs on Linux.
+    return file.read(limit)
+
+
 @contextmanager
 def private_display():
     if sys.platform != "linux":
@@ -463,31 +477,40 @@ def private_display():
     executable = shutil.which("Xvfb")
     if not executable:
         raise ValueError("Install Xvfb to run the isolated session checks")
-    reader, writer = os.pipe()
-    server = None
-    try:
+    # Xvfb writes its diagnostics for the whole session here; the fatal (EE) line comes last, so
+    # startup errors quote the bounded tail (#208). Opened first so no descriptor leaks on any path.
+    with tempfile.TemporaryFile() as log:
+
+        def failure(message):
+            detail = file_tail(log, XVFB_LOG_BYTES).decode("utf-8", "replace").strip()
+            return ValueError(f"{message}: {detail}" if detail else message)
+
+        reader, writer = os.pipe()
+        server = None
         try:
-            server = subprocess.Popen([executable, "-displayfd", str(writer), "-screen", "0", "1280x800x24",
-                                       "-nolisten", "tcp"], pass_fds=(writer,),
-                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        finally:
-            os.close(writer)
-        if not select.select([reader], [], [], 5)[0]:
-            raise ValueError("Private Xvfb display did not become ready")
-        number = os.read(reader, 32).decode("ascii")
-        if not re.fullmatch(r"[0-9]+\n", number) or server.poll() is not None:
-            raise ValueError("Private Xvfb display failed to start")
-        yield ":" + number.strip()
-    finally:
-        os.close(reader)
-        if server is not None:
-            if server.poll() is None:
-                server.terminate()
             try:
-                server.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                server.kill()
-                server.wait(timeout=5)
+                server = subprocess.Popen([executable, "-displayfd", str(writer), "-screen", "0", "1280x800x24",
+                                           "-nolisten", "tcp"], pass_fds=(writer,),
+                                          stdout=subprocess.DEVNULL, stderr=log)
+            finally:
+                os.close(writer)
+            # A cold start on a loaded runner can exceed a few seconds; a healthy server answers at once.
+            if not select.select([reader], [], [], XVFB_READY_SECONDS)[0]:
+                raise failure(f"Private Xvfb display did not become ready within {XVFB_READY_SECONDS} s")
+            number = os.read(reader, 32).decode("ascii")
+            if not re.fullmatch(r"[0-9]+\n", number) or server.poll() is not None:
+                raise failure("Private Xvfb display failed to start")
+            yield ":" + number.strip()
+        finally:
+            os.close(reader)
+            if server is not None:
+                if server.poll() is None:
+                    server.terminate()
+                try:
+                    server.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    server.kill()
+                    server.wait(timeout=5)
 
 
 MOVIE_TRACK_SCENARIOS = ("selected-name", "unselected-name", "create", "delete-selected", "delete-unselected", "delete-all", "replace")
@@ -2842,16 +2865,110 @@ def check_sessions(manifest, cache, java, probe=None):
                 json.dumps(saved_report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+ODE_REFERENCE = ROOT / "tests/science/ode-reference.json"
+# The same agreement classes as tests/science/ode_solver_test.cpp, which justifies them. Fixed-step
+# solvers are pure IEEE arithmetic and must be identical. Adaptive solvers call Math.pow, whose
+# last bit differs between HotSpot's x86-64 intrinsic, its arm64 fdlibm path and C++ libraries;
+# the step-size controller carries that forward, most strongly at the stiff system's stability limit.
+ODE_EXACT = {"relative": 0.0, "absolute": 0.0}
+ODE_ADAPTIVE_TOLERANCE = {"relative": 1e-8, "absolute": 1e-11}
+ODE_STIFF_ADAPTIVE_TOLERANCE = {"relative": 1e-6, "absolute": 1e-10}
+MAX_ODE_CASES = 1000
+
+
+def ode_case_tolerance(case, adaptive):
+    if not adaptive[case["solver"]]:
+        return ODE_EXACT
+    return ODE_STIFF_ADAPTIVE_TOLERANCE if case["system"] == "stiff" else ODE_ADAPTIVE_TOLERANCE
+
+
+def validate_ode_reference(document, manifest):
+    """Check the kernel-oracle schema before comparing or recording it."""
+    if (not isinstance(document, dict) or document.get("schema_version") != 1
+            or document.get("reference_version") != manifest["reference"]["version"]):
+        raise ValueError("Unexpected ODE oracle schema or reference version")
+    solvers, systems, cases = document.get("solvers"), document.get("systems"), document.get("cases")
+    if (not isinstance(solvers, list) or not isinstance(systems, list) or not isinstance(cases, list)
+            or not cases or len(cases) > MAX_ODE_CASES):
+        raise ValueError("Invalid ODE oracle solver, system or case list")
+    solver_ids = [solver.get("id") for solver in solvers]
+    system_ids = [system.get("id") for system in systems]
+    if len(set(solver_ids)) != len(solver_ids) or len(set(system_ids)) != len(system_ids):
+        raise ValueError("Duplicate ODE oracle solver or system")
+    seen = set()
+    for case in cases:
+        if not isinstance(case, dict):
+            raise ValueError("Invalid ODE oracle case")
+        steps, checkpoints = case.get("steps"), case.get("checkpoints")
+        if (not isinstance(case.get("id"), str) or case["id"] in seen or not isinstance(steps, int)
+                or not isinstance(checkpoints, list) or not checkpoints
+                or case.get("solver") not in solver_ids or case.get("system") not in system_ids
+                or any(not isinstance(point, dict) or type(point.get("n")) is not int or not 0 <= point["n"] <= steps
+                       for point in checkpoints)):
+            raise ValueError(f"Invalid or duplicate ODE oracle case {case.get('id')!r}")
+        seen.add(case["id"])
+    if {case["solver"] for case in cases} != set(solver_ids):
+        raise ValueError("Every ODE solver needs an oracle case")
+
+
+def ode_reference_text(document):
+    """Render the fixture with one case per line so that review diffs stay readable."""
+    compact = {"separators": (",", ":"), "ensure_ascii": False}
+    lines = ["{"]
+    lines.extend(f"  {json.dumps(key)}: {json.dumps(value, **compact)}," for key, value in document.items() if key != "cases")
+    lines.append('  "cases": [')
+    cases = document["cases"]
+    lines.extend(f"    {json.dumps(case, **compact)}{',' if index + 1 < len(cases) else ''}" for index, case in enumerate(cases))
+    lines.extend(["  ]", "}"])
+    return "\n".join(lines) + "\n"
+
+
+def check_ode_oracle(manifest, cache, java, *, record=False):
+    """Integrate the ODE kernel test systems with the pinned OSP solvers and diff the fixture."""
+    verify_file(cache / manifest["reference"]["file"], manifest["reference"])
+    # A private home keeps OSP preference files out of the shared reference cache.
+    with tempfile.TemporaryDirectory(prefix="ode-oracle-") as temporary:
+        home = Path(temporary) / "home"
+        home.mkdir()
+        output = Path(temporary) / "ode-java.json"
+        run([java, "-Djava.awt.headless=true", f"-Duser.home={home}", f"-Djava.io.tmpdir={home}",
+             "-Xmx256m", "--class-path", java_classpath(manifest, cache),
+             str(ROOT / "tools/reference/OdeOracle.java"), str(output)])
+        actual = json.loads(output.read_text(encoding="utf-8"))
+    validate_ode_reference(actual, manifest)
+    location = ODE_REFERENCE.relative_to(ROOT).as_posix() if ODE_REFERENCE.is_relative_to(ROOT) else str(ODE_REFERENCE)
+    if record:
+        ODE_REFERENCE.parent.mkdir(parents=True, exist_ok=True)
+        ODE_REFERENCE.write_text(ode_reference_text(actual), encoding="utf-8", newline="\n")
+        print(f"ode-oracle: recorded {len(actual['cases'])} Java solver cases in {location}")
+        return
+    expected = json.loads(ODE_REFERENCE.read_text(encoding="utf-8"))
+    validate_ode_reference(expected, manifest)
+    compare_ode_reference(expected, actual)
+    print(f"ode-oracle: {len(actual['cases'])} Java solver cases match {location}")
+
+
+def compare_ode_reference(expected, actual):
+    """Compare two validated oracle documents with the per-solver agreement classes."""
+    compare({key: value for key, value in expected.items() if key != "cases"},
+            {key: value for key, value in actual.items() if key != "cases"}, ODE_EXACT, "ode-reference")
+    if [case["id"] for case in expected["cases"]] != [case["id"] for case in actual["cases"]]:
+        raise ValueError("ode-reference: the Java case list differs from the fixture")
+    adaptive = {solver["id"]: solver["adaptive"] for solver in expected["solvers"]}
+    for want, got in zip(expected["cases"], actual["cases"]):
+        compare(want, got, ode_case_tolerance(want, adaptive), f"ode-reference.{want['id']}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["fetch", "verify", "reference", "check", "session", "roundtrip"])
+    parser.add_argument("command", choices=["fetch", "verify", "reference", "check", "session", "roundtrip", "ode-oracle"])
     parser.add_argument("--cache", type=Path, default=ROOT / ".dev-tools/tracker-reference")
-    parser.add_argument("--java", default="java", help="Java 17+ JDK executable (reference/session/roundtrip commands)")
+    parser.add_argument("--java", default="java", help="Java 17+ JDK executable (reference/session/roundtrip/ode-oracle commands)")
     parser.add_argument("--probe", help="Built motrack_corpus_probe executable (check/roundtrip commands)")
     parser.add_argument("--record", action="store_true", help="Explicitly replace committed Java baselines for review")
     args = parser.parse_args()
-    if args.record and args.command != "reference":
-        parser.error("--record is only valid for the reference command")
+    if args.record and args.command not in {"reference", "ode-oracle"}:
+        parser.error("--record is only valid for the reference and ode-oracle commands")
     if args.command in {"check", "roundtrip"} and not args.probe:
         parser.error(f"{args.command} requires --probe")
     manifest = load_manifest()
@@ -2862,6 +2979,8 @@ def main():
         print(f"Verified {len(manifest['cases'])} cases and Tracker {manifest['reference']['version']}")
     elif args.command in {"session", "roundtrip"}:
         check_sessions(manifest, cache, args.java, args.probe if args.command == "roundtrip" else None)
+    elif args.command == "ode-oracle":
+        check_ode_oracle(manifest, cache, args.java, record=args.record)
     else:
         check_cases(manifest, cache, java=args.java if args.command == "reference" else None,
                     probe=args.probe, record=args.record)
