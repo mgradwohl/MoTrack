@@ -198,7 +198,8 @@ class AqtFallbackTests(unittest.TestCase):
 class BashScriptTests(unittest.TestCase):
     """The Bash scripts' row functions, sourced with stub tools first on PATH."""
 
-    UTILITIES = ("cat", "cut", "dirname", "grep", "head", "sed", "sort", "tr")
+    # bash itself too: the stubs start with #!/usr/bin/env bash, which looks bash up on PATH.
+    UTILITIES = ("bash", "cat", "cut", "dirname", "grep", "head", "sed", "sort", "tr")
 
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
