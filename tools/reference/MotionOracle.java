@@ -262,8 +262,9 @@ public final class MotionOracle {
 
     private static double[] uniformTimes(int count, double startMs, double durationMs, int stepSize) {
         double[] times = new double[count];
-        // VideoPlayer.getStepTime(k) / 1000.0 for a constant frame duration (StepperClipControl).
-        for (int k = 0; k < count; k++) times[k] = (startMs + k * stepSize * durationMs) / 1000.0;
+        // VideoPlayer.getStepTime(k) / 1000.0 for a constant frame duration, in its operand order:
+        // StepperClipControl.getStepTime returns k * frameDuration * stepSize, and VideoPlayer adds the start.
+        for (int k = 0; k < count; k++) times[k] = (k * durationMs * stepSize + startMs) / 1000.0;
         return times;
     }
 

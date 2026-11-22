@@ -25,9 +25,15 @@ it is not shipped with MoTrack or used to read and write experiments.
 
 ### Build the prototype
 
-Run the setup script after cloning. It installs the [pinned toolchain](CONTRIBUTING.md#pinned-toolchain) that CI uses (LLVM 23, with Apple Clang as the macOS compiler) through the platform package manager, installs Qt, FFmpeg, and libarchive in the checkout's ignored `.dev-tools` directory, checks the result, and builds and tests the app. Add `-DryRun` or `--dry-run` to see what it would install first.
+Run the setup script after cloning. It installs the [pinned toolchain](CONTRIBUTING.md#pinned-toolchain) that CI uses (LLVM 23, with Apple Clang as the macOS compiler) through the platform package manager, installs Qt, FFmpeg, and libarchive in the checkout's ignored `.dev-tools` directory ([shared with its worktrees](CONTRIBUTING.md#developer-setup)), checks the result, and builds and tests the app. Add `-DryRun` or `--dry-run` to see what it would install first.
 
-**Windows x64** (PowerShell with WinGet available)
+**Windows x64** (PowerShell 7 with WinGet available)
+
+Windows includes only Windows PowerShell 5.1. If `pwsh` is not installed, install PowerShell 7 first, then run setup from a new PowerShell 7 window:
+
+```powershell
+winget install --id Microsoft.PowerShell --exact --source winget
+```
 
 ```powershell
 .\tools\setup-dev.ps1 -Build
@@ -156,7 +162,7 @@ standalone media projects remain unfinished.
 
 ### Analyze motion
 
-Choose position, velocity, speed, acceleration, momentum, or kinetic energy above the plot. Set the selected point mass’s value in the Tracks menu. Select a plotted point to jump to its video frame. Enable Linear fit to see the slope, intercept, and R² for the plotted samples. Position uses the frame number when the project has no known timebase. Derived quantities use frame timestamps or saved image-sequence timing, and are left blank at the clip edges and across gaps in the marks. Acceleration currently uses a three-point estimate rather than Tracker's default five-point estimate, so its values differ and it reports values one step closer to clip edges and gaps than Tracker does; [#207](https://github.com/mgradwohl/MoTrack/issues/207) tracks aligning it. Imported movies are indexed in the background and keep Tracker’s saved clip start time.
+Choose position, velocity, speed, acceleration, momentum, or kinetic energy above the plot. Set the selected point mass’s value in the Tracks menu. Select a plotted point to jump to its video frame. Enable Linear fit to see the slope, intercept, and R² for the plotted samples. Position uses the frame number when the project has no known timebase. Derived quantities use frame timestamps or saved image-sequence timing, and are left blank at the clip edges and across gaps in the marks. Velocity and acceleration use Tracker's default Finite Difference algorithm: velocity from the neighbouring steps, and acceleration from Tracker's five-point estimate, so acceleration is blank within two steps of a clip edge or gap. When a movie's frame times are unevenly spaced, MoTrack still uses its earlier estimates that account for the spacing, so it differs from Tracker. They are exact when the timestamps are the true capture times of variable-frame-rate video. But they are wrong for constant-rate video with coarse timestamps, such as the 1 ms timestamps of Matroska/WebM files. There, for an object moving steadily at 2 m/s, they report up to 1.8 m/s² of acceleration at 30 fps (7.4 m/s² at 60 fps) and a 1–2% velocity error, where Tracker's results are accurate. [#87](https://github.com/mgradwohl/MoTrack/issues/87) tracks the fix; see [motion kernels](docs/motion-kernels.md#workspace-measurements). Imported movies are indexed in the background and keep Tracker’s saved clip start time.
 
 Use Clip Settings to choose the starting frame, ending frame, and frame interval for an experiment. Existing marks keep their original frame numbers when the clip changes.
 

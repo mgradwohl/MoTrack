@@ -43,14 +43,15 @@ constexpr double NOT_A_NUMBER = std::numeric_limits<double>::quiet_NaN();
 constexpr double INFINITE = std::numeric_limits<double>::infinity();
 
 /// Times of clip steps in seconds for a constant frame duration, the way VideoPlayer.getStepTime / 1000
-/// computes them from a clip start time, a stride and a frame duration in milliseconds.
+/// computes them from a clip start time, a stride and a frame duration in milliseconds, in its operand
+/// order: StepperClipControl's k * frameDuration * stepSize, then the start time.
 std::vector<double> stepTimes(int count, double startMs, double frameMs, int stride = 1)
 {
     std::vector<double> times;
     times.reserve(static_cast<std::size_t>(std::max(count, 0)));
     for (int k = 0; k < count; ++k)
     {
-        times.push_back((startMs + k * stride * frameMs) / 1000.0);
+        times.push_back((k * frameMs * stride + startMs) / 1000.0);
     }
     return times;
 }

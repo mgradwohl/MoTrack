@@ -3281,8 +3281,6 @@ STATE_GAP_REASONS = {
     "unmodeled-field": "MoTrack's model does not hold this loaded-state field yet.",
     "unmodeled-column": "MoTrack does not compute this data column yet.",
     "probe-media-timing": "The XML-only probe does not decode media; movie timing comes from MoTrack's decoder.",
-    "default-timing": "Tracker applies its 100 ms default frame duration; MoTrack does not yet (#214).",
-    "default-length-unit": "Tracker applies its default length unit; MoTrack does not yet (#214).",
     "uncalibrated": "Without a saved calibration MoTrack reports no world quantities; Tracker uses its default coordinates.",
     "coords-range": "MoTrack reports coordinates through the clip's last frame; Tracker's system spans the whole video.",
     "known-defect-unmodeled": "A registered known defect lies at a path or key MoTrack does not model yet.",
@@ -4178,20 +4176,22 @@ def classify_gap(gap, tracker, motrack):
     """Name why MoTrack does not report a value: the committed baseline records one reason per gap."""
     if gap.startswith("track class "):
         return "unmodeled-class"
+    # MoTrack applies Tracker's default frame duration and length unit to media-free files (#214), so only
+    # a movie's timing is expected to be missing: the XML-only probe does not decode media. A media-free
+    # timing or unit gap is a regression and is named like any other value MoTrack does not report.
+    movie = tracker["panel"]["video"] is not None
     timed = "frame_duration_ms" in motrack["panel"].get("clip", {})
     if gap.startswith("known defect "):
         key = gap.rsplit(".", 1)[-1] if "." in gap else None
         # A registered clip step row holds its time at index 2.
-        if (key in STATE_TIMING_COLUMNS or re.search(r"-step-[0-9]+\[2\]$", gap)) and not timed:
-            return "default-timing" if tracker["panel"]["video"] is None else "probe-media-timing"
+        if (key in STATE_TIMING_COLUMNS or re.search(r"-step-[0-9]+\[2\]$", gap)) and movie and not timed:
+            return "probe-media-timing"
         return "known-defect-unmodeled"
     if gap.startswith("coords.frames after "):
         return "coords-range"
-    if gap == "units.length":
-        return "default-length-unit"
     column = gap.split(".data.", 1)[1] if ".data." in gap else None
-    if gap in {"clip.frame_duration_ms", "clip.steps.time"} or (column in STATE_TIMING_COLUMNS and not timed):
-        return "default-timing" if tracker["panel"]["video"] is None else "probe-media-timing"
+    if movie and (gap in {"clip.frame_duration_ms", "clip.steps.time"} or (column in STATE_TIMING_COLUMNS and not timed)):
+        return "probe-media-timing"
     if column in {"x", "y", *STATE_TIMING_COLUMNS} and "coords" not in motrack["panel"]:
         return "uncalibrated"
     if column is not None:
