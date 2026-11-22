@@ -110,8 +110,7 @@ on a unit-scale signal), as in Tracker.
   Butterworth clone keeps its saved sample rate after the clip timing changes (#205); the *Smoother Finite
   Difference* help shows the negated velocity formula (#205); vectors keep their old components when the
   change is below 0.01 image pixel, autofill refreshes a range computed from step numbers as frames, and
-  single-step edits re-run Bounce Detection on five steps only (#206). MoTrack's current measurement plot
-  uses a three-point acceleration instead of Tracker's five-point default (#207).
+  single-step edits re-run Bounce Detection on five steps only (#206).
 - **Not reproduced.** Tracker's shared static derivative arrays (stale values off the clip lattice),
   `BounceDerivatives` overwriting its input with NaN, and console diagnostics.
 
@@ -158,6 +157,40 @@ pulse, stride invariance, uniform circular motion through ±π, the −6 dB Butt
 behaviour, polynomial preservation by Savitzky-Golay up to 99/6, and the numerical derivatives' exact
 results for polynomials.
 
+## Workspace measurements
+
+The workspace plot and its selected-series CSV export (`measurementPlot` in `src/measurements.cpp`) take
+velocity and acceleration from `pointMassDerivatives` with Tracker's default *Finite Difference* algorithm
+(#207). Speed is the magnitude of that velocity, momentum is mass × velocity, and kinetic energy is ½ m v².
+Inputs are the world positions of the marks on clip steps (image pixels when uncalibrated). Each run of
+consecutive marked steps is evaluated on its own, so a value needs every step of its window: none at the first
+and last step for velocity, none at the first and last two steps for acceleration, and none in a window that
+contains a missing step. A missing value is left out of the plot and the export, never written as zero.
+
+Time scaling depends on where the times come from:
+
+- **Constant timing** (a saved or default frame duration: media-free projects and image sequences). The step
+  time of original frame f is (f − first frame) × duration / 1000 s. Tracker adds the clip start time first
+  and then subtracts absolute step times. The intervals are the same: bit for bit when the start is 0, and
+  otherwise within rounding of the absolute times, which MoTrack avoids so that a large time origin cannot
+  distort them. Plotted times still include the start time.
+- **Decoded movie frame times** (seconds per original frame). Where the intervals in a window are equal within
+  the decoder's whole-nanosecond rounding (2 ns, plus a few ulps of the timestamps), Tracker's stencils apply
+  as above. Where they are not, MoTrack keeps its earlier **time-aware** estimates: the first and second
+  derivatives, at the step's time, of the quadratic through the step and its two neighbours. These are exact
+  for constant acceleration at any spacing, where Tracker's uniform stencils report a spurious acceleration
+  for constant velocity (#87). Velocity at such steps is therefore unchanged from earlier MoTrack versions and
+  differs from Tracker's secant (x[k+1] − x[k−1]) / (t[k+1] − t[k−1]). Acceleration still needs Tracker's
+  five-step window, so it is blank wherever Tracker's table is blank. Timestamps that only round a constant
+  rate more coarsely than 2 ns (for example to whole milliseconds) count as unequal and get the time-aware
+  estimates, which then see the rounding as timing jitter. Whether MoTrack should follow Tracker there, or
+  offer the time-aware estimates as an option, is the open #87 decision.
+
+`MotionReference.MeasurementPlotMatchesTrackersDefaultDerivatives` checks `measurementPlot` against every
+Finite Difference case of the fixture. With decoded times it equals Tracker bit for bit, and with constant
+timing too when the clip starts at 0 ms (within 1e-12 relative otherwise). In the variable-time case it gives
+the analytic derivatives where Tracker does not.
+
 ## Driving the kernels from C2
 
 C2 will build each point mass's clip-step positions with `clipStepPositions` from world marks at the
@@ -167,7 +200,8 @@ direction, momentum, kinetic energy and path length follow from those columns (w
 A filtered clone applies `filterPositions` with the saved filter (a new Butterworth filter uses
 `butterworthSampleRateHz` of the mean step duration), then differentiates the filtered positions and
 reports `filterRmsDeviation`. C2 also decides whether to replicate Tracker's image-space vector round trip
-(last-bit differences) and whether to offer time-aware derivatives for variable frame timing (#87).
+(last-bit differences), and settles the treatment of unequal frame intervals described under
+[workspace measurements](#workspace-measurements) (#87).
 Saved filter windows are unbounded (the dialog stops at 99) and Savitzky-Golay edge weights cost
 O(window² × order²), as in Tracker, so C2 bounds or flags implausible loaded windows before filtering. The
 kernels are pure functions of a snapshot, so C2 evaluates them off the GUI thread per document revision

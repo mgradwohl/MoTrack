@@ -1,3 +1,4 @@
+#include "measurements.hpp"
 #include "science/motion/motion_derivatives.hpp"
 #include "science/motion/motion_filters.hpp"
 #include "science/motion/motion_types.hpp"
@@ -12,8 +13,10 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <numbers>
@@ -21,6 +24,7 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -301,6 +305,191 @@ TEST(MotionReference, DerivativesMatchTrackerExactly)
     }
     EXPECT_GE(compared, 50);
     EXPECT_EQ(trackerFailures, 3);
+}
+
+/// MotionOracle.derivativeCases' uniformTimes(count, start ms, frame duration ms, stride) arguments for the
+/// cases with a constant frame duration; the test checks that they reproduce the fixture's step times.
+struct ConstantTiming
+{
+    std::string_view id;
+    double startMs;
+    double durationMs;
+};
+
+constexpr std::array CONSTANT_TIMINGS{
+    ConstantTiming{.id = "free-fall", .startMs = 250.0, .durationMs = 1000.0 / 30.0},
+    ConstantTiming{.id = "noisy-gaps", .startMs = 0.0, .durationMs = 40.0},
+    ConstantTiming{.id = "bounce", .startMs = -500.0, .durationMs = 1000.0 / 60.0},
+    ConstantTiming{.id = "stride-2", .startMs = 1000.0, .durationMs = 10.0},
+    ConstantTiming{.id = "all-missing", .startMs = 0.0, .durationMs = 100.0},
+    ConstantTiming{.id = "isolated", .startMs = 0.0, .durationMs = 50.0},
+    ConstantTiming{.id = "huge", .startMs = 0.0, .durationMs = 100.0},
+};
+
+std::optional<ConstantTiming> constantTiming(std::string_view id)
+{
+    if (id.starts_with("length-"))
+    {
+        return ConstantTiming{.id = id, .startMs = 0.0, .durationMs = 100.0};
+    }
+    const auto found = std::ranges::find(CONSTANT_TIMINGS, id, &ConstantTiming::id);
+    return found == CONSTANT_TIMINGS.end() ? std::nullopt : std::optional(*found);
+}
+
+/// The exact derivatives of the oracle's stride-3-variable-time motion, x = 2t and y = 1 - t²/2.
+double variableTimeMotion(motrack::PlotQuantity quantity, double time)
+{
+    switch (quantity)
+    {
+    case motrack::PlotQuantity::VelocityX:
+        return 2.0;
+    case motrack::PlotQuantity::VelocityY:
+        return -time;
+    case motrack::PlotQuantity::AccelerationX:
+        return 0.0;
+    case motrack::PlotQuantity::AccelerationY:
+        return -1.0;
+    default:
+        return NOT_A_NUMBER; // Not compared: fails any comparison.
+    }
+}
+
+TEST(MotionReference, MeasurementPlotMatchesTrackersDefaultDerivatives)
+{
+    // measurementPlot, which the workspace plot and its CSV export show, against Tracker's Finite Difference
+    // velocity and acceleration (#207). With Tracker's own step times as decoded frame times its values are
+    // Tracker's bit for bit, and with the saved constant timing too when the clip starts at 0 ms. For another
+    // start MoTrack measures step times from the clip start instead of subtracting absolute times: rounding only.
+    // The variable-time case has unequal intervals, where MoTrack keeps its time-aware estimates (#87): they are
+    // exact for that motion (x = 2t, y = 1 - t²/2) while Tracker's uniform stencils report a spurious a_x.
+    using motrack::PlotQuantity;
+    int exact = 0;
+    int rounded = 0;
+    int uneven = 0;
+    for (const auto& item : reference()["derivative_cases"].toArray())
+    {
+        const auto entry = item.toObject();
+        const auto id = text(entry["id"]);
+        const auto clipObject = entry["clip"].toObject();
+        const science::ClipLattice clip{.firstFrame = clipObject["first_frame"].toInt(),
+                                        .stepSize = clipObject["step_size"].toInt(),
+                                        .stepCount = clipObject["step_count"].toInt()};
+        const auto times = numbers(entry["times"]);
+        const auto positions = points(entry["positions"]);
+        QJsonObject finiteDifference;
+        for (const auto& result : entry["results"].toArray())
+        {
+            if (text(result.toObject()["algorithm"]) == "finite_difference")
+            {
+                finiteDifference = result.toObject();
+            }
+        }
+        ASSERT_FALSE(finiteDifference.isEmpty()) << id;
+        const auto velocity = points(finiteDifference["velocity"]);
+        const auto acceleration = points(finiteDifference["acceleration"]);
+
+        // An uncalibrated project plots image coordinates as they are; a NaN coordinate is a missing mark.
+        motrack::LegacyProject project;
+        project.clip.firstFrame = clip.firstFrame;
+        project.clip.stepSize = clip.stepSize;
+        project.clip.stepCount = clip.stepCount;
+        motrack::PointMass mass{.name = "mass"};
+        std::vector<double> frameTimes(static_cast<std::size_t>(clip.frame(std::max(clip.stepCount, 1))), NOT_A_NUMBER);
+        for (int step = 0; step < clip.stepCount; ++step)
+        {
+            const auto index = static_cast<std::size_t>(step);
+            frameTimes[static_cast<std::size_t>(clip.frame(step))] = times[index];
+            if (const auto& position = positions[index])
+            {
+                mass.marks.push_back({.frame = clip.frame(step), .x = position->x, .y = position->y});
+            }
+        }
+        project.pointMasses.push_back(mass);
+
+        using Check = void (*)(double actual, double tracker, double time, PlotQuantity quantity, int& count);
+        const auto compare = [&](std::span<const double> decoded, const std::string& where, Check check, int& count)
+        {
+            for (const auto quantity :
+                 {PlotQuantity::VelocityX, PlotQuantity::VelocityY, PlotQuantity::AccelerationX, PlotQuantity::AccelerationY})
+            {
+                const bool second = quantity == PlotQuantity::AccelerationX || quantity == PlotQuantity::AccelerationY;
+                const bool vertical = quantity == PlotQuantity::VelocityY || quantity == PlotQuantity::AccelerationY;
+                std::map<int, double> plotted;
+                for (const auto& sample : motrack::measurementPlot(project, 0, quantity, decoded).samples)
+                {
+                    plotted.emplace(sample.frame, sample.vertical);
+                }
+                const auto& expected = second ? acceleration : velocity;
+                const auto present = std::ranges::count_if(expected, [](const auto& value) { return value.has_value(); });
+                ASSERT_EQ(std::ssize(plotted), present) << where;
+                for (int step = 0; step < clip.stepCount; ++step)
+                {
+                    const auto& tracker = expected[static_cast<std::size_t>(step)];
+                    const auto found = plotted.find(clip.frame(step));
+                    ASSERT_EQ(found != plotted.end(), tracker.has_value()) << where << " step " << step;
+                    if (tracker)
+                    {
+                        check(found->second, vertical ? tracker->y : tracker->x, times[static_cast<std::size_t>(step)], quantity, count);
+                    }
+                }
+            }
+        };
+        if (id == "stride-3-variable-time")
+        {
+            compare(
+                frameTimes,
+                id + "/decoded",
+                [](double actual, double tracker, double time, PlotQuantity quantity, int& count)
+                {
+                    EXPECT_NEAR(actual, variableTimeMotion(quantity, time), 1e-9);
+                    if (quantity == PlotQuantity::AccelerationX)
+                    {
+                        EXPECT_GT(std::abs(tracker), 0.05); // Tracker's stencil assumes equal intervals.
+                    }
+                    ++count;
+                },
+                uneven);
+            continue;
+        }
+        const auto same = [](double actual, double tracker, double, PlotQuantity, int& count)
+        {
+            EXPECT_EQ(actual, tracker);
+            ++count;
+        };
+        compare(frameTimes, id + "/decoded", same, exact);
+
+        const auto timing = constantTiming(id);
+        ASSERT_TRUE(timing.has_value()) << id;
+        for (int step = 0; step < clip.stepCount; ++step)
+        {
+            // VideoPlayer.getStepTime(k) / 1000 in Java's operand order: the table holds the oracle's arguments.
+            EXPECT_EQ((timing->startMs + static_cast<double>(step * clip.stepSize) * timing->durationMs) / 1000.0,
+                      times[static_cast<std::size_t>(step)])
+                << id << " step " << step;
+        }
+        project.clip.frameDurationMs = timing->durationMs;
+        project.clip.startTimeMs = timing->startMs;
+        if (timing->startMs == 0.0)
+        {
+            compare({}, id + "/constant", same, exact);
+        }
+        else
+        {
+            compare(
+                {},
+                id + "/constant",
+                [](double actual, double tracker, double, PlotQuantity, int& count)
+                {
+                    EXPECT_NEAR(actual, tracker, 1e-12 * std::max(1.0, std::abs(tracker)));
+                    ++count;
+                },
+                rounded);
+        }
+    }
+    // Every finite velocity and acceleration component of the 17 cases (672 exact, 312 rounded, 60 uneven).
+    EXPECT_EQ(exact, 672);
+    EXPECT_EQ(rounded, 312);
+    EXPECT_EQ(uneven, 60);
 }
 
 TEST(MotionReference, OneDimensionalDifferencesMatchTrackerExactly)

@@ -439,6 +439,46 @@ TEST(Workspace, ExportsTheSelectedPlotWithItsUnitsAndTimebase)
     EXPECT_TRUE(rows.contains("\r\n0,-0.5,0.625\r\n"));
 }
 
+TEST(Workspace, ExportsTrackersFivePointAccelerationForTheSelectedTrack)
+{
+    // Five marks at 0.5 s steps: Tracker's Finite Difference has one acceleration, at the middle step,
+    // (2·0 - 3 - 2·2 - 7 + 2·8) / 7 / 0.5² = 8/7 (#207); the clip's first and last two steps stay blank.
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    auto document = motrack::WorkspaceDocument{};
+    document.project.clip.stepCount = 5;
+    document.project.clip.frameDurationMs = 500.0;
+    for (int frame = 0; frame < 5; ++frame)
+    {
+        document.project.clip.mediaReferences.push_back(fixturePath("frames/frame00.ppm").toStdString());
+    }
+    motrack::PointMass mass{.name = "Cart", .id = motrack::allocateTrackId(document.project)};
+    constexpr std::array X{0.0, 3.0, 2.0, 7.0, 8.0};
+    for (int frame = 0; frame < 5; ++frame)
+    {
+        mass.marks.push_back({.frame = frame, .x = X.at(static_cast<std::size_t>(frame)), .y = 1.0});
+    }
+    document.project.pointMasses.push_back(mass);
+    const auto input = temporary.filePath("five-marks.motrack");
+    motrack::writeWorkspaceDocument(input, document);
+
+    motrack::MainWindow window;
+    window.show();
+    ASSERT_TRUE(window.loadProject(input));
+    auto* exportPlot = window.findChild<QAction*>("exportPlotData");
+    auto* quantities = window.findChild<QComboBox*>("plotQuantity");
+    ASSERT_TRUE(exportPlot && quantities);
+    quantities->setCurrentIndex(5); // x acceleration
+    ASSERT_TRUE(exportPlot->isEnabled());
+    triggerFileDialog(*exportPlot, window, temporary.filePath("acceleration"));
+    QFile csv(temporary.filePath("acceleration.csv"));
+    ASSERT_TRUE(csv.open(QIODevice::ReadOnly));
+    const auto rows = QString::fromUtf8(csv.readAll()).split("\r\n", Qt::SkipEmptyParts);
+    ASSERT_EQ(rows.size(), 2);
+    EXPECT_TRUE(rows.at(0).startsWith("frame,time_s,x acceleration"));
+    EXPECT_EQ(rows.at(1), "2,1,1.1428571428571428");
+}
+
 TEST(Workspace, ShowsALinearFitForTheSelectedQuantity)
 {
     motrack::MainWindow window;
