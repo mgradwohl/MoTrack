@@ -44,6 +44,8 @@ jobs:
       - uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
         with:
           version: ${{ env.MOTRACK_QT_VERSION }}
+          # Its own setup-python (">=3.14.0") would replace the pinned Python on PATH for every later step.
+          setup-python: false
       - name: Set up Windows SDK
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0

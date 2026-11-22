@@ -282,7 +282,9 @@ try {
     Assert-True ($LASTEXITCODE -eq 0) "setup-dev.ps1 -DryRun exited $LASTEXITCODE`:`n$output"
     Assert-True (-not $output.Contains('STUB WINGET RAN')) "-DryRun ran winget:`n$output"
     Assert-True ($output.Contains("LLVM $LlvmVersion, CMake $($pinned.MOTRACK_CMAKE_VERSION), Ninja $($pinned.MOTRACK_NINJA_VERSION)")) "-DryRun does not print the pins:`n$output"
-    Assert-True ($output.Contains("[dry-run] download https://github.com/llvm/llvm-project/releases/download/llvmorg-$LlvmVersion/") -or $output -match "LLVM $LlvmMajor is already installed; leaving it\.") "-DryRun has no LLVM install or keep line:`n$output"
+    # The LLVM step depends on this machine: it installs the pin, keeps the pinned major, or (on a CI
+    # image with another LLVM registered in C:\Program Files\LLVM) stops for -ReplaceLlvm.
+    Assert-True ($output.Contains("[dry-run] download https://github.com/llvm/llvm-project/releases/download/llvmorg-$LlvmVersion/") -or $output -match "LLVM $LlvmMajor is already installed; leaving it\." -or $output -match '\[dry-run\] stop: .*Rerun with -ReplaceLlvm') "-DryRun has no LLVM install, keep or stop line:`n$output"
     Assert-True ($output.Contains('[dry-run] cmake --workflow --preset dev')) "-DryRun -Build does not preview the build:`n$output"
     Assert-True ($output -notmatch 'VisualStudio\.20\d\d\.BuildTools') "-DryRun installs a year-specific Visual Studio package:`n$output"
     Write-Host 'setup-dev.ps1 tests passed'
