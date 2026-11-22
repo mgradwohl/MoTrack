@@ -1135,7 +1135,8 @@ bool patchLinkedMoviePath(SourceEdits& edits, const LegacyProject& project, Lega
     const auto clip = videoClipObject(xml);
     const auto video = required(objectOf(xml, uniqueProperty(xml, clip, "video")));
     const auto control = required(objectOf(xml, uniqueProperty(xml, xml.root(), "clipcontrol")));
-    require(node(xml, video).className == tracker::XUGGLE_VIDEO_CLASS && node(xml, control).className == tracker::VIDEO_CLIP_CONTROL_CLASS &&
+    require(node(xml, video).className == tracker::XUGGLE_VIDEO_CLASS &&
+            node(xml, control).className == tracker::VIDEO_CLIP_CONTROL_CLASS &&
             uniqueText(xml, video, "path") == baseline.clip.mediaReferences.front());
     const auto duration = required(javaDouble(uniqueText(xml, control, "delta_t")));
     require(std::isfinite(duration) && duration > 0.0 && !frameTimes.empty() && frameTimes.size() <= 2000000);
@@ -1499,7 +1500,8 @@ std::string prepareTrackerDocument(const QString& path, const WorkspaceDocument&
                 throw ProjectError("Linked media is missing or unreadable: " + resolved.toStdString());
             reference = QDir::fromNativeSeparators(targetDirectory.relativeFilePath(resolved)).toStdString();
             requireLocalReference(reference); // Rebasing can introduce a forbidden marker from a parent directory.
-            require(resolveLocalMediaPath(path, reference) == resolved);
+            // Compare file identity: a destination spelled with another case on Windows keeps its spelling (#297).
+            require(sameLocalFile(resolveLocalMediaPath(path, reference), resolved));
         }
         // Native frame bounds are runtime metadata, not an edit to the preserved standard clip.
         if (project.clip.sourceFrameCount)

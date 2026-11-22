@@ -65,7 +65,7 @@ double coordinate(const Read<double>& value)
 
 std::string text(const Read<std::string>& value)
 {
-    return value.value_or(std::string{});
+    return value ? *value : std::string{};
 }
 
 Clip readClip(const tracker::PanelLoad& panel)
@@ -192,9 +192,9 @@ std::optional<Calibration> readCalibration(const tracker::PanelLoad& panel)
     }
     const auto& coords = *panel.coords;
     Calibration calibration{.keyframes = {},
-                            .fixedOrigin = coords.fixedOrigin.value_or(false),
-                            .fixedAngle = coords.fixedAngle.value_or(false),
-                            .fixedScale = coords.fixedScale.value_or(false)};
+                            .fixedOrigin = coords.fixedOrigin && *coords.fixedOrigin,
+                            .fixedAngle = coords.fixedAngle && *coords.fixedAngle,
+                            .fixedScale = coords.fixedScale && *coords.fixedScale};
     try
     {
         if (coords.frames)

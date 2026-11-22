@@ -1467,6 +1467,74 @@ TEST(TrackerWriter, RebasesPhysicalImagePathsThroughDirectoryAndProjectAliases)
 }
 #endif
 
+TEST(TrackerWriter, RebasesMediaIntoSiblingDirectoriesOnWholePathSegments)
+{
+    // OSP's XML.getPathRelativeTo treats a base directory as an ancestor by text prefix (osp#42, MoTrack #265):
+    // a project in Lab1 with media in Lab10 stores "0/...". MoTrack's standard and native rebasing compare whole
+    // segments, and an unresolvable "0/..." reference written by Tracker stays a missing file.
+    QTemporaryDir temporary;
+    const auto fixture = QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images/";
+    const auto media = temporary.filePath("Lab10");
+    const auto project = temporary.filePath("Lab1");
+    ASSERT_TRUE(QDir().mkpath(media + "/images"));
+    ASSERT_TRUE(QDir().mkpath(project));
+    for (int frame = 0; frame < 4; ++frame)
+    {
+        const auto name = "images/frame" + QString::number(frame) + ".png";
+        ASSERT_TRUE(QFile::copy(fixture + name, media + '/' + name));
+    }
+    const auto input = media + "/input.trk";
+    ASSERT_TRUE(QFile::copy(fixture + "linked-images.trk", input));
+    auto document = motrack::importTrackerDocument(input);
+    document.project.pointMasses.front().mass = 5;
+    std::vector<QString> destinations{project + "/saved.trk", project + "//doubled.trk", project + "/./dotted.trk"};
+#ifdef _WIN32
+    destinations.push_back(temporary.filePath("lab1") + "/folded.trk"); // Windows folds case: still the Lab1 directory.
+#endif
+    for (const auto& destination : destinations)
+    {
+        SCOPED_TRACE(destination.toStdString());
+        ASSERT_NO_THROW(motrack::writeTrackerDocument(destination, document, input));
+        const auto exported = motrack::parseLegacyProject(readBytes(destination));
+        for (std::size_t frame = 0; frame < 4; ++frame)
+        {
+            const auto& reference = exported.clip.mediaReferences[frame];
+            EXPECT_EQ(reference, "../Lab10/images/frame" + std::to_string(frame) + ".png");
+            EXPECT_EQ(motrack::resolveLocalMediaPath(destination, reference),
+                      QFileInfo(media + "/images/frame" + QString::number(frame) + ".png").canonicalFilePath());
+        }
+    }
+#ifdef _WIN32
+    // A differently cased spelling of the media directory itself is the same directory, so no "../" is added.
+    const auto sameDirectory = temporary.filePath("LAB10") + "/beside.trk";
+    ASSERT_NO_THROW(motrack::writeTrackerDocument(sameDirectory, document, input));
+    EXPECT_EQ(motrack::parseLegacyProject(readBytes(sameDirectory)).clip.mediaReferences.front(), "images/frame0.png");
+#endif
+    // Native Save As rebases with the same segment rules.
+    auto native = document;
+    ASSERT_NO_THROW(motrack::rebaseWorkspaceMedia(native, input, project + "/saved.motrack"));
+    EXPECT_EQ(native.project.clip.mediaReferences.front(), "../Lab10/images/frame0.png");
+
+    // A reference Tracker wrote with the prefix defect names a file under Lab1 that does not exist: it resolves
+    // there, never to the similarly named Lab10 file, and exporting it reports the missing media.
+    const auto broken = motrack::resolveLocalMediaPath(project + "/saved.trk", "0/images/frame0.png");
+    EXPECT_EQ(QDir::cleanPath(broken), QDir::cleanPath(QFileInfo(project).canonicalFilePath() + "/0/images/frame0.png"));
+    EXPECT_FALSE(QFileInfo::exists(broken));
+    auto prefixed = motrack::importTrackerDocument(project + "/saved.trk");
+    for (std::size_t frame = 0; frame < 4; ++frame)
+        prefixed.project.clip.mediaReferences[frame] = "0/images/frame" + std::to_string(frame) + ".png";
+    try
+    {
+        motrack::writeTrackerDocument(project + "/broken.trk", prefixed, project + "/saved.trk");
+        ADD_FAILURE() << "A missing linked image must be reported.";
+    }
+    catch (const motrack::ProjectError& error)
+    {
+        EXPECT_TRUE(std::string_view(error.what()).starts_with("Linked media is missing or unreadable:")) << error.what();
+    }
+    EXPECT_FALSE(QFileInfo::exists(project + "/broken.trk"));
+}
+
 TEST(TrackerWriter, PatchesTheBoundMassAfterNativeReopenAndKeepsUnknownContent)
 {
     QTemporaryDir temporary;
@@ -4639,7 +4707,7 @@ TEST(TrackerWriter, EditsUnitLabelsThatTrackerReadsLiterally)
     for (const auto* content : {"m<!-- keep unit -->", "<!-- keep unit -->m", "m<?unit keep?>"})
     {
         SCOPED_TRACE(content);
-        const auto line = std::string("    <property name=\"length_unit\" type=\"string\">") + content + "</property>\r\n";
+        const auto line = std::string(R"(    <property name="length_unit" type="string">)") + content + "</property>\r\n";
         const auto xml = withPanelLines(line);
         const auto imported = motrack::parseTrackerProject(xml);
         EXPECT_EQ(imported.project.lengthUnit, content);

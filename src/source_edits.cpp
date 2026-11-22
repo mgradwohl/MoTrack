@@ -196,7 +196,8 @@ std::string SourceEdits::text(osp::NodeId property) const
     {
         return content(property);
     }
-    return osp::PropertyView(*m_Source, property).stringValue().value_or(m_Source->node(property).content);
+    const auto value = osp::PropertyView(*m_Source, property).stringValue();
+    return value ? *value : m_Source->node(property).content;
 }
 
 std::optional<std::string> SourceEdits::name(osp::NodeId property) const

@@ -78,17 +78,18 @@ TEST(SourceEdits, LaterEditsRefineEarlierOnesAndUneditedBytesStay)
     EXPECT_EQ(edits.children(root).size(), 3u);
     const auto rendered = edits.render();
     ASSERT_TRUE(rendered) << rendered.error();
-    EXPECT_EQ(rendered->xml, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-                             "<object class=\"Panel\">\n"
-                             "    <property name=\"label\" type=\"string\"><![CDATA[a & b]]></property>\n"
-                             "    <!-- kept -->\n"
-                             "    <property name=\"count\" type=\"int\">1</property>\n"
-                             "    <property name=\"values\" type=\"array\" class=\"[Ljava.lang.String;\">\n"
-                             "        <property name=\"[0]\" type=\"string\">a</property>\n"
-                             "        <property name=\"[1]\" type=\"string\">b</property>\n"
-                             "        <property name=\"[2]\" type=\"string\">c</property>\n"
-                             "    </property>\n"
-                             "</object>\n");
+    EXPECT_EQ(rendered->xml,
+              "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+              "<object class=\"Panel\">\n"
+              "    <property name=\"label\" type=\"string\"><![CDATA[a & b]]></property>\n"
+              "    <!-- kept -->\n"
+              "    <property name=\"count\" type=\"int\">1</property>\n"
+              "    <property name=\"values\" type=\"array\" class=\"[Ljava.lang.String;\">\n"
+              "        <property name=\"[0]\" type=\"string\">a</property>\n"
+              "        <property name=\"[1]\" type=\"string\">b</property>\n"
+              "        <property name=\"[2]\" type=\"string\">c</property>\n"
+              "    </property>\n"
+              "</object>\n");
 }
 
 TEST(SourceEdits, RenamesCarryEditsInsideTheReplacedSubtree)
