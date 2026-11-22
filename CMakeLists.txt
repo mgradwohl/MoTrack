@@ -119,6 +119,7 @@ target_link_libraries(motrack PRIVATE motrack_workspace)
 qt_add_translations(motrack
     TS_FILES translations/motrack_de.ts translations/motrack_es.ts translations/motrack_fr.ts
     SOURCES src/main_window.cpp src/bound_workspace.cpp src/workspace_window.cpp src/position_plot.cpp src/tracker_image_package.cpp
+            src/tracker_archive.cpp src/workspace_input.cpp
     RESOURCE_PREFIX "/i18n"
 )
 

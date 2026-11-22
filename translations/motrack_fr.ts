@@ -42,6 +42,8 @@
     <message><source>Tracker archives (*.trz)</source><translation type="unfinished"></translation></message>
     <message><source>Tracker file saved. The MoTrack companion needs recovery.</source><translation type="unfinished"></translation></message>
     <message><source>Tracker project and MoTrack companion saved.</source><translation type="unfinished"></translation></message>
+    <message numerus="yes"><source>The Tracker archive omits %n duplicate member(s) with unsafe names.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform></translation></message>
+    <message numerus="yes"><source>The Tracker archive keeps %n unextracted member(s) whose names may show the author's folder or user names.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform></translation></message>
     <message><source>Tracker projects (*.trk)</source><translation type="unfinished"></translation></message>
     <message><source>Saving project…</source><translation>Enregistrement du projet…</translation></message>
     <message><source>Project changed while saving. Save again to keep the latest edits.</source><translation>Le projet a changé pendant l’enregistrement. Enregistrez à nouveau pour conserver les dernières modifications.</translation></message>
@@ -205,6 +207,15 @@
     <message><source>Tracker media packaging was canceled.</source><translation type="unfinished"></translation></message>
     <message><source>Could not read a file required for the archive: %1</source><translation type="unfinished"></translation></message>
   </context>
+  <context>
+    <name>TrackerArchive</name>
+    <message><source>This Tracker archive contains a project with an unsafe member name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
+    <message><source>This Tracker project refers to an archive member with an unsafe name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
+  </context>
+  <context>
+    <name>WorkspaceInput</name>
+    <message><source>No Tracker project in this archive could be read. %1: %2</source><translation type="unfinished"></translation></message>
+  </context>
 <context>
     <name>motrack::WorkspaceWindow</name>
     <message>
@@ -297,6 +308,38 @@
     </message>
     <message>
         <source>Opening canceled.</source>
+        <translation type="unfinished" />
+    </message>
+    <message numerus="yes">
+        <source>%n archive member(s) with unsafe names were not extracted.</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message numerus="yes">
+        <source>Saving this Tracker archive omits %n duplicate copy(ies) among them.</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message numerus="yes">
+        <source>Saved archives keep the other %n unchanged; their names may show the author&apos;s folder or user names.</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message>
+        <source>Could not read the Tracker project %1; see the Experiments menu.</source>
+        <translation type="unfinished" />
+    </message>
+    <message numerus="yes">
+        <source>Could not read %1 and %n other Tracker project(s); see the Experiments menu.</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message>
+        <source>%1 — %2 (could not be read)</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not read %1: %2</source>
         <translation type="unfinished" />
     </message>
     <message>
