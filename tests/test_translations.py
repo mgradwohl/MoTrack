@@ -107,9 +107,10 @@ class MatchingTests(unittest.TestCase):
         self.assertEqual((match.tier, match.finished), ("exact", True))
         self.assertEqual(t.adapt(match.candidate.translation, "Open &video…", LOCALE["de"]), "&Video öffnen…")
 
-    def test_normalized_match_is_unfinished_when_case_or_punctuation_needs_adapting(self):
-        title_case = t.TrackerIndex([candidate("New Point Mass", "Neue Punktmasse")]).match("New &point mass")
-        self.assertEqual((title_case.tier, title_case.finished), ("normalized", True))
+    def test_normalized_match_is_always_unfinished(self):
+        # Tracker's title case can be copied into the translation (pt "Nova Massa Pontual"), so review it.
+        title_case = t.TrackerIndex([candidate("New Point Mass", "Nova Massa Pontual")]).match("New &point mass")
+        self.assertEqual((title_case.tier, title_case.finished), ("normalized", False))
         lower = t.TrackerIndex([candidate("mass", "masse")]).match("Mass")
         self.assertEqual((lower.tier, lower.finished), ("normalized", False))
         self.assertEqual(t.adapt("masse", "Mass", LOCALE["fr"]), "Masse")
@@ -260,7 +261,29 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual(entries["&Edit"].forms, ["&Bearbeiten"])
             self.assertEqual(entries["Selected track"].forms, ["Ausgewählte Spur"])  # Human, untouched.
             self.assertEqual(entries["Open &video…"].forms, ["&Video öffnen…"])
-            self.assertEqual(entries["Open &video…"].kind, None)
+            self.assertEqual(entries["Open &video…"].kind, "unfinished")
+
+    def test_reseeding_updates_or_clears_finished_tracker_seeds_but_not_reviewed_ones(self):
+        with tempfile.TemporaryDirectory() as directory:
+            catalog = self.catalog(directory)
+            first = t.TrackerIndex([candidate("Edit", "Bearbeiten"), candidate("Selected track", "Gewählte Spur")])
+            t.seed(catalog, first, LOCALE["de"])
+            catalog = t.Catalog(catalog.path, catalog.render())
+            entry = next(entry for entry in catalog.entries() if entry.source == "&Edit")
+            self.assertEqual((entry.kind, entry.provenance), (None, "tracker-exact"))
+            self.assertTrue(entry.tool_owned)
+            # The value is now rejected: the finished seed is emptied for a new translation, without a comment.
+            self.assertEqual(t.seed(catalog, t.TrackerIndex([]), LOCALE["de"]), {"cleared": 1})
+            catalog = t.Catalog(catalog.path, catalog.render())
+            entry = next(entry for entry in catalog.entries() if entry.source == "&Edit")
+            self.assertEqual((entry.kind, entry.empty, entry.note), ("unfinished", True, None))
+            self.assertNotIn("translatorcomment", entry.text)
+            # A reviewed entry (provenance comment removed) is never replaced.
+            reviewed = SAMPLE.replace("<message><source>&amp;Edit</source><translation type=\"unfinished\"></translation>",
+                                      "<message><source>&amp;Edit</source><translation>&amp;Bearbeiten</translation>")
+            catalog = self.catalog(directory, reviewed)
+            t.seed(catalog, t.TrackerIndex([candidate("Edit", "Editieren")]), LOCALE["de"])
+            self.assertIn("&amp;Bearbeiten", catalog.render())
 
 
 class ValidationTests(unittest.TestCase):
@@ -384,6 +407,21 @@ class RepositoryCatalogTests(unittest.TestCase):
 
     def test_cmake_lists_every_catalog(self):
         self.assertEqual(t.check_cmake(), [])
+
+    def test_english_catalog_holds_only_plural_forms(self):
+        english = t.Catalog.load(t.catalog_path(t.ENGLISH))
+        sources = t.read_messages(t.TRANSLATIONS / "motrack_de.ts")
+        self.assertEqual(t.check_catalog(english, t.ENGLISH, sources)[0], [])
+        self.assertEqual({entry.source for entry in english.entries()}, {m.source for m in sources if m.numerus})
+        self.assertEqual(t.selected_locales(["en"], english=True), [t.ENGLISH])
+        with self.assertRaises(t.ToolError):
+            t.selected_locales(["en"])
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "motrack_en.ts"
+            path.write_text(SAMPLE.replace('language="de"', 'language="en"'), encoding="utf-8")
+            errors = "\n".join(t.check_catalog(t.Catalog.load(path), t.ENGLISH, None)[0])
+            self.assertIn("holds only plural messages", errors)
+            self.assertIn("write the English plural forms", errors)
 
     def test_every_catalog_is_valid(self):
         sources = t.read_messages(t.TRANSLATIONS / "motrack_de.ts")

@@ -9,6 +9,7 @@
 #include <QLibraryInfo>
 #include <QMenuBar>
 #include <QSet>
+#include <QStringList>
 #include <QTranslator>
 #include <QXmlStreamReader>
 #include <gtest/gtest.h>
@@ -205,6 +206,10 @@ TEST(UiTranslations, ChoosesTheCatalogForRegionalLocales)
                                            std::pair{"es_MX", "es"},
                                            std::pair{"zh_CN", "zh_CN"},
                                            std::pair{"zh_TW", "zh_TW"},
+                                           std::pair{"zh_HK", "zh_TW"},
+                                           std::pair{"zh_MO", "zh_TW"},
+                                           std::pair{"zh_SG", "zh_CN"},
+                                           std::pair{"en_GB", "en"},
                                            std::pair{"ar_SA", "ar"}})
     {
         SCOPED_TRACE(locale);
@@ -236,7 +241,7 @@ TEST(UiTranslations, FallsBackToLeftToRightEnglish)
 {
     // Persian is right-to-left, but without a MoTrack catalog the English interface stays left-to-right and Qt's
     // own Persian catalog is not mixed into it.
-    for (const auto& locale : {QLocale(QLocale::Esperanto), QLocale(QStringLiteral("fa_IR")), QLocale(QLocale::English)})
+    for (const auto& locale : {QLocale(QLocale::Esperanto), QLocale(QStringLiteral("fa_IR"))})
     {
         SCOPED_TRACE(locale.name().toStdString());
         const motrack::UiTranslations translations(locale, catalogs());
@@ -245,6 +250,41 @@ TEST(UiTranslations, FallsBackToLeftToRightEnglish)
         EXPECT_EQ(QGuiApplication::layoutDirection(), Qt::LeftToRight);
         EXPECT_EQ(translate("motrack::WorkspaceWindow", "&File"), QStringLiteral("&File"));
     }
+}
+
+TEST(UiTranslations, UsesTheFirstSupportedLanguageOfThePreferenceList)
+{
+    struct Case
+    {
+        QStringList uiLanguages;
+        const char* language;
+        Qt::LayoutDirection direction;
+    };
+    // English has a catalog (plural forms only), so English first never falls through to a later language.
+    for (const auto& [uiLanguages, language, direction] :
+         {Case{.uiLanguages = {"en-US", "ja-JP"}, .language = "en", .direction = Qt::LeftToRight},
+          Case{.uiLanguages = {"en-GB", "ar-EG"}, .language = "en", .direction = Qt::LeftToRight},
+          Case{.uiLanguages = {"en", "he"}, .language = "en", .direction = Qt::LeftToRight},
+          Case{.uiLanguages = {"eo", "fa-IR", "he-IL", "en-US"}, .language = "he", .direction = Qt::RightToLeft},
+          Case{.uiLanguages = {"eo", "ja-JP", "en-US"}, .language = "ja", .direction = Qt::LeftToRight},
+          Case{.uiLanguages = {"zh-HK", "en-US"}, .language = "zh_TW", .direction = Qt::LeftToRight},
+          Case{.uiLanguages = {"zh-Hans-SG"}, .language = "zh_CN", .direction = Qt::LeftToRight},
+          Case{.uiLanguages = {"eo", "fa"}, .language = "", .direction = Qt::LeftToRight}})
+    {
+        SCOPED_TRACE(uiLanguages.join(',').toStdString());
+        const motrack::UiTranslations translations(uiLanguages, catalogs());
+        EXPECT_EQ(translations.language(), QString::fromUtf8(language));
+        EXPECT_EQ(QGuiApplication::layoutDirection(), direction);
+    }
+}
+
+TEST(UiTranslations, EnglishCatalogSpellsPluralForms)
+{
+    const motrack::UiTranslations translations(QStringList{QStringLiteral("en-US")}, catalogs());
+    ASSERT_EQ(translations.language(), QStringLiteral("en"));
+    EXPECT_EQ(translate("motrack::WorkspaceWindow", "%n images", 1), QStringLiteral("1 image"));
+    EXPECT_EQ(translate("motrack::WorkspaceWindow", "%n images", 2), QStringLiteral("2 images"));
+    EXPECT_EQ(translate("motrack::WorkspaceWindow", "&File"), QStringLiteral("&File"));
 }
 
 TEST(UiTranslations, InstallsQtCatalogForTheSameLanguage)

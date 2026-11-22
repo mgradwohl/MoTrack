@@ -131,7 +131,8 @@ MoTrack offers every interface language that Tracker offers: Arabic, Catalan, Ch
 Traditional), Czech, Danish, Dutch, English, Finnish, French, German, Greek, Hebrew, Hungarian, Indonesian,
 Italian, Japanese, Korean, Latvian, Malay, Polish, Portuguese (Portugal and Brazil), Russian, Slovak, Slovenian,
 Spanish, Swedish, Thai, Turkish, Ukrainian and Vietnamese. It uses the first language in the system's list that
-it supports and otherwise shows English. Arabic and Hebrew use a right-to-left layout.
+it supports (Chinese for Hong Kong and Macao shows Traditional, for Singapore Simplified) and otherwise shows
+English. Arabic and Hebrew use a right-to-left layout.
 
 Terms such as point mass, calibration stick and clip settings reuse Tracker's own translations. Most other
 text is machine-translated and has not yet been reviewed by native speakers; corrections are welcome (see

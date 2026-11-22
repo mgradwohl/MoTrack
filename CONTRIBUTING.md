@@ -46,8 +46,10 @@ The checks locate the tools and compile and link a Qt probe without fetching pro
 `translations/motrack_<locale>.ts` holds one Qt catalog per non-English locale in Tracker's `Tracker.getLocales()`
 (SwingJS branch). `tools/translations.py` (standard-library Python) lists them in `LOCALES`; CMake's
 `motrack_ts_files` must match. Tracker's `fil_PH`, `sn` and `sr` catalogs are not in its language list and its
-`ca_UTF` file duplicates Catalan, so MoTrack does not ship them. The catalogs are hand-maintained in a compact
-layout; the tool edits only the messages it adds or fills and never changes a finished or human translation.
+`ca_UTF` file duplicates Catalan, so MoTrack does not ship them. `translations/motrack_en.ts`
+(`PLURALS_TS_FILE`) holds only the English plural forms; write them by hand. The catalogs are hand-maintained in
+a compact layout; the tool edits only the messages it adds or fills, and Tracker-seeded entries while they keep
+their provenance comment. It never changes a human or reviewed translation.
 
 After adding or changing a user-visible string, run from an activated developer shell (lupdate on PATH):
 
@@ -67,11 +69,11 @@ To fill new entries, seed them from Tracker, then machine-translate the rest:
    [osp](https://github.com/OpenSourcePhysics/osp) (`swingJS`) into an empty directory; only their `.properties`
    files are read. Run `python tools/translations.py update --tracker <tracker> --osp <osp>`. Where Tracker's
    English text matches a source string (ignoring mnemonics, ellipses, spacing and a trailing colon), the
-   translation is copied with the source's mnemonic and ellipsis and marked finished; title case versus
-   sentence case is also accepted. Matches that need a different initial capital or sentence punctuation, or
-   where Tracker's keys disagree, stay unfinished. A translator comment records the bundle and key.
-   `STALE_KEYS` and `LOCALE_REJECTED` exclude reviewed Tracker translations that no longer mean their English
-   text ([#274](https://github.com/mgradwohl/MoTrack/issues/274)); Turkish is not seeded because Tracker's
+   translation is copied with the source's mnemonic and ellipsis and marked finished. Matches that also ignore
+   case or terminal punctuation, or where Tracker's keys disagree, stay unfinished. A translator comment records
+   the bundle and key. `STALE_KEYS`, `HOMOGRAPH_KEYS` and `LOCALE_REJECTED` exclude Tracker translations that no
+   longer mean, or never meant, the MoTrack text ([#274](https://github.com/mgradwohl/MoTrack/issues/274)); a
+   seed whose match disappears is emptied for a new translation. Turkish is not seeded because Tracker's
    catalog omits Turkish letters.
 2. `python tools/translations.py pending --locale <locale> --out pending.json --tracker <tracker> --osp <osp>
    --reference de fr es` lists the remaining strings with Tracker's terminology, the plural rule and finished
@@ -85,8 +87,10 @@ By maintainer decision (2026-11-22), unfinished machine translations ship visibl
 `-nounfinished` to lrelease. To review a catalog, open it in Qt Linguist, check the translation against the
 English text and the translator comment, correct it, mark it done and remove the provenance comment.
 `python tools/translations.py stats` reports finished, unfinished, Tracker-derived and machine-translated counts.
-At run time `motrack::UiTranslations` loads the first supported language in the system's list, Qt's own catalog
-for the same language, and a right-to-left layout for Arabic and Hebrew; otherwise the interface is English.
+At run time `motrack::UiTranslations` loads the first language in the system's list that has a catalog
+(English included, so an English-first list stays English; Hong Kong and Macao use Traditional, Singapore
+Simplified Chinese), Qt's own catalog for that language, and a right-to-left layout for Arabic and Hebrew;
+without a match the interface is English.
 
 ## Checks before a pull request
 

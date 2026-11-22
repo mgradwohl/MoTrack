@@ -84,6 +84,10 @@ LOCALES = (
 )
 LOCALE_BY_CATALOG = {locale.catalog: locale for locale in LOCALES}
 
+# English is the source language. motrack_en.ts (qt_add_translations PLURALS_TS_FILE) holds only English plural forms.
+# Shipping it also makes QTranslator stop at English when English precedes another language in the system's list.
+ENGLISH = Locale("en", "en", "en", 2)
+
 # Qt Linguist plural rules (numerus.cpp), in form order, for translators. Two-form languages not listed use n == 1.
 PLURAL_RULES = {
     "ar": ("n == 0", "n == 1", "n == 2", "n % 100 in 3..10", "n % 100 in 11..99", "other (100, 101, 102, ...)"),
@@ -141,6 +145,10 @@ GLOSSARY_TERMS = (
 STALE_KEYS = frozenset({"TActions.Action.SaveZip", "ZipResourceDialog.Title", "TMenuBar.Menu.Window",
                         "TrackControl.Name"})
 
+# Keys whose English text is a homograph of a MoTrack string with another meaning: Edit > Copy Image > "Frame" copies
+# the whole Tracker window (TMenuBar.java), not a video frame.
+HOMOGRAPH_KEYS = frozenset({"TMenuBar.MenuItem.CopyFrame"})
+
 # Tracker keys used in the same role as a MoTrack string, chosen over other keys with the same English text.
 PREFERRED_KEYS = {
     "&File": ("TMenuBar.Menu.File",),
@@ -164,6 +172,7 @@ PREFERRED_KEYS = {
 # (English, translation) pairs in Tracker catalogs that do not mean the English text, reviewed across every matched
 # MoTrack string on 2026-11-21. Other keys with the same English text may still match.
 LOCALE_REJECTED = {  # Upstream reports: MoTrack #274.
+    "ar": {("kinetic energy", "الطاقةالحركية")},  # Missing space.
     "ca": {("Edit", "Edia")},  # Typo.
     "da": {("Redo", "Fortryd fortryd"), ("Track", "Markeringer")},  # "Undo undo"; "markings" (MoTrack's marks).
     "fi": {("New Point Mass", "Uusi paikka")},  # "New place".
@@ -171,8 +180,8 @@ LOCALE_REJECTED = {  # Upstream reports: MoTrack #274.
     "hu": {("Length Unit", "Hosszúság")},  # "Length".
     "ko": {("mass", "질점"), ("View", "창"), ("View", "개체")},  # "Point mass"; "window"; "object".
     "pl": {("Length Unit", "DŁugość jednostek")},  # Typo, "length of units".
-    "uk": {("Zoom In", "Зменшити"), ("Zoom Out", "Збільшити"), ("Track", "Спостереження"),  # Swapped; "observation".
-           ("Frame", "Фрейм")},  # Window frame, not a video frame ("кадр").
+    "sv": {("View", "Vy")},  # Swedish View menus say "Visa".
+    "uk": {("Zoom In", "Зменшити"), ("Zoom Out", "Збільшити"), ("Track", "Спостереження")},  # Swapped; "observation".
     "vi": {("Undo", "Hủy bỏ"), ("View", "Tầm nhìn"), ("View", "Nhìn"), ("View", "Lượt xem"),  # "Cancel"; "eyesight";
            ("Step size", "Khích thước bước")},  # "look"; "view count"; typo.
     "zh_CN": {("Zoom In", "缩小"), ("Zoom Out", "放大"), ("Clip Settings", "视频剪辑固定")},  # Swapped; "clip fixed".
@@ -405,7 +414,7 @@ class TrackerIndex:
                         localized[key] = (value, path.name)
             rejected = {(normalize(term), normalize(text)) for term, text in LOCALE_REJECTED.get(locale.catalog, ())}
             for key, source in english.items():
-                if key not in localized or key in STALE_KEYS or key.endswith(".New.Name"):
+                if key not in localized or key in STALE_KEYS | HOMOGRAPH_KEYS or key.endswith(".New.Name"):
                     continue  # Default object names are chosen freely by translators, not translated.
                 value, filename = localized[key]
                 if usable_translation(source, value) and (normalize(source), normalize(value)) not in rejected:
@@ -416,8 +425,8 @@ class TrackerIndex:
         """Tracker's translation of a MoTrack source string, or None when Tracker has no equivalent text.
 
         "exact" matches differ only in mnemonics, ellipsis, spacing or a trailing colon and are finished when
-        Tracker translates them consistently. "normalized" matches also ignore case, hyphens and terminal
-        punctuation; they stay unfinished when the initial case or sentence punctuation needs adaptation.
+        Tracker translates them consistently (or the key is in PREFERRED_KEYS). "normalized" matches also ignore
+        case, hyphens and terminal punctuation; they always stay unfinished.
         """
         if PLACEHOLDER.search(source):
             return None  # Tracker composes such strings in code; its fragments are not equivalent.
@@ -437,11 +446,9 @@ class TrackerIndex:
             first.setdefault(normalize(candidate.translation), position)
         chosen_text = max(votes, key=lambda text: (votes[text], -first[text]))
         chosen = preferred[0] if preferred else found[first[chosen_text]]
-        plain, english = normalize(source, mnemonics=True), normalize(chosen.english)
-        same_presentation = _initial_case(plain) == _initial_case(english) and bool(
-            re.search(r"[.!?]$", plain)) == bool(re.search(r"[.!?]$", english))
-        consistent = len(votes) == 1 or bool(preferred)
-        finished = consistent and (tier == "exact" or same_presentation)
+        # Only case-identical matches are finished: a case difference (such as Tracker's title case) may also be
+        # copied into the translation, so normalized matches always stay unfinished for review.
+        finished = tier == "exact" and (len(votes) == 1 or bool(preferred))
         return Match(tier, chosen, finished, len(votes))
 
 
@@ -517,8 +524,8 @@ class SourceMessage:
         return self.context, self.source, self.comment
 
 
-def cmake_translation_block(root: Path = ROOT) -> tuple[list[str], list[str]]:
-    """Catalogs (set(motrack_ts_files ...)) and SOURCES of qt_add_translations() in CMakeLists.txt."""
+def cmake_translation_block(root: Path = ROOT) -> dict[str, list[str]]:
+    """TS_FILES (expanding set(motrack_ts_files ...)), PLURALS_TS_FILE and SOURCES of qt_add_translations()."""
     text = (root / "CMakeLists.txt").read_text(encoding="utf-8")
     block = re.search(r"qt_add_translations\((.*?)\)", text, re.S)
     if not block:
@@ -534,7 +541,7 @@ def cmake_translation_block(root: Path = ROOT) -> tuple[list[str], list[str]]:
     if ts_files == ["${motrack_ts_files}"]:
         variable = re.search(r"set\(motrack_ts_files\s+(.*?)\)", text, re.S)
         ts_files = variable.group(1).split() if variable else []
-    return ts_files, lists.get("SOURCES", [])
+    return {"TS_FILES": ts_files, "PLURALS_TS_FILE": lists.get("PLURALS_TS_FILE", []), "SOURCES": lists.get("SOURCES", [])}
 
 
 def read_messages(path: Path) -> list[SourceMessage]:
@@ -553,14 +560,14 @@ def read_messages(path: Path) -> list[SourceMessage]:
 
 def extract_sources(lupdate: str, root: Path = ROOT) -> list[SourceMessage]:
     """Run lupdate on the CMake translation sources into a temporary catalog."""
-    _, sources = cmake_translation_block(root)
+    sources = cmake_translation_block(root)["SOURCES"]
     if not sources:
         raise ToolError("qt_add_translations() lists no SOURCES.")
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory) / "sources.ts"
         result = subprocess.run([lupdate, "-silent", "-locations", "none", "-no-obsolete",
                                  *[str(root / source) for source in sources], "-ts", str(output)],
-                                capture_output=True, text=True, check=False)
+                                capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
         if result.returncode != 0 or not output.is_file():
             raise ToolError(f"lupdate failed: {result.stdout}{result.stderr}")
         return read_messages(output)
@@ -594,7 +601,11 @@ class Entry:
 
     @property
     def tool_owned(self) -> bool:
-        return self.kind == "unfinished" and (self.empty or bool(self.note and self.note.startswith(TOOL_NOTES)))
+        """Empty or tool-written entries the tool may replace: unfinished ones, and finished Tracker seeds that still
+        carry their provenance comment (a reviewer removes the comment when accepting an entry)."""
+        if self.kind == "unfinished" and (self.empty or bool(self.note and self.note.startswith(TOOL_NOTES))):
+            return True
+        return self.kind is None and bool(self.note and self.note.startswith((EXACT_NOTE, NORMALIZED_NOTE)))
 
     @property
     def provenance(self) -> str:
@@ -651,8 +662,11 @@ class Catalog:
     def entries(self) -> list[Entry]:
         return [entry for context in self.contexts for entry in context.entries]
 
-    def set_translation(self, entry: Entry, forms: list[str], finished: bool, note: str) -> None:
-        """Replace one tool-owned entry's translation element and translator comment, keeping its layout."""
+    def set_translation(self, entry: Entry, forms: list[str], finished: bool, note: str | None) -> None:
+        """Replace one tool-owned entry's translation element and translator comment, keeping its layout.
+
+        Without ``note`` the translator comment is removed (used to empty a seed whose Tracker match is gone).
+        """
         body = entry.text
         body = re.sub(r"<translatorcomment>.*?</translatorcomment>\s*", "", body, flags=re.S)
         translation = re.search(r"<translation\b[^>]*?(?:/>|>.*?</translation>)", body, re.S)
@@ -662,7 +676,8 @@ class Catalog:
         indent = body[line_start:translation.start()]
         expanded = "\n" in body and not indent.strip()
         rendered = _render_translation(forms, entry.numerus, finished, indent if expanded else None)
-        comment = f"<translatorcomment>{escape(note)}</translatorcomment>" + ("\n" + indent if expanded else "")
+        comment = "" if note is None else (
+            f"<translatorcomment>{escape(note)}</translatorcomment>" + ("\n" + indent if expanded else ""))
         body = body[:translation.start()] + comment + rendered + body[translation.end():]
         self._replacements[entry.span] = body
         entry.forms, entry.kind, entry.note, entry.text = forms, None if finished else "unfinished", note, body
@@ -788,6 +803,13 @@ def check_catalog(catalog: Catalog, locale: Locale, sources: list[SourceMessage]
     name = catalog.path.name
     if catalog.language != locale.language:
         errors.append(f"{name}: language {catalog.language!r}, expected {locale.language!r}")
+    if locale is ENGLISH:
+        sources = None if sources is None else [message for message in sources if message.numerus]
+        for entry in catalog.entries():
+            if not entry.numerus:
+                errors.append(f"{name}: the English catalog holds only plural messages, not {entry.source!r}")
+            elif entry.empty:
+                errors.append(f"{name}: write the English plural forms of {entry.source!r}")
     seen: dict[tuple, Entry] = {}
     for entry in catalog.entries():
         if entry.key in seen:
@@ -825,12 +847,16 @@ def check_catalog(catalog: Catalog, locale: Locale, sources: list[SourceMessage]
 
 
 def check_cmake(root: Path = ROOT) -> list[str]:
-    ts_files, _ = cmake_translation_block(root)
+    lists = cmake_translation_block(root)
+    ts_files = lists["TS_FILES"]
     expected = [f"translations/motrack_{locale.catalog}.ts" for locale in LOCALES]
+    plurals = f"translations/motrack_{ENGLISH.catalog}.ts"
     errors = [f"CMakeLists.txt: TS_FILES lacks {path}" for path in expected if path not in ts_files]
     errors += [f"CMakeLists.txt: TS_FILES has unsupported {path}" for path in ts_files if path not in expected]
+    if lists["PLURALS_TS_FILE"] != [plurals]:
+        errors.append(f"CMakeLists.txt: qt_add_translations needs PLURALS_TS_FILE {plurals}")
     errors += [f"translations: {path.name} is not in LOCALES" for path in sorted((root / "translations").glob("*.ts"))
-               if f"translations/{path.name}" not in expected]
+               if f"translations/{path.name}" not in expected + [plurals]]
     # Maintainer decision (2026-11-22): unfinished machine translations ship visible, so lrelease keeps them.
     if re.search(r"-nounfinished|LRELEASE_OPTIONS", (root / "CMakeLists.txt").read_text(encoding="utf-8")):
         errors.append("CMakeLists.txt: lrelease must keep unfinished translations (no -nounfinished/LRELEASE_OPTIONS)")
@@ -842,7 +868,8 @@ def run_lrelease(lrelease: str, catalog: Path, unfinished: int | None = None) ->
     .qm (machine translations ship visible, so lrelease must not drop them)."""
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory) / (catalog.stem + ".qm")
-        result = subprocess.run([lrelease, str(catalog), "-qm", str(output)], capture_output=True, text=True, check=False)
+        result = subprocess.run([lrelease, str(catalog), "-qm", str(output)], capture_output=True, text=True,
+                                encoding="utf-8", errors="replace", check=False)
         text = result.stdout + result.stderr
         if result.returncode != 0 or not output.is_file() or re.search(r"\berror\b", text, re.I):
             return f"{catalog.name}: lrelease failed: {text.strip()}"
@@ -860,13 +887,15 @@ def catalog_path(locale: Locale, directory: Path | None = None) -> Path:
     return (directory or TRANSLATIONS) / f"motrack_{locale.catalog}.ts"
 
 
-def selected_locales(names: list[str] | None) -> list[Locale]:
+def selected_locales(names: list[str] | None, english: bool = False) -> list[Locale]:
+    """Translated locales by catalog name (all by default); with ``english``, "en" names the plural-only catalog."""
+    available = {**LOCALE_BY_CATALOG, **({ENGLISH.catalog: ENGLISH} if english else {})}
     if not names:
-        return list(LOCALES)
-    unknown = [name for name in names if name not in LOCALE_BY_CATALOG]
+        return list(LOCALES) + ([ENGLISH] if english else [])
+    unknown = [name for name in names if name not in available]
     if unknown:
         raise ToolError(f"Unknown locale: {', '.join(unknown)}")
-    return [LOCALE_BY_CATALOG[name] for name in names]
+    return [available[name] for name in names]
 
 
 def load_sources(args) -> list[SourceMessage] | None:
@@ -888,6 +917,9 @@ def seed(catalog: Catalog, index: TrackerIndex, locale: Locale) -> Counter:
             continue  # Tracker has no plural forms; human and finished entries are never replaced.
         match = index.match(entry.source)
         if match is None:
+            if entry.provenance in ("tracker-exact", "tracker-normalized"):
+                catalog.set_translation(entry, [""] * len(entry.forms), False, None)
+                counts["cleared"] += 1
             continue
         used = set()
         for member in MNEMONIC_GROUPS.get(GROUP_OF.get(entry.source, ""), ()):
@@ -895,6 +927,8 @@ def seed(catalog: Catalog, index: TrackerIndex, locale: Locale) -> Counter:
                 if not other.empty and mnemonic_letters(other.forms[0]):
                     used.add(mnemonic_letters(other.forms[0])[0].lower())
         text = adapt(match.candidate.translation, entry.source, locale, used)
+        if entry.provenance in ("tracker-exact", "tracker-normalized") and strip_mnemonic(entry.forms[0]) == strip_mnemonic(text):
+            text = entry.forms[0]  # Same Tracker text: keep the mnemonic already chosen, so reseeding is stable.
         if validate_translation(entry.source, [text], False, locale):
             continue
         note = f"{EXACT_NOTE if match.tier == 'exact' else NORMALIZED_NOTE}: {match.candidate.origin}"
@@ -915,19 +949,20 @@ def command_update(args) -> int:
         roots["tracker"] = Path(args.tracker)
     if args.osp:
         roots["osp"] = Path(args.osp)
-    for locale in selected_locales(args.locale):
+    for locale in selected_locales(args.locale, english=True):
         path = catalog_path(locale)
         catalog = Catalog.load(path) if path.is_file() else Catalog.new(path, locale)
         present = {entry.key for entry in catalog.entries()}
-        missing = [message for message in sources if message.key not in present]
+        wanted = [message for message in sources if message.numerus] if locale is ENGLISH else sources
+        missing = [message for message in wanted if message.key not in present]
         if missing:
             catalog.add_messages(missing, locale.forms)
             catalog = Catalog(path, catalog.render())
-        seeded = roots and locale.catalog not in UNSEEDED_LOCALES
+        seeded = roots and locale is not ENGLISH and locale.catalog not in UNSEEDED_LOCALES
         counts = seed(catalog, TrackerIndex.load(roots, locale), locale) if seeded else Counter()
         changed = catalog.save()
         print(f"{path.name}: {len(missing)} added, {counts['exact']} Tracker exact, "
-              f"{counts['normalized']} Tracker normalized{' (written)' if changed else ''}")
+              f"{counts['normalized']} Tracker normalized, {counts['cleared']} cleared{' (written)' if changed else ''}")
     return 0
 
 
@@ -1016,7 +1051,7 @@ def command_check(args) -> int:
     warnings: list[str] = []
     if args.cmake:
         errors += check_cmake()
-    for locale in selected_locales(args.locale):
+    for locale in selected_locales(args.locale, english=True):
         path = catalog_path(locale)
         if not path.is_file():
             errors.append(f"{path.name}: missing catalog")
@@ -1039,7 +1074,7 @@ def command_check(args) -> int:
     for error in errors:
         print(f"error: {error}", file=sys.stderr)
     scope = "against lupdate sources" if sources is not None else "without lupdate completeness"
-    print(f"Checked {len(selected_locales(args.locale))} catalogs {scope}"
+    print(f"Checked {len(selected_locales(args.locale, english=True))} catalogs {scope}"
           f"{' and lrelease' if args.lrelease else ''}: {len(errors)} errors, {len(warnings)} warnings")
     return 1 if errors else 0
 

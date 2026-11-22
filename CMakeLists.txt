@@ -85,8 +85,10 @@ set(motrack_ts_files
     translations/motrack_pt_BR.ts translations/motrack_ru.ts translations/motrack_sk.ts translations/motrack_sl.ts
     translations/motrack_sv.ts translations/motrack_th.ts translations/motrack_tr.ts translations/motrack_uk.ts
     translations/motrack_vi.ts translations/motrack_zh_CN.ts translations/motrack_zh_TW.ts)
+# English plural forms only; shipping it also keeps an English-first language list from selecting a later language.
 qt_add_translations(motrack
     TS_FILES ${motrack_ts_files}
+    PLURALS_TS_FILE translations/motrack_en.ts
     SOURCES src/main_window.cpp src/bound_workspace.cpp src/workspace_window.cpp src/position_plot.cpp src/tracker_image_package.cpp
     RESOURCE_PREFIX "/i18n"
 )
@@ -234,9 +236,9 @@ if(BUILD_TESTING)
     add_test(NAME video_reader COMMAND motrack_media_tests)
     # Catalog validation: every Tracker locale, lupdate completeness, placeholders, plural forms and lrelease.
     find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
-    add_test(NAME translation_catalogs COMMAND Python3::Interpreter -I "${CMAKE_CURRENT_SOURCE_DIR}/tools/translations.py" check
-        --lupdate "$<TARGET_FILE:Qt6::lupdate>" --lrelease "$<TARGET_FILE:Qt6::lrelease>")
-    add_test(NAME translation_tool COMMAND Python3::Interpreter -m unittest discover -s tests -p test_translations.py
+    add_test(NAME translation_catalogs COMMAND Python3::Interpreter -I -X utf8 "${CMAKE_CURRENT_SOURCE_DIR}/tools/translations.py"
+        check --lupdate "$<TARGET_FILE:Qt6::lupdate>" --lrelease "$<TARGET_FILE:Qt6::lrelease>")
+    add_test(NAME translation_tool COMMAND Python3::Interpreter -I -X utf8 -m unittest discover -s tests -p test_translations.py
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME desktop_smoke COMMAND motrack --smoke-test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/point-mass.trk")

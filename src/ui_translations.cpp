@@ -6,12 +6,42 @@
 
 namespace motrack
 {
+namespace
+{
+
+/// Loads MoTrack's catalog for the first language tag that has one. QTranslator tries each tag and its shorter
+/// forms (de-AT, then de). uiLanguages() lists zh-HK, zh-MO and zh-SG without their script, so Chinese regions then
+/// use the catalog for their script: Traditional (Hong Kong, Macao) zh_TW, Simplified (Singapore) zh_CN.
+bool loadFirstCatalog(QTranslator& translator, const QStringList& uiLanguages, const QString& directory)
+{
+    for (const auto& tag : uiLanguages)
+    {
+        const QLocale locale(tag);
+        if (locale.language() == QLocale::C)
+            continue;
+        if (translator.load(locale, "motrack", "_", directory))
+            return true;
+        if (locale.language() == QLocale::Chinese)
+        {
+            const auto catalog =
+                locale.script() == QLocale::TraditionalHanScript ? QStringLiteral("motrack_zh_TW") : QStringLiteral("motrack_zh_CN");
+            if (translator.load(catalog, directory))
+                return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
 
 UiTranslations::UiTranslations(const QLocale& locale, const QString& catalogDirectory)
+    : UiTranslations(locale.uiLanguages(), catalogDirectory)
+{}
+
+UiTranslations::UiTranslations(const QStringList& uiLanguages, const QString& catalogDirectory)
     : m_PreviousDirection(QGuiApplication::layoutDirection())
 {
-    // QTranslator tries each of the locale's UI languages in order, then shorter forms (de_AT, then de).
-    m_MoTrackInstalled = m_MoTrack.load(locale, "motrack", "_", catalogDirectory) && QCoreApplication::installTranslator(&m_MoTrack);
+    m_MoTrackInstalled = loadFirstCatalog(m_MoTrack, uiLanguages, catalogDirectory) && QCoreApplication::installTranslator(&m_MoTrack);
     if (!m_MoTrackInstalled)
     {
         QGuiApplication::setLayoutDirection(Qt::LeftToRight);
