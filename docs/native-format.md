@@ -154,7 +154,8 @@ The writer stores both entries without another compression pass, streams the pay
 and atomically replaces the destination only after the container is complete. The reader rejects extra
 or duplicate entries, links, encryption, malformed/truncated storage and declared/actual size violations.
 The outer file is bounded to the two payload limits plus 8 MiB of ZIP overhead. The retained Tracker archive
-still passes the existing safe-name, 4096-member and 512 MiB expanded-content checks before use.
+still passes the [member-name](#unsafe-and-non-project-archive-members), 4096-member and 512 MiB
+expanded-content checks before use.
 
 On import, the archive adapter first copies the input to an owned, bounded snapshot and extracts from
 that snapshot. The model, original XML and archive payload therefore come from the same copied bytes.
@@ -183,6 +184,39 @@ Older files did not record the selected archive member, so migration keeps it un
 guessing from names or XML. Embedded and external archive sources cannot coexist in one document.
 Standalone media outside an archive still uses external references; version 5 does not copy all local
 movies or image sequences into the native document.
+
+### Unsafe and non-project archive members
+
+Real Tracker archives contain names that must never be extracted: OSP `JarTool.compress` writes absolute
+names such as `C:/Users/<author>/Desktop/.../videos/a.mp4` in Tracker 6.1.x exports, and macOS Finder
+adds `Icon\r` files. A name is unsafe when it is absolute or has a drive-letter/UNC prefix, contains `\`,
+`:` or another reserved character, has an empty, `.`, `..` or trailing-dot/space segment, contains a control
+character or reserved device name, or exceeds 512 characters. As Windows archivers expect, libarchive first
+reads a name whose only separators are `\` with `/` separators; the writer uses the same spelling. The
+reader disables libarchive's macOS-only `__MACOSX` handling, so every platform sees the same entries.
+
+- An unsafe member is never extracted, listed as a project or used to resolve media, and the rest of the
+  archive opens. Its bytes are only hashed, within the 512 MiB expanded-content limit. An unsafe `.trk` name,
+  or a media reference naming an unsafe member (relative, `!/`-qualified or absolute), rejects the archive
+  with an explicit message. Tracker would list that tab or read that member from the ZIP; MoTrack refuses
+  rather than extract it. Other absolute and URL references stay missing as before and are never opened
+  from disk.
+- Duplicate detection compares every name, skipped or not, after `\`→`/`, `.`/`..` resolution, Unicode NFC
+  and case folding, so `./videos/a.mp4` beside `videos/a.mp4` still rejects the archive. Link, special-entry,
+  encryption and member-count checks apply before a name is skipped.
+- `.trk` members that are AppleDouble files (magic `0x00051607`, or a `._` name under `__MACOSX/`) are Finder
+  metadata, not projects. A project that fails to import opens no tab and is reported; the other experiments
+  open, where Tracker shows a failed tab. Both kinds stay extracted and byte-for-byte in saved archives.
+- Standard `.trz` saves omit only redundant unsafe members: exact copies of an extracted member with the
+  same file name (the JarTool duplicate movies) and Finder `Icon\r` files with their `._Icon\r` forks.
+  Tracker uses neither, its own re-export does not copy them, and the copies expose the author's folders.
+  Every other unsafe member is copied byte-for-byte, still unextracted. For example, the absolute
+  `_info.html` page in three ComPADRE archives has no relative copy, and Tracker's Library Browser finds it
+  by file name. The workspace reports skipped members and the omission when such an archive opens and
+  again after each paired save. The immutable source snapshot, and so every native `.motrack`, keeps all
+  original bytes. The writer verifies that only those members disappear, that the rest are skipped again
+  on reopen, and that every extracted member except the edited projects has its original bytes
+  ([#212](https://github.com/mgradwohl/MoTrack/issues/212)).
 
 ## Version-1 migration and remaining work
 
@@ -515,7 +549,7 @@ uses the [ZIP format specification](https://pkware.cachefly.net/webdocs/casestud
 (local headers, descriptors, central records and end record) to replace only the selected payload
 with stored UTF-8 XML and a recomputed CRC32. Untouched compressed local records remain byte-identical;
 central records retain their metadata with adjusted offsets. Entry/archive comments, member order,
-Unicode names and supporting files survive. The edited member retains timestamps, attributes and
+Unicode names and supporting files survive; only [redundant unsafe members](#unsafe-and-non-project-archive-members) are omitted. The edited member retains timestamps, attributes and
 supported timestamp/Unix-identity/Unicode-name extra fields. Unknown extra fields on that edited
 member are refused; untouched members' extra fields remain opaque.
 

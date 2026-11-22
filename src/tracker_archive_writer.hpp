@@ -20,6 +20,7 @@ struct TrackerArchiveReplacement
 
 /// Atomically replace a nonempty set of distinct existing TRK members in one archive.
 /// Retains physical entry order, central-directory order and untouched compressed records/metadata.
+/// Omits only TrackerArchive::omittedOnSave(); other skipped unsafe-named records are copied unchanged.
 /// All replacement XML and the complete staged archive are validated before destination replacement.
 /// The source and extracted members remain unchanged; aggregate sizes retain the reader's limits.
 void writeTrackerArchive(const QString& path,

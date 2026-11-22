@@ -49,6 +49,8 @@ class WorkspaceWindow final : public QMainWindow
     [[nodiscard]] QString documentLabel(QUuid document) const;
     [[nodiscard]] std::optional<QUuid> trackOpen(std::optional<QUuid> request, const QString& label);
     void finishOpen(QUuid request);
+    /// Report skipped unsafe archive members, the ones a standard save omits, and unreadable projects.
+    void reportArchiveLimits(const QList<QUuid>& documents, const QStringList& unreadable);
     bool saveSource(QUuid source);
     [[nodiscard]] std::optional<WorkspaceDiscard> confirmSourceClose(QUuid source);
     bool releaseSource(QUuid source, WorkspaceDiscard discard);

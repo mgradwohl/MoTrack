@@ -1,4 +1,5 @@
 #include "main_window.hpp"
+#include "tracker_archive.hpp"
 
 #include <QAction>
 #include <QDialog>
@@ -103,6 +104,17 @@ MainWindow::MainWindow(std::shared_ptr<WorkspaceContext> workspace, QUuid docume
 const WorkspaceDocument& MainWindow::viewDocument() const
 {
     return m_Workspace ? m_Workspace->session().document(m_WorkspaceDocument) : m_Session.document;
+}
+
+QString MainWindow::pairedSavedMessage() const
+{
+    const auto& archive = viewDocument().archivePayload;
+    const auto omitted = archive ? static_cast<int>(archive->omittedOnSave().size()) : 0;
+    return omitted > 0 ? tr("Tracker project and MoTrack companion saved. The Tracker archive omits %n duplicate or Finder icon "
+                            "member(s) with unsafe names.",
+                            nullptr,
+                            omitted)
+                       : tr("Tracker project and MoTrack companion saved.");
 }
 
 LegacyProject& MainWindow::viewProject()
@@ -302,7 +314,7 @@ bool MainWindow::saveBoundWorkspace(const QString& path, bool paired, bool recov
         statusBar()->showMessage(tr("Project changed while saving. Save again to keep the latest edits."));
         return false;
     }
-    statusBar()->showMessage(paired           ? tr("Tracker project and MoTrack companion saved.")
+    statusBar()->showMessage(paired           ? pairedSavedMessage()
                              : viewModified() ? tr("MoTrack copy saved. Save the Tracker project to keep both files current.")
                                               : tr("Project saved."));
     return true;

@@ -1,5 +1,7 @@
+#include "archive_fixture.hpp"
 #include "main_window.hpp"
 #include "track_identity.hpp"
+#include "tracker_archive.hpp"
 #include "workspace_input.hpp"
 #include "workspace_window.hpp"
 
@@ -241,6 +243,47 @@ TEST(WorkspaceShell, ArchiveTabsAreLazyAndHiddenEditsSaveOnceWithTheWholeSource)
     EXPECT_TRUE(window.context()->session().isModified(source));
     EXPECT_DOUBLE_EQ(window.context()->session().project(documents[1]).pointMasses.front().mass, 9);
     EXPECT_FALSE(window.hideDocument(documents[1]));
+}
+
+TEST(WorkspaceShell, ReportsSkippedArchiveMembersOnOpenAndTheirOmissionOnSave)
+{
+    QTemporaryDir temporary;
+    const auto directory = fixture("linked-images");
+    const auto image = [&](int frame)
+    {
+        QFile file(QString("%1/images/frame%2.png").arg(directory).arg(frame));
+        return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray{};
+    };
+    QFile project(fixture());
+    ASSERT_TRUE(project.open(QIODevice::ReadOnly));
+    std::vector<motrack::test::ArchiveEntry> members{{.name = "experiment.trk", .bytes = project.readAll()},
+                                                     {.name = "images/frame0.png", .bytes = image(0)},
+                                                     {.name = "images/frame1.png", .bytes = image(1)},
+                                                     {.name = "images/frame2.png", .bytes = image(2)},
+                                                     {.name = "images/frame3.png", .bytes = image(3)},
+                                                     {.name = "videos/a.mp4", .bytes = motrack::test::duplicateMovieBytes()},
+                                                     {.name = "broken.trk", .bytes = "invalid xml"}};
+    for (auto& unsafe : motrack::test::unsafeTrackerExportMembers())
+        members.push_back(std::move(unsafe));
+    const auto path = temporary.filePath("library.trz");
+    ASSERT_TRUE(motrack::test::writeArchive(path, members));
+    motrack::WorkspaceWindow window;
+    window.show();
+    ASSERT_TRUE(openProject(window, path));
+    ASSERT_EQ(tabs(window)->count(), 1);
+    const auto opened = window.statusBar()->currentMessage();
+    EXPECT_TRUE(opened.contains("4 archive member(s) with unsafe names were not extracted")) << opened.toStdString();
+    EXPECT_TRUE(opened.contains("omits 3 of them")) << opened.toStdString();
+    EXPECT_TRUE(opened.contains("broken.trk")) << opened.toStdString();
+    ASSERT_TRUE(editMass(window, 7));
+    const auto standard = temporary.filePath("saved.trz");
+    ASSERT_TRUE(editor(window)->saveTrackerProject(standard));
+    const auto saved = editor(window)->statusBar()->currentMessage();
+    EXPECT_TRUE(saved.contains("omits 3 duplicate or Finder icon member(s)")) << saved.toStdString();
+    const auto archive = motrack::TrackerArchive::open(standard);
+    EXPECT_EQ(archive.skippedMembers(), QStringList{"C:/Users/x/AppData/Local/Temp/tracker1/html/experiment_info.html"});
+    EXPECT_EQ(archive.projects(), (QStringList{"broken.trk", "experiment.trk"}));
+    EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(archive.projectPath("experiment.trk")).project.pointMasses.front().mass, 7);
 }
 
 TEST(WorkspaceShell, CloseProjectCancelSaveAndDiscardIncludeHiddenMembers)

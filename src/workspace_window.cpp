@@ -2,6 +2,7 @@
 
 #include "local_media_path.hpp"
 #include "main_window.hpp"
+#include "tracker_archive.hpp"
 
 #include <QAction>
 #include <QCloseEvent>
@@ -250,10 +251,11 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
     connect(m_Context.get(),
             &WorkspaceContext::inputOpened,
             this,
-            [this](QUuid request, QUuid, const QList<QUuid>& documents)
+            [this](QUuid request, QUuid, const QList<QUuid>& documents, const QStringList& unreadable)
             {
                 finishOpen(request);
                 addDocuments(documents);
+                reportArchiveLimits(documents, unreadable);
             });
     connect(m_Context.get(),
             &WorkspaceContext::inputFailed,
@@ -337,6 +339,30 @@ void WorkspaceWindow::finishOpen(QUuid request)
 {
     delete m_Opening.take(request);
     m_Pending->setVisible(m_Pending->count() > 0);
+}
+
+void WorkspaceWindow::reportArchiveLimits(const QList<QUuid>& documents, const QStringList& unreadable)
+{
+    if (documents.isEmpty())
+        return;
+    QStringList notices;
+    if (const auto& archive = m_Context->session().document(documents.front()).archivePayload)
+    {
+        const auto skipped = static_cast<int>(archive->skippedMembers().size());
+        const auto omitted = static_cast<int>(archive->omittedOnSave().size());
+        if (skipped > 0)
+            notices.push_back(tr("%n archive member(s) with unsafe names were not extracted.", nullptr, skipped));
+        if (omitted > 0)
+            notices.push_back(
+                tr("Saving this Tracker archive omits %n of them: duplicate copies and Finder icon files.", nullptr, omitted));
+    }
+    if (!unreadable.isEmpty())
+        notices.push_back(tr("Could not read %n Tracker project(s) in this archive: %1. Saving keeps their files unchanged.",
+                             nullptr,
+                             static_cast<int>(unreadable.size()))
+                              .arg(unreadable.join(QStringLiteral(", "))));
+    if (!notices.isEmpty())
+        statusBar()->showMessage(notices.join(' '));
 }
 
 std::optional<QUuid> WorkspaceWindow::currentDocument() const

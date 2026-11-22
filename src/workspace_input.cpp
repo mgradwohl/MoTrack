@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 #include <utility>
 
 namespace motrack
@@ -72,10 +73,24 @@ PreparedWorkspaceInput prepareWorkspaceInput(const QString& path, const std::ato
         ArchiveGroup group{.id = QUuid::createUuid(), .archive = archive, .members = {}};
         group.members.reserve(static_cast<std::size_t>(archive->projects().size()));
         result.mediaProjectPath = QDir(archive->root()).absoluteFilePath("archive.trk");
+        std::string firstFailure;
         for (const auto& member : archive->projects())
         {
             checkCancellation(cancelled);
-            auto loaded = importTrackerDocument(archive->projectPath(member));
+            WorkspaceDocument loaded;
+            try
+            {
+                loaded = importTrackerDocument(archive->projectPath(member));
+            }
+            catch (const ProjectError& error)
+            {
+                // Tracker reports a tab it cannot read and still opens the others. Keep this member's
+                // bytes untouched for saving; media, safety and cancellation failures stay fatal below.
+                if (firstFailure.empty())
+                    firstFailure = error.what();
+                result.unreadableProjects.append(member);
+                continue;
+            }
             archive->resolveMedia(loaded.project, member);
             loaded.archivePayload = archive;
             loaded.archiveMember = member.toStdString();
@@ -85,7 +100,7 @@ PreparedWorkspaceInput prepareWorkspaceInput(const QString& path, const std::ato
         }
         checkCancellation(cancelled);
         if (group.members.empty())
-            throw ProjectError("Tracker archive contains no experiments.");
+            throw ProjectError(firstFailure.empty() ? "Tracker archive contains no experiments." : firstFailure);
         result.group = std::make_unique<ArchiveGroupSession>();
         // Validate the complete group once; incremental append revalidates every preceding member.
         result.group->replace(std::move(group), path, ArchiveGroupSource::Tracker);

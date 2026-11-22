@@ -42,6 +42,7 @@
     <message><source>Tracker archives (*.trz)</source><translation type="unfinished"></translation></message>
     <message><source>Tracker file saved. The MoTrack companion needs recovery.</source><translation type="unfinished"></translation></message>
     <message><source>Tracker project and MoTrack companion saved.</source><translation type="unfinished"></translation></message>
+    <message numerus="yes"><source>Tracker project and MoTrack companion saved. The Tracker archive omits %n duplicate or Finder icon member(s) with unsafe names.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform></translation></message>
     <message><source>Tracker projects (*.trk)</source><translation type="unfinished"></translation></message>
     <message><source>Saving project…</source><translation>Projekt wird gespeichert…</translation></message>
     <message><source>Project changed while saving. Save again to keep the latest edits.</source><translation>Das Projekt wurde während des Speicherns geändert. Speichern Sie erneut, um die neuesten Änderungen zu behalten.</translation></message>
@@ -298,6 +299,21 @@
     <message>
         <source>Opening canceled.</source>
         <translation type="unfinished" />
+    </message>
+    <message numerus="yes">
+        <source>%n archive member(s) with unsafe names were not extracted.</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message numerus="yes">
+        <source>Saving this Tracker archive omits %n of them: duplicate copies and Finder icon files.</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message numerus="yes">
+        <source>Could not read %n Tracker project(s) in this archive: %1. Saving keeps their files unchanged.</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
     </message>
     <message>
         <source>Two files are already opening. Wait for one to finish or cancel an open.</source>

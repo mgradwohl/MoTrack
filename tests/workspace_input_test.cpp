@@ -3,6 +3,7 @@
 #include "archive_fixture.hpp"
 #include "main_window.hpp"
 #include "tracker_archive.hpp"
+#include "tracker_writer.hpp"
 #include "workspace_context.hpp"
 #include "workspace_document_codec.hpp"
 
@@ -19,6 +20,11 @@
 
 #include <algorithm>
 #include <array>
+#include <initializer_list>
+#include <span>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace
 {
@@ -157,6 +163,87 @@ TEST(WorkspaceInput, CompleteImageAndMovieArchivesKeepAllMembersAndSourceAfterOr
     }
 }
 
+// The linked-image experiment and its four frames as archive members.
+std::vector<motrack::test::ArchiveEntry> imageExperiment(const QByteArray& xml)
+{
+    std::vector<motrack::test::ArchiveEntry> members{{.name = "experiment.trk", .bytes = xml}};
+    for (const auto& [member, file] :
+         std::initializer_list<std::pair<const char*, const char*>>{{"images/frame0.png", "linked-images/images/frame0.png"},
+                                                                    {"images/frame1.png", "linked-images/images/frame1.png"},
+                                                                    {"images/frame2.png", "linked-images/images/frame2.png"},
+                                                                    {"images/frame3.png", "linked-images/images/frame3.png"}})
+        members.push_back({.name = member, .bytes = bytes(fixture(file))});
+    return members;
+}
+
+TEST(WorkspaceInput, OpensArchivesWithUnsafeMacAndUnreadableMembersAndKeepsTheirBytesForSaving)
+{
+    QTemporaryDir temporary;
+    auto members = imageExperiment(bytes(fixture()));
+    for (auto& unsafe : motrack::test::unsafeTrackerExportMembers())
+        members.push_back(std::move(unsafe));
+    members.insert(members.end(),
+                   {{.name = "C:/Users/x/images/frame0.png", .bytes = bytes(fixture("linked-images/images/frame0.png"))},
+                    {.name = "videos/a.mp4", .bytes = motrack::test::duplicateMovieBytes()},
+                    {.name = "__MACOSX/._experiment.trk", .bytes = motrack::test::appleDoubleBytes()},
+                    {.name = "broken.trk", .bytes = "invalid xml"}});
+    const auto path = temporary.filePath("library.trz");
+    ASSERT_TRUE(motrack::test::writeArchive(path, members));
+    auto prepared = motrack::prepareWorkspaceInput(path);
+    ASSERT_TRUE(prepared.group);
+    EXPECT_EQ(prepared.unreadableProjects, QStringList{"broken.trk"});
+    const auto snapshot = prepared.group->prepareSave().snapshot;
+    ASSERT_EQ(snapshot.members.size(), 1u);
+    EXPECT_EQ(snapshot.members.front().member, "experiment.trk");
+    EXPECT_EQ(snapshot.archive->projects(), (QStringList{"broken.trk", "experiment.trk"}));
+    EXPECT_EQ(snapshot.archive->skippedMembers().size(), 5);
+    EXPECT_EQ(snapshot.archive->omittedOnSave(), motrack::test::omittedTrackerExportMembers() << "C:/Users/x/images/frame0.png");
+    EXPECT_EQ(snapshot.members.front().document.project.clip.mediaReferences,
+              (std::vector<std::string>{"images/frame0.png", "images/frame1.png", "images/frame2.png", "images/frame3.png"}));
+
+    // Standard saving keeps the unreadable project, Finder metadata and the unique info page byte-for-byte;
+    // duplicate absolute copies and Finder icons are omitted.
+    const auto standard = temporary.filePath("saved.trz");
+    motrack::writeTrackerArchiveDocuments(standard, std::span(&snapshot.members.front().document, 1));
+    const auto saved = motrack::TrackerArchive::open(standard);
+    EXPECT_EQ(saved.skippedMembers(), QStringList{"C:/Users/x/AppData/Local/Temp/tracker1/html/experiment_info.html"});
+    EXPECT_EQ(bytes(QDir(saved.root()).filePath("broken.trk")), "invalid xml");
+    ASSERT_TRUE(saved.memberDigests().contains("__MACOSX/._experiment.trk"));
+    EXPECT_EQ(saved.memberDigests().value("__MACOSX/._experiment.trk"),
+              snapshot.archive->memberDigests().value("__MACOSX/._experiment.trk"));
+    // The native companion embeds the exact original archive, unsafe members included.
+    const auto native = temporary.filePath("library.motrack");
+    motrack::writeArchiveGroup(native, snapshot);
+    const auto reopened = motrack::prepareWorkspaceInput(native);
+    EXPECT_EQ(reopened.group->prepareSave().snapshot.archive->sourceDigest(), snapshot.archive->sourceDigest());
+    EXPECT_EQ(reopened.group->prepareSave().snapshot.archive->skippedMembers(), snapshot.archive->skippedMembers());
+}
+
+TEST(WorkspaceInput, RefusesAnArchiveWhoseProjectUsesAnUnsafeMember)
+{
+    QTemporaryDir temporary;
+    auto xml = bytes(fixture());
+    xml.replace("images/frame2.png", "C:/Users/x/images/frame2.png");
+    auto members = imageExperiment(xml);
+    members.push_back({.name = "C:/Users/x/images/frame2.png", .bytes = bytes(fixture("linked-images/images/frame2.png"))});
+    const auto path = temporary.filePath("absolute.trz");
+    ASSERT_TRUE(motrack::test::writeArchive(path, members));
+    try
+    {
+        (void)motrack::prepareWorkspaceInput(path);
+        FAIL() << "An unsafe media member must not open.";
+    }
+    catch (const motrack::ProjectError& error)
+    {
+        EXPECT_TRUE(QString::fromUtf8(error.what()).contains("unsafe name"));
+    }
+    // An absolute reference to a file outside the archive stays missing, never a local fallback.
+    members.pop_back();
+    ASSERT_TRUE(motrack::test::writeArchive(path, members));
+    const auto prepared = motrack::prepareWorkspaceInput(path);
+    EXPECT_EQ(prepared.group->prepareSave().snapshot.members.front().document.project.clip.mediaReferences[2], "");
+}
+
 TEST(WorkspaceInput, NativeGroupKeepsExactSavedMembershipOrderAndEdits)
 {
     QTemporaryDir temporary;
@@ -236,8 +323,8 @@ TEST(WorkspaceInput, RejectsInvalidOrCancelledInputsAndAmbiguousAdoptionWithoutC
     const auto id = opened.documents.front();
     ASSERT_TRUE(workspace.history(id).setPointMassValue(workspace.project(id), 0, 17));
     const auto tracking = workspace.beginJob(id, motrack::WorkspaceJob::AutoTrack);
-    const auto malformed = temporary.filePath("partial.trz");
-    ASSERT_TRUE(motrack::test::writeArchive(malformed, {{"valid.trk", bytes(fixture())}, {"broken.trk", "invalid xml"}}));
+    const auto malformed = temporary.filePath("broken.trz");
+    ASSERT_TRUE(motrack::test::writeArchive(malformed, {{"broken.trk", "invalid xml"}, {"other.trk", "<object/>"}}));
     EXPECT_THROW((void)motrack::prepareWorkspaceInput(malformed), motrack::ProjectError);
     EXPECT_THROW((void)motrack::prepareWorkspaceInput(temporary.filePath("missing.trk")), motrack::ProjectError);
     const auto unsupported = temporary.filePath("input.txt");

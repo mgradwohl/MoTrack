@@ -8,6 +8,7 @@
 #include <QFileInfo>
 #include <QHash>
 #include <QSaveFile>
+#include <QSet>
 #include <QtEndian>
 
 #include <algorithm>
@@ -77,6 +78,7 @@ struct Entry
     qint64 offset = 0;
     qint64 end = 0;
     std::optional<std::size_t> replacement;
+    bool omitted = false;
 };
 
 struct Directory
@@ -86,7 +88,10 @@ struct Directory
     qint64 offset = 0;
 };
 
-Directory readDirectory(QFile& input, const QHash<QString, std::size_t>& replacements, const std::atomic_bool* cancelled)
+Directory readDirectory(QFile& input,
+                        const QHash<QString, std::size_t>& replacements,
+                        const QSet<QString>& omissions,
+                        const std::atomic_bool* cancelled)
 {
     Directory result;
     const auto tailOffset = std::max(qint64{0}, input.size() - 65557);
@@ -130,8 +135,19 @@ Directory readDirectory(QFile& input, const QHash<QString, std::size_t>& replace
         require(number<quint16>(central, 6) <= 20 && (flags & ~0x080e) == 0 && (method == 0 || method == 8) &&
                 (method != 0 || (flags & 6) == 0) && nameSize > 0 && name.toUtf8() == nameBytes &&
                 ((flags & 0x0800) != 0 || std::ranges::all_of(nameBytes, [](char c) { return static_cast<unsigned char>(c) < 128; })));
-        const auto match = replacements.constFind(name);
+        // Use the reader's spelling: libarchive turns a name that has only '\' separators into '/'
+        // separators (for the "version needed" values accepted here), and drops a directory's final '/'.
+        auto member = name;
+        if (!member.contains('/'))
+            member.replace('\\', '/');
+        const auto match = replacements.constFind(member);
         const bool selected = match != replacements.cend();
+        if (member.endsWith('/'))
+            member.chop(1);
+        // Drop only redundant skipped members (duplicate copies and Finder icons); every other record,
+        // including other unsafe names, stays byte-for-byte (see docs/native-format.md).
+        const bool omitted = omissions.contains(member);
+        require(!selected || !omitted);
         std::optional<std::size_t> replacement;
         if (selected)
         {
@@ -171,7 +187,8 @@ Directory readDirectory(QFile& input, const QHash<QString, std::size_t>& replace
                                   .selectedLocal = selected ? std::move(local) : QByteArray{},
                                   .offset = offset,
                                   .end = entryEnd,
-                                  .replacement = replacement});
+                                  .replacement = replacement,
+                                  .omitted = omitted});
     }
     require(position == directory.size() && std::ranges::all_of(seen, [](bool matched) { return matched; }));
     std::vector<std::pair<qint64, qint64>> ranges;
@@ -290,7 +307,8 @@ void writeTrackerArchive(const QString& path,
     input.close();
     original.close();
     require(input.open(QIODevice::ReadOnly), "Could not reopen the verified Tracker archive source.");
-    auto directory = readDirectory(input, replacementIndexes, cancelled);
+    const QSet<QString> omissions(source.omittedOnSave().cbegin(), source.omittedOnSave().cend());
+    auto directory = readDirectory(input, replacementIndexes, omissions, cancelled);
     // Local records and central-directory records need not use the same ordering.
     // Compute all final offsets first, but leave the directory itself in its original order.
     std::vector<std::size_t> physicalOrder;
@@ -304,6 +322,11 @@ void writeTrackerArchive(const QString& path,
     {
         checkCancelled(cancelled);
         auto& entry = directory.entries[index];
+        if (entry.omitted)
+        {
+            delta -= entry.end - entry.offset;
+            continue;
+        }
         const auto finalOffset = entry.offset + delta;
         require(finalOffset >= 0 && finalOffset <= MAX_TRACKER_ARCHIVE_BYTES);
         setNumber<quint32>(entry.central, 42, static_cast<quint32>(finalOffset));
@@ -328,7 +351,18 @@ void writeTrackerArchive(const QString& path,
         extractedSize += number<quint32>(entry.central, 24);
         require(extractedSize <= MAX_TRACKER_EXTRACTED_BYTES);
     }
-    require(input.size() + delta > 0 && input.size() + delta <= MAX_TRACKER_ARCHIVE_BYTES);
+    qint64 directorySize = 0;
+    quint16 retained = 0;
+    for (const auto& entry : directory.entries)
+    {
+        if (!entry.omitted)
+        {
+            directorySize += entry.central.size();
+            ++retained;
+        }
+    }
+    const auto outputSize = directory.offset + delta + directorySize + directory.endRecord.size();
+    require(retained > 0 && outputSize > 0 && outputSize <= MAX_TRACKER_ARCHIVE_BYTES);
     const auto stagedPath = temporary.filePath("validated.trz");
     QFile staged(stagedPath);
     require(staged.open(QIODevice::WriteOnly | QIODevice::NewOnly), "Could not create a staged Tracker archive.");
@@ -336,6 +370,8 @@ void writeTrackerArchive(const QString& path,
     {
         checkCancelled(cancelled);
         const auto& entry = directory.entries[index];
+        if (entry.omitted)
+            continue;
         require(staged.pos() == number<quint32>(entry.central, 42));
         if (entry.replacement)
         {
@@ -351,15 +387,33 @@ void writeTrackerArchive(const QString& path,
     for (auto& entry : directory.entries)
     {
         checkCancelled(cancelled);
-        writeBytes(staged, entry.central);
+        if (!entry.omitted)
+            writeBytes(staged, entry.central);
     }
+    setNumber<quint16>(directory.endRecord, 8, retained);
+    setNumber<quint16>(directory.endRecord, 10, retained);
+    setNumber<quint32>(directory.endRecord, 12, static_cast<quint32>(directorySize));
     setNumber<quint32>(directory.endRecord, 16, static_cast<quint32>(directory.offset + delta));
     writeBytes(staged, directory.endRecord);
-    require(staged.flush() && staged.size() == input.size() + delta, "Could not finish writing the staged Tracker archive.");
+    require(staged.flush() && staged.size() == outputSize, "Could not finish writing the staged Tracker archive.");
     staged.close();
     {
         const auto verified = TrackerArchive::open(stagedPath, cancelled);
-        require(verified.projects() == source.projects());
+        // Only the redundant skipped members disappear; the reader sees every other one again.
+        auto skipped = source.skippedMembers();
+        for (const auto& omitted : source.omittedOnSave())
+            skipped.removeOne(omitted);
+        require(verified.projects() == source.projects() && verified.skippedMembers() == skipped && verified.omittedOnSave().isEmpty());
+        // Exactly the original extracted inventory survives: only the replaced projects may change bytes.
+        const auto& before = source.memberDigests();
+        const auto& after = verified.memberDigests();
+        require(after.size() == before.size());
+        for (auto member = before.cbegin(); member != before.cend(); ++member)
+        {
+            checkCancelled(cancelled);
+            const auto found = after.constFind(member.key());
+            require(found != after.cend() && (replacementIndexes.contains(member.key()) || *found == member.value()));
+        }
         for (const auto& replacement : replacements)
         {
             checkCancelled(cancelled);
