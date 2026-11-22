@@ -1,8 +1,11 @@
+#Requires -Version 7
 # Tests for tools/setup-dev.ps1, adapted from TaskSmack's tools/test-setup-dev.ps1. The script is
 # dot-sourced (it returns before its install steps then) and its functions run against stub winget,
 # Start-Process, Invoke-WebRequest and installed-LLVM readers that record their calls; nothing is
 # installed, uninstalled or downloaded. The registry reader runs against a scratch key under HKCU that
-# the test deletes. Last, the whole script runs with -DryRun and a stub winget.cmd first on PATH.
+# the test deletes. Then tools/dev-env.ps1, which setup sources, activates fake SDKs from a scratch
+# repository and its linked worktree. Last, the whole script runs with -DryRun and a stub winget.cmd
+# first on PATH.
 # Run with: pwsh -NoProfile -File tools/test-setup-dev.ps1
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -142,7 +145,7 @@ $realGetInstalledLlvm = ${function:Get-InstalledLlvm}
 $LlvmState = @{ Installed = @(); Release = $null; After = $LlvmVersion; ExitCode = 0; Hash = $LlvmSha256 }
 function Get-InstalledLlvm { $LlvmState.Installed }
 function Get-LlvmClangRelease { $LlvmState.Release }
-function Invoke-WebRequest { param([string]$Uri, [string]$OutFile) $script:Calls.Add("download $Uri"); Set-Content -LiteralPath $OutFile -Value 'stub' }
+function Invoke-WebRequest { param([string]$Uri, [string]$OutFile) $script:Calls.Add("download $Uri"); Set-Content -LiteralPath $OutFile -Value 'stub' -Encoding utf8 }
 function Get-FileHash { param([string]$LiteralPath, [string]$Algorithm) [pscustomobject]@{ Hash = $LlvmState.Hash.ToUpperInvariant() } }
 function Start-Process {
     param([string]$FilePath, [string]$ArgumentList, [switch]$Wait, [switch]$PassThru)
@@ -270,17 +273,119 @@ try {
     Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# -- tools/dev-env.ps1 finds the one .dev-tools a checkout shares with its linked worktrees ------------
+# A scratch MoTrack checkout, a linked worktree of it and a plain directory (tools/scratch-git.ps1), each
+# with a copy of the tools dev-env.ps1 runs. A fake SDK is Qt's and FFmpeg's CMake package files holding a
+# label; the probe prints the labels of the SDKs dev-env.ps1 activated. As in a git hook, GIT_DIR,
+# GIT_WORK_TREE and GIT_INDEX_FILE point at a decoy repository, which nothing may change.
+$pwsh = (Get-Process -Id $PID).Path
+if (-not (Get-Command git -CommandType Application -ErrorAction SilentlyContinue)) {
+    Write-Warning 'git is not on PATH; skipping the dev-env.ps1 worktree tests.'
+} else {
+    . (Join-Path $PSScriptRoot 'scratch-git.ps1')
+    $work = Join-Path ([IO.Path]::GetTempPath()) "motrack-dev-env-tests-$([guid]::NewGuid().ToString('N'))"
+    $savedEnv = Save-ScratchEnvironment 'MOTRACK_DEV_TOOLS', 'CMAKE_PREFIX_PATH', 'MOTRACK_FFMPEG_ROOT'
+    $devEnvTools = 'dev-env.ps1', 'dev_sdk.py', 'media_sdk.py', 'toolchain.env'
+    function New-FakeSdk {
+        param([string]$DevTools, [string]$Label)
+        foreach ($file in "windows\qt\$($pinned.MOTRACK_QT_VERSION)\msvc2022_64\lib\cmake\Qt6\Qt6Config.cmake", 'vcpkg\installed\x64-windows\share\ffmpeg\FindFFMPEG.cmake') {
+            $path = Join-Path $DevTools $file
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path) | Out-Null
+            Set-Content -LiteralPath $path -Value $Label -Encoding utf8
+        }
+    }
+    function Get-ActivatedSdk {
+        param([string]$Checkout)
+        $lines = @(& $pwsh -NoProfile -File $probe -Checkout $Checkout 2>&1 | ForEach-Object { "$_" })
+        Assert-True ($LASTEXITCODE -eq 0) "dev-env.ps1 in $Checkout exited $LASTEXITCODE`:`n$($lines -join "`n")"
+        return $lines[-1]
+    }
+    try {
+        New-Item -ItemType Directory -Path $work | Out-Null
+        Initialize-ScratchGit -Root $work
+        Remove-Item Env:MOTRACK_DEV_TOOLS, Env:CMAKE_PREFIX_PATH, Env:MOTRACK_FFMPEG_ROOT -ErrorAction SilentlyContinue
+        $decoy = Join-Path $work 'decoy'
+        $decoyState = Set-HookGitEnvironment -Decoy $decoy
+        $hookVariables = Save-ScratchEnvironment
+        $scratch = New-ScratchWorktree -Root $work -Tools $devEnvTools
+        $main = $scratch.Main
+        $linked = $scratch.Linked
+        $plain = Join-Path $work 'plain'
+        Copy-ScratchTool -Checkout $plain -Tools $devEnvTools
+        $probe = Join-Path $work 'probe.ps1'
+        Set-Content -LiteralPath $probe -Encoding utf8 -Value @'
+#Requires -Version 7
+# Activates a checkout's tools/dev-env.ps1, then prints the labels of the Qt and FFmpeg it found.
+param([string]$Checkout)
+# Only the SDK lookup is under test, so Visual Studio's developer shell is skipped.
+$env:VCToolsInstallDir = 'C:\stub\'
+$env:WindowsSdkDir = 'C:\stub\'
+$env:VSCMD_ARG_TGT_ARCH = 'x64'
+. (Join-Path $Checkout 'tools\dev-env.ps1')
+function Get-Label {
+    param([string]$Prefix, [string]$File)
+    if ($Prefix -and (Test-Path -LiteralPath (Join-Path $Prefix $File))) { return Get-Content -LiteralPath (Join-Path $Prefix $File) -Encoding utf8 -TotalCount 1 }
+    return 'none'
+}
+$qt = @("$env:CMAKE_PREFIX_PATH" -split ';')[0]
+"$(Get-Label $qt 'lib\cmake\Qt6\Qt6Config.cmake') $(Get-Label "$env:MOTRACK_FFMPEG_ROOT" 'share\ffmpeg\FindFFMPEG.cmake')"
+'@
+        Assert-True ((Get-ScratchRepositoryState $main) -eq '1 commits, 2 worktrees') "scratch repository: $(Get-ScratchRepositoryState $main)"
+        New-FakeSdk -DevTools (Join-Path $main '.dev-tools') -Label main
+        $found = Get-ActivatedSdk $linked
+        Assert-True ($found -eq 'main main') "worktree without a .dev-tools, under a hook's GIT_DIR: activated [$found]"
+        foreach ($name in 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE') { Remove-Item -LiteralPath "Env:$name" }
+        $found = Get-ActivatedSdk $linked
+        Assert-True ($found -eq 'main main') "worktree without a .dev-tools: activated [$found]"
+        Restore-ScratchEnvironment $hookVariables
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $linked '.dev-tools'))) 'dev-env.ps1 created a .dev-tools in the worktree'
+        # What a worktree's .dev-tools can hold without an SDK does not hide the shared one.
+        New-Item -ItemType Directory -Path (Join-Path $linked '.dev-tools\tracker-reference') | Out-Null
+        Set-Content -LiteralPath (Join-Path $linked '.dev-tools\.DS_Store') -Value '' -Encoding utf8
+        $found = Get-ActivatedSdk $linked
+        Assert-True ($found -eq 'main main') "worktree .dev-tools without an SDK: activated [$found]"
+        $env:MOTRACK_DEV_TOOLS = Join-Path $work 'override'
+        New-FakeSdk -DevTools $env:MOTRACK_DEV_TOOLS -Label override
+        $found = Get-ActivatedSdk $linked
+        Assert-True ($found -eq 'override override') "MOTRACK_DEV_TOOLS: activated [$found]"
+        # A relative MOTRACK_DEV_TOOLS is relative to the checkout, not to this test's working directory.
+        $env:MOTRACK_DEV_TOOLS = 'relative-sdk'
+        New-FakeSdk -DevTools (Join-Path $linked 'relative-sdk') -Label relative
+        $found = Get-ActivatedSdk $linked
+        Assert-True ($found -eq 'relative relative') "relative MOTRACK_DEV_TOOLS: activated [$found]"
+        Remove-Item Env:MOTRACK_DEV_TOOLS
+        New-FakeSdk -DevTools (Join-Path $linked '.dev-tools') -Label linked
+        $found = Get-ActivatedSdk $linked
+        Assert-True ($found -eq 'linked linked') "worktree with its own SDKs: activated [$found]"
+        # Not a git checkout: git has no main checkout to offer, so only its own .dev-tools (none) counts.
+        $found = Get-ActivatedSdk $plain
+        Assert-True ($found -eq 'none none') "plain directory: activated [$found]"
+        $after = Get-ScratchRepositoryState $decoy
+        Assert-True ($after -eq $decoyState) "the scratch git commands changed the repository GIT_DIR named: $decoyState, then $after"
+    } finally {
+        Restore-ScratchEnvironment $savedEnv
+        if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
+    }
+}
+
 # -- The whole script under -DryRun, with a stub winget.cmd first on PATH ---------------------------
 $root = Join-Path ([IO.Path]::GetTempPath()) "motrack-setup-dev-tests-$([guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory -Path $root | Out-Null
 $savedPath = $env:Path
+$savedDevTools = $env:MOTRACK_DEV_TOOLS
 try {
     [IO.File]::WriteAllText((Join-Path $root 'winget.cmd'), "@echo STUB WINGET RAN %*`r`n@exit /b 1`r`n")
     $env:Path = "$root;$env:Path"
-    $pwsh = (Get-Process -Id $PID).Path
+    # Setup installs the SDKs into the .dev-tools that tools/dev_sdk.py dev-tools resolves.
+    $env:MOTRACK_DEV_TOOLS = Join-Path $root 'shared-sdk'
     $output = & $pwsh -NoProfile -File $setup -DryRun -Build 2>&1 | Out-String
     Assert-True ($LASTEXITCODE -eq 0) "setup-dev.ps1 -DryRun exited $LASTEXITCODE`:`n$output"
     Assert-True (-not $output.Contains('STUB WINGET RAN')) "-DryRun ran winget:`n$output"
+    if (Get-MoTrackPython) {
+        foreach ($step in 'dev_sdk.py', 'media_sdk.py') {
+            Assert-True ($output -match "\[dry-run\] python tools/$([regex]::Escape($step)) install \(.*, into $([regex]::Escape($env:MOTRACK_DEV_TOOLS))\)") "-DryRun does not install $step into MOTRACK_DEV_TOOLS:`n$output"
+        }
+    }
     Assert-True ($output.Contains("LLVM $LlvmVersion, CMake $($pinned.MOTRACK_CMAKE_VERSION), Ninja $($pinned.MOTRACK_NINJA_VERSION)")) "-DryRun does not print the pins:`n$output"
     # The LLVM step depends on this machine: it installs the pin, keeps the pinned major, or (on a CI
     # image with another LLVM registered in C:\Program Files\LLVM) stops for -ReplaceLlvm.
@@ -290,5 +395,6 @@ try {
     Write-Host 'setup-dev.ps1 tests passed'
 } finally {
     $env:Path = $savedPath
+    $env:MOTRACK_DEV_TOOLS = $savedDevTools
     Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
 }

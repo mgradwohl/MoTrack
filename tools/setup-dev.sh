@@ -95,6 +95,10 @@ case "$(uname -s)" in
 esac
 
 cd "$repo"
+# One SDK install for the checkout and its linked worktrees (CONTRIBUTING.md#developer-setup).
+if command -v python3 >/dev/null 2>&1; then
+    printf '==> Qt, FFmpeg and libarchive SDKs in %s\n' "$(python3 tools/dev_sdk.py dev-tools)"
+fi
 run python3 tools/dev_sdk.py install
 run python3 tools/media_sdk.py install
 if $dry_run; then
