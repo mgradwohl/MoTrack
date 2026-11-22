@@ -201,6 +201,66 @@ class CorpusTests(unittest.TestCase):
                                           self.root / "reference.jar", self.root / "output", ":77")
             run.assert_not_called()
 
+    def test_private_display_waits_for_a_cold_start_and_reports_xvfb_diagnostics(self):
+        output = {"text": b"(EE) Fatal server error: Cannot establish any listening sockets"}
+
+        class Server:
+            def __init__(self, command, *, pass_fds, stdout, stderr):
+                self.command = command
+                stderr.write(output["text"])
+                stderr.flush()
+
+            def poll(self):
+                return None
+
+            def terminate(self):
+                pass
+
+            def wait(self, timeout=None):
+                return 0
+
+        timeouts = []
+
+        def never_ready(readers, writers, errors, timeout):
+            timeouts.append(timeout)
+            return [], [], []
+
+        with patch.object(corpus.sys, "platform", "linux"), patch.object(corpus.shutil, "which", return_value="Xvfb"), \
+                patch.object(corpus.subprocess, "Popen", Server), patch.object(corpus.select, "select", never_ready):
+            with self.assertRaisesRegex(ValueError, r"within 30 s: \(EE\) Fatal server error"):
+                with corpus.private_display():
+                    self.fail("display must not be yielded")
+        self.assertEqual(timeouts, [corpus.XVFB_READY_SECONDS])
+
+        # A server that answers with something other than a display number is reported with its diagnostics.
+        with patch.object(corpus.sys, "platform", "linux"), patch.object(corpus.shutil, "which", return_value="Xvfb"), \
+                patch.object(corpus.subprocess, "Popen", Server), \
+                patch.object(corpus.select, "select", lambda readers, *_: (readers, [], [])), \
+                patch.object(corpus.os, "read", return_value=b"not a display\n"):
+            with self.assertRaisesRegex(ValueError, r"failed to start: \(EE\) Fatal server error"):
+                with corpus.private_display():
+                    self.fail("display must not be yielded")
+
+        # The fatal line comes last after a long preamble of warnings; the error keeps that tail.
+        output["text"] = b"Warning: Could not resolve keysym XF86Example\n" * 80 + b"(EE) Fatal server error: real cause"
+        self.assertGreater(len(output["text"]), corpus.XVFB_LOG_BYTES)
+        with patch.object(corpus.sys, "platform", "linux"), patch.object(corpus.shutil, "which", return_value="Xvfb"), \
+                patch.object(corpus.subprocess, "Popen", Server), patch.object(corpus.select, "select", never_ready):
+            with self.assertRaises(ValueError) as raised:
+                with corpus.private_display():
+                    self.fail("display must not be yielded")
+        message = str(raised.exception)
+        self.assertTrue(message.endswith("(EE) Fatal server error: real cause"), message[-200:])
+        self.assertLessEqual(len(message), corpus.XVFB_LOG_BYTES + 100)
+
+        # Without diagnostics the message has no dangling separator.
+        output["text"] = b""
+        with patch.object(corpus.sys, "platform", "linux"), patch.object(corpus.shutil, "which", return_value="Xvfb"), \
+                patch.object(corpus.subprocess, "Popen", Server), patch.object(corpus.select, "select", never_ready):
+            with self.assertRaisesRegex(ValueError, r"^Private Xvfb display did not become ready within 30 s$"):
+                with corpus.private_display():
+                    self.fail("display must not be yielded")
+
     def test_failed_multitab_session_cleans_its_private_home_and_outputs(self):
         manifest = corpus.load_manifest()
         manifest["cases"] = [case for case in manifest["cases"] if case["id"] in
