@@ -52,6 +52,12 @@ The standard writer patches `time_unit` without changing the clip or measurement
 label codec refuses unsupported labels before replacing a destination. This adds an optional metadata
 field to version 5; it does not add a persistent undo log or a desktop units editor.
 
+Import applies Tracker's loader defaults for values a file does not save ([#214](https://github.com/mgradwohl/MoTrack/issues/214)):
+`m` without `length_unit`, and a 100 ms frame duration for a media-free source without a clip control. Native
+files written before that stored an empty length label or no duration for such sources; no edit produces
+those values, so the reader takes the defaults from the preserved source. Standard export keeps the
+absent properties absent unless they are edited.
+
 ## Track identities
 
 Versions 3 through 5 store an `id` on every editable point mass and independent vector and a document-wide
@@ -109,8 +115,9 @@ new media successfully opens. Failed and canceled opens leave the existing docum
 
 Source XML is limited to 32 MiB, including when read from the native envelope. The native document
 metadata limit remains 128 MiB. The reader checks the encoded length before decoding, requires strict canonical
-Base64, and validates decoded XML with the same bounded Tracker parser used for import. Document
-types are rejected. The writer validates source data before opening its atomic replacement file, so
+Base64, and validates decoded XML with the same bounded Tracker parser used for import: OSP's line-oriented
+reader ([`motrack_osp`](osp-xmlcontrol.md#tracker-import-and-export)), which requires UTF-8 and treats a document
+type as inert text, as Tracker does. The writer validates source data before opening its atomic replacement file, so
 an invalid or oversized envelope cannot overwrite an existing valid native document.
 
 Desktop saves validate and serialize an owned document snapshot on a single save worker. The GUI
@@ -285,10 +292,10 @@ files already store both labels, so no format version change is needed. Labels m
 trimmed, valid UTF-8 and at most 256 UTF-16
 code units; Unicode control/format characters and decimal digits are rejected by code point,
 including C1 controls and supplementary digits. Supplementary letters remain valid labels.
-String labels use OSP-compatible CDATA because its string reader does not decode XML entities. Edits
-to a source unit containing comments or processing instructions are rejected: OSP requires the CDATA
-terminator immediately before the closing property tag and can hang on an intervening comment.
-The CDATA terminator in a label is also rejected before replacing a destination. Time labels follow the
+String labels are written as OSP writes them, with CDATA only for quotes, angle brackets and ampersands,
+because its string reader does not decode XML entities. OSP reads markup inside a value literally, so a
+source label such as `m<!-- note -->` is that label and an edit replaces it; QDom-era refusals of such
+edits are gone. The CDATA terminator in a label is rejected before replacing a destination. Time labels follow the
 same rules; the full units UI and unit defaults remain separate work. The corpus explicitly checks imported labels,
 Java's independently recorded default for an omitted label, and labels after Java resave/native reimport.
 
@@ -316,7 +323,8 @@ mass/vector/axes/unattached-protractor/view schema with unique names and resolve
 name could otherwise become a new dependency merely by adding a track. New names obey the rename codec.
 
 New objects explicitly start visible, with trails, unlocked, a red Diamond footprint, mass and manual
-marks. These are documented interchange defaults until native per-track appearance is implemented;
+marks, written in `PointMass.Loader`'s order (`mass`, `name`, `color`, `footprint`, `visible`, `trail`, then
+`framedata` and `keyFrames`; Tracker omits `locked` while false). These are documented interchange defaults until native per-track appearance is implemented;
 no unknown original track style is cloned. Sparse new marks retain original frame numbers, bounded at
 500000 and one million aggregate dense frame slots across all emitted masses. Every edited export
 counts retained arrays and null placeholders as well as new marks, so standard reimport and later

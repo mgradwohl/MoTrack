@@ -3,6 +3,7 @@
 #include "local_media_path.hpp"
 #include "track_identity.hpp"
 #include "tracker_archive.hpp"
+#include "tracker_loaders.hpp"
 #include "workspace_document_codec.hpp"
 #include "workspace_storage.hpp"
 
@@ -493,6 +494,22 @@ WorkspaceDocument detail::decodeWorkspaceDocument(const QJsonObject& input, std:
         const auto time = number(entry);
         require(result.movieFrameTimes.empty() ? time == 0.0 : time > result.movieFrameTimes.back());
         result.movieFrameTimes.push_back(time);
+    }
+    if (result.trackerSource && (project.lengthUnit.empty() || (!project.clip.frameDurationMs && project.clip.mediaReferences.empty())))
+    {
+        // Native files written before MoTrack applied Tracker's loader defaults (#214) stored the unset values
+        // for sources that save neither label nor clip control. No edit produces them, so take the defaults the
+        // source now loads with; otherwise the next standard export would refuse to "clear" them.
+        const auto loaded = parseLegacyProject(result.trackerSource->xml);
+        if (project.lengthUnit.empty() && loaded.lengthUnit == tracker::DEFAULT_LENGTH_UNIT)
+        {
+            project.lengthUnit = loaded.lengthUnit;
+        }
+        if (!project.clip.frameDurationMs && project.clip.mediaReferences.empty() && !result.movie && loaded.clip.mediaReferences.empty() &&
+            loaded.clip.frameDurationMs == tracker::DEFAULT_STEPPER_FRAME_DURATION_MS)
+        {
+            project.clip.frameDurationMs = loaded.clip.frameDurationMs;
+        }
     }
     validateArchive(result);
     return result;

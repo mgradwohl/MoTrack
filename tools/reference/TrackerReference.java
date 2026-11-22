@@ -82,8 +82,9 @@ public final class TrackerReference {
         for (int frame : new int[] {first, (int) last})
             coordinateSamples.add(map("frame", frame, "image", List.of(13.5, 17.25),
                 "world", world(coords, frame, 13.5, 17.25)));
+        // Unsaved labels take the panel's defaults: Tracker.preferredLengthUnit (SI "m") and "kg"/"s" (#214).
         Map<String, Object> result = map("source_version", string(root, "semantic_version", ""),
-            "length_unit", string(root, "length_unit", ""), "mass_unit", string(root, "mass_unit", "kg"),
+            "length_unit", string(root, "length_unit", "m"), "mass_unit", string(root, "mass_unit", "kg"),
             "time_unit", string(root, "time_unit", "s"),
             "clip", map("first_frame", first, "step_size", stride, "step_count", count,
                 "start_ms", number(clip, "starttime", 0.0)),

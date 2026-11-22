@@ -22,16 +22,25 @@
 namespace
 {
 
+/// A Tracker document in OSP's line layout with CRLF endings, a prolog comment and content Tracker ignores.
 QByteArray sourceXml()
 {
-    return "<?xml version='1.0' encoding='ISO-8859-1'?>\r\n"
+    return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
            "<!-- retain spelling, whitespace and encoding -->\r\n"
-           "<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>\r\n"
-           " <property name='description'>caf\xE9 &amp; data</property>\r\n"
-           " <property name='future'><object class='FutureSettings'><property name='nested'>"
-           "<![CDATA[<unknown>]]></property></object></property>\r\n"
-           " <property name='tracks'><property name='item'><object class='FutureTrack'>"
-           "<property name='link'>same name</property></object></property></property>\r\n"
+           "<object class=\"org.opensourcephysics.cabrillo.tracker.TrackerPanel\">\r\n"
+           " <property name=\"description\" type=\"string\"><![CDATA[caf\xC3\xA9 & data]]></property>\r\n"
+           " <property name=\"future\" type=\"object\">\r\n"
+           " <object class=\"FutureSettings\">\r\n"
+           "  <property name=\"nested\" type=\"string\"><![CDATA[<unknown>]]></property>\r\n"
+           " </object>\r\n"
+           " </property>\r\n"
+           " <property name=\"tracks\" type=\"collection\" class=\"java.util.ArrayList\">\r\n"
+           "  <property name=\"item\" type=\"object\">\r\n"
+           "  <object class=\"FutureTrack\">\r\n"
+           "   <property name=\"link\" type=\"string\">same name</property>\r\n"
+           "  </object>\r\n"
+           "  </property>\r\n"
+           " </property>\r\n"
            "</object>\r\n";
 }
 
@@ -40,15 +49,28 @@ QByteArray boundXml()
     return R"(<?xml version="1.0"?>
       <object class="org.opensourcephysics.cabrillo.tracker.TrackerPanel">
         <!-- Original names and positions must not be used as editable identity. -->
-        <property name="tracks">
-          <property name="[10]"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">
-            <property name="name">same</property></object></property>
-          <property name="[20]"><object class="Uneditable"><property name="custom">keep</property></object></property>
-          <property name="[30]"/>
-          <property name="[40]"><object class="org.opensourcephysics.cabrillo.tracker.Vector">
-            <property name="name">same</property></object></property>
-          <property name="[50]"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">
-            <property name="name">same</property></object></property>
+        <property name="tracks" type="collection" class="java.util.ArrayList">
+          <property name="[10]" type="object">
+            <object class="org.opensourcephysics.cabrillo.tracker.PointMass">
+              <property name="name" type="string">same</property>
+            </object>
+          </property>
+          <property name="[20]" type="object">
+            <object class="Uneditable">
+              <property name="custom" type="string">keep</property>
+            </object>
+          </property>
+          <property name="[30]" type="object">null</property>
+          <property name="[40]" type="object">
+            <object class="org.opensourcephysics.cabrillo.tracker.Vector">
+              <property name="name" type="string">same</property>
+            </object>
+          </property>
+          <property name="[50]" type="object">
+            <object class="org.opensourcephysics.cabrillo.tracker.PointMass">
+              <property name="name" type="string">same</property>
+            </object>
+          </property>
         </property>
       </object>)";
 }
@@ -78,8 +100,9 @@ TEST(WorkspaceDocument, RecoversTimeUnitFromOlderNativeSourceAndPersistsLaterEdi
         motrack::WorkspaceDocument document;
         if (source)
         {
-            const auto imported = motrack::parseTrackerProject("<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>"
-                                                               "<property name='time_unit' type='string'>tick</property></object>");
+            const auto imported = motrack::parseTrackerProject("<object class=\"org.opensourcephysics.cabrillo.tracker.TrackerPanel\">\n"
+                                                               "    <property name=\"time_unit\" type=\"string\">tick</property>\n"
+                                                               "</object>\n");
             document.project = imported.project;
             document.trackerSource = imported.source;
         }
@@ -174,8 +197,10 @@ TEST(WorkspaceDocument, RejectsMalformedOrAmbiguousSourceEnvelopes)
         QJsonObject{{"xmlBase64", encoded + "\n"}},
         QJsonObject{{"xmlBase64", QString::fromUtf8("\xE2\x98\x83")}},
         QJsonObject{{"xmlBase64", QString::fromLatin1(QByteArray("<object/>").toBase64())}, {"bindings", QJsonValue::Null}},
-        QJsonObject{{"xmlBase64", QString::fromLatin1((QByteArray("<!DOCTYPE object>") + sourceXml()).toBase64())},
-                    {"bindings", QJsonValue::Null}}};
+        // MoTrack reads only UTF-8 Tracker XML (OSP ignores a declared encoding and decodes UTF-8 itself).
+        QJsonObject{
+            {"xmlBase64", QString::fromLatin1(QByteArray(sourceXml()).replace("encoding=\"UTF-8\"", "encoding=\"ISO-8859-1\"").toBase64())},
+            {"bindings", QJsonValue::Null}}};
     for (const auto& source : invalid)
     {
         auto object = valid;

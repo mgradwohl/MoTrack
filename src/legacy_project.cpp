@@ -1,9 +1,8 @@
 #include "legacy_project.hpp"
 
 #include "track_identity.hpp"
+#include "tracker_import.hpp"
 
-#include <QByteArray>
-#include <QDomDocument>
 #include <QFile>
 
 #include <algorithm>
@@ -17,58 +16,46 @@ namespace motrack
 namespace
 {
 
-constexpr auto TRACKER_PANEL_CLASS = "org.opensourcephysics.cabrillo.tracker.TrackerPanel";
-constexpr auto VECTOR_CLASS = "org.opensourcephysics.cabrillo.tracker.Vector";
-constexpr auto POINT_MASS_CLASS = "org.opensourcephysics.cabrillo.tracker.PointMass";
+using tracker::Read;
 
-QDomElement property(const QDomElement& parent, const QString& name)
+bool present(const auto& value)
 {
-    for (auto node = parent.firstChildElement("property"); !node.isNull(); node = node.nextSiblingElement("property"))
-    {
-        if (node.attribute("name") == name)
-        {
-            return node;
-        }
-    }
-    return {};
+    return value || value.error() != osp::DecodeError::Missing;
 }
 
-std::string value(const QDomElement& parent, const QString& name)
+/// Whether VideoClip.Loader applies a saved int. Like Java's getInt, a property of another type reads as
+/// Integer.MIN_VALUE and is ignored; MoTrack still refuses unreadable int text instead of guessing.
+bool savedInteger(const Read<std::int32_t>& value)
 {
-    return property(parent, name).text().toStdString();
+    return value || value.error() == osp::DecodeError::Malformed || value.error() == osp::DecodeError::OutOfRange;
 }
 
-int integer(const QString& text, int minimum)
+int integer(const Read<std::int32_t>& value, int minimum)
 {
-    bool ok = false;
-    const auto number = text.toInt(&ok);
-    if (!ok || number < minimum)
+    if (!value || *value < minimum)
     {
         throw ProjectError("Invalid project integer.");
     }
-    return number;
+    return *value;
 }
 
-int arrayIndex(const QDomElement& entry)
+int arrayIndex(const tracker::ArrayElement& element)
 {
-    const auto name = entry.attribute("name");
-    if (!name.startsWith('[') || !name.endsWith(']'))
+    if (!element.index || *element.index < 0)
     {
         throw ProjectError("Invalid Tracker array entry.");
     }
-    return integer(name.sliced(1, name.size() - 2), 0);
+    return *element.index;
 }
 
-std::optional<double> finiteNumber(const QDomElement& object, const QString& name)
+std::optional<double> finiteNumber(const Read<double>& value)
 {
-    bool ok = false;
-    const auto number = property(object, name).text().toDouble(&ok);
-    return ok && std::isfinite(number) ? std::optional(number) : std::nullopt;
+    return value && std::isfinite(*value) ? std::optional(*value) : std::nullopt;
 }
 
-double coordinate(const QDomElement& object, const QString& axis)
+double coordinate(const Read<double>& value)
 {
-    const auto number = finiteNumber(object, axis);
+    const auto number = finiteNumber(value);
     if (!number)
     {
         throw ProjectError("Invalid Tracker numeric property.");
@@ -76,74 +63,92 @@ double coordinate(const QDomElement& object, const QString& axis)
     return *number;
 }
 
-Clip readClip(const QDomElement& panel)
+std::string text(const Read<std::string>& value)
+{
+    return value.value_or(std::string{});
+}
+
+Clip readClip(const tracker::PanelLoad& panel)
 {
     Clip clip;
-    const auto object = property(panel, "videoclip").firstChildElement("object");
-    const auto start = property(object, "startframe");
-    const auto size = property(object, "stepsize");
-    const auto count = property(object, "stepcount");
-    if (!start.isNull())
+    const auto* video = panel.videoClip && panel.videoClip->video ? &*panel.videoClip->video : nullptr;
+    if (panel.videoClip)
     {
-        clip.firstFrame = integer(start.text(), 0);
-    }
-    if (!size.isNull())
-    {
-        clip.stepSize = integer(size.text(), 1);
-    }
-    if (!count.isNull())
-    {
-        clip.stepCount = integer(count.text(), 0);
-    }
-    const auto video = property(object, "video").firstChildElement("object");
-    const auto paths = property(video, "paths");
-    std::vector<std::pair<int, std::string>> indexedPaths;
-    for (auto entry = paths.firstChildElement("property"); !entry.isNull(); entry = entry.nextSiblingElement("property"))
-    {
-        indexedPaths.emplace_back(arrayIndex(entry), entry.text().toStdString());
-    }
-    std::ranges::sort(indexedPaths, {}, &std::pair<int, std::string>::first);
-    for (const auto& [index, path] : indexedPaths)
-    {
-        if (static_cast<std::size_t>(index) != clip.mediaReferences.size() || path.empty())
+        const auto& loaded = *panel.videoClip;
+        if (savedInteger(loaded.startFrame))
         {
-            throw ProjectError("Invalid Tracker image sequence.");
+            clip.firstFrame = integer(loaded.startFrame, 0);
         }
-        clip.mediaReferences.push_back(path);
+        if (savedInteger(loaded.stepSize))
+        {
+            clip.stepSize = integer(loaded.stepSize, 1);
+        }
+        if (savedInteger(loaded.stepCount))
+        {
+            clip.stepCount = integer(loaded.stepCount, 0);
+        }
+        clip.startTimeMs = finiteNumber(loaded.startTime).value_or(0.0);
     }
-    if (const auto path = value(video, "path"); clip.mediaReferences.empty() && !path.empty())
+    if (video)
     {
-        clip.mediaReferences.push_back(path);
+        std::vector<std::pair<int, std::string>> indexedPaths;
+        for (const auto& entry : video->pathElements)
+        {
+            if (!entry.value)
+            {
+                throw ProjectError("Invalid Tracker image sequence.");
+            }
+            indexedPaths.emplace_back(arrayIndex(entry.element), *entry.value);
+        }
+        std::ranges::sort(indexedPaths, {}, &std::pair<int, std::string>::first);
+        for (const auto& [index, path] : indexedPaths)
+        {
+            if (static_cast<std::size_t>(index) != clip.mediaReferences.size() || path.empty())
+            {
+                throw ProjectError("Invalid Tracker image sequence.");
+            }
+            clip.mediaReferences.push_back(path);
+        }
+        if (const auto path = text(video->path); clip.mediaReferences.empty() && !path.empty())
+        {
+            clip.mediaReferences.push_back(path);
+        }
     }
-    clip.startTimeMs = finiteNumber(object, "starttime").value_or(0.0);
     // Movie clip controls can save a mean interval even when frame presentation times vary.
-    if (video.isNull() || video.attribute("class") == "org.opensourcephysics.media.core.ImageVideo")
+    if (!video || video->className == tracker::IMAGE_VIDEO_CLASS)
     {
-        const auto control = property(panel, "clipcontrol").firstChildElement("object");
-        clip.frameDurationMs = finiteNumber(control, "delta_t");
+        const auto controlDuration = panel.clipControl ? finiteNumber(panel.clipControl->deltaT) : std::optional<double>{};
+        clip.frameDurationMs = controlDuration;
         if (clip.frameDurationMs.value_or(0.0) <= 0.0)
         {
-            clip.frameDurationMs = finiteNumber(video, "delta_t");
+            clip.frameDurationMs = video ? finiteNumber(video->deltaT) : std::nullopt;
         }
         if (clip.frameDurationMs.value_or(0.0) <= 0.0)
         {
             clip.frameDurationMs.reset();
         }
+        // Without media, Tracker's StepperClipControl keeps its 100 ms default unless the saved clip control
+        // replaces it with a non-zero interval (#214).
+        if (!video && (!panel.clipControl || controlDuration == 0.0))
+        {
+            clip.frameDurationMs = tracker::DEFAULT_STEPPER_FRAME_DURATION_MS;
+        }
     }
     return clip;
 }
 
-PointMass readPointMass(const QDomElement& object)
+PointMass readPointMass(const tracker::PointMassLoad& loaded)
 {
-    const auto mass = std::max(MIN_POINT_MASS, std::abs(finiteNumber(object, "mass").value_or(1.0)));
-    PointMass track{.name = value(object, "name"), .marks = {}, .mass = mass};
-    const auto data = property(object, "framedata");
-    for (auto entry = data.firstChildElement("property"); !entry.isNull(); entry = entry.nextSiblingElement("property"))
+    const auto mass = std::max(MIN_POINT_MASS, std::abs(finiteNumber(loaded.mass).value_or(1.0)));
+    PointMass track{.name = text(loaded.name), .marks = {}, .mass = mass};
+    if (loaded.frames)
     {
-        const auto frame = entry.firstChildElement("object");
-        if (!frame.isNull())
+        for (const auto& frame : loaded.frames->frames)
         {
-            track.marks.push_back({.frame = arrayIndex(entry), .x = coordinate(frame, "x"), .y = coordinate(frame, "y")});
+            if (frame.element.object)
+            {
+                track.marks.push_back({.frame = arrayIndex(frame.element), .x = coordinate(frame.data.x), .y = coordinate(frame.data.y)});
+            }
         }
     }
     std::ranges::sort(track.marks, {}, &Mark::frame);
@@ -154,20 +159,21 @@ PointMass readPointMass(const QDomElement& object)
     return track;
 }
 
-VectorTrack readVector(const QDomElement& object)
+VectorTrack readVector(const tracker::VectorLoad& loaded)
 {
-    VectorTrack track{.name = value(object, "name"), .samples = {}};
-    const auto data = property(object, "framedata");
-    for (auto entry = data.firstChildElement("property"); !entry.isNull(); entry = entry.nextSiblingElement("property"))
+    VectorTrack track{.name = text(loaded.name), .samples = {}};
+    if (loaded.frames)
     {
-        const auto frame = entry.firstChildElement("object");
-        if (!frame.isNull())
+        for (const auto& frame : loaded.frames->frames)
         {
-            track.samples.push_back({.frame = arrayIndex(entry),
-                                     .tailX = coordinate(frame, "xtail"),
-                                     .tailY = coordinate(frame, "ytail"),
-                                     .componentX = coordinate(frame, "xcomponent"),
-                                     .componentY = coordinate(frame, "ycomponent")});
+            if (frame.element.object)
+            {
+                track.samples.push_back({.frame = arrayIndex(frame.element),
+                                         .tailX = coordinate(frame.data.xtail),
+                                         .tailY = coordinate(frame.data.ytail),
+                                         .componentX = coordinate(frame.data.xcomponent),
+                                         .componentY = coordinate(frame.data.ycomponent)});
+            }
         }
     }
     std::ranges::sort(track.samples, {}, &VectorSample::frame);
@@ -178,31 +184,32 @@ VectorTrack readVector(const QDomElement& object)
     return track;
 }
 
-std::optional<Calibration> readCalibration(const QDomElement& panel)
+std::optional<Calibration> readCalibration(const tracker::PanelLoad& panel)
 {
-    const auto coords = property(panel, "coords").firstChildElement("object");
-    if (coords.attribute("class") != "org.opensourcephysics.media.core.ImageCoordSystem" || !value(panel, "referenceframe").empty())
+    if (!panel.coords || panel.coords->className != tracker::COORD_SYSTEM_CLASS || !text(panel.referenceFrame).empty())
     {
         return std::nullopt;
     }
+    const auto& coords = *panel.coords;
     Calibration calibration{.keyframes = {},
-                            .fixedOrigin = value(coords, "fixedorigin") == "true",
-                            .fixedAngle = value(coords, "fixedangle") == "true",
-                            .fixedScale = value(coords, "fixedscale") == "true"};
-    const auto data = property(coords, "framedata");
+                            .fixedOrigin = coords.fixedOrigin.value_or(false),
+                            .fixedAngle = coords.fixedAngle.value_or(false),
+                            .fixedScale = coords.fixedScale.value_or(false)};
     try
     {
-        for (auto entry = data.firstChildElement("property"); !entry.isNull(); entry = entry.nextSiblingElement("property"))
+        if (coords.frames)
         {
-            const auto object = entry.firstChildElement("object");
-            if (!object.isNull())
+            for (const auto& frame : coords.frames->frames)
             {
-                calibration.keyframes.push_back({.frame = arrayIndex(entry),
-                                                 .originX = coordinate(object, "xorigin"),
-                                                 .originY = coordinate(object, "yorigin"),
-                                                 .angleDegrees = coordinate(object, "angle"),
-                                                 .scaleX = coordinate(object, "xscale"),
-                                                 .scaleY = coordinate(object, "yscale")});
+                if (frame.element.object)
+                {
+                    calibration.keyframes.push_back({.frame = arrayIndex(frame.element),
+                                                     .originX = coordinate(frame.data.xorigin),
+                                                     .originY = coordinate(frame.data.yorigin),
+                                                     .angleDegrees = coordinate(frame.data.angle),
+                                                     .scaleX = coordinate(frame.data.xscale),
+                                                     .scaleY = coordinate(frame.data.yscale)});
+                }
             }
         }
     }
@@ -219,87 +226,89 @@ std::optional<Calibration> readCalibration(const QDomElement& panel)
     return calibration;
 }
 
-struct ParsedProject
-{
-    LegacyProject project;
-    std::vector<TrackSourceBinding> bindings;
-};
+} // namespace
 
-ParsedProject parseProject(std::string_view xml)
+std::shared_ptr<const osp::Source> detail::parseTrackerXml(std::string_view xml)
 {
     if (xml.size() > MAX_TRACKER_XML_BYTES)
     {
         throw ProjectError("Tracker project is too large.");
     }
-    QDomDocument document;
-    if (!document.setContent(QByteArray::fromRawData(xml.data(), static_cast<qsizetype>(xml.size())), QDomDocument::ParseOption::Default))
+    auto parsed = osp::parse(std::string(xml));
+    if (!parsed)
     {
-        throw ProjectError("Invalid Tracker XML.");
+        // Name what Tracker's line-oriented reader cannot read, for example a blank line ending an array (#196).
+        const auto& error = parsed.error();
+        throw ProjectError("Invalid Tracker XML" + (error.line > 0 ? " at line " + std::to_string(error.line) : std::string{}) + ": " +
+                           error.message);
     }
-    if (!document.doctype().name().isEmpty())
-    {
-        throw ProjectError("Tracker XML must not contain a document type.");
-    }
-    const auto panel = document.documentElement();
-    if (panel.tagName() != "object" || panel.attribute("class") != TRACKER_PANEL_CLASS)
+    return std::move(*parsed);
+}
+
+detail::ImportedTracker detail::importTracker(std::shared_ptr<const osp::Source> source)
+{
+    auto panel = tracker::loadPanel(*source);
+    if (panel.className != tracker::TRACKER_PANEL_CLASS)
     {
         throw ProjectError("Expected a TrackerPanel project.");
     }
-    ParsedProject result;
+    ImportedTracker result{.source = std::move(source), .panel = std::move(panel), .project = {}, .bindings = {}};
+    const auto& loaded = result.panel;
     auto& project = result.project;
-    project = LegacyProject{.version = value(panel, "semantic_version"),
-                            .description = value(panel, "description"),
-                            .clip = readClip(panel),
-                            .calibration = readCalibration(panel),
-                            .lengthUnit = value(panel, "length_unit"),
+    project = LegacyProject{.version = text(loaded.semanticVersion),
+                            .description = text(loaded.description),
+                            .clip = readClip(loaded),
+                            .calibration = readCalibration(loaded),
+                            // TrackerPanel keeps its preferred unit unless the file saves one (#214).
+                            .lengthUnit = present(loaded.lengthUnit) ? text(loaded.lengthUnit) : std::string(tracker::DEFAULT_LENGTH_UNIT),
                             .pointMasses = {},
                             .unsupportedTrackTypes = {}};
-    if (auto unit = value(panel, "mass_unit"); !unit.empty())
+    if (auto unit = text(loaded.massUnit); !unit.empty())
     {
         project.massUnit = std::move(unit);
     }
-    if (auto unit = value(panel, "time_unit"); !unit.empty())
+    if (auto unit = text(loaded.timeUnit); !unit.empty())
     {
         project.timeUnit = std::move(unit);
     }
-    const auto tracks = property(panel, "tracks");
-    std::size_t index = 0;
-    for (auto item = tracks.firstChildElement("property"); !item.isNull(); item = item.nextSiblingElement("property"), ++index)
+    const auto& xml = *result.source;
+    for (const auto& item : loaded.trackItems)
     {
-        const auto object = item.firstChildElement("object");
-        const auto type = object.attribute("class");
-        if (type == POINT_MASS_CLASS)
+        if (!item.object)
         {
-            project.pointMasses.push_back(readPointMass(object));
-            project.pointMasses.back().id = allocateTrackId(project);
-            result.bindings.push_back({.trackId = project.pointMasses.back().id, .sourceIndex = index, .kind = TrackKind::PointMass});
+            continue; // A null or non-object element is not a track.
         }
-        else if (type == VECTOR_CLASS)
+        if (item.className == tracker::POINT_MASS_CLASS)
+        {
+            project.pointMasses.push_back(readPointMass(tracker::loadPointMass(xml, *item.object)));
+            project.pointMasses.back().id = allocateTrackId(project);
+            result.bindings.push_back(
+                {.trackId = project.pointMasses.back().id, .sourceIndex = item.ordinal, .kind = TrackKind::PointMass});
+        }
+        else if (item.className == tracker::VECTOR_CLASS)
         {
             try
             {
-                project.vectors.push_back(readVector(object));
+                project.vectors.push_back(readVector(tracker::loadVector(xml, *item.object)));
                 project.vectors.back().id = allocateTrackId(project);
-                result.bindings.push_back({.trackId = project.vectors.back().id, .sourceIndex = index, .kind = TrackKind::Vector});
+                result.bindings.push_back({.trackId = project.vectors.back().id, .sourceIndex = item.ordinal, .kind = TrackKind::Vector});
             }
             catch (const ProjectError&)
             {
-                project.unsupportedTrackTypes.push_back(type.toStdString());
+                project.unsupportedTrackTypes.push_back(item.className);
             }
         }
-        else if (!type.isEmpty())
+        else if (!item.className.empty())
         {
-            project.unsupportedTrackTypes.push_back(type.toStdString());
+            project.unsupportedTrackTypes.push_back(item.className);
         }
     }
     return result;
 }
 
-} // namespace
-
 LegacyProject parseLegacyProject(std::string_view xml)
 {
-    return parseProject(xml).project;
+    return detail::importTracker(detail::parseTrackerXml(xml)).project;
 }
 
 LegacyProject readLegacyProject(const std::filesystem::path& path)
@@ -330,17 +339,22 @@ ImportedTrackerProject readTrackerProject(const std::filesystem::path& path)
 
 ImportedTrackerProject parseTrackerProject(std::string xml)
 {
-    auto parsed = parseProject(xml);
+    auto parsed = detail::importTracker(detail::parseTrackerXml(xml));
     return {.project = std::move(parsed.project), .source = {.xml = std::move(xml), .bindings = std::move(parsed.bindings)}};
 }
 
 void validateTrackerSource(const TrackerSource& source, const LegacyProject& project)
 {
+    static_cast<void>(detail::validatedTrackerSource(source, project));
+}
+
+detail::ImportedTracker detail::validatedTrackerSource(const TrackerSource& source, const LegacyProject& project)
+{
     validateTrackIdentities(project);
-    const auto original = parseProject(source.xml);
+    auto original = detail::importTracker(detail::parseTrackerXml(source.xml));
     if (!source.bindings)
     {
-        return;
+        return original;
     }
     if (source.bindings->size() != original.bindings.size())
     {
@@ -372,6 +386,7 @@ void validateTrackerSource(const TrackerSource& source, const LegacyProject& pro
         }
         expected.erase(object);
     }
+    return original;
 }
 
 } // namespace motrack

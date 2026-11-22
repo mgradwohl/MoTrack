@@ -677,7 +677,9 @@ experiment with mass 3. The marked case uses original frames 1/4/8, image positi
 Original tracks, views, names, units and calibration stay unchanged. The new mass starts visible,
 with trails, unlocked, a red Diamond footprint. These explicit interchange defaults avoid Tracker's
 missing `visible` field loading as false; pinned `TTrack.Loader` and `PointMass.Loader` bytecode were
-inspected. Empty tracks have no frame/key arrays; marked tracks have manual keys 1/4/8.
+inspected. The XML oracle expects OSP's writer: `PointMass.Loader`'s property order (`locked` omitted while
+false) and doubles as `Double.toString` (`3.0`), as for every value MoTrack's standard writer edits.
+Empty tracks have no frame/key arrays; marked tracks have manual keys 1/4/8.
 
 The native probe exercises creation/undo, allocation gaps, mass/mark changes, remove/undo, reorder,
 native save/reopen and source-copy removal. The complete XML comparison allows only the appended

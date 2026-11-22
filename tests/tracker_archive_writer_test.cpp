@@ -23,11 +23,13 @@ namespace
 {
 QByteArray originalXml()
 {
-    return "<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>"
-           "<property name='description' type='string'>Original experiment</property></object>";
+    return "<object class=\"org.opensourcephysics.cabrillo.tracker.TrackerPanel\">\n"
+           "    <property name=\"description\" type=\"string\">Original experiment</property>\n"
+           "</object>\n";
 }
-constexpr const char* EDITED_XML = "<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>"
-                                   "<property name='description' type='string'>Edited experiment with a longer note</property></object>";
+constexpr const char* EDITED_XML = "<object class=\"org.opensourcephysics.cabrillo.tracker.TrackerPanel\">\n"
+                                   "    <property name=\"description\" type=\"string\">Edited experiment with a longer note</property>\n"
+                                   "</object>\n";
 
 QByteArray readBytes(const QString& path)
 {
@@ -126,7 +128,7 @@ TEST(TrackerArchiveWriter, ReplacesMultipleMembersWithIndependentPhysicalAndDire
     ASSERT_TRUE(writeBytes(original, bytes));
     const auto source = motrack::TrackerArchive::open(original);
     const auto longer = originalXml().toStdString() + "<!--" + std::string(32000, 'x') + "-->";
-    const std::string shorter = "<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'/>";
+    const std::string shorter = "<object class=\"org.opensourcephysics.cabrillo.tracker.TrackerPanel\"/>";
     std::array replacements{motrack::TrackerArchiveReplacement{.member = "nested/second.trk", .xml = shorter},
                             motrack::TrackerArchiveReplacement{.member = "first.trk", .xml = longer}};
     motrack::writeTrackerArchive(destination, source, replacements);
