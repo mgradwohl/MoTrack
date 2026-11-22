@@ -103,9 +103,10 @@ struct Placement
 struct Remove
 {
     ObjectId object{};
-    /// Where the restoration that undoes this removal puts an unbound object back; absent: where it was. The inverse of
-    /// an `Insert` keeps the insertion's placement, so every undo and redo of one history entry reinserts the object
-    /// where the entry was recorded, as TrackEdits does, whatever reordered the tracks in between.
+    /// Where the restoration that undoes this removal puts the object back; absent: where it was. The inverse of an
+    /// `Insert` keeps the insertion's placement, so every undo and redo of one history entry reinserts the object where
+    /// the entry was recorded, as TrackEdits does, whatever reordered the tracks in between. A bound object takes the
+    /// recorded track list position and returns to the slot it kept; only an unbound one takes the recorded index.
     std::optional<Placement> restoreAt{};
 
     bool operator==(const Remove&) const = default;
@@ -156,6 +157,7 @@ enum class CommandErrorCode : std::uint8_t
     NotRemovable,    ///< The panel, or a singleton bound to the baseline.
     TimingInvariant, ///< The clip's constant timing or its timing-provider guard would not hold.
     GraphRefused,    ///< The dependency graph refused a change, for example a new edge that closes a cycle.
+    ForeignDocument, ///< A history was given a document other than the live one it belongs to.
     NothingToUndo,   ///< The history has no entry in that direction.
 };
 
@@ -184,9 +186,12 @@ struct PreparedCommand // NOLINT(bugprone-exception-escape)
 [[nodiscard]] std::expected<PreparedCommand, CommandError>
 prepare(const TrackerDocument& document, const Command& command, const ApplyOptions& options = {});
 
-/// `document` with every node of its graph marked changed at max(its graph's revision + 1, `floor`), on a copy of the
-/// graph: what an owner assigns in place of a live document whose graph revision is `floor` - 1.
-[[nodiscard]] TrackerDocument withRevisionFloor(TrackerDocument document, Revision floor);
+/// The value an owner installs in place of `outgoing`, for an assignment (a replacement or Revert) or an update outside
+/// history. The allocators never rewind: `incoming` takes the higher counter and the lower countdown low-water mark of
+/// the two, so no identity that the outgoing value or its history handed out is allocated again. And every node of a copy
+/// of its graph is marked changed at max(its own graph revision + 1, the outgoing graph revision + 1), so nothing
+/// computed against either value stays current.
+[[nodiscard]] TrackerDocument installedValue(TrackerDocument incoming, const TrackerDocument& outgoing);
 
 /// The identity a new object of `range` takes: the counter (when it stays below the countdown low-water mark), or
 /// the highest unused value below the low-water mark and at or above the counter. Nothing when the range is exhausted.
@@ -203,7 +208,9 @@ fieldValue(const TypedValue& value, std::string_view field, std::optional<std::i
 /// for a point mass. Nothing when the counter is exhausted or the family is neither.
 [[nodiscard]] std::optional<Insert> createTrack(const TrackerDocument& document, Family family, std::string name);
 /// A new unbound singleton of `role` (the clip, clip control or coordinate system) holding `value`, at the end of the
-/// document's objects. Nothing when the countdown is exhausted.
+/// document's objects. Nothing when the countdown is exhausted. A new command sets only the fields commands edit, and the
+/// fixed flags of a coordinate system: every other field of `value` must be unsaved (a created clip has no frame shift or
+/// saved frame count, a created clip control no rate, frame or looping).
 [[nodiscard]] std::optional<Insert> createSingleton(const TrackerDocument& document, Role role, TypedValue value);
 /// Sets or removes (`mark` absent) the mark of a point mass at a loaded frame, with the key frames B1's export writes:
 /// for a bound point mass, the baseline's keys without its marks that are gone and with every mark that differs from the

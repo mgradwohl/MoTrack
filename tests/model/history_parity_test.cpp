@@ -7,16 +7,20 @@
 #include "model/tracker_loaders.hpp"
 #include "track_edits.hpp"
 #include "track_identity.hpp"
+#include "utf8_path.hpp"
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <array>
+#include <fstream>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -426,6 +430,12 @@ model::SaveTarget typedTarget(motrack::SaveTarget target)
 /// A typed state change outside history: an edit of the document's parts, applied as an update.
 using PartsEdit = std::function<void(model::DocumentParts&)>;
 
+/// A Tracker file's bytes, for a Twin that starts from a baseline.
+struct FromTracker
+{
+    std::string xml;
+};
+
 /// TrackEdits on a LegacyProject and the commands on its typed document, in lock step. Every operation runs on both and
 /// must return the same result, leave the same legacy view, revision, undo and redo availability and save heads, and
 /// keep the graph equal to one rebuilt from the document.
@@ -434,6 +444,13 @@ class Twin
   public:
     explicit Twin(LegacyProject project = {})
         : m_Project(std::move(project)), m_Typed(motrack::typedDocumentFromReduced(m_Project, std::nullopt))
+    {
+        check();
+    }
+
+    /// One Tracker file opened both ways: B1's import for TrackEdits, the typed import for the commands.
+    explicit Twin(const FromTracker& source)
+        : m_Project(motrack::parseTrackerProject(source.xml).project), m_Typed(motrack::importTypedTracker(source.xml))
     {
         check();
     }
@@ -1589,6 +1606,105 @@ TEST(HistoryParity, RejectsDegenerateCalibrationDistances)
     distance.knownLength = 0;
     EXPECT_FALSE(twin.calibrateDistance(distance));
     EXPECT_FALSE(twin.canUndo());
+}
+
+/// A committed Tracker file of the reference corpus.
+std::string corpusFile(std::string_view name)
+{
+    std::ifstream stream(motrack::utf8Path(MOTRACK_CORPUS_FIXTURES) / motrack::utf8Path(name), std::ios::binary);
+    return {std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+}
+
+/// The reorder and delete scenarios on tracks bound to a baseline: TrackEdits on B1's import, commands on the typed import.
+/// Bound tracks keep their slots while removed, and every restoration returns where its history entry recorded it.
+TEST(HistoryParity, BoundTracksFollowIdentityAndReturnWhereTheirEntriesRecordedThem)
+{
+    for (const auto* name : {"center-of-mass.trk", "independent-vectors.trk"})
+    {
+        SCOPED_TRACE(name);
+        Twin twin(FromTracker{.xml = corpusFile(name)});
+        ASSERT_EQ(twin.document().associations(), model::Associations::Known);
+        const bool masses = !twin.project().pointMasses.empty();
+        const auto family = masses ? model::Family::PointMass : model::Family::Vector;
+        const auto count = [&]
+        {
+            return masses ? twin.project().pointMasses.size() : twin.project().vectors.size();
+        };
+        ASSERT_GE(count(), 2u);
+        const auto id = [&](std::size_t index)
+        {
+            return masses ? twin.project().pointMasses.at(index).id : twin.project().vectors.at(index).id;
+        };
+        const auto swap = [&]
+        {
+            twin.outOfBand(
+                [&](auto& p)
+                {
+                    if (masses)
+                    {
+                        std::swap(p.pointMasses.front(), p.pointMasses.back());
+                    }
+                    else
+                    {
+                        std::swap(p.vectors.front(), p.vectors.back());
+                    }
+                },
+                swapEnds(family));
+        };
+        const auto remove = [&](std::size_t index)
+        {
+            return masses ? twin.removePointMass(index) : twin.removeVector(index);
+        };
+        const auto rename = [&](std::size_t index, const std::string& label)
+        {
+            return masses ? twin.renamePointMass(index, label) : twin.renameVector(index, label);
+        };
+        const auto mark = [&](std::size_t index, int frame, double x)
+        {
+            return masses ? twin.markPointMass(index, {.frame = frame, .x = x, .y = 2})
+                          : twin.markVector(index, {.frame = frame, .tailX = x, .tailY = 2, .componentX = 3, .componentY = 4});
+        };
+        const auto first = id(0);
+
+        // Removed at position 0, the track returns there after a reorder between its undo and redo.
+        ASSERT_TRUE(remove(0));
+        ASSERT_TRUE(twin.undo());
+        swap();
+        ASSERT_TRUE(twin.redo());
+        ASSERT_TRUE(twin.undo());
+        EXPECT_EQ(id(0), first);
+        const auto* restored = twin.document().object(model::ObjectId{first});
+        ASSERT_NE(restored, nullptr);
+        EXPECT_TRUE(restored->binding);
+
+        // Edits follow identity across a reorder.
+        twin.clear();
+        ASSERT_TRUE(rename(0, "Renamed"));
+        ASSERT_TRUE(mark(0, 7, 11));
+        swap();
+        ASSERT_TRUE(twin.undo());
+        ASSERT_TRUE(twin.undo());
+        ASSERT_TRUE(twin.redo());
+        ASSERT_TRUE(twin.redo());
+        ASSERT_TRUE(remove(count() - 1));
+        swap();
+        ASSERT_TRUE(twin.undo());
+        ASSERT_TRUE(twin.redo());
+
+        // Every track deleted, then every step undone and redone.
+        while (count() > 0)
+        {
+            ASSERT_TRUE(remove(0));
+        }
+        while (twin.canUndo())
+        {
+            ASSERT_TRUE(twin.undo());
+        }
+        while (twin.canRedo())
+        {
+            ASSERT_TRUE(twin.redo());
+        }
+    }
 }
 
 } // namespace

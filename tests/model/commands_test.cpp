@@ -17,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -745,14 +746,15 @@ TEST(Commands, ClipCommandsKeepConstantTimingAndTheTimingProviderGuard)
                              .className = cls("DynamicParticle"),
                              .value = std::make_shared<const motrack::model::TypedValue>(motrack::model::UnknownState{})});
     auto guarded = *TrackerDocument::assemble(parts);
-    DocumentHistory other;
-    EXPECT_EQ(refusal(guarded, other, SetField{.object = control, .field = "delta_t", .before = 50.0, .after = 60.0}),
+    DocumentHistory guardedHistory;
+    EXPECT_EQ(refusal(guarded, guardedHistory, SetField{.object = control, .field = "delta_t", .before = 50.0, .after = 60.0}),
               CommandErrorCode::TimingInvariant);
     // So are media.
     parts = document.parts();
     parts.media.references = {"movie.mp4"};
     auto media = *TrackerDocument::assemble(parts);
-    EXPECT_EQ(refusal(media, other, SetField{.object = control, .field = "delta_t", .before = 50.0, .after = 60.0}),
+    DocumentHistory mediaHistory;
+    EXPECT_EQ(refusal(media, mediaHistory, SetField{.object = control, .field = "delta_t", .before = 50.0, .after = 60.0}),
               CommandErrorCode::TimingInvariant);
 
     // A clip whose step times overflow, or that ends past the source frames, is refused.
@@ -936,6 +938,122 @@ TEST(DocumentHistory, UndoAndRedoCheckTheCurrentValueAndKeepTheHeadWhenRefused)
     EXPECT_EQ(history.revision(), revision);
     EXPECT_TRUE(history.canUndo());
     EXPECT_FALSE(history.canRedo());
+}
+
+TEST(DocumentHistory, InstalledValuesNeverRewindTheAllocators)
+{
+    auto document = import(experiment(false));
+    DocumentHistory history;
+    const auto created = required(motrack::model::createTrack(document, Family::Vector, "w"));
+    const auto reused = created.object.id;
+    ASSERT_TRUE(history.apply(document, created));
+    ASSERT_TRUE(history.apply(document, Remove{.object = reused}));
+    // An update whose counter is back at the removed identity's value keeps the live counter, so creation cannot hand the
+    // identity out again while the history still holds it.
+    auto parts = document.parts();
+    parts.nextObjectId = reused.value;
+    history.update(document, *TrackerDocument::assemble(parts));
+    EXPECT_EQ(document.nextObjectId(), reused.value + 1);
+    EXPECT_EQ(required(motrack::model::createTrack(document, Family::Vector, "x")).object.id, ObjectId{reused.value + 1});
+    ASSERT_TRUE(history.undo(document));
+    ASSERT_TRUE(history.undo(document));
+    EXPECT_EQ(document.object(reused), nullptr);
+
+    // An inserted coordinate system lowers the low-water mark; Revert to a value from before keeps it lowered, and the
+    // counter's high-water mark.
+    const auto saved = import(experiment(false));
+    const auto coordinates = required(motrack::model::createSingleton(document, Role::Coordinates, motrack::model::CoordinatesState{}));
+    ASSERT_TRUE(history.apply(document, coordinates));
+    const auto lowWater = document.countdownLowWater();
+    ASSERT_LT(lowWater, saved.countdownLowWater());
+    history.assign(document, saved);
+    EXPECT_EQ(document.countdownLowWater(), lowWater);
+    EXPECT_EQ(document.nextObjectId(), reused.value + 1);
+    EXPECT_EQ(document.objects().size(), saved.objects().size());
+    EXPECT_EQ(required(motrack::model::freshIdentity(document, AllocationRange::Countdown)), ObjectId{lowWater - 1});
+    EXPECT_TRUE(motrack::test::graphMatchesRebuild(document));
+}
+
+TEST(DocumentHistory, BelongsToTheLiveDocumentItWasFirstGiven)
+{
+    auto document = import(experiment(false));
+    auto other = document;
+    DocumentHistory history;
+    ASSERT_TRUE(history.apply(document, SetField{.object = A, .field = "mass", .before = 2.0, .after = 3.0}));
+    EXPECT_EQ(history.apply(other, SetField{.object = A, .field = "mass", .before = 2.0, .after = 4.0}).error().code,
+              CommandErrorCode::ForeignDocument);
+    EXPECT_EQ(history.undo(other).error().code, CommandErrorCode::ForeignDocument);
+    EXPECT_EQ(history.redo(other).error().code, CommandErrorCode::ForeignDocument);
+    EXPECT_THROW(history.assign(other, document), std::logic_error);
+    EXPECT_THROW(history.update(other, document), std::logic_error);
+    EXPECT_TRUE(history.canUndo());
+    EXPECT_EQ(stateOf<motrack::model::PointMassState>(other, A).mass, motrack::model::Read<double>(2.0));
+    ASSERT_TRUE(history.undo(document));
+}
+
+TEST(DocumentHistory, AnUnboundRestorationTakesTheEndOfAListThatShrank)
+{
+    // A native document with an unsupported track's placeholder.
+    auto parts = TrackerDocument().parts();
+    parts.objects.push_back({.id = {},
+                             .role = Role::Track,
+                             .className = cls("ParticleDataTrack"),
+                             .value = std::make_shared<const motrack::model::TypedValue>(motrack::model::UnknownState{})});
+    auto document = *TrackerDocument::assemble(parts);
+    DocumentHistory history;
+    const auto created = required(motrack::model::createTrack(document, Family::PointMass, "created"));
+    ASSERT_TRUE(history.apply(document, created));
+    ASSERT_TRUE(history.apply(document, Remove{.object = created.object.id}));
+    // Outside history, the placeholder leaves the document: the index the removal recorded is now past the end.
+    parts = document.parts();
+    std::erase_if(parts.objects, [](const ObjectSlot& object) { return object.family() == Family::Unknown; });
+    history.update(document, *TrackerDocument::assemble(parts));
+    ASSERT_TRUE(history.undo(document));
+    EXPECT_EQ(document.objects().back().id, created.object.id);
+    EXPECT_EQ(motrack::legacyProject(document).pointMasses.front().name, "created");
+    EXPECT_TRUE(motrack::test::graphMatchesRebuild(document));
+}
+
+TEST(Commands, NewValuesSaveOnlyWhatTheirFieldsAccept)
+{
+    auto document = import(experiment());
+    DocumentHistory history;
+    // A key list may return to the baseline's own unsaved reading, never to another unreadable value.
+    ASSERT_TRUE(history.apply(
+        document,
+        SetField{.object = B, .field = "keyFrames", .before = motrack::osp::DecodeError::Missing, .after = std::vector<std::int32_t>{2}}));
+    EXPECT_EQ(refusal(document,
+                      history,
+                      SetField{.object = B,
+                               .field = "keyFrames",
+                               .before = std::vector<std::int32_t>{2},
+                               .after = motrack::osp::DecodeError::Malformed}),
+              CommandErrorCode::InvalidValue);
+    ASSERT_TRUE(history.apply(
+        document,
+        SetField{.object = B, .field = "keyFrames", .before = std::vector<std::int32_t>{2}, .after = motrack::osp::DecodeError::Missing}));
+    EXPECT_EQ(refusal(document,
+                      history,
+                      SetField{.object = A,
+                               .field = "keyFrames",
+                               .before = std::vector<std::int32_t>{0, 1},
+                               .after = motrack::osp::DecodeError::Missing}),
+              CommandErrorCode::InvalidValue);
+    // A new singleton saves no value for a field no command edits, except a coordinate system's flags.
+    auto parts = TrackerDocument().parts();
+    std::erase_if(parts.objects, [](const ObjectSlot& object) { return object.role != Role::Panel; });
+    auto bare = *TrackerDocument::assemble(parts);
+    DocumentHistory other;
+    EXPECT_EQ(refusal(bare, other, required(motrack::model::createSingleton(bare, Role::Clip, motrack::model::ClipState{.frameShift = 3}))),
+              CommandErrorCode::InvalidValue);
+    EXPECT_EQ(refusal(bare,
+                      other,
+                      required(motrack::model::createSingleton(bare, Role::ClipControl, motrack::model::ClipControlState{.rate = 2.0}))),
+              CommandErrorCode::InvalidValue);
+    ASSERT_TRUE(other.apply(bare,
+                            required(motrack::model::createSingleton(
+                                bare, Role::Coordinates, motrack::model::CoordinatesState{.fixedOrigin = true, .locked = false}))));
+    ASSERT_TRUE(other.apply(bare, required(motrack::model::createSingleton(bare, Role::Clip, motrack::model::ClipState{.stepCount = 5}))));
 }
 
 TEST(DocumentHistory, RestorationsSurviveAGraphRebuiltByAnUpdate)

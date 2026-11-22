@@ -178,7 +178,11 @@ advances the graph's revision several times. Assignment never skips this step, e
 revision is already high, because a node's effective revision can still be low; only an explicit floor call
 ignores a floor at or below the graph's own revision. Caches, including the legacy view and later evaluation results, are keyed by (runtime identity,
 document revision), and snapshots carry that stamp. Revert keeps the runtime identity, so that key protects
-against a rewind only because the document revision always advances on assignment.
+against a rewind only because the document revision always advances on assignment. The allocators never rewind
+either: an assignment or an update takes the higher counter and the lower countdown low-water mark of the outgoing
+and incoming values (`installedValue`), so a reverted value keeps the counter's high-water mark and no identity a
+discarded or recorded edit holds is handed out again. A history belongs to the live document it is first given and
+refuses any other.
 
 ### Behind `WorkspaceDocument::project`
 
@@ -245,6 +249,13 @@ as `TrackEdits` does now. The domain checks apply to new values only, since an u
 held, an unreadable baseline value included. The clip's invariants apply in every direction, except that an undo
 that restores exactly the timeline its command started from is accepted, so a legacy timing that is not constant
 returns as it was (`TrackEdits`' rule).
+
+Deliberate differences from `TrackEdits`, which the B2.4a façade keeps or reconciles: a command must change something,
+so a calibration that changes nothing records no undo entry, where `TrackEdits` records one; and new names and units
+pass the codecs, so creating a track with a name standard export cannot store (empty, surrounding white space, the
+packed view separators) is refused, where `TrackEdits` accepts any name on creation and export refuses it later. A new
+object saves only the fields commands edit (and a coordinate system's fixed flags); a key list returns to an unsaved
+or unreadable value only when that is the baseline's own reading.
 
 ### Undo, redo and dependencies
 

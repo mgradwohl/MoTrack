@@ -37,6 +37,12 @@ class DocumentEditor
     {
         document.m_Graph = std::move(graph);
     }
+
+    static void setAllocators(TrackerDocument& document, std::uint64_t nextObjectId, std::uint64_t countdownLowWater) noexcept
+    {
+        document.m_Parts.nextObjectId = nextObjectId;
+        document.m_Parts.countdownLowWater = countdownLowWater;
+    }
 };
 
 static_assert(std::is_nothrow_move_constructible_v<Command> && std::is_nothrow_move_assignable_v<Command>,
@@ -184,11 +190,6 @@ template <typename T> bool validElement(Family family, const CommandValue& value
 
 bool validKeyFrames(const CommandValue& value)
 {
-    // A key list that equals the baseline's reading is restored as that reading, which may be unsaved or unreadable.
-    if (std::holds_alternative<osp::DecodeError>(value))
-    {
-        return true;
-    }
     const auto* keys = std::get_if<std::vector<std::int32_t>>(&value);
     return keys != nullptr && std::ranges::all_of(*keys, [](std::int32_t frame) { return frame >= 0; }) &&
            std::ranges::adjacent_find(*keys, std::greater_equal<>{}) == keys->end();
@@ -289,10 +290,12 @@ bool typedTrack(const ObjectSlot& object)
 struct Working
 {
     explicit Working(const TrackerDocument& document)
-        : parts(document.parts()), issues(document.referenceIssues().begin(), document.referenceIssues().end()),
+        : original(document), parts(document.parts()), issues(document.referenceIssues().begin(), document.referenceIssues().end()),
           shared(document.sharedGraph())
     {}
 
+    /// The document the command applies to, unchanged while the working copy is edited.
+    const TrackerDocument& original;
     DocumentParts parts;
     std::vector<ReferenceIssue> issues;
     /// The document's graph until the first change, then a copy of it.
@@ -355,6 +358,18 @@ std::vector<std::string> unknownTrackClasses(std::span<const ObjectSlot> objects
 
 std::expected<Command, CommandError> applyCommand(Working& working, const Command& command, ApplyMode mode);
 
+/// Whether `value` is a point mass's key frames reading as the baseline holds it when unsaved or unreadable: the value
+/// B1's key rule restores when the marks return to the baseline's (`setMark`). A created point mass reads as unsaved.
+bool baselineKeyFrames(const TrackerDocument& original, ObjectId id, const CommandValue& value)
+{
+    if (!std::holds_alternative<osp::DecodeError>(value))
+    {
+        return false;
+    }
+    const auto baseline = baselinePointMass(original, id);
+    return sameValue(value, baseline ? fromRead(baseline->keyFrames) : CommandValue(osp::DecodeError::Missing));
+}
+
 std::expected<Command, CommandError> applySet(Working& working, const SetField& set, ApplyMode mode)
 {
     auto* object = working.live(set.object);
@@ -381,7 +396,7 @@ std::expected<Command, CommandError> applySet(Working& working, const SetField& 
     auto written = set.after;
     if (mode == ApplyMode::New)
     {
-        if (!validNewValue(family, *field, written))
+        if (!validNewValue(family, *field, written) && !baselineKeyFrames(working.original, set.object, written))
         {
             return refuse(CommandErrorCode::InvalidValue, "The value cannot be stored in the field '" + set.field + "'.");
         }
@@ -454,11 +469,15 @@ std::expected<Command, CommandError> applyRemove(Working& working, const Remove&
         inverse.trackPosition = static_cast<std::size_t>(found - order.begin());
         order.erase(found);
     }
-    // A bound object returns to the slot it keeps; an unbound one where the history entry was recorded.
-    if (remove.restoreAt && !object.binding)
+    // The track list position comes from the history entry; a bound object returns to the slot it keeps, an unbound one
+    // to the index the entry recorded.
+    if (remove.restoreAt)
     {
-        inverse.position = remove.restoreAt->position;
         inverse.trackPosition = remove.restoreAt->trackPosition;
+        if (!object.binding)
+        {
+            inverse.position = remove.restoreAt->position;
+        }
     }
     if (object.binding)
     {
@@ -518,6 +537,12 @@ std::expected<void, CommandError> addNewObject(Working& working, const Insert& i
             {
                 return refuse(CommandErrorCode::InvalidValue,
                               "A new object's field '" + std::string(field.id) + "' fails its domain check.");
+            }
+            // Fields no command edits stay unsaved (a created clip has no frame shift, a created clip control no rate),
+            // except the fixed flags a new calibration chooses.
+            if (!field.commandEdits && !missing && !(family == Family::Coordinates && std::holds_alternative<bool>(value)))
+            {
+                return refuse(CommandErrorCode::InvalidValue, "A new object saves no value for the field '" + std::string(field.id) + "'.");
             }
         }
     }
@@ -589,7 +614,8 @@ std::expected<void, CommandError> restoreObject(Working& working, const Insert& 
         return refuse(CommandErrorCode::GraphRefused, std::string(errorMessage(restored.error().code)));
     }
     auto& objects = working.parts.objects;
-    const auto index = existing.value_or(insert.position);
+    // Export order does not depend on the index, so a list that has shrunk since takes the object at its end.
+    const auto index = existing.value_or(std::min(insert.position, objects.size()));
     if (existing)
     {
         objects[index] = object;
@@ -623,7 +649,7 @@ std::expected<Command, CommandError> applyInsert(Working& working, const Insert&
     const auto& parts = working.parts;
     if (typedTrack(object) != insert.trackPosition.has_value() ||
         (insert.trackPosition && *insert.trackPosition > parts.trackOrder.size()) ||
-        (!working.indexOf(object.id) && insert.position > parts.objects.size()))
+        (!insert.restores && insert.position > parts.objects.size()))
     {
         return refuse(CommandErrorCode::InvalidPosition, "The insertion position is past the end, or a track position is wrong.");
     }
@@ -831,6 +857,8 @@ std::string_view commandErrorName(CommandErrorCode code) noexcept
         return "timing-invariant";
     case CommandErrorCode::GraphRefused:
         return "graph-refused";
+    case CommandErrorCode::ForeignDocument:
+        return "foreign-document";
     case CommandErrorCode::NothingToUndo:
         break;
     }
@@ -854,12 +882,18 @@ std::expected<PreparedCommand, CommandError> prepare(const TrackerDocument& docu
                            .inverse = *std::move(inverse)};
 }
 
-TrackerDocument withRevisionFloor(TrackerDocument document, Revision floor)
+TrackerDocument installedValue(TrackerDocument incoming, const TrackerDocument& outgoing)
 {
-    auto graph = std::make_shared<DependencyGraph>(document.graph());
-    graph->markAllChanged(floor);
-    DocumentEditor::setGraph(document, std::move(graph));
-    return document;
+    // Raising the counter keeps every counter identity below it, and lowering the low-water mark keeps every countdown
+    // identity at or above it, so the carried value stays valid.
+    DocumentEditor::setAllocators(incoming,
+                                  std::max(incoming.nextObjectId(), outgoing.nextObjectId()),
+                                  std::min(incoming.countdownLowWater(), outgoing.countdownLowWater()));
+    // The floor comes from the graphs, not the document revision: a command advances its graph several times.
+    auto graph = std::make_shared<DependencyGraph>(incoming.graph());
+    graph->markAllChanged(Revision{.value = outgoing.graph().revision().value + 1});
+    DocumentEditor::setGraph(incoming, std::move(graph));
+    return incoming;
 }
 
 std::optional<ObjectId> freshIdentity(const TrackerDocument& document, AllocationRange range)

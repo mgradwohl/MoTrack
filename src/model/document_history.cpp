@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <stdexcept>
 #include <utility>
 
 namespace motrack::model
@@ -52,6 +53,10 @@ bool DocumentHistory::canRedo() const noexcept
 
 std::expected<void, CommandError> DocumentHistory::apply(TrackerDocument& live, const Command& command)
 {
+    if (!bind(live))
+    {
+        return foreign();
+    }
     // Reserve the history slot first, so that recording the entry after the document changes cannot fail.
     if (m_Entries.capacity() < m_Head + 1)
     {
@@ -89,6 +94,10 @@ std::expected<void, CommandError> DocumentHistory::apply(TrackerDocument& live, 
 
 std::expected<void, CommandError> DocumentHistory::undo(TrackerDocument& live)
 {
+    if (!bind(live))
+    {
+        return foreign();
+    }
     if (!canUndo())
     {
         return std::unexpected(CommandError{.code = CommandErrorCode::NothingToUndo, .message = "Nothing to undo."});
@@ -109,6 +118,10 @@ std::expected<void, CommandError> DocumentHistory::undo(TrackerDocument& live)
 
 std::expected<void, CommandError> DocumentHistory::redo(TrackerDocument& live)
 {
+    if (!bind(live))
+    {
+        return foreign();
+    }
     if (!canRedo())
     {
         return std::unexpected(CommandError{.code = CommandErrorCode::NothingToUndo, .message = "Nothing to redo."});
@@ -129,9 +142,27 @@ std::expected<void, CommandError> DocumentHistory::redo(TrackerDocument& live)
 
 void DocumentHistory::install(TrackerDocument& live, TrackerDocument value)
 {
-    // The floor comes from the graphs, not the document revision: a command advances its graph several times.
-    auto floored = withRevisionFloor(std::move(value), Revision{.value = live.graph().revision().value + 1});
-    live.swap(floored);
+    if (!bind(live))
+    {
+        throw std::logic_error("A document history belongs to one live document.");
+    }
+    auto installed = installedValue(std::move(value), live);
+    live.swap(installed);
+}
+
+bool DocumentHistory::bind(const TrackerDocument& live) noexcept
+{
+    if (m_Live == nullptr)
+    {
+        m_Live = &live;
+    }
+    return m_Live == &live;
+}
+
+std::unexpected<CommandError> DocumentHistory::foreign()
+{
+    return std::unexpected(
+        CommandError{.code = CommandErrorCode::ForeignDocument, .message = "A document history belongs to one live document."});
 }
 
 void DocumentHistory::assign(TrackerDocument& live, TrackerDocument incoming)

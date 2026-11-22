@@ -25,6 +25,8 @@ enum class SaveTarget : std::uint8_t
     Tracker,
 };
 
+/// The history binds to the live document it is first given and refuses any other: undo entries address that document's
+/// identities and state. The owner keeps the live document at a stable address for the history's lifetime.
 class DocumentHistory
 {
   public:
@@ -56,11 +58,14 @@ class DocumentHistory
     std::expected<void, CommandError> undo(TrackerDocument& live);
     std::expected<void, CommandError> redo(TrackerDocument& live);
 
-    /// Installs a replacement or a reverted value: `live` becomes `incoming` with its graph's nodes marked changed above
-    /// both graphs' revisions, the history is cleared and both revisions advance.
+    /// Installs a replacement or a reverted value: `live` becomes `installedValue(incoming, live)` (the allocators never
+    /// rewind, so a reverted value keeps the counter's high-water mark; its graph's nodes are marked changed above both
+    /// graphs' revisions), the history is cleared and both revisions advance. Throws std::logic_error for a document
+    /// other than the history's own.
     void assign(TrackerDocument& live, TrackerDocument incoming);
-    /// Installs a value changed outside history (such as a discovered media extent): the history and save heads stay,
-    /// the document revision advances and the graph is floored as for an assignment.
+    /// Installs a value changed outside history (such as a discovered media extent) as `installedValue(next, live)`: the
+    /// history and save heads stay and the document revision advances. The carried allocators keep the identities the
+    /// history's entries hold from being allocated again.
     void update(TrackerDocument& live, TrackerDocument next);
     /// Forgets every entry and marks the current state saved for every output.
     void clear() noexcept;
@@ -81,8 +86,12 @@ class DocumentHistory
     };
 
     void install(TrackerDocument& live, TrackerDocument value);
+    [[nodiscard]] bool bind(const TrackerDocument& live) noexcept;
+    [[nodiscard]] static std::unexpected<CommandError> foreign();
 
     std::uint64_t m_RuntimeIdentity;
+    /// The live document this history belongs to, once it has been given one; never dereferenced.
+    const TrackerDocument* m_Live = nullptr;
     std::vector<Entry> m_Entries;
     std::size_t m_Head = 0;
     std::array<std::optional<std::size_t>, 2> m_SavedHeads{0, 0};
