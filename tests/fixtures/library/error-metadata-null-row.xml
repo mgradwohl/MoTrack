@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="org.opensourcephysics.tools.LibraryResource">
+    <property name="name" type="string">Null metadata row</property>
+    <property name="metadata" type="array" class="[[Ljava.lang.String;">
+        <property name="array" type="string">{{a,b},,{c,d}}</property>
+    </property>
+</object>

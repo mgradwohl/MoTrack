@@ -44,7 +44,12 @@ public final class TrackerReference {
         Integer count = has(clip, "stepcount") ? clip.getInt("stepcount") : null;
         if (first < 0 || stride < 1 || (count != null && count < 0))
             throw new IllegalArgumentException("Invalid clip range");
-        ImageCoordSystem coords = has(root, "coords") ? (ImageCoordSystem) root.getObject("coords") : null;
+        // getObject instantiates the saved class by name; with untrusted (library) files, load only the
+        // expected coordinate system class and reject anything else before OSP touches it.
+        XMLControl coordsControl = has(root, "coords") ? root.getChildControl("coords") : null;
+        if (coordsControl != null && !ImageCoordSystem.class.getName().equals(coordsControl.getObjectClassName()))
+            throw new IllegalArgumentException("Unexpected coordinate system class");
+        ImageCoordSystem coords = coordsControl != null ? (ImageCoordSystem) root.getObject("coords") : null;
         List<Object> masses = new ArrayList<>();
         List<Object> vectors = new ArrayList<>();
         List<Object> unsupported = new ArrayList<>();

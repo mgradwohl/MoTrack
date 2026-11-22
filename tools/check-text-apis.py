@@ -18,13 +18,13 @@ C++ (src/, tests/, benchmarks/):
   locale-format    std::format's {:L} follows the global C++ locale; displayed numbers use QLocale
   narrow-path      path::string()/generic_string(), std::filesystem::u8path, a path built from a narrow string (a
                    literal, an UPPER_CASE macro, toStdString() or std::string), UTF-16 path conversions outside
-                   src/filesystem_path.hpp, and narrow fopen; use motrack::toFilesystemPath/fromFilesystemPath, QFile
-                   or std::fstream(path)
+                   src/filesystem_path.hpp, and narrow fopen; use motrack::toFilesystemPath/fromFilesystemPath (Qt-free:
+                   src/utf8_path.hpp), QFile or std::fstream(path)
   system-codec     QStringConverter::System decodes in the system code page
   archive-locale   a file that calls archive_read_new or archive_write_new must use motrack::ScopedUtf8ThreadLocale:
                    libarchive converts member names through the thread's LC_CTYPE on POSIX (src/utf8_thread_locale.hpp)
-  model-locale     QLocale and %L placeholders in the science, model and media libraries (motrack_expression,
-                   motrack_ode, motrack_project, motrack_input, motrack_media, motrack_image_package): machine-readable
+  model-locale     QLocale and %L placeholders in the science, model, OSP, library, input and media libraries
+                   (MODEL_LIBRARIES, read from CMakeLists.txt): machine-readable
 Python (tools/, tests/):
   python-encoding  open() and Path.open() in text mode, read_text/write_text and text-mode subprocess calls must
                    pass encoding=
@@ -46,7 +46,24 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ALLOW = "text-api: allowed"
-MODEL_LIBRARIES = ("motrack_expression", "motrack_ode", "motrack_project", "motrack_input", "motrack_media", "motrack_image_package")
+MODEL_LIBRARIES = (
+    "motrack_analysis",
+    "motrack_dependencies",
+    "motrack_expression",
+    "motrack_filters",
+    "motrack_fit",
+    "motrack_image_package",
+    "motrack_input",
+    "motrack_java_math",
+    "motrack_library",
+    "motrack_matching",
+    "motrack_media",
+    "motrack_motion",
+    "motrack_ode",
+    "motrack_osp",
+    "motrack_project",
+    "motrack_sampling",
+)
 
 
 @dataclass(frozen=True)

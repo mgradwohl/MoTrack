@@ -2075,7 +2075,7 @@ bool MainWindow::saveTrackerProject(const QString& path, bool recoverPending)
         statusBar()->showMessage(tr("Project changed while saving. Save again to keep the latest edits."));
         return false;
     }
-    statusBar()->showMessage(tr("Tracker project and MoTrack companion saved."));
+    statusBar()->showMessage(pairedSavedMessage());
     return true;
 }
 

@@ -15,6 +15,7 @@
 #include "track_edits.hpp"
 #include "tracker_archive.hpp"
 #include "tracker_writer.hpp"
+#include "utf8_path.hpp"
 #include "video_reader.hpp"
 #include "workspace_document.hpp"
 #include "workspace_input.hpp"
@@ -26,6 +27,8 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -216,6 +219,22 @@ TEST_F(NonAsciiRoundTrip, ArchiveWithNonAsciiNameAndMembersSavesAndReopens)
     EXPECT_EQ(restored.members.front().member, projectMember.toStdString());
     EXPECT_EQ(restored.members.front().document.project.pointMasses.front().mass, 7.25);
     EXPECT_EQ(restored.archive->sourceDigest(), snapshot.archive->sourceDigest());
+}
+
+TEST_F(NonAsciiRoundTrip, Utf8PathsNameTheSameFilesAsQt)
+{
+    // Qt-free code (the OSP and library tests) names files with motrack::utf8Path.
+    const auto name = path(allNames() + ".txt");
+    QFile file(name);
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly) && file.write("bytes") == 5);
+    file.close();
+    const auto text = name.toStdString();
+    const auto native = motrack::utf8Path(text);
+    EXPECT_EQ(native, motrack::toFilesystemPath(name));
+    EXPECT_EQ(motrack::genericUtf8String(native), text);
+    EXPECT_EQ(motrack::fromFilesystemPath(motrack::utf8Path(motrack::utf8String(native))), name);
+    std::ifstream stream(native, std::ios::binary);
+    EXPECT_EQ(std::string(std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()), "bytes");
 }
 
 TEST_F(NonAsciiRoundTrip, MovieOpensByANonAsciiPath)

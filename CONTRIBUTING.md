@@ -67,7 +67,58 @@ Features available in all three libraries include `std::expected`, `std::print`,
 
 - Keep Qt Widgets, platform APIs, and FFmpeg out of the analysis model. Convert at the boundary. Distinguish pixel coordinates from world coordinates and decoded frame numbers from clip steps and timestamps.
 - Perform long-running work off the UI thread. Use cancellable tasks and hand results back to the owning thread before updating widgets. Treat missing, malformed, and unsupported project data as distinct cases where the user can act on the distinction.
-- Keep Tracker terminology and workflows where they are clear. Wrap user-facing Qt strings with `tr()` or `QCoreApplication::translate()`. Use placeholders and Qt plural forms. Update translations or mark newly introduced strings unfinished.
+- Keep Tracker terminology and workflows where they are clear. Wrap user-facing Qt strings with `tr()` or `QCoreApplication::translate()`. Use placeholders and Qt plural forms. Add new strings to every catalog as described in [Translations](#translations).
+
+## Translations
+
+`translations/motrack_<locale>.ts` holds one Qt catalog per non-English locale in Tracker's `Tracker.getLocales()`
+(SwingJS branch). `tools/translations.py` (standard-library Python) lists them in `LOCALES`; CMake's
+`motrack_ts_files` must match. Tracker's `fil_PH`, `sn` and `sr` catalogs are not in its language list and its
+`ca_UTF` file duplicates Catalan, so MoTrack does not ship them. `translations/motrack_en.ts`
+(`PLURALS_TS_FILE`) holds only the English plural forms; write them by hand. The catalogs are hand-maintained in
+a compact layout; the tool edits only the messages it adds or fills, and Tracker-seeded entries while they keep
+their provenance comment. It never changes a human or reviewed translation.
+
+After adding or changing a user-visible string, run from an activated developer shell (lupdate on PATH):
+
+```sh
+python tools/translations.py update
+python tools/translations.py check --lrelease "$(command -v lrelease)"
+```
+
+`update` adds the string, empty and `unfinished`, to every catalog. CTest's `translation_catalogs` test fails while
+a catalog lacks a source string or has an invalid translation (placeholders, `[*]`, file patterns, line breaks,
+one `&` mnemonic when the source has one, Qt's plural-form count for the language), and checks that lrelease keeps
+every unfinished entry. `translation_tool` tests the tool itself.
+
+To fill new entries, seed them from Tracker, then machine-translate the rest:
+
+1. Clone [tracker](https://github.com/OpenSourcePhysics/tracker) (`SwingJS`) and
+   [osp](https://github.com/OpenSourcePhysics/osp) (`swingJS`) into an empty directory; only their `.properties`
+   files are read. Run `python tools/translations.py update --tracker <tracker> --osp <osp>`. Where Tracker's
+   English text matches a source string (ignoring mnemonics, ellipses, spacing and a trailing colon), the
+   translation is copied with the source's mnemonic and ellipsis and marked finished. Matches that also ignore
+   case or terminal punctuation, or where Tracker's keys disagree, stay unfinished. A translator comment records
+   the bundle and key. `STALE_KEYS`, `HOMOGRAPH_KEYS` and `LOCALE_REJECTED` exclude Tracker translations that no
+   longer mean, or never meant, the MoTrack text ([#274](https://github.com/mgradwohl/MoTrack/issues/274)); a
+   seed whose match disappears is emptied for a new translation. Turkish is not seeded because Tracker's
+   catalog omits Turkish letters.
+2. `python tools/translations.py pending --locale <locale> --out pending.json --tracker <tracker> --osp <osp>
+   --reference de fr es` lists the remaining strings with Tracker's terminology, the plural rule and finished
+   German/French/Spanish translations for context.
+3. Write a JSON object mapping each source string to its translation (a list of plural forms for numerus
+   messages) and run `python tools/translations.py import --locale <locale> --input <file>`. Invalid entries are
+   reported and nothing is written. Imported entries are `unfinished` with the comment "Machine translation;
+   review before marking finished."
+
+By maintainer decision (2026-11-22), unfinished machine translations ship visible without a label; do not pass
+`-nounfinished` to lrelease. To review a catalog, open it in Qt Linguist, check the translation against the
+English text and the translator comment, correct it, mark it done and remove the provenance comment.
+`python tools/translations.py stats` reports finished, unfinished, Tracker-derived and machine-translated counts.
+At run time `motrack::UiTranslations` loads the first language in the system's list that has a catalog
+(English included, so an English-first list stays English; Hong Kong and Macao use Traditional, Singapore
+Simplified Chinese), Qt's own catalog for that language, and a right-to-left layout for Arabic and Hebrew;
+without a match the interface is English.
 
 ## Text encoding and locale
 
@@ -81,7 +132,7 @@ Every MoTrack target compiles its sources as UTF-8 with UTF-8 narrow literals (`
 
 - **Text is UTF-8 or UTF-16.** The Qt-free model uses UTF-8 `std::string`; the UI and paths use `QString`. Convert only with `toStdString`/`fromStdString` (UTF-8 in Qt 6) or `toUtf8`/`fromUtf8`. `toLocal8Bit`/`fromLocal8Bit` convert through the system code page: use them only at a documented OS boundary. Lengths are bytes or UTF-16 units, not characters.
 - **`motrack.exe` runs in UTF-8 on Windows.** Its manifest ([src/motrack.manifest](src/motrack.manifest)) sets `activeCodePage` to UTF-8 (Windows 10 1903+), so `GetACP()` is 65001; the `desktop_locale` test checks it on CI, whose system code page is 1252. The test binaries have no manifest, so code must never depend on the code page: convert explicitly.
-- **Paths meet text only through [src/filesystem_path.hpp](src/filesystem_path.hpp).** `motrack::toFilesystemPath(QString)` and `fromFilesystemPath(path)` use UTF-16 on Windows and UTF-8 elsewhere. Never `path.string()`, `path(std::string)`, `std::filesystem::u8path` or a narrow `fopen`. Open files with `QFile`/`QSaveFile`, `std::fstream(path)` or a `W` API. libarchive opens archives with `archive_read_open_filename_w` on Windows and `QFile::encodeName` (UTF-8) elsewhere, and on POSIX converts member names through the calling thread's `LC_CTYPE` without iconv, so every archive read or write runs inside `motrack::ScopedUtf8ThreadLocale` ([src/utf8_thread_locale.hpp](src/utf8_thread_locale.hpp)), which never touches the global locale (the checker requires it in any file that calls `archive_read_new` or `archive_write_new`); FFmpeg reads movies through a `QFile`-backed `AVIOContext` with protocols disabled, so the UTF-8 name passed to `avformat_open_input` is only a probe hint; `QImageReader` takes the `QString`. [tests/non_ascii_round_trip_test.cpp](tests/non_ascii_round_trip_test.cpp) saves and reopens Tracker, archive and native files and opens images and a movie under CJK, emoji, accented Latin and Arabic names.
+- **Paths meet text only through [src/filesystem_path.hpp](src/filesystem_path.hpp).** `motrack::toFilesystemPath(QString)` and `fromFilesystemPath(path)` use UTF-16 on Windows and UTF-8 elsewhere; Qt-free code uses `motrack::utf8Path(std::string_view)`, `utf8String(path)` and `genericUtf8String(path)` from [src/utf8_path.hpp](src/utf8_path.hpp). Never `path.string()`, `path(std::string)`, `std::filesystem::u8path` or a narrow `fopen`. Open files with `QFile`/`QSaveFile`, `std::fstream(path)` or a `W` API. libarchive opens archives with `archive_read_open_filename_w` on Windows and `QFile::encodeName` (UTF-8) elsewhere, and on POSIX converts member names through the calling thread's `LC_CTYPE` without iconv, so every archive read or write runs inside `motrack::ScopedUtf8ThreadLocale` ([src/utf8_thread_locale.hpp](src/utf8_thread_locale.hpp)), which never touches the global locale (the checker requires it in any file that calls `archive_read_new` or `archive_write_new`); FFmpeg reads movies through a `QFile`-backed `AVIOContext` with protocols disabled, so the UTF-8 name passed to `avformat_open_input` is only a probe hint; `QImageReader` takes the `QString`. [tests/non_ascii_round_trip_test.cpp](tests/non_ascii_round_trip_test.cpp) saves and reopens Tracker, archive and native files and opens images and a movie under CJK, emoji, accented Latin and Arabic names.
 - **The locale is set once per process** by `motrack::configureProcessLocale()` ([src/app_locale.hpp](src/app_locale.hpp)), immediately after the `Q*Application` is constructed: on Unix `QCoreApplication` calls `setlocale(LC_ALL, "")`, so until then `strtod`, `printf("%f")`, `std::to_string(double)` and the C libraries MoTrack links (FFmpeg parses numbers with `strtod`) use the user's decimal mark. It gives the C locale a UTF-8 `LC_CTYPE` (the user's locale on Windows, a UTF-8 fallback where the environment's is not UTF-8) and `LC_NUMERIC` `"C"`. The C++ global locale stays the classic locale: MoTrack takes display formats from `QLocale`, and a default-constructed stream stays locale-independent. Every executable that constructs a `Q*Application`, tests included, calls it. Nothing else calls `setlocale` (except to query it) or `std::locale::global`. The result is logged to the `motrack.locale` category: warnings by default, the summary line with `QT_LOGGING_RULES="motrack.locale.info=true"` (and `QT_FORCE_STDERR_LOGGING=1` on Windows).
 - **Displayed numbers use `QLocale`, never the C or C++ global locale.** Data views (the marks table, plot axes) use `motrack::dataDisplayLocale()` ([src/display_locale.hpp](src/display_locale.hpp)): the user's decimal mark and digits without grouping, as Tracker's fixed patterns show data ([#278](https://github.com/mgradwohl/MoTrack/issues/278)). Read-outs and dialogs use `QLocale()`, and typed numbers are parsed with the same `QLocale` (ambiguous input: [#66](https://github.com/mgradwohl/MoTrack/issues/66)). Don't show a number with `QString::number`, `std::format("{:L}")`, `%f` or a hard-coded `.`.
 - **Machine-readable text is classic:** Tracker XML, `.motrack` JSON, CSV export, library options and anything read back. Use `std::to_chars`/`std::from_chars`, `QString::number`/`QString::toDouble`, `QLocale::c()`, `QJsonDocument`, or a stream imbued with `std::locale::classic()`. Never use `std::stod`/`strtod`/`atof`/`sscanf`, the `printf` family, `std::to_string(double)` or a default-locale stream on text that is read back. The `locale` test runs the XML, CSV and native paths under de-DE and fr-FR with the C, C++ and Qt locales all switched, skipping a locale the machine lacks; CI generates both on Linux.
@@ -148,14 +199,15 @@ developer build. It enables and builds the benchmark target before running clang
 acceptance jobs, giving each workload its own time budget as the reference corpus grows. The final
 coverage job waits for both the build and contributor-setup matrices to pass before combining reports.
 
-The workspace executable runs in seven complementary CTest groups. General UI cases run in
+The workspace executable runs in eight complementary CTest groups. General UI cases run in
 `workspace`; `workspace_shell` runs the `WorkspaceShell.*` save/revert flows
 ([#283](https://github.com/mgradwohl/MoTrack/issues/283)); `workspace_saving` runs `PairedWorkspace.*` and
-`ImagePackageWorkspace.*`, `workspace_document` runs `WorkspaceDocument.*`, `workspace_text` runs
-`NonAsciiRoundTrip.*` and `WorkspaceLocale.*`, and the two session groups partition `DocumentSession.*`.
+`ImagePackageWorkspace.*`, `workspace_document` runs `WorkspaceDocument.*`, `ui_translations` runs
+`UiTranslations.*` (every catalog), `workspace_text` runs `NonAsciiRoundTrip.*` and `WorkspaceLocale.*`, and the
+two session groups partition `DocumentSession.*`.
 `document_session_journals` includes names matching `*Journal*`; `document_session` uses the complementary
 negative filter. Every current or future session case therefore runs exactly once. Each group retains
-a 60-second timeout, and ordinary CTest/coverage collection runs all seven groups. This separates the
+a 60-second timeout, and ordinary CTest/coverage collection runs all eight groups. This separates the
 real-file journal matrices whose cumulative runtime caused the intermittent Windows timeout in
 [#137](https://github.com/mgradwohl/MoTrack/issues/137), without retries or omitted cases.
 

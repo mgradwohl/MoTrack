@@ -3,46 +3,47 @@
 <TS version="2.1" language="fr">
   <context>
     <name>MainWindow</name>
-    <message><source>The workspace already has two pending saves. Wait for one to finish.</source><translation type="unfinished"></translation></message>
-    <message><source>Export portable &amp;archive…</source><translation type="unfinished"></translation></message>
-    <message><source>Copy this experiment and its media into one portable Tracker archive.</source><translation type="unfinished"></translation></message>
-    <message><source>Export portable archive</source><translation type="unfinished"></translation></message>
-    <message><source>Choose a .trz filename for an imported image or indexed MOV project.</source><translation type="unfinished"></translation></message>
-    <message><source>Exporting portable archive</source><translation type="unfinished"></translation></message>
-    <message><source>Copying the experiment and its media…</source><translation type="unfinished"></translation></message>
-    <message><source>Canceling export…</source><translation type="unfinished"></translation></message>
-    <message><source>Export canceled. Existing files were kept.</source><translation type="unfinished"></translation></message>
-    <message><source>Could not export the Tracker archive: %1</source><translation type="unfinished"></translation></message>
-    <message><source>Portable Tracker archive exported.</source><translation type="unfinished"></translation></message>
-    <message><source>Archive exported. The project changed during export.</source><translation type="unfinished"></translation></message>
-    <message><source>An interrupted paired save needs recovery. Use Save Tracker project for this destination, or save a copy elsewhere.</source><translation type="unfinished"></translation></message>
-    <message><source>Another save is using this destination. Wait for it to finish and retry, or save a copy elsewhere.</source><translation type="unfinished"></translation></message>
-    <message><source>An interrupted save needs recovery before continuing.</source><translation type="unfinished"></translation></message>
-    <message><source>Both files were saved. Recovery cleanup remains.</source><translation type="unfinished"></translation></message>
-    <message><source>Cancel</source><translation type="unfinished"></translation></message>
-    <message><source>Canceling save…</source><translation type="unfinished"></translation></message>
-    <message><source>Choose a %1 filename for an imported Tracker project.</source><translation type="unfinished"></translation></message>
-    <message><source>Could not finish the interrupted save: %1</source><translation type="unfinished"></translation></message>
-    <message><source>Could not save the Tracker project: %1</source><translation type="unfinished"></translation></message>
-    <message><source>Finish interrupted save?</source><translation type="unfinished"></translation></message>
-    <message><source>Finish the interrupted save before saving this project again.</source><translation type="unfinished"></translation></message>
-    <message><source>MoTrack copy saved. Save the Tracker project to keep both files current.</source><translation type="unfinished"></translation></message>
-    <message><source>Recover the saved files, then save your current edits to both project files?</source><translation type="unfinished"></translation></message>
-    <message><source>Replace MoTrack companion?</source><translation type="unfinished"></translation></message>
-    <message><source>Save &amp;Tracker project…</source><translation type="unfinished"></translation></message>
-    <message><source>Save MoTrack copy &amp;as…</source><translation type="unfinished"></translation></message>
-    <message><source>Save Tracker project and MoTrack companion</source><translation type="unfinished"></translation></message>
-    <message><source>Save a Tracker file and a MoTrack companion.</source><translation type="unfinished"></translation></message>
-    <message><source>Save canceled. Existing files were kept.</source><translation type="unfinished"></translation></message>
-    <message><source>Interrupted save recovered. Saving the current edits was canceled.</source><translation type="unfinished"></translation></message>
-    <message><source>Saving project files</source><translation type="unfinished"></translation></message>
-    <message><source>Saving the Tracker file and MoTrack companion…</source><translation type="unfinished"></translation></message>
+    <message><source>The workspace already has two pending saves. Wait for one to finish.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">L’espace de travail a déjà deux enregistrements en attente. Attendez que l’un d’eux se termine.</translation></message>
+    <message><source>Export portable &amp;archive…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Exporter une &amp;archive portable…</translation></message>
+    <message><source>Copy this experiment and its media into one portable Tracker archive.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Copier cette expérience et ses médias dans une seule archive Tracker portable.</translation></message>
+    <message><source>Export portable archive</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Exporter une archive portable</translation></message>
+    <message><source>Choose a .trz filename for an imported image or indexed MOV project.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Choisissez un nom de fichier .trz pour un projet d’images importées ou de vidéo MOV indexée.</translation></message>
+    <message><source>Exporting portable archive</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Exportation de l’archive portable</translation></message>
+    <message><source>Copying the experiment and its media…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Copie de l’expérience et de ses médias…</translation></message>
+    <message><source>Canceling export…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Annulation de l’exportation…</translation></message>
+    <message><source>Export canceled. Existing files were kept.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Exportation annulée. Les fichiers existants ont été conservés.</translation></message>
+    <message><source>Could not export the Tracker archive: %1</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Impossible d’exporter l’archive Tracker : %1</translation></message>
+    <message><source>Portable Tracker archive exported.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Archive Tracker portable exportée.</translation></message>
+    <message><source>Archive exported. The project changed during export.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Archive exportée. Le projet a changé pendant l’exportation.</translation></message>
+    <message><source>An interrupted paired save needs recovery. Use Save Tracker project for this destination, or save a copy elsewhere.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Un enregistrement couplé interrompu doit être récupéré. Utilisez Enregistrer le projet Tracker pour cette destination, ou enregistrez une copie ailleurs.</translation></message>
+    <message><source>Another save is using this destination. Wait for it to finish and retry, or save a copy elsewhere.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Un autre enregistrement utilise cette destination. Attendez qu’il se termine et réessayez, ou enregistrez une copie ailleurs.</translation></message>
+    <message><source>An interrupted save needs recovery before continuing.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Un enregistrement interrompu doit être récupéré avant de continuer.</translation></message>
+    <message><source>Both files were saved. Recovery cleanup remains.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Les deux fichiers ont été enregistrés. Le nettoyage de la récupération reste à effectuer.</translation></message>
+    <message><source>Cancel</source><translatorcomment>Tracker exact: tracker_fr.properties Dialog.Button.Cancel</translatorcomment><translation>Annuler</translation></message>
+    <message><source>Canceling save…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Annulation de l’enregistrement…</translation></message>
+    <message><source>Choose a %1 filename for an imported Tracker project.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Choisissez un nom de fichier %1 pour un projet Tracker importé.</translation></message>
+    <message><source>Could not finish the interrupted save: %1</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Impossible de terminer l’enregistrement interrompu : %1</translation></message>
+    <message><source>Could not save the Tracker project: %1</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Impossible d’enregistrer le projet Tracker : %1</translation></message>
+    <message><source>Finish interrupted save?</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Terminer l’enregistrement interrompu ?</translation></message>
+    <message><source>Finish the interrupted save before saving this project again.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Terminez l’enregistrement interrompu avant d’enregistrer à nouveau ce projet.</translation></message>
+    <message><source>MoTrack copy saved. Save the Tracker project to keep both files current.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Copie MoTrack enregistrée. Enregistrez le projet Tracker pour garder les deux fichiers à jour.</translation></message>
+    <message><source>Recover the saved files, then save your current edits to both project files?</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Récupérer les fichiers enregistrés, puis enregistrer vos modifications actuelles dans les deux fichiers du projet ?</translation></message>
+    <message><source>Replace MoTrack companion?</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Remplacer le fichier associé MoTrack ?</translation></message>
+    <message><source>Save &amp;Tracker project…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Enregistrer le projet &amp;Tracker…</translation></message>
+    <message><source>Save MoTrack copy &amp;as…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Enregistrer une copie MoTrack &amp;sous…</translation></message>
+    <message><source>Save Tracker project and MoTrack companion</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Enregistrer le projet Tracker et le fichier associé MoTrack</translation></message>
+    <message><source>Save a Tracker file and a MoTrack companion.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Enregistrer un fichier Tracker et un fichier associé MoTrack.</translation></message>
+    <message><source>Save canceled. Existing files were kept.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Enregistrement annulé. Les fichiers existants ont été conservés.</translation></message>
+    <message><source>Interrupted save recovered. Saving the current edits was canceled.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Enregistrement interrompu récupéré. L’enregistrement des modifications actuelles a été annulé.</translation></message>
+    <message><source>Saving project files</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Enregistrement des fichiers du projet</translation></message>
+    <message><source>Saving the Tracker file and MoTrack companion…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Enregistrement du fichier Tracker et du fichier associé MoTrack…</translation></message>
     <message><source>This also replaces the existing MoTrack file:
-%1</source><translation type="unfinished"></translation></message>
-    <message><source>Tracker archives (*.trz)</source><translation type="unfinished"></translation></message>
-    <message><source>Tracker file saved. The MoTrack companion needs recovery.</source><translation type="unfinished"></translation></message>
-    <message><source>Tracker project and MoTrack companion saved.</source><translation type="unfinished"></translation></message>
-    <message><source>Tracker projects (*.trk)</source><translation type="unfinished"></translation></message>
+%1</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Cette opération remplace aussi le fichier MoTrack existant :
+%1</translation></message>
+    <message><source>Tracker archives (*.trz)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Archives Tracker (*.trz)</translation></message>
+    <message><source>Tracker file saved. The MoTrack companion needs recovery.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Fichier Tracker enregistré. Le fichier associé MoTrack doit être récupéré.</translation></message>
+    <message><source>Tracker project and MoTrack companion saved.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Projet Tracker et fichier associé MoTrack enregistrés.</translation></message>
+    <message><source>Tracker projects (*.trk)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Projets Tracker (*.trk)</translation></message>
     <message><source>Saving project…</source><translation>Enregistrement du projet…</translation></message>
     <message><source>Project changed while saving. Save again to keep the latest edits.</source><translation>Le projet a changé pendant l’enregistrement. Enregistrez à nouveau pour conserver les dernières modifications.</translation></message>
     <message><source>New &amp;vector</source><translation>Nouveau &amp;vecteur</translation></message>
@@ -189,6 +190,8 @@
     <message><source>Delete mark on this &amp;frame</source><translation>Supprimer le point de cette &amp;image</translation></message>
     <message><source>Track name</source><translation>Nom de la trajectoire</translation></message>
     <message><source>Choose a unique, nonempty track name.</source><translation>Choisissez un nom de trajectoire unique et non vide.</translation></message>
+    <message numerus="yes"><source>The Tracker archive omits %n duplicate member(s) with unsafe names.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform></translation></message>
+    <message numerus="yes"><source>The Tracker archive keeps %n unextracted member(s) whose names may show the author's folder or user names.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform></translation></message>
   </context>
   <context>
     <name>PositionPlot</name>
@@ -198,196 +201,288 @@
     <message><source>No measurements to plot.</source><translation>Aucune mesure à tracer.</translation></message>
   </context>
   <context>
-    <name>TrackerArchive</name>
-    <message><source>A member name in this Tracker archive is not valid UTF-8 text, so the archive cannot be opened. Tracker cannot open it either.</source><translation type="unfinished">Un nom de membre de cette archive Tracker n&apos;est pas un texte UTF-8 valide : l&apos;archive ne peut donc pas être ouverte. Tracker ne peut pas l&apos;ouvrir non plus.</translation></message>
-  </context>
-  <context>
     <name>TrackerImagePackage</name>
-    <message><source>The movie's frame count or timing no longer matches this document.</source><translation type="unfinished"></translation></message>
-    <message><source>Choose a regular Tracker archive filename.</source><translation type="unfinished"></translation></message>
-    <message><source>Cannot package this linked-media experiment safely.</source><translation type="unfinished"></translation></message>
-    <message><source>Tracker media packaging was canceled.</source><translation type="unfinished"></translation></message>
-    <message><source>Could not read a file required for the archive: %1</source><translation type="unfinished"></translation></message>
+    <message><source>The movie's frame count or timing no longer matches this document.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Le nombre d’images ou la cadence de la vidéo ne correspond plus à ce document.</translation></message>
+    <message><source>Choose a regular Tracker archive filename.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Choisissez un nom de fichier ordinaire pour l’archive Tracker.</translation></message>
+    <message><source>Cannot package this linked-media experiment safely.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Impossible d’empaqueter en toute sécurité cette expérience à médias liés.</translation></message>
+    <message><source>Tracker media packaging was canceled.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">L’empaquetage des médias Tracker a été annulé.</translation></message>
+    <message><source>Could not read a file required for the archive: %1</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Impossible de lire un fichier nécessaire à l’archive : %1</translation></message>
   </context>
 <context>
     <name>motrack::WorkspaceWindow</name>
     <message>
         <source>Open a project, video, or image sequence to begin.</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Ouvrez un projet, une vidéo ou une séquence d’images pour commencer.</translation>
     </message>
     <message>
         <source>Cancel selected open</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Annuler l’ouverture sélectionnée</translation>
     </message>
     <message>
         <source>Canceling %1…</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Annulation de l’ouverture de %1…</translation>
     </message>
     <message>
         <source>&amp;Open project…</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">&amp;Ouvrir un projet…</translation>
     </message>
     <message>
         <source>Open &amp;video…</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Ouvrir une &amp;vidéo…</translation>
     </message>
     <message>
         <source>Open &amp;images…</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Ouvrir des &amp;images…</translation>
     </message>
     <message>
         <source>Open project</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Ouvrir un projet</translation>
     </message>
     <message>
         <source>MoTrack and Tracker projects (*.motrack *.trk *.trz)</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Projets MoTrack et Tracker (*.motrack *.trk *.trz)</translation>
     </message>
     <message>
         <source>Open video</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Ouvrir une vidéo</translation>
     </message>
     <message>
         <source>Open image sequence</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Ouvrir une séquence d’images</translation>
     </message>
     <message>
         <source>Images (%1)</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Images (%1)</translation>
     </message>
     <message>
         <source>Image sequence timing</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Cadence de la séquence d’images</translation>
     </message>
     <message>
         <source>Frames per second (0 for unknown)</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Images par seconde (0 si inconnue)</translation>
     </message>
     <message>
         <source>Save &amp;all projects</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Enregistrer tous les &amp;projets</translation>
     </message>
     <message>
         <source>&amp;Hide experiment view</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">&amp;Masquer la vue de l’expérience</translation>
     </message>
     <message>
         <source>Close &amp;project…</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">&amp;Fermer le projet…</translation>
     </message>
     <message>
         <source>Close all experiments belonging to this project, including hidden views.</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Fermer toutes les expériences de ce projet, y compris les vues masquées.</translation>
     </message>
     <message>
         <source>&amp;Quit</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">&amp;Quitter</translation>
     </message>
     <message>
         <source>&amp;File</source>
-        <translation type="unfinished" />
+        <translatorcomment>Tracker exact: tracker_fr.properties TMenuBar.Menu.File</translatorcomment>
+        <translation>&amp;Fichier</translation>
     </message>
     <message>
         <source>&amp;Experiments</source>
-        <translation type="unfinished" />
+        <translatorcomment>Tracker exact: tools_fr.properties MenuItem.Experiments</translatorcomment>
+        <translation>&amp;Expériences</translation>
     </message>
     <message>
         <source>Workspace</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Espace de travail</translation>
     </message>
     <message>
         <source>Could not open: %1</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Impossible d’ouvrir : %1</translation>
     </message>
     <message>
         <source>Opening canceled.</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Ouverture annulée.</translation>
     </message>
     <message>
         <source>Two files are already opening. Wait for one to finish or cancel an open.</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Deux fichiers sont déjà en cours d’ouverture. Attendez que l’un d’eux se termine ou annulez une ouverture.</translation>
     </message>
     <message>
         <source>Opening %1…</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Ouverture de %1…</translation>
     </message>
     <message numerus="yes">
         <source>%n images</source>
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
         <translation type="unfinished">
-            <numerusform /><numerusform /></translation>
+            <numerusform>%n image</numerusform>
+            <numerusform>%n images</numerusform>
+        </translation>
     </message>
     <message>
         <source>%1 — %2</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">%1 — %2</translation>
     </message>
     <message>
         <source>Hide view; keep this experiment in the workspace</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Masquer la vue ; conserver cette expérience dans l’espace de travail</translation>
     </message>
     <message>
         <source>View hidden. Reopen it from the Experiments menu; its edits are retained.</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Vue masquée. Rouvrez-la depuis le menu Expériences ; ses modifications sont conservées.</translation>
     </message>
     <message>
         <source>%1 *</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">%1 *</translation>
     </message>
     <message>
         <source>%1[*] — MoTrack</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">%1[*] — MoTrack</translation>
     </message>
     <message>
         <source>MoTrack[*]</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">MoTrack[*]</translation>
     </message>
     <message>
         <source>%1 (hidden)</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">%1 (masquée)</translation>
     </message>
     <message>
         <source>Close project?</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Fermer le projet ?</translation>
     </message>
     <message>
         <source>Save changes to %1? This includes every experiment in the project, including hidden views.</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Enregistrer les modifications de %1 ? Cela inclut toutes les expériences du projet, y compris les vues masquées.</translation>
     </message>
     <message>
         <source>Wait for the current save to finish before closing the workspace.</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Attendez la fin de l’enregistrement en cours avant de fermer l’espace de travail.</translation>
     </message>
     <message>
         <source>Two modified projects share %1. Save one to a different filename before saving or closing both.</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Deux projets modifiés partagent %1. Enregistrez l’un d’eux sous un autre nom de fichier avant d’enregistrer ou de fermer les deux.</translation>
     </message>
     <message>
         <source>Save canceled or failed: %1</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Enregistrement annulé ou en échec : %1</translation>
     </message>
     <message>
         <source>&amp;Revert experiment…</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">&amp;Restaurer l’expérience…</translation>
     </message>
     <message>
         <source>Cannot revert while a save is pending or the saved files need recovery or a fresh paired save.</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Impossible de restaurer tant qu’un enregistrement est en attente ou que les fichiers enregistrés nécessitent une récupération ou un nouvel enregistrement couplé.</translation>
     </message>
     <message>
         <source>Revert experiment?</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Restaurer l’expérience ?</translation>
     </message>
     <message>
         <source>Discard changes to %1 and restore its last saved or opened state? This clears its undo history.</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Abandonner les modifications de %1 et restaurer son dernier état enregistré ou ouvert ? Cela efface son historique d’annulation.</translation>
     </message>
     <message>
         <source>The experiment changed during confirmation. Review it before reverting.</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">L’expérience a changé pendant la confirmation. Vérifiez-la avant de la restaurer.</translation>
     </message>
     <message>
         <source>Experiment restored. Other experiments retain their edits.</source>
-        <translation type="unfinished" />
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Expérience restaurée. Les autres expériences conservent leurs modifications.</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n archive member(s) with unsafe names were not extracted.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Saving this Tracker archive omits %n duplicate copy(ies) among them.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Saved archives keep the other %n unchanged; their names may show the author's folder or user names.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Could not read the Tracker project %1; see the Experiments menu.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Could not read %1 and %n other Tracker project(s); see the Experiments menu.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>%1 — %2 (could not be read)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not read %1: %2</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 
+  <context>
+    <name>WorkspaceInput</name>
+    <message><source>No Tracker project in this archive could be read. %1: %2</source><translation type="unfinished"></translation></message>
+  </context>
+  <context>
+    <name>TrackerArchive</name>
+    <message><source>This Tracker archive contains a project with an unsafe member name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
+    <message><source>This Tracker project refers to an archive member with an unsafe name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
+    <message><source>A member name in this Tracker archive is not valid UTF-8 text, so the archive cannot be opened. Tracker cannot open it either.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Un nom de membre de cette archive Tracker n'est pas un texte UTF-8 valide : l'archive ne peut donc pas être ouverte. Tracker ne peut pas l'ouvrir non plus.</translation></message>
+  </context>
 </TS>

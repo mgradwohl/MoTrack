@@ -235,7 +235,7 @@ void writeTrackerMediaPackage(
     output.file.close();
     // Validate the same bounded archive reader and media resolution used by normal project opening.
     const auto verified = TrackerArchive::open(staged, cancelled);
-    require(verified.projects() == QStringList{projectMember});
+    require(verified.projects() == QStringList{projectMember} && verified.skippedMembers().isEmpty());
     auto reopened = importTrackerDocument(verified.projectPath(projectMember));
     verified.resolveMedia(reopened.project, projectMember);
     require(reopened.project.clip.mediaReferences == snapshot.project.clip.mediaReferences);

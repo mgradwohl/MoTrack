@@ -95,7 +95,7 @@ void ArchiveGroupSession::replaceMember(QUuid id, WorkspaceDocument incoming)
 {
     auto& member = findMember(id);
     auto prepared = makeArchiveGroup(std::move(incoming));
-    require(prepared.archive == m_Archive && prepared.members.front().member == member.member);
+    require(prepared.archive == m_Archive && archiveMemberKey(prepared.members.front().member) == archiveMemberKey(member.member));
     member.session->replace(std::move(prepared.members.front().document), sourcePath());
     ++m_MembershipRevision;
 }

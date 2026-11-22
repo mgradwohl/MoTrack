@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="org.opensourcephysics.tools.LibraryCollection">
+    <property name="name" type="string">Generated collection</property>
+    <property name="description" type="string"><![CDATA[<p>Written by OSP's LibraryCollection.Loader & XMLControlElement.</p>]]></property>
+    <property name="html_path" type="string">intro.html</property>
+    <property name="base_path" type="string">https://example.org/library/</property>
+    <property name="metadata" type="array" class="[[Ljava.lang.String;">
+        <property name="[0]" type="array" class="[Ljava.lang.String;">
+            <property name="[0]" type="string">Author</property>
+            <property name="[1]" type="string">A. Example</property>
+        </property>
+        <property name="[1]" type="array" class="[Ljava.lang.String;">
+            <property name="[0]" type="string">Keywords</property>
+            <property name="[1]" type="string">motion, oracle</property>
+        </property>
+    </property>
+    <property name="properties" type="array" class="[[Ljava.lang.String;">
+        <property name="[0]" type="array" class="[Ljava.lang.String;">
+            <property name="[0]" type="string">custom</property>
+            <property name="[1]" type="string">value</property>
+        </property>
+        <property name="[1]" type="array" class="[Ljava.lang.String;">
+            <property name="[0]" type="string">unset</property>
+            <property name="[1]" type="object">null</property>
+        </property>
+    </property>
+    <property name="resources" type="array" class="[Lorg.opensourcephysics.tools.LibraryResource;">
+        <property name="[0]" type="object">
+        <object class="org.opensourcephysics.tools.LibraryResource">
+            <property name="name" type="string">Experiment</property>
+            <property name="target" type="string">experiments/run.trz</property>
+            <property name="type" type="string">Tracker</property>
+        </object>
+        </property>
+        <property name="[1]" type="object">
+        <object class="org.opensourcephysics.tools.LibraryResource">
+            <property name="name" type="string">Info page</property>
+            <property name="html_path" type="string">info.html</property>
+            <property name="type" type="string">HTML</property>
+        </object>
+        </property>
+        <property name="[2]" type="object">
+        <object class="org.opensourcephysics.tools.LibraryCollection">
+            <property name="name" type="string">Empty sub-collection</property>
+            <property name="target" type="string"><![CDATA[&OSPSubject=1]]></property>
+        </object>
+        </property>
+        <property name="[3]" type="object">
+        <object class="org.opensourcephysics.tools.LibraryResource">
+            <property name="name" type="string"></property>
+            <property name="target" type="string">doc.pdf</property>
+            <property name="type" type="string">PDF</property>
+        </object>
+        </property>
+    </property>
+</object>

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="test.UnterminatedArray">
+    <property name="values" type="array" class="[Ljava.lang.Object;">
+        <property name="[0]" type="int">1</property>

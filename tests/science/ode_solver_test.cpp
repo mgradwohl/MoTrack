@@ -1,5 +1,6 @@
 #include "science/ode/ode_solver.hpp"
 
+#include "science/java_math.hpp"
 #include "science/ode/ode_solvers_internal.hpp"
 
 #include <QFile>
@@ -1208,8 +1209,9 @@ TEST(OdeSolverApi, AdvanceToTakesWholeStepsUntilTheTargetTime)
 
 TEST(OdeSolverApi, JavaMinAndMaxKeepNanAndSignedZeroSemantics)
 {
-    using motrack::science::detail::javaMax;
-    using motrack::science::detail::javaMin;
+    // The solvers use the shared Java Math.max/min (src/science/java_math.hpp).
+    const auto javaMax = motrack::science::java::max;
+    const auto javaMin = motrack::science::java::min;
     EXPECT_TRUE(std::isnan(javaMax(NOT_A_NUMBER, 1.0)));
     EXPECT_TRUE(std::isnan(javaMax(1.0, NOT_A_NUMBER)));
     EXPECT_TRUE(std::isnan(javaMin(NOT_A_NUMBER, 1.0)));
