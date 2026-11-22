@@ -11,6 +11,9 @@ Both ways also install the add-on modules in ``QT_MODULES`` (Qt Multimedia, for 
 archives are pinned the same way. A prefix installed before a module was added gets just that module:
 its pinned archives are added without replacing or deleting any file already in the prefix
 (``--qt-source aqt`` uses aqt's ``--noarchives`` amendment instead).
+
+Everything goes in the ``.dev-tools`` directory ``dev_tools_root`` picks (``dev-tools`` prints it), which a
+checkout shares with its linked git worktrees; tools/media_sdk.py uses it too.
 """
 
 import argparse
@@ -35,6 +38,80 @@ AQT_VERSION = "3.3.0"
 QT_REPOSITORY = "https://download.qt.io/online/qtsdkrepository"
 QT_HOST = "download.qt.io"
 TIMEOUT = 120
+
+
+# The per-platform directories platform_config names inside .dev-tools.
+PLATFORM_DIRECTORIES = ("windows", "macos", "linux")
+
+
+def git_paths(directory, git, *options):
+    """The resolved paths `git -C directory rev-parse --path-format=absolute <options>` prints, or None.
+
+    None when git is missing, older than 2.31 (no --path-format), finds no repository or prints anything
+    but one absolute path per option. GIT_DIR and the like are dropped, so the answer is about directory.
+    """
+    environment = {key: value for key, value in os.environ.items()
+                   if key not in {"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR"}}
+    try:
+        result = subprocess.run([git, "-c", "core.quotePath=false", "-C", str(directory), "rev-parse",
+                                 "--path-format=absolute", *options], capture_output=True, env=environment,
+                                check=False, timeout=TIMEOUT)
+        paths = [Path(os.fsdecode(line)) for line in result.stdout.splitlines()]
+    except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
+        return None
+    if result.returncode != 0 or len(paths) != len(options) or not all(path.is_absolute() for path in paths):
+        return None
+    return [path.resolve() for path in paths]
+
+
+def main_checkout(checkout, git="git"):
+    """The MoTrack main checkout whose .dev-tools the linked worktree checkout shares, or None.
+
+    checkout must be the top of a linked worktree whose repository's common directory is <main>/.git, the
+    git directory of the main working tree <main>, which must be a MoTrack checkout (tools/dev_sdk.py).
+    Every other layout gets None: a worktree of a bare or --separate-git-dir repository or of a submodule,
+    MoTrack files inside another repository, the main checkout itself, a plain directory, or no usable git.
+    """
+    checkout = Path(checkout).resolve()
+    linked = git_paths(checkout, git, "--show-toplevel", "--git-dir", "--git-common-dir")
+    if linked is None:
+        return None
+    top, git_dir, common = linked
+    if top != checkout or git_dir == common or common.name != ".git":
+        return None
+    main = common.parent
+    own_git_directory = (main / ".git").is_dir() and (main / ".git").resolve() == common
+    if not own_git_directory or not (main / "tools" / "dev_sdk.py").is_file():
+        return None
+    return main if git_paths(main, git, "--show-toplevel", "--git-dir") == [main, common] else None
+
+
+def holds_sdk(dev_tools):
+    """Whether setup installed an SDK in dev_tools: a platform's Qt or the vcpkg checkout.
+
+    Other contents, such as a corpus cache, macOS tool links or a stray file, do not count.
+    """
+    qt = any((dev_tools / name / "qt").is_dir() for name in PLATFORM_DIRECTORIES)
+    return qt or (dev_tools / "vcpkg" / ".git").exists()
+
+
+def dev_tools_root(checkout=None, environ=None, git="git"):
+    """The .dev-tools directory holding the SDKs, one for a checkout and all of its linked worktrees.
+
+    MOTRACK_DEV_TOOLS when it is set (a relative path is relative to checkout, so setup and activation
+    agree whatever the working directory); else checkout's own .dev-tools when it holds an SDK; else, in a
+    linked worktree of a MoTrack main checkout, that checkout's .dev-tools, even before setup has created
+    it, so setup installs there; else checkout's own. Nothing is created, linked or moved.
+    """
+    checkout = ROOT if checkout is None else Path(checkout)
+    environ = os.environ if environ is None else environ
+    if override := environ.get("MOTRACK_DEV_TOOLS"):
+        return Path(os.path.abspath(checkout / Path(override).expanduser()))
+    local = checkout / ".dev-tools"
+    if holds_sdk(local):
+        return local
+    main = main_checkout(checkout, git)
+    return main / ".dev-tools" if main else local
 
 
 def toolchain():
@@ -374,14 +451,17 @@ def install(root, host, archive, directory, repository_os, source):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=["install", "qt-prefix", "tools-root", "qt-archive-checksums"])
+    parser.add_argument("command", choices=["install", "qt-prefix", "tools-root", "dev-tools", "qt-archive-checksums"])
     parser.add_argument("--qt-source", choices=["auto", "aqt", "direct"],
                         default=os.environ.get("MOTRACK_QT_SOURCE", "auto"),
                         help="aqt, the verified download.qt.io archives, or aqt with that fallback (default; "
                              "MOTRACK_QT_SOURCE overrides it)")
     args = parser.parse_args()
+    if args.command == "dev-tools":
+        print(dev_tools_root())
+        return
     name, host, archive, directory, repository_os = platform_config()
-    root = ROOT / ".dev-tools" / name
+    root = dev_tools_root() / name
     prefix = root / "qt" / QT_VERSION / directory
     if args.command == "install":
         install(root, host, archive, directory, repository_os, args.qt_source)

@@ -59,7 +59,7 @@ add_library(motrack_project STATIC src/archive_group.cpp src/archive_group_sessi
     src/tracker_archive.cpp src/tracker_archive_writer.cpp src/tracker_loaders.cpp src/tracker_references.cpp src/tracker_rename.cpp src/tracker_writer.cpp src/workspace_document.cpp src/workspace_session.cpp src/workspace_storage.cpp)
 target_include_directories(motrack_project PUBLIC src)
 # Tracker import/export reads and patches XML through motrack_osp only; QtXml is a test diagnostic dependency.
-target_link_libraries(motrack_project PUBLIC Qt6::Core motrack_osp PRIVATE motrack_archive)
+target_link_libraries(motrack_project PUBLIC Qt6::Core motrack_osp PRIVATE motrack_archive motrack_motion)
 
 # Package validation decodes staged images/movies without adding codecs to the project model.
 add_library(motrack_image_package STATIC src/tracker_image_package.cpp)
