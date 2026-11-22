@@ -166,11 +166,12 @@ pointer. Archive payloads keep their existing shared ownership.
 Revisions belong to the live owner, not to the value, so copying or restoring a value cannot move them
 backward. The owner's `DocumentHistory` keeps the runtime identity and two monotonic counters: the history
 revision, as `TrackEdits` has today, and a document revision that also counts updates outside history and every
-assignment (replacement, Revert). On assignment, the incoming value's graph is raised with a new C0 operation to
-a floor of the outgoing live graph's revision + 1, and every node is marked changed there, so `isCurrent(node, R)`
-rejects anything computed before. The floor comes from the outgoing graph, not the document revision, because a
-command advances the graph's revision several times; the operation ignores a floor at or below the graph's own
-revision. Caches, including the legacy view and later evaluation results, are keyed by (runtime identity,
+assignment (replacement, Revert). On assignment, a new C0 operation always marks every node of the incoming
+graph changed at max(incoming graph revision + 1, outgoing live graph revision + 1), so `isCurrent(node, R)`
+rejects anything computed before. The floor comes from the graphs, not the document revision, because a command
+advances the graph's revision several times. Assignment never skips this step, even when the incoming graph's
+revision is already high, because a node's effective revision can still be low; only an explicit floor call
+ignores a floor at or below the graph's own revision. Caches, including the legacy view and later evaluation results, are keyed by (runtime identity,
 document revision), and snapshots carry that stamp. Revert keeps the runtime identity, so that key protects
 against a rewind only because the document revision always advances on assignment.
 
@@ -333,8 +334,10 @@ older (the rules are symmetric):
 
 - a field without `base` was unedited and takes this reader's value, so loader fixes reach it;
 - an edited field keeps its stored values, tombstones included, when every entry of its `base` equals this
-  reader's reading; if any entry conflicts, the whole field keeps its stored values, so all its elements stay in
-  one frame space, the associations become stale and the note is shown;
+  reader's reading and every element not listed in `base` equals this reader's reading too; any other difference
+  is a conflict, so the whole field keeps its stored values and all its elements stay in one frame space, the
+  associations become stale and the note is shown (otherwise an edit at frame 5 would keep an old misreading of
+  unedited frame 3, and export would write it silently);
 - a bound live typed object without a `state` entry, for example a class that a newer build types, takes the
   current reading;
 - a baseline that the reader refuses opens the document native-only from `state`, with the bytes kept opaque,
@@ -414,7 +417,7 @@ No worker holds a pointer into a live document, and only the GUI thread updates 
 | B2.2 | O6, MoTrack side | A JSON form of commands and `motrack_corpus_probe --apply ops.json`. Seeded random command sequences check that undoing everything returns an equal document, that revisions only grow, and that the incrementally maintained graph equals a rebuilt one. The Java applier belongs to B4. |
 | B2.3 | O7, O8 | Descriptor savers for created objects; #316's checks, with a seam that feeds doctored output. On every writer test and corpus export the descriptor composition makes B1's accept or refuse decision and, where both accept, equal bytes. |
 | B2.4b | O5, existing routes | The 237 cases through the descriptor composition, with the comparison against B1's composition a required CI test. |
-| B2.5 | O5, native route | Every corpus round trip also saves v7, reopens it and exports again; that export equals the export before closing. A test-only loader variant simulates newer and older readers: unedited fields follow them; a field with only deletions keeps them; a field with one conflicting element keeps all its stored values and makes the document stale. A class typed only by the variant keeps its countdown identity and opens with known associations. |
+| B2.5 | O5, native route | Every corpus round trip also saves v7, reopens it and exports again; that export equals the export before closing. A test-only loader variant simulates newer and older readers: unedited fields follow them; a field with only deletions keeps them; a field with one conflicting element, or with an edit at one frame while the reader reads an unedited frame differently, keeps all its stored values and makes the document stale. A class typed only by the variant keeps its countdown identity and opens with known associations. |
 
 O4 does not change in B2: data columns still come from `measurements.cpp` over the legacy view until C2.
 
