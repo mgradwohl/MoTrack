@@ -136,6 +136,7 @@ python tools/corpus.py session --java /path/to/jdk-17/bin/java
 python tools/corpus.py roundtrip --probe build/coverage/motrack_corpus_probe --java /path/to/jdk-17/bin/java
 python tools/corpus.py state-oracle --java /path/to/jdk-17/bin/java
 python tools/corpus.py state-check --probe build/coverage/motrack_corpus_probe
+python tools/corpus.py expression-oracle --java /path/to/jdk-17/bin/java
 python tools/corpus.py ode-oracle --java /path/to/jdk-17/bin/java
 python -m unittest discover -s tests -p test_corpus.py
 ```
@@ -145,6 +146,13 @@ committed [loaded-state dumps](state) and the [known-defect registry](known-defe
 compares MoTrack's modeled subset with those dumps on any platform without Java and requires its gaps to equal
 the committed [gap baseline](state-gaps.json). The
 [oracle-dump guide](../../docs/oracle-dumps.md) defines the schema, tolerances, registry and gaps.
+
+`expression-oracle` is a kernel oracle rather than a corpus case: it reruns
+[`ExpressionOracle.java`](../../tools/reference/ExpressionOracle.java) with the pinned JAR in a temporary
+Java home and compares the result with
+[`expression-reference.json`](../science/expression-reference.json) under the rules in the
+[expression engine notes](../../docs/expression-engine.md#kernel-oracle). `--record` rewrites that fixture
+for review. The C++ tests read the committed fixture and need no Java.
 
 `ode-oracle` integrates the [ODE solver kernel](../../docs/ode-solvers.md) test systems with the pinned
 OSP classes and compares them with `tests/science/ode-reference.json`, using that kernel's own

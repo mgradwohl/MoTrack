@@ -33,6 +33,7 @@ jobs:
         run: |
           python tools/corpus.py fetch
           python tools/corpus.py reference --java "$JAVA_HOME_17_X64/bin/java"
+          python tools/corpus.py expression-oracle --java "$JAVA_HOME_17_X64/bin/java"
           python tools/corpus.py session --java "$JAVA_HOME_17_X64/bin/java"
       - name: Check ODE solver kernel reference
         if: runner.os == 'Linux'

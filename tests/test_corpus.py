@@ -2,11 +2,14 @@
 
 import hashlib
 import copy
-from contextlib import nullcontext, redirect_stdout
+from contextlib import nullcontext, redirect_stderr, redirect_stdout
 import io
 import json
 import math
 import os
+import re
+import shutil
+import struct
 from pathlib import Path
 import re
 import sys
@@ -4065,6 +4068,127 @@ class TrackerStateTests(unittest.TestCase):
         self.assertTrue(native.call_args.kwargs["record"])
 
 
+class ExpressionOracleTests(unittest.TestCase):
+    """The expression kernel fixture and its Java regeneration check (no Java needed)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.fixture = json.loads(corpus.EXPRESSION_REFERENCE.read_text(encoding="utf-8"))
+
+    def case(self, report, case_id):
+        return next(case for case in report["cases"] if case["id"] == case_id)
+
+    def test_fixture_is_bounded_unique_and_documents_every_defect(self):
+        self.assertEqual(self.fixture["reference"]["tracker_version"], "6.3.5")
+        ids = [case["id"] for case in self.fixture["cases"]]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertTrue(all(re.fullmatch(r"[a-z0-9-]+", case_id) for case_id in ids))
+        self.assertGreater(len(ids), 600)
+        corpus.compare_expression_reference(self.fixture, copy.deepcopy(self.fixture))
+        for case in self.fixture["cases"]:
+            values = [evaluation for evaluation in case["evaluations"] if "result_bits" in evaluation or "intended_bits" in evaluation]
+            if case["defect"] and case["defect"] != "tracker-code-limit":
+                # Each annotated defect is evidenced by at least one value that differs from Tracker's.
+                self.assertTrue(any("intended_bits" in evaluation for evaluation in values), case["id"])
+            if case["error"] or case["exception"]:
+                self.assertFalse(any("result_bits" in evaluation for evaluation in values), case["id"])
+
+    def test_exact_cases_require_identical_bits_and_signed_zeros(self):
+        actual = copy.deepcopy(self.fixture)
+        evaluation = self.case(actual, "precedence-negative-zero")["evaluations"][0]
+        self.assertEqual(evaluation["result_bits"], "8000000000000000")
+        evaluation["result_bits"] = "0000000000000000"
+        evaluation["result"] = "0.0"
+        with self.assertRaisesRegex(ValueError, "precedence-negative-zero"):
+            corpus.compare_expression_reference(self.fixture, actual)
+
+    def test_transcendental_cases_accept_only_the_declared_ulp_bound(self):
+        name = "function-sin"
+        index = next(i for i, e in enumerate(self.case(self.fixture, name)["evaluations"]) if e["values"] == ["0.5"])
+        original = corpus.expression_value(self.case(self.fixture, name)["evaluations"][index]["result_bits"])
+        for ulps, accepted in [(1, True), (self.fixture["tolerance"]["ulp"], True), (self.fixture["tolerance"]["ulp"] + 1, False)]:
+            actual = copy.deepcopy(self.fixture)
+            evaluation = self.case(actual, name)["evaluations"][index]
+            shifted = struct.unpack(">d", struct.pack(">q", struct.unpack(">q", struct.pack(">d", original))[0] + ulps))[0]
+            evaluation["result_bits"] = struct.pack(">d", shifted).hex()
+            evaluation["result"] = repr(shifted)
+            with self.subTest(ulps=ulps):
+                if accepted:
+                    corpus.compare_expression_reference(self.fixture, actual)
+                else:
+                    with self.assertRaisesRegex(ValueError, "ulp"):
+                        corpus.compare_expression_reference(self.fixture, actual)
+
+    def test_signed_zeros_are_one_ulp_value_and_nan_payloads_are_equal(self):
+        self.assertEqual(corpus.expression_ulps(0.0, -0.0), 0)
+        self.assertEqual(corpus.expression_ulps(-5e-324, 5e-324), 2)
+        expected = {"values": [], "result": "NaN", "result_bits": "7ff8000000000000"}
+        corpus.compare_expression_values(expected, dict(expected, result_bits="fff8000000000001"), "exact", 4, "nan")
+        with self.assertRaises(ValueError):
+            corpus.compare_expression_values(expected, dict(expected, result_bits="0000000000000000"), "ulp", 4, "nan")
+        with self.assertRaises(ValueError):
+            corpus.compare_expression_values(expected, dict(expected, result_bits="not-hex-bits0000"), "ulp", 4, "bits")
+
+    def test_definitions_errors_and_display_text_must_match(self):
+        mutations = {
+            "expression": lambda c: c.__setitem__("expression", c["expression"] + " "),
+            "error position": lambda c: c["error"].__setitem__("position", c["error"]["position"] + 1),
+            "evaluation count": lambda c: c["evaluations"].pop(),
+            "missing field": lambda c: c.pop("defect"),
+            "display text": lambda c: c["evaluations"][0].__setitem__("result", "3"),
+            "random range": lambda c: c["evaluations"][0].__setitem__("range", ["0.0", "2.0"]),
+        }
+        targets = {"expression": "constant-pi", "error position": "syntax-unclosed", "evaluation count": "division-variable",
+                   "missing field": "constant-pi", "display text": "constant-pi", "random range": "random-offset"}
+        for name, mutate in mutations.items():
+            actual = copy.deepcopy(self.fixture)
+            mutate(self.case(actual, targets[name]))
+            with self.subTest(mutation=name), self.assertRaises(ValueError):
+                corpus.compare_expression_reference(self.fixture, actual)
+        for key in ["function_names", "cases"]:
+            actual = copy.deepcopy(self.fixture)
+            actual[key].pop()
+            with self.subTest(header=key), self.assertRaises(ValueError):
+                corpus.compare_expression_reference(self.fixture, actual)
+        with self.assertRaises(ValueError):
+            corpus.compare_expression_reference(self.fixture, dict(self.fixture, tolerance={"ulp": 0, "random_samples": 2000}))
+
+    def test_oracle_runs_the_pinned_jar_in_a_private_home_and_can_record(self):
+        manifest = corpus.load_manifest()
+        root = Path(tempfile.mkdtemp(prefix="motrack-expression-test-"))
+        self.addCleanup(shutil.rmtree, root)
+        commands = []
+        fixture = corpus.EXPRESSION_REFERENCE.read_text(encoding="utf-8")
+
+        def oracle(command):
+            commands.append(command)
+            Path(command[-1]).write_text(fixture, encoding="utf-8")
+
+        with patch.object(corpus, "verify_file"), patch.object(corpus, "run", side_effect=oracle):
+            corpus.check_expression_oracle(manifest, root, "java")
+            recorded = root / "recorded.json"
+            with patch.object(corpus, "EXPRESSION_REFERENCE", recorded):
+                corpus.check_expression_oracle(manifest, root, "java", record=True)
+        self.assertEqual(json.loads(recorded.read_text(encoding="utf-8")), self.fixture)
+        self.assertEqual(len(commands), 2)
+        command = commands[0]
+        self.assertIn("-Djava.awt.headless=true", command)
+        self.assertEqual(command[command.index("--class-path") + 1], str(root / manifest["reference"]["file"]))
+        self.assertEqual(command[-2], str(corpus.EXPRESSION_ORACLE))
+        home = Path(command[-1]).parent
+        self.assertIn(f"-Duser.home={home}", command)
+        self.assertFalse(home.exists())
+        self.assertEqual(list(root.iterdir()), [recorded])
+
+    def test_command_line_accepts_recording_only_for_reference_commands(self):
+        with patch.object(sys, "argv", ["corpus.py", "session", "--record"]), redirect_stderr(io.StringIO()), \
+                self.assertRaises(SystemExit):
+            corpus.main()
+        with patch.object(sys, "argv", ["corpus.py", "expression-oracle", "--record", "--java", "jdk"]), \
+                patch.object(corpus, "check_expression_oracle") as check:
+            corpus.main()
+        self.assertEqual(check.call_args.args[2], "jdk")
+        self.assertTrue(check.call_args.kwargs["record"])
 class OdeOracleTests(unittest.TestCase):
     """The ODE kernel oracle (tools/reference/OdeOracle.java) without running Java."""
 
