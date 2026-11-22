@@ -137,7 +137,8 @@ Directory readDirectory(QFile& input,
                 ((flags & 0x0800) != 0 || std::ranges::all_of(nameBytes, [](char c) { return static_cast<unsigned char>(c) < 128; })));
         // Use the reader's spelling: libarchive turns a name that has only '\' separators into '/'
         // separators (for the "version needed" values accepted here), and drops a directory's final '/'.
-        auto member = name;
+        // TrackerArchive member identities are also NFC (#308); the stored bytes are kept as they are.
+        auto member = name.normalized(QString::NormalizationForm_C);
         if (!member.contains('/'))
             member.replace('\\', '/');
         const auto match = replacements.constFind(member);
@@ -270,13 +271,14 @@ void writeTrackerArchive(const QString& path,
     {
         checkCancelled(cancelled);
         const auto& replacement = replacements[i];
-        require(source.projects().contains(replacement.member) && !replacementIndexes.contains(replacement.member) &&
-                !replacement.xml.empty() && replacement.xml.size() <= MAX_TRACKER_XML_BYTES);
+        const auto member = replacement.member.normalized(QString::NormalizationForm_C);
+        require(source.projects().contains(member) && !replacementIndexes.contains(member) && !replacement.xml.empty() &&
+                replacement.xml.size() <= MAX_TRACKER_XML_BYTES);
         const auto size = static_cast<qint64>(replacement.xml.size());
         require(size <= remaining);
         remaining -= size;
         static_cast<void>(parseLegacyProject(replacement.xml));
-        replacementIndexes.insert(replacement.member, i);
+        replacementIndexes.insert(member, i);
     }
     const QFileInfo target(path);
     require(!target.isSymLink(), "Tracker archive output cannot replace a file alias.");

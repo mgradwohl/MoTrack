@@ -1,6 +1,7 @@
 #include "capture_pipeline.hpp"
 
 #include "capture_encoder.hpp"
+#include "filesystem_path.hpp"
 #include "video_reader.hpp"
 
 #include <QCoreApplication>
@@ -142,16 +143,6 @@ class MappedFrame
     QImage m_Decoded;
     CaptureImage m_Image;
 };
-
-// UTF-16 on Windows, UTF-8 elsewhere.
-std::filesystem::path nativePath(const QString& path)
-{
-#ifdef Q_OS_WIN
-    return {path.toStdWString()};
-#else
-    return {path.toStdString()};
-#endif
-}
 
 // The MSVC library describes system errors in the ANSI code page; the portable condition's text is ASCII.
 QString errorText(const std::error_code& error)
@@ -576,20 +567,20 @@ std::error_code placeFile(const QString& from, const QString& to, bool replace)
     std::error_code error;
     if (replace)
     {
-        std::filesystem::rename(nativePath(from), nativePath(to), error);
+        std::filesystem::rename(toFilesystemPath(from), toFilesystemPath(to), error);
         return error;
     }
-    std::filesystem::create_hard_link(nativePath(from), nativePath(to), error);
+    std::filesystem::create_hard_link(toFilesystemPath(from), toFilesystemPath(to), error);
     if (!error)
     {
-        std::filesystem::remove(nativePath(from), error);
+        std::filesystem::remove(toFilesystemPath(from), error);
         return {};
     }
     if (error == std::errc::file_exists || QFileInfo::exists(to))
         return std::make_error_code(std::errc::file_exists);
     if (error == std::errc::cross_device_link)
         return error;
-    std::filesystem::rename(nativePath(from), nativePath(to), error);
+    std::filesystem::rename(toFilesystemPath(from), toFilesystemPath(to), error);
     return error;
 }
 

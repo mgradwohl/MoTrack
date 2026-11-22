@@ -1,5 +1,7 @@
 #pragma once
 
+#include "frame_time_base.hpp"
+
 #include <QImage>
 
 #include <atomic>
@@ -39,6 +41,8 @@ struct MovieIndex
     int frameCount = 0;
     std::vector<double> frameTimes;
     std::vector<std::chrono::nanoseconds> presentationTimes;
+    /// The video stream's time base, to which frameTimes were quantized before rescaling to nanoseconds.
+    FrameTimeBase timeBase = {};
 };
 
 /// Decodes a local movie in presentation order. Each reader belongs to a single thread.
@@ -57,6 +61,8 @@ class VideoReader
     [[nodiscard]] std::optional<MovieFrame> readNext();
     /// Decodes a frame and returns its ordinal and timestamp without converting its pixels.
     [[nodiscard]] std::optional<MovieFrame> skipNext();
+    /// The video stream's time base (seconds per timestamp tick), or unknown when the container reports none.
+    [[nodiscard]] FrameTimeBase timeBase() const noexcept;
 
   private:
     [[nodiscard]] std::optional<MovieFrame> decodeNext(bool convertPixels);

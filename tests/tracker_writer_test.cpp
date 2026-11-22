@@ -1,5 +1,6 @@
 #include "tracker_writer.hpp"
 
+#include "filesystem_path.hpp"
 #include "local_media_path.hpp"
 #include "measurements.hpp"
 #include "media_vectors.hpp"
@@ -1215,7 +1216,7 @@ TEST(TrackerWriter, RejectsHardLinkedMediaDestinationsWithoutChangingEitherName)
     ASSERT_TRUE(QFile::copy(fixture + "images/frame0.png", media));
     const auto target = temporary.filePath("saved.trk");
     std::error_code error;
-    std::filesystem::create_hard_link(std::filesystem::path(media.toStdU16String()), std::filesystem::path(target.toStdU16String()), error);
+    std::filesystem::create_hard_link(motrack::toFilesystemPath(media), motrack::toFilesystemPath(target), error);
     ASSERT_FALSE(error) << error.message();
     ASSERT_TRUE(motrack::sameLocalFile(media, target));
     const auto original = readBytes(media);

@@ -11,6 +11,7 @@
 
 #include <array>
 #include <chrono>
+#include <cmath>
 
 namespace
 {
@@ -121,6 +122,12 @@ TEST(VideoReader, IndexesRelativeTimestampsAndHonorsCancellation)
     EXPECT_DOUBLE_EQ(index.frameTimes.front(), 0.0);
     EXPECT_EQ(index.presentationTimes.at(2), 288ms);
     EXPECT_NEAR(index.frameTimes.back(), 0.328, 1e-12);
+    // The stream time base the timestamps were quantized to (#331): every relative frame time is whole ticks.
+    ASSERT_TRUE(index.timeBase.known());
+    EXPECT_EQ(index.timeBase, motrack::VideoReader(path).timeBase());
+    const double tick = index.timeBase.resolutionSeconds();
+    for (const auto time : index.frameTimes)
+        EXPECT_NEAR(time, std::round(time / tick) * tick, 1e-9) << time;
     cancelled = true;
     EXPECT_EQ(motrack::buildMovieIndex(path, motrack::VideoOrientation::Encoded, cancelled).frameCount, 0);
 }

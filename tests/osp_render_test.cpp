@@ -1,6 +1,7 @@
 #include "osp/render.hpp"
 #include "osp/source.hpp"
 #include "osp/value.hpp"
+#include "utf8_path.hpp"
 
 #include <gtest/gtest.h>
 
@@ -442,7 +443,7 @@ TEST(OspWriter, WritesNewDocumentsInOspLayout)
 
 std::string generatedFixture(std::string_view name)
 {
-    std::ifstream stream(std::filesystem::path(MOTRACK_FIXTURES) / "osp" / "generated" / name, std::ios::binary);
+    std::ifstream stream(motrack::utf8Path(MOTRACK_FIXTURES) / "osp" / "generated" / name, std::ios::binary);
     return {std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
 }
 

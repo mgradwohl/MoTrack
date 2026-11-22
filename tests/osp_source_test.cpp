@@ -1,5 +1,6 @@
 #include "osp/source.hpp"
 #include "osp/value.hpp"
+#include "utf8_path.hpp"
 
 #include <gtest/gtest.h>
 
@@ -33,7 +34,7 @@ std::string readFile(const std::filesystem::path& path)
 
 std::string fixture(std::string_view name)
 {
-    return readFile(std::filesystem::path(MOTRACK_FIXTURES) / "osp" / name);
+    return readFile(motrack::utf8Path(MOTRACK_FIXTURES) / "osp" / name);
 }
 
 /// Returns a present optional value; tests use it where a missing value is itself a failure.
@@ -555,7 +556,7 @@ TEST(OspReader, BoundsCompactArrayNesting)
 
 TEST(OspReader, ReadsIndexedArraysLikeArrayValue)
 {
-    const auto source = parsed(readFile(std::filesystem::path(MOTRACK_FIXTURES) / "point-mass.trk"));
+    const auto source = parsed(readFile(motrack::utf8Path(MOTRACK_FIXTURES) / "point-mass.trk"));
     const ObjectView root(*source, source->root());
     const auto tracks = require(root.property("tracks")).elements();
     ASSERT_EQ(tracks.size(), 2U);
