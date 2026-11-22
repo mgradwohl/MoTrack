@@ -355,6 +355,62 @@ TEST(TrackerCompose, EveryReferenceMustRenderFaithfullyAfterAMembershipOrLabelCh
     EXPECT_EQ(legacyOutcome(imported.project, imported.source, {}), output);
 }
 
+TEST(TrackerCompose, UneditedUnresolvedReferencesAcrossBothIdentityRangesRenderFaithfully)
+{
+    // #350: an Unknown track (a countdown identity) before a point mass (counter identity 1) of the same name. The center
+    // of mass's member is Unclassified and the tape's attachment Ambiguous, each with both as candidates in source order,
+    // which the current index lists the other way round.
+    const auto document =
+        motrack::importTypedTracker("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                                    "<object class=\"org.opensourcephysics.cabrillo.tracker.TrackerPanel\">\n"
+                                    "    <property name=\"tracks\" type=\"collection\" class=\"java.util.ArrayList\">\n"
+                                    "        <property name=\"item\" type=\"object\">\n"
+                                    "            <object class=\"org.opensourcephysics.cabrillo.tracker.FutureTrack\">\n"
+                                    "                <property name=\"name\" type=\"string\">dup</property>\n"
+                                    "            </object>\n"
+                                    "        </property>\n"
+                                    "        <property name=\"item\" type=\"object\">\n"
+                                    "            <object class=\"org.opensourcephysics.cabrillo.tracker.PointMass\">\n"
+                                    "                <property name=\"name\" type=\"string\">dup</property>\n"
+                                    "            </object>\n"
+                                    "        </property>\n"
+                                    "        <property name=\"item\" type=\"object\">\n"
+                                    "            <object class=\"org.opensourcephysics.cabrillo.tracker.CenterOfMass\">\n"
+                                    "                <property name=\"name\" type=\"string\">center</property>\n"
+                                    "                <property name=\"masses\" type=\"collection\" class=\"java.util.ArrayList\">\n"
+                                    "                    <property name=\"item\" type=\"string\">dup</property>\n"
+                                    "                </property>\n"
+                                    "            </object>\n"
+                                    "        </property>\n"
+                                    "        <property name=\"item\" type=\"object\">\n"
+                                    "            <object class=\"org.opensourcephysics.cabrillo.tracker.TapeMeasure\">\n"
+                                    "                <property name=\"name\" type=\"string\">tape</property>\n"
+                                    "                <property name=\"attachments\" type=\"array\" class=\"[Ljava.lang.String;\">\n"
+                                    "                    <property name=\"[0]\" type=\"string\">dup</property>\n"
+                                    "                </property>\n"
+                                    "            </object>\n"
+                                    "        </property>\n"
+                                    "    </property>\n"
+                                    "</object>\n");
+    const auto& graph = document.graph();
+    std::vector<motrack::model::BindingOutcome> outcomes;
+    for (const auto owner : graph.objects())
+    {
+        for (const auto facet : {motrack::model::Facet::Definition, motrack::model::Facet::Geometry, motrack::model::Facet::Data})
+        {
+            for (const auto& dependency : graph.dependencies({.object = owner, .facet = facet}))
+            {
+                outcomes.push_back(dependency.binding);
+                ASSERT_EQ(dependency.candidates.size(), 2u);
+                EXPECT_GT(dependency.candidates.front(), dependency.candidates.back()) << "Source order, not identity order.";
+            }
+        }
+    }
+    std::ranges::sort(outcomes);
+    EXPECT_EQ(outcomes, (std::vector{motrack::model::BindingOutcome::Ambiguous, motrack::model::BindingOutcome::Unclassified}));
+    EXPECT_NO_THROW(motrack::detail::requireFaithfulReferences(document));
+}
+
 TEST(TrackerCompose, ComparisonsDescribeEachDifference)
 {
     using motrack::detail::CompositionComparison;
