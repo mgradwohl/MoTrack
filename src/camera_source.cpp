@@ -3,9 +3,11 @@
 #include <QCamera>
 #include <QCameraDevice>
 #include <QCoreApplication>
+#include <QLibraryInfo>
 #include <QMediaCaptureSession>
 #include <QMediaDevices>
 #include <QPermissions>
+#include <QVersionNumber>
 #include <QVideoFrame>
 #include <QVideoFrameFormat>
 #include <QVideoSink>
@@ -107,6 +109,7 @@ void QtCameraSource::start(const QByteArray& device, int format, FrameSink sink)
     const auto formats = found->videoFormats();
     if (format >= 0 && format < formats.size())
         m_Impl->camera->setCameraFormat(formats.at(format));
+    // stop() disconnects first, so an inactive camera here stopped on its own.
     connect(m_Impl->camera.get(),
             &QCamera::activeChanged,
             this,
@@ -114,6 +117,8 @@ void QtCameraSource::start(const QByteArray& device, int format, FrameSink sink)
             {
                 if (active)
                     Q_EMIT started();
+                else
+                    Q_EMIT failed(QCoreApplication::translate("motrack::QtCameraSource", "The camera stopped delivering frames."));
             });
     connect(
         m_Impl->camera.get(), &QCamera::errorOccurred, this, [this](QCamera::Error, const QString& message) { Q_EMIT failed(message); });
@@ -133,10 +138,21 @@ void QtCameraSource::stop()
     QObject::disconnect(m_Impl->frames);
     if (m_Impl->camera)
     {
+        QObject::disconnect(m_Impl->camera.get(), nullptr, this, nullptr);
         m_Impl->camera->stop();
         m_Impl->session.setCamera(nullptr);
         m_Impl->camera.reset();
     }
+}
+
+FrameTimeField QtCameraSource::frameTimeField() const
+{
+#ifdef Q_OS_DARWIN
+    // qavfsamplebufferdelegate.mm stamps startTime with the previous sample's time until Qt 6.12.
+    if (QLibraryInfo::version() < QVersionNumber(6, 12))
+        return FrameTimeField::EndTime;
+#endif
+    return FrameTimeField::StartTime;
 }
 
 } // namespace motrack

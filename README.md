@@ -39,6 +39,9 @@ Run the setup script after cloning. It installs the [pinned toolchain](CONTRIBUT
 ./tools/setup-dev.sh --build
 ```
 
+On Linux, MoTrack needs the PulseAudio client library (`libpulse0`, which setup installs) to start at
+all, because Qt Multimedia links it.
+
 Run `build/dev/motrack` (`motrack.exe` on Windows) from an [activated developer shell](CONTRIBUTING.md#developer-setup) and open `tests/fixtures/image-sequence.trk` or `tests/fixtures/movie.trk` from the File menu. Use the controls below the image to play, pause, or step through the clip. The interface follows the system locale and is available in English, French, German, and Spanish.
 
 Directly opened movies use quarter-turn rotation and reflection metadata. Tracker project imports retain their encoded frame coordinates.
@@ -69,18 +72,20 @@ reports them, a resolution and frame-rate range (**Camera default** lets the cam
 starts and **Stop** ends a recording while the window previews the camera and shows the elapsed time
 and frame count. **Save and open…** then asks where to keep the clip, a QuickTime `.mov` file, and opens
 it as a new experiment, as **Open video** does. **Discard recording** returns to the preview; **Cancel**,
-or closing the window or the workspace, stops any recording and deletes its temporary file. If the
-camera stops during a recording, the frames recorded so far are kept to save or discard. A failed
+or closing the window or the workspace, stops any recording and deletes its temporary file; while a
+recording has not been saved, each of these asks first. If the camera stops, disconnects or changes its
+frame size during a recording, the frames recorded so far are kept to save or discard. A failed
 recording, a camera error or a failed save leaves the workspace unchanged.
 
 Each frame keeps the time the camera gave it, so an uneven camera rate shows as uneven frame times;
 MoTrack never assigns a nominal frame rate. A camera without frame times is timed by when frames reach
 MoTrack, and the summary says so, along with any frames dropped because they arrived faster than they
-could be recorded. Clips are Motion JPEG, every frame stored separately at a fixed high quality.
+could be recorded and any unusually long frame intervals. Clips are Motion JPEG, every frame stored
+separately at a fixed high quality.
 
 macOS asks for camera permission the first time (change it later in System Settings → Privacy &
 Security → Camera). On Windows, a camera turned off under Settings → Privacy & security → Camera fails
-to start with a message. On Linux, MoTrack needs `libpulse0` and access to `/dev/video*`. Capture uses no
+to start with a message. On Linux, capture needs access to `/dev/video*`. Capture uses no
 network connection or browser, unlike Tracker's **Video → Capture…**, and opens a new experiment instead
 of replacing the current tab's video. [Camera capture](docs/camera-capture.md) covers timing, platform
 backends and the other differences from Tracker.

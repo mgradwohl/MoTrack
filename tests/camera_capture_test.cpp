@@ -1,4 +1,5 @@
 #include "capture_dialog.hpp"
+#include "video_reader.hpp"
 #include "workspace_window.hpp"
 
 #include <QAction>
@@ -9,6 +10,9 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QLabel>
+#include <QLockFile>
+#include <QMediaFormat>
+#include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
 #include <QSignalSpy>
@@ -41,8 +45,8 @@ using State = motrack::CaptureDialog::State;
 constexpr std::array<qint64, 5> CAMERA_TIMES{5'000'000, 5'033'333, 5'070'000, 5'099'000, 5'140'500};
 constexpr std::array<double, 5> FRAME_TIMES{0.0, 3000.0 / 90000, 6300.0 / 90000, 8910.0 / 90000, 12645.0 / 90000};
 
-/// A deterministic camera: devices, formats and permission are fields; frames are delivered on demand
-/// from another thread, as platform capture threads do.
+/// A deterministic camera: devices, formats, permission and the frame-time field are fields; frames are
+/// delivered on demand from another thread (Qt 6.8 uses the GUI thread; the sink must cope with either).
 class FakeCamera final : public motrack::CameraSource
 {
   public:
@@ -59,6 +63,7 @@ class FakeCamera final : public motrack::CameraSource
          .formats = {{.resolution = {16, 12}, .minimumFrameRate = 0, .maximumFrameRate = 0, .pixelFormat = "MJPEG"}}}};
     motrack::CameraAccess permission = motrack::CameraAccess::Granted;
     motrack::CameraAccess answer = motrack::CameraAccess::Granted;
+    motrack::FrameTimeField timeField = motrack::FrameTimeField::StartTime;
     QByteArray device;
     int format = -2;
     int starts = 0;
@@ -104,18 +109,23 @@ class FakeCamera final : public motrack::CameraSource
         running = false;
         m_Sink = {};
     }
+    [[nodiscard]] motrack::FrameTimeField frameTimeField() const override
+    {
+        return timeField;
+    }
     void deliver(const QVideoFrame& frame) const
     {
         if (!m_Sink)
             return;
         std::thread([sink = m_Sink, frame] { sink(frame); }).join();
     }
-    void deliver(QColor color, qint64 time) const
+    void deliver(QColor color, qint64 time, qint64 end = -1, QSize size = {64, 48}) const
     {
-        QImage image(64, 48, QImage::Format_RGB32);
+        QImage image(size, QImage::Format_RGB32);
         image.fill(color);
         QVideoFrame frame(image);
         frame.setStartTime(time);
+        frame.setEndTime(end);
         deliver(frame);
     }
 
@@ -153,6 +163,33 @@ void record(motrack::CaptureDialog& dialog, const FakeCamera& camera, std::size_
     for (std::size_t frame = 0; frame < frames; ++frame)
         camera.deliver(QColor::fromHsv(static_cast<int>(frame) * 60, 200, 200), CAMERA_TIMES.at(frame));
 }
+
+// Answers the discard question with the given buttons in turn, as a user would; Cancel afterwards.
+class DiscardAnswers
+{
+  public:
+    explicit DiscardAnswers(std::vector<QMessageBox::StandardButton> answers) : m_Answers(std::move(answers))
+    {
+        QObject::connect(&m_Timer,
+                         &QTimer::timeout,
+                         [this]
+                         {
+                             auto* question = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+                             if (question && question->objectName() == "captureDiscardQuestion")
+                                 question->button(m_Next < m_Answers.size() ? m_Answers[m_Next++] : QMessageBox::Cancel)->click();
+                         });
+        m_Timer.start(1);
+    }
+    [[nodiscard]] std::size_t count() const
+    {
+        return m_Next;
+    }
+
+  private:
+    QTimer m_Timer;
+    std::vector<QMessageBox::StandardButton> m_Answers;
+    std::size_t m_Next = 0;
+};
 
 struct Capture
 {
@@ -246,23 +283,47 @@ TEST(CameraCapture, RecordsCameraFrameTimesAndOpensTheSavedClipAsANewExperiment)
 TEST(CameraCapture, CancelWindowCloseAndDestructionStopRecordingAndRemoveTheTemporaryClip)
 {
     {
+        // Cancel asks first; keeping the recording leaves it running.
         Capture capture;
         capture.open();
         record(*capture.dialog, *capture.camera, 2);
         const auto folder = QFileInfo(capture.dialog->temporaryRecording()).absolutePath();
         ASSERT_TRUE(QDir(folder).exists());
-        child<QPushButton>(*capture.dialog, "captureCancel")->click();
+        {
+            const DiscardAnswers answers({QMessageBox::Cancel});
+            child<QPushButton>(*capture.dialog, "captureCancel")->click();
+            EXPECT_EQ(answers.count(), 1u);
+        }
+        EXPECT_EQ(capture.dialog->state(), State::Recording);
+        EXPECT_TRUE(QDir(folder).exists());
+        {
+            const DiscardAnswers answers({QMessageBox::Discard});
+            child<QPushButton>(*capture.dialog, "captureCancel")->click();
+            EXPECT_EQ(answers.count(), 1u);
+        }
         ASSERT_TRUE(QTest::qWaitFor([&] { return !capture.dialog; }));
         EXPECT_FALSE(QDir(folder).exists());
         EXPECT_FALSE(capture.camera);
         EXPECT_TRUE(capture.window->context()->session().sources().empty());
     }
     {
+        // Closing the workspace asks too: keeping the recording cancels the close.
         Capture capture;
         capture.open();
         record(*capture.dialog, *capture.camera, 3);
         const auto folder = QFileInfo(capture.dialog->temporaryRecording()).absolutePath();
-        EXPECT_TRUE(capture.window->close());
+        {
+            const DiscardAnswers answers({QMessageBox::Cancel});
+            EXPECT_FALSE(capture.window->close());
+            EXPECT_EQ(answers.count(), 1u);
+        }
+        EXPECT_TRUE(capture.window->isVisible());
+        EXPECT_EQ(capture.dialog->state(), State::Recording);
+        {
+            const DiscardAnswers answers({QMessageBox::Discard});
+            EXPECT_TRUE(capture.window->close());
+            EXPECT_EQ(answers.count(), 1u);
+        }
         ASSERT_TRUE(QTest::qWaitFor([&] { return !capture.dialog; }));
         EXPECT_FALSE(QDir(folder).exists());
     }
@@ -277,7 +338,7 @@ TEST(CameraCapture, CancelWindowCloseAndDestructionStopRecordingAndRemoveTheTemp
         EXPECT_FALSE(QDir(folder).exists());
     }
     {
-        // A finished but unsaved recording is discarded with its window.
+        // Esc on a finished but unsaved recording asks; discarding removes it with the window.
         Capture capture;
         capture.open();
         record(*capture.dialog, *capture.camera);
@@ -285,13 +346,142 @@ TEST(CameraCapture, CancelWindowCloseAndDestructionStopRecordingAndRemoveTheTemp
         ASSERT_TRUE(waitForState(*capture.dialog, State::Recorded));
         const auto clip = capture.dialog->temporaryRecording();
         EXPECT_EQ(child<QPushButton>(*capture.dialog, "captureCancel")->text(), "Discard and close");
-        capture.dialog->reject();
+        const auto escape = [&]
+        {
+            QTest::keyPress(capture.dialog.data(), Qt::Key_Escape);
+            if (capture.dialog)
+                QTest::keyRelease(capture.dialog.data(), Qt::Key_Escape);
+        };
+        {
+            const DiscardAnswers answers({QMessageBox::Cancel});
+            escape();
+            EXPECT_EQ(answers.count(), 1u);
+        }
+        ASSERT_TRUE(capture.dialog);
+        EXPECT_EQ(capture.dialog->state(), State::Recorded);
+        EXPECT_TRUE(QFileInfo::exists(clip));
+        {
+            const DiscardAnswers answers({QMessageBox::Discard});
+            escape();
+            EXPECT_EQ(answers.count(), 1u);
+        }
         EXPECT_FALSE(QFileInfo::exists(clip));
         ASSERT_TRUE(QTest::qWaitFor([&] { return !capture.dialog; }));
         EXPECT_TRUE(capture.window->context()->session().sources().empty());
     }
+    {
+        // Nothing to lose: closing while previewing does not ask.
+        Capture capture;
+        capture.open();
+        const DiscardAnswers answers({});
+        capture.dialog->reject();
+        EXPECT_EQ(answers.count(), 0u);
+        ASSERT_TRUE(QTest::qWaitFor([&] { return !capture.dialog; }));
+    }
 }
 
+TEST(CameraCapture, MacOsFrameTimesComeFromEndTimeAndADisconnectedCameraKeepsTheClip)
+{
+    // Qt 6.8 to 6.11's AVFoundation camera puts the previous frame's time in startTime and the frame's
+    // own in endTime; reading startTime would shift every interval by one frame.
+    auto source = std::make_unique<FakeCamera>();
+    auto* camera = source.get();
+    camera->timeField = motrack::FrameTimeField::EndTime;
+    motrack::CaptureDialog dialog(std::move(source));
+    ASSERT_TRUE(waitForState(dialog, State::Previewing));
+    child<QPushButton>(dialog, "captureRecord")->click();
+    for (std::size_t frame = 0; frame < CAMERA_TIMES.size(); ++frame)
+        camera->deliver(Qt::red, CAMERA_TIMES.at(frame == 0 ? 0 : frame - 1), CAMERA_TIMES.at(frame));
+    ASSERT_TRUE(QTest::qWaitFor([&] { return child<QLabel>(dialog, "captureElapsed")->text().contains("Frames 5"); }));
+    // V4L2 reports an unplugged camera only by its disappearance from the device list.
+    camera->cameras.removeFirst();
+    Q_EMIT camera->devicesChanged();
+    ASSERT_TRUE(waitForState(dialog, State::Recorded));
+    ASSERT_TRUE(dialog.recording());
+    EXPECT_EQ(dialog.recording()->frames, 5);
+    EXPECT_TRUE(statusText(dialog).contains("disconnected") || statusText(dialog).contains("camera stopped"));
+    const std::atomic_bool cancelled{false};
+    const auto index = motrack::buildMovieIndex(dialog.recording()->path, motrack::VideoOrientation::Display, cancelled);
+    ASSERT_EQ(index.frameTimes.size(), FRAME_TIMES.size());
+    for (std::size_t frame = 0; frame < FRAME_TIMES.size(); ++frame)
+        EXPECT_NEAR(index.frameTimes.at(frame), FRAME_TIMES.at(frame), 1e-9) << frame;
+}
+
+TEST(CameraCapture, ReportsStalledCamerasGapsAndEndsAClipWhenTheFrameSizeChanges)
+{
+    auto source = std::make_unique<FakeCamera>();
+    auto* camera = source.get();
+    motrack::CaptureDialog dialog(std::move(source));
+    dialog.setStallWarningAfter(std::chrono::milliseconds(50));
+    ASSERT_TRUE(waitForState(dialog, State::Previewing));
+    child<QPushButton>(dialog, "captureRecord")->click();
+    ASSERT_TRUE(QTest::qWaitFor([&] { return statusText(dialog).contains("No frames have arrived"); }, 5000));
+    // A frame clears the warning. Intervals 10, 10, 10 and 40 ms: one exceeds 1.5 times the 10 ms median.
+    for (const qint64 time : {0, 10'000, 20'000, 30'000, 70'000})
+        camera->deliver(Qt::green, time);
+    ASSERT_TRUE(QTest::qWaitFor([&] { return child<QLabel>(dialog, "captureElapsed")->text().contains("Frames 5"); }));
+    EXPECT_FALSE(statusText(dialog).contains("No frames have arrived"));
+    // A new frame size ends the clip at the last frame of the original size, instead of scaling it.
+    camera->deliver(Qt::green, 80'000, -1, {32, 24});
+    ASSERT_TRUE(waitForState(dialog, State::Recorded));
+    ASSERT_TRUE(dialog.recording());
+    EXPECT_TRUE(dialog.recording()->sizeChanged);
+    EXPECT_EQ(dialog.recording()->frames, 5);
+    EXPECT_EQ(dialog.recording()->gaps, 1);
+    EXPECT_EQ(dialog.recording()->medianInterval, std::chrono::microseconds{10'000});
+    EXPECT_EQ(dialog.recording()->longestInterval, std::chrono::microseconds{40'000});
+    EXPECT_TRUE(statusText(dialog).contains("changed its frame size"));
+    EXPECT_TRUE(statusText(dialog).contains("longer than 1.5 times the median"));
+
+    using std::chrono::microseconds;
+    EXPECT_EQ(motrack::captureIntervals({}).gaps, 0);
+    EXPECT_EQ(motrack::captureIntervals({microseconds{5}}).median, microseconds{0});
+    const auto even = motrack::captureIntervals({microseconds{0}, microseconds{10}, microseconds{30}, microseconds{45}});
+    EXPECT_EQ(even.median, microseconds{15});
+    EXPECT_EQ(even.longest, microseconds{20});
+    EXPECT_EQ(even.gaps, 0); // 20 is not more than 1.5 × 15.
+}
+
+TEST(CameraCapture, SweepRemovesOnlyFoldersNoRunningMoTrackOwns)
+{
+    QTemporaryDir root;
+    const QDir folders(root.path());
+    for (const auto* name : {"motrack-capture-stale", "motrack-capture-live", "motrack-capture-recent", "unrelated"})
+        ASSERT_TRUE(folders.mkpath(name));
+    // A lock exactly as QLockFile writes it, but for a process that no longer exists (a crash).
+    {
+        QLockFile probe(root.filePath("probe.lock"));
+        ASSERT_TRUE(probe.lock());
+        QFile written(root.filePath("probe.lock"));
+        ASSERT_TRUE(written.open(QIODevice::ReadOnly));
+        auto lines = written.readAll().split('\n');
+        lines[0] = "2147483644";
+        QFile stale(root.filePath("motrack-capture-stale/" + motrack::captureLockName()));
+        ASSERT_TRUE(stale.open(QIODevice::WriteOnly));
+        stale.write(lines.join('\n'));
+    }
+    QLockFile live(root.filePath("motrack-capture-live/" + motrack::captureLockName()));
+    ASSERT_TRUE(live.lock());
+    QFile clip(root.filePath("motrack-capture-stale/capture.mov"));
+    ASSERT_TRUE(clip.open(QIODevice::WriteOnly));
+    clip.close();
+    EXPECT_EQ(motrack::sweepCaptureFolders(folders), 1);
+    EXPECT_FALSE(folders.exists("motrack-capture-stale"));
+    EXPECT_TRUE(folders.exists("motrack-capture-live"));   // Its owner is running.
+    EXPECT_TRUE(folders.exists("motrack-capture-recent")); // No lock, but too new to judge.
+    EXPECT_TRUE(folders.exists("unrelated"));
+}
+
+TEST(CameraCapture, QtsMediaBackendLoadsBesideMoTracksFFmpeg)
+{
+    // Loads Qt Multimedia's FFmpeg backend (and Qt's own FFmpeg libraries) without opening a camera, then
+    // decodes with MoTrack's FFmpeg in the same process.
+    EXPECT_FALSE(QMediaFormat().supportedFileFormats(QMediaFormat::Decode).isEmpty());
+    const std::atomic_bool cancelled{false};
+    const auto index = motrack::buildMovieIndex(fixture("vfr.mp4"), motrack::VideoOrientation::Display, cancelled);
+    EXPECT_EQ(index.frameCount, 4);
+    EXPECT_NEAR(index.frameTimes.back(), 0.328, 1e-12);
+}
 TEST(CameraCapture, FailedRecordingsAndSavesLeaveTheWorkspaceUnchanged)
 {
     QTemporaryDir temporary;

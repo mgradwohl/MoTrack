@@ -745,6 +745,20 @@ void WorkspaceWindow::closeEvent(QCloseEvent* event)
     event->ignore();
     if (m_Busy)
         return;
+    if (m_Capture && m_Capture->hasUnsavedRecording())
+    {
+        // An unsaved camera recording is asked about first; keeping it cancels the close.
+        m_Busy = true;
+        bool alive = true;
+        QObject lifetime;
+        connect(this, &QObject::destroyed, &lifetime, [&] { alive = false; });
+        const bool discard = m_Capture->confirmDiscard();
+        if (!alive)
+            return;
+        m_Busy = false;
+        if (!discard)
+            return;
+    }
     for (auto request = m_Opening.cbegin(); request != m_Opening.cend(); ++request)
         (void)m_Context->cancelOpen(request.key());
     const auto context = m_Context;
@@ -803,9 +817,9 @@ void WorkspaceWindow::closeEvent(QCloseEvent* event)
             return;
         }
     m_Busy = false;
-    // Closing the workspace discards an unsaved camera recording; its window removes the temporary file.
+    // The recording was confirmed for discarding above; its window removes the temporary file.
     if (m_Capture)
-        m_Capture->reject();
+        m_Capture->discardAndClose();
     event->accept();
 }
 

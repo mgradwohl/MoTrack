@@ -76,7 +76,8 @@ struct CaptureSummary
 /// Every frame is intra-coded at a fixed high quality, and each keeps the presentation time the
 /// caller supplies: the first written frame is time zero and later times are relative to it, stored
 /// in a 1/90000 s track timescale. Variable frame intervals therefore remain in the file, and the
-/// movie index reports them as the frame times. The size of the first frame fixes the movie size.
+/// movie index reports them as the frame times. The first frame fixes the movie size; a frame of another
+/// size is refused (scaling it would distort the recorded geometry and any calibration).
 /// One thread at a time; throws VideoError for unsupported frames and write failures.
 class CaptureEncoder
 {

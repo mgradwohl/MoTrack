@@ -3,13 +3,17 @@
 #include "capture_encoder.hpp"
 #include "video_reader.hpp"
 
+#include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QLockFile>
 #include <QUuid>
 #include <QVideoFrame>
 #include <QVideoFrameFormat>
 
+#include <algorithm>
 #include <condition_variable>
 #include <deque>
 #include <exception>
@@ -31,6 +35,14 @@ using namespace std::chrono;
 // Frames waiting for the worker while recording: about a quarter second at 30 Hz.
 constexpr std::size_t RECORDING_QUEUE = 8;
 constexpr qint64 COPY_CHUNK = qint64{1} << 20;
+// A capture folder without a lock file is left alone this long, in case its owner is about to lock it.
+constexpr qint64 UNLOCKED_FOLDER_AGE_SECONDS = qint64{24} * 60 * 60;
+
+// Messages users see; explicit contexts, because lupdate does not resolve this file's classes.
+VideoError frameError(const char* text)
+{
+    return VideoError{QCoreApplication::translate("motrack::CapturePipeline", text).toStdString()};
+}
 
 std::optional<CapturePixelFormat> capturePixelFormat(QVideoFrameFormat::PixelFormat format)
 {
@@ -82,13 +94,13 @@ class MappedFrame
     explicit MappedFrame(QVideoFrame source) : m_Frame(std::move(source))
     {
         if (!m_Frame.isValid() || !m_Frame.map(QVideoFrame::ReadOnly))
-            throw VideoError("Could not read a camera frame.");
+            throw frameError(QT_TRANSLATE_NOOP("motrack::CapturePipeline", "Could not read a camera frame."));
         const auto format = m_Frame.surfaceFormat();
         if (format.pixelFormat() == QVideoFrameFormat::Format_Jpeg)
         {
             m_Decoded = QImage::fromData(m_Frame.bits(0), m_Frame.mappedBytes(0));
             if (m_Decoded.isNull())
-                throw VideoError("Could not decode a Motion JPEG camera frame.");
+                throw frameError(QT_TRANSLATE_NOOP("motrack::CapturePipeline", "Could not decode a Motion JPEG camera frame."));
             m_Image = captureImageFromQImage(m_Decoded);
             if (m_Image.width == 0)
             {
@@ -130,46 +142,75 @@ class MappedFrame
     CaptureImage m_Image;
 };
 
+// UTF-16 on Windows, UTF-8 elsewhere.
 std::filesystem::path nativePath(const QString& path)
 {
 #ifdef Q_OS_WIN
     return {path.toStdWString()};
 #else
-    return {QFile::encodeName(path).toStdString()};
+    return {path.toStdString()};
 #endif
+}
+
+// The MSVC library describes system errors in the ANSI code page; the portable condition's text is ASCII.
+QString errorText(const std::error_code& error)
+{
+    const auto condition = error.default_error_condition();
+    if (condition.category() == std::generic_category())
+        return QString::fromStdString(condition.message());
+    return QCoreApplication::translate("motrack::CapturePipeline", "system error %1").arg(error.value());
 }
 
 QString copyFile(const QString& source, const QString& target, const std::atomic_bool& cancelled)
 {
     QFile input(source);
     QFile output(target);
+    const auto native = QDir::toNativeSeparators(target);
     if (!input.open(QIODevice::ReadOnly))
-        return QStringLiteral("Could not read the recording.");
+        return QCoreApplication::translate("motrack::CapturePipeline", "Could not read the recording.");
     if (!output.open(QIODevice::WriteOnly | QIODevice::NewOnly))
-        return QStringLiteral("Could not create %1.").arg(QDir::toNativeSeparators(target));
+        return QCoreApplication::translate("motrack::CapturePipeline", "Could not create %1.").arg(native);
     while (!input.atEnd())
     {
         if (cancelled)
         {
             output.remove();
-            return QStringLiteral("Saving the recording was canceled.");
+            return QCoreApplication::translate("motrack::CapturePipeline", "Saving the recording was canceled.");
         }
         const auto chunk = input.read(COPY_CHUNK);
         if (chunk.isEmpty() || output.write(chunk) != chunk.size())
         {
             output.remove();
-            return QStringLiteral("Could not copy the recording to %1.").arg(QDir::toNativeSeparators(target));
+            return QCoreApplication::translate("motrack::CapturePipeline", "Could not copy the recording to %1.").arg(native);
         }
     }
     if (!output.flush() || output.size() != input.size())
     {
         output.remove();
-        return QStringLiteral("Could not copy the recording to %1.").arg(QDir::toNativeSeparators(target));
+        return QCoreApplication::translate("motrack::CapturePipeline", "Could not copy the recording to %1.").arg(native);
     }
     return {};
 }
 
 } // namespace
+
+CaptureIntervals captureIntervals(const std::vector<microseconds>& times)
+{
+    if (times.size() < 2)
+        return {};
+    std::vector<microseconds> intervals;
+    intervals.reserve(times.size() - 1);
+    for (std::size_t frame = 1; frame < times.size(); ++frame)
+        intervals.push_back(times[frame] - times[frame - 1]);
+    auto sorted = intervals;
+    std::ranges::sort(sorted);
+    const auto middle = sorted.size() / 2;
+    const auto median = sorted.size() % 2 == 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+    // A gap is an interval longer than 1.5 times the median: 3 * interval > 2 * median, in integers.
+    const auto gaps =
+        std::ranges::count_if(intervals, [median](microseconds interval) { return 2 * interval.count() > 3 * median.count(); });
+    return {.gaps = static_cast<qint64>(gaps), .median = median, .longest = sorted.back()};
+}
 
 struct CapturePipeline::Shared
 {
@@ -192,6 +233,7 @@ struct CapturePipeline::Shared
     std::deque<Item> queue;
     std::size_t queuedFrames = 0;
     QString path;
+    FrameTimeField timeField = FrameTimeField::StartTime;
     QSize previewBound{960, 540};
     qint64 dropped = 0;
     bool recording = false;
@@ -217,10 +259,10 @@ struct Recording
 {
     std::unique_ptr<CaptureEncoder> encoder;
     QString path;
+    FrameTimeField timeField = FrameTimeField::StartTime;
     std::optional<CaptureClock> clock;
-    std::optional<microseconds> first;
-    microseconds latest{0};
-    qint64 frames = 0;
+    std::optional<QSize> size;
+    std::vector<microseconds> times;
     qint64 skipped = 0;
 };
 
@@ -272,14 +314,50 @@ void CapturePipeline::run(CapturePipeline* owner, Shared& shared)
     CaptureConverter converter;
     std::optional<Recording> recording;
     QString rejected;
+    const auto endRecording = [&]
+    {
+        const std::scoped_lock lock(shared.mutex);
+        shared.recording = false;
+    };
     const auto fail = [&](const QString& message)
     {
         recording.reset(); // Closes the file before the owner hears of the failure.
-        {
-            const std::scoped_lock lock(shared.mutex);
-            shared.recording = false;
-        }
+        endRecording();
         Q_EMIT owner->failedQueued(message);
+    };
+    const auto finish = [&](qint64 queueDropped, bool sizeChanged)
+    {
+        if (!recording->encoder)
+        {
+            fail(QCoreApplication::translate("motrack::CapturePipeline", "No frames were recorded."));
+            return;
+        }
+        try
+        {
+            const auto summary = recording->encoder->finish();
+            if (summary.frames == 0)
+            {
+                fail(QCoreApplication::translate("motrack::CapturePipeline", "No frames were recorded."));
+                return;
+            }
+            const auto intervals = captureIntervals(recording->times);
+            const CaptureResult result{.path = recording->path,
+                                       .frames = summary.frames,
+                                       .dropped = queueDropped + recording->skipped,
+                                       .duration = summary.duration,
+                                       .clock = recording->clock.value_or(CaptureClock::Camera),
+                                       .gaps = intervals.gaps,
+                                       .medianInterval = intervals.median,
+                                       .longestInterval = intervals.longest,
+                                       .sizeChanged = sizeChanged};
+            recording.reset();
+            endRecording();
+            Q_EMIT owner->finishedQueued(result);
+        }
+        catch (const std::exception& error)
+        {
+            fail(QString::fromUtf8(error.what()));
+        }
     };
     const auto reject = [&](const QString& message)
     {
@@ -309,6 +387,7 @@ void CapturePipeline::run(CapturePipeline* owner, Shared& shared)
             {
                 recording.emplace();
                 recording->path = shared.path;
+                recording->timeField = shared.timeField;
             }
             bound = shared.previewBound;
             queueDropped = shared.dropped;
@@ -332,28 +411,7 @@ void CapturePipeline::run(CapturePipeline* owner, Shared& shared)
                 Q_EMIT owner->cancelledQueued();
             }
             else if (recording && *command == Shared::Command::Stop)
-            {
-                try
-                {
-                    const auto summary = recording->encoder->finish();
-                    if (summary.frames == 0)
-                    {
-                        fail(QStringLiteral("No frames were recorded."));
-                        continue;
-                    }
-                    const CaptureResult result{.path = recording->path,
-                                               .frames = summary.frames,
-                                               .dropped = queueDropped + recording->skipped,
-                                               .duration = summary.duration,
-                                               .clock = recording->clock.value_or(CaptureClock::Camera)};
-                    recording.reset();
-                    Q_EMIT owner->finishedQueued(result);
-                }
-                catch (const std::exception& error)
-                {
-                    fail(QString::fromUtf8(error.what()));
-                }
-            }
+                finish(queueDropped, false);
             continue;
         }
         const auto& frame = std::get<Shared::Frame>(item);
@@ -375,7 +433,15 @@ void CapturePipeline::run(CapturePipeline* owner, Shared& shared)
         rejected.clear();
         if (!recording || !recording->encoder)
             continue;
-        const auto start = frame.frame.startTime();
+        // A new frame size would distort the recorded geometry and any calibration: end the clip there.
+        const QSize size(mapped->image().width, mapped->image().height);
+        if (recording->size && *recording->size != size)
+        {
+            finish(queueDropped, true);
+            continue;
+        }
+        const auto end = frame.frame.endTime();
+        const auto start = recording->timeField == FrameTimeField::EndTime && end >= 0 ? end : frame.frame.startTime();
         if (!recording->clock)
             recording->clock = start >= 0 ? CaptureClock::Camera : CaptureClock::Arrival;
         const bool camera = *recording->clock == CaptureClock::Camera;
@@ -387,10 +453,8 @@ void CapturePipeline::run(CapturePipeline* owner, Shared& shared)
                 ++recording->skipped;
             else
             {
-                if (!recording->first)
-                    recording->first = time;
-                recording->latest = time;
-                ++recording->frames;
+                recording->size = size;
+                recording->times.push_back(time);
             }
         }
         catch (const std::exception& error)
@@ -398,9 +462,9 @@ void CapturePipeline::run(CapturePipeline* owner, Shared& shared)
             fail(QString::fromUtf8(error.what())); // A full disk, for example.
             continue;
         }
-        const auto frames = recording->frames;
+        const auto frames = static_cast<qint64>(recording->times.size());
         const auto dropped = queueDropped + recording->skipped;
-        const auto elapsed = recording->first ? (recording->latest - *recording->first).count() : 0;
+        const auto elapsed = frames > 0 ? (recording->times.back() - recording->times.front()).count() : 0;
         Q_EMIT owner->progressQueued(frames, dropped, elapsed);
     }
 }
@@ -452,7 +516,7 @@ void CapturePipeline::acknowledgePreview()
     m_Shared->previewPending = false;
 }
 
-bool CapturePipeline::startRecording(const QString& path)
+bool CapturePipeline::startRecording(const QString& path, FrameTimeField timeField)
 {
     if (m_Recording)
         return false;
@@ -461,6 +525,7 @@ bool CapturePipeline::startRecording(const QString& path)
         m_Shared->removeTrailingFrames(); // Only frames that arrive after the request are recorded.
         m_Shared->queue.emplace_back(Shared::Command::Start);
         m_Shared->path = path;
+        m_Shared->timeField = timeField;
         m_Shared->dropped = 0;
         m_Shared->recording = true;
     }
@@ -505,9 +570,10 @@ QString moveCaptureFile(const QString& source, const QString& target, const std:
     const QFileInfo input(source);
     const QFileInfo output(target);
     if (!input.isFile())
-        return QStringLiteral("The recording is no longer available.");
+        return QCoreApplication::translate("motrack::CapturePipeline", "The recording is no longer available.");
     if (!output.absoluteDir().exists())
-        return QStringLiteral("The folder %1 does not exist.").arg(QDir::toNativeSeparators(output.absolutePath()));
+        return QCoreApplication::translate("motrack::CapturePipeline", "The folder %1 does not exist.")
+            .arg(QDir::toNativeSeparators(output.absolutePath()));
     std::error_code error;
     // A rename replaces an existing target in one step, on the same volume.
     if (allowRename)
@@ -525,10 +591,41 @@ QString moveCaptureFile(const QString& source, const QString& target, const std:
     if (error)
     {
         QFile::remove(staged);
-        return QStringLiteral("Could not save %1: %2").arg(QDir::toNativeSeparators(target), QString::fromStdString(error.message()));
+        return QCoreApplication::translate("motrack::CapturePipeline", "Could not save %1: %2")
+            .arg(QDir::toNativeSeparators(target), errorText(error));
     }
     QFile::remove(source);
     return {};
+}
+
+QString captureLockName()
+{
+    return QStringLiteral("capture.lock");
+}
+
+int sweepCaptureFolders(const QDir& root)
+{
+    int removed = 0;
+    const auto now = QDateTime::currentDateTimeUtc();
+    for (const auto& name : root.entryList({QStringLiteral("motrack-capture-*")}, QDir::Dirs | QDir::NoDotAndDotDot | QDir::NoSymLinks))
+    {
+        QDir folder(root.filePath(name));
+        const auto lockPath = folder.filePath(captureLockName());
+        if (QFileInfo::exists(lockPath))
+        {
+            // Only the owner's death makes its lock stale; a running MoTrack keeps its folder.
+            QLockFile lock(lockPath);
+            lock.setStaleLockTime(0);
+            if (!lock.tryLock(0))
+                continue;
+            lock.unlock();
+        }
+        else if (QFileInfo(folder.path()).lastModified().toUTC().secsTo(now) < UNLOCKED_FOLDER_AGE_SECONDS)
+            continue;
+        if (folder.removeRecursively())
+            ++removed;
+    }
+    return removed;
 }
 
 } // namespace motrack

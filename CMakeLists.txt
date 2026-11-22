@@ -73,6 +73,13 @@ if(APPLE)
         configure_file(cmake/MoTrackEmbeddedInfo.plist.in "${CMAKE_CURRENT_BINARY_DIR}/motrack-Info.plist" @ONLY)
         target_link_options(motrack PRIVATE "LINKER:-sectcreate,__TEXT,__info_plist,${CMAKE_CURRENT_BINARY_DIR}/motrack-Info.plist")
         set_property(TARGET motrack APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/motrack-Info.plist")
+        # Qt's Darwin permission plugins are static, and Qt links them only into targets with a
+        # MACOSX_BUNDLE_INFO_PLIST (_qt_internal_darwin_permission_finalizer). Without the camera one,
+        # checkPermission reports Denied, so a developer build links it explicitly.
+        if(NOT TARGET Qt6::QDarwinCameraPermissionPlugin)
+            message(FATAL_ERROR "Qt's QDarwinCameraPermissionPlugin is missing; camera capture needs it.")
+        endif()
+        qt_import_plugins(motrack INCLUDE Qt6::QDarwinCameraPermissionPlugin)
     endif()
 endif()
 add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp src/movie_worker.cpp src/position_plot.cpp
@@ -96,7 +103,7 @@ target_link_libraries(motrack PRIVATE motrack_workspace)
 qt_add_translations(motrack
     TS_FILES translations/motrack_de.ts translations/motrack_es.ts translations/motrack_fr.ts
     SOURCES src/main_window.cpp src/bound_workspace.cpp src/workspace_window.cpp src/position_plot.cpp src/tracker_image_package.cpp
-        src/camera_source.cpp src/capture_dialog.cpp
+        src/camera_source.cpp src/capture_dialog.cpp src/capture_pipeline.cpp
     RESOURCE_PREFIX "/i18n"
 )
 

@@ -11,7 +11,9 @@
 #include <functional>
 #include <memory>
 #include <thread>
+#include <vector>
 
+class QDir;
 class QVideoFrame;
 
 namespace motrack
@@ -25,8 +27,19 @@ enum class CaptureClock : std::uint8_t
     Arrival,
 };
 
+/// Which QVideoFrame field holds a frame's own presentation time. Qt 6.8 to 6.11's macOS (AVFoundation)
+/// camera stamps startTime with the previous frame's time and endTime with this frame's; Qt fixed it for
+/// 6.12 (qtmultimedia b423e7ee8f). Other backends use startTime.
+enum class FrameTimeField : std::uint8_t
+{
+    StartTime,
+    EndTime,
+};
+
 /// A finished recording on disk. Frame times are relative to the first frame; dropped frames reached
 /// MoTrack but were not written because the encoder fell behind or the camera repeated a timestamp.
+/// Frames the camera or its driver never delivered are not counted there; gaps counts frame intervals
+/// longer than 1.5 times the median interval, which is where such losses show.
 struct CaptureResult
 {
     QString path;
@@ -34,10 +47,26 @@ struct CaptureResult
     qint64 dropped = 0;
     std::chrono::microseconds duration{0};
     CaptureClock clock = CaptureClock::Camera;
+    qint64 gaps = 0;
+    std::chrono::microseconds medianInterval{0};
+    std::chrono::microseconds longestInterval{0};
+    /// The camera changed its frame size, which ended the recording at the last frame of the first size.
+    bool sizeChanged = false;
 };
 
+/// Frame-interval statistics for the times of written frames, in order: the median interval, the
+/// longest one, and how many exceed 1.5 times the median. All zero with fewer than two frames.
+struct CaptureIntervals
+{
+    qint64 gaps = 0;
+    std::chrono::microseconds median{0};
+    std::chrono::microseconds longest{0};
+};
+[[nodiscard]] CaptureIntervals captureIntervals(const std::vector<std::chrono::microseconds>& times);
+
 /// Converts camera frames for preview and records them on one worker thread, so neither costs the GUI
-/// thread anything. Frames enter through frameSink(), from any thread. While previewing, only the newest
+/// thread anything. Frames enter through frameSink(), from any thread (Qt 6.8's backends deliver them
+/// on the GUI thread; the sink only queues them). While previewing, only the newest
 /// frame waits; while recording, a short queue absorbs bursts and a full queue drops (and counts) the
 /// arriving frame. Signals are delivered on the owner's thread. Destruction abandons a recording, closes
 /// its file and joins the worker before returning, so the owner may delete the file afterwards.
@@ -59,8 +88,9 @@ class CapturePipeline final : public QObject
     void setPreviewBound(QSize bound);
     /// Allows the next preview image; call after showing the previous one.
     void acknowledgePreview();
-    /// Records frames that arrive from now on into a new movie at path. False while a recording is active.
-    bool startRecording(const QString& path);
+    /// Records frames that arrive from now on into a new movie at path, timing each by timeField (falling
+    /// back to startTime when that field is unset). False while a recording is active.
+    bool startRecording(const QString& path, FrameTimeField timeField = FrameTimeField::StartTime);
     /// Writes the frames that arrived before this call, then finishes the movie: recordingFinished or
     /// recordingFailed follows.
     void stopRecording();
@@ -100,5 +130,12 @@ class CapturePipeline final : public QObject
 /// otherwise a description of the failure. Runs on any thread.
 [[nodiscard]] QString
 moveCaptureFile(const QString& source, const QString& target, const std::atomic_bool& cancelled, bool allowRename = true);
+
+/// The lock file each capture folder holds (QLockFile) while its window owns it.
+[[nodiscard]] QString captureLockName();
+/// Removes motrack-capture-* folders under root that no running MoTrack owns: their lock's process has
+/// ended (a crash leaves an unfinished movie behind), or they have no lock and are a day old. Returns
+/// how many were removed.
+int sweepCaptureFolders(const QDir& root);
 
 } // namespace motrack

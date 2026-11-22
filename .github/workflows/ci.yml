@@ -173,6 +173,18 @@ jobs:
           cmake --preset coverage -DMOTRACK_BUILD_BENCHMARKS=ON
           cmake --build --preset coverage
           ccache --show-stats
+      - name: Check camera capture linkage
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            macOS)
+              # Without the static camera permission plugin, checkPermission always reports Denied.
+              # (No grep -q: under pipefail, its early exit would fail nm with SIGPIPE.)
+              nm build/coverage/motrack | grep QDarwinCameraPermissionPlugin >/dev/null ;;
+            Linux)
+              # MoTrack's FFmpeg must stay private, so Qt's FFmpeg backend binds only its own symbols.
+              if nm -D --defined-only build/coverage/motrack | grep -E ' (av|avcodec|avformat|avutil|sws|swr)_'; then exit 1; fi ;;
+          esac
       - name: Check Windows setup scripts
         if: runner.os == 'Windows'
         shell: pwsh
@@ -238,8 +250,10 @@ jobs:
             # Camera capture: Qt Multimedia, its FFmpeg backend and the camera usage string.
             test -f "$bundle/Frameworks/QtMultimedia.framework/QtMultimedia"
             test -f "$bundle/PlugIns/multimedia/libffmpegmediaplugin.dylib"
-            /usr/libexec/PlistBuddy -c "Print :NSCameraUsageDescription" "$bundle/Info.plist"
+            usage="$(/usr/libexec/PlistBuddy -c "Print :NSCameraUsageDescription" "$bundle/Info.plist")"
+            if [[ -z "$usage" || "$usage" == *@* ]]; then echo "Unsubstituted NSCameraUsageDescription: $usage"; exit 1; fi
             app="$bundle/MacOS/motrack"
+            nm "$app" | grep QDarwinCameraPermissionPlugin >/dev/null
           else
             test -f build/stage/installed/plugins/platforms/libqxcb.so
             plugin=build/stage/installed/plugins/multimedia/libffmpegmediaplugin.so

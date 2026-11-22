@@ -394,6 +394,8 @@ bool CaptureEncoder::write(const CaptureImage& frame, std::chrono::microseconds 
         return false;
     if (!state.headerWritten)
         state.open(frame.width, frame.height);
+    else if (frame.width != state.codec->width || frame.height != state.codec->height)
+        throw VideoError("The camera frame size changed during the recording.");
     state.scale.reset(sws_getCachedContext(state.scale.release(),
                                            frame.width,
                                            frame.height,

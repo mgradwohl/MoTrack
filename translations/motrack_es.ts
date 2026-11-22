@@ -564,12 +564,93 @@
         <source>The camera stopped during the recording; the clip ends at its last frame.</source>
         <translation type="unfinished" />
     </message>
+    <message>
+        <source>The camera changed its frame size, so the recording ended at the last frame of the original size.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>No frames have arrived from the camera for %1 s. Check the camera, or stop the recording.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The camera was disconnected.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Discard the recording?</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>A recording is in progress. Stop it and discard the clip?</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The recording has not been saved. Discard it?</source>
+        <translation type="unfinished" />
+    </message>
+    <message numerus="yes">
+        <source>Frame intervals longer than 1.5 times the median (%1 ms): %n, the longest %2 ms. The camera or its driver may have skipped frames there.</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
 </context>
 
 <context>
     <name>motrack::QtCameraSource</name>
     <message>
         <source>The camera is no longer connected.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The camera stopped delivering frames.</source>
+        <translation type="unfinished" />
+    </message>
+</context>
+
+<context>
+    <name>motrack::CapturePipeline</name>
+    <message>
+        <source>Could not read a camera frame.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not decode a Motion JPEG camera frame.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>system error %1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not read the recording.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not create %1.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Saving the recording was canceled.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not copy the recording to %1.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>No frames were recorded.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The recording is no longer available.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The folder %1 does not exist.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not save %1: %2</source>
         <translation type="unfinished" />
     </message>
 </context>

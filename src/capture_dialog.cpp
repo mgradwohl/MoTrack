@@ -10,6 +10,8 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLocale>
+#include <QLockFile>
+#include <QMessageBox>
 #include <QPainter>
 #include <QPointer>
 #include <QPushButton>
@@ -172,12 +174,15 @@ CaptureDialog::CaptureDialog(std::unique_ptr<CameraSource> source, QWidget* pare
             {
                 if (m_Closed)
                 {
-                    m_Temporary.reset(); // Finished just as the window closed; the clip is discarded.
+                    releaseTemporary(); // Finished just as the window closed; the clip is discarded.
                     return;
                 }
                 m_Result = result;
                 auto text = summary(result);
-                if (!m_CameraActive)
+                if (result.sizeChanged)
+                    text += QLatin1Char('\n') +
+                            tr("The camera changed its frame size, so the recording ended at the last frame of the original size.");
+                else if (!m_CameraActive)
                     text += QLatin1Char('\n') + tr("The camera stopped during the recording; the clip ends at its last frame.");
                 setState(State::Recorded, text);
             });
@@ -186,11 +191,11 @@ CaptureDialog::CaptureDialog(std::unique_ptr<CameraSource> source, QWidget* pare
             this,
             [this](const QString& message)
             {
-                m_Temporary.reset();
+                releaseTemporary();
                 m_Result.reset();
                 setState(m_CameraActive ? State::Previewing : State::Unavailable, tr("The recording failed: %1").arg(message));
             });
-    connect(m_Pipeline.get(), &CapturePipeline::recordingCancelled, this, [this] { m_Temporary.reset(); });
+    connect(m_Pipeline.get(), &CapturePipeline::recordingCancelled, this, [this] { releaseTemporary(); });
     connect(m_Pipeline.get(),
             &CapturePipeline::frameRejected,
             this,
@@ -213,24 +218,26 @@ CaptureDialog::CaptureDialog(std::unique_ptr<CameraSource> source, QWidget* pare
             this,
             [this](const QString& message)
             {
-                m_CameraActive = false;
-                const auto text =
-                    tr("The camera could not be used: %1").arg(message) + QLatin1Char('\n') +
-                    tr("Another application may be using it, or camera access may be turned off in the system privacy settings.");
-                if (m_State == State::Recording)
-                {
-                    // Keep the frames recorded so far; the clip can still be saved or discarded.
-                    m_Pipeline->stopRecording();
-                    setState(State::Finishing, text);
-                    return;
-                }
-                if (busy(m_State))
-                {
-                    m_Status->setText(text); // A finished or finishing recording is unaffected.
-                    return;
-                }
-                setState(State::Unavailable, text);
+                cameraLost(tr("The camera could not be used: %1").arg(message) + QLatin1Char('\n') +
+                           tr("Another application may be using it, or camera access may be turned off in the system privacy settings."));
             });
+    m_Stall.setInterval(1000);
+    connect(&m_Stall,
+            &QTimer::timeout,
+            this,
+            [this]
+            {
+                if (m_State != State::Recording)
+                    m_Stall.stop();
+                else if (!m_StallReported && m_LastFrame.hasExpired(m_StallLimit.count()))
+                {
+                    m_StallReported = true;
+                    m_Status->setText(tr("No frames have arrived from the camera for %1 s. Check the camera, or stop the recording.")
+                                          .arg(m_StallLimit.count() / 1000));
+                }
+            });
+    // A crashed MoTrack leaves its unfinished recording behind; remove folders no running MoTrack owns.
+    (void)sweepCaptureFolders(QDir(QDir::tempPath()));
     setState(State::Unavailable);
     refreshDevices();
 }
@@ -269,6 +276,13 @@ void CaptureDialog::refreshDevices()
 {
     const auto previous = m_Camera->currentData().toByteArray();
     m_Devices = m_Source->devices();
+    // V4L2 stops delivering an unplugged camera without an error; its disappearance is the signal.
+    if (m_State == State::Recording &&
+        std::ranges::none_of(m_Devices, [this](const CameraDevice& device) { return device.id == m_RecordingDevice; }))
+    {
+        m_Source->stop();
+        cameraLost(tr("The camera was disconnected."));
+    }
     {
         const QSignalBlocker block(m_Camera);
         m_Camera->clear();
@@ -384,16 +398,26 @@ void CaptureDialog::toggleRecording()
         return;
     }
     m_Temporary = std::make_unique<QTemporaryDir>(QDir(QDir::tempPath()).filePath(QStringLiteral("motrack-capture-XXXXXX")));
-    if (!m_Temporary->isValid())
+    if (m_Temporary->isValid())
     {
-        m_Temporary.reset();
+        // Held while this window owns the folder, so another MoTrack's sweep leaves it alone.
+        m_TemporaryLock = std::make_unique<QLockFile>(m_Temporary->filePath(captureLockName()));
+        m_TemporaryLock->setStaleLockTime(0);
+    }
+    if (!m_Temporary->isValid() || !m_TemporaryLock->tryLock(0))
+    {
+        releaseTemporary();
         m_Status->setText(tr("Could not create a temporary folder for the recording."));
         return;
     }
     m_Result.reset();
-    (void)m_Pipeline->startRecording(temporaryRecording());
+    m_RecordingDevice = m_Camera->currentData().toByteArray();
+    (void)m_Pipeline->startRecording(temporaryRecording(), m_Source->frameTimeField());
     setState(State::Recording);
     showProgress(0, 0, 0);
+    m_LastFrame.start();
+    m_StallReported = false;
+    m_Stall.start();
 }
 
 void CaptureDialog::discardRecording()
@@ -401,7 +425,7 @@ void CaptureDialog::discardRecording()
     if (m_State != State::Recorded)
         return;
     m_Result.reset();
-    m_Temporary.reset();
+    releaseTemporary();
     if (m_CameraActive)
         setState(State::Previewing);
     else
@@ -453,7 +477,7 @@ void CaptureDialog::finishSaving(const QString& path, const QString& error)
     {
         // Closed while saving: whatever reached the destination is the user's; nothing opens.
         m_Result.reset();
-        m_Temporary.reset();
+        releaseTemporary();
         return;
     }
     if (!error.isEmpty() || !m_Result)
@@ -464,7 +488,7 @@ void CaptureDialog::finishSaving(const QString& path, const QString& error)
     auto result = *m_Result;
     result.path = QFileInfo(path).absoluteFilePath();
     m_Result.reset();
-    m_Temporary.reset();
+    releaseTemporary();
     m_Source->stop();
     m_CameraActive = false;
     const QPointer self(this);
@@ -473,9 +497,50 @@ void CaptureDialog::finishSaving(const QString& path, const QString& error)
         accept();
 }
 
+bool CaptureDialog::hasUnsavedRecording() const
+{
+    return busy(m_State);
+}
+
+bool CaptureDialog::confirmDiscard()
+{
+    if (!hasUnsavedRecording())
+        return true;
+    // An experiment can rarely be repeated; never discard a recording without asking.
+    const QPointer self(this);
+    bool questionAlive = true;
+    QObject lifetime;
+    auto* question = new QMessageBox(QMessageBox::Question,
+                                     tr("Discard the recording?"),
+                                     m_State == State::Recording ? tr("A recording is in progress. Stop it and discard the clip?")
+                                                                 : tr("The recording has not been saved. Discard it?"),
+                                     QMessageBox::Discard | QMessageBox::Cancel,
+                                     this);
+    question->setObjectName("captureDiscardQuestion");
+    question->setDefaultButton(QMessageBox::Cancel);
+    connect(question, &QObject::destroyed, &lifetime, [&questionAlive] { questionAlive = false; });
+    (void)question->exec();
+    const auto choice = self && questionAlive ? question->standardButton(question->clickedButton()) : QMessageBox::Cancel;
+    if (questionAlive)
+        delete question;
+    return self && choice == QMessageBox::Discard;
+}
+
+void CaptureDialog::setStallWarningAfter(std::chrono::milliseconds limit)
+{
+    m_StallLimit = limit;
+}
+
 void CaptureDialog::reject()
 {
+    if (confirmDiscard())
+        discardAndClose();
+}
+
+void CaptureDialog::discardAndClose()
+{
     m_Closed = true;
+    m_Stall.stop();
     if (m_SaveCancelled)
         *m_SaveCancelled = true;
     m_Pipeline->cancelRecording();
@@ -485,7 +550,7 @@ void CaptureDialog::reject()
     if (!m_Pipeline->isRecording() && m_State != State::Saving)
     {
         m_Result.reset();
-        m_Temporary.reset();
+        releaseTemporary();
     }
     QDialog::reject();
 }
@@ -496,8 +561,38 @@ void CaptureDialog::resizeEvent(QResizeEvent* event)
     m_Pipeline->setPreviewBound((m_Preview->size() * m_Preview->devicePixelRatioF()).expandedTo({160, 90}));
 }
 
+void CaptureDialog::releaseTemporary()
+{
+    m_TemporaryLock.reset(); // Unlocks (removing the lock file) before the folder goes.
+    m_Temporary.reset();
+}
+
+void CaptureDialog::cameraLost(const QString& message)
+{
+    m_CameraActive = false;
+    if (m_State == State::Recording)
+    {
+        // Keep the frames recorded so far; the clip can still be saved or discarded.
+        m_Pipeline->stopRecording();
+        setState(State::Finishing, message);
+        return;
+    }
+    if (busy(m_State))
+    {
+        m_Status->setText(message); // A finished or finishing recording is unaffected.
+        return;
+    }
+    setState(State::Unavailable, message);
+}
+
 void CaptureDialog::showProgress(qint64 frames, qint64 dropped, qint64 duration)
 {
+    m_LastFrame.start();
+    if (m_StallReported && m_State == State::Recording)
+    {
+        m_StallReported = false;
+        m_Status->clear();
+    }
     const auto seconds = static_cast<double>(duration) / 1e6;
     const auto minutes = static_cast<int>(seconds / 60);
     const auto clock =
@@ -523,6 +618,13 @@ QString CaptureDialog::summary(const CaptureResult& result) const
                    "frames it contains.",
                    nullptr,
                    countForPlural(result.dropped));
+    if (result.gaps > 0)
+        text << tr("Frame intervals longer than 1.5 times the median (%1 ms): %n, the longest %2 ms. The camera or its driver may "
+                   "have skipped frames there.",
+                   nullptr,
+                   countForPlural(result.gaps))
+                    .arg(locale.toString(static_cast<double>(result.medianInterval.count()) / 1000, 'f', 1),
+                         locale.toString(static_cast<double>(result.longestInterval.count()) / 1000, 'f', 1));
     if (result.clock == CaptureClock::Arrival)
         text << tr("The camera supplied no frame times, so each frame is timed by when it reached MoTrack.");
     text << tr("Save the clip to open it as a new experiment.");

@@ -11,7 +11,7 @@ how to check it with a real camera.
 | Part | Responsibility |
 | --- | --- |
 | `CameraSource` (`src/camera_source.hpp`) | Camera list, formats, permission, start/stop. `QtCameraSource` uses Qt Multimedia's `QCamera`, `QMediaCaptureSession` and `QVideoSink`; tests use a fake that delivers frames from another thread. |
-| `CapturePipeline` (`src/capture_pipeline.hpp`) | One worker thread converts the newest frame for preview and, while recording, writes every frame. Frames arrive from the platform's capture thread into a locked queue; signals reach the window on the GUI thread. |
+| `CapturePipeline` (`src/capture_pipeline.hpp`) | One worker thread converts the newest frame for preview and, while recording, writes every frame. Qt 6.8's backends deliver frames to the sink on the GUI thread; the sink only puts them in a locked queue of at most 8 frames, and the worker's signals reach the window on the GUI thread. |
 | `CaptureEncoder` (`src/capture_encoder.hpp`) | Writes a QuickTime (`.mov`) file of Motion JPEG frames with MoTrack's own FFmpeg, one presentation time per frame. |
 | `CaptureDialog` (`src/capture_dialog.hpp`) | Camera and format choice, preview, Record/Stop, elapsed time and frame count, save, discard and cancel. |
 | `WorkspaceWindow` | Owns the capture window and opens the saved clip with `openMovie`, the same path as **Open video**. |
@@ -19,20 +19,34 @@ how to check it with a real camera.
 The recording goes to a private temporary folder. It is offered to the workspace only after
 **Save and open…** has moved it to a permanent file, so a saved project never refers to a file that
 MoTrack later deletes. A save to another volume copies on a worker thread and replaces the target only
-when the copy is complete. A camera that stops during a recording ends it: the frames so far are kept
-to save or discard. Discarding, cancelling, a failed recording, closing the capture window,
-closing the workspace or destroying either window stops the recording, closes the movie and removes
-the temporary folder. Destruction joins the worker before the folder is removed, so the file is
-closed first even on Windows. No camera work blocks the GUI thread: frame conversion, encoding and the
-copy run on workers, and the window waits for their signals.
+when the copy is complete. A camera that fails, stops delivering or disappears from the device list
+during a recording ends it, and the frames so far are kept to save or discard. (V4L2 reports an
+unplugged camera only by its disappearance.) If no frame arrives for 5 s, the window says so.
+
+Because an experiment often cannot be repeated, closing never discards an unsaved recording silently.
+Esc, the title-bar close, **Cancel** and closing the workspace ask first while a recording is in
+progress, finishing, finished or being saved; keeping it cancels the close. Once discarded (or on
+destruction, which cannot ask), MoTrack stops the recording, closes the movie and removes the temporary
+folder. Destruction joins the worker before the folder is removed, so the file is closed first even on
+Windows.
+
+Each folder holds a `QLockFile` while its window owns it. Opening the capture window removes
+`motrack-capture-*` folders whose lock belongs to a process that has ended, which is what a crash leaves
+behind together with an unfinished movie. Folders without a lock are removed once they are a day old.
+
+No camera work blocks the GUI thread: frame conversion, encoding and the copy run on workers, and the
+window waits for their signals.
 
 Capture opens no network listener and uses no browser.
 
 ## Timing
 
-Each frame keeps the presentation time the platform's camera layer gives it
-(`QVideoFrame::startTime`): the Media Foundation sample time on Windows, the AVFoundation sample
-buffer time on macOS, and the V4L2 buffer time stamp on Linux, in microseconds. The first recorded
+Each frame keeps the presentation time the platform's camera layer gives it, in microseconds: the
+Media Foundation sample time on Windows and the V4L2 buffer time stamp on Linux (`QVideoFrame::startTime`),
+and the AVFoundation sample buffer time on macOS. Qt 6.8 to 6.11's macOS backend puts the previous
+frame's time in `startTime` and the frame's own in `endTime` (fixed for Qt 6.12 by qtmultimedia
+`b423e7ee8f`; [#303](https://github.com/mgradwohl/MoTrack/issues/303)). MoTrack therefore reads
+`endTime` there; reading `startTime` would shift every frame interval by one frame. The first recorded
 frame is time zero; later frames keep their offsets from it, stored at the QuickTime track's 1/90000 s
 timescale (an offset is rounded to the nearest 11.1 µs). The movie index then reports those offsets as
 the experiment's frame times, so an uneven camera rate stays uneven in plots, tables and derivatives.
@@ -44,16 +58,23 @@ MoTrack never substitutes a nominal frame rate.
   the recording started with, is skipped and counted.
 - When frames arrive faster than they can be written, the arriving frame is dropped and counted. The
   remaining frames keep their real times; the summary reports the number dropped.
+- Frames lost before they reach MoTrack (in the driver or the camera's buffer pool) cannot be counted.
+  Their trace is a long interval, so the summary reports intervals longer than 1.5 times the median,
+  with the longest.
 
-Frame dimensions are those of the first frame. Rotation and mirroring flags on camera frames are not
-applied; the clip is stored as the camera delivers it.
+Frame dimensions are those of the first frame. A camera that changes its frame size during a recording
+ends the clip at the last frame of the original size, since scaling would distort the geometry and any
+calibration. Rotation and mirroring flags on camera frames are not applied; the clip is stored as the
+camera delivers it.
 
 ## Recording format
 
 Motion JPEG stores every frame independently, so each frame decodes on its own and seeking is exact.
 MoTrack writes it with a fixed JPEG quantizer of 4, in full-range BT.601 4:2:0, which keeps flat colours
 within a few levels of the source (`CaptureEncoder` tests). Expect a few megabytes per second at 720p30
-and several times that at 1080p.
+and several times that at 1080p. A camera mode that delivers Motion JPEG itself is decoded and
+re-encoded; passing its frames through unchanged is
+[#304](https://github.com/mgradwohl/MoTrack/issues/304).
 
 MoTrack records with its own FFmpeg rather than `QMediaRecorder`. In Qt 6.8.3, Qt's FFmpeg recorder
 passes no bit rate or quantizer to FFmpeg's built-in encoders (Motion JPEG, MPEG-4 Part 2), so they run
@@ -74,17 +95,23 @@ frames from it.
 | Qt Multimedia | `qtmultimedia` add-on, installed by `tools/dev_sdk.py` (archives pinned in `tools/qt-archives.sha256`) and CI | same | same |
 | Qt's bundled FFmpeg | FFmpeg 7.1 DLLs (`avcodec-61.dll` …) in Qt's `bin` | FFmpeg 7.1 dylibs in Qt's `lib` | FFmpeg 7.1 (`libavcodec.so.61` …) in Qt's `lib`, with Qt's VA-API stub libraries |
 | MoTrack's FFmpeg (decoding, recording) | vcpkg FFmpeg 9 DLLs (`avcodec-63.dll` …) | vcpkg FFmpeg 9, linked statically | vcpkg FFmpeg 9 linked statically, or a system FFmpeg 6.1+ |
-| System requirements | Camera allowed under Settings → Privacy & security → Camera | Camera permission (MoTrack asks on first use) | `libpulse0` (Qt Multimedia links PulseAudio's client library); the camera backend loads `libEGL`, `libX11`, `libXext` and `libXrandr` |
+| System requirements | Camera allowed under Settings → Privacy & security → Camera | Camera permission (MoTrack asks on first use) | `libpulse0`, without which MoTrack does not start at all (Qt Multimedia links PulseAudio's client library); the camera backend loads `libEGL`, `libX11`, `libXext` and `libXrandr` |
 | Staged app | `windeployqt` (through Qt's deployment script) copies the multimedia plugin and Qt's FFmpeg DLLs | `macdeployqt` copies `QtMultimedia.framework`, the multimedia plugins and Qt's FFmpeg dylibs; `Info.plist` has `NSCameraUsageDescription` | Qt's deployment script copies the multimedia plugin and its libraries into `lib` |
 
 The two FFmpeg builds do not collide: their Windows DLL names differ, Qt's Linux libraries use
-versioned symbols (`LIBAVCODEC_61`), MoTrack's static copies are not exported from its executable, and
-macOS resolves each library by its own install name. Qt's FFmpeg build is LGPL; release notices for
-bundled libraries belong to the deferred release work (R27).
+versioned symbols (`LIBAVCODEC_61`), MoTrack's static copies are not exported from its executable (a
+Linux CI check runs `nm -D` on it), and macOS resolves each library by its own install name. A test
+loads Qt's backend and decodes with MoTrack's FFmpeg in one process on all three platforms. One
+combination would collide: a Linux build against a system FFmpeg 7.0 or 7.1, whose `libavcodec.so.61`
+shares Qt's soname. Use the setup's FFmpeg 9 or the distribution's 6.1 instead. Qt's FFmpeg build is
+LGPL; release notices for bundled libraries belong to the deferred release work (R27).
 
 macOS refuses camera access to an app without a usage string. The staged bundle uses
 [`cmake/MoTrackInfo.plist.in`](../cmake/MoTrackInfo.plist.in); developer builds, which are not bundles,
-embed the same key in the executable's `__TEXT,__info_plist` section. Windows and Linux have no
+embed the same key in the executable's `__TEXT,__info_plist` section. Qt's camera permission plugin is
+static and Qt links it only into bundle targets, so developer builds link it explicitly
+(`QDarwinCameraPermissionPlugin`; without it, every permission check reports Denied). macOS CI checks
+the plugin in both executables and the bundle's substituted usage string. Windows and Linux have no
 permission prompt in Qt; a camera blocked by the system fails to start, and the window shows Qt's
 message with a hint about privacy settings.
 
@@ -132,9 +159,13 @@ check a staged build with a real camera:
    frame count, duration, average rate and any dropped frames.
 4. Choose **Save and open…**, keep the `.mov` name and confirm a new experiment opens. Step through
    frames and compare the frame times with the stopwatch; an uneven rate should appear as uneven times.
-5. Repeat while unplugging the camera mid-recording, while another application holds the camera, with
-   camera access turned off in the system privacy settings, and with no camera attached. Each should
+5. Unplug the camera mid-recording: the window should end the recording, keep its frames and say so
+   (on Linux within a moment of the device disappearing). Then try another application holding the
+   camera, camera access turned off in the system privacy settings, and no camera attached. Each should
    show a message and leave the workspace unchanged, with no `motrack-capture-*` folder left in the
-   temporary directory.
-6. Cancel and close the window during a recording; confirm the temporary folder is removed.
-7. Optionally open the saved clip in Tracker to confirm it plays there.
+   temporary directory once the window closes.
+6. Press Esc, **Cancel** and close the workspace during a recording and after it; each should ask first.
+   Keep the recording once, then discard it and confirm the temporary folder is removed.
+7. On macOS, step through the first frames and confirm the first two frame times differ: Qt 6.8 to 6.11
+   would otherwise give both the time zero ([#303](https://github.com/mgradwohl/MoTrack/issues/303)).
+8. Optionally open the saved clip in Tracker to confirm it plays there.

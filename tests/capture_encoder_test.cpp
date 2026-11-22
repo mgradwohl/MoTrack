@@ -123,7 +123,7 @@ TEST(CaptureEncoder, RecordsTheCameraFrameTimesThatTheMovieIndexReports)
     }
 }
 
-TEST(CaptureEncoder, SkipsFramesWhoseTimeDoesNotAdvanceAndScalesLaterSizes)
+TEST(CaptureEncoder, SkipsFramesWhoseTimeDoesNotAdvanceAndRefusesANewFrameSize)
 {
     QTemporaryDir temporary;
     const auto path = temporary.filePath("repeats.mov");
@@ -133,7 +133,9 @@ TEST(CaptureEncoder, SkipsFramesWhoseTimeDoesNotAdvanceAndScalesLaterSizes)
     EXPECT_TRUE(encoder.write(motrack::captureImageFromQImage(image), microseconds{500}));
     EXPECT_FALSE(encoder.write(motrack::captureImageFromQImage(image), microseconds{505})); // Same 1/90000 s tick.
     EXPECT_FALSE(encoder.write(motrack::captureImageFromQImage(image), microseconds{100}));
-    EXPECT_TRUE(encoder.write(motrack::captureImageFromQImage(larger), microseconds{20'500}));
+    // Scaling a resized frame would distort the recorded geometry; the encoder refuses it.
+    EXPECT_THROW((void)encoder.write(motrack::captureImageFromQImage(larger), microseconds{20'500}), motrack::VideoError);
+    EXPECT_TRUE(encoder.write(motrack::captureImageFromQImage(image), microseconds{20'500}));
     const auto summary = encoder.finish();
     EXPECT_EQ(summary.frames, 2);
     EXPECT_EQ(summary.duration, microseconds{20'000});
