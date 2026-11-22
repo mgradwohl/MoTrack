@@ -39,7 +39,7 @@ Run the setup script after cloning. It installs the [pinned toolchain](CONTRIBUT
 ./tools/setup-dev.sh --build
 ```
 
-Run `build/dev/motrack` (`motrack.exe` on Windows) from an [activated developer shell](CONTRIBUTING.md#developer-setup) and open `tests/fixtures/image-sequence.trk` or `tests/fixtures/movie.trk` from the File menu. Use the controls below the image to play, pause, or step through the clip. The interface follows the system locale and is available in English, French, German, and Spanish.
+Run `build/dev/motrack` (`motrack.exe` on Windows) from an [activated developer shell](CONTRIBUTING.md#developer-setup) and open `tests/fixtures/image-sequence.trk` or `tests/fixtures/movie.trk` from the File menu. Use the controls below the image to play, pause, or step through the clip. The interface follows the system's [preferred languages](#languages).
 
 Directly opened movies use quarter-turn rotation and reflection metadata. Tracker project imports retain their encoded frame coordinates.
 
@@ -124,6 +124,20 @@ Use Set Axes to place the coordinate origin and choose the positive x direction.
 Use Tools → Measure distance or Measure angle to make a measurement on the current frame. The tools use calibrated coordinates when available and otherwise measure in image pixels.
 
 Zoom from the View menu or hold Ctrl while scrolling over the video. Drag with the middle mouse button or hold Alt while dragging to pan. Fit video to view resets the display.
+
+### Languages
+
+MoTrack offers every interface language that Tracker offers: Arabic, Catalan, Chinese (Simplified and
+Traditional), Czech, Danish, Dutch, English, Finnish, French, German, Greek, Hebrew, Hungarian, Indonesian,
+Italian, Japanese, Korean, Latvian, Malay, Polish, Portuguese (Portugal and Brazil), Russian, Slovak, Slovenian,
+Spanish, Swedish, Thai, Turkish, Ukrainian and Vietnamese. It uses the first language in the system's list that
+it supports (Chinese for Hong Kong and Macao shows Traditional, for Singapore Simplified) and otherwise shows
+English. Arabic and Hebrew use a right-to-left layout.
+
+Terms such as point mass, calibration stick and clip settings reuse Tracker's own translations. Most other
+text is machine-translated and has not yet been reviewed by native speakers; corrections are welcome (see
+[Contributing](CONTRIBUTING.md#translations)). Unlike Tracker, MoTrack does not yet have a language preference
+of its own; change the system language to switch.
 
 ### Stage a local desktop build
 

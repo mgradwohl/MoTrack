@@ -92,7 +92,7 @@ target_link_libraries(motrack_analysis PRIVATE motrack_java_math)
 
 qt_add_executable(motrack src/main.cpp)
 add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp src/movie_worker.cpp src/position_plot.cpp
-    src/video_canvas.cpp src/workspace_services.cpp src/workspace_context.cpp src/bound_workspace.cpp src/workspace_window.cpp)
+    src/video_canvas.cpp src/workspace_services.cpp src/workspace_context.cpp src/bound_workspace.cpp src/workspace_window.cpp src/ui_translations.cpp)
 set_target_properties(motrack_workspace PROPERTIES AUTOMOC ON)
 add_library(motrack_media STATIC src/template_tracker.cpp src/video_reader.cpp)
 target_include_directories(motrack_media PUBLIC src)
@@ -116,8 +116,20 @@ target_compile_options(motrack_filters PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
 
 target_link_libraries(motrack_workspace PUBLIC motrack_project motrack_input Qt6::Widgets PRIVATE motrack_media motrack_image_package Qt6::Concurrent)
 target_link_libraries(motrack PRIVATE motrack_workspace)
+# One catalog per non-English locale in Tracker.getLocales(); tools/translations.py check verifies the list.
+set(motrack_ts_files
+    translations/motrack_ar.ts translations/motrack_ca.ts translations/motrack_cs.ts translations/motrack_da.ts
+    translations/motrack_de.ts translations/motrack_el.ts translations/motrack_es.ts translations/motrack_fi.ts
+    translations/motrack_fr.ts translations/motrack_he.ts translations/motrack_hu.ts translations/motrack_id.ts
+    translations/motrack_it.ts translations/motrack_ja.ts translations/motrack_ko.ts translations/motrack_lv.ts
+    translations/motrack_ms.ts translations/motrack_nl.ts translations/motrack_pl.ts translations/motrack_pt.ts
+    translations/motrack_pt_BR.ts translations/motrack_ru.ts translations/motrack_sk.ts translations/motrack_sl.ts
+    translations/motrack_sv.ts translations/motrack_th.ts translations/motrack_tr.ts translations/motrack_uk.ts
+    translations/motrack_vi.ts translations/motrack_zh_CN.ts translations/motrack_zh_TW.ts)
+# English plural forms only; shipping it also keeps an English-first language list from selecting a later language.
 qt_add_translations(motrack
-    TS_FILES translations/motrack_de.ts translations/motrack_es.ts translations/motrack_fr.ts
+    TS_FILES ${motrack_ts_files}
+    PLURALS_TS_FILE translations/motrack_en.ts
     SOURCES src/main_window.cpp src/bound_workspace.cpp src/workspace_window.cpp src/position_plot.cpp src/tracker_image_package.cpp
             src/tracker_archive.cpp src/workspace_input.cpp
     RESOURCE_PREFIX "/i18n"
@@ -151,7 +163,9 @@ if(MOTRACK_STAGE_DESKTOP)
     endif()
     install(TARGETS motrack BUNDLE DESTINATION . RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     if(APPLE)
-        foreach(locale IN ITEMS de es fr)
+        # Qt ships catalogs for most, not all, MoTrack languages; UiTranslations loads the one matching MoTrack's.
+        foreach(ts IN LISTS motrack_ts_files)
+            string(REGEX REPLACE "^translations/motrack_(.+)[.]ts$" "\\1" locale "${ts}")
             install(FILES "${QT6_INSTALL_PREFIX}/${QT6_INSTALL_TRANSLATIONS}/qtbase_${locale}.qm"
                 DESTINATION motrack.app/Contents/Resources/translations OPTIONAL)
         endforeach()
@@ -271,25 +285,29 @@ if(BUILD_TESTING)
         tests/paired_workspace_test.cpp
         tests/workspace_test.cpp
         tests/workspace_document_test.cpp
-        tests/document_session_test.cpp)
+        tests/document_session_test.cpp
+        tests/ui_translations_test.cpp)
     target_link_libraries(motrack_workspace_tests PRIVATE motrack_workspace GTest::gtest Qt6::Test motrack_archive)
     add_dependencies(motrack_workspace_tests motrack)
     target_compile_definitions(motrack_workspace_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
-        MOTRACK_TRANSLATIONS="${CMAKE_CURRENT_BINARY_DIR}")
+        MOTRACK_TRANSLATIONS="${CMAKE_CURRENT_BINARY_DIR}"
+        MOTRACK_TS_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/translations")
     # Keep every case while bounding UI saving, persistence and session groups independently.
     add_test(NAME workspace COMMAND motrack_workspace_tests
-        "--gtest_filter=-PairedWorkspace.*:DocumentSession.*:WorkspaceDocument.*:ImagePackageWorkspace.*:WorkspaceShell.*")
+        "--gtest_filter=-PairedWorkspace.*:DocumentSession.*:WorkspaceDocument.*:ImagePackageWorkspace.*:WorkspaceShell.*:UiTranslations.*")
     # The shell's save/revert flows take seconds each and slow down most on loaded runners (#283).
     add_test(NAME workspace_shell COMMAND motrack_workspace_tests --gtest_filter=WorkspaceShell.*)
     add_test(NAME workspace_saving COMMAND motrack_workspace_tests
         "--gtest_filter=PairedWorkspace.*:ImagePackageWorkspace.*")
     add_test(NAME workspace_document COMMAND motrack_workspace_tests --gtest_filter=WorkspaceDocument.*)
+    add_test(NAME ui_translations COMMAND motrack_workspace_tests --gtest_filter=UiTranslations.*)
     # Complementary filters retain every session case once, including future additions.
     # Real-file journal matrices can exhaust a shared 60-second budget on slower CI storage (#137).
     add_test(NAME document_session COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*-DocumentSession.*Journal*")
     add_test(NAME document_session_journals COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*Journal*")
-    set_tests_properties(workspace workspace_shell workspace_saving workspace_document document_session document_session_journals PROPERTIES TIMEOUT 60)
+    set_tests_properties(workspace workspace_shell workspace_saving workspace_document ui_translations document_session
+        document_session_journals PROPERTIES TIMEOUT 60)
     add_executable(motrack_media_tests tests/template_tracker_test.cpp tests/video_frame_conversion_test.cpp tests/video_reader_test.cpp)
     # The tests encode synthetic movies and drive swscale with FFmpeg's own types.
     target_link_libraries(motrack_media_tests PRIVATE motrack_media motrack_ffmpeg GTest::gtest_main)
@@ -304,11 +322,18 @@ if(BUILD_TESTING)
     # The synthetic frame generator must round like tools/reference/MatchOracle.java.
     target_compile_options(motrack_matching_tests PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
     add_test(NAME template_matching COMMAND motrack_matching_tests)
+    # Catalog validation: every Tracker locale, lupdate completeness, placeholders, plural forms and lrelease.
+    find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
+    add_test(NAME translation_catalogs COMMAND Python3::Interpreter -I -X utf8 "${CMAKE_CURRENT_SOURCE_DIR}/tools/translations.py"
+        check --lupdate "$<TARGET_FILE:Qt6::lupdate>" --lrelease "$<TARGET_FILE:Qt6::lrelease>")
+    add_test(NAME translation_tool COMMAND Python3::Interpreter -I -X utf8 -m unittest discover -s tests -p test_translations.py
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME desktop_smoke COMMAND motrack --smoke-test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/point-mass.trk")
     add_test(NAME desktop_invalid_project COMMAND motrack --smoke-test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/missing.trk")
-    set_tests_properties(workspace workspace_shell workspace_saving workspace_document document_session document_session_journals desktop_smoke desktop_invalid_project PROPERTIES
+    set_tests_properties(workspace workspace_shell workspace_saving workspace_document ui_translations document_session
+        document_session_journals desktop_smoke desktop_invalid_project PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     set_tests_properties(desktop_invalid_project PROPERTIES WILL_FAIL TRUE)
     if(MOTRACK_BUILD_BENCHMARKS)

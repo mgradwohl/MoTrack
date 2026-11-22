@@ -1,11 +1,10 @@
+#include "ui_translations.hpp"
 #include "workspace_window.hpp"
 
 #include <QApplication>
 #include <QFileInfo>
-#include <QLibraryInfo>
 #include <QLocale>
 #include <QTimer>
-#include <QTranslator>
 
 #include <cstdio>
 #include <cstdlib>
@@ -15,25 +14,7 @@ int main(int argc, char** argv)
 try
 {
     QApplication app(argc, argv);
-    const QLocale locale;
-    QTranslator qtTranslator;
-    const auto loadQtCatalog = [&](const QString& directory)
-    {
-        return qtTranslator.load(locale, "qtbase", "_", directory) || qtTranslator.load(locale, "qt", "_", directory);
-    };
-    auto qtLoaded = loadQtCatalog(QLibraryInfo::path(QLibraryInfo::TranslationsPath));
-#ifdef Q_OS_MACOS
-    qtLoaded = qtLoaded || loadQtCatalog(QCoreApplication::applicationDirPath() + "/../Resources/translations");
-#endif
-    if (qtLoaded)
-    {
-        app.installTranslator(&qtTranslator);
-    }
-    QTranslator translator;
-    if (translator.load(locale, "motrack", "_", ":/i18n"))
-    {
-        app.installTranslator(&translator);
-    }
+    const motrack::UiTranslations translations(QLocale{});
     const auto args = app.arguments();
     motrack::WorkspaceWindow window;
     window.show();
