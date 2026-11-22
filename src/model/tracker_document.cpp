@@ -8,6 +8,7 @@
 #include <cmath>
 #include <ranges>
 #include <set>
+#include <stdexcept>
 #include <unordered_set>
 #include <utility>
 
@@ -17,14 +18,15 @@ namespace
 {
 
 /// A refusal of B1's import policy, with B1's message; caught at the import boundary.
-struct Refusal
+class Refusal : public std::runtime_error
 {
-    std::string message;
+  public:
+    using std::runtime_error::runtime_error;
 };
 
-[[noreturn]] void refuse(std::string message)
+[[noreturn]] void refuse(const std::string& message)
 {
-    throw Refusal{std::move(message)};
+    throw Refusal(message);
 }
 
 /// Whether VideoClip.Loader applies a saved int (see legacy_project.cpp): Java ignores a missing or other-typed
@@ -560,7 +562,7 @@ std::expected<TrackerDocument, DocumentError> TrackerDocument::importBaseline(st
     }
     catch (const Refusal& refusal)
     {
-        return invalid(refusal.message);
+        return invalid(refusal.what());
     }
     for (auto& object : objects)
     {

@@ -111,7 +111,8 @@ template <typename T> struct FrameElement
 
 /// A frame-keyed field: Tracker's loaded frame number to an element, in ascending frame order. Copies share the
 /// chunks of 256 consecutive frames; `set` and `erase` copy only the chunk they change.
-template <typename T> class FrameSeries
+// The implicit move constructor can throw with MSVC's STL, whose std::map allocates a sentinel when moved.
+template <typename T> class FrameSeries // NOLINT(bugprone-exception-escape)
 {
   public:
     using Element = FrameElement<T>;
@@ -326,7 +327,7 @@ struct ClipControlState
 };
 
 /// ImageCoordSystem: calibration keys by original frame and the fixed flags.
-struct CoordinatesState
+struct CoordinatesState // NOLINT(bugprone-exception-escape): holds a FrameSeries (std::map)
 {
     Read<bool> fixedOrigin = missing<bool>();
     Read<bool> fixedAngle = missing<bool>();
@@ -338,7 +339,7 @@ struct CoordinatesState
 };
 
 /// PointMass: marks by Tracker's loaded frame, with the saved `keyFrames`.
-struct PointMassState
+struct PointMassState // NOLINT(bugprone-exception-escape): holds a FrameSeries (std::map)
 {
     Read<std::string> name = missing<std::string>();
     Read<double> mass = missing<double>();
@@ -349,7 +350,7 @@ struct PointMassState
 };
 
 /// An independent Vector: samples by Tracker's loaded frame.
-struct VectorState
+struct VectorState // NOLINT(bugprone-exception-escape): holds a FrameSeries (std::map)
 {
     Read<std::string> name = missing<std::string>();
     FrameSeries<VectorSample> samples{};

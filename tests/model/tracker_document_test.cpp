@@ -523,7 +523,7 @@ TEST(TrackerDocument, CopiesShareValuesAndEqualityComparesBaselineBytesNotTheGra
     const auto second = import(xml);
     EXPECT_NE(first.baseline(), second.baseline());
     EXPECT_EQ(first, second);
-    const auto copy = first;
+    const auto copy = first; // NOLINT(performance-unnecessary-copy-initialization): the test checks what a copy shares
     EXPECT_EQ(copy.sharedGraph(), first.sharedGraph());
     EXPECT_EQ(copy.objects()[0].value, first.objects()[0].value);
     EXPECT_NE(first, import(panel(text("description", "other"))));
@@ -612,6 +612,7 @@ TEST(TrackerDocument, DescriptorsNameEveryTypedFieldAndItsSaverTree)
     const auto names = [](const std::vector<motrack::osp::PropertyValue>& properties)
     {
         std::vector<std::string> result;
+        result.reserve(properties.size());
         for (const auto& property : properties)
         {
             result.push_back(property.name.value_or(""));
@@ -643,7 +644,12 @@ TEST(TrackerDocument, BaselinePathsListOrdinalsAndPropertyNames)
     const auto document = import(experiment());
     const auto& source = *document.baseline();
     EXPECT_TRUE(motrack::model::baselinePath(source, source.root()).empty());
-    const auto path = motrack::model::baselinePath(source, *named(document, cls("Vector")).binding);
+    const auto binding = named(document, cls("Vector")).binding;
+    if (!binding)
+    {
+        FAIL() << "The vector is not bound.";
+    }
+    const auto path = motrack::model::baselinePath(source, *binding);
     ASSERT_EQ(path.size(), 3u);
     EXPECT_EQ(path[0].name, "tracks");
     EXPECT_EQ(path[1], (motrack::model::PathStep{.ordinal = 2, .name = "item"}));

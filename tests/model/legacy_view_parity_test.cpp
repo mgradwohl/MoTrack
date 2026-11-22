@@ -299,14 +299,19 @@ TEST(LegacyViewParity, ConvertsEditedReducedModelsWithoutTurningUnchangedReading
     const auto& control = std::get<motrack::model::ClipControlState>(*document.singleton(motrack::model::Role::ClipControl)->value);
     EXPECT_EQ(control.deltaT, 50.0);
     // Standard export of the view makes B1's decision for the reduced model.
-    EXPECT_EQ(exported(motrack::legacyProject(document), *motrack::trackerSourceView(document)), exported(project, imported.source));
+    const auto view = motrack::trackerSourceView(document);
+    if (!view)
+    {
+        FAIL() << "Expected a source view.";
+    }
+    EXPECT_EQ(exported(motrack::legacyProject(document), *view), exported(project, imported.source));
 }
 
 TEST(LegacyViewParity, ConvertsSourcesWithoutAssociationsToNativeOnlyObjects)
 {
     auto imported = importedBaseline();
     imported.source.bindings.reset();
-    imported.project.unsupportedTrackTypes.push_back("org.example.Placeholder");
+    imported.project.unsupportedTrackTypes.emplace_back("org.example.Placeholder");
     imported.project.clip.mediaReferences = {"movie.mp4"};
     imported.project.clip.sourceFrameCount = 40;
     for (const bool reset : {false, true})
@@ -334,6 +339,10 @@ TEST(LegacyViewParity, RefusesConversionsThatWouldChangeStoredValues)
     imported.project.calibration.reset();
     EXPECT_THROW((void)motrack::typedDocumentFromReduced(imported.project, imported.source), motrack::ProjectError);
     imported = importedBaseline();
+    if (!imported.source.bindings)
+    {
+        FAIL() << "Expected the import's bindings.";
+    }
     imported.source.bindings->front().sourceIndex = 99;
     EXPECT_THROW((void)motrack::typedDocumentFromReduced(imported.project, imported.source), motrack::ProjectError);
     imported = importedBaseline();
@@ -616,7 +625,7 @@ TEST(LegacyViewParity, WriteNativeFixtures)
     ASSERT_NE(refused, baselineXml);
     write("v4-refused-baseline.motrack", withBaseline(current4, refused));
     // Sources whose reading the loader-fidelity fixes change (#313-#315), saved as the reader of the time read them.
-    const auto variant = [&](const QString& name, QByteArray xml)
+    const auto variant = [&](const QString& name, const QByteArray& xml)
     {
         ASSERT_NE(xml, baselineXml);
         const auto imported = importBaseline(xml);
@@ -624,7 +633,7 @@ TEST(LegacyViewParity, WriteNativeFixtures)
               QJsonDocument(downgrade(QJsonDocument::fromJson(nativeJson(imported, scratch)).object(), 4)).toJson(QJsonDocument::Compact));
     };
     auto shifted = baselineXml;
-    shifted.replace("            <property name=\"startframe\" type=\"int\">0</property>",
+    shifted.replace(R"(            <property name="startframe" type="int">0</property>)",
                     "            <property name=\"startframe\" type=\"int\">2</property>\n            <property name=\"frameshift\" "
                     "type=\"int\">2</property>");
     variant("v4-frame-shift.motrack", shifted);
@@ -642,7 +651,7 @@ TEST(LegacyViewParity, WriteNativeFixtures)
                               "type=\"double\">40.0</property>\n                    </object>\n                </property>\n")));
     variant("v4-duplicate-keys.motrack", duplicate);
     auto emptyUnit = baselineXml;
-    emptyUnit.replace("    <property name=\"description\"",
+    emptyUnit.replace(R"(    <property name="description")",
                       "    <property name=\"mass_unit\" type=\"string\"></property>\n    <property name=\"description\"");
     variant("v4-empty-mass-unit.motrack", emptyUnit);
 

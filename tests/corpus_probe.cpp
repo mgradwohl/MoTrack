@@ -355,7 +355,7 @@ QJsonValue saverJson(const motrack::osp::PropertyValue& property)
                 {
                     throw motrack::ProjectError("Unindexed array element in a saver tree.");
                 }
-                while (static_cast<std::size_t>(items.size()) < index)
+                while (std::cmp_less(items.size(), index))
                 {
                     items.append(QJsonValue::Null);
                 }

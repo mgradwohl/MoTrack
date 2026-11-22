@@ -142,7 +142,8 @@ void run(const motrack::model::TrackerDocument& document,
     std::cout << steps << " marks: typed edit " << typed << " us (" << static_cast<double>(copied) / static_cast<double>(steps)
               << " chunks copied), legacy view rebuild " << view << " us, TrackEdits mark " << legacy << " us, template match " << match
               << " us; rebuild/match " << view / match << ", whole run's rebuilds " << view * static_cast<double>(steps) / 1000.0
-              << " ms (checksum " << checksum << ")" << std::endl;
+              << " ms (checksum " << checksum << ")\n"
+              << std::flush;
 }
 
 } // namespace

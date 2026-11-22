@@ -173,11 +173,11 @@ std::optional<std::uint32_t> elementIndex(const std::optional<std::string>& labe
     {
         return std::nullopt;
     }
-    const std::string_view digits(label->data() + 1, label->size() - 2);
+    const auto* begin = label->c_str() + 1;
+    const auto* end = label->c_str() + label->size() - 1;
     std::uint32_t value = 0;
-    const auto* end = digits.data() + digits.size();
-    const auto [last, error] = std::from_chars(digits.data(), end, value);
-    if (error != std::errc{} || last != end || std::to_string(value) != digits || value >= bound)
+    const auto [last, error] = std::from_chars(begin, end, value);
+    if (error != std::errc{} || last != end || std::to_string(value) != std::string_view(begin, end) || value >= bound)
     {
         return std::nullopt;
     }
@@ -385,53 +385,53 @@ FieldValue scalarValue(const TypedValue& value, const FieldDescriptor& field)
 
 std::span<const ReferenceDescriptor> referenceDescriptors()
 {
-    static const std::array<std::string_view, 1> CENTER{"org.opensourcephysics.cabrillo.tracker.CenterOfMass"};
-    static const std::array<std::string_view, 1> SUM{"org.opensourcephysics.cabrillo.tracker.VectorSum"};
-    static const std::array<std::string_view, 3> TOOLS{"org.opensourcephysics.cabrillo.tracker.TapeMeasure",
-                                                       "org.opensourcephysics.cabrillo.tracker.Protractor",
-                                                       "org.opensourcephysics.cabrillo.tracker.CircleFitter"};
-    static const std::array<std::string_view, 1> CIRCLE{"org.opensourcephysics.cabrillo.tracker.CircleFitter"};
-    static const std::array<std::string_view, 3> MODELS{"org.opensourcephysics.cabrillo.tracker.DynamicParticle",
-                                                        "org.opensourcephysics.cabrillo.tracker.DynamicParticlePolar",
-                                                        "org.opensourcephysics.cabrillo.tracker.DynamicSystem"};
-    static const std::array<std::string_view, 1> SYSTEM{"org.opensourcephysics.cabrillo.tracker.DynamicSystem"};
-    static const std::array<std::string_view, 1> PANEL{tracker::TRACKER_PANEL_CLASS};
+    static const std::array<std::string_view, 1> centerOwners{"org.opensourcephysics.cabrillo.tracker.CenterOfMass"};
+    static const std::array<std::string_view, 1> sumOwners{"org.opensourcephysics.cabrillo.tracker.VectorSum"};
+    static const std::array<std::string_view, 3> toolOwners{"org.opensourcephysics.cabrillo.tracker.TapeMeasure",
+                                                            "org.opensourcephysics.cabrillo.tracker.Protractor",
+                                                            "org.opensourcephysics.cabrillo.tracker.CircleFitter"};
+    static const std::array<std::string_view, 1> circleOwners{"org.opensourcephysics.cabrillo.tracker.CircleFitter"};
+    static const std::array<std::string_view, 3> modelOwners{"org.opensourcephysics.cabrillo.tracker.DynamicParticle",
+                                                             "org.opensourcephysics.cabrillo.tracker.DynamicParticlePolar",
+                                                             "org.opensourcephysics.cabrillo.tracker.DynamicSystem"};
+    static const std::array<std::string_view, 1> systemOwners{"org.opensourcephysics.cabrillo.tracker.DynamicSystem"};
+    static const std::array<std::string_view, 1> panelOwners{tracker::TRACKER_PANEL_CLASS};
     // The source reference index's type rules (src/tracker_references.cpp; tests/model/name_binding_test.cpp).
-    static const std::array<ReferenceDescriptor, 7> DESCRIPTORS{
+    static const std::array<ReferenceDescriptor, 7> descriptors{
         ReferenceDescriptor{.id = "center-of-mass.masses",
-                            .ownerClasses = CENTER,
+                            .ownerClasses = centerOwners,
                             .property = "masses",
                             .shape = SlotShape::Collection,
                             .kind = DependencyKind::MemberOf,
                             .filter = {.eligibleClasses = classes({"PointMass"}), .excludedClasses = classes({"Vector"})}},
         ReferenceDescriptor{.id = "vector-sum.vectors",
-                            .ownerClasses = SUM,
+                            .ownerClasses = sumOwners,
                             .property = "vectors",
                             .shape = SlotShape::Collection,
                             .kind = DependencyKind::MemberOf,
                             .filter = {.eligibleClasses = classes({"Vector"}), .excludedClasses = classes({"PointMass"})}},
         ReferenceDescriptor{.id = "tool.attachments",
-                            .ownerClasses = TOOLS,
+                            .ownerClasses = toolOwners,
                             .property = "attachments",
                             .shape = SlotShape::StringArray,
                             .kind = DependencyKind::AttachedTo,
                             .onMissing = MissingTarget::FallsBack},
         // The circle fitter's step attachment shares AttachedTo with its point attachments, in a separate slot range.
         ReferenceDescriptor{.id = "circle-fitter.step_attachment",
-                            .ownerClasses = CIRCLE,
+                            .ownerClasses = circleOwners,
                             .property = "step_attachment",
                             .kind = DependencyKind::AttachedTo,
                             .onMissing = MissingTarget::FallsBack,
                             .slotBase = 0x8000'0000U},
         ReferenceDescriptor{.id = "model.booster",
-                            .ownerClasses = MODELS,
+                            .ownerClasses = modelOwners,
                             .property = "booster",
                             .kind = DependencyKind::BoosterOf,
                             .targetFacet = Data,
                             .onMissing = MissingTarget::FallsBack,
                             .filter = {.eligibleClasses = classes({"PointMass"}), .excludedClasses = classes({"Vector"})}},
         ReferenceDescriptor{.id = "dynamic-system.particles",
-                            .ownerClasses = SYSTEM,
+                            .ownerClasses = systemOwners,
                             .property = "particles",
                             .shape = SlotShape::StringArray,
                             .maxSlots = 2,
@@ -442,12 +442,12 @@ std::span<const ReferenceDescriptor> referenceDescriptors()
                                        .excludedClasses = classes({"PointMass", "Vector"})}},
         // A missing origin silently gives Tracker's default frame.
         ReferenceDescriptor{.id = "panel.referenceframe",
-                            .ownerClasses = PANEL,
+                            .ownerClasses = panelOwners,
                             .property = "referenceframe",
                             .kind = DependencyKind::FrameOf,
                             .onMissing = MissingTarget::FallsBack},
     };
-    return DESCRIPTORS;
+    return descriptors;
 }
 
 std::optional<SavedReferences> readReferences(const osp::Source& source, osp::NodeId owner, const ReferenceDescriptor& field)
@@ -533,6 +533,7 @@ void appendScalar(std::vector<osp::PropertyValue>& properties, const FieldDescri
             else if constexpr (std::is_same_v<Item, std::vector<std::string>>)
             {
                 std::vector<std::optional<osp::PropertyValue>> elements;
+                elements.reserve(item.size());
                 for (const auto& text : item)
                 {
                     elements.emplace_back(osp::stringProperty("item", text));

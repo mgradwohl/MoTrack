@@ -122,7 +122,8 @@ struct DocumentError
     bool operator==(const DocumentError&) const = default;
 };
 
-class TrackerDocument
+// The implicit move constructor can throw with MSVC's STL, whose std::map allocates a sentinel when moved.
+class TrackerDocument // NOLINT(bugprone-exception-escape)
 {
   public:
     /// An empty native document: a panel, clip and clip control holding the values of an empty project, without a

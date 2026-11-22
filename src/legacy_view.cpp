@@ -112,9 +112,18 @@ VectorTrack vectorTrack(const model::VectorState& state, model::ObjectId id)
 /// The ordinal of a bound track among all direct children of the baseline's `tracks` property.
 std::size_t trackOrdinal(const osp::Source& source, osp::NodeId object)
 {
-    const auto element = source.node(object).parent.value();
-    const auto& siblings = source.node(source.node(element).parent.value()).children;
-    return static_cast<std::size_t>(std::ranges::find(siblings, element) - siblings.begin());
+    const auto element = source.node(object).parent;
+    if (!element)
+    {
+        throw ProjectError("A bound track is not an element of the Tracker tracks.");
+    }
+    const auto tracks = source.node(*element).parent;
+    if (!tracks)
+    {
+        throw ProjectError("A bound track is not an element of the Tracker tracks.");
+    }
+    const auto& siblings = source.node(*tracks).children;
+    return static_cast<std::size_t>(std::ranges::find(siblings, *element) - siblings.begin());
 }
 
 // Conversion from the reduced model.
@@ -297,11 +306,11 @@ void overlaySingletons(model::DocumentParts& parts, const LegacyProject& project
     setIfChanged(clip.startTime, model::finiteValue(clipReading.startTime).value_or(0.0), stored.startTimeMs);
     if (clipObject)
     {
-        replaceValue(*clipObject, std::move(clip));
+        replaceValue(*clipObject, clip);
     }
     else if (clip != clipReading)
     {
-        objects.push_back(unbound(Role::Clip, tracker::VIDEO_CLIP_CLASS, std::move(clip)));
+        objects.push_back(unbound(Role::Clip, tracker::VIDEO_CLIP_CLASS, clip));
     }
 
     const auto* video = findRole(objects, Role::Video, model::Family::Video);
@@ -312,11 +321,11 @@ void overlaySingletons(model::DocumentParts& parts, const LegacyProject& project
         state.deltaT = stored.frameDurationMs ? model::Read<double>(*stored.frameDurationMs) : model::missing<double>();
         if (control)
         {
-            replaceValue(*control, std::move(state));
+            replaceValue(*control, state);
         }
         else
         {
-            objects.push_back(unbound(Role::ClipControl, tracker::STEPPER_CLIP_CONTROL_CLASS, std::move(state)));
+            objects.push_back(unbound(Role::ClipControl, tracker::STEPPER_CLIP_CONTROL_CLASS, state));
         }
     }
 
@@ -383,9 +392,9 @@ void nativeObjects(model::DocumentParts& parts, const LegacyProject& project)
 }
 
 /// The baseline's typed import with the stored identities and values (native versions 4–6 with known bindings).
-model::DocumentParts boundObjects(const LegacyProject& project, const TrackerSource& source)
+model::DocumentParts boundObjects(const LegacyProject& project, const std::string& xml, const std::vector<TrackSourceBinding>& bindings)
 {
-    auto parts = importTypedTracker(source.xml).parts();
+    auto parts = importTypedTracker(xml).parts();
     const auto& baseline = *parts.baseline;
     std::unordered_map<std::size_t, std::size_t> byOrdinal;
     for (std::size_t index = 0; index < parts.objects.size(); ++index)
@@ -407,7 +416,7 @@ model::DocumentParts boundObjects(const LegacyProject& project, const TrackerSou
         vectors.emplace(track.id, &track);
     }
     std::unordered_map<TrackId, bool> bound;
-    for (const auto& binding : source.bindings.value())
+    for (const auto& binding : bindings)
     {
         const auto found = byOrdinal.find(binding.sourceIndex);
         if (found == byOrdinal.end())
@@ -563,7 +572,7 @@ typedDocumentFromReduced(const LegacyProject& project, const std::optional<Track
     model::DocumentParts parts;
     if (source && source->bindings)
     {
-        parts = boundObjects(project, *source);
+        parts = boundObjects(project, source->xml, *source->bindings);
     }
     else
     {
