@@ -199,6 +199,66 @@ class CorpusTests(unittest.TestCase):
                                           self.root / "reference.jar", self.root / "output", ":77")
             run.assert_not_called()
 
+    def test_private_display_waits_for_a_cold_start_and_reports_xvfb_diagnostics(self):
+        output = {"text": b"(EE) Fatal server error: Cannot establish any listening sockets"}
+
+        class Server:
+            def __init__(self, command, *, pass_fds, stdout, stderr):
+                self.command = command
+                stderr.write(output["text"])
+                stderr.flush()
+
+            def poll(self):
+                return None
+
+            def terminate(self):
+                pass
+
+            def wait(self, timeout=None):
+                return 0
+
+        timeouts = []
+
+        def never_ready(readers, writers, errors, timeout):
+            timeouts.append(timeout)
+            return [], [], []
+
+        with patch.object(corpus.sys, "platform", "linux"), patch.object(corpus.shutil, "which", return_value="Xvfb"), \
+                patch.object(corpus.subprocess, "Popen", Server), patch.object(corpus.select, "select", never_ready):
+            with self.assertRaisesRegex(ValueError, r"within 30 s: \(EE\) Fatal server error"):
+                with corpus.private_display():
+                    self.fail("display must not be yielded")
+        self.assertEqual(timeouts, [corpus.XVFB_READY_SECONDS])
+
+        # A server that answers with something other than a display number is reported with its diagnostics.
+        with patch.object(corpus.sys, "platform", "linux"), patch.object(corpus.shutil, "which", return_value="Xvfb"), \
+                patch.object(corpus.subprocess, "Popen", Server), \
+                patch.object(corpus.select, "select", lambda readers, *_: (readers, [], [])), \
+                patch.object(corpus.os, "read", return_value=b"not a display\n"):
+            with self.assertRaisesRegex(ValueError, r"failed to start: \(EE\) Fatal server error"):
+                with corpus.private_display():
+                    self.fail("display must not be yielded")
+
+        # The fatal line comes last after a long preamble of warnings; the error keeps that tail.
+        output["text"] = b"Warning: Could not resolve keysym XF86Example\n" * 80 + b"(EE) Fatal server error: real cause"
+        self.assertGreater(len(output["text"]), corpus.XVFB_LOG_BYTES)
+        with patch.object(corpus.sys, "platform", "linux"), patch.object(corpus.shutil, "which", return_value="Xvfb"), \
+                patch.object(corpus.subprocess, "Popen", Server), patch.object(corpus.select, "select", never_ready):
+            with self.assertRaises(ValueError) as raised:
+                with corpus.private_display():
+                    self.fail("display must not be yielded")
+        message = str(raised.exception)
+        self.assertTrue(message.endswith("(EE) Fatal server error: real cause"), message[-200:])
+        self.assertLessEqual(len(message), corpus.XVFB_LOG_BYTES + 100)
+
+        # Without diagnostics the message has no dangling separator.
+        output["text"] = b""
+        with patch.object(corpus.sys, "platform", "linux"), patch.object(corpus.shutil, "which", return_value="Xvfb"), \
+                patch.object(corpus.subprocess, "Popen", Server), patch.object(corpus.select, "select", never_ready):
+            with self.assertRaisesRegex(ValueError, r"^Private Xvfb display did not become ready within 30 s$"):
+                with corpus.private_display():
+                    self.fail("display must not be yielded")
+
     def test_failed_multitab_session_cleans_its_private_home_and_outputs(self):
         manifest = corpus.load_manifest()
         manifest["cases"] = [case for case in manifest["cases"] if case["id"] in
@@ -3796,7 +3856,7 @@ class TrackerStateTests(unittest.TestCase):
                 self.assertRaisesRegex(ValueError, r"properties\.mass"), redirect_stdout(io.StringIO()):
             corpus.main()
         for argv in [["state-diff", str(expected)], ["state-check"], ["check", "--probe", "p", str(expected)],
-                     ["state-check", "--probe", "p", "--record"]]:
+                     ["state-diff", str(expected), str(actual), "--record"]]:
             with self.subTest(argv=argv), patch.object(sys, "argv", ["corpus.py", *argv]), \
                     self.assertRaises(SystemExit), patch("sys.stderr", new_callable=io.StringIO):
                 corpus.main()
@@ -3805,6 +3865,139 @@ class TrackerStateTests(unittest.TestCase):
             corpus.main()
         self.assertEqual(oracle.call_args.args[2], "jdk/java")
         self.assertTrue(oracle.call_args.kwargs["record"])
+
+class OdeOracleTests(unittest.TestCase):
+    """The ODE kernel oracle (tools/reference/OdeOracle.java) without running Java."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name).resolve()
+        self.manifest = corpus.load_manifest()
+        self.fixture = json.loads(corpus.ODE_REFERENCE.read_text(encoding="utf-8"))
+
+    def check(self, document, *, record=False, commands=None):
+        """Run check_ode_oracle with a fake Java process that emits `document`."""
+        def run(command):
+            if commands is not None:
+                commands.append(command)
+            Path(command[-1]).write_text(json.dumps(document), encoding="utf-8")
+
+        with patch.object(corpus, "verify_file") as verify, patch.object(corpus, "run", side_effect=run), \
+                redirect_stdout(io.StringIO()) as output:
+            corpus.check_ode_oracle(self.manifest, self.root, "java", record=record)
+        verify.assert_called_once_with(self.root / self.manifest["reference"]["file"], self.manifest["reference"])
+        return output.getvalue()
+
+    def test_committed_fixture_covers_every_solver_in_its_canonical_layout(self):
+        corpus.validate_ode_reference(self.fixture, self.manifest)
+        classes = {solver["class"].rsplit(".", 1)[1] for solver in self.fixture["solvers"]}
+        self.assertEqual(classes, {"Euler", "EulerRichardson", "Ralston2", "Heun3", "RK4", "Butcher5", "Fehlberg8", "Adams4",
+                                   "Adams5", "Adams6", "Verlet", "LeapFrog", "CashKarp45", "DormandPrince45", "RK45",
+                                   "RK45MultiStep", "ODEMultistepSolver"})
+        self.assertEqual({system["id"] for system in self.fixture["systems"]},
+                         {"oscillator", "drag", "kepler", "stiff", "forced", "nan-rate"})
+        tracker = self.fixture["tracker"]
+        self.assertEqual(tracker["default_solver"], "org.opensourcephysics.numerics.RK4")
+        self.assertEqual(tracker["model_builder_solvers"][0], tracker["default_solver"])
+        self.assertEqual((tracker["trace_points_per_step"], tracker["iterations_per_step"]), (10, 10))
+        self.assertEqual(corpus.ODE_REFERENCE.read_bytes().decode("utf-8"), corpus.ode_reference_text(self.fixture))
+        self.assertLess(corpus.ODE_REFERENCE.stat().st_size, 256 * 1024)
+
+    def test_check_runs_the_pinned_jar_privately_and_accepts_an_identical_regeneration(self):
+        commands = []
+        self.assertIn(f"{len(self.fixture['cases'])} Java solver cases match tests/science/ode-reference.json",
+                      self.check(self.fixture, commands=commands))
+        [command] = commands
+        self.assertEqual(command[0], "java")
+        self.assertIn("-Djava.awt.headless=true", command)
+        self.assertIn("-Xmx256m", command)
+        self.assertEqual(command[command.index("--class-path") + 1], str(self.root / self.manifest["reference"]["file"]))
+        self.assertEqual(Path(command[-2]), corpus.ROOT / "tools/reference/OdeOracle.java")
+        # A private, removed home: OSP preference files never land in the shared reference cache.
+        home = next(arg for arg in command if arg.startswith("-Duser.home=")).split("=", 1)[1]
+        self.assertFalse(Path(home).is_relative_to(self.root))
+        self.assertFalse(Path(home).exists())
+
+    def test_check_rejects_numerical_count_and_non_finite_drift(self):
+        def first(document, predicate):
+            return next(point for case in document["cases"] for point in case["checkpoints"] if predicate(case, point))
+
+        for mutation in ["state", "rates", "error-code", "nan", "taken", "missing-case", "stiff-state", "tracker"]:
+            document = copy.deepcopy(self.fixture)
+            if mutation == "state":
+                point = first(document, lambda case, point: case["solver"] == "rk4" and point["n"] > 1)
+                point["state"][0] = math.nextafter(point["state"][0], math.inf)
+            elif mutation == "rates":
+                first(document, lambda case, point: True)["rates"] += 1
+            elif mutation == "error-code":
+                first(document, lambda case, point: point["error_code"] == 1)["error_code"] = 0
+            elif mutation == "nan":
+                point = first(document, lambda case, point: "NaN" in point["state"])
+                point["state"][point["state"].index("NaN")] = 0.0
+            elif mutation == "taken":
+                first(document, lambda case, point: case["solver"] == "dormandprince45" and point["n"] > 0)["taken"] *= 1 + 1e-7
+            elif mutation == "missing-case":
+                document["cases"].pop()
+            elif mutation == "stiff-state":
+                point = first(document, lambda case, point: case["system"] == "stiff" and case["solver"] == "rk45" and point["n"] > 1)
+                point["state"][0] *= 1 + 1e-5
+            else:
+                document["tracker"]["trace_points_per_step"] = 5
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                self.check(document)
+
+    def test_adaptive_cases_allow_amplified_last_bit_pow_differences(self):
+        # Magnitudes observed with fdlibm's pow (HotSpot on arm64): 4e-10 on the Kepler orbit and
+        # up to 6e-9 at the stiff system's stability limit.
+        document = copy.deepcopy(self.fixture)
+        kepler = next(point for case in document["cases"] if case["id"] == "kepler/dormandprince45/tol=1.0E-6"
+                      for point in case["checkpoints"] if point["n"] > 1)
+        kepler["taken"] *= 1 + 4e-10
+        point = next(point for case in document["cases"] if case["system"] == "stiff" and case["solver"] == "dormandprince45"
+                     for point in case["checkpoints"] if point["n"] > 1)
+        point["state"][0] *= 1 + 1e-8
+        self.check(document)
+        # Fixed-step solvers on the same system must still match to the last bit.
+        fixed = next(point for case in document["cases"] if case["system"] == "stiff" and case["solver"] == "rk4"
+                     for point in case["checkpoints"] if point["n"] > 1)
+        fixed["state"][1] = math.nextafter(fixed["state"][1], math.inf)
+        with self.assertRaisesRegex(ValueError, "stiff/rk4"):
+            self.check(document)
+
+    def test_record_writes_the_canonical_fixture_only_when_requested(self):
+        destination = self.root / "science" / "ode-reference.json"
+        with patch.object(corpus, "ODE_REFERENCE", destination):
+            self.assertIn(f"recorded {len(self.fixture['cases'])} Java solver cases", self.check(self.fixture, record=True))
+        self.assertEqual(destination.read_bytes(), corpus.ode_reference_text(self.fixture).encode("utf-8"))
+        with patch.object(sys, "argv", ["corpus.py", "check", "--probe", "probe", "--record"]), \
+                patch.object(corpus, "check_cases") as check, self.assertRaises(SystemExit), \
+                patch("sys.stderr", new_callable=io.StringIO):
+            corpus.main()
+        check.assert_not_called()
+        with patch.object(sys, "argv", ["corpus.py", "ode-oracle", "--java", "jdk/java", "--record"]), \
+                patch.object(corpus, "check_ode_oracle") as oracle:
+            corpus.main()
+        oracle.assert_called_once()
+        self.assertEqual(oracle.call_args.args[2], "jdk/java")
+        self.assertTrue(oracle.call_args.kwargs["record"])
+
+    def test_validation_rejects_malformed_or_incomplete_documents(self):
+        for mutation in ["version", "schema", "no-cases", "duplicate-case", "unknown-solver", "unknown-system", "checkpoint",
+                         "uncovered-solver", "duplicate-solver", "not-object"]:
+            document = copy.deepcopy(self.fixture)
+            if mutation == "version": document["reference_version"] = "6.3.4"
+            elif mutation == "schema": document["schema_version"] = 2
+            elif mutation == "no-cases": document["cases"] = []
+            elif mutation == "duplicate-case": document["cases"].append(document["cases"][0])
+            elif mutation == "unknown-solver": document["cases"][0]["solver"] = "rk5"
+            elif mutation == "unknown-system": document["cases"][0]["system"] = "pendulum"
+            elif mutation == "checkpoint": document["cases"][0]["checkpoints"][-1]["n"] = document["cases"][0]["steps"] + 1
+            elif mutation == "uncovered-solver": document["cases"] = [c for c in document["cases"] if c["solver"] != "leapfrog"]
+            elif mutation == "duplicate-solver": document["solvers"].append(document["solvers"][0])
+            else: document["cases"][0] = "case"
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                corpus.validate_ode_reference(document, self.manifest)
 
 
 if __name__ == "__main__":
