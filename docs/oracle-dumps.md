@@ -20,7 +20,8 @@ clip step, paint, and wait until tape attachments, model boosters and system mem
 mass acquire their members, and particle models have steps for every clip frame. Customized tables are
 visited through Tracker's normal selection path and their saved selection is restored. Unlike the resave
 baseline, that visit is bounded to one second per table: Tracker 6.3.5 can leave columns unpopulated (#64),
-and the dump records that loaded state rather than timing out. Reports label this preparation
+and the dump records that loaded state rather than timing out. A table that Tracker does not show, or whose
+owner or selection is missing, is dumped without a visit. Reports label this preparation
 `expand_visit_custom_tables_bounded_restore_selection`.
 
 Each case runs in a fresh JVM with a private home and OSP cache, a 256 MiB heap, a 30-second internal
@@ -158,7 +159,10 @@ MoTrack does not model yet is a gap.
 
 The seed entries cover the unaccepted cases in the corpus guide: vector-sum members, steps and data (#63),
 the omitted negative-time vector rows (#146), the AVI archive load failure (#140), and the custom table columns,
-formats and selections Tracker loses (#64).
+formats and selections Tracker loses (#64). Table expectations are transcribed from each fixture's original XML
+plus the pinned default patterns (frame and step `0`, time `0.000`). The first dumps also found that Tracker's
+Xuggle engine indexes 11 of the 13 samples of BallToss's MP4, cutting the clip and the ball's last two data rows
+(#209); those entries take their values from the MP4 sample table and the Java XML/coordinate reference.
 
 ## Commands and CI
 

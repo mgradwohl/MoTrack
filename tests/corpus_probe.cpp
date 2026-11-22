@@ -203,7 +203,8 @@ QJsonObject pointMassData(const motrack::LegacyProject& project, std::size_t ind
 {
     const auto& mass = project.pointMasses.at(index);
     const auto& clip = project.clip;
-    const bool timed = clip.frameDurationMs.has_value() && *clip.frameDurationMs > 0.0;
+    const auto frameDurationMs = clip.frameDurationMs.value_or(0.0);
+    const bool timed = frameDurationMs > 0.0;
     const bool calibrated = project.calibration.has_value();
     struct Column
     {
@@ -289,7 +290,7 @@ QJsonObject pointMassData(const motrack::LegacyProject& project, std::size_t ind
             }
             else if (name == "t")
             {
-                row.append(stateNumber((clip.startTimeMs + (mark.frame - clip.firstFrame) * *clip.frameDurationMs) / 1000.0));
+                row.append(stateNumber((clip.startTimeMs + (mark.frame - clip.firstFrame) * frameDurationMs) / 1000.0));
             }
             else
             {

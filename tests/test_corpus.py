@@ -3540,9 +3540,40 @@ class TrackerStateTests(unittest.TestCase):
     def test_committed_registry_is_valid_and_seeded_from_unaccepted_cases(self):
         registry = corpus.load_known_defects(self.manifest)
         issues = {entry["issue"].rsplit("/", 1)[1] for entry in registry["entries"]}
-        self.assertTrue({"63", "140", "146"} <= issues)
+        self.assertTrue({"63", "64", "140", "146"} <= issues)
         cases = {entry["case"] for entry in registry["entries"]}
-        self.assertTrue({"vector-sum", "archived-avi", "vector-images-negative-time", "vector-movie-negative-time"} <= cases)
+        self.assertTrue({"vector-sum", "archived-avi", "vector-images-negative-time", "vector-movie-negative-time",
+                         "table-owners", "table-owners-subset", "table-owners-defaults", "table-owners-legacy-formats"} <= cases)
+        # Each rejected session case of the corpus guide is represented, never waived as a group.
+        excluded = {case["id"] for case in self.manifest["cases"] if "session_exclusion" in case or case.get("session_known_issue")}
+        self.assertTrue(excluded <= cases, excluded - cases)
+
+    def test_committed_dumps_are_canonical_cover_the_corpus_and_reproduce_the_registry(self):
+        registry = corpus.load_known_defects(self.manifest)
+        whole = {entry["case"] for entry in registry["entries"] if entry["tracker"] == corpus.STATE_LOAD_FAILURE}
+        dumps, size = {}, 0
+        for case in self.manifest["cases"]:
+            path = corpus.state_path(case["id"])
+            if case["id"] in whole:
+                self.assertFalse(path.exists(), case["id"])
+                dumps[case["id"]] = corpus.STATE_LOAD_FAILURE
+                continue
+            document = corpus.read_state(path, self.manifest)
+            self.assertEqual(path.read_bytes().decode("utf-8"), corpus.state_text(document), case["id"])
+            dumps[case["id"]] = document
+            size += path.stat().st_size
+        self.assertEqual(set(corpus.STATE_DIR.glob("*.json")),
+                         {corpus.state_path(case["id"]) for case in self.manifest["cases"] if case["id"] not in whole})
+        self.assertLess(size, 1536 * 1024)
+        failures = []
+        reproduced = corpus.check_known_defects(registry, self.manifest, dumps, failures)
+        self.assertEqual(failures, [])
+        self.assertEqual(len(reproduced), len(registry["entries"]))
+        # A dump compared with itself has no differences, and none carries a machine-specific path.
+        for case_id in ["protractor", "ball-toss", "dynamic-sine"]:
+            self.assertEqual(corpus.compare_state(dumps[case_id], dumps[case_id], self.manifest, case_id).failures, [])
+        for path in corpus.STATE_DIR.glob("*.json"):
+            self.assertNotRegex(path.read_text(encoding="utf-8"), r"/home/|/tmp/|[A-Za-z]:[\\/]|/Users/")
 
     def test_registry_rejects_cross_file_wildcard_duplicate_or_non_deviating_entries(self):
         whole = self.entry(id="avi", case="archived-avi", object=None, path=None, tracker=corpus.STATE_LOAD_FAILURE,
