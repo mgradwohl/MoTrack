@@ -47,6 +47,8 @@ reference bugs.
 publication (R27) are outside the current completion contract; local staging remains. Every UI locale
 that Tracker ships is in scope: catalogs are seeded from Tracker's own translations where strings
 correspond, remaining strings are machine-translated and marked `unfinished` for later human review.
+On 2026-11-22 the maintainer decided that these machine translations ship visible without a label. Tracker's
+unlisted `fil_PH`, `sn` and `sr` catalogs are outside this scope ([Translations](../CONTRIBUTING.md#translations)).
 
 ## Current status
 
@@ -155,7 +157,7 @@ and platform evidence before it can be marked complete.
 | R22 | Data export with track/column selection, formatting, raw precision, delimiters and clipboard; image/plot/print export | Partial: point-mass and selected-series CSV. Remaining: other data, graphics and print workflows (#81). | 8, 10 |
 | R23 | Video/clip export and transcoding, image sequences, overlays, correct output timing, thumbnails and portable experiment packaging | Partial: portable archive packaging (R03). Video/image-sequence export missing. | 3, 6, 10 |
 | R24 | Library Browser: local/remote collections, metadata/search, recent resources, cache management, downloads and authoring/sharing collection files | Missing; offline/cancel/error behavior and collection-format compatibility required (#92). | 11 |
-| R25 | Preferences, shortcuts, accessible focus/labels, font/icon sizing, locale-aware numbers, all baseline language catalogs, searchable help and diagnostics | Partial: four UI languages, basic keyboard controls. Remaining: every Tracker locale, preferences (#75), RTL/accessibility, help, diagnostics, locale-aware input (#66, #67). | every phase, 10–12 |
+| R25 | Preferences, shortcuts, accessible focus/labels, font/icon sizing, locale-aware numbers, all baseline language catalogs, searchable help and diagnostics | Partial: all 31 non-English `Tracker.getLocales()` catalogs (I8, #173), seeded from Tracker/OSP bundles with recorded provenance, other strings machine-translated (`unfinished`, shown), right-to-left layout for Arabic/Hebrew, `tools/translations.py` validation in CTest; basic keyboard controls. Remaining: native review of machine translations, language preference (#75), RTL follow-ups, accessibility, help, diagnostics, locale-aware input (#66, #67). | every phase, 10–12 |
 | R26 | Robust desktop lifecycle: open/drop/file association, close/cancel, recovery, resource limits, responsive long tasks, and clean shutdown | Partial: worker/cancel/dirty-state, whole-source close and save recovery. Remaining: drop and file-association opening with spaces/Unicode paths (#68), OS file-type registration (including the staged macOS bundle's declared types), multi-document recovery, resource regressions (#72, #76). | 2–4, 12 |
 | R27 | Installable releases, runtime deployment, signing/notarization, upgrades, notices, SBOM and provenance | **Deferred by maintainer decision (2026-11-21)**; local staging only. Installer issues #82, #84, #85, #93 and #95 wait for this decision to be revisited; the clean-system launch part of #83 (no Java or development SDK) stays in phase 12. | outside current contract |
 

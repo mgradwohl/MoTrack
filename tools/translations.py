@@ -249,7 +249,7 @@ def _unescape(text: str) -> str:
         out.append({"t": "\t", "n": "\n", "r": "\r", "f": "\f"}.get(escaped, escaped))
         i += 2
     # Combine UTF-16 surrogate pairs written as two \u escapes.
-    return "".join(out).encode("utf-16", "surrogatepass").decode("utf-16")
+    return "".join(out).encode("utf-16", "surrogatepass").decode("utf-16", "surrogatepass")
 
 
 def parse_properties(text: str) -> dict[str, str]:
@@ -484,7 +484,8 @@ def adapt(translation: str, source: str, locale: Locale, used: set[str] | None =
 
 
 def insert_mnemonic(text: str, letter: str, locale: Locale, used: set[str] | None = None) -> str:
-    """Mark one character as the mnemonic, preferring the source letter, word starts and letters not in ``used``.
+    """Mark one character as the mnemonic: a word start with the source letter, any word start, the source letter
+    elsewhere, then any letter, skipping letters in ``used`` when possible.
 
     Chinese, Japanese, Korean and Thai menus conventionally append the Latin source letter, as in "ファイル(&F)".
     """
@@ -493,8 +494,8 @@ def insert_mnemonic(text: str, letter: str, locale: Locale, used: set[str] | Non
         return f"{text}(&{letter.upper()})"
     positions = [i for i, char in enumerate(text) if char.isalnum() and (i == 0 or text[i - 1] != "&")]
     word_start = [i for i in positions if i == 0 or not text[i - 1].isalnum()]
-    same = [i for i in word_start + positions if text[i].lower() == letter.lower()]
-    ordered = same + word_start + positions
+    same = [i for i in positions if text[i].lower() == letter.lower()]
+    ordered = [i for i in word_start if i in same] + word_start + same + positions
     chosen = next((i for i in ordered if text[i].lower() not in used), ordered[0])
     return text[:chosen] + "&" + text[chosen:]
 
@@ -516,21 +517,23 @@ class SourceMessage:
 
 
 def cmake_translation_block(root: Path = ROOT) -> tuple[list[str], list[str]]:
-    """TS_FILES and SOURCES listed by qt_add_translations() in CMakeLists.txt."""
+    """Catalogs (set(motrack_ts_files ...)) and SOURCES of qt_add_translations() in CMakeLists.txt."""
     text = (root / "CMakeLists.txt").read_text(encoding="utf-8")
     block = re.search(r"qt_add_translations\((.*?)\)", text, re.S)
     if not block:
         raise ToolError("CMakeLists.txt has no qt_add_translations() call.")
-    words = block.group(1).split()
     lists: dict[str, list[str]] = {}
     current = None
-    for word in words:
-        if word.isupper() and not word.startswith("translations/"):
-            current = word
-            lists.setdefault(current, [])
-        elif current:
-            lists[current].append(word.strip('"'))
-    return lists.get("TS_FILES", []), lists.get("SOURCES", [])
+    for word in block.group(1).split():
+        if re.fullmatch(r"[A-Z_]+", word):
+            current = lists.setdefault(word, [])
+        elif current is not None:
+            current.append(word.strip('"'))
+    ts_files = lists.get("TS_FILES", [])
+    if ts_files == ["${motrack_ts_files}"]:
+        variable = re.search(r"set\(motrack_ts_files\s+(.*?)\)", text, re.S)
+        ts_files = variable.group(1).split() if variable else []
+    return ts_files, lists.get("SOURCES", [])
 
 
 def read_messages(path: Path) -> list[SourceMessage]:
@@ -680,7 +683,8 @@ class Catalog:
             if self.text[line_start:close].strip():
                 line_start = close
             last = context.entries[-1] if context.entries else None
-            expanded = last is not None and "\n" in last.text
+            # Match the last message's layout: one element per line, or the compact one-line form.
+            expanded = last is not None and re.match(r"<message\b[^>]*>[ \t]*\n", last.text) is not None
             self._insertions.append((line_start, "".join(_render_new(m, forms, expanded) for m in items)))
 
     def render(self) -> str:
@@ -826,16 +830,24 @@ def check_cmake(root: Path = ROOT) -> list[str]:
     errors += [f"CMakeLists.txt: TS_FILES has unsupported {path}" for path in ts_files if path not in expected]
     errors += [f"translations: {path.name} is not in LOCALES" for path in sorted((root / "translations").glob("*.ts"))
                if f"translations/{path.name}" not in expected]
+    # Maintainer decision (2026-11-22): unfinished machine translations ship visible, so lrelease keeps them.
+    if re.search(r"-nounfinished|LRELEASE_OPTIONS", (root / "CMakeLists.txt").read_text(encoding="utf-8")):
+        errors.append("CMakeLists.txt: lrelease must keep unfinished translations (no -nounfinished/LRELEASE_OPTIONS)")
     return errors
 
 
-def run_lrelease(lrelease: str, catalog: Path) -> str | None:
+def run_lrelease(lrelease: str, catalog: Path, unfinished: int | None = None) -> str | None:
+    """Compile with the options CMake uses; with ``unfinished``, require that many unfinished translations in the
+    .qm (machine translations ship visible, so lrelease must not drop them)."""
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory) / (catalog.stem + ".qm")
         result = subprocess.run([lrelease, str(catalog), "-qm", str(output)], capture_output=True, text=True, check=False)
         text = result.stdout + result.stderr
         if result.returncode != 0 or not output.is_file() or re.search(r"\berror\b", text, re.I):
             return f"{catalog.name}: lrelease failed: {text.strip()}"
+        generated = re.search(r"\((\d+) finished and (\d+) unfinished\)", text)
+        if unfinished is not None and (not generated or int(generated.group(2)) != unfinished):
+            return f"{catalog.name}: lrelease kept {generated.group(2) if generated else 'no'} of {unfinished} unfinished translations"
     return None
 
 
@@ -843,8 +855,8 @@ def run_lrelease(lrelease: str, catalog: Path) -> str | None:
 # Commands
 
 
-def catalog_path(locale: Locale, directory: Path = TRANSLATIONS) -> Path:
-    return directory / f"motrack_{locale.catalog}.ts"
+def catalog_path(locale: Locale, directory: Path | None = None) -> Path:
+    return (directory or TRANSLATIONS) / f"motrack_{locale.catalog}.ts"
 
 
 def selected_locales(names: list[str] | None) -> list[Locale]:
@@ -1017,7 +1029,8 @@ def command_check(args) -> int:
         errors += found_errors
         warnings += found_warnings
         if args.lrelease and not found_errors:
-            failure = run_lrelease(args.lrelease, path)
+            unfinished = sum(1 for entry in catalog.entries() if entry.kind == "unfinished" and not entry.empty)
+            failure = run_lrelease(args.lrelease, path, unfinished)
             if failure:
                 errors.append(failure)
     for warning in warnings:
