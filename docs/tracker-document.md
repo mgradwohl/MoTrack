@@ -3,7 +3,7 @@
 This is the design and implementation plan for slice B2 of wave 1 in the
 [full-port plan](migration-plan.md#implementation-order-and-exit-gates): "`TrackerDocument` behind
 `WorkspaceDocument::project`, ID-addressed commands, native v7 with v1–6 readers; `LegacyProject` read-only."
-**Status:** B2.1 is implemented ([PR #PR_NUMBER](https://github.com/mgradwohl/MoTrack/pull/PR_NUMBER)): `motrack_model` holds the typed
+**Status:** B2.1 is implemented ([PR #337](https://github.com/mgradwohl/MoTrack/pull/337)): `motrack_model` holds the typed
 document, its families, descriptors, identities, bindings and graph, and `motrack_project` the cached legacy view
 and the conversion from the reduced model; nothing in the application uses them yet. B2.2 to B2.5 are not
 implemented. The sections below describe the intended behavior and name the existing code each part replaces. B3 then moves the track list, selection and inspector to identities and deletes
