@@ -542,7 +542,13 @@ R02–R04 rows of the migration plan and the status line of this document.
    bind every baseline reference by its original name. Deleting and undoing need them now.
 5. **How is the legacy view maintained?** Recommended: rebuilt lazily once per document revision, with chunked
    frame fields so copying stays proportional to the edit. If B2.1's AutoTracker benchmark shows the rebuild
-   dominating, the owner patches its unshared view in place for frame-keyed edits.
+   dominating, the owner patches its unshared view in place for frame-keyed edits. Measured in B2.1
+   (`motrack_autotracker_benchmark`, `benchmark` preset, Windows): on the longest corpus track (BallToss, 11 marks)
+   a rebuild takes 1.5 µs against 216 µs for the template match alone, and 5 µs at 1,000 marks; it equals the match
+   at 10,000 marks (229 µs) and is ten times it at 100,000 (2.1 ms). A typed mark edit copies one chunk and costs
+   1–29 µs. The rebuild therefore does not dominate ordinary runs; it does in runs of tens of thousands of marks,
+   so B2.4a should patch the owner's unshared view in place for frame-keyed edits rather than let them grow
+   quadratically.
 6. **May `motrack_model` use Qt?** Recommended: Qt Core, linked privately for the codecs' `QChar` classification
    only, which AGENTS.md allows; a separate Unicode table could disagree with today's classification.
 7. **When does export switch to the descriptor composition?** Recommended: in B2.4b, keeping B1's composition as

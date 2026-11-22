@@ -108,14 +108,16 @@ void run(const motrack::model::TrackerDocument& document,
     }
     const auto typed = microseconds(Clock::now() - start, steps);
 
-    // The legacy view the next paint reads: rebuilt in full once per revision.
+    // The legacy view the next paint reads: rebuilt in full once per revision. Its cost depends on the track's length,
+    // not on the edit, so a sample of rebuilds gives the per-step cost.
+    const auto rebuilds = std::min<std::size_t>(steps, 200);
     start = Clock::now();
     std::size_t checksum = 0;
-    for (std::size_t step = 0; step < steps; ++step)
+    for (std::size_t step = 0; step < rebuilds; ++step)
     {
         checksum += motrack::legacyProject(document).pointMasses.size();
     }
-    const auto view = microseconds(Clock::now() - start, steps);
+    const auto view = microseconds(Clock::now() - start, rebuilds);
 
     // Today: TrackEdits marks the reduced model in place, with one undo entry per mark.
     auto project = motrack::legacyProject(document);
@@ -140,7 +142,7 @@ void run(const motrack::model::TrackerDocument& document,
     std::cout << steps << " marks: typed edit " << typed << " us (" << static_cast<double>(copied) / static_cast<double>(steps)
               << " chunks copied), legacy view rebuild " << view << " us, TrackEdits mark " << legacy << " us, template match " << match
               << " us; rebuild/match " << view / match << ", whole run's rebuilds " << view * static_cast<double>(steps) / 1000.0
-              << " ms (checksum " << checksum << ")\n";
+              << " ms (checksum " << checksum << ")" << std::endl;
 }
 
 } // namespace
