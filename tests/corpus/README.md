@@ -235,8 +235,10 @@ Findings from the first census:
   Tracker files.
 
 The committed census holds two native baselines. The `windows` baseline was generated locally on Windows 11
-with the `dev` (debug) build. The `linux` baseline comes from the workflow's validation run on Ubuntu 24.04
-with the pinned toolchain from `tools/toolchain.env`. macOS has no baseline. Before the #211 fix, the first
+with the `dev` (debug) build. The `linux` baseline comes from the workflow's validation run
+[44986545856](https://github.com/mgradwohl/MoTrack/actions/runs/44986545856) on Ubuntu 24.04 with the pinned
+toolchain from `tools/toolchain.env` (Clang 23, GCC 14 libstdc++, Qt 6.8.3). All 492 experiments give the
+same outcome on both platforms. macOS has no baseline. Before the #211 fix, the first
 validation run ([44978631660](https://github.com/mgradwohl/MoTrack/actions/runs/44978631660)) showed why
 undefined behaviour needs `known_issues`: Windows' debug CRT stopped all 12 affected experiments, while
 Linux glibc aborted on four (`double free or corruption`) and opened the rest.
@@ -257,6 +259,10 @@ Generated from manifest refresh 2026-11-21 by `python tools/corpus.py library-ce
 | Data functions | 1057 in 133 projects |
 | Archive member types (experiments) | trk (492), html (295), png (295), mp4 (245), pdf (77), jpg (63), mov (13), docx (8), … 13 more |
 | Tabs per experiment (experiments) | 1 (480), 2 (6), 3 (3), 4 (2), 0 (1) |
+| MoTrack desktop open, linux (experiments) | opened (445), rejected (47) |
+| MoTrack open failures, linux (excluding known issues) | Choose a Tracker or MoTrack project file. (33), Invalid or unsupported Tracker archive. (6), Invalid Tracker XML. (4), Expected a TrackerPanel project. (2), Invalid Tracker numeric property. (2) |
+| Unsupported tracks reported, linux (experiments) | CoordAxes (444), TapeMeasure (408), DynamicParticle (191), AnalyticParticle (74), Protractor (28), Calibration (23), DynamicParticlePolar (23), LineProfile (18), CenterOfMass (9), PerspectiveTrack (5), … 5 more |
+| ZIP experiments renamed .trz, linux | opened (33) |
 | MoTrack desktop open, windows (experiments) | opened (445), rejected (47) |
 | MoTrack open failures, windows (excluding known issues) | Choose a Tracker or MoTrack project file. (33), Invalid or unsupported Tracker archive. (6), Invalid Tracker XML. (4), Expected a TrackerPanel project. (2), Invalid Tracker numeric property. (2) |
 | Unsupported tracks reported, windows (experiments) | CoordAxes (444), TapeMeasure (408), DynamicParticle (191), AnalyticParticle (74), Protractor (28), Calibration (23), DynamicParticlePolar (23), LineProfile (18), CenterOfMass (9), PerspectiveTrack (5), … 5 more |
