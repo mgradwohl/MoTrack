@@ -177,9 +177,7 @@ class RecordMapper
         setTarget(record, processUrl(*attachment.url), {});
         const auto title = xml::childValue(&node, "title");
         setName(record, title.value_or(""));
-        setProperty(record,
-                    std::string(DOWNLOAD_FILENAME_PROPERTY),
-                    attachment.fileName ? std::optional<std::string>(*attachment.fileName) : std::nullopt);
+        setProperty(record, std::string(DOWNLOAD_FILENAME_PROPERTY), attachment.fileName);
         const auto ospType = xml::childValue(&node, "osp-type");
         std::optional<std::string> typeText = ospType ? std::optional<std::string>(*ospType) : std::nullopt;
         bool ejsModel = false;
