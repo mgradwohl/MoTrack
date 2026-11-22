@@ -2,11 +2,11 @@
 
 #include "legacy_project.hpp"
 #include "local_media_path.hpp"
+#include "model/source_edits.hpp"
+#include "model/tracker_loaders.hpp"
 #include "osp/render.hpp"
 #include "osp/value.hpp"
-#include "source_edits.hpp"
 #include "tracker_import.hpp"
-#include "tracker_loaders.hpp"
 
 #include <QDir>
 #include <QFile>

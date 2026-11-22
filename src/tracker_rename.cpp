@@ -1,12 +1,10 @@
 #include "tracker_rename.hpp"
 
+#include "model/codecs.hpp"
+#include "model/source_edits.hpp"
 #include "osp/java_text.hpp"
-#include "source_edits.hpp"
 #include "tracker_import.hpp"
 #include "tracker_references.hpp"
-
-#include <QList>
-#include <QString>
 
 #include <algorithm>
 #include <array>
@@ -602,13 +600,7 @@ NodeId referenceProperty(const osp::Source& xml, const std::string& path)
 
 void requireName(const std::string& name)
 {
-    const auto text = QString::fromStdString(name);
-    require(!text.isEmpty() && text.size() <= 4096 && text.toStdString() == name && text == text.trimmed() && text != "null" &&
-            !text.contains(',') && !text.contains(';') && !text.contains("]]>"));
-    for (const auto point : text.toUcs4())
-    {
-        require(QChar::category(point) != QChar::Other_Control && QChar::category(point) != QChar::Other_Format);
-    }
+    require(model::isTrackerTrackName(name));
 }
 
 std::vector<std::string> splitPacked(std::string text)

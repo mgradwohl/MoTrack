@@ -1,0 +1,204 @@
+{
+    "associations": "known",
+    "baseline": {
+        "bytes": 5424,
+        "sha256": "32f84f1bff5c4bf57a28a26809ada50daf74ea1280c64cd63f444220159e8311"
+    },
+    "countdownLowWater": "18446744073709551611",
+    "dependencies": [
+    ],
+    "media": {
+        "references": [
+        ],
+        "sourceFrameCount": null
+    },
+    "nextObjectId": "4",
+    "objects": [
+        {
+            "binding": "/",
+            "class": "org.opensourcephysics.cabrillo.tracker.TrackerPanel",
+            "family": "panel",
+            "fields": {
+                "description": "Native migration baseline",
+                "length_unit": {
+                    "unread": "missing"
+                },
+                "mass_unit": "",
+                "referenceframe": {
+                    "unread": "missing"
+                },
+                "selectedtrack": "mass A",
+                "semantic_version": "6.3.5",
+                "time_unit": {
+                    "unread": "missing"
+                }
+            },
+            "id": "18446744073709551615",
+            "range": "countdown",
+            "role": "panel",
+            "state": "live"
+        },
+        {
+            "binding": "/3:videoclip/0:",
+            "class": "org.opensourcephysics.media.core.VideoClip",
+            "family": "clip",
+            "fields": {
+                "frameshift": {
+                    "unread": "missing"
+                },
+                "startframe": 0,
+                "starttime": 0,
+                "stepcount": 10,
+                "stepsize": 1,
+                "video_framecount": {
+                    "unread": "missing"
+                }
+            },
+            "id": "18446744073709551614",
+            "range": "countdown",
+            "role": "videoclip",
+            "state": "live"
+        },
+        {
+            "binding": "/4:clipcontrol/0:",
+            "class": "org.opensourcephysics.media.core.StepperClipControl",
+            "family": "clip-control",
+            "fields": {
+                "delta_t": 100,
+                "frame": {
+                    "unread": "missing"
+                },
+                "looping": {
+                    "unread": "missing"
+                },
+                "rate": 1
+            },
+            "id": "18446744073709551613",
+            "range": "countdown",
+            "role": "clipcontrol",
+            "state": "live"
+        },
+        {
+            "binding": "/5:coords/0:",
+            "class": "org.opensourcephysics.media.core.ImageCoordSystem",
+            "family": "coordinates",
+            "fields": {
+                "fixedangle": true,
+                "fixedorigin": true,
+                "fixedscale": true,
+                "framedata": [
+                    [
+                        0,
+                        160,
+                        120,
+                        0,
+                        50,
+                        50,
+                        "bound"
+                    ]
+                ],
+                "locked": false
+            },
+            "id": "18446744073709551612",
+            "range": "countdown",
+            "role": "coords",
+            "state": "live"
+        },
+        {
+            "binding": "/6:tracks/0:item/0:",
+            "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+            "family": "point-mass",
+            "fields": {
+                "framedata": [
+                    [
+                        0,
+                        100,
+                        80,
+                        "bound"
+                    ],
+                    [
+                        1,
+                        110,
+                        78.5,
+                        "bound"
+                    ],
+                    [
+                        3,
+                        130,
+                        77.25,
+                        "bound"
+                    ]
+                ],
+                "keyFrames": [
+                    0,
+                    1,
+                    3
+                ],
+                "mass": 2,
+                "name": "mass A"
+            },
+            "id": "1",
+            "range": "counter",
+            "role": "track",
+            "state": "live"
+        },
+        {
+            "binding": "/6:tracks/1:item/0:",
+            "class": "org.opensourcephysics.cabrillo.tracker.CoordAxes",
+            "family": "unknown",
+            "fields": {
+                "label": "axes"
+            },
+            "id": "18446744073709551611",
+            "range": "countdown",
+            "role": "track",
+            "state": "live"
+        },
+        {
+            "binding": "/6:tracks/2:item/0:",
+            "class": "org.opensourcephysics.cabrillo.tracker.Vector",
+            "family": "vector",
+            "fields": {
+                "framedata": [
+                ],
+                "name": "vector v"
+            },
+            "id": "2",
+            "range": "counter",
+            "role": "track",
+            "state": "live"
+        },
+        {
+            "binding": "/6:tracks/3:item/0:",
+            "class": "org.opensourcephysics.cabrillo.tracker.PointMass",
+            "family": "point-mass",
+            "fields": {
+                "framedata": [
+                    [
+                        0,
+                        50,
+                        60,
+                        "bound"
+                    ]
+                ],
+                "keyFrames": {
+                    "unread": "missing"
+                },
+                "mass": 1,
+                "name": "mass B"
+            },
+            "id": "3",
+            "range": "counter",
+            "role": "track",
+            "state": "live"
+        }
+    ],
+    "readerRevision": 2,
+    "referenceIssues": [
+    ],
+    "trackOrder": [
+        "1",
+        "3",
+        "2"
+    ]
+}

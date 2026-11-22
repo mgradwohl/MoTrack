@@ -1,5 +1,6 @@
 #include "measurements.hpp"
 
+#include "model/families.hpp"
 #include "science/motion/motion_derivatives.hpp"
 #include "science/motion/motion_types.hpp"
 
@@ -20,13 +21,7 @@ namespace motrack
 {
 bool supportsConstantClipTimingEdits(const LegacyProject& project)
 {
-    return project.clip.mediaReferences.empty() &&
-           std::ranges::all_of(project.unsupportedTrackTypes,
-                               [](const auto& type)
-                               {
-                                   return type == "org.opensourcephysics.cabrillo.tracker.CoordAxes" ||
-                                          type == "org.opensourcephysics.cabrillo.tracker.Protractor";
-                               });
+    return model::supportsConstantClipTimingEdits(project.clip.mediaReferences, project.unsupportedTrackTypes);
 }
 
 bool validConstantClipTiming(const Clip& clip)
