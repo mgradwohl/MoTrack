@@ -335,16 +335,16 @@ python tools/corpus.py expression-oracle --java /path/to/jdk-17/bin/java
 python tools/corpus.py xml-oracle --probe build/coverage/motrack_corpus_probe --java /path/to/jdk-17/bin/java
 python tools/corpus.py ode-oracle --java /path/to/jdk-17/bin/java
 python tools/corpus.py sampling-oracle --java /path/to/jdk-17/bin/java
-
 python tools/corpus.py motion-oracle --java /path/to/jdk-17/bin/java
-
 python tools/corpus.py analysis-oracle --java /path/to/jdk-17/bin/java
-
 python tools/corpus.py filter-oracle --java /path/to/jdk-17/bin/java
-
 python tools/corpus.py fit-oracle --java /path/to/jdk-17/bin/java
-python -m unittest discover -s tests -p test_corpus.py
+python tools/corpus.py library-oracle --probe build/coverage/motrack_corpus_probe --java /path/to/jdk-17/bin/java
+python -m unittest discover -s tests -p 'test_corpus*.py'
 ```
+
+`library-oracle` compares the [library collection model](../../docs/library-collections.md) with the pinned
+OSP `Library` classes.
 
 `filter-oracle` runs the pinned OSP [video filters](../../docs/video-filters.md) on synthetic frames and compares
 the result with `tests/science/video-filter-reference.json` exactly; `--record` replaces the fixture for review.
