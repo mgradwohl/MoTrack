@@ -1,14 +1,20 @@
 #include "legacy_project.hpp"
 
+#include "osp_layout.hpp"
+#include "tracker_writer.hpp"
+
+#include <QFile>
 #include <QTemporaryFile>
 #include <gtest/gtest.h>
 
 namespace
 {
 
+/// A compact panel snippet in OSP's writer layout, as Tracker reads it.
 std::string projectXml(std::string_view properties)
 {
-    return R"(<object class="org.opensourcephysics.cabrillo.tracker.TrackerPanel">)" + std::string(properties) + "</object>";
+    return motrack::test::ospLayout(R"(<object class="org.opensourcephysics.cabrillo.tracker.TrackerPanel">)" + std::string(properties) +
+                                    "</object>");
 }
 
 std::string projectWithClip(std::string_view properties)
@@ -20,7 +26,7 @@ std::string projectWithMarks(std::string_view properties)
 {
     return projectXml(R"(<property name="tracks"><property name="item">
         <object class="org.opensourcephysics.cabrillo.tracker.PointMass">
-        <property name="framedata">)" +
+        <property name="framedata" type="array">)" +
                       std::string(properties) + "</property></object></property></property>");
 }
 
@@ -148,7 +154,6 @@ TEST(LegacyProject, RejectsInvalidInput)
     EXPECT_THROW(motrack::readLegacyProject("motrack-nonexistent-project.trk"), motrack::ProjectError);
     EXPECT_THROW(motrack::parseLegacyProject("<object"), motrack::ProjectError);
     EXPECT_THROW(motrack::parseLegacyProject("<object class='java.lang.String'/>"), motrack::ProjectError);
-    EXPECT_THROW(motrack::parseLegacyProject("<!DOCTYPE object>" + projectXml("")), motrack::ProjectError);
     EXPECT_THROW(motrack::parseLegacyProject(std::string(32 * 1024 * 1024 + 1, ' ')), motrack::ProjectError);
     EXPECT_THROW(motrack::parseLegacyProject(projectWithClip("<property name='stepsize'>0</property>")), motrack::ProjectError);
     EXPECT_THROW(motrack::parseLegacyProject(projectWithClip(R"(
@@ -203,6 +208,124 @@ TEST(LegacyProject, RejectsInvalidMarks)
     EXPECT_THROW(motrack::parseLegacyProject(projectWithMarks("<property name='invalid'>" + position + "</property>")),
                  motrack::ProjectError);
     EXPECT_THROW(motrack::parseLegacyProject(projectWithMarks("<property name='[1]'><object/></property>")), motrack::ProjectError);
+}
+
+std::string fixtureText(std::string_view name)
+{
+    QFile file(QString::fromStdString((std::filesystem::path(MOTRACK_FIXTURES) / name).string()));
+    return file.open(QIODevice::ReadOnly) ? file.readAll().toStdString() : std::string{};
+}
+
+std::string replaced(std::string text, std::string_view from, std::string_view to)
+{
+    const auto position = text.find(from);
+    EXPECT_NE(position, std::string::npos) << from;
+    return position == std::string::npos ? text : text.replace(position, from.size(), to);
+}
+
+TEST(LegacyProject, ReadsDocumentsWithTrackersLineOrientedReader)
+{
+    // #196: OSP never decodes entities, and a blank line ends an array, so the following null element
+    // becomes a null object directly in the PointMass, which makes Tracker refuse the whole file.
+    const auto source = fixtureText("point-mass.trk");
+    const auto entity = motrack::parseLegacyProject(replaced(source, "P\xC3\xA9ndulo", "Ball &amp; spring"));
+    ASSERT_EQ(entity.pointMasses.size(), 1u);
+    EXPECT_EQ(entity.pointMasses.front().name, "Ball &amp; spring");
+    try
+    {
+        static_cast<void>(motrack::parseLegacyProject(replaced(source,
+                                                               R"(          <property name="[4]" type="object">null</property>)",
+                                                               "\n"
+                                                               R"(          <property name="[4]" type="object">null</property>)")));
+        ADD_FAILURE() << "Tracker refuses a null object directly in the PointMass.";
+    }
+    catch (const motrack::ProjectError& error)
+    {
+        EXPECT_EQ(std::string_view(error.what()), "Invalid Tracker XML at line 34: A null object property cannot belong to an object.");
+    }
+
+    // A document type is inert text to Tracker: internal entities are neither declared nor expanded.
+    const auto declared = motrack::parseLegacyProject("<!DOCTYPE object [<!ENTITY note \"expanded\">]>\n" +
+                                                      replaced(source, "<![CDATA[Two marks & a gap.]]>", "&note;")
+                                                          .substr(std::string_view("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n").size()));
+    EXPECT_EQ(declared.description, "&note;");
+    EXPECT_EQ(declared.pointMasses.size(), 1u);
+
+    // The lookup returns the last of duplicate properties, as XMLControlElement does.
+    const auto duplicate = motrack::parseLegacyProject(replaced(source,
+                                                                R"(  <property name="mass_unit" type="string">g</property>)",
+                                                                R"(  <property name="mass_unit" type="string">g</property>)"
+                                                                "\n"
+                                                                R"(  <property name="mass_unit" type="string">mg</property>)"));
+    EXPECT_EQ(duplicate.massUnit, "mg");
+
+    // #277: Tracker's Export can write Windows-1252 under a UTF-8 declaration. The strict reader refuses it and
+    // names the likely encoding (#302 tracks opening it with a warning); other invalid bytes are refused plainly.
+    const auto refusal = [](const std::string& xml)
+    {
+        try
+        {
+            static_cast<void>(motrack::parseLegacyProject(xml));
+        }
+        catch (const motrack::ProjectError& error)
+        {
+            return std::string(error.what());
+        }
+        return std::string("accepted");
+    };
+    const auto windows1252 = refusal(replaced(source, "P\xC3\xA9ndulo", "P\xE9ndulo"));
+    EXPECT_TRUE(windows1252.starts_with("Invalid Tracker XML at line ")) << windows1252;
+    EXPECT_NE(windows1252.find("The document is not valid UTF-8. It reads as Windows-1252 text"), std::string::npos) << windows1252;
+    const auto undecodable = refusal(replaced(source, "P\xC3\xA9ndulo", "P\xE9\x81ndulo"));
+    EXPECT_TRUE(undecodable.ends_with(": The document is not valid UTF-8.")) << undecodable;
+
+    // Content after the root's opening line on the same line is not read, so the root never closes: Tracker
+    // loads an empty panel from such a truncated document, which MoTrack refuses (#243).
+    EXPECT_THROW(static_cast<void>(motrack::parseLegacyProject(R"(<object class="org.opensourcephysics.cabrillo.tracker.TrackerPanel">)"
+                                                               R"(<property name="description" type="string">hidden</property></object>)")),
+                 motrack::ProjectError);
+}
+
+TEST(LegacyProject, AppliesTrackerLoaderDefaultsForUnsavedClipControlAndLengthUnit)
+{
+    // #214: a media-free panel keeps StepperClipControl's 100 ms and Tracker's preferred "m" unless saved.
+    const auto blank = motrack::parseLegacyProject(projectXml(""));
+    EXPECT_EQ(blank.lengthUnit, "m");
+    EXPECT_EQ(blank.clip.frameDurationMs, 100.0);
+    const auto control = [](std::string_view delta)
+    {
+        return projectXml(
+            R"(<property name="clipcontrol" type="object"><object class="org.opensourcephysics.media.core.StepperClipControl">)"
+            R"(<property name="rate" type="double">1.0</property>)" +
+            std::string(delta) + "</object></property>");
+    };
+    EXPECT_EQ(motrack::parseLegacyProject(control(R"(<property name="delta_t" type="double">40.0</property>)")).clip.frameDurationMs, 40.0);
+    // StepperClipControl.setFrameDuration ignores zero, keeping the default.
+    EXPECT_EQ(motrack::parseLegacyProject(control(R"(<property name="delta_t" type="double">0.0</property>)")).clip.frameDurationMs, 100.0);
+    // A saved control without delta_t gives Tracker NaN (#292); MoTrack does not substitute a value.
+    EXPECT_FALSE(motrack::parseLegacyProject(control("")).clip.frameDurationMs.has_value());
+    // Likewise a point mass without "mass" is NaN in Tracker (#292) and keeps MoTrack's 1 kg.
+    const auto massless = motrack::parseLegacyProject(
+        replaced(fixtureText("point-mass.trk"), "        <property name=\"mass\" type=\"double\">125.5</property>\n", ""));
+    ASSERT_EQ(massless.pointMasses.size(), 1u);
+    EXPECT_EQ(massless.pointMasses.front().mass, 1.0);
+    EXPECT_EQ(motrack::parseLegacyProject(projectXml(R"(<property name="length_unit" type="string"></property>)")).lengthUnit, "");
+    // Projects with media take their timing from the video and its control, not the media-free default.
+    const auto media = motrack::readLegacyProject(std::filesystem::path(MOTRACK_FIXTURES) / "point-mass.trk");
+    EXPECT_FALSE(media.clip.frameDurationMs.has_value());
+    EXPECT_EQ(media.lengthUnit, "m");
+
+    // The defaults are loader state: an export keeps the absent properties absent.
+    auto imported = motrack::parseTrackerProject(projectXml(""));
+    EXPECT_EQ(motrack::renderTrackerProject(imported.project, imported.source), imported.source.xml);
+    imported.project.massUnit = "g";
+    const auto exported = motrack::renderTrackerProject(imported.project, imported.source);
+    EXPECT_EQ(exported.find("length_unit"), std::string::npos);
+    EXPECT_EQ(exported.find("clipcontrol"), std::string::npos);
+    const auto reopened = motrack::parseLegacyProject(exported);
+    EXPECT_EQ(reopened.massUnit, "g");
+    EXPECT_EQ(reopened.lengthUnit, "m");
+    EXPECT_EQ(reopened.clip.frameDurationMs, 100.0);
 }
 
 } // namespace

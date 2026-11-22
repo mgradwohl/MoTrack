@@ -150,7 +150,6 @@
     <message><source>Shift-click the vector tail, then its tip. Escape cancels.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Shift 키를 누른 채 벡터의 꼬리를 클릭한 다음 머리를 클릭합니다. Esc 키를 누르면 취소됩니다.</translation></message>
     <message><source>Click the first calibration endpoint.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">첫 번째 교정 끝점을 클릭하십시오.</translation></message>
     <message><source>Click the coordinate origin.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">좌표 원점을 클릭하십시오.</translation></message>
-    <message><source>Could not open this project.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">이 프로젝트를 열 수 없습니다.</translation></message>
     <message><source>Reading project…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">프로젝트를 읽는 중…</translation></message>
     <message><source>Open Tracker archive</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Tracker 아카이브 열기</translation></message>
     <message><source>Choose a Tracker tab</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Tracker 탭 선택</translation></message>
@@ -260,6 +259,8 @@
     <message><source>Decoding frame…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">프레임 디코딩 중…</translation></message>
     <message numerus="yes"><source>The Tracker archive omits %n duplicate member(s) with unsafe names.</source><translation type="unfinished"><numerusform></numerusform></translation></message>
     <message numerus="yes"><source>The Tracker archive keeps %n unextracted member(s) whose names may show the author's folder or user names.</source><translation type="unfinished"><numerusform></numerusform></translation></message>
+    <message><source>Could not open this project: %1</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker export unavailable: the links to this project's Tracker tracks could not be restored. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
   </context>
   <context>
     <name>WorkspaceInput</name>

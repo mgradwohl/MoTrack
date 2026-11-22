@@ -731,16 +731,18 @@ def patch_expected_movie_tracks(document, scenario):
         if samples:
             framedata = ('<property name="framedata" type="array" class="[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;">'
                 + ''.join(f'<property name="[{frame}]" type="object"><object class="org.opensourcephysics.cabrillo.tracker.PointMass$FrameData">'
-                          f'<property name="x" type="double">{x}</property><property name="y" type="double">{y}</property></object></property>'
+                          f'<property name="x" type="double">{java_double(x)}</property><property name="y" type="double">{java_double(y)}</property></object></property>'
                           for frame, x, y in samples) + '</property><property name="keyFrames" type="array" class="[I">'
                 '<property name="array" type="string">{' + ','.join(str(row[0]) for row in samples) + '}</property></property>')
+        # PointMass.Loader saves mass, then TTrack's name, color, footprint, visible and trail (locked only when true).
         with minidom.parseString('<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">'
-                f'<property name="name" type="string"><![CDATA[{name}]]></property><property name="mass" type="double">{mass}</property>'
-                '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
-                '<property name="locked" type="boolean">false</property><property name="footprint" type="string">Footprint.Diamond</property>'
+                f'<property name="mass" type="double">{java_double(mass)}</property><property name="name" type="string"><![CDATA[{name}]]></property>'
                 '<property name="color" type="object"><object class="java.awt.Color"><property name="red" type="int">255</property>'
                 '<property name="green" type="int">0</property><property name="blue" type="int">0</property>'
-                '<property name="alpha" type="int">255</property></object></property>' + framedata + '</object></property>') as added:
+                '<property name="alpha" type="int">255</property></object></property>'
+                '<property name="footprint" type="string">Footprint.Diamond</property>'
+                '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
+                + framedata + '</object></property>') as added:
             tracks.appendChild(document.importNode(added.documentElement, True))
 
 
@@ -876,7 +878,7 @@ def patch_expected_movie_calibration(document, case):
                  for name in ["xorigin", "yorigin", "angle", "xscale", "yscale"]]
         if added_key or [float(node.data) for node in nodes] != values:
             for node, value in zip(nodes, values):
-                node.data = format(value, ".17g")
+                node.data = java_double(value)
 
 
 MEDIA_VECTOR_SCENARIOS = ("samples", "geometry", "empty", "authoring", "replace", "delete-all")
@@ -972,9 +974,9 @@ def patch_expected_media_vectors(document, scenario, case=None):
     def scalar(node, value):
         for child in list(node.childNodes):
             node.removeChild(child)
-        node.appendChild(document.createTextNode(str(value)))
+        node.appendChild(document.createTextNode(java_double(value) if isinstance(value, (int, float)) else str(value)))
     def frame_xml(frame, values):
-        fields = "".join(f'<property name="{name}" type="double">{value}</property>' for name, value in zip(
+        fields = "".join(f'<property name="{name}" type="double">{java_double(value)}</property>' for name, value in zip(
             ["xtail", "ytail", "xcomponent", "ycomponent"], values, strict=True))
         return (f'<property name="[{frame}]" type="object"><object class="org.opensourcephysics.cabrillo.tracker.Vector$FrameData">'
                 + fields + '</object></property>')
@@ -990,13 +992,14 @@ def patch_expected_media_vectors(document, scenario, case=None):
     def add(name, frame=None):
         data = ('' if frame is None else '<property name="framedata" type="array" class="[Lorg.opensourcephysics.cabrillo.tracker.Vector$FrameData;">'
                 + frame_xml(frame, [32, 0, -2, -4]) + '</property>')
+        # Vector.Loader saves TTrack's name, color, footprint, visible and trail (locked only when true).
         append_xml(tracks, '<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.Vector">'
                    '<property name="name" type="string"><![CDATA[' + name + ']]></property>'
-                   '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
-                   '<property name="locked" type="boolean">false</property><property name="footprint" type="string">Footprint.BoldArrow</property>'
                    '<property name="color" type="object"><object class="java.awt.Color">'
                    '<property name="red" type="int">255</property><property name="green" type="int">0</property>'
                    '<property name="blue" type="int">255</property><property name="alpha" type="int">255</property></object></property>'
+                   '<property name="footprint" type="string">Footprint.BoldArrow</property>'
+                   '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
                    + data + '</object></property>')
     if scenario == "keyed-calibration":
         if case is None:
@@ -1077,8 +1080,8 @@ def patch_expected_linked_media(document, relocate=True, packaged=False, movie=F
         coords = elements(prop(root, "coords"), "object")[0]
         frames = prop(coords, "framedata")
         frame = elements(prop(frames, "[0]"), "object")[0]
-        for name, value in [("xorigin", "10"), ("yorigin", "18"), ("angle", "90"), ("xscale", "4"), ("yscale", "8")]:
-            scalar(prop(frame, name), value)
+        for name, value in [("xorigin", 10), ("yorigin", 18), ("angle", 90), ("xscale", 4), ("yscale", 8)]:
+            scalar(prop(frame, name), java_double(value))
         scalar(prop(root, "length_unit"), "cm")
     clip = elements(prop(root, "videoclip"), "object")[0]
     if clip_mode is not None:
@@ -1106,7 +1109,7 @@ def patch_expected_linked_media(document, relocate=True, packaged=False, movie=F
         return
     mass = next(obj for item in elements(prop(root, "tracks"), "property") for obj in elements(item, "object")
                 if obj.getAttribute("class") == "org.opensourcephysics.cabrillo.tracker.PointMass")
-    scalar(prop(mass, "mass"), "5")
+    scalar(prop(mass, "mass"), java_double(5))
     data = prop(mass, "framedata")
     entry = document.createElement("property")
     entry.setAttribute("name", "[1]")
@@ -1114,7 +1117,7 @@ def patch_expected_linked_media(document, relocate=True, packaged=False, movie=F
     obj = document.createElement("object")
     obj.setAttribute("class", "org.opensourcephysics.cabrillo.tracker.PointMass$FrameData")
     entry.appendChild(obj)
-    for axis, value in [("x", "8"), ("y", "12")]:
+    for axis, value in [("x", java_double(8)), ("y", java_double(12))]:
         coordinate = document.createElement("property")
         coordinate.setAttribute("name", axis)
         coordinate.setAttribute("type", "double")
@@ -1302,10 +1305,10 @@ def patch_expected_secondary_archive_member(document):
         for child in list(node.childNodes):
             node.removeChild(child)
         node.appendChild(document.createTextNode(value))
-    scalar(mass, "mass", "7")
+    scalar(mass, "mass", java_double(7))
     frame = property(property(mass, "framedata"), "[1]").getElementsByTagName("object")[0]
-    scalar(frame, "x", "9")
-    scalar(frame, "y", "11")
+    scalar(frame, "x", java_double(9))
+    scalar(frame, "y", java_double(11))
 
 
 def verify_archive_media_export(original, exported, selected_xml, member_count=7, clip_mode=None, *, movie=False, calibrated=False, keyed_case=None, authoring=None, vector_scenario=None, vector_case=None, grouped=False):
@@ -1535,18 +1538,19 @@ def verify_create_mass_export_xml(original, exported, empty=False):
     if not empty:
         framedata = ('<property name="framedata" type="array" class="[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;">'
                      + "".join(f'<property name="[{frame}]" type="object"><object class="org.opensourcephysics.cabrillo.tracker.PointMass$FrameData">'
-                               f'<property name="x" type="double">{x}</property><property name="y" type="double">{y}</property>'
+                               f'<property name="x" type="double">{java_double(x)}</property><property name="y" type="double">{java_double(y)}</property>'
                                '</object></property>' for frame, x, y in [(1, 330, 220), (4, 340, 210), (8, 360, 230)])
                      + '</property><property name="keyFrames" type="array" class="[I">'
                        '<property name="array" type="string">{1,4,8}</property></property>')
+    # PointMass.Loader saves mass, then TTrack's name, color, footprint, visible and trail (locked only when true).
     added = minidom.parseString(
         '<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">'
-        '<property name="name" type="string"><![CDATA[nouvelle β & <C>]]></property><property name="mass" type="double">3</property>'
-        '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
-        '<property name="locked" type="boolean">false</property><property name="footprint" type="string"><![CDATA[Footprint.Diamond]]></property>'
+        '<property name="mass" type="double">3.0</property><property name="name" type="string"><![CDATA[nouvelle β & <C>]]></property>'
         '<property name="color" type="object"><object class="java.awt.Color">'
         '<property name="red" type="int">255</property><property name="green" type="int">0</property>'
         '<property name="blue" type="int">0</property><property name="alpha" type="int">255</property></object></property>'
+        '<property name="footprint" type="string">Footprint.Diamond</property>'
+        '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
         + framedata + '</object></property>')
     tracks[0].appendChild(expected.importNode(added.documentElement, True))
     actual = minidom.parse(str(exported))
@@ -1558,6 +1562,42 @@ def verify_create_mass_export_xml(original, exported, empty=False):
 
 
 CREATED_VECTOR_NAME = "vecteur β & <C>"
+# Track class, name and the properties Tracker's loaders model for a created track (oracle O7).
+CREATED_TRACK_MODES = {
+    "create-mass": ("org.opensourcephysics.cabrillo.tracker.PointMass", CREATED_MASS_NAME,
+                    ["mass", "name", "color", "footprint", "visible", "trail"]),
+    "create-vector": ("org.opensourcephysics.cabrillo.tracker.Vector", CREATED_VECTOR_NAME,
+                      ["name", "color", "footprint", "visible", "trail"])}
+CREATED_TRACK_MODES["create-empty-mass"] = CREATED_TRACK_MODES["create-mass"]
+CREATED_TRACK_MODES["create-empty-vector"] = CREATED_TRACK_MODES["create-vector"]
+
+
+def created_track_properties(path, track_class, name, fields):
+    """The created track's modeled properties in file order, as (name, type, value) snapshots."""
+    def value(node):
+        attributes = tuple(sorted(node.attributes.items()))
+        if node.tagName == "object" or node.getAttribute("type") in {"object", "array", "collection"}:
+            return (node.tagName, attributes, tuple(value(child) for child in node.childNodes if child.nodeType == child.ELEMENT_NODE))
+        return (node.tagName, attributes, "".join(child.data for child in node.childNodes
+                                                  if child.nodeType in {child.TEXT_NODE, child.CDATA_SECTION_NODE}))
+    with minidom.parse(str(path)) as document:
+        for track in document.getElementsByTagName("object"):
+            if track.getAttribute("class") != track_class:
+                continue
+            properties = [child for child in track.childNodes if child.nodeType == child.ELEMENT_NODE and child.tagName == "property"]
+            names = [value(child)[2] for child in properties if child.getAttribute("name") == "name"]
+            if names == [name]:
+                return [value(child) for child in properties if child.getAttribute("name") in fields]
+    raise ValueError(f"{path.name}: created track {name!r} is missing")
+
+
+def verify_created_track_fixpoint(exported, resaved, mode):
+    """O7: for a track MoTrack created, the properties Tracker models are written exactly as Tracker writes them."""
+    track_class, name, fields = mode
+    ours = created_track_properties(exported, track_class, name, fields)
+    tracker = created_track_properties(resaved, track_class, name, fields)
+    if ours != tracker or [item[1][0][1] for item in ours] != fields:
+        raise ValueError(f"O7: the created track's properties differ from Tracker's resave:\n{ours}\n{tracker}")
 CREATED_VECTOR_APPEARANCE = {"visible": True, "trail": True, "locked": False, "footprint": "Footprint.BoldArrow", "argb": -65281}
 
 
@@ -1861,18 +1901,19 @@ def verify_create_vector_export_xml(original, exported, empty=False):
     if not empty:
         framedata = ('<property name="framedata" type="array" class="[Lorg.opensourcephysics.cabrillo.tracker.Vector$FrameData;">'
                      + "".join(f'<property name="[{frame}]" type="object"><object class="org.opensourcephysics.cabrillo.tracker.Vector$FrameData">'
-                               f'<property name="xtail" type="double">{x}</property><property name="ytail" type="double">{y}</property>'
-                               f'<property name="xcomponent" type="double">{cx}</property><property name="ycomponent" type="double">{cy}</property>'
+                               f'<property name="xtail" type="double">{java_double(x)}</property><property name="ytail" type="double">{java_double(y)}</property>'
+                               f'<property name="xcomponent" type="double">{java_double(cx)}</property><property name="ycomponent" type="double">{java_double(cy)}</property>'
                                '</object></property>' for frame, x, y, cx, cy in [(1, 100, 120, 4, -8), (6, 200, 180, 0, 0), (8, 160, 100, -6, 12)])
                      + '</property>')
+    # Vector.Loader saves TTrack's name, color, footprint, visible and trail (locked only when true).
     added = minidom.parseString(
         '<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.Vector">'
         '<property name="name" type="string"><![CDATA[vecteur β & <C>]]></property>'
-        '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
-        '<property name="locked" type="boolean">false</property><property name="footprint" type="string"><![CDATA[Footprint.BoldArrow]]></property>'
         '<property name="color" type="object"><object class="java.awt.Color">'
         '<property name="red" type="int">255</property><property name="green" type="int">0</property>'
         '<property name="blue" type="int">255</property><property name="alpha" type="int">255</property></object></property>'
+        '<property name="footprint" type="string">Footprint.BoldArrow</property>'
+        '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
         + framedata + '</object></property>')
     tracks[0].appendChild(expected.importNode(added.documentElement, True))
     actual = minidom.parse(str(exported))
@@ -1965,7 +2006,8 @@ def verify_calibration_export_xml(original, exported):
               if node.getAttribute("class") == "org.opensourcephysics.media.core.ImageCoordSystem$FrameData"]
     if len(frames) != 1:
         raise ValueError("Expected one fixed calibration frame")
-    for name, value in [("xorigin", "100"), ("yorigin", "120"), ("angle", "90"), ("xscale", "4"), ("yscale", "8")]:
+    for name, value in [(name, java_double(number)) for name, number in
+                        [("xorigin", 100), ("yorigin", 120), ("angle", 90), ("xscale", 4), ("yscale", 8)]]:
         properties = [node for node in frames[0].childNodes if node.nodeType == node.ELEMENT_NODE
                       and node.tagName == "property" and node.getAttribute("name") == name]
         if len(properties) != 1 or properties[0].getAttribute("type") != "double":
@@ -2023,7 +2065,7 @@ def verify_keyed_calibration_export_xml(original, exported):
             nodes = [node for node in properties[0].childNodes if node.nodeType in {node.TEXT_NODE, node.CDATA_SECTION_NODE}]
             if len(nodes) != 1:
                 raise ValueError("Unexpected pinned keyed scalar contents: " + name)
-            nodes[0].data = str(value)
+            nodes[0].data = java_double(value)
     actual = minidom.parse(str(exported))
     matches = canonical_tracker_xml(expected) == canonical_tracker_xml(actual)
     expected.unlink()
@@ -2101,7 +2143,7 @@ def verify_mixed_calibration_export_xml(case, original, exported):
             scalar_nodes.append(nodes[0])
         if added_key or [float(node.data) for node in scalar_nodes] != values:
             for node, value in zip(scalar_nodes, values):
-                node.data = format(value, ".17g")
+                node.data = java_double(value)
     actual = minidom.parse(str(exported))
     matches = canonical_tracker_xml(expected) == canonical_tracker_xml(actual)
     expected.unlink()
@@ -2130,7 +2172,7 @@ def clip_timing_roundtrip_expected(case, ranged=False):
 
 def verify_clip_timing_export_xml(original, exported, ranged=False):
     expected = minidom.parse(str(original))
-    changes = [("VideoClip", "starttime", "double", "-500"), ("StepperClipControl", "delta_t", "double", "250")]
+    changes = [("VideoClip", "starttime", "double", java_double(-500)), ("StepperClipControl", "delta_t", "double", java_double(250))]
     if ranged:
         changes += [("VideoClip", "startframe", "int", "2"), ("VideoClip", "stepsize", "int", "2"),
                     ("VideoClip", "stepcount", "int", "4")]
@@ -2208,6 +2250,31 @@ def snapping_roundtrip_expected(case, mode):
     return expected
 
 
+def java_double(value):
+    """Double.toString as OSP's writer formats it (JDK 19+: the shortest decimal that rounds back, plain for
+    1e-3 <= |x| < 1e7 and computerized scientific notation otherwise). MoTrack's standard writer uses it for every
+    double it writes, so the expected XML of an edit uses it too."""
+    import decimal
+    value = float(value)
+    if math.isnan(value):
+        return "NaN"
+    if math.isinf(value):
+        return "Infinity" if value > 0 else "-Infinity"
+    if value == 0:
+        return "-0.0" if math.copysign(1.0, value) < 0 else "0.0"
+    sign = "-" if value < 0 else ""
+    digits, exponent = decimal.Decimal(repr(abs(value))).normalize().as_tuple()[1:]
+    text = "".join(str(digit) for digit in digits)
+    position = len(text) + exponent  # Digits before the decimal point.
+    if 1e-3 <= abs(value) < 1e7:
+        if position <= 0:
+            return sign + "0." + "0" * -position + text
+        if position >= len(text):
+            return sign + text + "0" * (position - len(text)) + ".0"
+        return sign + text[:position] + "." + text[position:]
+    return sign + text[0] + "." + (text[1:] or "0") + "E" + str(position - 1)
+
+
 def canonical_tracker_xml(document):
     def normalize(node, preserve=False):
         if node.nodeType == node.ELEMENT_NODE:
@@ -2259,7 +2326,7 @@ def verify_mass_export_xml(original, exported):
     values = [node for node in mass[0].childNodes if node.nodeType in {node.TEXT_NODE, node.CDATA_SECTION_NODE}]
     if not values:
         raise ValueError("Mass reference has no numeric value")
-    value = format(float("".join(node.data for node in values)) * 2.5, ".17g")
+    value = java_double(float("".join(node.data for node in values)) * 2.5)
     values[0].data = value
     for node in values[1:]:
         mass[0].removeChild(node)
@@ -2391,7 +2458,7 @@ def verify_mark_export_xml(original, exported, expected_project, mode="marks"):
             coordinate = expected.createElement("property")
             coordinate.setAttribute("name", name)
             coordinate.setAttribute("type", "double")
-            coordinate.appendChild(expected.createTextNode(format(value, ".17g")))
+            coordinate.appendChild(expected.createTextNode(java_double(value)))
             obj.appendChild(coordinate)
         following = next((child for child in elements(data, "property")
                           if int(child.getAttribute("name")[1:-1]) > number), None)
@@ -2416,8 +2483,8 @@ def verify_mark_export_xml(original, exported, expected_project, mode="marks"):
     else:
         original_mark = elements(prop(first, "[0]"), "object")[0]
         image = expected_project["point_masses"][0]["samples"][0]["image"]
-        text(prop(original_mark, "x"), format(image[0], ".17g"))
-        text(prop(original_mark, "y"), format(image[1], ".17g"))
+        text(prop(original_mark, "x"), java_double(image[0]))
+        text(prop(original_mark, "y"), java_double(image[1]))
         add_frame(first, 3, 100.125, 200.5)
         second.removeChild(prop(second, "[0]"))
         add_frame(second, 7, 50.0, 60.0)
@@ -2483,12 +2550,12 @@ def verify_vector_export_xml(original, exported, expected_project):
                     values = [child for child in coordinate.childNodes if child.nodeType in {child.TEXT_NODE, child.CDATA_SECTION_NODE}]
                     if len(values) != 1:
                         raise ValueError("Unexpected pinned vector scalar")
-                    values[0].data = format(value, ".17g")
+                    values[0].data = java_double(value)
                 else:
                     coordinate = expected.createElement("property")
                     coordinate.setAttribute("name", name)
                     coordinate.setAttribute("type", "double")
-                    coordinate.appendChild(expected.createTextNode(format(value, ".17g")))
+                    coordinate.appendChild(expected.createTextNode(java_double(value)))
                     obj.appendChild(coordinate)
     actual = minidom.parse(str(exported))
     matches = canonical_tracker_xml(expected) == canonical_tracker_xml(actual)
@@ -2940,6 +3007,8 @@ def check_sessions(manifest, cache, java, probe=None):
                 elif case["id"] in {"linked-movie", "linked-mov", "movie-tracks"} or "movie_calibration_flags" in case or case.get("media_vector_kind") == "movie":
                     movie_inventories[stage] = verify_saved_movie_asset(output / "tracker-resaved.trk", case["assets"][0],
                                                                        allow_archive=mode.startswith("packaged-movie") or vector_package)
+            if probe and mode in CREATED_TRACK_MODES:
+                verify_created_track_fixpoint(project, output / "tracker-resaved.trk", CREATED_TRACK_MODES[mode])
             report = {"reference_version": stages["save"]["reference_version"], "verification_level": "tracker_session_resave",
                       "view_preparation": stages["save"]["view_preparation"],
                       "loader_callbacks": {stage: stages[stage]["loader_callbacks"] for stage in stages},

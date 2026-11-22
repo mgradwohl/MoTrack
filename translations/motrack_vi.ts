@@ -150,7 +150,6 @@
     <message><source>Shift-click the vector tail, then its tip. Escape cancels.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Giữ Shift và bấm vào gốc véc tơ, rồi đến ngọn. Nhấn Escape để hủy.</translation></message>
     <message><source>Click the first calibration endpoint.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Bấm vào đầu mút hiệu chuẩn thứ nhất.</translation></message>
     <message><source>Click the coordinate origin.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Bấm vào gốc tọa độ.</translation></message>
-    <message><source>Could not open this project.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Không thể mở dự án này.</translation></message>
     <message><source>Reading project…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Đang đọc dự án…</translation></message>
     <message><source>Open Tracker archive</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Mở gói lưu trữ Tracker</translation></message>
     <message><source>Choose a Tracker tab</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Chọn một thẻ Tracker</translation></message>
@@ -260,6 +259,8 @@
     <message><source>Decoding frame…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Đang giải mã khung hình…</translation></message>
     <message numerus="yes"><source>The Tracker archive omits %n duplicate member(s) with unsafe names.</source><translation type="unfinished"><numerusform></numerusform></translation></message>
     <message numerus="yes"><source>The Tracker archive keeps %n unextracted member(s) whose names may show the author's folder or user names.</source><translation type="unfinished"><numerusform></numerusform></translation></message>
+    <message><source>Could not open this project: %1</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker export unavailable: the links to this project's Tracker tracks could not be restored. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
   </context>
   <context>
     <name>WorkspaceInput</name>

@@ -268,7 +268,8 @@ jobs:
           unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH QT_QPA_PLATFORM LD_LIBRARY_PATH DYLD_LIBRARY_PATH DYLD_FRAMEWORK_PATH
           if [[ "$RUNNER_OS" == macOS ]]; then
             bundle=build/stage/installed/motrack.app/Contents
-            test -f "$bundle/Frameworks/QtXml.framework/QtXml"
+            # macdeployqt must bundle the Qt frameworks the app links (it no longer needs QtXml since B1).
+            test -f "$bundle/Frameworks/QtWidgets.framework/QtWidgets"
             app="$bundle/MacOS/motrack"
           else
             test -f build/stage/installed/plugins/platforms/libqxcb.so

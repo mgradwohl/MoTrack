@@ -909,6 +909,18 @@ TEST(TrackEdits, CreatesDistanceCalibrationAndRestoresThePriorUnit)
     EXPECT_EQ(project.lengthUnit, "m");
     EXPECT_TRUE(edits.redo(project));
     EXPECT_EQ(project.lengthUnit, "cm");
+
+    // Standard export refuses a label Tracker cannot store, so the edit refuses it too.
+    for (const auto* unit : {"", " cm", "cm\t", "m2", "\xE2\x80\x8Bm", "\xFF"})
+    {
+        SCOPED_TRACE(unit);
+        distance.unit = unit;
+        EXPECT_FALSE(edits.calibrateDistance(project, distance));
+        EXPECT_EQ(project.lengthUnit, "cm");
+    }
+    distance.unit = "\xC2\xB5m";
+    EXPECT_TRUE(edits.calibrateDistance(project, distance));
+    EXPECT_EQ(project.lengthUnit, "\xC2\xB5m");
 }
 
 TEST(TrackEdits, ChangesScaleAtTheSelectedKeyframeAndPreservesAnisotropy)

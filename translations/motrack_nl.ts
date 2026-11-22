@@ -150,7 +150,6 @@
     <message><source>Shift-click the vector tail, then its tip. Escape cancels.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Shift-klik op het beginpunt van de vector en daarna op de pijlpunt. Escape annuleert.</translation></message>
     <message><source>Click the first calibration endpoint.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Klik op het eerste eindpunt van de kalibratiestick.</translation></message>
     <message><source>Click the coordinate origin.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Klik op de oorsprong van het assenstelsel.</translation></message>
-    <message><source>Could not open this project.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Kan dit project niet openen.</translation></message>
     <message><source>Reading project…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Project wordt gelezen…</translation></message>
     <message><source>Open Tracker archive</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Tracker-archief openen</translation></message>
     <message><source>Choose a Tracker tab</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Kies een Tracker-tabblad</translation></message>
@@ -260,6 +259,8 @@
     <message><source>Decoding frame…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Frame wordt gedecodeerd…</translation></message>
     <message numerus="yes"><source>The Tracker archive omits %n duplicate member(s) with unsafe names.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform></translation></message>
     <message numerus="yes"><source>The Tracker archive keeps %n unextracted member(s) whose names may show the author's folder or user names.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform></translation></message>
+    <message><source>Could not open this project: %1</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker export unavailable: the links to this project's Tracker tracks could not be restored. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
   </context>
   <context>
     <name>WorkspaceInput</name>

@@ -34,7 +34,7 @@ if(MOTRACK_PGO_PROFILE AND NOT EXISTS "${MOTRACK_PGO_PROFILE}")
     message(FATAL_ERROR "Generate the PGO profile first: ${MOTRACK_PGO_PROFILE}")
 endif()
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Widgets Xml LinguistTools Concurrent)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Widgets LinguistTools Concurrent)
 include(cmake/MoTrackFFmpeg.cmake)
 include(cmake/MoTrackArchive.cmake)
 
@@ -56,9 +56,10 @@ target_include_directories(motrack_library PUBLIC src)
 target_link_libraries(motrack_library PUBLIC motrack_osp)
 
 add_library(motrack_project STATIC src/archive_group.cpp src/archive_group_session.cpp src/document_session.cpp src/legacy_project.cpp src/local_media_path.cpp src/paired_save.cpp src/save_state.cpp src/save_observation.cpp src/measurements.cpp src/track_edits.cpp src/track_identity.cpp
-    src/tracker_archive.cpp src/tracker_archive_writer.cpp src/tracker_references.cpp src/tracker_rename.cpp src/tracker_writer.cpp src/workspace_document.cpp src/workspace_session.cpp src/workspace_storage.cpp)
+    src/tracker_archive.cpp src/tracker_archive_writer.cpp src/tracker_loaders.cpp src/tracker_references.cpp src/tracker_rename.cpp src/tracker_writer.cpp src/workspace_document.cpp src/workspace_session.cpp src/workspace_storage.cpp)
 target_include_directories(motrack_project PUBLIC src)
-target_link_libraries(motrack_project PUBLIC Qt6::Core PRIVATE Qt6::Xml motrack_archive)
+# Tracker import/export reads and patches XML through motrack_osp only; QtXml is a test diagnostic dependency.
+target_link_libraries(motrack_project PUBLIC Qt6::Core motrack_osp PRIVATE motrack_archive)
 
 # Package validation decodes staged images/movies without adding codecs to the project model.
 add_library(motrack_image_package STATIC src/tracker_image_package.cpp)
@@ -233,7 +234,7 @@ endforeach()
 
 include(CTest)
 if(BUILD_TESTING)
-    find_package(Qt6 6.8 REQUIRED COMPONENTS Test)
+    find_package(Qt6 6.8 REQUIRED COMPONENTS Test Xml)
     include(FetchContent)
     set(gtest_force_shared_crt ON CACHE BOOL "Match the application CRT on Windows")
     set(INSTALL_GTEST OFF CACHE BOOL "Build tests without installing GoogleTest")
@@ -249,7 +250,7 @@ if(BUILD_TESTING)
     add_executable(motrack_tests tests/workspace_session_test.cpp tests/archive_group_session_test.cpp tests/archive_group_save_test.cpp tests/archive_group_test.cpp tests/paired_save_test.cpp tests/legacy_project_test.cpp tests/measurements_test.cpp tests/track_edits_test.cpp
         tests/tracker_archive_test.cpp tests/tracker_archive_writer_test.cpp tests/tracker_image_package_test.cpp tests/tracker_movie_package_test.cpp tests/tracker_references_test.cpp tests/tracker_writer_test.cpp
         tests/science/decimal_conversion_test.cpp tests/science/expression_reference_test.cpp tests/science/expression_test.cpp tests/science/java_math_test.cpp
-        tests/osp_java_text_test.cpp tests/osp_source_test.cpp tests/osp_render_test.cpp tests/osp_corpus_test.cpp
+        tests/osp_java_text_test.cpp tests/osp_source_test.cpp tests/source_edits_test.cpp tests/osp_render_test.cpp tests/osp_corpus_test.cpp
         tests/science/ode_solver_test.cpp tests/science/data_analysis_test.cpp tests/science/fft_test.cpp tests/science/analysis_reference_test.cpp
         tests/model/dependency_graph_test.cpp tests/model/name_binding_test.cpp
         tests/library_paths_test.cpp tests/library_collection_test.cpp tests/library_compadre_test.cpp tests/library_limits_test.cpp)

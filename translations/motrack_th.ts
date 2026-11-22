@@ -150,7 +150,6 @@
     <message><source>Shift-click the vector tail, then its tip. Escape cancels.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">กด Shift ค้างแล้วคลิกที่หางเวกเตอร์ แล้วจึงคลิกที่ปลาย กด Escape เพื่อยกเลิก</translation></message>
     <message><source>Click the first calibration endpoint.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">คลิกที่จุดปลายแรกสำหรับการปรับเทียบ</translation></message>
     <message><source>Click the coordinate origin.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">คลิกที่จุดกำเนิดของพิกัด</translation></message>
-    <message><source>Could not open this project.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">ไม่สามารถเปิดโครงงานนี้ได้</translation></message>
     <message><source>Reading project…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">กำลังอ่านโครงงาน…</translation></message>
     <message><source>Open Tracker archive</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">เปิดไฟล์เก็บถาวร Tracker</translation></message>
     <message><source>Choose a Tracker tab</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">เลือกแท็บ Tracker</translation></message>
@@ -260,6 +259,8 @@
     <message><source>Decoding frame…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">กำลังถอดรหัสเฟรม…</translation></message>
     <message numerus="yes"><source>The Tracker archive omits %n duplicate member(s) with unsafe names.</source><translation type="unfinished"><numerusform></numerusform></translation></message>
     <message numerus="yes"><source>The Tracker archive keeps %n unextracted member(s) whose names may show the author's folder or user names.</source><translation type="unfinished"><numerusform></numerusform></translation></message>
+    <message><source>Could not open this project: %1</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker export unavailable: the links to this project's Tracker tracks could not be restored. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
   </context>
   <context>
     <name>WorkspaceInput</name>

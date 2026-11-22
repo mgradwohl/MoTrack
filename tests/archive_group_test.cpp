@@ -147,14 +147,21 @@ TEST(ArchiveGroup, PreservesUntouchedExperimentsAndOpaqueContentAfterOriginalRem
     QTemporaryDir temporary;
     const auto originalPath = temporary.filePath("original.trz");
     const auto nativePath = temporary.filePath("group.motrack");
-    const QByteArray xml = "<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>"
-                           "<property name='tracks'><property name='[0]'>"
-                           "<object class='org.opensourcephysics.cabrillo.tracker.PointMass'>"
-                           "<property name='name' type='string'>mass</property>"
-                           "<property name='mass' type='double'>1.0</property>"
-                           "</object></property></property></object>";
-    const QByteArray untouched = "<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>"
-                                 "<property name='future'><object class='UnknownSettings'/></property></object>";
+    const QByteArray xml = "<object class=\"org.opensourcephysics.cabrillo.tracker.TrackerPanel\">\n"
+                           "    <property name=\"tracks\" type=\"collection\" class=\"java.util.ArrayList\">\n"
+                           "        <property name=\"[0]\" type=\"object\">\n"
+                           "        <object class=\"org.opensourcephysics.cabrillo.tracker.PointMass\">\n"
+                           "            <property name=\"name\" type=\"string\">mass</property>\n"
+                           "            <property name=\"mass\" type=\"double\">1.0</property>\n"
+                           "        </object>\n"
+                           "        </property>\n"
+                           "    </property>\n"
+                           "</object>\n";
+    const QByteArray untouched = "<object class=\"org.opensourcephysics.cabrillo.tracker.TrackerPanel\">\n"
+                                 "    <property name=\"future\" type=\"object\">\n"
+                                 "    <object class=\"UnknownSettings\"/>\n"
+                                 "    </property>\n"
+                                 "</object>\n";
     ASSERT_TRUE(motrack::test::writeArchive(
         originalPath, {{"a.trk", xml}, {"b.trk", xml}, {"untouched.trk", untouched}, {"opaque.bin", QByteArray("a\0b", 3)}}));
     const auto originalBytes = readBytes(originalPath);
@@ -236,7 +243,8 @@ TEST(ArchiveGroup, RejectsInvalidSnapshotsWithoutReplacingExistingOutput)
         [](auto& value) { value.members[1].document.trackerSource.reset(); },
         [](auto& value) { value.members[1].document.trackerSource = value.members[0].document.trackerSource; },
         [](auto& value) { value.members[1].document.project.pointMasses.front().id = 0; },
-        [](auto& value) { value.members[1].document.project.clip.startTimeMs = std::numeric_limits<double>::quiet_NaN(); }};
+        [](auto& value) { value.members[1].document.project.clip.startTimeMs = std::numeric_limits<double>::quiet_NaN(); },
+    };
     for (std::size_t index = 0; index < mutations.size(); ++index)
     {
         SCOPED_TRACE(index);

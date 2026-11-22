@@ -1176,7 +1176,8 @@ TEST(PairedWorkspace, AppliesPreparedOpensAfterSavingAndRejectsCanceledResults)
                 EXPECT_TRUE(processed);
                 if (cancel)
                 {
-                    ASSERT_TRUE(QTest::qWaitFor([&] { return window.statusBar()->currentMessage() == "Could not open this project."; }));
+                    ASSERT_TRUE(
+                        QTest::qWaitFor([&] { return window.statusBar()->currentMessage().startsWith("Could not open this project: "); }));
                     EXPECT_TRUE(window.windowTitle().contains(failSave ? "linked-images.trk" : "saved.trk"));
                 }
                 else
