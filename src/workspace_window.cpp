@@ -621,7 +621,7 @@ void WorkspaceWindow::completeTabsetInput(QUuid request, const QList<QUuid>& doc
     const auto& session = m_Context->session();
     if (std::ranges::any_of(documents, [&](QUuid document) { return session.document(document).trackerBindingsReset; }))
         m_Tabset->notices.push_back(tr("%1: %2").arg(m_Tabset->current,
-                                                     QCoreApplication::translate("motrack::MainWindow",
+                                                     QCoreApplication::translate("MainWindow",
                                                                                  "Tracker export unavailable: the links to this project's "
                                                                                  "Tracker tracks could not be restored. Measurements are "
                                                                                  "unchanged.")));

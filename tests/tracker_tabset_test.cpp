@@ -323,8 +323,12 @@ TEST(TrackerTabset, SavingEditsOnlyTheChangedEntriesAndLeavesAnUnchangedSetByteF
     ASSERT_TRUE(withAbsolute.has_value()) << withAbsolute.error();
     EXPECT_EQ(*withAbsolute, motrack::writeTrackerTabset(std::vector{a}).value());
 
-    // Paths OSP cannot read back are refused as for a new tabset.
+    // Paths OSP cannot read back are refused as for a new tabset, here by the entry check and by the renderer.
     EXPECT_FALSE(motrack::renderTrackerTabset(*parsed, std::vector{relativeEntry("a]]>.trk")}).has_value());
+    const auto refused = motrack::renderTrackerTabset(*parsed, std::vector{a, relativeEntry("<![CDATA[b.trz")});
+    ASSERT_FALSE(refused.has_value());
+    EXPECT_TRUE(refused.error().starts_with("Could not write the tabset:")) << refused.error();
+    EXPECT_FALSE(motrack::renderTrackerTabset(motrack::TrackerTabset{}, std::vector{a}).has_value());
 }
 
 TEST(TrackerTabset, SavingAddsMissingTabsAndRewritesOrderTrackerCannotRead)

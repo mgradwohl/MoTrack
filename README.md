@@ -58,7 +58,8 @@ Open a Tracker **tabset** (a `.trk` that lists other files) from the same projec
 experiment, archive, video or image in order, each as its own project. Files are found next to the tabset first,
 then in the working directory, then at their recorded absolute path, so a copied folder keeps working. MoTrack asks
 you to locate a missing file, opens each file once even when Tracker listed an archive once per experiment, and
-lists anything it could not open. **File → Save tabset as…** writes a tabset that Tracker can open. It lists each
+lists anything it could not open. **File → Save tabset as…** writes a tabset that Tracker can open, offering the
+tabset you opened last; saving over a tabset changes only the entries that changed. It lists each
 project's saved Tracker file, or an unchanged single video or image, in tab order; projects with unsaved changes
 are offered Save/Skip/Cancel first, and a failed or canceled save writes no tabset. MoTrack-only copies, image
 sequences and changed raw media are listed as not included until saved as Tracker projects.

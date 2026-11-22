@@ -632,6 +632,18 @@
         <source>Closing the window stopped the remaining tabset files.</source>
         <translation type="unfinished" />
     </message>
+    <message>
+        <source>Some projects listed in %1 cannot be saved as Tracker files.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1: its links to the original Tracker tracks could not be restored, so it cannot be saved as a Tracker project. Open the original Tracker file again to include it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 is a tabset that MoTrack cannot read (%2). Choose another filename so it is not replaced.</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 
 <context>
