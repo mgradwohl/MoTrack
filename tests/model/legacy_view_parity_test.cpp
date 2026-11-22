@@ -538,6 +538,38 @@ TEST(LegacyViewParity, NativeFixturesOpenToTheirDocumentDumpsAndExports)
     }
 }
 
+TEST(LegacyViewParity, ReportsABoundConversionFailureOfAFileThisBuildSaved)
+{
+    // A save whose stored model the baseline's typed import cannot hold (a calibration removed, which no MoTrack edit
+    // does) still converts, stale, but a round-trip check that this build's own save kept its associations fails.
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto source = temporary.filePath("bound.trk");
+    ASSERT_TRUE(writeBytes(source, QByteArray::fromStdString(boundSource())));
+    const auto native = temporary.filePath("bound.motrack");
+    const auto reopen = [&](const motrack::WorkspaceDocument& document)
+    {
+        motrack::writeWorkspaceDocument(native, document);
+        return motrack::readWorkspaceDocument(native);
+    };
+    const auto imported = motrack::importTrackerDocument(source);
+    auto doctored = imported;
+    doctored.project.calibration.reset();
+    const auto broken = reopen(doctored);
+    ASSERT_TRUE(broken.trackerSource && broken.trackerSource->bindings);
+    ASSERT_FALSE(broken.trackerBindingsReset || broken.trackerReadingOutdated);
+    const auto stale = converted(broken);
+    EXPECT_EQ(stale.associations(), motrack::model::Associations::Stale);
+    EXPECT_FALSE(motrack::keepsRecordedAssociations(stale, broken.trackerSource, false, broken.trackerReading));
+    // An unchanged save keeps its associations; a file whose associations opening dropped, or whose values follow an
+    // earlier reading, records none to keep.
+    const auto intact = reopen(imported);
+    EXPECT_TRUE(motrack::keepsRecordedAssociations(converted(intact), intact.trackerSource, false, intact.trackerReading));
+    EXPECT_TRUE(motrack::keepsRecordedAssociations(stale, broken.trackerSource, true, broken.trackerReading));
+    EXPECT_TRUE(motrack::keepsRecordedAssociations(stale, broken.trackerSource, false, motrack::TrackerReading::SavedIndices));
+    EXPECT_TRUE(motrack::keepsRecordedAssociations(motrack::model::TrackerDocument{}, std::nullopt));
+}
+
 // Writes the native fixtures and their goldens. Run once with MOTRACK_WRITE_NATIVE_FIXTURES set to the fixture
 // directory, then review every file. The current v5 and v6 files come from this build's native writers. The older
 // ones are the same writer's output reduced to the exact key sets of the build that introduced each version or field

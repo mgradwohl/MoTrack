@@ -42,6 +42,15 @@ namespace motrack
                                                               bool associationsDropped = false,
                                                               TrackerReading reading = CURRENT_TRACKER_READING);
 
+/// Whether a converted document kept the associations its native file records: bindings that opening neither dropped
+/// nor left at an earlier reading must convert to known associations. The stale fallback of `typedDocumentFromReduced`
+/// exists for files whose stored model the baseline's typed import cannot hold, such as ones a former reader wrote;
+/// for a file this build saved, it would hide a defect of the bound conversion, so round-trip checks require this.
+[[nodiscard]] bool keepsRecordedAssociations(const model::TrackerDocument& document,
+                                             const std::optional<TrackerSource>& source,
+                                             bool associationsDropped = false,
+                                             TrackerReading reading = CURRENT_TRACKER_READING);
+
 /// The key of an owner's caches: the live owner's runtime identity and its document revision, which also advances on
 /// every update outside history and every assignment, so a restored or replaced value never matches an old view.
 struct DocumentStamp

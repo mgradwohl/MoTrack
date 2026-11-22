@@ -697,6 +697,15 @@ model::TrackerDocument typedDocumentFromReduced(const LegacyProject& project,
     }
 }
 
+bool keepsRecordedAssociations(const model::TrackerDocument& document,
+                               const std::optional<TrackerSource>& source,
+                               bool associationsDropped,
+                               TrackerReading reading)
+{
+    const bool recorded = source && source->bindings && !associationsDropped && reading == CURRENT_TRACKER_READING;
+    return !recorded || document.associations() == model::Associations::Known;
+}
+
 std::shared_ptr<const LegacyProject> LegacyViewCache::view(const model::TrackerDocument& document, DocumentStamp stamp)
 {
     if (!m_View || m_Stamp != stamp)

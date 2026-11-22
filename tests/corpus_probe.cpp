@@ -282,14 +282,24 @@ std::pair<motrack::ImportedTrackerProject, motrack::model::TrackerDocument> read
     throw motrack::ProjectError("The typed document accepts what B1 refuses: " + refusal);
 }
 
-/// A reopened native document, which must also convert into a typed document whose legacy view it is (B2.1).
+/// A native document this build saved must convert into a typed document whose legacy view it is, and keep the
+/// associations it records: the conversion's stale fallback is for files of former readers, so here it would hide a
+/// defect of the bound conversion (B2.1).
+void requireTypedNative(const motrack::WorkspaceDocument& document, const std::string& label)
+{
+    const bool dropped = document.trackerBindingsReset || document.trackerReadingOutdated;
+    const auto typed = motrack::typedDocumentFromReduced(document.project, document.trackerSource, dropped, document.trackerReading);
+    if (!motrack::keepsRecordedAssociations(typed, document.trackerSource, dropped, document.trackerReading))
+    {
+        throw motrack::ProjectError("The typed conversion of " + label +
+                                    " lost the source associations the native file records; its bound conversion failed.");
+    }
+}
+
 motrack::WorkspaceDocument reopenNative(const QString& path)
 {
     auto document = motrack::readWorkspaceDocument(path);
-    static_cast<void>(motrack::typedDocumentFromReduced(document.project,
-                                                        document.trackerSource,
-                                                        document.trackerBindingsReset || document.trackerReadingOutdated,
-                                                        document.trackerReading));
+    requireTypedNative(document, QFileInfo(path).fileName().toStdString());
     return document;
 }
 
@@ -298,15 +308,10 @@ motrack::ArchiveGroup reopenGroup(const QString& path)
     auto group = motrack::readArchiveGroup(path);
     for (const auto& member : group.members)
     {
-        const auto& document = member.document;
-        static_cast<void>(motrack::typedDocumentFromReduced(document.project,
-                                                            document.trackerSource,
-                                                            document.trackerBindingsReset || document.trackerReadingOutdated,
-                                                            document.trackerReading));
+        requireTypedNative(member.document, QFileInfo(path).fileName().toStdString() + "!" + member.member);
     }
     return group;
 }
-
 /// An OSP saver tree in the oracle dump's form (docs/oracle-dumps.md): typed values, arrays by index with absent
 /// elements null, compact primitive arrays expanded, and objects with their class.
 QJsonValue saverJson(const motrack::osp::PropertyValue& property);
