@@ -24,9 +24,13 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      # The same pinned toolchain as ci.yml's Linux build: one source of versions in tools/toolchain.env.
+      - name: Load toolchain pins
+        # tools/toolchain.env holds every pinned version the setup scripts use, as KEY=value lines.
+        run: grep -E '^[A-Z0-9_]+=' tools/toolchain.env >> "$GITHUB_ENV"
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
-          python-version: "3.12"
+          python-version: ${{ env.MOTRACK_PYTHON_VERSION }}
       - name: Test library corpus tooling
         run: python -m unittest discover -s tests -p 'test_corpus*.py'
       # Cached files are named <id>-<sha256 prefix>.<ext> and verified on use, so an older cache restored by
@@ -64,13 +68,25 @@ jobs:
           key: ${{ steps.library-cache.outputs.cache-primary-key }}
       - uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
         with:
-          version: "6.8.3"
-      - name: Install Linux LLVM and Qt system libraries
+          version: ${{ env.MOTRACK_QT_VERSION }}
+          # Its own setup-python (">=3.14.0") would replace the pinned Python on PATH for every later step.
+          setup-python: false
+      - name: Install Linux LLVM, libstdc++ and Qt system libraries
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-18 llvm-18 libgl1-mesa-dev libxkbcommon-dev
-          sudo apt-get install -y build-essential pkg-config autoconf automake libtool nasm patchelf libxcb-cursor0
-          echo /usr/lib/llvm-18/bin >> "$GITHUB_PATH"
+          # The pinned LLVM major from apt.llvm.org's signed repository and GCC's libstdc++ (never libc++),
+          # since Qt's Linux binaries use libstdc++ (cmake/MoTrackLibstdcxx.cmake); as in ci.yml.
+          tools/add-llvm-apt-source.sh
+          apt=(sudo apt-get -o Acquire::Retries=5)
+          "${apt[@]}" update
+          "${apt[@]}" install -y ccache "clang-$MOTRACK_LLVM_MAJOR" "clang-format-$MOTRACK_LLVM_MAJOR" "clang-tidy-$MOTRACK_LLVM_MAJOR" \
+            "llvm-$MOTRACK_LLVM_MAJOR" "libclang-rt-$MOTRACK_LLVM_MAJOR-dev" "g++-$MOTRACK_GCC_MAJOR" libgl1-mesa-dev libxkbcommon-dev
+          "${apt[@]}" install -y build-essential pkg-config autoconf automake libtool nasm patchelf libxcb-cursor0
+          llvm="/usr/lib/llvm-$MOTRACK_LLVM_MAJOR/bin"
+          echo "$llvm" >> "$GITHUB_PATH"
+          echo "LLVM_BIN=$llvm" >> "$GITHUB_ENV"
+          echo "MOTRACK_GCC_INSTALL_DIR=/usr/lib/gcc/x86_64-linux-gnu/$MOTRACK_GCC_MAJOR" >> "$GITHUB_ENV"
+      - name: Check Linux toolchain
+        run: tools/check-prereqs.sh --tools-only
       - name: Restore pinned vcpkg bootstrap
         id: vcpkg-bootstrap-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
