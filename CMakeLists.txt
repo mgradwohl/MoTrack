@@ -73,6 +73,12 @@ target_link_libraries(motrack_media PUBLIC Qt6::Gui PRIVATE motrack_ffmpeg)
 add_library(motrack_input STATIC src/workspace_input.cpp)
 target_include_directories(motrack_input PUBLIC src)
 target_link_libraries(motrack_input PUBLIC motrack_project PRIVATE motrack_media)
+
+# Qt-free RGB-region and line-profile sampling kernels (docs/image-sampling.md).
+add_library(motrack_sampling STATIC src/science/sampling/argb_image.cpp src/science/sampling/java_path.cpp
+    src/science/sampling/line_profile.cpp src/science/sampling/rgb_region.cpp)
+target_include_directories(motrack_sampling PUBLIC src)
+target_compile_options(motrack_sampling PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
 target_link_libraries(motrack_workspace PUBLIC motrack_project motrack_input Qt6::Widgets PRIVATE motrack_media motrack_image_package Qt6::Concurrent)
 target_link_libraries(motrack PRIVATE motrack_workspace)
 qt_add_translations(motrack
@@ -132,6 +138,7 @@ add_library(motrack_matching STATIC src/science/matching/template_matcher.cpp sr
 target_include_directories(motrack_matching PUBLIC src)
 target_compile_options(motrack_matching PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
 list(APPEND motrack_targets motrack_matching)
+list(APPEND motrack_targets motrack_sampling)
 
 foreach(target IN LISTS motrack_targets)
     if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
@@ -188,6 +195,13 @@ if(BUILD_TESTING)
     # The test rate functions must round like the Java oracle's.
     set_source_files_properties(tests/science/ode_solver_test.cpp PROPERTIES COMPILE_OPTIONS "${MOTRACK_JAVA_FP_OPTIONS}")
     add_test(NAME legacy_project COMMAND motrack_tests)
+    target_sources(motrack_tests PRIVATE tests/science/sampling_test.cpp tests/science/sampling_reference_test.cpp)
+    target_link_libraries(motrack_tests PRIVATE motrack_sampling)
+    target_compile_definitions(motrack_tests PRIVATE
+        MOTRACK_SAMPLING_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/sampling-reference.json")
+    # Independent expectations repeat the kernel's Java-ordered arithmetic (see motrack_sampling).
+    set_source_files_properties(tests/science/sampling_test.cpp tests/science/sampling_reference_test.cpp
+        PROPERTIES COMPILE_OPTIONS "${MOTRACK_JAVA_FP_OPTIONS}")
     add_executable(motrack_corpus_probe tests/corpus_probe.cpp)
     add_dependencies(motrack_tests motrack_corpus_probe)
     target_compile_definitions(motrack_tests PRIVATE MOTRACK_CORPUS_PROBE="$<TARGET_FILE:motrack_corpus_probe>")
