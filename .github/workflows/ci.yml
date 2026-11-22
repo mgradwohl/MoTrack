@@ -25,9 +25,16 @@ jobs:
       CCACHE_COMPILERCHECK: content
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Load toolchain pins
+        shell: bash
+        # tools/toolchain.env holds every pinned version the setup scripts use, as KEY=value lines.
+        run: grep -E '^[A-Z0-9_]+=' tools/toolchain.env >> "$GITHUB_ENV"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
-          python-version: "3.12"
+          python-version: ${{ env.MOTRACK_PYTHON_VERSION }}
+      - name: Test developer setup tools
+        shell: bash
+        run: python -m unittest discover -s tests -p test_dev_tools.py
       - name: Check Tracker application reference
         if: runner.os == 'Linux'
         run: |
@@ -38,12 +45,14 @@ jobs:
       - name: Check ODE solver kernel reference
         if: runner.os == 'Linux'
         run: python tools/corpus.py ode-oracle --java "$JAVA_HOME_17_X64/bin/java"
-      - uses: jurplel/install-qt-action@v4
+      - uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
         with:
-          version: "6.8.3"
+          version: ${{ env.MOTRACK_QT_VERSION }}
+          # Its own setup-python (">=3.14.0") would replace the pinned Python on PATH for every later step.
+          setup-python: false
       - name: Set up Windows SDK
         if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
         with:
           arch: x64
       - name: Select Windows LLVM
@@ -51,35 +60,47 @@ jobs:
         shell: pwsh
         run: |
           # The image's MSVC STL (14.52+) refuses Clang older than 22, and the preinstalled LLVM is 20.
-          # Install the pinned official LLVM 23 MSI (LLVM 23 ships MSI, not NSIS), verified by the release
-          # asset's SHA-256, into the default location this step already uses; the same pin as TaskSmack.
-          $version = '23.1.5'
+          # Install the pinned official LLVM MSI (LLVM 23 ships MSI, not NSIS), verified by the release
+          # asset's SHA-256 from tools/toolchain.env, into the default location tools/setup-dev.ps1 uses.
+          $version = $env:MOTRACK_LLVM_VERSION
           $name = "LLVM-$version-win64.msi"
           $installer = Join-Path $env:RUNNER_TEMP $name
           Invoke-WebRequest "https://github.com/llvm/llvm-project/releases/download/llvmorg-$version/$name" -OutFile $installer -MaximumRetryCount 3 -RetryIntervalSec 10
           $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -ne '288ab326377157a9e02e6fb9724914cc2b55963882d493a405f31dc66e837c12') { throw "Unexpected $name SHA-256 $hash" }
+          if ($hash -ne $env:MOTRACK_LLVM_WIN64_SHA256) { throw "Unexpected $name SHA-256 $hash" }
           $log = Join-Path $env:RUNNER_TEMP 'llvm-msi.log'
           $process = Start-Process msiexec.exe -ArgumentList "/i `"$installer`" /qn /norestart /l*v `"$log`"" -Wait -PassThru
-          # 3010 means "succeeded, restart needed", which a CI runner never needs.
-          if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) { Get-Content -LiteralPath $log -Tail 40; exit $process.ExitCode }
+          # 3010 means "succeeded, restart needed", which a CI runner never needs. A missing log must not
+          # replace the installer's exit code.
+          if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) { Get-Content -LiteralPath $log -Tail 40 -ErrorAction SilentlyContinue; exit $process.ExitCode }
           $llvm = Join-Path $env:ProgramFiles 'LLVM/bin'
           $reported = & (Join-Path $llvm 'clang++.exe') --version | Select-Object -First 1
           if ($reported -notmatch "version $([regex]::Escape($version))\b") { throw "Expected clang $version, found: $reported" }
           $reported
           $llvm | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
           "LLVM_BIN=$llvm" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-          choco install ccache --yes --no-progress
+          choco install ccache --version $env:MOTRACK_CCACHE_VERSION --yes --no-progress
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           "$env:ChocolateyInstall/bin" | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
-      - name: Install Linux LLVM and Qt system libraries
+      - name: Install Linux LLVM, libstdc++ and Qt system libraries
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ccache clang-18 clang-format-18 clang-tidy-18 llvm-18 libgl1-mesa-dev libxkbcommon-dev
-          sudo apt-get install -y build-essential pkg-config autoconf automake libtool nasm patchelf libxcb-cursor0
-          echo /usr/lib/llvm-18/bin >> "$GITHUB_PATH"
-          echo LLVM_BIN=/usr/lib/llvm-18/bin >> "$GITHUB_ENV"
+          # The pinned LLVM major from apt.llvm.org's signed repository (llvm-cov and llvm-profdata for
+          # coverage; libclang-rt for the profile runtime), and GCC 14's libstdc++, never libc++, since
+          # Qt's Linux binaries use libstdc++ (cmake/MoTrackLibstdcxx.cmake).
+          tools/add-llvm-apt-source.sh
+          apt=(sudo apt-get -o Acquire::Retries=5)
+          "${apt[@]}" update
+          "${apt[@]}" install -y ccache "clang-$MOTRACK_LLVM_MAJOR" "clang-format-$MOTRACK_LLVM_MAJOR" "clang-tidy-$MOTRACK_LLVM_MAJOR" \
+            "llvm-$MOTRACK_LLVM_MAJOR" "libclang-rt-$MOTRACK_LLVM_MAJOR-dev" "g++-$MOTRACK_GCC_MAJOR" libgl1-mesa-dev libxkbcommon-dev
+          "${apt[@]}" install -y build-essential pkg-config autoconf automake libtool nasm patchelf libxcb-cursor0
+          llvm="/usr/lib/llvm-$MOTRACK_LLVM_MAJOR/bin"
+          echo "$llvm" >> "$GITHUB_PATH"
+          echo "LLVM_BIN=$llvm" >> "$GITHUB_ENV"
+          echo "MOTRACK_GCC_INSTALL_DIR=/usr/lib/gcc/x86_64-linux-gnu/$MOTRACK_GCC_MAJOR" >> "$GITHUB_ENV"
+      - name: Check Linux toolchain
+        if: runner.os == 'Linux'
+        run: tools/check-prereqs.sh --tools-only
       - name: Select Apple Clang
         if: runner.os == 'macOS'
         run: |
@@ -114,18 +135,29 @@ jobs:
             !.dev-tools/vcpkg/downloads/**
             !.dev-tools/vcpkg/binary-cache/**
           key: ${{ steps.vcpkg-bootstrap-cache.outputs.cache-primary-key }}
-      - uses: actions/cache@v4
+      - name: Restore media library binary cache
+        id: media-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .dev-tools/vcpkg-binary-cache
           key: ffmpeg-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/media_sdk.py') }}
           restore-keys: ffmpeg-sdk-${{ runner.os }}-${{ runner.arch }}-
       - name: Set up pinned media libraries
+        id: media
         shell: bash
         run: |
           python tools/media_sdk.py install
           prefix="$(python tools/media_sdk.py prefix)"
           echo "MOTRACK_FFMPEG_ROOT=$prefix" >> "$GITHUB_ENV"
           if [[ -d "$prefix/bin" ]]; then echo "$prefix/bin" >> "$GITHUB_PATH"; fi
+      # Saved as soon as the libraries are built, so a later failure or timeout does not make the next
+      # run rebuild FFmpeg (about 26 minutes on Windows). vcpkg still checks each package's ABI hash.
+      - name: Save media library binary cache
+        if: steps.media.outcome == 'success' && steps.media-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .dev-tools/vcpkg-binary-cache
+          key: ${{ steps.media-cache.outputs.cache-primary-key }}
       - uses: actions/cache@v4
         with:
           path: .ccache
@@ -142,8 +174,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          foreach ($test in 'test-setup-dev.ps1', 'test-check-prereqs.ps1') {
+            pwsh -NoProfile -File "tools/$test"
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
           tools/setup-dev.ps1 -DryRun -Build
           tools/check-prereqs.ps1
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Test and collect coverage
         shell: bash
         run: python tools/coverage.py collect build/coverage coverage.json --llvm-bin "$LLVM_BIN"
@@ -248,19 +285,38 @@ jobs:
             !.dev-tools/vcpkg/downloads/**
             !.dev-tools/vcpkg/binary-cache/**
           key: ${{ steps.vcpkg-bootstrap-cache.outputs.cache-primary-key }}
-      - uses: actions/cache@v4
+      - name: Restore media library binary cache
+        id: media-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .dev-tools/vcpkg-binary-cache
           key: ffmpeg-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/media_sdk.py') }}
           restore-keys: ffmpeg-sdk-${{ runner.os }}-${{ runner.arch }}-
       - name: Preview and run setup
+        env:
+          # Ubuntu installs Qt through the verified download.qt.io path, aqtinstall's fallback, so both
+          # ways a contributor can get Qt are exercised; macOS uses aqtinstall.
+          MOTRACK_QT_SOURCE: ${{ matrix.os == 'ubuntu-24.04' && 'direct' || 'auto' }}
         run: |
           tools/setup-dev.sh --dry-run --build
           tools/setup-dev.sh --build
+      # setup-dev.sh builds the media libraries before it builds and tests MoTrack, so the cache is saved
+      # once both libraries are installed, even when a later part of setup fails.
+      - name: Save media library binary cache
+        if: >-
+          always() && steps.media-cache.outputs.cache-hit != 'true' &&
+          hashFiles('.dev-tools/vcpkg/installed/*/share/ffmpeg/FindFFMPEG.cmake') != '' &&
+          hashFiles('.dev-tools/vcpkg/installed/*/include/archive.h') != ''
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .dev-tools/vcpkg-binary-cache
+          key: ${{ steps.media-cache.outputs.cache-primary-key }}
       - name: Check C++ format and static analysis
         if: runner.os == 'Linux'
         run: |
           source tools/dev-env.sh
+          clang-format --version
+          clang-tidy --version
           cmake --preset dev -DMOTRACK_BUILD_BENCHMARKS=ON
           cmake --build --preset dev --parallel 2
           git ls-files -z -- '*.cpp' '*.hpp' | xargs -0 clang-format --dry-run --Werror
