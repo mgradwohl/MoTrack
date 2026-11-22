@@ -83,11 +83,11 @@
     <message><source>&amp;Redo</source><translatorcomment>Tracker exact: tracker_ja.properties TMenuBar.MenuItem.Redo</translatorcomment><translation>やり直し(&amp;R)</translation></message>
     <message><source>&amp;View</source><translatorcomment>Tracker exact: tracker_ja.properties TFrame.View.Unknown</translatorcomment><translation>表示(&amp;V)</translation></message>
     <message><source>Show coordinate &amp;axes</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">座標軸を表示(&amp;A)</translation></message>
-    <message><source>Zoom &amp;in</source><translatorcomment>Tracker normalized: tracker_ja.properties MainTView.Popup.MenuItem.ZoomIn (2 differing Tracker translations)</translatorcomment><translation>ズームイン(&amp;I)</translation></message>
-    <message><source>Zoom &amp;out</source><translatorcomment>Tracker normalized: tracker_ja.properties MainTView.Popup.MenuItem.ZoomOut (2 differing Tracker translations)</translatorcomment><translation>ズームアウト(&amp;O)</translation></message>
+    <message><source>Zoom &amp;in</source><translatorcomment>Tracker normalized: tracker_ja.properties MainTView.Popup.MenuItem.ZoomIn (2 differing Tracker translations)</translatorcomment><translation type="unfinished">ズームイン(&amp;I)</translation></message>
+    <message><source>Zoom &amp;out</source><translatorcomment>Tracker normalized: tracker_ja.properties MainTView.Popup.MenuItem.ZoomOut (2 differing Tracker translations)</translatorcomment><translation type="unfinished">ズームアウト(&amp;O)</translation></message>
     <message><source>&amp;Fit video to view</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">動画をビューに合わせる(&amp;F)</translation></message>
     <message><source>&amp;Tracks</source><translatorcomment>Tracker exact: tracker_ja.properties Undo.Description.Tracks</translatorcomment><translation>トラック(&amp;T)</translation></message>
-    <message><source>New &amp;point mass</source><translatorcomment>Tracker normalized: tracker_ja.properties TActions.Dialog.NewPointMass.Title</translatorcomment><translation>新規質点(&amp;P)</translation></message>
+    <message><source>New &amp;point mass</source><translatorcomment>Tracker normalized: tracker_ja.properties TActions.Dialog.NewPointMass.Title</translatorcomment><translation type="unfinished">新規質点(&amp;P)</translation></message>
     <message><source>New &amp;vector</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">新規ベクトル(&amp;V)</translation></message>
     <message><source>&amp;Rename track…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">トラックの名前を変更(&amp;R)…</translation></message>
     <message><source>Set &amp;mass…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">質量を設定(&amp;M)…</translation></message>
@@ -109,7 +109,7 @@
     <message><source>Next frame</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">次のフレーム</translation></message>
     <message><source>Clip position</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">クリップ内の位置</translation></message>
     <message><source>Track</source><translatorcomment>Tracker exact: tracker_ja.properties TMenuBar.Menu.Tracks</translatorcomment><translation>トラック</translation></message>
-    <message><source>Frame</source><translatorcomment>Tracker exact: tracker_ja.properties TMenuBar.MenuItem.CopyFrame</translatorcomment><translation>フレーム</translation></message>
+    <message><source>Frame</source><translatorcomment>Tracker exact: tracker_ja.properties AutoTracker.Info.Frame</translatorcomment><translation>フレーム</translation></message>
     <message><source>Image x (px)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">画像 x (px)</translation></message>
     <message><source>Image y (px)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">画像 y (px)</translation></message>
     <message><source>World x</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">実座標 x</translation></message>
@@ -191,7 +191,7 @@
     <message><source>Click the second calibration endpoint.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">キャリブレーションの 2 番目の端点をクリックしてください。</translation></message>
     <message><source>Choose a different calibration endpoint.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">別のキャリブレーション端点を選択してください。</translation></message>
     <message><source>Known distance</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">既知の距離</translation></message>
-    <message><source>Length unit</source><translatorcomment>Tracker normalized: tracker_ja.properties TapeMeasure.Dialog.ChangeLengthUnit.Title</translatorcomment><translation>長さの単位</translation></message>
+    <message><source>Length unit</source><translatorcomment>Tracker normalized: tracker_ja.properties TapeMeasure.Dialog.ChangeLengthUnit.Title</translatorcomment><translation type="unfinished">長さの単位</translation></message>
     <message><source>Calibration updated.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">キャリブレーションを更新しました。</translation></message>
     <message><source>Could not apply this calibration.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">このキャリブレーションを適用できませんでした。</translation></message>
     <message><source>Save MoTrack project</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">MoTrack プロジェクトを保存</translation></message>

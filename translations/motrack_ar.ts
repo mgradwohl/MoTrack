@@ -83,11 +83,11 @@
     <message><source>&amp;Redo</source><translatorcomment>Tracker exact: tracker_ar.properties TMenuBar.MenuItem.Redo (2 differing Tracker translations)</translatorcomment><translation>&amp;الإعادة</translation></message>
     <message><source>&amp;View</source><translatorcomment>Tracker exact: tracker_ar.properties TFrame.View.Unknown (2 differing Tracker translations)</translatorcomment><translation type="unfinished">م&amp;نظر</translation></message>
     <message><source>Show coordinate &amp;axes</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">إظهار &amp;محاور الإحداثيات</translation></message>
-    <message><source>Zoom &amp;in</source><translatorcomment>Tracker normalized: tracker_ar.properties MainTView.Popup.MenuItem.ZoomIn</translatorcomment><translation>&amp;تكبير</translation></message>
-    <message><source>Zoom &amp;out</source><translatorcomment>Tracker normalized: tracker_ar.properties MainTView.Popup.MenuItem.ZoomOut</translatorcomment><translation>ت&amp;صغير</translation></message>
+    <message><source>Zoom &amp;in</source><translatorcomment>Tracker normalized: tracker_ar.properties MainTView.Popup.MenuItem.ZoomIn</translatorcomment><translation type="unfinished">&amp;تكبير</translation></message>
+    <message><source>Zoom &amp;out</source><translatorcomment>Tracker normalized: tracker_ar.properties MainTView.Popup.MenuItem.ZoomOut</translatorcomment><translation type="unfinished">ت&amp;صغير</translation></message>
     <message><source>&amp;Fit video to view</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">ملاءمة ال&amp;فيديو للعرض</translation></message>
     <message><source>&amp;Tracks</source><translatorcomment>Tracker exact: tracker_ar.properties Undo.Description.Tracks (2 differing Tracker translations)</translatorcomment><translation type="unfinished">م&amp;سارات</translation></message>
-    <message><source>New &amp;point mass</source><translatorcomment>Tracker normalized: tracker_ar.properties TActions.Dialog.NewPointMass.Title</translatorcomment><translation>&amp;كتلة نقطية جديدة</translation></message>
+    <message><source>New &amp;point mass</source><translatorcomment>Tracker normalized: tracker_ar.properties TActions.Dialog.NewPointMass.Title</translatorcomment><translation type="unfinished">&amp;كتلة نقطية جديدة</translation></message>
     <message><source>New &amp;vector</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">&amp;شعاع جديد</translation></message>
     <message><source>&amp;Rename track…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">&amp;إعادة تسمية المسار…</translation></message>
     <message><source>Set &amp;mass…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">&amp;تعيين الكتلة…</translation></message>
@@ -124,7 +124,7 @@
     <message><source>y acceleration</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">التسارع y</translation></message>
     <message><source>x momentum</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">كمية الحركة x</translation></message>
     <message><source>y momentum</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">كمية الحركة y</translation></message>
-    <message><source>kinetic energy</source><translatorcomment>Tracker exact: tracker_ar.properties PointMass.Data.Description.22</translatorcomment><translation>الطاقةالحركية</translation></message>
+    <message><source>kinetic energy</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">الطاقة الحركية</translation></message>
     <message><source>Linear fit</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">الملاءمة الخطية</translation></message>
     <message><source>Ready</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">جاهز</translation></message>
     <message><source>Open project</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">فتح مشروع</translation></message>
@@ -191,7 +191,7 @@
     <message><source>Click the second calibration endpoint.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">انقر على طرف المعايرة الثاني.</translation></message>
     <message><source>Choose a different calibration endpoint.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">اختر طرف معايرة مختلفًا.</translation></message>
     <message><source>Known distance</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">المسافة المعروفة</translation></message>
-    <message><source>Length unit</source><translatorcomment>Tracker normalized: tracker_ar.properties TapeMeasure.Dialog.ChangeLengthUnit.Title</translatorcomment><translation>وحده الطول</translation></message>
+    <message><source>Length unit</source><translatorcomment>Tracker normalized: tracker_ar.properties TapeMeasure.Dialog.ChangeLengthUnit.Title</translatorcomment><translation type="unfinished">وحده الطول</translation></message>
     <message><source>Calibration updated.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">تم تحديث المعايرة.</translation></message>
     <message><source>Could not apply this calibration.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">تعذر تطبيق هذه المعايرة.</translation></message>
     <message><source>Save MoTrack project</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">حفظ مشروع MoTrack</translation></message>

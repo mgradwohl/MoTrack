@@ -87,7 +87,7 @@
     <message><source>Zoom &amp;out</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">З&amp;меншити</translation></message>
     <message><source>&amp;Fit video to view</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">&amp;Вписати відео у вікно</translation></message>
     <message><source>&amp;Tracks</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">&amp;Треки</translation></message>
-    <message><source>New &amp;point mass</source><translatorcomment>Tracker normalized: tracker_uk.properties TActions.Dialog.NewPointMass.Title</translatorcomment><translation>&amp;Нова точкова маса</translation></message>
+    <message><source>New &amp;point mass</source><translatorcomment>Tracker normalized: tracker_uk.properties TActions.Dialog.NewPointMass.Title</translatorcomment><translation type="unfinished">&amp;Нова точкова маса</translation></message>
     <message><source>New &amp;vector</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Новий &amp;вектор</translation></message>
     <message><source>&amp;Rename track…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">&amp;Перейменувати трек…</translation></message>
     <message><source>Set &amp;mass…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Задати &amp;масу…</translation></message>

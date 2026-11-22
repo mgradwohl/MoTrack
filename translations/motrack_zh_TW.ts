@@ -83,11 +83,11 @@
     <message><source>&amp;Redo</source><translatorcomment>Tracker exact: tracker_zh_TW.properties TMenuBar.MenuItem.Redo (2 differing Tracker translations)</translatorcomment><translation>取消復原(&amp;R)</translation></message>
     <message><source>&amp;View</source><translatorcomment>Tracker exact: tracker_zh_TW.properties TFrame.View.Unknown (2 differing Tracker translations)</translatorcomment><translation type="unfinished">顯示介面(&amp;V)</translation></message>
     <message><source>Show coordinate &amp;axes</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">顯示座標軸(&amp;A)</translation></message>
-    <message><source>Zoom &amp;in</source><translatorcomment>Tracker normalized: tracker_zh_TW.properties TrackPlottingPanel.Popup.MenuItem.ZoomIn</translatorcomment><translation>拉近放大檢視(&amp;I)</translation></message>
-    <message><source>Zoom &amp;out</source><translatorcomment>Tracker normalized: tracker_zh_TW.properties TrackPlottingPanel.Popup.MenuItem.ZoomOut</translatorcomment><translation>拉遠縮小檢視(&amp;O)</translation></message>
+    <message><source>Zoom &amp;in</source><translatorcomment>Tracker normalized: tracker_zh_TW.properties TrackPlottingPanel.Popup.MenuItem.ZoomIn</translatorcomment><translation type="unfinished">拉近放大檢視(&amp;I)</translation></message>
+    <message><source>Zoom &amp;out</source><translatorcomment>Tracker normalized: tracker_zh_TW.properties TrackPlottingPanel.Popup.MenuItem.ZoomOut</translatorcomment><translation type="unfinished">拉遠縮小檢視(&amp;O)</translation></message>
     <message><source>&amp;Fit video to view</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">使影片符合檢視大小(&amp;F)</translation></message>
     <message><source>&amp;Tracks</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">軌跡(&amp;T)</translation></message>
-    <message><source>New &amp;point mass</source><translatorcomment>Tracker normalized: tracker_zh_TW.properties TActions.Dialog.NewPointMass.Title</translatorcomment><translation>新質點(&amp;P)</translation></message>
+    <message><source>New &amp;point mass</source><translatorcomment>Tracker normalized: tracker_zh_TW.properties TActions.Dialog.NewPointMass.Title</translatorcomment><translation type="unfinished">新質點(&amp;P)</translation></message>
     <message><source>New &amp;vector</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">新向量(&amp;V)</translation></message>
     <message><source>&amp;Rename track…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">重新命名軌跡(&amp;R)…</translation></message>
     <message><source>Set &amp;mass…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">設定質量(&amp;M)…</translation></message>
@@ -109,7 +109,7 @@
     <message><source>Next frame</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">下一個影格</translation></message>
     <message><source>Clip position</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">剪輯位置</translation></message>
     <message><source>Track</source><translatorcomment>Tracker exact: tracker_zh_TW.properties TMenuBar.Menu.Tracks</translatorcomment><translation>軌跡</translation></message>
-    <message><source>Frame</source><translatorcomment>Tracker exact: tracker_zh_TW.properties TMenuBar.MenuItem.CopyFrame</translatorcomment><translation>影格</translation></message>
+    <message><source>Frame</source><translatorcomment>Tracker exact: tracker_zh_TW.properties AutoTracker.Info.Frame</translatorcomment><translation>影格</translation></message>
     <message><source>Image x (px)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">影像 x (px)</translation></message>
     <message><source>Image y (px)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">影像 y (px)</translation></message>
     <message><source>World x</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">世界座標 x</translation></message>
@@ -191,7 +191,7 @@
     <message><source>Click the second calibration endpoint.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">請按一下第二個校正端點。</translation></message>
     <message><source>Choose a different calibration endpoint.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">請選擇另一個校正端點。</translation></message>
     <message><source>Known distance</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">已知距離</translation></message>
-    <message><source>Length unit</source><translatorcomment>Tracker normalized: tracker_zh_TW.properties TapeMeasure.Dialog.ChangeLengthUnit.Title</translatorcomment><translation>長度單位</translation></message>
+    <message><source>Length unit</source><translatorcomment>Tracker normalized: tracker_zh_TW.properties TapeMeasure.Dialog.ChangeLengthUnit.Title</translatorcomment><translation type="unfinished">長度單位</translation></message>
     <message><source>Calibration updated.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">校正已更新。</translation></message>
     <message><source>Could not apply this calibration.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">無法套用此校正。</translation></message>
     <message><source>Save MoTrack project</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">儲存 MoTrack 專案</translation></message>

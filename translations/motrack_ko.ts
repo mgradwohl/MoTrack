@@ -83,17 +83,17 @@
     <message><source>&amp;Redo</source><translatorcomment>Tracker exact: tracker_ko.properties TMenuBar.MenuItem.Redo</translatorcomment><translation>다시 실행(&amp;R)</translation></message>
     <message><source>&amp;View</source><translatorcomment>Tracker exact: video_ko.properties VideoFrame.MenuItem.View</translatorcomment><translation>보기(&amp;V)</translation></message>
     <message><source>Show coordinate &amp;axes</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">좌표축 표시(&amp;A)</translation></message>
-    <message><source>Zoom &amp;in</source><translatorcomment>Tracker normalized: tracker_ko.properties MainTView.Popup.MenuItem.ZoomIn</translatorcomment><translation>확대(&amp;I)</translation></message>
-    <message><source>Zoom &amp;out</source><translatorcomment>Tracker normalized: tracker_ko.properties MainTView.Popup.MenuItem.ZoomOut</translatorcomment><translation>축소(&amp;O)</translation></message>
+    <message><source>Zoom &amp;in</source><translatorcomment>Tracker normalized: tracker_ko.properties MainTView.Popup.MenuItem.ZoomIn</translatorcomment><translation type="unfinished">확대(&amp;I)</translation></message>
+    <message><source>Zoom &amp;out</source><translatorcomment>Tracker normalized: tracker_ko.properties MainTView.Popup.MenuItem.ZoomOut</translatorcomment><translation type="unfinished">축소(&amp;O)</translation></message>
     <message><source>&amp;Fit video to view</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">비디오를 보기에 맞추기(&amp;F)</translation></message>
     <message><source>&amp;Tracks</source><translatorcomment>Tracker exact: tracker_ko.properties Undo.Description.Tracks</translatorcomment><translation>트랙(&amp;T)</translation></message>
-    <message><source>New &amp;point mass</source><translatorcomment>Tracker normalized: tracker_ko.properties TActions.Dialog.NewPointMass.Title</translatorcomment><translation>새 질점(&amp;P)</translation></message>
+    <message><source>New &amp;point mass</source><translatorcomment>Tracker normalized: tracker_ko.properties TActions.Dialog.NewPointMass.Title</translatorcomment><translation type="unfinished">새 질점(&amp;P)</translation></message>
     <message><source>New &amp;vector</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">새 벡터(&amp;V)</translation></message>
     <message><source>&amp;Rename track…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">트랙 이름 바꾸기(&amp;R)…</translation></message>
     <message><source>Set &amp;mass…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">질량 설정(&amp;M)…</translation></message>
     <message><source>&amp;Delete track</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">트랙 삭제(&amp;D)</translation></message>
     <message><source>Delete mark on this &amp;frame</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">이 프레임의 표시 삭제(&amp;F)</translation></message>
-    <message><source>&amp;AutoTracker</source><translatorcomment>Tracker normalized: tracker_ko.properties PointMass.MenuItem.Autotrack</translatorcomment><translation>자동 찾기(&amp;A)</translation></message>
+    <message><source>&amp;AutoTracker</source><translatorcomment>Tracker normalized: tracker_ko.properties PointMass.MenuItem.Autotrack</translatorcomment><translation type="unfinished">자동 찾기(&amp;A)</translation></message>
     <message><source>Repeat previous mark</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">이전 표시 반복</translation></message>
     <message><source>T&amp;ools</source><translatorcomment>Tracker exact: tracker_ko.properties TMenuBar.Menu.Tools</translatorcomment><translation>도구(&amp;O)</translation></message>
     <message><source>Measure &amp;distance</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">거리 측정(&amp;D)</translation></message>
@@ -191,7 +191,7 @@
     <message><source>Click the second calibration endpoint.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">두 번째 교정 끝점을 클릭하십시오.</translation></message>
     <message><source>Choose a different calibration endpoint.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">다른 교정 끝점을 선택하십시오.</translation></message>
     <message><source>Known distance</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">알려진 거리</translation></message>
-    <message><source>Length unit</source><translatorcomment>Tracker normalized: tracker_ko.properties TapeMeasure.Dialog.ChangeLengthUnit.Title</translatorcomment><translation>길이 단위</translation></message>
+    <message><source>Length unit</source><translatorcomment>Tracker normalized: tracker_ko.properties TapeMeasure.Dialog.ChangeLengthUnit.Title</translatorcomment><translation type="unfinished">길이 단위</translation></message>
     <message><source>Calibration updated.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">교정이 업데이트되었습니다.</translation></message>
     <message><source>Could not apply this calibration.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">이 교정을 적용할 수 없습니다.</translation></message>
     <message><source>Save MoTrack project</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">MoTrack 프로젝트 저장</translation></message>

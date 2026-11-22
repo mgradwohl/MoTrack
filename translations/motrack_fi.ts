@@ -83,8 +83,8 @@
     <message><source>&amp;Redo</source><translatorcomment>Tracker exact: tracker_fi.properties TMenuBar.MenuItem.Redo (3 differing Tracker translations)</translatorcomment><translation>&amp;Tee uudelleen</translation></message>
     <message><source>&amp;View</source><translatorcomment>Tracker exact: tracker_fi.properties TFrame.View.Unknown</translatorcomment><translation>&amp;Näytä</translation></message>
     <message><source>Show coordinate &amp;axes</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Näytä koordinaatti&amp;akselit</translation></message>
-    <message><source>Zoom &amp;in</source><translatorcomment>Tracker normalized: tracker_fi.properties MainTView.Popup.MenuItem.ZoomIn</translatorcomment><translation>&amp;Suurenna</translation></message>
-    <message><source>Zoom &amp;out</source><translatorcomment>Tracker normalized: tracker_fi.properties MainTView.Popup.MenuItem.ZoomOut</translatorcomment><translation>&amp;Pienennä</translation></message>
+    <message><source>Zoom &amp;in</source><translatorcomment>Tracker normalized: tracker_fi.properties MainTView.Popup.MenuItem.ZoomIn</translatorcomment><translation type="unfinished">&amp;Suurenna</translation></message>
+    <message><source>Zoom &amp;out</source><translatorcomment>Tracker normalized: tracker_fi.properties MainTView.Popup.MenuItem.ZoomOut</translatorcomment><translation type="unfinished">&amp;Pienennä</translation></message>
     <message><source>&amp;Fit video to view</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Sovita &amp;video näkymään</translation></message>
     <message><source>&amp;Tracks</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Mitta&amp;sarjat</translation></message>
     <message><source>New &amp;point mass</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Uusi &amp;massapiste</translation></message>
@@ -93,7 +93,7 @@
     <message><source>Set &amp;mass…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Aseta ma&amp;ssa…</translation></message>
     <message><source>&amp;Delete track</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">&amp;Poista mittasarja</translation></message>
     <message><source>Delete mark on this &amp;frame</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Poista merkintä tästä &amp;kehyksestä</translation></message>
-    <message><source>&amp;AutoTracker</source><translatorcomment>Tracker normalized: tracker_fi.properties PointMass.MenuItem.Autotrack</translatorcomment><translation>&amp;Autotrack</translation></message>
+    <message><source>&amp;AutoTracker</source><translatorcomment>Tracker normalized: tracker_fi.properties PointMass.MenuItem.Autotrack</translatorcomment><translation type="unfinished">&amp;Autotrack</translation></message>
     <message><source>Repeat previous mark</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Toista edellinen merkintä</translation></message>
     <message><source>T&amp;ools</source><translatorcomment>Tracker exact: tracker_fi.properties TMenuBar.Menu.Tools</translatorcomment><translation>T&amp;yövälineet</translation></message>
     <message><source>Measure &amp;distance</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Mittaa &amp;etäisyys</translation></message>

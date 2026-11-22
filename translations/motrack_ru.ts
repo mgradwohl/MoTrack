@@ -83,11 +83,11 @@
     <message><source>&amp;Redo</source><translatorcomment>Tracker exact: tracker_ru.properties TMenuBar.MenuItem.Redo</translatorcomment><translation>&amp;Повторить</translation></message>
     <message><source>&amp;View</source><translatorcomment>Tracker exact: tracker_ru.properties TFrame.View.Unknown (2 differing Tracker translations)</translatorcomment><translation type="unfinished">&amp;Просмотр</translation></message>
     <message><source>Show coordinate &amp;axes</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Показать оси &amp;координат</translation></message>
-    <message><source>Zoom &amp;in</source><translatorcomment>Tracker normalized: tracker_ru.properties MainTView.Popup.MenuItem.ZoomIn (2 differing Tracker translations)</translatorcomment><translation>&amp;Приблизить</translation></message>
-    <message><source>Zoom &amp;out</source><translatorcomment>Tracker normalized: tracker_ru.properties MainTView.Popup.MenuItem.ZoomOut (2 differing Tracker translations)</translatorcomment><translation>&amp;Отдалить</translation></message>
+    <message><source>Zoom &amp;in</source><translatorcomment>Tracker normalized: tracker_ru.properties MainTView.Popup.MenuItem.ZoomIn (2 differing Tracker translations)</translatorcomment><translation type="unfinished">&amp;Приблизить</translation></message>
+    <message><source>Zoom &amp;out</source><translatorcomment>Tracker normalized: tracker_ru.properties MainTView.Popup.MenuItem.ZoomOut (2 differing Tracker translations)</translatorcomment><translation type="unfinished">&amp;Отдалить</translation></message>
     <message><source>&amp;Fit video to view</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">&amp;Вписать видео в окно</translation></message>
     <message><source>&amp;Tracks</source><translatorcomment>Tracker exact: tracker_ru.properties Undo.Description.Tracks</translatorcomment><translation>&amp;Треки</translation></message>
-    <message><source>New &amp;point mass</source><translatorcomment>Tracker normalized: tracker_ru.properties TActions.Dialog.NewPointMass.Title</translatorcomment><translation>&amp;Новая точечная масса</translation></message>
+    <message><source>New &amp;point mass</source><translatorcomment>Tracker normalized: tracker_ru.properties TActions.Dialog.NewPointMass.Title</translatorcomment><translation type="unfinished">&amp;Новая точечная масса</translation></message>
     <message><source>New &amp;vector</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Новый &amp;вектор</translation></message>
     <message><source>&amp;Rename track…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">&amp;Переименовать трек…</translation></message>
     <message><source>Set &amp;mass…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Задать &amp;массу…</translation></message>
@@ -99,7 +99,7 @@
     <message><source>Measure &amp;distance</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Измерить &amp;расстояние</translation></message>
     <message><source>Measure &amp;angle</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Измерить &amp;угол</translation></message>
     <message><source>Project</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Проект</translation></message>
-    <message><source>Clip Settings</source><translatorcomment>Tracker normalized: tracker_ru.properties ExportVideoDialog.Label.ClipSettings</translatorcomment><translation>Настройки клипа</translation></message>
+    <message><source>Clip Settings</source><translatorcomment>Tracker normalized: tracker_ru.properties ExportVideoDialog.Label.ClipSettings</translatorcomment><translation type="unfinished">Настройки клипа</translation></message>
     <message><source>Calibration Stick</source><translatorcomment>Tracker exact: tracker_ru.properties Stick.Name</translatorcomment><translation>Калибровочная палка</translation></message>
     <message><source>Set Axes</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Задать оси</translation></message>
     <message><source>Selected track</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Выбранный трек</translation></message>
@@ -109,7 +109,7 @@
     <message><source>Next frame</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Следующий кадр</translation></message>
     <message><source>Clip position</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Позиция в клипе</translation></message>
     <message><source>Track</source><translatorcomment>Tracker exact: tracker_ru.properties AutoTracker.Label.Track (2 differing Tracker translations)</translatorcomment><translation type="unfinished">Трек</translation></message>
-    <message><source>Frame</source><translatorcomment>Tracker exact: tracker_ru.properties AutoTracker.Info.Frame (2 differing Tracker translations)</translatorcomment><translation type="unfinished">Кадр</translation></message>
+    <message><source>Frame</source><translatorcomment>Tracker exact: tracker_ru.properties AutoTracker.Info.Frame</translatorcomment><translation>Кадр</translation></message>
     <message><source>Image x (px)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">x на изображении (px)</translation></message>
     <message><source>Image y (px)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">y на изображении (px)</translation></message>
     <message><source>World x</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">x в мировых координатах</translation></message>
