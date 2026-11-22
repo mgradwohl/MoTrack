@@ -463,18 +463,12 @@ TEST(TemplateMatcher, SearchesCanBeCancelled)
     const auto frame = blobFrame(60, 40, 30, 20);
     const auto matcher = keyMatcher(frame, circle(30, 20, 5));
     int polls = 0;
-    const MatchOptions options{.cancelled = [&polls]
-                               {
-                                   return ++polls > 3;
-                               }};
+    const MatchOptions options{.cancelled = [&polls] { return ++polls > 3; }};
     const auto result = motrack::science::findMatch(matcher.matchTemplate(), frame, rect(10, 10, 30, 20), options);
     EXPECT_EQ(result.status, MatchStatus::Cancelled);
     EXPECT_EQ(polls, 4);
     EXPECT_EQ(motrack::science::classifyMatch(result), MatchQuality::None);
-    const MatchOptions stop{.cancelled = []
-                            {
-                                return true;
-                            }};
+    const MatchOptions stop{.cancelled = [] { return true; }};
     const SearchLine line{.x0 = 30, .y0 = 20, .angle = 0.0};
     EXPECT_EQ(motrack::science::findMatchAlongLine(matcher.matchTemplate(), frame, rect(10, 10, 30, 20), line, stop).status,
               MatchStatus::Cancelled);
