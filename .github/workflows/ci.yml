@@ -155,6 +155,10 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: python tools/corpus.py xml-oracle --probe build/coverage/motrack_corpus_probe --java "$JAVA_HOME_17_X64/bin/java"
+      - name: Check library collection model against Java
+        if: runner.os == 'Linux'
+        shell: bash
+        run: python tools/corpus.py library-oracle --probe build/coverage/motrack_corpus_probe --java "$JAVA_HOME_17_X64/bin/java"
       - name: Check edited Tracker round trip
         if: runner.os == 'Linux'
         shell: bash

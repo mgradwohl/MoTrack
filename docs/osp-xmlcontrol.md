@@ -99,7 +99,7 @@ their own, LF, CRLF and CR line endings. The probe checks it for every document 
 reader (UTF-8) and `motrack_corpus_probe --osp-dump in.xml out.json` dumps MoTrack's parse in the same
 schema. `python tools/corpus.py xml-oracle --java JAVA --probe PROBE [--cache DIR] [--reports DIR]` compares
 the two for every manifest case file and XML archive member (including fetched real experiments), the
-committed fixtures, and the synthetic reader fixtures in [`tests/fixtures/osp`](../tests/fixtures/osp) in LF,
+committed fixtures (including the [library documents](library-collections.md)), and the synthetic reader fixtures in [`tests/fixtures/osp`](../tests/fixtures/osp) in LF,
 CRLF, CR and BOM+CRLF variants. It runs on Linux CI after the build. Mismatching dumps and a `summary.json`
 are written to the report directory.
 

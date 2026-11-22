@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="org.opensourcephysics.tools.LibraryCollection">
+    <property name="name" type="string">Motion Experiments</property>
+    <property name="description" type="string"><![CDATA[<p>Synthetic collection for MoTrack's library tests & oracles.</p>]]></property>
+    <property name="html_path" type="string">html/motion_intro.html</property>
+    <property name="base_path" type="string">https://example.org/library/CAB/</property>
+    <property name="metadata" type="array" class="[[Ljava.lang.String;">
+        <property name="[0]" type="array" class="[Ljava.lang.String;">
+            <property name="[0]" type="string">Keywords</property>
+            <property name="[1]" type="string">motion, kinematics</property>
+        </property>
+        <property name="[1]" type="array" class="[Ljava.lang.String;">
+            <property name="[0]" type="string">author</property>
+            <property name="[1]" type="string">A. Example</property>
+        </property>
+        <property name="[2]" type="array" class="[Ljava.lang.String;">
+            <property name="[0]" type="string">Generator</property>
+            <property name="[1]" type="string">An HTML editor</property>
+        </property>
+        <property name="[3]" type="array" class="[Ljava.lang.String;">
+            <property name="[0]" type="string">AUTHOR</property>
+            <property name="[1]" type="string">B. Example</property>
+        </property>
+        <property name="[4]" type="array" class="[Ljava.lang.String;">
+            <property name="[0]" type="string">Author</property>
+            <property name="[1]" type="string">A. Example</property>
+        </property>
+    </property>
+    <property name="resources" type="array" class="[Lorg.opensourcephysics.tools.LibraryResource;">
+        <property name="[0]" type="object">
+        <object class="org.opensourcephysics.tools.LibraryCollection">
+            <property name="name" type="string">Free Fall</property>
+            <property name="html_path" type="string">free_fall.html</property>
+            <property name="base_path" type="string">https://example.org/library/CAB/experiments/</property>
+            <property name="type" type="string">Collection</property>
+            <property name="resources" type="array" class="[Lorg.opensourcephysics.tools.LibraryResource;">
+                <property name="[0]" type="object">
+                <object class="org.opensourcephysics.tools.LibraryResource">
+                    <property name="name" type="string">Ball Drop</property>
+                    <property name="html_path" type="string">ball_drop_info.html</property>
+                    <property name="target" type="string">BallDrop.trz</property>
+                    <property name="type" type="string">Tracker</property>
+                </object>
+                </property>
+                <property name="[1]" type="object">
+                <object class="org.opensourcephysics.tools.LibraryResource">
+                    <property name="name" type="string">Ball Drop Video</property>
+                    <property name="base_path" type="string">https://example.org/library/CAB/videos</property>
+                    <property name="target" type="string">BallDrop.mp4</property>
+                    <property name="type" type="string">Video</property>
+                </object>
+                </property>
+                <property name="[2]" type="object">
+                <object class="org.opensourcephysics.tools.LibraryResource">
+                    <property name="name" type="string">Page inside the archive</property>
+                    <property name="html_path" type="string">pendulum.trz!/html/pendulum_info.html</property>
+                    <property name="target" type="string">pendulum.trz</property>
+                    <property name="type" type="string">Tracker</property>
+                </object>
+                </property>
+                <property name="[3]" type="object">
+                <object class="org.opensourcephysics.tools.LibraryResource">
+                    <property name="name" type="string">Mixed-case archive</property>
+                    <property name="html_path" type="string">Ramp.TRZ!/ramp_info.html</property>
+                    <property name="target" type="string">Ramp.TRZ</property>
+                    <property name="type" type="string">Tracker</property>
+                </object>
+                </property>
+                <property name="[4]" type="object">
+                <object class="org.opensourcephysics.tools.LibraryResource">
+                    <property name="name" type="string">Up two levels</property>
+                    <property name="html_path" type="string">./../../notes/drop.html</property>
+                    <property name="target" type="string">../../shared/drop.zip</property>
+                    <property name="type" type="string">Tracker</property>
+                </object>
+                </property>
+            </property>
+        </object>
+        </property>
+        <property name="[1]" type="object">
+        <object class="org.opensourcephysics.tools.LibraryCollection">
+            <property name="name" type="string">Local copies</property>
+            <property name="base_path" type="string">C:\Users\Student\Documents\Tracker Library</property>
+            <property name="resources" type="array" class="[Lorg.opensourcephysics.tools.LibraryResource;">
+                <property name="[0]" type="object">
+                <object class="org.opensourcephysics.tools.LibraryResource">
+                    <property name="name" type="string">Chute libre (é)</property>
+                    <property name="target" type="string">..\Expériences\chute libre é.trk</property>
+                    <property name="type" type="string">Tracker</property>
+                </object>
+                </property>
+                <property name="[1]" type="object">
+                <object class="org.opensourcephysics.tools.LibraryResource">
+                    <property name="name" type="string">Absolute Windows path</property>
+                    <property name="target" type="string">D:\Data\run 1.trk</property>
+                    <property name="type" type="string">Tracker</property>
+                </object>
+                </property>
+                <property name="[2]" type="object">
+                <object class="org.opensourcephysics.tools.LibraryResource">
+                    <property name="name" type="string">UNC share</property>
+                    <property name="target" type="string">\\server\share\lab.trz</property>
+                </object>
+                </property>
+                <property name="[3]" type="object">
+                <object class="org.opensourcephysics.tools.LibraryResource">
+                    <property name="name" type="string">File URL</property>
+                    <property name="target" type="string">file:/Users/student/Tracker%20Library/run.trk</property>
+                    <property name="type" type="string">Tracker</property>
+                    <property name="properties" type="array" class="[[Ljava.lang.String;">
+                        <property name="[0]" type="array" class="[Ljava.lang.String;">
+                            <property name="[0]" type="string">download_filename</property>
+                            <property name="[1]" type="string">run.trk</property>
+                        </property>
+                        <property name="[1]" type="array" class="[Ljava.lang.String;">
+                            <property name="[0]" type="string">custom</property>
+                            <property name="[1]" type="string"><![CDATA[a "quoted" <value>]]></property>
+                        </property>
+                    </property>
+                </object>
+                </property>
+                <property name="[4]" type="object">
+                <object class="org.opensourcephysics.tools.LibraryResource">
+                    <property name="name" type="string">Data table</property>
+                    <property name="target" type="string">tables/data.txt</property>
+                    <property name="type" type="string">Data</property>
+                </object>
+                </property>
+            </property>
+        </object>
+        </property>
+        <property name="[2]" type="object">
+        <object class="org.opensourcephysics.tools.LibraryCollection">
+            <property name="name" type="string">ComPADRE subject</property>
+            <property name="base_path" type="string"><![CDATA[https://www.compadre.org/osp/services/REST/osp_tracker.cfm?OSPType=Tracker&OSPPrimary=Subject]]></property>
+            <property name="target" type="string"><![CDATA[&OSPSubject=223&OSPSubjectDetail=241]]></property>
+        </object>
+        </property>
+        <property name="[3]" type="object">
+        <object class="org.opensourcephysics.tools.LibraryResource">
+            <property name="name" type="string">About this collection</property>
+            <property name="html_path" type="string">about.html</property>
+        </object>
+        </property>
+        <property name="[4]" type="object">
+        <object class="org.opensourcephysics.tools.LibraryResource">
+            <property name="name" type="string">Typed as a collection</property>
+            <property name="target" type="string">https://example.org/library/CAB/more.xml</property>
+            <property name="type" type="string">Collection</property>
+        </object>
+        </property>
+        <property name="[5]" type="object">
+        <object class="org.opensourcephysics.tools.LibraryResource">
+            <property name="name" type="string"></property>
+            <property name="target" type="string">untitled.pdf</property>
+            <property name="type" type="string">PDF</property>
+        </object>
+        </property>
+    </property>
+</object>

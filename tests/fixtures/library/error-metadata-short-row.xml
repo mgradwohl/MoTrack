@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="org.opensourcephysics.tools.LibraryCollection">
+    <property name="name" type="string">Metadata row without a value</property>
+    <property name="metadata" type="array" class="[[Ljava.lang.String;">
+        <property name="[0]" type="array" class="[Ljava.lang.String;">
+            <property name="[0]" type="string">Author</property>
+        </property>
+    </property>
+</object>

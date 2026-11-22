@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<object class="org.opensourcephysics.tools.LibraryCollection">
+    <property name="name" type="string">Written as an ArrayList</property>
+    <property name="resources" type="collection" class="java.util.ArrayList">
+        <property name="item" type="object">
+        <object class="org.opensourcephysics.tools.LibraryResource">
+            <property name="name" type="string">First</property>
+            <property name="target" type="string">first.trk</property>
+            <property name="type" type="string">Tracker</property>
+        </object>
+        </property>
+        <property name="item" type="object">
+        <object class="org.opensourcephysics.tools.LibraryResource">
+            <property name="name" type="string">Second</property>
+            <property name="target" type="string">second.trz</property>
+            <property name="type" type="string">Tracker</property>
+        </object>
+        </property>
+    </property>
+</object>

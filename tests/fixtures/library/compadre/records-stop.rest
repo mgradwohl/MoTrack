@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ComPADREOSPTrackerMirroringService xmlns="https://www.compadre.org/osp/services/REST/">
+	<records>
+		<record>
+			<file-identifier>1</file-identifier>
+			<title>Before the malformed record</title>
+			<contributors/>
+			<osp-type>Tracker Video Model</osp-type>
+			<attached-document>
+				<file-identifier>1</file-identifier>
+				<file-type>Main</file-type>
+				<file-name file-size="100">before.trz</file-name>
+				<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=1&amp;TrackerSet=1</download-url>
+			</attached-document>
+		</record>
+		<record>
+			<title>Missing file identifier: Tracker stops here</title>
+			<contributors/>
+			<osp-type>Tracker Video Model</osp-type>
+			<attached-document>
+				<file-identifier>2</file-identifier>
+				<file-type>Main</file-type>
+				<file-name>missing-size.trz</file-name>
+				<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=2&amp;TrackerSet=1</download-url>
+			</attached-document>
+		</record>
+		<record>
+			<file-identifier>3</file-identifier>
+			<title>After the malformed record</title>
+			<contributors/>
+			<osp-type>Tracker Video Model</osp-type>
+			<attached-document>
+				<file-identifier>3</file-identifier>
+				<file-type>Main</file-type>
+				<file-name file-size="300">after.trz</file-name>
+				<download-url>https://www.compadre.org/osp/document/ServeFile.cfm?ID=3&amp;TrackerSet=1</download-url>
+			</attached-document>
+		</record>
+	</records>
+</ComPADREOSPTrackerMirroringService>
