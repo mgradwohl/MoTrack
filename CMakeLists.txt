@@ -422,6 +422,19 @@ if(BUILD_TESTING)
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/point-mass.trk")
     endif()
 
+    # Windows loads Qt's and FFmpeg's DLLs from PATH. Prepend their directories for every test, so CTest also
+    # works outside an activated developer shell: a missing DLL otherwise stops the run at a modal loader
+    # dialog ("Qt6Guid.dll was not found") instead of failing the test. Child processes the tests start inherit it.
+    if(WIN32)
+        get_property(motrack_all_tests DIRECTORY PROPERTY TESTS)
+        set(motrack_test_path "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+        if(MOTRACK_FFMPEG_ROOT)
+            file(TO_CMAKE_PATH "${MOTRACK_FFMPEG_ROOT}/bin" motrack_ffmpeg_bin)
+            list(APPEND motrack_test_path "PATH=path_list_prepend:${motrack_ffmpeg_bin}")
+        endif()
+        set_property(TEST ${motrack_all_tests} APPEND PROPERTY ENVIRONMENT_MODIFICATION ${motrack_test_path})
+    endif()
+
     if(MOTRACK_COVERAGE)
         file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/coverage-objects.txt"
             CONTENT "$<TARGET_FILE:motrack>\n$<TARGET_FILE:motrack_tests>\n$<TARGET_FILE:motrack_workspace_tests>\n$<TARGET_FILE:motrack_media_tests>\n$<TARGET_FILE:motrack_matching_tests>\n$<TARGET_FILE:motrack_locale_tests>\n")
