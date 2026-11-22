@@ -293,9 +293,14 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
                 addDocuments(documents);
                 const auto notices = reportArchiveLimits(documents, unreadable);
                 // A requested file's notices join its batch summary; the batch's next open replaces the status message.
+                // Unreadable member projects are an incomplete import; skipped or omitted members only inform.
                 if (requested && m_Requested)
-                    for (const auto& notice : notices)
-                        m_Requested->problems.push_back(tr("%1: %2").arg(m_Requested->current, notice));
+                {
+                    for (const auto& notice : notices.limits)
+                        m_Requested->notices.push_back(tr("%1: %2").arg(m_Requested->current, notice));
+                    if (!notices.unreadable.isEmpty())
+                        m_Requested->problems.push_back(tr("%1: %2").arg(m_Requested->current, notices.unreadable));
+                }
             });
     connect(m_Context.get(),
             &WorkspaceContext::inputFailed,
@@ -468,6 +473,21 @@ void WorkspaceWindow::continueRequestedFiles()
     if (!m_Requested || m_Busy || m_Requested->check != 0 || m_Requested->request)
         return;
     auto& batch = *m_Requested;
+    if (batch.select)
+    {
+        const auto [source, path] = *batch.select;
+        batch.select.reset();
+        auto& session = m_Context->session();
+        const auto sources = session.sources();
+        if (std::ranges::find(sources, source) != sources.end() && !session.sourceDocuments(source).empty())
+        {
+            const auto documents = session.sourceDocuments(source);
+            const auto visible = std::ranges::find_if(documents, [this](QUuid document) { return m_Pages.contains(document); });
+            (void)showDocument(visible != documents.end() ? *visible : documents.front());
+        }
+        else
+            batch.ready = path; // Released since the worker looked; open it again.
+    }
     if (batch.ready)
     {
         if (m_Context->canOpen()) // Otherwise menu opens hold both slots; their completion resumes the batch.
@@ -485,16 +505,17 @@ void WorkspaceWindow::continueRequestedFiles()
     }
     auto finished = std::move(batch);
     m_Requested.reset();
-    if (!finished.problems.isEmpty() && isVisible())
+    if (const auto all = finished.problems + finished.notices; !all.isEmpty() && isVisible())
     {
         constexpr qsizetype MAX_LISTED = 20;
-        auto listed = finished.problems.first(std::min(finished.problems.size(), MAX_LISTED));
-        if (const auto more = static_cast<int>(finished.problems.size() - MAX_LISTED); more > 0)
+        auto listed = all.first(std::min(all.size(), MAX_LISTED));
+        if (const auto more = static_cast<int>(all.size() - MAX_LISTED); more > 0)
             listed.push_back(tr("…and %n more problem(s).", nullptr, more));
         // Window-modal without a nested event loop: later requests and completions continue independently.
         auto* box = new QMessageBox(QMessageBox::Warning,
                                     tr("Open files"),
-                                    tr("Some requested files could not be opened, or opened with limits."),
+                                    finished.problems.isEmpty() ? tr("Some requested files opened with limits.")
+                                                                : tr("Some requested files could not be opened, or opened with limits."),
                                     QMessageBox::Ok,
                                     this);
         box->setObjectName("workspaceRequestedFileProblems");
@@ -502,16 +523,20 @@ void WorkspaceWindow::continueRequestedFiles()
         box->setAttribute(Qt::WA_DeleteOnClose);
         box->open();
     }
-    Q_EMIT filesOpened(finished.problems);
+    Q_EMIT filesOpened(finished.problems, finished.notices);
 }
 
 void WorkspaceWindow::checkNextRequestedFile(RequestedBatch& batch)
 {
     const auto path = batch.files.takeFirst();
     batch.current = QFileInfo(path).fileName();
+    // A source owns the file it was opened from and its save destinations, which Save As and paired saves set.
     QList<std::pair<QUuid, QString>> sources;
-    for (const auto source : m_Context->session().sources())
-        sources.emplace_back(source, m_Context->session().sourcePath(source));
+    const auto& session = m_Context->session();
+    for (const auto source : session.sources())
+        for (const auto& owned : {session.sourcePath(source), session.nativeSavePath(source), session.standardSavePath(source)})
+            if (!owned.isEmpty())
+                sources.emplace_back(source, owned);
     batch.check = ++m_LastCheck;
     // A sleeping network share can block any file query, so the worker answers and the window acts on it.
     auto* watcher = new QFutureWatcher<RequestedFileCheck>(this);
@@ -536,8 +561,6 @@ void WorkspaceWindow::applyRequestedFileCheck(std::uint64_t check, const QString
     auto& batch = *m_Requested;
     batch.check = 0;
     const auto shown = QDir::toNativeSeparators(path);
-    auto& session = m_Context->session();
-    const auto sources = session.sources();
     switch (result.state)
     {
     case RequestedFileState::Missing:
@@ -549,16 +572,9 @@ void WorkspaceWindow::applyRequestedFileCheck(std::uint64_t check, const QString
     case RequestedFileState::Repeated:
         break;
     case RequestedFileState::AlreadyOpen:
-        batch.started.push_back(path);
         // Another open of the same file would let a later save silently replace the earlier one (#255).
-        if (std::ranges::find(sources, result.source) != sources.end() && !session.sourceDocuments(result.source).empty())
-        {
-            const auto documents = session.sourceDocuments(result.source);
-            const auto visible = std::ranges::find_if(documents, [this](QUuid document) { return m_Pages.contains(document); });
-            (void)showDocument(visible != documents.end() ? *visible : documents.front());
-        }
-        else
-            batch.ready = path; // Released while the worker looked; open it again.
+        batch.started.push_back(path);
+        batch.select = std::pair(result.source, path);
         break;
     case RequestedFileState::Open:
         batch.started.push_back(path);
@@ -595,6 +611,7 @@ void WorkspaceWindow::stopRequestedFiles()
     const auto stopped = batch.files.size() + (batch.ready ? 1 : 0) + (batch.check != 0 ? 1 : 0);
     batch.files.clear();
     batch.ready.reset();
+    batch.select.reset();
     batch.check = 0;
     if (stopped > 0)
         batch.problems.push_back(tr("Closing the window stopped %n requested file(s) from opening.", nullptr, static_cast<int>(stopped)));
@@ -681,11 +698,13 @@ void WorkspaceWindow::dropEvent(QDropEvent* event)
         openFiles(std::move(dropped));
 }
 
-QStringList WorkspaceWindow::reportArchiveLimits(const QList<QUuid>& documents, const QList<UnreadableProject>& unreadable)
+WorkspaceWindow::ArchiveNotices WorkspaceWindow::reportArchiveLimits(const QList<QUuid>& documents,
+                                                                     const QList<UnreadableProject>& unreadable)
 {
     if (documents.isEmpty())
         return {};
-    QStringList notices;
+    ArchiveNotices shown;
+    auto& notices = shown.limits;
     if (const auto& archive = m_Context->session().document(documents.front()).archivePayload)
     {
         const auto skipped = static_cast<int>(archive->skippedMembers().size());
@@ -701,15 +720,18 @@ QStringList WorkspaceWindow::reportArchiveLimits(const QList<QUuid>& documents, 
     }
     // Name one project so a large archive cannot flood the status bar; the Experiments menu lists them all.
     if (unreadable.size() == 1)
-        notices.push_back(tr("Could not read the Tracker project %1; see the Experiments menu.").arg(unreadable.front().member));
+        shown.unreadable = tr("Could not read the Tracker project %1; see the Experiments menu.").arg(unreadable.front().member);
     else if (unreadable.size() > 1)
-        notices.push_back(tr("Could not read %1 and %n other Tracker project(s); see the Experiments menu.",
-                             nullptr,
-                             static_cast<int>(unreadable.size() - 1))
-                              .arg(unreadable.front().member));
-    if (!notices.isEmpty())
-        statusBar()->showMessage(notices.join(' '));
-    return notices;
+        shown.unreadable = tr("Could not read %1 and %n other Tracker project(s); see the Experiments menu.",
+                              nullptr,
+                              static_cast<int>(unreadable.size() - 1))
+                               .arg(unreadable.front().member);
+    auto message = notices;
+    if (!shown.unreadable.isEmpty())
+        message.push_back(shown.unreadable);
+    if (!message.isEmpty())
+        statusBar()->showMessage(message.join(' '));
+    return shown;
 }
 
 std::optional<QUuid> WorkspaceWindow::currentDocument() const

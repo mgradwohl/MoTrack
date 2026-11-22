@@ -73,6 +73,7 @@
     <message><source>Only local files can be dropped here. Download a linked file first.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Chỉ có thể thả tệp cục bộ vào đây. Hãy tải tệp được liên kết xuống trước.</translation></message>
     <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>Thả để mở %n tệp</numerusform></translation></message>
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>Sẽ bỏ qua %n liên kết tới tệp không cục bộ.</numerusform></translation></message>
+    <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Một số tệp được yêu cầu đã được mở với giới hạn.</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>

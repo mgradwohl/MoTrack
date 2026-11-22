@@ -73,6 +73,7 @@
     <message><source>Only local files can be dropped here. Download a linked file first.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Сюди можна перетягувати лише локальні файли. Спершу завантажте файл за посиланням.</translation></message>
     <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>Відпустіть, щоб відкрити %n файл</numerusform><numerusform>Відпустіть, щоб відкрити %n файли</numerusform><numerusform>Відпустіть, щоб відкрити %n файлів</numerusform></translation></message>
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>%n посилання на нелокальні файли буде пропущено.</numerusform><numerusform>%n посилання на нелокальні файли буде пропущено.</numerusform><numerusform>%n посилань на нелокальні файли буде пропущено.</numerusform></translation></message>
+    <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Деякі запитані файли відкрито з обмеженнями.</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>

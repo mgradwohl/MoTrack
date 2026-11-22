@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <utility>
 
 class QAction;
 class QLabel;
@@ -56,8 +57,10 @@ class WorkspaceWindow final : public QMainWindow
     void openFiles(RequestedFiles requested);
 
   Q_SIGNALS:
-    /// Every file of the batch has opened, failed or been skipped. Problems are user-visible sentences.
-    void filesOpened(const QStringList& problems);
+    /// Every file of the batch has opened, failed or been skipped. Problems are files that did not open or opened
+    /// incompletely (an unreadable archive member); notices are limits of files that opened, such as skipped
+    /// unsafe archive members. Both are user-visible sentences.
+    void filesOpened(const QStringList& problems, const QStringList& notices);
 
   protected:
     void closeEvent(QCloseEvent* event) override;
@@ -83,9 +86,15 @@ class WorkspaceWindow final : public QMainWindow
     void setBusy(bool busy);
     /// Accept a drag of local files as a copy or link; a refused drag returns no files, only its remote links.
     [[nodiscard]] RequestedFiles acceptDrag(QDropEvent* event);
+    /// What reportArchiveLimits showed: informational limits, and unreadable projects (an incomplete import).
+    struct ArchiveNotices
+    {
+        QStringList limits;
+        QString unreadable;
+    };
     /// Report skipped unsafe archive members, the ones a standard save omits, and unreadable projects.
-    /// Returns the notices shown, so a batch of requested files can keep them for its summary.
-    [[nodiscard]] QStringList reportArchiveLimits(const QList<QUuid>& documents, const QList<UnreadableProject>& unreadable);
+    /// Returns them too, so a batch of requested files can keep them for its summary.
+    [[nodiscard]] ArchiveNotices reportArchiveLimits(const QList<QUuid>& documents, const QList<UnreadableProject>& unreadable);
     bool saveSource(QUuid source);
     [[nodiscard]] std::optional<WorkspaceDiscard> confirmSourceClose(QUuid source);
     bool releaseSource(QUuid source, WorkspaceDiscard discard);
@@ -109,7 +118,8 @@ class WorkspaceWindow final : public QMainWindow
     QHash<QUuid, QListWidgetItem*> m_Opening;
     QHash<QUuid, QList<UnreadableProject>> m_Unreadable; // Per source, listed in the Experiments menu.
     /// Files requested from outside the menus, opened one at a time in their requested order. Each file is
-    /// first checked on a worker; `check` identifies the running check, `ready` a checked file awaiting a slot.
+    /// first checked on a worker; `check` identifies the running check, `ready` a checked file awaiting a slot
+    /// and `select` an already-open source to show, both deferred while a modal prompt runs.
     struct RequestedBatch
     {
         QStringList files;   // QList moves without throwing.
@@ -117,9 +127,11 @@ class WorkspaceWindow final : public QMainWindow
         qsizetype accepted = 0;
         std::uint64_t check = 0;
         std::optional<QString> ready;
+        std::optional<std::pair<QUuid, QString>> select;
         std::optional<QUuid> request;
         QString current;
         QStringList problems;
+        QStringList notices;
     };
     void checkNextRequestedFile(RequestedBatch& batch);
     void applyRequestedFileCheck(std::uint64_t check, const QString& path, const RequestedFileCheck& result);

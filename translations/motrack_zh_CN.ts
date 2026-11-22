@@ -73,6 +73,7 @@
     <message><source>Only local files can be dropped here. Download a linked file first.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">此处只能放置本地文件。请先下载链接的文件。</translation></message>
     <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>放下以打开 %n 个文件</numerusform></translation></message>
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>将跳过 %n 个指向非本地文件的链接。</numerusform></translation></message>
+    <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">部分请求的文件以受限方式打开。</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>

@@ -73,6 +73,7 @@
     <message><source>Only local files can be dropped here. Download a linked file first.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">วางได้เฉพาะไฟล์ในเครื่องเท่านั้น ดาวน์โหลดไฟล์ที่ลิงก์ไว้ก่อน</translation></message>
     <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>วางเพื่อเปิด %n ไฟล์</numerusform></translation></message>
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>จะข้ามลิงก์ไปยังไฟล์ที่ไม่ได้อยู่ในเครื่อง %n ลิงก์</numerusform></translation></message>
+    <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">ไฟล์ที่ร้องขอบางไฟล์เปิดได้แบบมีข้อจำกัด</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>

@@ -73,6 +73,7 @@
     <message><source>Only local files can be dropped here. Download a linked file first.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Tähän voi pudottaa vain paikallisia tiedostoja. Lataa linkitetty tiedosto ensin.</translation></message>
     <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>Pudota avataksesi %n tiedoston</numerusform><numerusform>Pudota avataksesi %n tiedostoa</numerusform></translation></message>
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>%n linkki muihin kuin paikallisiin tiedostoihin ohitetaan.</numerusform><numerusform>%n linkkiä muihin kuin paikallisiin tiedostoihin ohitetaan.</numerusform></translation></message>
+    <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Joitakin pyydettyjä tiedostoja avattiin rajoitetusti.</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>

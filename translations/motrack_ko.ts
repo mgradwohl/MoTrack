@@ -73,6 +73,7 @@
     <message><source>Only local files can be dropped here. Download a linked file first.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">여기에는 로컬 파일만 놓을 수 있습니다. 연결된 파일을 먼저 다운로드하십시오.</translation></message>
     <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>놓아서 파일 %n개 열기</numerusform></translation></message>
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>로컬이 아닌 파일에 대한 링크 %n개를 건너뜁니다.</numerusform></translation></message>
+    <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">요청한 파일 중 일부를 제한된 상태로 열었습니다.</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>

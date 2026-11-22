@@ -582,6 +582,11 @@
         <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
         <translation type="unfinished">Einige angeforderte Dateien konnten nicht oder nur eingeschränkt geöffnet werden.</translation>
     </message>
+    <message>
+        <source>Some requested files opened with limits.</source>
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Einige angeforderte Dateien wurden nur eingeschränkt geöffnet.</translation>
+    </message>
 </context>
 
 <context>

@@ -73,6 +73,7 @@
     <message><source>Only local files can be dropped here. Download a linked file first.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Sem lze přetáhnout jen místní soubory. Odkazovaný soubor nejprve stáhněte.</translation></message>
     <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>Pusťte pro otevření %n souboru</numerusform><numerusform>Pusťte pro otevření %n souborů</numerusform><numerusform>Pusťte pro otevření %n souborů</numerusform></translation></message>
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>%n odkaz na nemístní soubory bude přeskočen.</numerusform><numerusform>%n odkazy na nemístní soubory budou přeskočeny.</numerusform><numerusform>%n odkazů na nemístní soubory bude přeskočeno.</numerusform></translation></message>
+    <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Některé požadované soubory byly otevřeny s omezeními.</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>

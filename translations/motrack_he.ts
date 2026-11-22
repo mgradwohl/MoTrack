@@ -73,6 +73,7 @@
     <message><source>Only local files can be dropped here. Download a linked file first.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">ניתן לשחרר כאן רק קבצים מקומיים. הורידו תחילה קובץ מקושר.</translation></message>
     <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>שחררו כדי לפתוח %n קובץ</numerusform><numerusform>שחררו כדי לפתוח %n קבצים</numerusform></translation></message>
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>%n קישור לקבצים שאינם מקומיים ידולג.</numerusform><numerusform>%n קישורים לקבצים שאינם מקומיים ידולגו.</numerusform></translation></message>
+    <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">חלק מהקבצים המבוקשים נפתחו עם מגבלות.</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>

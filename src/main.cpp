@@ -41,13 +41,16 @@ try
         QObject::connect(&window,
                          &motrack::WorkspaceWindow::filesOpened,
                          &app,
-                         [&window](const QStringList& problems)
+                         [&window](const QStringList& problems, const QStringList& notices)
                          {
                              auto& session = window.context()->session();
                              for (const auto document : session.tabs())
                                  writeLine(stdout, "opened\t" + session.sourcePath(session.sourceId(document)));
                              for (const auto& problem : problems)
                                  writeLine(stderr, "MoTrack: " + problem);
+                             // Archive limits such as skipped unsafe members are warnings; the files opened.
+                             for (const auto& notice : notices)
+                                 writeLine(stderr, "MoTrack notice: " + notice);
                              std::fflush(stdout);
                              QCoreApplication::exit(problems.isEmpty() && !session.tabs().empty() ? EXIT_SUCCESS : EXIT_FAILURE);
                          });

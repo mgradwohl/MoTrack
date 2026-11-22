@@ -73,6 +73,7 @@
     <message><source>Only local files can be dropped here. Download a linked file first.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Šeit var nomest tikai lokālus failus. Vispirms lejupielādējiet saistīto failu.</translation></message>
     <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>Nometiet, lai atvērtu %n failu</numerusform><numerusform>Nometiet, lai atvērtu %n failus</numerusform><numerusform>Nometiet, lai atvērtu %n failu</numerusform></translation></message>
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>%n saite uz nelokāliem failiem tiks izlaista.</numerusform><numerusform>%n saites uz nelokāliem failiem tiks izlaistas.</numerusform><numerusform>%n saišu uz nelokāliem failiem tiks izlaistas.</numerusform></translation></message>
+    <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Daži pieprasītie faili tika atvērti ar ierobežojumiem.</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>

@@ -73,6 +73,7 @@
     <message><source>Only local files can be dropped here. Download a linked file first.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Só é possível largar aqui ficheiros locais. Transfira primeiro o ficheiro ligado.</translation></message>
     <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>Largue para abrir %n ficheiro</numerusform><numerusform>Largue para abrir %n ficheiros</numerusform></translation></message>
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>%n ligação para ficheiros não locais será ignorada.</numerusform><numerusform>%n ligações para ficheiros não locais serão ignoradas.</numerusform></translation></message>
+    <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Alguns ficheiros pedidos foram abertos com limitações.</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>

@@ -1,6 +1,7 @@
 #include "desktop_launch.hpp"
 
 #include "archive_fixture.hpp"
+#include "local_media_path.hpp"
 #include "main_window.hpp"
 #include "workspace_document.hpp"
 #include "workspace_input.hpp"
@@ -118,6 +119,12 @@ QStringList nextBatch(QSignalSpy& finished, int count = 1)
     if (!QTest::qWaitFor([&] { return finished.count() >= count; }, 20000))
         throw std::runtime_error("The requested files did not finish opening.");
     return finished.at(count - 1).front().toStringList();
+}
+
+/// The notices of a batch that nextBatch has already waited for.
+QStringList batchNotices(const QSignalSpy& finished, int count = 1)
+{
+    return finished.at(count - 1).at(1).toStringList();
 }
 
 QUuid selectedDocument(const motrack::WorkspaceWindow& window)
@@ -507,6 +514,69 @@ TEST(DesktopLaunch, RequestsSelectAnAlreadyOpenFileIncludingCaseVariantsAndHidde
     EXPECT_EQ(session.sources().size(), 3u);
 }
 
+TEST(DesktopLaunch, RequestsSelectAProjectByTheFileItWasSavedTo)
+{
+    QTemporaryDir temporary;
+    const auto folder = unicodeFolder(temporary);
+    const auto original = nativeCopy(folder, "original.motrack");
+    const auto savedAs = folder.filePath(QString::fromUtf8("saved as ü.motrack"));
+    auto context = std::make_shared<motrack::WorkspaceContext>();
+    motrack::WorkspaceWindow window(context);
+    window.show();
+    QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
+    window.openFiles({.files = {original}});
+    (void)nextBatch(finished);
+    auto* view = dynamic_cast<motrack::MainWindow*>(window.findChild<QTabWidget*>("experimentTabs")->currentWidget());
+    ASSERT_TRUE(view);
+    ASSERT_TRUE(view->saveWorkspace(savedAs));
+    auto& session = context->session();
+    const auto source = session.sources().front();
+    ASSERT_TRUE(motrack::sameLocalFile(session.nativeSavePath(source), savedAs));
+    // Finder or a file manager now offers the saved file; a second copy's save would replace this one (#255).
+    window.openFiles({.files = {savedAs}});
+    EXPECT_TRUE(nextBatch(finished, 2).isEmpty());
+    EXPECT_EQ(session.sources(), std::vector<QUuid>{source});
+    // The file it was opened from still names the same source.
+    window.openFiles({.files = {original}});
+    EXPECT_TRUE(nextBatch(finished, 3).isEmpty());
+    EXPECT_EQ(session.sources(), std::vector<QUuid>{source});
+}
+
+TEST(DesktopLaunch, AStaleCheckResultAfterTheWindowClosedOpensNothing)
+{
+    QTemporaryDir temporary;
+    const auto project = nativeCopy(unicodeFolder(temporary), "checked while closing.motrack");
+    auto context = std::make_shared<motrack::WorkspaceContext>();
+    motrack::WorkspaceWindow window(context);
+    window.show();
+    QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
+    QSemaphore entered;
+    QSemaphore release;
+    auto& pool = context->services()->requestPool();
+    pool.start(
+        [&]
+        {
+            entered.release();
+            (void)release.tryAcquire(1, 10000);
+        });
+    ASSERT_TRUE(entered.tryAcquire(1, 5000));
+    const auto cleanup = qScopeGuard(
+        [&]
+        {
+            release.release();
+            (void)pool.waitForDone(10000);
+        });
+    window.openFiles({.files = {project}});
+    QTest::qWait(50); // The check is queued behind the blocked worker.
+    EXPECT_TRUE(window.close());
+    EXPECT_EQ(nextBatch(finished), QStringList{"Closing the window stopped 1 requested file(s) from opening."});
+    release.release();
+    ASSERT_TRUE(pool.waitForDone(10000));
+    QTest::qWait(50); // Deliver the worker's late answer.
+    EXPECT_TRUE(context->session().sources().empty());
+    EXPECT_EQ(finished.count(), 1);
+}
+
 TEST(DesktopLaunch, FileChecksRunOffTheGuiThread)
 {
     QTemporaryDir temporary;
@@ -594,22 +664,44 @@ TEST(DesktopLaunch, ArchiveNoticesOutliveTheNextRequestedOpenInTheBatchSummary)
         members.push_back(std::move(unsafe));
     const auto archive = folder.filePath(QString::fromUtf8("library ü.trz"));
     ASSERT_TRUE(motrack::test::writeArchive(archive, members));
+    members.erase(members.begin() + 1); // The same archive without its unreadable project.
+    const auto limited = folder.filePath(QString::fromUtf8("limited ü.trz"));
+    ASSERT_TRUE(motrack::test::writeArchive(limited, members));
     const auto next = nativeCopy(folder, "opened next.motrack");
     motrack::WorkspaceWindow window;
     window.show();
     QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
     window.openFiles({.files = {archive, next}});
     const auto problems = nextBatch(finished);
+    const auto notices = batchNotices(finished);
     EXPECT_EQ(tabSources(window), canonicalPaths({archive, next}));
     // The next open replaces the status message; the summary keeps the archive's notices under its name.
-    EXPECT_TRUE(contains(problems, QString::fromUtf8("library ü.trz: 4 archive member(s) with unsafe names were not extracted.")))
-        << problems.join('\n').toStdString();
-    EXPECT_TRUE(contains(problems, QString::fromUtf8("library ü.trz: Could not read the Tracker project broken.trk")))
-        << problems.join('\n').toStdString();
+    // Skipped members only inform, while an unreadable member project is an incomplete import.
+    EXPECT_TRUE(contains(notices, QString::fromUtf8("library ü.trz: 4 archive member(s) with unsafe names were not extracted.")))
+        << notices.join('\n').toStdString();
+    EXPECT_EQ(problems,
+              QStringList{QString::fromUtf8("library ü.trz: Could not read the Tracker project broken.trk; see the Experiments menu.")});
     auto* summary = window.findChild<QMessageBox*>("workspaceRequestedFileProblems");
     ASSERT_TRUE(summary);
     EXPECT_EQ(summary->text(), "Some requested files could not be opened, or opened with limits.");
+    EXPECT_TRUE(summary->informativeText().contains("unsafe names"));
     summary->accept();
+    ASSERT_TRUE(QTest::qWaitFor([&] { return !window.findChild<QMessageBox*>("workspaceRequestedFileProblems"); }));
+    window.openFiles({.files = {limited}});
+    EXPECT_TRUE(nextBatch(finished, 2).isEmpty());
+    EXPECT_FALSE(batchNotices(finished, 2).isEmpty());
+    summary = window.findChild<QMessageBox*>("workspaceRequestedFileProblems");
+    ASSERT_TRUE(summary);
+    EXPECT_EQ(summary->text(), "Some requested files opened with limits.");
+    summary->accept();
+    // A launch fails only when a file did not open completely; limits are printed as notices.
+    auto result = runSmokeLaunch({limited}, folder.path());
+    EXPECT_EQ(result.exitCode, 0) << result.errors.toStdString();
+    EXPECT_EQ(result.opened, canonicalPaths({limited}));
+    EXPECT_TRUE(result.errors.contains("MoTrack notice: ")) << result.errors.toStdString();
+    result = runSmokeLaunch({archive}, folder.path());
+    EXPECT_EQ(result.exitCode, 1);
+    EXPECT_TRUE(result.errors.contains("Could not read the Tracker project broken.trk")) << result.errors.toStdString();
 }
 
 TEST(DesktopLaunch, DropsLocalFilesAsCopiesOntoTheWorkspaceAndExperimentViews)

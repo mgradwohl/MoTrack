@@ -279,12 +279,17 @@ unknown timing, and every other file is a movie whose indexer reports unsupporte
   request worker, because an offline share or sleeping NAS can block any file query: existence, folders
   and file-system identity (`std::filesystem::equivalent`, so case variants and aliases match where the
   file system treats them as one file). A repeat of an earlier request in the batch is skipped, as in
-  Tracker. The file of an open source is selected, and a hidden view shown, instead of opening a
-  second copy whose later save would replace the first ([#255](https://github.com/mgradwohl/MoTrack/issues/255)).
-- **Problems.** Missing files, folders, web links and failed opens are collected and shown together
-  in one window-modal summary after the batch, without a nested event loop. An archive's notices (skipped
-  unsafe members, unreadable projects) join it under the file's name, because the batch's next open
-  replaces the status message. Canceling a requested
+  Tracker. A source is identified by the file it was opened from and by its native and standard save
+  destinations, so a file saved with Save As or a paired save also names it. Such a file is selected, and
+  a hidden view shown (after any modal prompt), instead of opening a second copy whose later save would
+  replace the first ([#255](https://github.com/mgradwohl/MoTrack/issues/255)). A check blocked by an
+  unresponsive share cannot be interrupted: closing the window stops the batch and ignores the check's
+  late answer, but its worker waits for the file system.
+- **Problems and notices.** Missing files, folders, web links, failed opens and unreadable archive member
+  projects (an incomplete import) are problems. Skipped unsafe archive members and copies a standard save
+  omits are notices: the file opened. Both are listed under the file's name in one window-modal summary
+  after the batch, without a nested event loop, because the batch's next open replaces the status
+  message. Canceling a requested
   open stops its remaining files. Batches wait while a save, revert or close prompt runs its nested
   event loop. Closing the window stops queued files before the close prompts run, and again before the
   window closes, so a request that arrived during the prompts opens only if the close is canceled.
@@ -307,8 +312,10 @@ unknown timing, and every other file is a movie whose indexer reports unsupporte
   and unique archive extraction directories. Saves keep the destination lock and atomic replacement,
   so two processes never interleave a file, but a later save replaces an earlier one without warning
   ([#255](https://github.com/mgradwohl/MoTrack/issues/255)).
-- **Smoke tests.** `--smoke-test FILE…` prints `opened<TAB>path` for each tab after the batch, and exits
-  with 0 only if every file opened. With no files it waits for an operating-system open request.
+- **Smoke tests.** `--smoke-test FILE…` prints `opened<TAB>path` for each tab after the batch, problems as
+  `MoTrack: …` and notices as `MoTrack notice: …` on standard error. It exits with 1 when any problem was
+  reported (a file did not open, or an archive member project was unreadable) and with 0 otherwise,
+  notices included. With no files it waits for an operating-system open request.
 
 Staged builds declare the file types: the macOS bundle's `cmake/MoTrackInfo.plist.in` (shared with the camera usage string), and Linux
 installs a desktop entry with `Exec=… %F` and a shared-mime-info package. The desktop entry quotes the
@@ -320,13 +327,15 @@ the types, including Windows ProgIDs, are deferred with R27.
 
 Tests: `DesktopLaunch.*` covers parsing, routing, request order within the input bound, duplicates and
 case variants, selecting an already-open or hidden file, checks held by a blocked worker, requests during
-a canceled or completed close, archive notices kept for the summary, missing/folder/failed/remote problems, the 256-file bound, cancel and
+a canceled or completed close, a stale check after the window closed, selecting a project by its Save As
+file, archive problems and notices kept for the summary and the launch exit code, missing/folder/failed/remote problems, the 256-file bound, cancel and
 close, drops on the workspace and
 an experiment view through Qt's propagation, refused drags, file-open events before and after a window,
 child launches with spaces, Unicode, relative and long (Windows `\\?\`) paths, and a second process opening
 a file that the first is editing. CI's staged check validates the plist and desktop files, asks
 LaunchServices and GIO which application opens each type, and opens a file through `open -a` and GLib's
-desktop-entry expansion, including an install prefix with quotes, `$`, backticks and `%`.
+desktop-entry expansion, including an install prefix with quotes, `$` and backticks, and checks that a
+prefix containing `%` is refused.
 
 ## Saving and recovery
 

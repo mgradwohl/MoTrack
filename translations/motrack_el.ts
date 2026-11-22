@@ -73,6 +73,7 @@
     <message><source>Only local files can be dropped here. Download a linked file first.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Εδώ μπορείτε να αποθέσετε μόνο τοπικά αρχεία. Κατεβάστε πρώτα ένα συνδεδεμένο αρχείο.</translation></message>
     <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>Αποθέστε για να ανοίξει %n αρχείο</numerusform><numerusform>Αποθέστε για να ανοίξουν %n αρχεία</numerusform></translation></message>
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>%n σύνδεσμος προς μη τοπικά αρχεία θα παραλειφθεί.</numerusform><numerusform>%n σύνδεσμοι προς μη τοπικά αρχεία θα παραλειφθούν.</numerusform></translation></message>
+    <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Ορισμένα ζητούμενα αρχεία άνοιξαν με περιορισμούς.</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>

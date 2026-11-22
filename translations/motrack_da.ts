@@ -73,6 +73,7 @@
     <message><source>Only local files can be dropped here. Download a linked file first.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Kun lokale filer kan slippes her. Download først en linket fil.</translation></message>
     <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>Slip for at åbne %n fil</numerusform><numerusform>Slip for at åbne %n filer</numerusform></translation></message>
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>%n link til filer, der ikke er lokale, springes over.</numerusform><numerusform>%n links til filer, der ikke er lokale, springes over.</numerusform></translation></message>
+    <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Nogle af de ønskede filer blev åbnet med begrænsninger.</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>
