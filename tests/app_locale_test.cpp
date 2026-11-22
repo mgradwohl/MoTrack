@@ -225,7 +225,8 @@ TEST(ProcessLocale, ResetsTheNumericLocaleTheApplicationObjectSet)
     EXPECT_EQ(configured.numericLocale, "C");
     EXPECT_EQ(std::string(std::setlocale(LC_NUMERIC, nullptr)), "C");
     EXPECT_EQ(std::string(std::localeconv()->decimal_point), ".");
-    EXPECT_EQ(std::to_string(1.5), "1.500000"); // printf("%f") underneath, the way C libraries print numbers
+    // text-api: allowed (checks the C runtime state that printf("%f") underneath depends on)
+    EXPECT_EQ(std::to_string(1.5), "1.500000");
     EXPECT_EQ(configured.cppLocale, "C");
     EXPECT_EQ(std::locale().name(), "C");
     const auto summary = motrack::describe(configured);

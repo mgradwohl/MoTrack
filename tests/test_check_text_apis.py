@@ -39,6 +39,8 @@ class CxxTest(unittest.TestCase):
         self.assertEqual(self.check("QCoreApplication application{argc, argv};\n"), ["locale-setup"])
         self.assertEqual(self.check("QGuiApplication app(argc, argv);\nmotrack::configureProcessLocale();\n"), [])
         self.assertEqual(self.check("QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);\n"), [])
+        self.assertEqual(self.check("auto app = std::make_unique<QApplication>(argc, argv);\n"), ["locale-setup"])
+        self.assertEqual(self.check("auto* app = new QCoreApplication(argc, argv);\n"), ["locale-setup"])
 
     def test_code_page_conversions_and_c_numbers_are_refused(self) -> None:
         self.assertEqual(self.check("auto bytes = name.toLocal8Bit();\n"), ["local8bit"])
@@ -61,6 +63,26 @@ class CxxTest(unittest.TestCase):
         self.assertEqual(self.check("auto file = _wfopen(name, L\"rb\");\n"), [])
         self.assertEqual(self.check("auto bytes = value.toStdString();\n"), [])
         self.assertEqual(self.check("QStringDecoder decoder(QStringConverter::System);\n"), ["system-codec"])
+
+    def test_narrow_paths_are_refused(self) -> None:
+        for line in ("auto text = path.generic_string();", 'std::filesystem::path path("x.trk");',
+                     'auto path = std::filesystem::path(MOTRACK_FIXTURES) / "a.trk";',
+                     "std::filesystem::path path(text.toStdString());", "auto path = std::filesystem::path{std::string(name)};"):
+            with self.subTest(line=line):
+                self.assertEqual(self.check(line + "\n"), ["narrow-path"])
+        for line in ('auto path = std::filesystem::path(u8"x.trk");', 'auto path = std::filesystem::path(L"x.trk");',
+                     "auto path = std::filesystem::path{};", "const auto path = motrack::toFilesystemPath(text);"):
+            with self.subTest(line=line):
+                self.assertEqual(self.check(line + "\n"), [])
+
+    def test_floating_to_string_is_refused_but_integers_are_not(self) -> None:
+        for line in ("auto text = std::to_string(1.5);", "auto text = std::to_string(static_cast<double>(x));",
+                     "auto text = std::to_string(.5f);"):
+            with self.subTest(line=line):
+                self.assertEqual(self.check(line + "\n"), ["c-number"])
+        for line in ("auto text = std::to_string(index + 1);", "auto text = std::to_string(track.id);"):
+            with self.subTest(line=line):
+                self.assertEqual(self.check(line + "\n"), [])
 
     def test_model_sources_do_not_format_for_display(self) -> None:
         self.assertEqual(self.check("const QLocale locale;\n", "src/measurements.cpp"), ["model-locale"])
@@ -95,6 +117,15 @@ class PythonTest(unittest.TestCase):
             with self.subTest(clean=clean):
                 self.assertEqual(self.check(clean), [])
 
+    def test_text_mode_path_open_names_its_encoding(self) -> None:
+        for line in ("path.open()\n", "path.open('w')\n", "path.open(mode='a')\n", "path.open('rt')\n"):
+            with self.subTest(line=line):
+                self.assertEqual(self.check(line), ["python-encoding"])
+        for line in ("path.open('rb')\n", "path.open('r', encoding='utf-8')\n", "archive.open(name)\n",
+                     "zipfile.ZipFile(source).open('member.txt')\n", "archive.open(info, 'r')\n"):
+            with self.subTest(line=line):
+                self.assertEqual(self.check(line), [])
+
 
 class PowerShellTest(unittest.TestCase):
     def check(self, text: str) -> list[str]:
@@ -105,6 +136,15 @@ class PowerShellTest(unittest.TestCase):
         self.assertEqual(self.check("$text | Out-File $path\n"), ["ps-encoding"])
         self.assertEqual(self.check("Add-Content $path $line -Encoding utf8\n"), [])
         self.assertEqual(self.check("# Set-Content is not used here\n"), [])
+
+    def test_output_is_not_redirected_to_files(self) -> None:
+        for line in ('"text" > out.txt\n', "& git log >> history.txt\n", "& tool *> all.log\n"):
+            with self.subTest(line=line):
+                self.assertEqual(self.check(line), ["ps-encoding"])
+        for line in ("& tool 2>&1\n", "& tool > $null\n", "& tool 2>$null\n", "if ($count -gt 1) { }\n",
+                     'Write-Host "a > b"\n', "# redirect > here in a comment\n"):
+            with self.subTest(line=line):
+                self.assertEqual(self.check(line), [])
 
 
 class RepositoryTest(unittest.TestCase):

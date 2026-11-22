@@ -2,6 +2,7 @@
 
 #include "local_media_path.hpp"
 #include "tracker_archive.hpp"
+#include "utf8_thread_locale.hpp"
 
 #include <QBuffer>
 #include <QCryptographicHash>
@@ -61,6 +62,7 @@ QString externalArchiveDestination(const QString& path, const TrackerArchive& so
 
 WorkspaceStorage readBundle(const QString& path, const std::atomic_bool* cancelled)
 {
+    const ScopedUtf8ThreadLocale utf8Names; // libarchive converts names through the thread's LC_CTYPE on POSIX
     const std::unique_ptr<archive, decltype(&archive_read_free)> reader(archive_read_new(), &archive_read_free);
     require(reader && archive_read_support_format_zip_seekable(reader.get()) == ARCHIVE_OK);
 #ifdef _WIN32
@@ -211,6 +213,9 @@ void writeWorkspaceStorage(const QString& path,
     QBuffer metadata;
     metadata.setData(json);
     require(metadata.open(QIODevice::ReadOnly) && output.open(QIODevice::WriteOnly));
+    // hdrcharset needs a UTF-8 thread LC_CTYPE on POSIX (MoTrack's libarchive has no iconv); on Windows it is
+    // what sets the UTF-8 flag. The locale scope outlives the writer.
+    const ScopedUtf8ThreadLocale utf8Names;
     std::unique_ptr<archive, decltype(&archive_write_free)> writer(archive_write_new(), &archive_write_free);
     require(writer && archive_write_set_format_zip(writer.get()) == ARCHIVE_OK &&
             archive_write_set_options(writer.get(), "zip:compression=store,zip:hdrcharset=UTF-8") == ARCHIVE_OK &&

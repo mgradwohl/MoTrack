@@ -39,7 +39,7 @@ Run the setup script after cloning. It installs the [pinned toolchain](CONTRIBUT
 ./tools/setup-dev.sh --build
 ```
 
-Run `build/dev/motrack` (`motrack.exe` on Windows) from an [activated developer shell](CONTRIBUTING.md#developer-setup) and open `tests/fixtures/image-sequence.trk` or `tests/fixtures/movie.trk` from the File menu. Use the controls below the image to play, pause, or step through the clip. The interface follows the system locale and is available in English, French, German, and Spanish.
+Run `build/dev/motrack` (`motrack.exe` on Windows) from an [activated developer shell](CONTRIBUTING.md#developer-setup) and open `tests/fixtures/image-sequence.trk` or `tests/fixtures/movie.trk` from the File menu. Use the controls below the image to play, pause, or step through the clip. The interface follows the system locale and is available in English, French, German, and Spanish. Numbers are shown with the decimal mark of your regional format settings; Tracker instead follows the interface language chosen in it, or its own decimal-separator preference, so with German regional formats and Tracker set to English, MoTrack shows `0,75` where Tracker shows `0.75`. Saved files and CSV exports always use `.`.
 
 Directly opened movies use quarter-turn rotation and reflection metadata. Tracker project imports retain their encoded frame coordinates.
 

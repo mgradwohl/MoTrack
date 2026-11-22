@@ -198,6 +198,10 @@
     <message><source>No measurements to plot.</source><translation>Keine Messwerte für das Diagramm.</translation></message>
   </context>
   <context>
+    <name>TrackerArchive</name>
+    <message><source>A member name in this Tracker archive is not valid UTF-8 text, so the archive cannot be opened. Tracker cannot open it either.</source><translation type="unfinished">Ein Mitgliedsname in diesem Tracker-Archiv ist kein gültiger UTF-8-Text, daher kann das Archiv nicht geöffnet werden. Tracker kann es ebenfalls nicht öffnen.</translation></message>
+  </context>
+  <context>
     <name>TrackerImagePackage</name>
     <message><source>The movie's frame count or timing no longer matches this document.</source><translation type="unfinished"></translation></message>
     <message><source>Choose a regular Tracker archive filename.</source><translation type="unfinished"></translation></message>

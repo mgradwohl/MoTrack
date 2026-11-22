@@ -1,6 +1,7 @@
 #include "app_locale.hpp"
 #include "archive_group.hpp"
 #include "archive_group_session.hpp"
+#include "filesystem_path.hpp"
 #include "legacy_project.hpp"
 #include "measurements.hpp"
 #include "media_vectors.hpp"
@@ -1093,11 +1094,7 @@ try
         return 1;
     }
     const auto& inputArgument = args[references || timing ? 2 : 1];
-#ifdef _WIN32
-    const std::filesystem::path input(inputArgument.toStdWString());
-#else
-    const std::filesystem::path input(inputArgument.toStdString());
-#endif
+    const auto input = motrack::toFilesystemPath(inputArgument);
     const auto report = [&]() -> QJsonObject
     {
         if (references)

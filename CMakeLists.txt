@@ -88,7 +88,7 @@ target_link_libraries(motrack_workspace PUBLIC motrack_project motrack_input Qt6
 target_link_libraries(motrack PRIVATE motrack_workspace motrack_locale)
 qt_add_translations(motrack
     TS_FILES translations/motrack_de.ts translations/motrack_es.ts translations/motrack_fr.ts
-    SOURCES src/main_window.cpp src/bound_workspace.cpp src/workspace_window.cpp src/position_plot.cpp src/tracker_image_package.cpp
+    SOURCES src/main_window.cpp src/bound_workspace.cpp src/workspace_window.cpp src/position_plot.cpp src/tracker_archive.cpp src/tracker_image_package.cpp
     RESOURCE_PREFIX "/i18n"
 )
 
@@ -138,7 +138,6 @@ if(MOTRACK_BUILD_BENCHMARKS)
 endif()
 
 foreach(target IN LISTS motrack_targets)
-    motrack_apply_text_encoding(${target})
     if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
         target_compile_options(${target} PRIVATE /W4)
     else()
@@ -239,9 +238,6 @@ if(BUILD_TESTING)
     target_compile_definitions(motrack_locale_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
     add_test(NAME locale COMMAND motrack_locale_tests)
-    foreach(target IN ITEMS motrack_tests motrack_corpus_probe motrack_workspace_tests motrack_media_tests motrack_locale_tests)
-        motrack_apply_text_encoding(${target})
-    endforeach()
     add_test(NAME desktop_smoke COMMAND motrack --smoke-test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/point-mass.trk")
     add_test(NAME desktop_invalid_project COMMAND motrack --smoke-test
@@ -271,3 +267,7 @@ if(BUILD_TESTING)
             CONTENT "$<TARGET_FILE:motrack>\n$<TARGET_FILE:motrack_tests>\n$<TARGET_FILE:motrack_workspace_tests>\n$<TARGET_FILE:motrack_media_tests>\n$<TARGET_FILE:motrack_locale_tests>\n")
     endif()
 endif()
+
+# Every target this project defines compiles as UTF-8 (cmake/MoTrackTextEncoding.cmake), new ones included.
+# Third-party targets (GoogleTest) live in their own directories and are not in this directory's list.
+motrack_apply_text_encoding_to_directory("${CMAKE_CURRENT_SOURCE_DIR}")

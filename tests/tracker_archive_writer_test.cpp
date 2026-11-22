@@ -17,7 +17,18 @@
 #include <algorithm>
 #include <array>
 #include <functional>
+#include <memory>
+#include <optional>
 #include <ranges>
+
+#ifndef _WIN32
+#include <clocale>
+
+#include <locale.h> // NOLINT(modernize-deprecated-headers) - POSIX newlocale/uselocale
+#ifdef __APPLE__
+#include <xlocale.h>
+#endif
+#endif
 
 namespace
 {
@@ -936,5 +947,99 @@ TEST(TrackerArchiveWriter, PreservesJavaDeflatedMembersUnicodeNamesAndComments)
     EXPECT_TRUE(output.contains("Original metadata: experiment.trk"));
     EXPECT_EQ(readBytes(payload->sourcePath()), input);
     EXPECT_DOUBLE_EQ(motrack::importTrackerDocument(reopened.projectPath("experiment.trk")).project.pointMasses.front().mass, 5);
+}
+QString linkedImagesFixture(const QString& name = "linked-images.trk")
+{
+    return QString::fromUtf8(MOTRACK_FIXTURES) + "/../corpus/fixtures/linked-images/" + name;
+}
+
+QByteArray fileBytes(const QString& path)
+{
+    QFile input(path);
+    return input.open(QIODevice::ReadOnly) ? input.readAll() : QByteArray{};
+}
+
+bool writeFile(const QString& path, const QByteArray& value)
+{
+    QFile output(path);
+    return output.open(QIODevice::WriteOnly) && output.write(value) == value.size();
+}
+
+/// The general-purpose flags of the central-directory record for @p name, or nullopt when there is none.
+std::optional<unsigned> centralFlags(const QByteArray& zip, const QByteArray& name)
+{
+    const auto u16 = [&zip](qsizetype offset)
+    {
+        return static_cast<unsigned>(static_cast<unsigned char>(zip[offset])) |
+               static_cast<unsigned>(static_cast<unsigned char>(zip[offset + 1])) << 8U;
+    };
+    for (auto at = zip.indexOf("PK\x01\x02"); at >= 0 && at + 46 <= zip.size(); at = zip.indexOf("PK\x01\x02", at + 4))
+    {
+        if (zip.mid(at + 46, u16(at + 28)) == name)
+        {
+            return u16(at + 8);
+        }
+    }
+    return std::nullopt;
+}
+
+TEST(TrackerArchiveWriter, LibarchiveWritersWorkInTheCThreadLocaleAndFlagNonAsciiNames)
+{
+#ifndef _WIN32
+    // libarchive converts member names through the thread's LC_CTYPE, and MoTrack's has no iconv: in the "C"
+    // locale of a process without the locale setup, the writers' hdrcharset option used to fail outright.
+    const auto callerLocale = newlocale(LC_ALL_MASK, "C", static_cast<locale_t>(nullptr));
+    ASSERT_NE(callerLocale, static_cast<locale_t>(nullptr));
+    const auto previousLocale = uselocale(callerLocale);
+    const auto restoreLocale = qScopeGuard(
+        [callerLocale, previousLocale]
+        {
+            static_cast<void>(uselocale(previousLocale));
+            freelocale(callerLocale);
+        });
+#endif
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto images = QString::fromUtf8("imágenes 😀");
+    ASSERT_TRUE(QDir(temporary.path()).mkdir(images));
+    auto xml = fileBytes(linkedImagesFixture());
+    xml.replace("images/frame", (images + "/frame").toUtf8());
+    const auto input = temporary.filePath(QString::fromUtf8("experimento é.trk"));
+    ASSERT_TRUE(writeFile(input, xml));
+    for (int frame = 0; frame < 4; ++frame)
+    {
+        const auto name = "/frame" + QString::number(frame) + ".png";
+        ASSERT_TRUE(QFile::copy(linkedImagesFixture("images" + name), temporary.filePath(images + name)));
+    }
+    const auto document = motrack::importTrackerDocument(input);
+
+    // A portable media package and a native bundle around it, both written by libarchive.
+    const auto package = temporary.filePath(QString::fromUtf8("paquete é 😀.trz"));
+    motrack::writeTrackerImagePackage(package, document, input);
+    auto archive = std::make_shared<motrack::TrackerArchive>(motrack::TrackerArchive::open(package));
+    ASSERT_EQ(archive->projects(), QStringList{"experiment.trk"});
+    auto reopened = motrack::importTrackerDocument(archive->projectPath("experiment.trk"));
+    archive->resolveMedia(reopened.project, "experiment.trk");
+    reopened.archivePayload = archive;
+    reopened.archiveMember = "experiment.trk";
+    const auto native = temporary.filePath(QString::fromUtf8("nativo é 😀.motrack"));
+    motrack::writeWorkspaceDocument(native, reopened);
+    EXPECT_EQ(fileBytes(native).left(2), "PK");
+    EXPECT_EQ(motrack::readWorkspaceDocument(native).project, reopened.project);
+
+    // A non-ASCII name is stored as UTF-8 with the UTF-8 flag (bit 11), as java.util.zip writes it.
+    const auto name = QString::fromUtf8("支持/é.txt").toUtf8();
+    const auto zip = temporary.filePath("flags.trz");
+    ASSERT_TRUE(motrack::test::writeArchive(zip, {{.name = "experiment.trk", .bytes = xml}, {.name = name.constData(), .bytes = "x"}}));
+    const auto flags = centralFlags(fileBytes(zip), name);
+    if (!flags)
+    {
+        FAIL() << "The non-ASCII member is missing from the central directory.";
+    }
+    EXPECT_NE(*flags & 0x0800U, 0U);
+    EXPECT_TRUE(motrack::TrackerArchive::open(zip).memberMatchesSource(QString::fromUtf8(name)));
+#ifndef _WIN32
+    EXPECT_EQ(uselocale(static_cast<locale_t>(nullptr)), callerLocale);
+#endif
 }
 } // namespace

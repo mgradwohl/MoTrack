@@ -169,7 +169,16 @@ TEST(TrackerArchive, RefusesUnflaggedMemberNamesThatAreNotUtf8LikeTracker)
     ASSERT_TRUE(temporary.isValid());
     const auto path = temporary.filePath("cp437.trz");
     ASSERT_NO_FATAL_FAILURE(writeUnflaggedArchive(path, "vid\x82o.png"));
-    EXPECT_THROW(std::ignore = motrack::TrackerArchive::open(path), motrack::ProjectError);
+    try
+    {
+        std::ignore = motrack::TrackerArchive::open(path);
+        ADD_FAILURE() << "A CP437 member name was accepted.";
+    }
+    catch (const motrack::ProjectError& error)
+    {
+        // The user learns why, not libarchive's "cannot be converted ... to current locale".
+        EXPECT_NE(std::string(error.what()).find("not valid UTF-8"), std::string::npos) << error.what();
+    }
 }
 
 TEST(TrackerArchive, CancelsExtraction)

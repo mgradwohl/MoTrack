@@ -17,6 +17,10 @@
 *.webm binary
 *.zip binary
 *.trz binary
+*.motrack binary
+*.jar binary
+*.icns binary
+*.ttf binary
 *.qm binary
 *.pdf binary
 *.exe binary

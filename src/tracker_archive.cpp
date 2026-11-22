@@ -1,24 +1,21 @@
 #include "tracker_archive.hpp"
 
+#include "utf8_thread_locale.hpp"
+
+#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
-#include <QScopeGuard>
 #include <QSet>
 
 #include <algorithm>
 #include <array>
-#include <clocale>
 #include <memory>
 
 #include <archive.h>
 #include <archive_entry.h>
-
-#ifdef __APPLE__
-#include <xlocale.h>
-#endif
 
 namespace motrack
 {
@@ -34,6 +31,15 @@ void require(bool valid)
     {
         throw ProjectError("Invalid or unsupported Tracker archive.");
     }
+}
+
+/// A member name that is not UTF-8. Tracker's java.util.zip refuses the whole archive too (#275).
+[[noreturn]] void refuseNonUtf8Name()
+{
+    throw ProjectError(QCoreApplication::translate("TrackerArchive",
+                                                   "A member name in this Tracker archive is not valid UTF-8 text, so the archive "
+                                                   "cannot be opened. Tracker cannot open it either.")
+                           .toStdString());
 }
 
 bool safeMember(const QString& path)
@@ -91,21 +97,8 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
     result.m_CanonicalRoot = QFileInfo(result.m_Directory.path()).canonicalFilePath();
     require(!result.m_CanonicalRoot.isEmpty());
     result.m_SourceDigest = snapshotArchive(path, result.sourcePath(), cancelled);
-#ifndef _WIN32
-    // libarchive converts ZIP names through the calling thread's character locale,
-    // even when archive_entry_pathname_utf8 is requested. A C locale rejects Unicode.
-    // Keep this conversion local to the archive call; never change the global locale.
-    auto textLocale = newlocale(LC_CTYPE_MASK, "C.UTF-8", nullptr);
-    if (!textLocale)
-        textLocale = newlocale(LC_CTYPE_MASK, "en_US.UTF-8", nullptr);
-    if (!textLocale)
-        throw ProjectError("Could not create a UTF-8 locale for Tracker archive names.");
-    const auto freeTextLocale = qScopeGuard([textLocale] { freelocale(textLocale); });
-    const auto previousLocale = uselocale(textLocale);
-    if (!previousLocale)
-        throw ProjectError("Could not select a UTF-8 locale for Tracker archive names.");
-    const auto restoreTextLocale = qScopeGuard([previousLocale] { uselocale(previousLocale); });
-#endif
+    // libarchive converts names through the thread's LC_CTYPE on POSIX; outlives the reader below.
+    const ScopedUtf8ThreadLocale utf8Names;
     const std::unique_ptr<archive, decltype(&archive_read_free)> reader(archive_read_new(), &archive_read_free);
     // Tracker reads archives with java.util.zip, which decodes every member name as UTF-8 whether or not the
     // name's UTF-8 flag (general-purpose bit 11) is set, and refuses a name that is not UTF-8. libarchive would
@@ -128,6 +121,11 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
     for (auto status = archive_read_next_header(reader.get(), &entry); status != ARCHIVE_EOF;
          status = archive_read_next_header(reader.get(), &entry))
     {
+        if (status == ARCHIVE_WARN)
+        {
+            // The ZIP reader warns only when a member or link name cannot be converted from UTF-8 (hdrcharset).
+            refuseNonUtf8Name();
+        }
         if (status != ARCHIVE_OK)
         {
             const auto* error = archive_error_string(reader.get());
@@ -142,6 +140,10 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
         if (type == AE_IFDIR && member.endsWith('/'))
         {
             member.chop(1);
+        }
+        if (member.contains(QChar::ReplacementCharacter))
+        {
+            refuseNonUtf8Name(); // Windows' UTF-8 decoding substitutes U+FFFD instead of failing
         }
         const auto key = member.normalized(QString::NormalizationForm_C).toCaseFolded();
         require(safeMember(member) && !seen.contains(key));

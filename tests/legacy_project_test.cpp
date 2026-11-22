@@ -2,8 +2,12 @@
 
 #include "filesystem_path.hpp"
 
+#include <QFile>
+#include <QString>
 #include <QTemporaryFile>
 #include <gtest/gtest.h>
+
+#include <tuple>
 
 namespace
 {
@@ -28,7 +32,7 @@ std::string projectWithMarks(std::string_view properties)
 
 TEST(LegacyProject, ImportsMetadataAndSparseMarks)
 {
-    const auto result = motrack::readLegacyProject(std::filesystem::path(MOTRACK_FIXTURES) / "point-mass.trk");
+    const auto result = motrack::readLegacyProject(motrack::toFilesystemPath(QString::fromUtf8(MOTRACK_FIXTURES) + "/point-mass.trk"));
     EXPECT_EQ(result.version, "6.3.5");
     EXPECT_EQ(result.description, "Two marks & a gap.");
     EXPECT_EQ(result.clip.firstFrame, 2);
@@ -169,9 +173,28 @@ TEST(LegacyProject, RejectsOversizedProjectFilesBeforeReading)
     EXPECT_THROW(motrack::readLegacyProject(motrack::toFilesystemPath(file.fileName())), motrack::ProjectError);
 }
 
+TEST(LegacyProject, RefusesWindows1252BytesUnderAUtf8DeclarationAndHonorsADeclaredLatin1)
+{
+    // Tracker reads every XMLControl file as UTF-8 and silently turns invalid bytes into U+FFFD; MoTrack never
+    // substitutes silently. Until B1 adds the visible Windows-1252 recovery (#277), the QDom reader refuses such a
+    // file, and, unlike Tracker, decodes a file that declares ISO-8859-1 (CONTRIBUTING.md, Tracker exceptions).
+    QFile input(QString::fromUtf8(MOTRACK_FIXTURES) + "/point-mass.trk");
+    ASSERT_TRUE(input.open(QIODevice::ReadOnly));
+    const auto text = QString::fromUtf8(input.readAll());
+    const auto name = QString::fromUtf8("P\xC3\xA9ndulo");
+    ASSERT_TRUE(text.contains(name) && text.contains(R"(encoding="UTF-8")"));
+    // e acute is 0xE9 in both Windows-1252 and ISO-8859-1.
+    EXPECT_THROW(std::ignore = motrack::parseTrackerProject(text.toLatin1().toStdString()), motrack::ProjectError);
+    auto declared = text;
+    declared.replace(R"(encoding="UTF-8")", R"(encoding="ISO-8859-1")");
+    const auto project = motrack::parseTrackerProject(declared.toLatin1().toStdString()).project;
+    ASSERT_EQ(project.pointMasses.size(), 1U);
+    EXPECT_EQ(QString::fromStdString(project.pointMasses.front().name), name);
+}
+
 TEST(LegacyProject, ReadsCalibrationAndKeepsMarksWhenCalibrationIsUnsupported)
 {
-    const auto result = motrack::readLegacyProject(std::filesystem::path(MOTRACK_FIXTURES) / "image-sequence.trk");
+    const auto result = motrack::readLegacyProject(motrack::toFilesystemPath(QString::fromUtf8(MOTRACK_FIXTURES) + "/image-sequence.trk"));
     EXPECT_EQ(result.lengthUnit, "m");
     EXPECT_EQ(result.clip.frameDurationMs, 250.0);
     EXPECT_DOUBLE_EQ(result.clip.startTimeMs, -500.0);

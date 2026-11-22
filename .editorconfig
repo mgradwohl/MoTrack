@@ -25,7 +25,7 @@ trim_trailing_whitespace = unset
 indent_style = unset
 indent_size = unset
 
-[*.{png,jpg,jpeg,gif,bmp,ico,webp,mov,mp4,avi,mkv,webm,zip,trz,qm,pdf}]
+[*.{png,jpg,jpeg,gif,bmp,ico,icns,webp,mov,mp4,avi,mkv,webm,zip,trz,jar,ttf,qm,pdf}]
 charset = unset
 end_of_line = unset
 insert_final_newline = unset

@@ -9,20 +9,26 @@ The rules are CONTRIBUTING.md's "Text encoding and locale". Each finding is `fil
 
 C++ (src/, tests/, benchmarks/):
   locale-setup     setlocale (except a query with nullptr), std::locale::global and _configthreadlocale belong to
-                   src/app_locale.cpp alone; every Q*Application must be followed by motrack::configureProcessLocale()
+                   src/app_locale.cpp alone; a file that creates a Q*Application (a variable, new, make_unique/shared)
+                   must call motrack::configureProcessLocale()
   local8bit        toLocal8Bit/fromLocal8Bit convert through the system code page; Qt 6 QString <-> std::string is UTF-8
-  c-number         std::stod/stof/strtod/atof/sscanf and the printf family follow LC_NUMERIC; use std::from_chars,
-                   std::to_chars, QString::number/toDouble or QLocale::c()
+  c-number         std::stod/stof/strtod/atof/sscanf, the printf family and std::to_string of a floating-point value
+                   (recognized by a decimal literal, double or float in the argument) follow LC_NUMERIC; use
+                   std::from_chars, std::to_chars, QString::number/toDouble or QLocale::c()
   locale-format    std::format's {:L} follows the global C++ locale; displayed numbers use QLocale
-  narrow-path      path::string(), std::filesystem::u8path and UTF-16 path conversions outside src/filesystem_path.hpp,
-                   and narrow fopen; use motrack::toFilesystemPath/fromFilesystemPath, QFile or std::fstream(path)
+  narrow-path      path::string()/generic_string(), std::filesystem::u8path, a path built from a narrow string (a
+                   literal, an UPPER_CASE macro, toStdString() or std::string), UTF-16 path conversions outside
+                   src/filesystem_path.hpp, and narrow fopen; use motrack::toFilesystemPath/fromFilesystemPath, QFile
+                   or std::fstream(path)
   system-codec     QStringConverter::System decodes in the system code page
   model-locale     QLocale and %L placeholders in the science, model and media libraries (motrack_expression,
                    motrack_ode, motrack_project, motrack_input, motrack_media, motrack_image_package): machine-readable
 Python (tools/, tests/):
-  python-encoding  open() in text mode, read_text/write_text and text-mode subprocess calls must pass encoding=
+  python-encoding  open() and Path.open() in text mode, read_text/write_text and text-mode subprocess calls must
+                   pass encoding=
 PowerShell (tools/):
-  ps-encoding      Set-Content, Add-Content and Out-File must pass -Encoding
+  ps-encoding      Set-Content, Add-Content and Out-File must pass -Encoding, and output is not redirected to a file
+                   with > or >> (whose encoding depends on the PowerShell version); 2>&1 and > $null are fine
 
 A line ending with (or preceded by a line holding) `text-api: allowed (reason)` is exempt; give the reason.
 """
@@ -56,15 +62,28 @@ _COMMENT = re.compile(r"//.*$")
 _STRING = re.compile(r'"(?:\\.|[^"\\])*"')
 _SETLOCALE = re.compile(r"\b(?:_w)?setlocale\s*\(\s*[^,()]+,\s*([^)]*)\)")
 _LOCALE_GLOBAL = re.compile(r"\b(?:std::)?locale::global\s*\(|\b_configthreadlocale\s*\(")
-_APPLICATION = re.compile(r"\bQ(?:Core|Gui)?Application\s+\w+\s*[({]")
+_APPLICATION = re.compile(
+    r"\bQ(?:Core|Gui)?Application\s+\w+\s*[({]|\bnew\s+Q(?:Core|Gui)?Application\b"
+    r"|\bmake_(?:unique|shared)\s*<\s*Q(?:Core|Gui)?Application\s*>"
+)
 _CXX_RULES = (
     ("local8bit", re.compile(r"\b(?:to|from)Local8Bit\b"), "converts through the system code page; use toStdString/fromStdString (UTF-8)"),
     (
         "c-number",
-        re.compile(r"\b(?:std::)?(?:stod|stof|stold|strtod|strtof|strtold|atof|sscanf|scanf|printf|fprintf|sprintf|snprintf)\s*\("),
+        re.compile(
+            r"\b(?:std::)?(?:stod|stof|stold|strtod|strtof|strtold|atof|sscanf|scanf|printf|fprintf|sprintf|snprintf)\s*\("
+            r"|\bstd::to_string\s*\([^)]*(?:\d\.\d|\d\.(?!\w)|(?<![\w.])\.\d|\bdouble\b|\bfloat\b)"
+        ),
         "follows LC_NUMERIC; use std::from_chars/std::to_chars, QString::number/toDouble or QLocale::c()",
     ),
-    ("narrow-path", re.compile(r"\.string\(\)|\bu8path\s*\(|(?<![\w:])(?:std::)?fopen\s*\("), "goes through the ANSI code page on Windows"),
+    (
+        "narrow-path",
+        re.compile(
+            r"\.(?:generic_)?string\(\)|\bu8path\s*\(|(?<![\w:])(?:std::)?fopen\s*\("
+            r"|\bfilesystem::path(?:\s+\w+)?\s*[({]\s*(?:\"|[A-Z][A-Z0-9_]+\b|std::string\b|[^;]*\.toStdString\(\))"
+        ),
+        "goes through the ANSI code page on Windows",
+    ),
     ("system-codec", re.compile(r"QStringConverter::System\b"), "decodes in the system code page; files are UTF-8"),
 )
 _UTF16_PATH = re.compile(r"\b(?:toStdU16String|fromStdU16String|u16string)\s*\(")
@@ -138,6 +157,23 @@ def _true(node: ast.expr | None) -> bool:
     return isinstance(node, ast.Constant) and node.value is True
 
 
+_TEXT_MODE = re.compile(r"^(?:[rwax]\+?t?|[rwax]t\+?)$")
+
+
+def _text_mode_path_open(call: ast.Call) -> bool:
+    """Whether `x.open(...)` looks like pathlib's Path.open in text mode: no arguments, or a mode string first.
+    zipfile and tarfile take a member name first, so `archive.open(name)` is not flagged."""
+    mode = _keyword(call, "mode")
+    if mode is None and call.args:
+        first = call.args[0]
+        if not (isinstance(first, ast.Constant) and isinstance(first.value, str) and _TEXT_MODE.match(first.value)):
+            return False
+        mode = first
+    if mode is None:
+        return not call.args
+    return isinstance(mode, ast.Constant) and isinstance(mode.value, str) and "b" not in mode.value
+
+
 def check_python(path: str, text: str) -> list[Finding]:
     relative = Path(path).resolve().relative_to(ROOT).as_posix() if Path(path).resolve().is_relative_to(ROOT) else path
     lines = text.split("\n")
@@ -154,6 +190,8 @@ def check_python(path: str, text: str) -> list[Finding]:
                 problem = "open() in text mode"
         elif isinstance(function, ast.Attribute) and name in ("read_text", "write_text"):
             problem = f"{name}()"
+        elif isinstance(function, ast.Attribute) and name == "open" and _text_mode_path_open(node):
+            problem = "Path.open() in text mode"
         elif isinstance(function, ast.Attribute) and name in ("run", "check_output", "Popen", "call", "check_call"):
             if _true(_keyword(node, "text")) or _true(_keyword(node, "universal_newlines")):
                 problem = f"subprocess.{name}(text=True)"
@@ -163,6 +201,8 @@ def check_python(path: str, text: str) -> list[Finding]:
 
 
 _PS_WRITE = re.compile(r"\b(?:Set-Content|Add-Content|Out-File)\b", re.IGNORECASE)
+_PS_QUOTED = re.compile(r"'[^']*'|\"(?:`.|[^\"`])*\"")
+_PS_REDIRECT = re.compile(r"(?<![-=<>\w])(?:[1-6*])?>>?(?!\s*(?:\$null\b|&[1-6]))\s*\S")
 
 
 def check_powershell(path: str, text: str) -> list[Finding]:
@@ -172,6 +212,10 @@ def check_powershell(path: str, text: str) -> list[Finding]:
         Finding(relative, index + 1, "ps-encoding", "name the encoding: -Encoding utf8 (UTF-8 without a BOM in PowerShell 7)")
         for index, line in enumerate(lines)
         if _PS_WRITE.search(line.split("#", 1)[0]) and not re.search(r"-Encoding\b", line, re.IGNORECASE) and not _allowed(lines, index)
+    ] + [
+        Finding(relative, index + 1, "ps-encoding", "redirect with Out-File -Encoding utf8 or Set-Content -Encoding utf8 instead")
+        for index, line in enumerate(lines)
+        if _PS_REDIRECT.search(_PS_QUOTED.sub("''", line).split("#", 1)[0]) and not _allowed(lines, index)
     ]
 
 

@@ -2,6 +2,7 @@
 #include "paired_save.hpp"
 #include "tracker_archive.hpp"
 #include "tracker_writer.hpp"
+#include "utf8_thread_locale.hpp"
 #include "video_reader.hpp"
 #include "workspace_document.hpp"
 
@@ -215,6 +216,9 @@ void writeTrackerMediaPackage(
     const auto staged = temporary.filePath("package.trz");
     ZipOutput output{.file = QFile(staged), .cancelled = cancelled};
     require(output.file.open(QIODevice::WriteOnly | QIODevice::NewOnly));
+    // hdrcharset needs a UTF-8 thread LC_CTYPE on POSIX (MoTrack's libarchive has no iconv); on Windows it is
+    // what sets the UTF-8 flag. The locale scope outlives the writer.
+    const ScopedUtf8ThreadLocale utf8Names;
     std::unique_ptr<archive, decltype(&archive_write_free)> writer(archive_write_new(), &archive_write_free);
     // libarchive streams a data descriptor after each member. Java ZipInputStream (used by Tracker)
     // accepts descriptors only for DEFLATED entries, even when all uncompressed sizes are known.

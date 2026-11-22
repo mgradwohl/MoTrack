@@ -1,5 +1,7 @@
 #pragma once
 
+#include "utf8_thread_locale.hpp"
+
 #include <QByteArray>
 #include <QFile>
 #include <QString>
@@ -24,6 +26,7 @@ struct ArchiveEntry
 /// and a non-ASCII name gets the ZIP UTF-8 flag, as Tracker's java.util.zip writes them, whatever the C locale.
 inline bool writeArchive(const QString& path, const std::vector<ArchiveEntry>& members)
 {
+    const motrack::ScopedUtf8ThreadLocale utf8Names; // as the production writers do
     const std::unique_ptr<archive, decltype(&archive_write_free)> writer(archive_write_new(), &archive_write_free);
     QByteArray buffer(qsizetype{512} * 1024, Qt::Uninitialized);
     std::size_t used = 0;
