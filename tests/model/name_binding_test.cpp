@@ -5,6 +5,8 @@
 #include <gtest/gtest.h>
 
 #include <map>
+#include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -36,6 +38,7 @@ constexpr const char* VECTOR_SUM = "org.opensourcephysics.cabrillo.tracker.Vecto
 constexpr const char* DYNAMIC_PARTICLE = "org.opensourcephysics.cabrillo.tracker.DynamicParticle";
 constexpr const char* POLAR_PARTICLE = "org.opensourcephysics.cabrillo.tracker.DynamicParticlePolar";
 constexpr const char* DYNAMIC_SYSTEM = "org.opensourcephysics.cabrillo.tracker.DynamicSystem";
+constexpr const char* TRACKER_PACKAGE = "org.opensourcephysics.cabrillo.tracker.";
 
 // The loader type rules of the source reference index (src/tracker_references.cpp).
 const CandidateFilter& panel()
@@ -121,6 +124,11 @@ TEST(NameBinding, ClassifiesUniqueAmbiguousMissingNoTargetAndUnclassifiedNames)
     EXPECT_EQ(resolve(index, "mass A ", panel()), binding(BindingOutcome::Missing));
     EXPECT_EQ(resolve(index, "null", panel()), binding(BindingOutcome::Unique, {id(6)}));
     EXPECT_EQ(resolve(index, std::nullopt, panel()), binding(BindingOutcome::NoTarget));
+    // An object without a readable name is never indexed; an empty name is an ordinary name.
+    const std::vector<NamedObject> named{{.id = id(8), .label = std::nullopt, .className = POINT_MASS},
+                                         {.id = id(9), .label = "", .className = POINT_MASS}};
+    NameIndex withEmpty(named);
+    EXPECT_EQ(resolve(withEmpty, "", panel()), binding(BindingOutcome::Unique, {id(9)}));
     // Exclusion wins over eligibility, and an exclusion-only filter accepts every other class.
     const CandidateFilter conflicting{.eligibleClasses = {POINT_MASS}, .excludedClasses = {POINT_MASS}};
     EXPECT_EQ(resolve(index, "twin", conflicting), binding(BindingOutcome::Missing));
@@ -274,6 +282,12 @@ TEST(NameBinding, RendersCurrentLabelsOnlyWhenAReloadKeepsTheirMeaning)
     ASSERT_TRUE(graph.addObject(id(7), ObjectInfo{.label = "twin", .className = POINT_MASS}));
     EXPECT_EQ(render(twin).status, RenderStatus::Ambiguous); // A different candidate set.
 
+    // A live target without a name cannot be written.
+    ASSERT_TRUE(graph.addObject(id(8), ObjectInfo{.label = std::nullopt, .className = POINT_MASS}));
+    rendered = render(boundDependency(DependencyKind::MemberOf, 3, id(8), Facet::Geometry));
+    EXPECT_EQ(rendered.status, RenderStatus::Unnamed);
+    EXPECT_TRUE(rendered.name.empty());
+
     // An exhausted budget is reported rather than treated as a missing name.
     auto small = NameIndex::fromGraph(graph, NameIndexLimits{.maxCandidateVisits = 1});
     const auto refused = motrack::model::renderName(graph, twin, small, centerMembers());
@@ -286,10 +300,10 @@ std::string property(std::string_view name, std::string_view text)
     return "<property name='" + std::string(name) + "' type='string'><![CDATA[" + std::string(text) + "]]></property>";
 }
 
-std::string track(std::string_view type, std::string_view name, std::string_view fields = {})
+std::string track(std::string_view type, std::optional<std::string_view> name, std::string_view fields = {})
 {
-    return "<property name='item'><object class='" + std::string(type) + "'>" + property("name", name) + std::string(fields) +
-           "</object></property>";
+    return "<property name='item'><object class='" + std::string(type) + "'>" + (name ? property("name", *name) : std::string()) +
+           std::string(fields) + "</object></property>";
 }
 
 std::string collection(std::string_view name, std::string_view items)
@@ -304,38 +318,63 @@ std::string strings(std::string_view name, std::string_view cells)
 
 TEST(NameBinding, MatchesTheSourceReferenceIndexClassification)
 {
-    // Duplicates across types, nested dependents, unknown classes and missing names in every typed field.
-    const auto tracks =
-        track(POINT_MASS, "same") + track(VECTOR, "same") + track(POINT_MASS, "duplicate") + track(POINT_MASS, "duplicate") +
-        track("FutureMass", "uncertain") + track(POINT_MASS, "uncertain") + track(DYNAMIC_PARTICLE, "particle") +
-        track(POLAR_PARTICLE, "polar") + track(DYNAMIC_PARTICLE, "twin particle") + track(POLAR_PARTICLE, "twin particle") +
+    // Duplicates across types, nested dependents, unknown classes, missing, empty and null names in every
+    // typed field. The unnamed track and the empty name check that only readable names are indexed.
+    const std::vector<std::string> tracks{
+        track(POINT_MASS, "same"),
+        track(VECTOR, "same"),
+        track(POINT_MASS, "duplicate"),
+        track(POINT_MASS, "duplicate"),
+        track("FutureMass", "uncertain"),
+        track(POINT_MASS, "uncertain"),
+        track(DYNAMIC_PARTICLE, "particle"),
+        track(POLAR_PARTICLE, "polar"),
+        track(DYNAMIC_PARTICLE, "twin particle"),
+        track(POLAR_PARTICLE, "twin particle"),
+        track(POINT_MASS, ""),
+        track("FutureTrack", std::nullopt),
         track(CENTER_OF_MASS,
               "center",
               collection("masses",
                          property("item", "same") + property("item", "duplicate") + property("item", "uncertain") +
-                             property("item", "center") + property("item", "missing"))) +
-        track(
-            VECTOR_SUM, "sum", collection("vectors", property("item", "same") + property("item", "uncertain") + property("item", "sum"))) +
-        track(DYNAMIC_PARTICLE, "boosted", property("booster", "same")) +
-        track(DYNAMIC_PARTICLE, "nested", property("booster", "particle")) +
+                             property("item", "center") + property("item", "missing") + property("item", ""))),
+        track(VECTOR_SUM, "sum", collection("vectors", property("item", "same") + property("item", "uncertain") + property("item", "sum"))),
+        track(DYNAMIC_PARTICLE, "boosted", property("booster", "same")),
+        track(DYNAMIC_PARTICLE, "nested", property("booster", "particle")),
         track(DYNAMIC_SYSTEM,
               "system",
-              strings("particles", property("[0]", "twin particle") + property("[1]", "same")) + property("booster", "duplicate")) +
-        track(DYNAMIC_SYSTEM, "pair", strings("particles", property("[0]", "particle") + property("[1]", "polar")));
-    const auto xml = "<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'><property name='tracks'>" + tracks +
+              strings("particles", property("[0]", "twin particle") + property("[1]", "same")) + property("booster", "duplicate")),
+        track(DYNAMIC_SYSTEM, "pair", strings("particles", property("[0]", "particle") + property("[1]", "polar"))),
+        track(TRACKER_PACKAGE + std::string("TapeMeasure"),
+              "tape",
+              strings("attachments",
+                      property("[0]", "same") + "<property name='[1]' type='object'>null</property>" + property("[2]", "particle"))),
+        track(TRACKER_PACKAGE + std::string("CircleFitter"),
+              "circle",
+              property("step_attachment", "polar") + strings("attachments", property("[0]", "missing"))),
+    };
+    // The typed null slot is an explicitly empty attachment, known from the fixture rather than the index.
+    const std::set<std::string> emptySlots{"/tracks/18/attachments/1"};
+    std::string items;
+    for (const auto& item : tracks)
+    {
+        items += item;
+    }
+    const auto xml = "<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'><property name='tracks'>" + items +
                      "</property>" + property("selectedtrack", "duplicate") + property("referenceframe", "same") + "</object>";
     const auto imported = motrack::parseTrackerProject(xml);
     const auto source = motrack::indexTrackerReferences(imported.source, imported.project);
-    ASSERT_TRUE(source.malformedPaths.empty());
+    ASSERT_EQ(source.malformedPaths, (std::vector<std::string>{"/tracks/11/name"}));
 
     std::vector<NamedObject> objects;
     objects.reserve(source.tracks.size());
     for (const auto& sourceTrack : source.tracks)
     {
-        objects.push_back(NamedObject{
-            .id = id(sourceTrack.sourceIndex + 1), .label = sourceTrack.originalName.value_or(""), .className = sourceTrack.className});
+        objects.push_back(
+            NamedObject{.id = id(sourceTrack.sourceIndex + 1), .label = sourceTrack.originalName, .className = sourceTrack.className});
     }
     NameIndex index(objects);
+    // Attachments use Tracker's first match of any class by name, so they are panel-wide lookups.
     const std::map<motrack::TrackerReferenceKind, const CandidateFilter*> filters{
         {motrack::TrackerReferenceKind::SelectedTrack, &panel()},
         {motrack::TrackerReferenceKind::ReferenceFrame, &panel()},
@@ -343,6 +382,8 @@ TEST(NameBinding, MatchesTheSourceReferenceIndexClassification)
         {motrack::TrackerReferenceKind::VectorSumMember, &sumMembers()},
         {motrack::TrackerReferenceKind::ModelBooster, &boosters()},
         {motrack::TrackerReferenceKind::DynamicSystemMember, &systemMembers()},
+        {motrack::TrackerReferenceKind::Attachment, &panel()},
+        {motrack::TrackerReferenceKind::CircleStepAttachment, &panel()},
     };
     const std::map<motrack::TrackerReferenceResolution, BindingOutcome> outcomes{
         {motrack::TrackerReferenceResolution::Resolved, BindingOutcome::Unique},
@@ -352,13 +393,11 @@ TEST(NameBinding, MatchesTheSourceReferenceIndexClassification)
         {motrack::TrackerReferenceResolution::Unclassified, BindingOutcome::Unclassified},
     };
     std::map<BindingOutcome, int> seen;
-    ASSERT_EQ(source.references.size(), 17u);
+    ASSERT_EQ(source.references.size(), 23u);
     for (const auto& reference : source.references)
     {
         SCOPED_TRACE(reference.path);
-        const auto expectedOutcome = outcomes.at(reference.resolution);
-        const auto name =
-            expectedOutcome == BindingOutcome::NoTarget ? std::nullopt : std::optional<std::string_view>(reference.originalName);
+        const auto name = emptySlots.contains(reference.path) ? std::nullopt : std::optional<std::string_view>(reference.originalName);
         const auto result = resolve(index, name, *filters.at(reference.kind));
         std::vector<ObjectId> candidates;
         candidates.reserve(reference.candidateSourceIndices.size());
@@ -366,15 +405,15 @@ TEST(NameBinding, MatchesTheSourceReferenceIndexClassification)
         {
             candidates.push_back(id(sourceIndex + 1));
         }
-        EXPECT_EQ(result.outcome, expectedOutcome);
+        EXPECT_EQ(result.outcome, outcomes.at(reference.resolution));
         EXPECT_EQ(result.candidates, candidates);
         ++seen[result.outcome];
     }
-    // Every outcome except an empty slot occurs, so the comparison is not vacuous.
+    // Every outcome occurs, so the comparison is not vacuous.
     EXPECT_GT(seen[BindingOutcome::Unique], 0);
     EXPECT_GT(seen[BindingOutcome::Ambiguous], 0);
     EXPECT_GT(seen[BindingOutcome::Missing], 0);
+    EXPECT_GT(seen[BindingOutcome::NoTarget], 0);
     EXPECT_GT(seen[BindingOutcome::Unclassified], 0);
 }
-
 } // namespace

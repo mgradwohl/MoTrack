@@ -6,9 +6,9 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <set>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 namespace
@@ -39,10 +39,16 @@ using motrack::model::Revision;
 
 constexpr std::string_view POINT_MASS = "org.opensourcephysics.cabrillo.tracker.PointMass";
 constexpr std::string_view CENTER_OF_MASS = "org.opensourcephysics.cabrillo.tracker.CenterOfMass";
+constexpr std::string_view DYNAMIC_PARTICLE = "org.opensourcephysics.cabrillo.tracker.DynamicParticle";
 
 constexpr ObjectId id(std::uint64_t value)
 {
     return ObjectId{value};
+}
+
+constexpr NodeKey definition(std::uint64_t value)
+{
+    return NodeKey{.object = ObjectId{value}, .facet = Facet::Definition};
 }
 
 constexpr NodeKey geometry(std::uint64_t value)
@@ -94,15 +100,16 @@ std::size_t position(const EvaluationPlan& plan, NodeKey node)
     return static_cast<std::size_t>(found - plan.order.begin());
 }
 
-/// Every evaluated node appears after all of its live dependencies, which are themselves evaluated.
+/// Every evaluated node appears after its object's earlier facet and after all of its live dependencies.
 void expectTopological(const DependencyGraph& graph, const EvaluationPlan& plan)
 {
     for (std::size_t index = 0; index < plan.order.size(); ++index)
     {
         const auto node = plan.order[index];
-        if (node.facet == Facet::Data)
+        if (node.facet != Facet::Definition)
         {
-            EXPECT_LT(position(plan, NodeKey{.object = node.object, .facet = Facet::Geometry}), index);
+            const auto previous = node.facet == Facet::Data ? Facet::Geometry : Facet::Definition;
+            EXPECT_LT(position(plan, NodeKey{.object = node.object, .facet = previous}), index);
         }
         for (const auto& dependency : graph.dependencies(node))
         {
@@ -129,10 +136,21 @@ std::vector<NodeKey> allNodes(std::initializer_list<std::uint64_t> values)
     std::vector<NodeKey> result;
     for (const auto value : values)
     {
+        result.push_back(definition(value));
         result.push_back(geometry(value));
         result.push_back(data(value));
     }
     return result;
+}
+
+BlockedNode dependsOnBlocked(NodeKey node, std::optional<DependencyKey> via = std::nullopt)
+{
+    return BlockedNode{.node = node, .reason = BlockReason::DependsOnBlocked, .via = via, .cycle = std::nullopt};
+}
+
+BlockedNode onCycle(NodeKey node, std::size_t cycle)
+{
+    return BlockedNode{.node = node, .reason = BlockReason::Cycle, .via = std::nullopt, .cycle = cycle};
 }
 
 TEST(DependencyGraph, IdentitiesRevisionsAndDiagnosticNamesAreValueTypes)
@@ -142,8 +160,9 @@ TEST(DependencyGraph, IdentitiesRevisionsAndDiagnosticNamesAreValueTypes)
     EXPECT_LT(id(1), id(2));
     EXPECT_EQ(std::hash<ObjectId>{}(id(7)), std::hash<std::uint64_t>{}(7));
     EXPECT_LT(Revision{1}, Revision{2});
+    EXPECT_LT(definition(1), geometry(1));
     EXPECT_LT(geometry(1), data(1));
-    EXPECT_LT(data(1), geometry(2));
+    EXPECT_LT(data(1), definition(2));
 
     EXPECT_EQ(motrack::model::dependencyKindName(DependencyKind::MemberOf), "member-of");
     EXPECT_EQ(motrack::model::dependencyKindName(DependencyKind::AttachedTo), "attached-to");
@@ -225,6 +244,8 @@ TEST(DependencyGraph, AddsObjectsAndRefusesReservedDuplicateAndReusedIdentitiesW
 TEST(DependencyGraph, OrdersChainsDependenciesFirstIndependentlyOfInsertionHistory)
 {
     // A center of mass (3) of two masses (1, 2), a sum (4) reading the center, and an unrelated mass (9).
+    // The center's positions read the members' geometry, which includes their masses; its total mass, an
+    // input to its own geometry, reads their definitions.
     const auto build = [](bool reversed)
     {
         DependencyGraph graph;
@@ -240,8 +261,8 @@ TEST(DependencyGraph, OrdersChainsDependenciesFirstIndependentlyOfInsertionHisto
         std::vector<std::function<void()>> edges{
             [&] { depend(graph, geometry(3), geometry(1), DependencyKind::MemberOf, 0); },
             [&] { depend(graph, geometry(3), geometry(2), DependencyKind::MemberOf, 1); },
-            [&] { depend(graph, data(3), data(1), DependencyKind::MemberOf, 0); },
-            [&] { depend(graph, data(3), data(2), DependencyKind::MemberOf, 1); },
+            [&] { depend(graph, definition(3), definition(1), DependencyKind::MemberOf, 0); },
+            [&] { depend(graph, definition(3), definition(2), DependencyKind::MemberOf, 1); },
             [&] { depend(graph, geometry(4), geometry(3), DependencyKind::ReferencesDataOf); },
         };
         if (reversed)
@@ -258,9 +279,7 @@ TEST(DependencyGraph, OrdersChainsDependenciesFirstIndependentlyOfInsertionHisto
     const auto backward = build(true);
     const auto plan = forward.plan();
     EXPECT_EQ(plan.order, backward.plan().order);
-    EXPECT_EQ(plan.order,
-              (std::vector<NodeKey>{
-                  geometry(1), data(1), geometry(2), data(2), geometry(3), data(3), geometry(4), data(4), geometry(9), data(9)}));
+    EXPECT_EQ(plan.order, allNodes({1, 2, 3, 4, 9}));
     EXPECT_TRUE(plan.blocked.empty());
     EXPECT_TRUE(plan.cycles.empty());
     EXPECT_TRUE(plan.references.empty());
@@ -273,7 +292,7 @@ TEST(DependencyGraph, OrdersChainsDependenciesFirstIndependentlyOfInsertionHisto
     EXPECT_EQ(members[0].slot, 0u);
     EXPECT_EQ(members[1].slot, 1u);
     EXPECT_EQ(forward.referencesTo(id(1)),
-              (std::vector<DependencyKey>{key(geometry(3), DependencyKind::MemberOf), key(data(3), DependencyKind::MemberOf)}));
+              (std::vector<DependencyKey>{key(definition(3), DependencyKind::MemberOf), key(geometry(3), DependencyKind::MemberOf)}));
 }
 
 TEST(DependencyGraph, DiamondInvalidatesOnlyAffectedNodes)
@@ -315,10 +334,17 @@ TEST(DependencyGraph, DiamondInvalidatesOnlyAffectedNodes)
     EXPECT_EQ(graph.effectiveRevision(data(4)), graph.revision());
     EXPECT_EQ(graph.effectiveRevision(geometry(5)), Revision{5});
 
-    // A data-only change, such as a mass, leaves every geometry current.
+    // A mass edit changes the definition, which every position and data value of the object includes.
     const auto third = graph.revision();
+    ASSERT_TRUE(graph.markChanged(definition(1)));
+    EXPECT_EQ(
+        graph.planSince(third).order,
+        (std::vector<NodeKey>{definition(1), geometry(1), data(1), geometry(2), data(2), geometry(3), data(3), geometry(4), data(4)}));
+
+    // A change that affects only world data, such as a derivative setting, leaves every geometry current.
+    const auto fourth = graph.revision();
     ASSERT_TRUE(graph.markChanged(data(1)));
-    EXPECT_EQ(graph.planSince(third).order, (std::vector<NodeKey>{data(1)}));
+    EXPECT_EQ(graph.planSince(fourth).order, (std::vector<NodeKey>{data(1)}));
 }
 
 TEST(DependencyGraph, RefusesSelfOwnFacetChainAndDiamondCyclesWithTheirPath)
@@ -347,6 +373,11 @@ TEST(DependencyGraph, RefusesSelfOwnFacetChainAndDiamondCyclesWithTheirPath)
                                 {.from = data(1), .to = geometry(1), .dependency = std::nullopt}}));
     EXPECT_EQ(motrack::model::describeCycle(graph, ownData.error().cycle),
               "'track 1' #1 geometry -[references-data-of 3]-> 'track 1' #1 data -[own geometry]-> 'track 1' #1 geometry");
+    // A definition reading its own geometry closes the implicit geometry-on-definition edge.
+    const auto ownGeometry = graph.addDependency(definition(1), on(geometry(1), DependencyKind::ReferencesDataOf, 4));
+    ASSERT_FALSE(ownGeometry);
+    EXPECT_EQ(motrack::model::describeCycle(graph, ownGeometry.error().cycle),
+              "'track 1' #1 definition -[references-data-of 4]-> 'track 1' #1 geometry -[own definition]-> 'track 1' #1 definition");
     // Data reading its own geometry explicitly is not a cycle.
     depend(graph, data(1), geometry(1), DependencyKind::ReferencesDataOf);
     ASSERT_TRUE(graph.removeDependency(key(data(1), DependencyKind::ReferencesDataOf)));
@@ -382,76 +413,99 @@ TEST(DependencyGraph, RefusesSelfOwnFacetChainAndDiamondCyclesWithTheirPath)
     EXPECT_EQ(motrack::model::describeCycle(graph, Cycle{}), "");
 }
 
-TEST(DependencyGraph, ReferenceFramesUseFacetsSoOriginsAndCentersAreNotFalseCycles)
+TEST(DependencyGraph, ReferenceFramesOnCentersAndModelsFollowTrackersFrameRules)
 {
-    // Coordinates (10) follow origin 1's image positions; every track's data is measured in that frame.
+    // Default coordinates (10) and a reference frame (11) are separate objects. The frame reads the default
+    // coordinates and its origin's positions; every track's world data is measured in the frame.
     DependencyGraph graph;
-    add(graph, 1, "origin");
-    add(graph, 2, "mass");
+    add(graph, 1, "mass A");
+    add(graph, 2, "mass B");
     add(graph, 3, "center", CENTER_OF_MASS);
     add(graph, 10, "coordinates", "org.opensourcephysics.media.core.ImageCoordSystem");
-    depend(graph, geometry(10), geometry(3), DependencyKind::FrameOf);
+    add(graph, 11, "frame", "org.opensourcephysics.cabrillo.tracker.ReferenceFrame");
+    depend(graph, geometry(11), geometry(10), DependencyKind::FrameOf, 0);
+    depend(graph, geometry(11), geometry(3), DependencyKind::FrameOf, 1);
     depend(graph, geometry(3), geometry(1), DependencyKind::MemberOf, 0);
     depend(graph, geometry(3), geometry(2), DependencyKind::MemberOf, 1);
-    depend(graph, data(3), data(1), DependencyKind::MemberOf, 0);
-    depend(graph, data(3), data(2), DependencyKind::MemberOf, 1);
     for (const auto track : {1, 2, 3})
     {
-        depend(graph, data(track), geometry(10), DependencyKind::FrameOf);
+        depend(graph, data(track), geometry(11), DependencyKind::FrameOf);
     }
     const auto plan = graph.plan();
     EXPECT_TRUE(plan.cycles.empty());
     EXPECT_TRUE(plan.blocked.empty());
     expectTopological(graph, plan);
-    EXPECT_LT(position(plan, geometry(10)), position(plan, data(1)));
+    EXPECT_LT(position(plan, geometry(11)), position(plan, data(1)));
 
-    // A model whose positions are mapped through the frame cannot be the frame's origin.
-    add(graph, 4, "model", "org.opensourcephysics.cabrillo.tracker.DynamicParticle");
+    // Editing a member's mass moves the center, so the frame and every track's world data are stale too.
+    const auto computed = graph.revision();
+    ASSERT_TRUE(graph.markChanged(definition(1)));
+    const auto stale = graph.planSince(computed);
+    EXPECT_TRUE(stale.cycles.empty());
+    EXPECT_EQ(planned(stale),
+              (std::set<NodeKey>{definition(1), geometry(1), data(1), geometry(3), data(3), geometry(11), data(11), data(2)}));
+
+    // Tracker computes a model that is the frame's origin in the default coordinates, so a frame directly on
+    // a model is acyclic.
+    add(graph, 4, "origin model", DYNAMIC_PARTICLE);
     depend(graph, geometry(4), geometry(10), DependencyKind::FrameOf);
-    const auto origin = graph.addDependency(geometry(10), on(geometry(4), DependencyKind::FrameOf, 1));
-    ASSERT_FALSE(origin);
-    EXPECT_EQ(origin.error().cycle.edges.size(), 2u);
-    // Neither can a center of mass that contains that model (an indirect origin).
-    const auto indirect = graph.addDependency(geometry(3), on(geometry(4), DependencyKind::MemberOf, 2));
+    ASSERT_TRUE(graph.removeDependency(key(geometry(11), DependencyKind::FrameOf, 1)));
+    depend(graph, geometry(11), geometry(4), DependencyKind::FrameOf, 1);
+    EXPECT_TRUE(graph.plan().cycles.empty());
+
+    // Any other model is computed in the active frame. A frame on a center of mass that contains such a model
+    // is a real cycle.
+    add(graph, 5, "model", DYNAMIC_PARTICLE);
+    depend(graph, geometry(5), geometry(11), DependencyKind::FrameOf);
+    depend(graph, geometry(3), geometry(5), DependencyKind::MemberOf, 2);
+    ASSERT_TRUE(graph.removeDependency(key(geometry(11), DependencyKind::FrameOf, 1)));
+    const auto indirect = graph.addDependency(geometry(11), on(geometry(3), DependencyKind::FrameOf, 1));
     ASSERT_FALSE(indirect);
-    EXPECT_EQ(indirect.error().cycle.edges.size(), 3u);
+    EXPECT_EQ(
+        indirect.error().cycle.edges,
+        (std::vector<CycleEdge>{{.from = geometry(11), .to = geometry(3), .dependency = key(geometry(11), DependencyKind::FrameOf, 1)},
+                                {.from = geometry(3), .to = geometry(5), .dependency = key(geometry(3), DependencyKind::MemberOf, 2)},
+                                {.from = geometry(5), .to = geometry(11), .dependency = key(geometry(5), DependencyKind::FrameOf)}}));
 }
 
 TEST(DependencyGraph, TwoBodySystemsReadMemberDefinitionsSoComputedPositionsAreNotFalseCycles)
 {
-    // System 10 computes the positions of particles 1 and 2 from their own definition objects: initial
-    // values and mass (11, 21) and a force function (12). Mass 30 boosts particle 1's initial values.
+    // System 10 computes the positions of particles 1 and 2 from their definitions (initial values, masses)
+    // and a force function (12). Mass 30 boosts particle 1's initial state.
     DependencyGraph graph;
-    add(graph, 1, "A", "org.opensourcephysics.cabrillo.tracker.DynamicParticle");
-    add(graph, 2, "B", "org.opensourcephysics.cabrillo.tracker.DynamicParticle");
+    add(graph, 1, "A", DYNAMIC_PARTICLE);
+    add(graph, 2, "B", DYNAMIC_PARTICLE);
     add(graph, 10, "system", "org.opensourcephysics.cabrillo.tracker.DynamicSystem");
-    for (const auto definition : {11, 12, 21})
-    {
-        add(graph, definition, "definition", "org.opensourcephysics.tools.Parameter");
-    }
+    add(graph, 12, "fx", "org.opensourcephysics.tools.UserFunction");
     add(graph, 30, "booster");
-    depend(graph, geometry(10), data(11), DependencyKind::MemberOf, 0);
-    depend(graph, geometry(10), data(21), DependencyKind::MemberOf, 1);
-    depend(graph, geometry(10), data(12), DependencyKind::FunctionOf);
+    depend(graph, geometry(10), definition(1), DependencyKind::MemberOf, 0);
+    depend(graph, geometry(10), definition(2), DependencyKind::MemberOf, 1);
+    depend(graph, geometry(10), definition(12), DependencyKind::FunctionOf);
+    depend(graph, geometry(10), data(30), DependencyKind::BoosterOf, 0);
     depend(graph, geometry(1), geometry(10), DependencyKind::ReferencesDataOf);
     depend(graph, geometry(2), geometry(10), DependencyKind::ReferencesDataOf);
-    depend(graph, data(11), data(30), DependencyKind::BoosterOf);
     const auto plan = graph.plan();
     EXPECT_TRUE(plan.cycles.empty());
     expectTopological(graph, plan);
     EXPECT_LT(position(plan, data(30)), position(plan, geometry(10)));
     EXPECT_LT(position(plan, geometry(10)), position(plan, data(1)));
 
+    // A member's mass changes both computed trajectories.
+    const auto computed = graph.revision();
+    ASSERT_TRUE(graph.markChanged(definition(1)));
+    EXPECT_EQ(planned(graph.planSince(computed)),
+              (std::set<NodeKey>{definition(1), geometry(1), data(1), geometry(10), data(10), geometry(2), data(2)}));
+
     // Tracker's booster list excludes members of the same system: that would be a real cycle.
-    const auto sameSystem = graph.addDependency(data(21), on(data(1), DependencyKind::BoosterOf));
+    const auto sameSystem = graph.addDependency(geometry(10), on(data(1), DependencyKind::BoosterOf, 1));
     ASSERT_FALSE(sameSystem);
-    EXPECT_EQ(sameSystem.error().cycle.edges.size(), 4u);
+    EXPECT_EQ(sameSystem.error().cycle.edges.size(), 3u);
 }
 
 TEST(DependencyGraph, RecordsLoadedCyclesAndBlocksOnlyThemAndTheirDependents)
 {
     DependencyGraph graph;
-    for (const auto value : {1, 2, 3, 4, 5, 6, 7})
+    for (const auto value : {1, 2, 3, 4, 5, 6, 7, 8})
     {
         add(graph, value, "t" + std::to_string(value));
     }
@@ -462,6 +516,9 @@ TEST(DependencyGraph, RecordsLoadedCyclesAndBlocksOnlyThemAndTheirDependents)
     depend(graph, geometry(4), geometry(3), DependencyKind::AttachedTo, 1); // Depends on the cycle.
     depend(graph, geometry(6), geometry(1));                                // Unaffected.
     ASSERT_TRUE(graph.addDependency(data(7), on(data(7), DependencyKind::FunctionOf), CyclePolicy::Record));
+    // Object 8's data is blocked both through its own geometry and explicitly; the explicit edge is reported.
+    depend(graph, geometry(8), geometry(5), DependencyKind::AttachedTo);
+    depend(graph, data(8), geometry(2), DependencyKind::ReferencesDataOf);
 
     const auto plan = graph.plan();
     ASSERT_EQ(plan.cycles.size(), 3u);
@@ -474,21 +531,33 @@ TEST(DependencyGraph, RecordsLoadedCyclesAndBlocksOnlyThemAndTheirDependents)
     EXPECT_EQ(plan.cycles[2].edges[0].from, data(7));
 
     const std::vector<BlockedNode> blocked{
-        {.node = geometry(2), .reason = BlockReason::Cycle, .via = std::nullopt, .cycle = 0},
-        {.node = data(2), .reason = BlockReason::DependsOnBlocked, .via = std::nullopt, .cycle = std::nullopt},
-        {.node = geometry(3), .reason = BlockReason::Cycle, .via = std::nullopt, .cycle = 0},
-        {.node = data(3), .reason = BlockReason::DependsOnBlocked, .via = std::nullopt, .cycle = std::nullopt},
-        {.node = geometry(4),
-         .reason = BlockReason::DependsOnBlocked,
-         .via = key(geometry(4), DependencyKind::AttachedTo, 1),
-         .cycle = std::nullopt},
-        {.node = data(4), .reason = BlockReason::DependsOnBlocked, .via = std::nullopt, .cycle = std::nullopt},
-        {.node = geometry(5), .reason = BlockReason::Cycle, .via = std::nullopt, .cycle = 1},
-        {.node = data(5), .reason = BlockReason::DependsOnBlocked, .via = std::nullopt, .cycle = std::nullopt},
-        {.node = data(7), .reason = BlockReason::Cycle, .via = std::nullopt, .cycle = 2},
+        onCycle(geometry(2), 0),
+        dependsOnBlocked(data(2)),
+        onCycle(geometry(3), 0),
+        dependsOnBlocked(data(3)),
+        dependsOnBlocked(geometry(4), key(geometry(4), DependencyKind::AttachedTo, 1)),
+        dependsOnBlocked(data(4)),
+        onCycle(geometry(5), 1),
+        dependsOnBlocked(data(5)),
+        onCycle(data(7), 2),
+        dependsOnBlocked(geometry(8), key(geometry(8), DependencyKind::AttachedTo)),
+        dependsOnBlocked(data(8), key(data(8), DependencyKind::ReferencesDataOf)),
     };
     EXPECT_EQ(plan.blocked, blocked);
-    EXPECT_EQ(plan.order, (std::vector<NodeKey>{geometry(1), data(1), geometry(6), data(6), geometry(7)}));
+    EXPECT_EQ(plan.order,
+              (std::vector<NodeKey>{definition(1),
+                                    geometry(1),
+                                    data(1),
+                                    definition(2),
+                                    definition(3),
+                                    definition(4),
+                                    definition(5),
+                                    definition(6),
+                                    geometry(6),
+                                    data(6),
+                                    definition(7),
+                                    geometry(7),
+                                    definition(8)}));
     expectTopological(graph, plan);
 
     // Breaking the cycle with an explicit, reversible edit makes its dependents evaluable again.
@@ -497,11 +566,12 @@ TEST(DependencyGraph, RecordsLoadedCyclesAndBlocksOnlyThemAndTheirDependents)
     ASSERT_TRUE(removed);
     const auto repaired = graph.planSince(revision);
     EXPECT_EQ(repaired.order, (std::vector<NodeKey>{geometry(3), geometry(2), data(2), data(3), geometry(4), data(4)}));
-    EXPECT_EQ(repaired.cycles.size(), 2u); // Cycles are still reported for the whole graph.
-    EXPECT_TRUE(repaired.blocked.empty());
-    const auto undone = graph.addDependency(geometry(3), *std::move(removed));
-    ASSERT_FALSE(undone); // Undo through the edit path rejects the cycle; a loader would use Record.
-    EXPECT_EQ(undone.error().code, DependencyErrorCode::CycleRejected);
+    EXPECT_EQ(repaired.cycles.size(), 2u);                                              // Cycles are still reported for the whole graph.
+    EXPECT_EQ(repaired.blocked, (std::vector<BlockedNode>{dependsOnBlocked(data(8))})); // Still blocked by its own geometry.
+    // A new edit that closes the cycle is refused; undoing the removal restores the loaded state.
+    EXPECT_EQ(graph.addDependency(geometry(3), *removed).error().code, DependencyErrorCode::CycleRejected);
+    ASSERT_TRUE(graph.addDependency(geometry(3), *std::move(removed), CyclePolicy::Record));
+    EXPECT_EQ(graph.plan().cycles.size(), 3u);
 }
 
 TEST(DependencyGraph, DeletionKeepsDanglingReferencesAndUndoRestoresEveryEdge)
@@ -514,8 +584,6 @@ TEST(DependencyGraph, DeletionKeepsDanglingReferencesAndUndoRestoresEveryEdge)
     add(graph, 4, "tape", "org.opensourcephysics.cabrillo.tracker.TapeMeasure");
     depend(graph, geometry(3), geometry(1), DependencyKind::MemberOf, 0);
     depend(graph, geometry(3), geometry(2), DependencyKind::MemberOf, 1);
-    depend(graph, data(3), data(1), DependencyKind::MemberOf, 0);
-    depend(graph, data(3), data(2), DependencyKind::MemberOf, 1);
     ASSERT_TRUE(
         graph.addDependency(geometry(4), boundDependency(DependencyKind::AttachedTo, 0, id(1), Facet::Geometry, MissingTarget::FallsBack)));
     depend(graph, geometry(1), geometry(2), DependencyKind::AttachedTo, 7); // Mass A's own dependency, removed with it.
@@ -529,15 +597,14 @@ TEST(DependencyGraph, DeletionKeepsDanglingReferencesAndUndoRestoresEveryEdge)
     EXPECT_EQ(removed.id, id(1));
     EXPECT_EQ(removed.info.label, "mass A");
     ASSERT_EQ(removed.geometryDependencies.size(), 1u);
+    EXPECT_TRUE(removed.definitionDependencies.empty());
     EXPECT_TRUE(removed.dataDependencies.empty());
     EXPECT_EQ(removed.danglingReferences,
-              (std::vector<DependencyKey>{key(geometry(3), DependencyKind::MemberOf),
-                                          key(data(3), DependencyKind::MemberOf),
-                                          key(geometry(4), DependencyKind::AttachedTo)}));
+              (std::vector<DependencyKey>{key(geometry(3), DependencyKind::MemberOf), key(geometry(4), DependencyKind::AttachedTo)}));
     // Nothing is dropped: the center keeps both member slots and still reports the removed identity.
     EXPECT_EQ(graph.dependencies(geometry(3)).size(), 2u);
-    EXPECT_EQ(graph.referencesTo(id(1)).size(), 3u);
-    EXPECT_EQ(graph.referencesTo(id(2)).size(), 2u); // Mass A's own attachment to B is gone.
+    EXPECT_EQ(graph.referencesTo(id(1)).size(), 2u);
+    EXPECT_EQ(graph.referencesTo(id(2)).size(), 1u); // Mass A's own attachment to B is gone.
 
     const auto plan = graph.plan();
     const std::vector<BlockedNode> blocked{
@@ -545,14 +612,15 @@ TEST(DependencyGraph, DeletionKeepsDanglingReferencesAndUndoRestoresEveryEdge)
          .reason = BlockReason::DanglingReference,
          .via = key(geometry(3), DependencyKind::MemberOf),
          .cycle = std::nullopt},
-        {.node = data(3), .reason = BlockReason::DanglingReference, .via = key(data(3), DependencyKind::MemberOf), .cycle = std::nullopt},
+        dependsOnBlocked(data(3)),
     };
     EXPECT_EQ(plan.blocked, blocked);
-    EXPECT_EQ(plan.order, (std::vector<NodeKey>{geometry(2), data(2), geometry(4), data(4)})); // The tape falls back.
-    ASSERT_EQ(plan.references.size(), 3u);
-    EXPECT_EQ(plan.references[2].key, key(geometry(4), DependencyKind::AttachedTo));
-    EXPECT_EQ(plan.references[2].state, ReferenceState::Dangling);
-    EXPECT_EQ(plan.references[2].dependency.onMissing, MissingTarget::FallsBack);
+    // The tape falls back to its own point; the center's definition is independent of its members.
+    EXPECT_EQ(plan.order, (std::vector<NodeKey>{definition(2), geometry(2), data(2), definition(3), definition(4), geometry(4), data(4)}));
+    ASSERT_EQ(plan.references.size(), 2u);
+    EXPECT_EQ(plan.references[1].key, key(geometry(4), DependencyKind::AttachedTo));
+    EXPECT_EQ(plan.references[1].state, ReferenceState::Dangling);
+    EXPECT_EQ(plan.references[1].dependency.onMissing, MissingTarget::FallsBack);
     EXPECT_FALSE(graph.isCurrent(geometry(3), computed));
     EXPECT_FALSE(graph.isCurrent(geometry(4), computed));
     EXPECT_TRUE(graph.isCurrent(geometry(2), computed));
@@ -567,11 +635,12 @@ TEST(DependencyGraph, DeletionKeepsDanglingReferencesAndUndoRestoresEveryEdge)
     const auto restored = graph.dependencies(geometry(3));
     EXPECT_EQ(std::vector<Dependency>(restored.begin(), restored.end()), members);
     ASSERT_EQ(graph.dependencies(geometry(1)).size(), 1u);
-    EXPECT_EQ(graph.referencesTo(id(2)).size(), 3u);
+    EXPECT_EQ(graph.referencesTo(id(2)).size(), 2u);
     const auto after = graph.plan();
     EXPECT_TRUE(after.blocked.empty());
     EXPECT_TRUE(after.references.empty());
-    EXPECT_EQ(planned(graph.planSince(beforeUndo)), (std::set<NodeKey>{geometry(1), data(1), geometry(3), data(3), geometry(4), data(4)}));
+    EXPECT_EQ(planned(graph.planSince(beforeUndo)),
+              (std::set<NodeKey>{definition(1), geometry(1), data(1), geometry(3), data(3), geometry(4), data(4)}));
     expectTopological(graph, after);
 
     // Restoring changes observable state, so later edits still propagate through restored edges.
@@ -580,15 +649,41 @@ TEST(DependencyGraph, DeletionKeepsDanglingReferencesAndUndoRestoresEveryEdge)
     EXPECT_EQ(planned(graph.planSince(settled)),
               (std::set<NodeKey>{geometry(1), data(1), geometry(2), data(2), geometry(3), data(3), geometry(4), data(4)}));
 
-    // Restore refuses live, never-removed and reserved identities.
+    // Restore refuses live, never-removed and reserved identities, and leaves the record usable.
     EXPECT_EQ(graph.restoreObject(removed).error().code, DependencyErrorCode::DuplicateObject);
+    EXPECT_EQ(removed.geometryDependencies.size(), 1u);
     removed.id = id(40);
     EXPECT_EQ(graph.restoreObject(removed).error().code, DependencyErrorCode::UnknownObject);
     removed.id = ObjectId{};
     EXPECT_EQ(graph.restoreObject(removed).error().code, DependencyErrorCode::InvalidObjectId);
 }
 
-TEST(DependencyGraph, OutOfOrderRestoreThatClosesACycleIsRefusedUnlessRecorded)
+TEST(DependencyGraph, UndoRestoresALoadedCycleInsteadOfRefusingIt)
+{
+    // A file's center of mass "cm" (2) lists mass A (1) and itself.
+    DependencyGraph graph;
+    add(graph, 1, "A");
+    add(graph, 2, "cm", CENTER_OF_MASS);
+    depend(graph, geometry(2), geometry(1), DependencyKind::MemberOf, 0);
+    ASSERT_TRUE(graph.addDependency(geometry(2), on(geometry(2), DependencyKind::MemberOf, 1), CyclePolicy::Record));
+    ASSERT_EQ(graph.plan().cycles.size(), 1u);
+
+    // Deleting the center and undoing the deletion brings the loaded cycle back, still reported.
+    const auto removed = *graph.removeObject(id(2));
+    EXPECT_TRUE(graph.plan().cycles.empty());
+    ASSERT_TRUE(graph.restoreObject(removed));
+    const auto plan = graph.plan();
+    ASSERT_EQ(plan.cycles.size(), 1u);
+    EXPECT_EQ(plan.blocked.front(), onCycle(geometry(2), 0));
+    // A caller that restores out of order can still ask for a refusal.
+    const auto again = *graph.removeObject(id(2));
+    const auto refused = graph.restoreObject(again, CyclePolicy::Reject);
+    ASSERT_FALSE(refused);
+    EXPECT_EQ(refused.error().cycle.edges.size(), 1u);
+    ASSERT_TRUE(graph.restoreObject(again));
+}
+
+TEST(DependencyGraph, OutOfOrderRestoreThatClosesACycleIsReportedOrRefusedOnRequest)
 {
     // 1 reads 2, and 2 reads 3. Remove 2, let 3 read 1, then try to restore 2.
     DependencyGraph graph;
@@ -598,10 +693,10 @@ TEST(DependencyGraph, OutOfOrderRestoreThatClosesACycleIsRefusedUnlessRecorded)
     }
     depend(graph, geometry(1), geometry(2));
     depend(graph, geometry(2), geometry(3));
-    auto removed = *graph.removeObject(id(2));
+    const auto removed = *graph.removeObject(id(2));
     depend(graph, geometry(3), geometry(1));
     const auto revision = graph.revision();
-    const auto refused = graph.restoreObject(removed);
+    const auto refused = graph.restoreObject(removed, CyclePolicy::Reject);
     ASSERT_FALSE(refused);
     EXPECT_EQ(refused.error().code, DependencyErrorCode::CycleRejected);
     EXPECT_EQ(refused.error().cycle.edges,
@@ -619,14 +714,15 @@ TEST(DependencyGraph, OutOfOrderRestoreThatClosesACycleIsRefusedUnlessRecorded)
     add(dataCycle, 1);
     add(dataCycle, 2);
     depend(dataCycle, data(1), geometry(2), DependencyKind::ReferencesDataOf);
-    auto dataRemoved = *dataCycle.removeObject(id(1));
+    const auto dataRemoved = *dataCycle.removeObject(id(1));
     depend(dataCycle, geometry(2), data(1), DependencyKind::ReferencesDataOf);
     EXPECT_EQ(
-        dataCycle.restoreObject(dataRemoved).error().cycle.edges,
+        dataCycle.restoreObject(dataRemoved, CyclePolicy::Reject).error().cycle.edges,
         (std::vector<CycleEdge>{{.from = data(1), .to = geometry(2), .dependency = key(data(1), DependencyKind::ReferencesDataOf)},
                                 {.from = geometry(2), .to = data(1), .dependency = key(geometry(2), DependencyKind::ReferencesDataOf)}}));
 
-    ASSERT_TRUE(graph.restoreObject(removed, CyclePolicy::Record));
+    // By default the restoration is recorded, and the new cycle is reported rather than hidden.
+    ASSERT_TRUE(graph.restoreObject(removed));
     const auto plan = graph.plan();
     ASSERT_EQ(plan.cycles.size(), 1u);
     EXPECT_EQ(plan.cycles[0].edges.front().from, geometry(1));
@@ -638,7 +734,7 @@ TEST(DependencyGraph, RestoreValidatesFabricatedRecords)
     DependencyGraph graph;
     add(graph, 1);
     add(graph, 2);
-    auto removed = *graph.removeObject(id(1));
+    const auto removed = *graph.removeObject(id(1));
     auto invalid = removed;
     invalid.dataDependencies.push_back(unbound(BindingOutcome::Unique, "x"));
     EXPECT_EQ(graph.restoreObject(invalid).error().code, DependencyErrorCode::InvalidDependency);
@@ -646,12 +742,13 @@ TEST(DependencyGraph, RestoreValidatesFabricatedRecords)
     unknown.geometryDependencies.push_back(on(geometry(77)));
     EXPECT_EQ(graph.restoreObject(unknown).error().code, DependencyErrorCode::UnknownObject);
     auto duplicate = removed;
-    duplicate.geometryDependencies = {on(geometry(2)), on(geometry(2))};
+    duplicate.definitionDependencies = {on(definition(2)), on(definition(2))};
     EXPECT_EQ(graph.restoreObject(duplicate).error().code, DependencyErrorCode::DuplicateDependency);
     auto self = removed;
     self.geometryDependencies = {on(geometry(1), DependencyKind::AttachedTo), on(geometry(2), DependencyKind::MemberOf, 4)};
-    ASSERT_FALSE(graph.restoreObject(self)); // A self-reference is a cycle.
+    ASSERT_FALSE(graph.restoreObject(self, CyclePolicy::Reject)); // A self-reference is a cycle.
     EXPECT_FALSE(graph.contains(id(1)));
+    EXPECT_EQ(self.geometryDependencies.size(), 2u);
     // Unsorted dependencies are accepted and stored in (kind, slot) order.
     auto unsorted = removed;
     unsorted.geometryDependencies = {on(geometry(2), DependencyKind::AttachedTo), on(geometry(2), DependencyKind::MemberOf, 4)};
@@ -662,6 +759,34 @@ TEST(DependencyGraph, RestoreValidatesFabricatedRecords)
     EXPECT_EQ(stored[1].kind, DependencyKind::AttachedTo);
 }
 
+TEST(DependencyGraph, RetiredIdentitiesKeepDanglingReferencesAcrossANativeReopen)
+{
+    // A reopened document's center of mass (1) still names member 5, removed before the save.
+    DependencyGraph graph;
+    add(graph, 1, "center", CENTER_OF_MASS);
+    EXPECT_EQ(graph.addDependency(geometry(1), on(geometry(5))).error().code, DependencyErrorCode::UnknownObject);
+    const auto revision = graph.revision();
+    ASSERT_TRUE(graph.retireIdentity(id(5)));
+    EXPECT_GT(graph.revision(), revision);
+    EXPECT_TRUE(graph.wasRemoved(id(5)));
+    ASSERT_TRUE(graph.addDependency(geometry(1), on(geometry(5))));
+    const auto plan = graph.plan();
+    ASSERT_EQ(plan.references.size(), 1u);
+    EXPECT_EQ(plan.references[0].state, ReferenceState::Dangling);
+    EXPECT_EQ(plan.blocked.front().reason, BlockReason::DanglingReference);
+    // A retired identity is never given to a new object, but a restored record can bring it back.
+    EXPECT_EQ(graph.addObject(id(5), {}).error().code, DependencyErrorCode::IdentityReused);
+    EXPECT_EQ(graph.retireIdentity(id(1)).error().code, DependencyErrorCode::DuplicateObject);
+    EXPECT_EQ(graph.retireIdentity(ObjectId{}).error().code, DependencyErrorCode::InvalidObjectId);
+    ASSERT_TRUE(graph.restoreObject(RemovedObject{.id = id(5),
+                                                  .info = ObjectInfo{.label = "mass", .className = std::string(POINT_MASS)},
+                                                  .definitionDependencies = {},
+                                                  .geometryDependencies = {},
+                                                  .dataDependencies = {},
+                                                  .danglingReferences = {}}));
+    EXPECT_TRUE(graph.plan().blocked.empty());
+}
+
 TEST(DependencyGraph, UnboundAndDanglingReferencesAreKeptReportedAndBlockOnlyWhenRequired)
 {
     DependencyGraph graph;
@@ -669,7 +794,7 @@ TEST(DependencyGraph, UnboundAndDanglingReferencesAreKeptReportedAndBlockOnlyWhe
     add(graph, 2, "duplicate");
     add(graph, 3, "duplicate");
     add(graph, 4, "center", CENTER_OF_MASS);
-    add(graph, 5, "model", "org.opensourcephysics.cabrillo.tracker.DynamicParticle");
+    add(graph, 5, "model", DYNAMIC_PARTICLE);
     add(graph, 6, "removed");
     ASSERT_TRUE(graph.removeObject(id(6)));
     // Loaded center members: one bound, one ambiguous, one missing.
@@ -698,11 +823,23 @@ TEST(DependencyGraph, UnboundAndDanglingReferencesAreKeptReportedAndBlockOnlyWhe
          .reason = BlockReason::UnboundReference,
          .via = key(geometry(4), DependencyKind::MemberOf, 1),
          .cycle = std::nullopt},
-        {.node = data(4), .reason = BlockReason::DependsOnBlocked, .via = std::nullopt, .cycle = std::nullopt},
+        dependsOnBlocked(data(4)),
         {.node = data(5), .reason = BlockReason::DanglingReference, .via = key(data(5), DependencyKind::FunctionOf), .cycle = std::nullopt},
     };
     EXPECT_EQ(plan.blocked, blocked);
-    EXPECT_EQ(plan.order, (std::vector<NodeKey>{geometry(1), data(1), geometry(2), data(2), geometry(3), data(3), geometry(5)}));
+    EXPECT_EQ(plan.order,
+              (std::vector<NodeKey>{definition(1),
+                                    geometry(1),
+                                    data(1),
+                                    definition(2),
+                                    geometry(2),
+                                    data(2),
+                                    definition(3),
+                                    geometry(3),
+                                    data(3),
+                                    definition(4),
+                                    definition(5),
+                                    geometry(5)}));
     // Unbound references never join the dependents index.
     EXPECT_TRUE(graph.referencesTo(id(2)).empty());
     EXPECT_EQ(graph.referencesTo(id(6)), (std::vector<DependencyKey>{key(data(5), DependencyKind::FunctionOf)}));
@@ -811,8 +948,8 @@ TEST(DependencyGraph, TenThousandObjectGraphsStayBoundedAndIterative)
         ASSERT_TRUE(graph.addDependency(data(value), on(geometry(1), DependencyKind::FrameOf), CyclePolicy::Record));
     }
     const auto plan = graph.plan();
-    ASSERT_EQ(plan.order.size(), 2 * COUNT);
-    EXPECT_EQ(plan.order.front(), geometry(1));
+    ASSERT_EQ(plan.order.size(), 3 * COUNT);
+    EXPECT_EQ(plan.order.front(), definition(1));
     EXPECT_EQ(plan.order.back(), data(COUNT));
     EXPECT_TRUE(plan.cycles.empty());
 
@@ -821,7 +958,7 @@ TEST(DependencyGraph, TenThousandObjectGraphsStayBoundedAndIterative)
     ASSERT_TRUE(cycle);
     EXPECT_EQ(cycle.value().edges.size(), COUNT);
 
-    // Changing the leaf invalidates only the leaf; changing the root invalidates everything.
+    // Changing the leaf invalidates only the leaf; changing the root invalidates everything after it.
     auto revision = graph.revision();
     ASSERT_TRUE(graph.markChanged(geometry(COUNT)));
     EXPECT_EQ(graph.planSince(revision).order, (std::vector<NodeKey>{geometry(COUNT), data(COUNT)}));
@@ -835,7 +972,7 @@ TEST(DependencyGraph, TenThousandObjectGraphsStayBoundedAndIterative)
     ASSERT_EQ(cyclic.cycles.size(), 1u);
     EXPECT_EQ(cyclic.cycles[0].edges.size(), COUNT);
     EXPECT_EQ(cyclic.blocked.size(), 2 * COUNT);
-    EXPECT_TRUE(cyclic.order.empty());
+    EXPECT_EQ(cyclic.order.size(), COUNT); // Only the definitions remain evaluable.
 
     // Removing the frame origin dangles the chain link and 9999 frame references in one bounded operation.
     ASSERT_TRUE(graph.removeDependency(key(geometry(1), DependencyKind::AttachedTo)));

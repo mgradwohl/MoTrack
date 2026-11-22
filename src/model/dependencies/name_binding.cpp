@@ -40,7 +40,10 @@ NameIndex::NameIndex(std::span<const NamedObject> objects, NameIndexLimits limit
 {
     for (const auto& object : objects)
     {
-        m_ByName[object.label].push_back(Candidate{.id = object.id, .className = object.className});
+        if (object.label)
+        {
+            m_ByName[*object.label].push_back(Candidate{.id = object.id, .className = object.className});
+        }
     }
 }
 
@@ -140,7 +143,12 @@ renderName(const DependencyGraph& graph, const Dependency& dependency, NameIndex
     RenderedName rendered;
     const auto* target = dependency.target ? graph.object(*dependency.target) : nullptr;
     const bool dangling = dependency.target && target == nullptr;
-    rendered.name = target != nullptr ? target->label : dependency.savedName;
+    if (target != nullptr && !target->label)
+    {
+        rendered.status = RenderStatus::Unnamed;
+        return rendered;
+    }
+    rendered.name = target != nullptr ? target->label.value_or(std::string()) : dependency.savedName;
     // A dangling reference keeps no current label; a reload of its saved name is still reported.
     if (!dangling || !rendered.name.empty())
     {

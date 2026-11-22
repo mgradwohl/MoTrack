@@ -30,21 +30,27 @@ struct Revision
     constexpr auto operator<=>(const Revision&) const = default;
 };
 
-/// The computed part of an object that a graph node stands for. Tracker computes image-space positions
-/// separately from world-space data: a moving reference frame follows its origin track's image positions,
-/// while every track's world data, including the origin's, is measured in that frame. With a single node
-/// per object that ordinary workflow, and a frame on a center of mass, would be reported as a cycle.
+/// The part of an object that a graph node stands for. Tracker computes image-space positions separately
+/// from world-space data: a moving reference frame follows its origin track's image positions, while every
+/// track's world data, including the origin's, is measured in that frame. Positions in turn depend on
+/// inputs that no frame changes, such as the masses weighting a center of mass. With fewer nodes per object,
+/// ordinary workflows such as a frame on a center of mass would be reported as cycles.
+///
+/// Each facet implicitly depends on the one before it: Geometry on its object's Definition, and Data on its
+/// object's Geometry. Reading a target's Geometry therefore also reads its Definition.
 enum class Facet : std::uint8_t
 {
+    /// Inputs that do not depend on coordinates: mass, model parameters and initial values, and function
+    /// expressions.
+    Definition,
     /// Image-space geometry in pixels: marks, attached end points, model, center and sum positions, and
     /// coordinate transforms.
     Geometry,
-    /// World-space values in calibrated units: data columns, masses, and function and parameter values.
-    /// Every object's Data implicitly depends on its own Geometry.
+    /// World-space values in calibrated units: data columns and evaluated functions.
     Data,
 };
 
-inline constexpr std::size_t FACET_COUNT = 2;
+inline constexpr std::size_t FACET_COUNT = 3;
 
 /// One graph node: a facet of a live object.
 struct NodeKey
@@ -140,7 +146,8 @@ struct CycleEdge
 {
     NodeKey from;
     NodeKey to;
-    /// The dependency followed. Absent for the implicit edge from an object's Data to its own Geometry.
+    /// The dependency followed. Absent for an implicit edge within one object (Geometry to its Definition,
+    /// Data to its Geometry).
     std::optional<DependencyKey> dependency;
 
     bool operator==(const CycleEdge&) const = default;
@@ -247,8 +254,9 @@ template <typename T = std::monostate> class [[nodiscard]] DependencyResult
 
 struct ObjectInfo
 {
-    /// The current user-visible label (a Tracker name). It may be empty or shared with other objects.
-    std::string label;
+    /// The current user-visible label (a Tracker name). It may be empty or shared with other objects, and is
+    /// absent for an object without a readable name, which no saved name can refer to.
+    std::optional<std::string> label;
     /// The exact Tracker Java class, for name-binding filters only.
     std::string className;
 
@@ -260,6 +268,7 @@ struct RemovedObject
 {
     ObjectId id;
     ObjectInfo info;
+    std::vector<Dependency> definitionDependencies;
     std::vector<Dependency> geometryDependencies;
     std::vector<Dependency> dataDependencies;
     /// Other objects' references to this identity, which now dangle. They stay in the graph, are reported by
@@ -269,10 +278,10 @@ struct RemovedObject
 
 enum class CyclePolicy : std::uint8_t
 {
-    /// For edits: refuse a change that would close a cycle and report its path.
+    /// For new edits: refuse a change that would close a cycle and report its path.
     Reject,
-    /// For loading: keep a cyclic reference read from a file, so that it is preserved and reported by plans
-    /// instead of being dropped.
+    /// For loading and for undo/redo: keep a cyclic reference read from a file, or restore a state that
+    /// existed before, so that it is preserved and reported by plans instead of being dropped or refused.
     Record,
 };
 
@@ -296,15 +305,16 @@ enum class BlockReason : std::uint8_t
     Cycle,             ///< The node is on a dependency cycle.
     DanglingReference, ///< A Blocks dependency's target is not live.
     UnboundReference,  ///< A Blocks dependency's saved name never resolved.
-    DependsOnBlocked,  ///< A dependency of either policy, or the node's own Geometry, is blocked.
+    DependsOnBlocked,  ///< A dependency of either policy, or an earlier facet of the node's object, is blocked.
 };
 
 struct BlockedNode
 {
     NodeKey node;
     BlockReason reason = BlockReason::Cycle;
-    /// The responsible dependency: the dangling or unbound reference, or the first dependency on a blocked
-    /// node. Absent for Cycle, and when only the implicit Data-on-Geometry edge leads to a blocked node.
+    /// The responsible dependency: the first dangling or unbound Blocks reference, or the first explicit
+    /// dependency, in (kind, slot) order, on a blocked node. Absent for Cycle, and when only an implicit edge
+    /// within the object leads to a blocked node.
     std::optional<DependencyKey> via;
     /// For Cycle, the index of the node's cycle in EvaluationPlan::cycles.
     std::optional<std::size_t> cycle;
@@ -336,13 +346,16 @@ struct EvaluationPlan
 /// advances revision(). A node's effective revision is the latest revision at which the node, its dependency
 /// list, or anything it transitively depends on changed; renames do not change it because names are labels.
 /// A result computed for a node at revision R stays valid while isCurrent(node, R) holds. Undo is a new
-/// mutation, so results computed before the undone edit are recomputed rather than reused.
+/// mutation, so results computed before the undone edit are recomputed rather than reused. Undo and redo
+/// replay with CyclePolicy::Record because they restore a state that already existed, which may include a
+/// cycle loaded from a file; only new edits use CyclePolicy::Reject.
 ///
 /// Mutations allocate, so std::bad_alloc is the only exception they can throw. The graph is derived state:
 /// after such a failure, discard it and rebuild it from the document rather than continuing to use it.
 ///
-/// The graph never reuses identities: an identity removed from the graph can return only through
-/// restoreObject, so a dangling reference cannot silently bind to a different object.
+/// The graph never reuses identities: an identity removed from the graph, or retired because the document
+/// allocated it earlier, can return only through restoreObject, so a dangling reference cannot silently
+/// bind to a different object.
 /// Algorithms are iterative and O((nodes + edges) log nodes); deep chains do not recurse.
 // The implicit move constructor can throw with MSVC's STL, whose std::map allocates a sentinel when moved.
 class DependencyGraph // NOLINT(bugprone-exception-escape)
@@ -356,22 +369,30 @@ class DependencyGraph // NOLINT(bugprone-exception-escape)
     /// Removes the object and its own dependencies. Other objects' references to it are kept as dangling
     /// references and listed in the result; their owners are invalidated.
     DependencyResult<RemovedObject> removeObject(ObjectId id);
-    /// Undoes removeObject. The identity must have been removed from this graph. Its dependencies may refer
-    /// to live or removed identities, and dangling references to it bind again. With CyclePolicy::Reject a
-    /// restoration that would close a cycle (possible only when undo is applied out of order) is refused.
-    DependencyResult<> restoreObject(RemovedObject removed, CyclePolicy policy = CyclePolicy::Reject);
+    /// Undoes removeObject. The identity must have been removed (or retired) in this graph. Its dependencies
+    /// may refer to live, removed or retired identities, and dangling references to it bind again. Undo
+    /// restores an earlier state, so the default records any cycle it brings back, such as a loaded
+    /// self-referencing center of mass. CyclePolicy::Reject refuses a restoration that would close a cycle,
+    /// for callers that restore out of order. A refused call leaves `removed` usable.
+    DependencyResult<> restoreObject(const RemovedObject& removed, CyclePolicy policy = CyclePolicy::Record);
+    /// Records that an identity was allocated by the document but has no live object, for example after a
+    /// native reopen of a document whose references still name an object removed before the save. References
+    /// to it are then accepted as dangling, and it can only come back through restoreObject.
+    DependencyResult<> retireIdentity(ObjectId id);
     /// Changes the label only. No reference follows or loses a name, and no node is invalidated.
     DependencyResult<> renameObject(ObjectId id, std::string label);
-    /// Adds a dependency to a live owner. A bound target must be live or removed (never unknown) and a
-    /// removed target leaves the new reference dangling. With CyclePolicy::Reject, a cycle is refused.
+    /// Adds a dependency to a live owner. A bound target must be live, removed or retired (never unknown),
+    /// and a target that is not live leaves the new reference dangling. With CyclePolicy::Reject, a cycle is
+    /// refused; undoing removeDependency uses CyclePolicy::Record.
     DependencyResult<> addDependency(NodeKey owner, Dependency dependency, CyclePolicy policy = CyclePolicy::Reject);
     /// Removes and returns a dependency, for an explicit and reversible edit.
     DependencyResult<Dependency> removeDependency(const DependencyKey& key);
-    /// Records that the node's own inputs changed, such as a mark or a mass. Its dependents are invalidated.
+    /// Records that the node's own inputs changed, such as a mass (Definition) or a mark (Geometry). Later
+    /// facets of the object and all dependents are invalidated.
     DependencyResult<> markChanged(NodeKey node);
 
     [[nodiscard]] bool contains(ObjectId id) const;
-    /// True for an identity that was removed and not restored.
+    /// True for an identity that was removed or retired and not restored.
     [[nodiscard]] bool wasRemoved(ObjectId id) const;
     /// Borrowed until the next mutation; null when the object is not live.
     [[nodiscard]] const ObjectInfo* object(ObjectId id) const;
@@ -382,7 +403,7 @@ class DependencyGraph // NOLINT(bugprone-exception-escape)
     [[nodiscard]] std::span<const Dependency> dependencies(NodeKey owner) const;
     /// Borrowed until the next mutation; null when absent.
     [[nodiscard]] const Dependency* dependency(const DependencyKey& key) const;
-    /// Bound references to either facet of the identity, live or dangling, in key order.
+    /// Bound references to any facet of the identity, live or dangling, in key order.
     [[nodiscard]] std::vector<DependencyKey> referencesTo(ObjectId target) const;
     /// The cycle that adding the dependency to the owner would close, without changing the graph. Lets an
     /// interface offer only acceptable targets.
@@ -394,13 +415,14 @@ class DependencyGraph // NOLINT(bugprone-exception-escape)
     /// The evaluation plan for every live node.
     [[nodiscard]] EvaluationPlan plan() const;
     /// The plan restricted to nodes invalidated after `since`: exactly the nodes that changed and their
-    /// transitive dependents. Cycles are still reported for the whole graph.
+    /// transitive dependents. Cycles are still reported for the whole graph. Each call rebuilds the topology
+    /// in O((nodes + edges) log nodes); evaluators that run at drag rate should plan once per committed
+    /// revision rather than per mouse event.
     [[nodiscard]] EvaluationPlan planSince(Revision since) const;
 
   private:
     struct FacetRecord
     {
-        Revision changed;
         Revision effective;
         std::vector<Dependency> dependencies;
     };
@@ -436,7 +458,7 @@ class DependencyGraph // NOLINT(bugprone-exception-escape)
 };
 
 /// A one-line path for logs and tests, e.g. `'CoM' #3 geometry -[member-of 0]-> 'A' #1 geometry -> ...`.
-/// Removed objects are shown by identity only.
+/// Objects that are not live, or have no label, are shown by identity only.
 [[nodiscard]] std::string describeCycle(const DependencyGraph& graph, const Cycle& cycle);
 
 } // namespace motrack::model

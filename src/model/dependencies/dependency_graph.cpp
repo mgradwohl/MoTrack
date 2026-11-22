@@ -13,7 +13,7 @@ namespace motrack::model
 namespace
 {
 
-constexpr std::array<Facet, FACET_COUNT> FACETS{Facet::Geometry, Facet::Data};
+constexpr std::array<Facet, FACET_COUNT> FACETS{Facet::Definition, Facet::Geometry, Facet::Data};
 
 constexpr std::size_t facetIndex(Facet facet) noexcept
 {
@@ -22,7 +22,46 @@ constexpr std::size_t facetIndex(Facet facet) noexcept
 
 std::string_view facetName(Facet facet) noexcept
 {
-    return facet == Facet::Geometry ? "geometry" : "data";
+    switch (facet)
+    {
+    case Facet::Definition:
+        return "definition";
+    case Facet::Geometry:
+        return "geometry";
+    case Facet::Data:
+        return "data";
+    }
+    return "unknown";
+}
+
+/// The facet an object's node implicitly depends on, if any: Geometry reads Definition, Data reads Geometry.
+std::optional<Facet> previousFacet(Facet facet) noexcept
+{
+    switch (facet)
+    {
+    case Facet::Geometry:
+        return Facet::Definition;
+    case Facet::Data:
+        return Facet::Geometry;
+    case Facet::Definition:
+        break;
+    }
+    return std::nullopt;
+}
+
+/// The facet that implicitly depends on this one, if any.
+std::optional<Facet> nextFacet(Facet facet) noexcept
+{
+    switch (facet)
+    {
+    case Facet::Definition:
+        return Facet::Geometry;
+    case Facet::Geometry:
+        return Facet::Data;
+    case Facet::Data:
+        break;
+    }
+    return std::nullopt;
 }
 
 std::pair<DependencyKind, std::uint32_t> slotKey(const Dependency& dependency) noexcept
@@ -131,9 +170,9 @@ std::vector<DependencyGraph::Successor> DependencyGraph::successors(NodeKey node
     {
         return result;
     }
-    if (node.facet == Facet::Data)
+    if (const auto previous = previousFacet(node.facet))
     {
-        result.push_back(Successor{.node = {.object = node.object, .facet = Facet::Geometry}, .via = std::nullopt});
+        result.push_back(Successor{.node = {.object = node.object, .facet = *previous}, .via = std::nullopt});
     }
     for (const auto& dependency : record->dependencies)
     {
@@ -243,9 +282,9 @@ void DependencyGraph::invalidate(std::span<const NodeKey> seeds, Revision revisi
     {
         const auto node = queue.front();
         queue.pop_front();
-        if (node.facet == Facet::Geometry)
+        if (const auto next = nextFacet(node.facet))
         {
-            touch(NodeKey{.object = node.object, .facet = Facet::Data});
+            touch(NodeKey{.object = node.object, .facet = *next});
         }
         if (const auto found = m_Dependents.find(node); found != m_Dependents.end())
         {
@@ -275,7 +314,6 @@ DependencyResult<> DependencyGraph::addObject(ObjectId id, ObjectInfo info)
     ObjectRecord record{.info = std::move(info), .facets = {}};
     for (auto& facetRecord : record.facets)
     {
-        facetRecord.changed = revision;
         facetRecord.effective = revision;
     }
     m_Objects.emplace(id, std::move(record));
@@ -292,20 +330,21 @@ DependencyResult<RemovedObject> DependencyGraph::removeObject(ObjectId id)
     auto& facets = found->second.facets;
     RemovedObject removed{.id = id,
                           .info = std::move(found->second.info),
+                          .definitionDependencies = std::move(facets[facetIndex(Facet::Definition)].dependencies),
                           .geometryDependencies = std::move(facets[facetIndex(Facet::Geometry)].dependencies),
                           .dataDependencies = std::move(facets[facetIndex(Facet::Data)].dependencies),
                           .danglingReferences = {}};
     m_Objects.erase(found);
-    for (const auto& dependency : removed.geometryDependencies)
+    const std::array<const std::vector<Dependency>*, FACET_COUNT> own{
+        &removed.definitionDependencies, &removed.geometryDependencies, &removed.dataDependencies};
+    for (const auto facetValue : FACETS)
     {
-        unindex(NodeKey{.object = id, .facet = Facet::Geometry}, dependency);
-    }
-    for (const auto& dependency : removed.dataDependencies)
-    {
-        unindex(NodeKey{.object = id, .facet = Facet::Data}, dependency);
+        for (const auto& dependency : *own[facetIndex(facetValue)])
+        {
+            unindex(NodeKey{.object = id, .facet = facetValue}, dependency);
+        }
     }
     m_Removed.insert(id);
-    std::vector<NodeKey> owners;
     for (const auto facetValue : FACETS)
     {
         if (const auto dependents = m_Dependents.find(NodeKey{.object = id, .facet = facetValue}); dependents != m_Dependents.end())
@@ -315,16 +354,17 @@ DependencyResult<RemovedObject> DependencyGraph::removeObject(ObjectId id)
     }
     std::ranges::sort(removed.danglingReferences);
     const auto revision = advance();
+    std::vector<NodeKey> owners;
+    owners.reserve(removed.danglingReferences.size());
     for (const auto& reference : removed.danglingReferences)
     {
-        m_Objects.at(reference.owner.object).facets[facetIndex(reference.owner.facet)].changed = revision;
         owners.push_back(reference.owner);
     }
     invalidate(owners, revision);
     return removed;
 }
 
-DependencyResult<> DependencyGraph::restoreObject(RemovedObject removed, CyclePolicy policy)
+DependencyResult<> DependencyGraph::restoreObject(const RemovedObject& removed, CyclePolicy policy)
 {
     const auto id = removed.id;
     if (!id.isValid())
@@ -339,9 +379,10 @@ DependencyResult<> DependencyGraph::restoreObject(RemovedObject removed, CyclePo
     {
         return failure(DependencyErrorCode::UnknownObject, id);
     }
-    ObjectRecord record{.info = std::move(removed.info), .facets = {}};
-    record.facets[facetIndex(Facet::Geometry)].dependencies = std::move(removed.geometryDependencies);
-    record.facets[facetIndex(Facet::Data)].dependencies = std::move(removed.dataDependencies);
+    ObjectRecord record{.info = removed.info, .facets = {}};
+    record.facets[facetIndex(Facet::Definition)].dependencies = removed.definitionDependencies;
+    record.facets[facetIndex(Facet::Geometry)].dependencies = removed.geometryDependencies;
+    record.facets[facetIndex(Facet::Data)].dependencies = removed.dataDependencies;
     for (const auto facetValue : FACETS)
     {
         auto& list = record.facets[facetIndex(facetValue)].dependencies;
@@ -385,16 +426,25 @@ DependencyResult<> DependencyGraph::restoreObject(RemovedObject removed, CyclePo
     }
     m_Removed.erase(id);
     const auto revision = advance();
-    for (auto& facetRecord : restored.facets)
-    {
-        facetRecord.changed = revision;
-    }
-    const std::array<NodeKey, FACET_COUNT> seeds{NodeKey{.object = id, .facet = Facet::Geometry},
-                                                 NodeKey{.object = id, .facet = Facet::Data}};
-    invalidate(seeds, revision);
+    const NodeKey seed{.object = id, .facet = Facet::Definition};
+    invalidate(std::span(&seed, 1), revision);
     return std::monostate{};
 }
 
+DependencyResult<> DependencyGraph::retireIdentity(ObjectId id)
+{
+    if (!id.isValid())
+    {
+        return failure(DependencyErrorCode::InvalidObjectId);
+    }
+    if (contains(id))
+    {
+        return failure(DependencyErrorCode::DuplicateObject, id);
+    }
+    advance();
+    m_Removed.insert(id);
+    return std::monostate{};
+}
 DependencyResult<> DependencyGraph::renameObject(ObjectId id, std::string label)
 {
     const auto found = m_Objects.find(id);
@@ -434,7 +484,6 @@ DependencyResult<> DependencyGraph::addDependency(NodeKey owner, Dependency depe
     index(owner, dependency);
     record.dependencies.insert(position, std::move(dependency));
     const auto revision = advance();
-    record.changed = revision;
     invalidate(std::span(&owner, 1), revision);
     return std::monostate{};
 }
@@ -456,7 +505,6 @@ DependencyResult<Dependency> DependencyGraph::removeDependency(const DependencyK
     record.dependencies.erase(position);
     unindex(key.owner, removed);
     const auto revision = advance();
-    record.changed = revision;
     invalidate(std::span(&key.owner, 1), revision);
     return removed;
 }
@@ -469,7 +517,6 @@ DependencyResult<> DependencyGraph::markChanged(NodeKey node)
         return failure(DependencyErrorCode::UnknownObject, node.object);
     }
     const auto revision = advance();
-    found->second.facets[facetIndex(node.facet)].changed = revision;
     invalidate(std::span(&node, 1), revision);
     return std::monostate{};
 }
@@ -786,8 +833,10 @@ EvaluationPlan DependencyGraph::makePlan(std::optional<Revision> since) const
     {
         if (blocked[node] && blocked[node]->reason == BlockReason::DependsOnBlocked)
         {
-            const auto edge = std::ranges::find_if(out[node], [&](const Edge& candidate) { return blocked[candidate.to].has_value(); });
-            blocked[node]->via = edge->via;
+            // Prefer an explicit dependency; an implicit edge within the object has no key to report.
+            const auto edge = std::ranges::find_if(
+                out[node], [&](const Edge& candidate) { return candidate.via.has_value() && blocked[candidate.to].has_value(); });
+            blocked[node]->via = edge == out[node].end() ? std::nullopt : edge->via;
         }
     }
 
@@ -862,9 +911,9 @@ std::string describeCycle(const DependencyGraph& graph, const Cycle& cycle)
     const auto describe = [&](NodeKey node)
     {
         std::string text;
-        if (const auto* info = graph.object(node.object))
+        if (const auto* info = graph.object(node.object); info != nullptr && info->label)
         {
-            text = "'" + info->label + "' ";
+            text = "'" + *info->label + "' ";
         }
         return text + "#" + std::to_string(node.object.value) + " " + std::string(facetName(node.facet));
     };
@@ -877,7 +926,7 @@ std::string describeCycle(const DependencyGraph& graph, const Cycle& cycle)
     {
         text += edge.dependency
                     ? " -[" + std::string(dependencyKindName(edge.dependency->kind)) + " " + std::to_string(edge.dependency->slot) + "]-> "
-                    : std::string(" -[own geometry]-> ");
+                    : " -[own " + std::string(facetName(edge.to.facet)) + "]-> ";
         text += describe(edge.to);
     }
     return text;

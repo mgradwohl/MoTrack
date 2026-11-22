@@ -21,7 +21,9 @@ namespace motrack::model
 struct NamedObject
 {
     ObjectId id;
-    std::string label;
+    /// Absent for an object without a readable name; it is not indexed, as in the source reference index.
+    /// An empty name is a name.
+    std::optional<std::string> label;
     /// The exact Tracker Java class.
     std::string className;
 };
@@ -60,6 +62,10 @@ struct NameIndexLimits
 
 /// Exact, case-sensitive lookup of one name scope, such as the tracks of one Tracker panel. Build one index
 /// per scope, from every object in it including unsupported ones, so that a possible capture is reported.
+///
+/// Filters reproduce the conservative source reference index, not every Tracker loader: a center of mass
+/// of models, or a model boosted by another model, binds Unclassified here, although Tracker accepts any
+/// PointMass subclass. The C4 and C5 families widen those filters with their application cases.
 class NameIndex
 {
   public:
@@ -119,6 +125,8 @@ enum class RenderStatus : std::uint8_t
     Lost,
     /// The bound target is not live, so there is no current name. The saved name, possibly empty, is returned.
     Dangling,
+    /// The bound target is live but has no name to write.
+    Unnamed,
 };
 
 struct RenderedName
