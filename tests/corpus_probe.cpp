@@ -13,6 +13,7 @@
 #include "model/descriptors.hpp"
 #include "model/tracker_document.hpp"
 #include "movie_authoring.hpp"
+#include "osp/java_text.hpp"
 #include "osp/render.hpp"
 #include "osp/source.hpp"
 #include "paired_save.hpp"
@@ -322,15 +323,22 @@ QJsonValue saverJson(const motrack::osp::PropertyValue& property)
     {
     case PropertyType::Int:
     {
-        int value = 0;
-        std::from_chars(content.data(), content.data() + content.size(), value);
-        return value;
+        const auto value = motrack::osp::parseJavaInt(content);
+        if (!value)
+        {
+            throw motrack::ProjectError("Unreadable int in a saver tree.");
+        }
+        return *value;
     }
     case PropertyType::Double:
     {
-        double value = std::numeric_limits<double>::quiet_NaN();
-        std::from_chars(content.data(), content.data() + content.size(), value);
-        return stateNumber(value);
+        // Java's spelling, including Infinity and NaN.
+        const auto value = motrack::osp::parseJavaDouble(content);
+        if (!value)
+        {
+            throw motrack::ProjectError("Unreadable double in a saver tree.");
+        }
+        return stateNumber(*value);
     }
     case PropertyType::Boolean:
         return content == "true";
