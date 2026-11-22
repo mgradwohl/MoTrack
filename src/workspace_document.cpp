@@ -392,7 +392,8 @@ WorkspaceDocument detail::decodeWorkspaceDocument(const QJsonObject& input, std:
         const auto member = input.value("archiveMember");
         if (!member.isNull())
         {
-            result.archiveMember = string(member);
+            // Companions saved before #308 may hold macOS's NFD spelling; member identities are NFC.
+            result.archiveMember = archiveMemberKey(string(member));
         }
     }
     else

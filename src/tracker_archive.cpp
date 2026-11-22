@@ -90,6 +90,18 @@ QByteArray snapshotArchive(const QString& path, const QString& destination, cons
 
 } // namespace
 
+std::string archiveMemberKey(std::string_view member)
+{
+    return QString::fromUtf8(member.data(), static_cast<qsizetype>(member.size())).normalized(QString::NormalizationForm_C).toStdString();
+}
+
+bool detail::isNameConversionWarning(std::string_view libarchiveError) noexcept
+{
+    // libarchive's ZIP reader: "Pathname cannot be converted from UTF-8 to current locale." and the same for
+    // "Symlink". CRC, size and truncation problems keep the generic message.
+    return libarchiveError.starts_with("Pathname cannot be converted") || libarchiveError.starts_with("Symlink cannot be converted");
+}
+
 TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool* cancelled)
 {
     TrackerArchive result;
@@ -121,9 +133,9 @@ TrackerArchive TrackerArchive::open(const QString& path, const std::atomic_bool*
     for (auto status = archive_read_next_header(reader.get(), &entry); status != ARCHIVE_EOF;
          status = archive_read_next_header(reader.get(), &entry))
     {
-        if (status == ARCHIVE_WARN)
+        const auto* warning = status == ARCHIVE_WARN ? archive_error_string(reader.get()) : nullptr;
+        if (warning != nullptr && detail::isNameConversionWarning(warning))
         {
-            // The ZIP reader warns only when a member or link name cannot be converted from UTF-8 (hdrcharset).
             refuseNonUtf8Name();
         }
         if (status != ARCHIVE_OK)

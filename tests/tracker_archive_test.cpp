@@ -1,5 +1,7 @@
 #include "tracker_archive.hpp"
 
+#include "utf8_thread_locale.hpp"
+
 #include <QFile>
 #include <QFileInfo>
 #include <QScopeGuard>
@@ -31,6 +33,7 @@ QString fixturePath(const QString& name)
 
 void writeArchive(const QString& path, std::initializer_list<const char*> names)
 {
+    const motrack::ScopedUtf8ThreadLocale utf8Names; // as the production writers do
     const std::unique_ptr<archive, decltype(&archive_write_free)> writer(archive_write_new(), &archive_write_free);
     ASSERT_NE(writer, nullptr);
     ASSERT_EQ(archive_write_set_format_zip(writer.get()), ARCHIVE_OK);
@@ -179,6 +182,27 @@ TEST(TrackerArchive, RefusesUnflaggedMemberNamesThatAreNotUtf8LikeTracker)
         // The user learns why, not libarchive's "cannot be converted ... to current locale".
         EXPECT_NE(std::string(error.what()).find("not valid UTF-8"), std::string::npos) << error.what();
     }
+}
+
+TEST(TrackerArchive, NamesOnlyNameConversionWarningsAsNonUtf8Names)
+{
+    // libarchive's ZIP reader texts for a name hdrcharset=UTF-8 cannot convert; anything else keeps the generic message.
+    EXPECT_TRUE(motrack::detail::isNameConversionWarning("Pathname cannot be converted from UTF-8 to current locale."));
+    EXPECT_TRUE(motrack::detail::isNameConversionWarning("Symlink cannot be converted from UTF-8 to current locale."));
+    EXPECT_FALSE(motrack::detail::isNameConversionWarning("ZIP bad CRC: 0x1234 should be 0x5678"));
+    EXPECT_FALSE(motrack::detail::isNameConversionWarning("Truncated ZIP file header"));
+    EXPECT_FALSE(motrack::detail::isNameConversionWarning("Inconsistent uncompressed size: 4 in central directory, 5 in local header"));
+    EXPECT_FALSE(motrack::detail::isNameConversionWarning(""));
+}
+
+TEST(TrackerArchive, MemberKeysAreNfc)
+{
+    const auto nfc = QString::fromUtf8("expérience/帧.trk").toStdString();
+    const auto nfd = QString::fromStdString(nfc).normalized(QString::NormalizationForm_D).toStdString();
+    ASSERT_NE(nfc, nfd);
+    EXPECT_EQ(motrack::archiveMemberKey(nfd), nfc);
+    EXPECT_EQ(motrack::archiveMemberKey(nfc), nfc);
+    EXPECT_EQ(motrack::archiveMemberKey("experiment.trk"), "experiment.trk");
 }
 
 TEST(TrackerArchive, CancelsExtraction)

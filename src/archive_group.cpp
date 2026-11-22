@@ -44,8 +44,9 @@ void validateMember(const ArchiveGroupMember& member, const std::shared_ptr<cons
     require(archive && !member.id.isNull() && !member.member.empty());
     const auto& document = member.document;
     require(document.archivePayload == archive && document.archiveReference.empty() && document.archiveMember &&
-            *document.archiveMember == member.member && document.trackerSource);
-    // Exact member lookup rejects foreign names and paths; do not normalize basenames or case.
+            archiveMemberKey(*document.archiveMember) == archiveMemberKey(member.member) && document.trackerSource);
+    // The archive's own lookup rejects foreign names and paths; it compares NFC identities (#308) and never folds
+    // basenames or case.
     (void)archive->projectPath(QString::fromStdString(member.member));
 }
 
@@ -60,7 +61,7 @@ void validateMembership(const ArchiveGroup& group, const std::atomic_bool* cance
     {
         checkCancellation(cancelled);
         validateMember(member, group.archive);
-        const auto name = QString::fromStdString(member.member);
+        const auto name = QString::fromStdString(archiveMemberKey(member.member));
         require(!ids.contains(member.id) && !members.contains(name));
         ids.insert(member.id);
         members.insert(name);
@@ -93,7 +94,7 @@ QUuid appendArchiveGroupDocument(ArchiveGroup& group, WorkspaceDocument document
     ArchiveGroupMember member{.id = QUuid::createUuid(), .member = *document.archiveMember, .document = std::move(document)};
     validateMember(member, group.archive);
     for (const auto& existing : group.members)
-        require(existing.member != member.member && existing.id != member.id);
+        require(archiveMemberKey(existing.member) != archiveMemberKey(member.member) && existing.id != member.id);
     const auto id = member.id;
     group.members.push_back(std::move(member));
     return id;
@@ -127,7 +128,8 @@ detail::decodeArchiveGroup(const QJsonObject& input, std::shared_ptr<const Track
         const auto document = member.value("document").toObject();
         require(document.value("version").toInt() == 5);
         result.members.push_back({.id = readId(member.value("documentId")),
-                                  .member = member.value("member").toString().toStdString(),
+                                  // Companions saved before #308 may hold macOS's NFD spelling.
+                                  .member = archiveMemberKey(member.value("member").toString().toStdString()),
                                   .document = detail::decodeWorkspaceDocument(document, result.archive)});
     }
     validateMembership(result, cancelled);

@@ -21,6 +21,8 @@ C++ (src/, tests/, benchmarks/):
                    src/filesystem_path.hpp, and narrow fopen; use motrack::toFilesystemPath/fromFilesystemPath, QFile
                    or std::fstream(path)
   system-codec     QStringConverter::System decodes in the system code page
+  archive-locale   a file that calls archive_read_new or archive_write_new must use motrack::ScopedUtf8ThreadLocale:
+                   libarchive converts member names through the thread's LC_CTYPE on POSIX (src/utf8_thread_locale.hpp)
   model-locale     QLocale and %L placeholders in the science, model and media libraries (motrack_expression,
                    motrack_ode, motrack_project, motrack_input, motrack_media, motrack_image_package): machine-readable
 Python (tools/, tests/):
@@ -90,6 +92,7 @@ _UTF16_PATH = re.compile(r"\b(?:toStdU16String|fromStdU16String|u16string)\s*\("
 _LOCALE_FORMAT = re.compile(r"\{[^{}]*:[^{}]*L[^{}]*\}")
 _MODEL_LOCALE = re.compile(r"\bQLocale\b")
 _PERCENT_L = re.compile(r"%L\d")
+_ARCHIVE_NEW = re.compile(r"\barchive_(?:read|write)_new\s*\(")
 
 
 def _allowed(lines: list[str], index: int) -> bool:
@@ -142,6 +145,13 @@ def check_cxx(path: str, text: str, models: set[str]) -> list[Finding]:
             findings.append(
                 Finding(relative, number, "model-locale", "model text is machine-readable; format numbers classically, display in the UI")
             )
+    if "ScopedUtf8ThreadLocale" not in text:
+        for index, raw in enumerate(lines):
+            if _ARCHIVE_NEW.search(_STRING.sub('""', _COMMENT.sub("", raw))) and not _allowed(lines, index):
+                findings.append(
+                    Finding(relative, index + 1, "archive-locale", "run libarchive inside a motrack::ScopedUtf8ThreadLocale scope")
+                )
+                break
     if constructs_application and "configureProcessLocale(" not in text:
         findings.append(
             Finding(relative, 1, "locale-setup", "constructs a Q*Application without calling motrack::configureProcessLocale() after it")

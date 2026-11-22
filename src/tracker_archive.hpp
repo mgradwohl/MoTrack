@@ -8,12 +8,25 @@
 #include <QTemporaryDir>
 
 #include <atomic>
+#include <string>
+#include <string_view>
 
 namespace motrack
 {
 
 inline constexpr qint64 MAX_TRACKER_ARCHIVE_BYTES = qint64{544} * 1024 * 1024;
 inline constexpr qint64 MAX_TRACKER_EXTRACTED_BYTES = qint64{512} * 1024 * 1024;
+
+/// The identity of archive member @p member: its NFC form. TrackerArchive's names and lookups use it, so a member
+/// name stored or compared elsewhere (native companions, group membership) goes through it too (#308).
+[[nodiscard]] std::string archiveMemberKey(std::string_view member);
+
+namespace detail
+{
+/// Whether a libarchive header warning is a member or link name that is not UTF-8 (hdrcharset=UTF-8), as opposed
+/// to another recoverable header problem.
+[[nodiscard]] bool isNameConversionWarning(std::string_view libarchiveError) noexcept;
+} // namespace detail
 
 /// Owns a temporary, validated extraction of a Tracker experiment archive.
 class TrackerArchive

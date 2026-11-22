@@ -77,9 +77,11 @@ QUuid ArchiveGroupSession::append(std::unique_ptr<DocumentSession>& incoming)
     require(m_Archive && std::cmp_less(m_Members.size(), m_Archive->projects().size()));
     auto prepared = makeArchiveGroup(incoming->document);
     const auto& member = prepared.members.front();
-    require(prepared.archive == m_Archive &&
-            std::ranges::none_of(m_Members,
-                                 [&](const auto& existing) { return existing.id == member.id || existing.member == member.member; }));
+    require(
+        prepared.archive == m_Archive &&
+        std::ranges::none_of(m_Members,
+                             [&](const auto& existing)
+                             { return existing.id == member.id || archiveMemberKey(existing.member) == archiveMemberKey(member.member); }));
     const auto id = member.id;
     // Allocate before transferring ownership, so a refused/failed append cannot discard the incoming edits.
     m_Members.push_back({.id = id, .member = member.member, .session = {}});

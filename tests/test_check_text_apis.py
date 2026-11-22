@@ -84,6 +84,13 @@ class CxxTest(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertEqual(self.check(line + "\n"), [])
 
+    def test_libarchive_calls_need_the_utf8_thread_locale(self) -> None:
+        self.assertEqual(self.check("auto* reader = archive_read_new();\n"), ["archive-locale"])
+        self.assertEqual(self.check("std::unique_ptr<archive, decltype(&archive_write_free)> w(archive_write_new(), &archive_write_free);\n"),
+                         ["archive-locale"])
+        self.assertEqual(self.check("const motrack::ScopedUtf8ThreadLocale utf8Names;\nauto* reader = archive_read_new();\n"), [])
+        self.assertEqual(self.check("// archive_read_new() is wrapped elsewhere\n"), [])
+
     def test_model_sources_do_not_format_for_display(self) -> None:
         self.assertEqual(self.check("const QLocale locale;\n", "src/measurements.cpp"), ["model-locale"])
         self.assertEqual(self.check('auto text = tr("%L1 m").arg(x);\n', "src/measurements.cpp"), ["model-locale"])
