@@ -252,8 +252,9 @@ Undo and redo apply inverses with `CyclePolicy::Record`, so they restore an earl
 cycle read from a file. Redoing a creation restores the stored object and its ID instead of allocating a new
 one. A removed object that is bound keeps its slot in the `Removed` state; an unbound one (a created track, an
 inserted coordinate system) leaves the document while its history entry keeps it, its identity kept from reuse by the
-allocators, and returns to the place its entry recorded. `Remove` keeps the binding and the `RemovedObject`; undoing it brings back the same identity, its own edges
-and every reference that dangled, and export writes the original node again. A history belongs to one live
+allocators, and returns to the place its entry recorded. `Remove` keeps the binding and the `RemovedObject`; undoing
+it brings back the same identity, its own edges and every reference that dangled, and export writes the original
+node again. A history belongs to one live
 document and is cleared when the document is replaced; native files store no history.
 
 ### Deleting referenced objects
