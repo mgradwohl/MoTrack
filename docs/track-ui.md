@@ -65,10 +65,8 @@ switches export and rows together to ascending identity across families, which i
 change of the bytes exported for documents that create both kinds. No separate presentation order exists, so rows
 have one source: B3.2 removes `DocumentParts::trackOrder` and its validation from `model/tracker_document.*`, and
 the v1–6 conversion then compares each family's tracks by identity, so a stored list order that differs from the
-export order is not a conversion failure.
-This supersedes the B2 design's presentation order in v7's `state`, which B2.5 should not write. If B2.5 lands
-with it, B3.2 keeps writing it, always equal to the export order, so B2.5 builds still read the files; on
-reading, the key is ignored, since it never affected export.
+export order is not a conversion failure. Native v7 stores no presentation order either
+([B2 design](tracker-document.md#envelope)).
 
 **Groups and kinds.** Rows are grouped as Tracker's Select menu groups them: user tracks, then the tracks that
 `TrackerPanel.getUserTracks` leaves out (the axes, calibration and measuring tools and perspective tracks), using
@@ -388,8 +386,7 @@ Each PR depends on merged PRs only and updates the R04, R06, R21 and R25 rows an
 - Files: new `src/track_list_model.*`; `src/model/tracker_document.*`, `src/legacy_view.cpp`, `src/main_window.*`,
   `src/bound_workspace.cpp`, `src/document_session.*` (assignment count, if B2.4a has none), `CMakeLists.txt`,
   `translations/*.ts`, `README.md`; new `tests/track_ui_test.cpp`; `tests/workspace_test.cpp`,
-  `tests/model/tracker_document_test.cpp`. If B2.5 has merged with a stored presentation order, also
-  `src/native_document.*` as §1 describes; `main_window.*` is the hot file.
+  `tests/model/tracker_document_test.cpp`; `main_window.*` is the hot file.
 - Exit: the workspace tests pass with only the track box's order and empty state updated; the selection, kind and
   stale-result tests pass; `MainWindow` turns no row index into a track outside the view glue.
 

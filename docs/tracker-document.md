@@ -278,8 +278,9 @@ and the baseline, so undoing back to the imported state exports the original byt
 The last row is deliberately broad. Creating a track named like an unresolved saved name, such as "C" while an
 Unknown center of mass holds "C", makes Tracker bind that name on reload; `renderName` reports `Rebinds` and
 export refuses, which today only B1's unique-name schema guard achieves. Export order is B1's: bound objects in
-baseline order, then created point masses, then created vectors, each in ascending identity. The presentation
-order of the track list is separate and is stored by native v7.
+baseline order, then created point masses, then created vectors, each in ascending identity. The track list
+follows the export order, and no separate presentation order is stored; B3.5b switches both to ascending identity
+across families ([track UI design](track-ui.md#rows)).
 
 The patch functions in `tracker_writer.cpp` currently combine edits and checks. B2.3 separates them: the
 descriptors compose, and the checks that encode Tracker's behavior become admission checks on the composed
@@ -311,7 +312,7 @@ metadata replaces the reduced model:
 | `baseline` | `null`, `{"xmlBase64": …}`, or `{"archiveMember": …}` when the bytes are that member of `tracker/source.trz`, so archive groups stop storing each member twice. The 32 MiB XML limit applies to both forms; `archiveMember` requires the container payload and must name one of its project members |
 | `associations` | `none`, `known`, `unknown` or `stale`; `stale` keeps earlier bindings verbatim in `staleBindings` |
 | `objects` | The identity sidecar: one entry per identity with its ID, allocation range (`counter` or `countdown`), class, baseline path or none, and `live` or `removed` |
-| `state` | Every typed field of every live typed object, in full, by field id, and for each edited field the writer's reading of the baseline as `base` (below). Also the class list of placeholders and the presentation order of `tracks` |
+| `state` | Every typed field of every live typed object, in full, by field id, and for each edited field the writer's reading of the baseline as `base` (below). Also the class list of placeholders. No presentation order: the track list follows the export order |
 | `media` | The media extension and the `WorkspaceDocument` media fields that v5 stores today |
 | `extensions` | Optional named MoTrack data, written back unchanged by readers that do not know it |
 
@@ -518,7 +519,8 @@ R02–R04 rows of the migration plan and the status line of this document.
 
 **B2.5 — Native version 7** (after B2.4a, parallel with B2.4b; its codec needs only B2.1)
 - Content: the v7 reader and writer for standalone documents and groups, `readerRevision` and `base` handling,
-  allocation ranges and the countdown low-water mark, #317.
+  allocation ranges and the countdown low-water mark, #317. It writes no presentation order of `tracks`, which
+  B3.2 removes from `DocumentParts`.
 - Files: new `src/native_document.*`; `src/workspace_document.cpp`, `src/workspace_document_codec.hpp`,
   `src/archive_group.cpp`; `tests/workspace_document_test.cpp`, `tests/archive_group_test.cpp`; `tools/corpus.py`
   for the native route; `docs/native-format.md`, `docs/workspace-sessions.md`.
