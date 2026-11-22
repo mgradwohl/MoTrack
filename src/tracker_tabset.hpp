@@ -88,7 +88,22 @@ struct TrackerTabset
 [[nodiscard]] QString tabsetRelativePath(const QString& file, const QString& baseDirectory);
 /// Saved entry for a physical file referenced from a tabset written in `tabsetDirectory`.
 [[nodiscard]] TabsetEntry tabsetEntry(const QString& file, const QString& tabsetDirectory);
-/// Identity key for a canonical path, as used for duplicates and cycles: case-folded on Windows only.
+/// Name key for a canonical path: case-folded on Windows only.
+[[nodiscard]] QString tabsetNameKey(const QString& canonical);
+/// The keys of a file at a canonical path: its name key, and its identity (localFileIdentity) while it exists.
+struct TabsetFileKeys
+{
+    QString name{};
+    std::optional<QString> identity{};
+    /// The identity, or the name for a file without one: what duplicates, cycles and listed files compare.
+    [[nodiscard]] QString key() const
+    {
+        return identity.value_or(name);
+    }
+    friend bool operator==(const TabsetFileKeys&, const TabsetFileKeys&) = default;
+};
+[[nodiscard]] TabsetFileKeys tabsetFileKeys(const QString& canonical);
+/// tabsetFileKeys(canonical).key(), comparing files that exist now.
 [[nodiscard]] QString tabsetIdentityKey(const QString& canonical);
 /// Resolve an existing file in Tracker's order: relative to the tabset directory, relative to the working
 /// directory, then the absolute path. A relative slot that is itself absolute only uses the absolute fallback.
@@ -132,9 +147,12 @@ expandTrackerTabset(const QString& path, const QString& workingDirectory, const 
 /// - each of its entries that resolves to a listed file in Tracker's order is kept where that file is listed, with
 ///   the repeats that follow it (Tracker lists an archive once per experiment tab). It keeps its bytes while its
 ///   relative path still finds the file from tabsetBase, and is rewritten otherwise;
-/// - entries for files that are not listed keep their place, except those naming a file in `closed` (identity keys
-///   of files the user closed). A file that failed to open, was not found or was not opened is therefore kept; a
-///   nested tabset is kept for the listed files it opens;
+/// - entries for files that are not listed keep their place, except those naming a file in `closed` (the keys of
+///   files the user closed, taken when each closed). A file that failed to open, was not found or was not opened is
+///   therefore kept; a nested tabset is kept for the listed files it opens. A file id names a file only while it
+///   exists, and replacing a file by renaming a new one into place changes it, so an entry is dropped only when the
+///   file it names now has both the closed file's name and identity: a later file that got a deleted file's id, or a
+///   file saved over since, keeps its entry;
 /// so that saving an unchanged set leaves the file unchanged, apart from entries whose relative path no longer finds
 /// their file. Other files get a new tabsetEntry against tabsetBase. `changes` reports every entry that is kept
 /// without being open and every entry that is dropped, so that no change is silent.
@@ -148,7 +166,7 @@ struct TabsetChanges
                                                      const QString& tabsetPath,
                                                      const QString& workingDirectory,
                                                      const TrackerTabset* existing = nullptr,
-                                                     std::span<const QString> closed = {},
+                                                     std::span<const TabsetFileKeys> closed = {},
                                                      TabsetChanges* changes = nullptr);
 /// TrackerIO.fixXML: a tabset path whose extension is not `.trk` gets `.trk` in place of it ("set.trz" and "Lab 3.5"
 /// become "set.trk" and "Lab 3.trk"), so the saved file reopens as a tabset.
@@ -173,7 +191,7 @@ struct TabsetSave
 [[nodiscard]] TabsetSave saveTrackerTabsetFiles(const QString& path,
                                                 std::span<const QString> files,
                                                 const QString& workingDirectory,
-                                                std::span<const QString> closed = {});
+                                                std::span<const TabsetFileKeys> closed = {});
 /// Write a tabset atomically: `existing` (read from `path`) edited by renderTrackerTabset, or a new document.
 /// Existing destinations are only replaced after the complete file is staged.
 [[nodiscard]] std::expected<void, std::string>

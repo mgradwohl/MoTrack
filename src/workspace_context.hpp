@@ -35,6 +35,8 @@ class WorkspaceContext final : public QObject
     /// A single media file whose image/movie route is chosen on the worker (see prepareWorkspaceMediaFile).
     [[nodiscard]] std::optional<QUuid> openMediaFile(const QString& path, WorkspaceActivation activation = WorkspaceActivation::SelectNew);
     [[nodiscard]] bool cancelOpen(QUuid request);
+    /// Whether another input can start now without exceeding the two-input bound.
+    [[nodiscard]] bool canOpen() const;
     [[nodiscard]] WorkspaceSession& session();
     [[nodiscard]] const std::shared_ptr<WorkspaceServices>& services() const;
     /// One experiment editor per record. Additional plot/table views use that editor's model.

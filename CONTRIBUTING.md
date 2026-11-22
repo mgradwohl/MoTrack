@@ -208,15 +208,16 @@ developer build. It enables and builds the benchmark target before running clang
 acceptance jobs, giving each workload its own time budget as the reference corpus grows. The final
 coverage job waits for both the build and contributor-setup matrices to pass before combining reports.
 
-The workspace executable runs in nine complementary CTest groups. General UI cases run in
+The workspace executable runs in ten complementary CTest groups. General UI cases run in
 `workspace`; `workspace_shell` runs the `WorkspaceShell.*` save/revert flows
 ([#283](https://github.com/mgradwohl/MoTrack/issues/283)); `workspace_saving` runs `PairedWorkspace.*` and
 `ImagePackageWorkspace.*`, `workspace_document` runs `WorkspaceDocument.*`, `ui_translations` runs
 `UiTranslations.*` (every catalog), `camera_capture` runs the fake-camera `CameraCapture.*` cases, `workspace_text`
-runs `NonAsciiRoundTrip.*` and `WorkspaceLocale.*`, and the two session groups partition `DocumentSession.*`.
+runs `NonAsciiRoundTrip.*` and `WorkspaceLocale.*`, `desktop_launch` runs `DesktopLaunch.*` (which also starts the
+real `motrack` executable), and the two session groups partition `DocumentSession.*`.
 `document_session_journals` includes names matching `*Journal*`; `document_session` uses the complementary
 negative filter. Every current or future session case therefore runs exactly once. Each group retains
-a 60-second timeout, and ordinary CTest/coverage collection runs all nine groups. This separates the
+a 60-second timeout, and ordinary CTest/coverage collection runs all ten groups. This separates the
 real-file journal matrices whose cumulative runtime caused the intermittent Windows timeout in
 [#137](https://github.com/mgradwohl/MoTrack/issues/137), without retries or omitted cases.
 
