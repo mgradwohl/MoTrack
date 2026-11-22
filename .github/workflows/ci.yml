@@ -54,14 +54,13 @@ jobs:
       - name: Check curve-fit kernel reference
         if: runner.os == 'Linux'
         run: python tools/corpus.py fit-oracle --java "$JAVA_HOME_17_X64/bin/java"
-      - uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
       - name: Check Data Tool analysis kernel reference
         if: runner.os == 'Linux'
         run: python tools/corpus.py analysis-oracle --java "$JAVA_HOME_17_X64/bin/java"
       - name: Check video filter kernel reference
         if: runner.os == 'Linux'
         run: python tools/corpus.py filter-oracle --java "$JAVA_HOME_17_X64/bin/java"
-      - uses: jurplel/install-qt-action@v4
+      - uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
         with:
           version: ${{ env.MOTRACK_QT_VERSION }}
           # Its own setup-python (">=3.14.0") would replace the pinned Python on PATH for every later step.
@@ -213,11 +212,11 @@ jobs:
           if [[ "$RUNNER_OS" == Windows ]]; then probe="$probe.exe"; fi
           python tools/corpus.py check --probe "$probe"
           python tools/corpus.py xml-oracle --o2-only --probe "$probe" --reports "$RUNNER_TEMP/xml-o2"
+          python tools/corpus.py state-check --probe "$probe"
       - name: Check OSP XMLControl reader against Java (O1/O2)
         if: runner.os == 'Linux'
         shell: bash
         run: python tools/corpus.py xml-oracle --probe build/coverage/motrack_corpus_probe --java "$JAVA_HOME_17_X64/bin/java"
-          python tools/corpus.py state-check --probe "$probe"
       - name: Check library collection model against Java
         if: runner.os == 'Linux'
         shell: bash
@@ -231,13 +230,17 @@ jobs:
           python tools/corpus.py ode-oracle --java "$java_home/bin/java"
       - name: Check Data Tool analysis kernel reference with arm64 Java
         # HotSpot on arm64 may round Math.sin/cos differently; the FFT tolerance must cover it.
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          java_home="${JAVA_HOME_17_arm64:-$(/usr/libexec/java_home -v 17)}"
+          python tools/corpus.py analysis-oracle --java "$java_home/bin/java"
       - name: Check curve-fit kernel reference with arm64 Java
         # The fixture comes from x86-64 HotSpot; arm64 computes Math.exp/sin/log/pow with fdlibm.
         if: runner.os == 'macOS'
         shell: bash
         run: |
           java_home="${JAVA_HOME_17_arm64:-$(/usr/libexec/java_home -v 17)}"
-          python tools/corpus.py analysis-oracle --java "$java_home/bin/java"
           python tools/corpus.py fit-oracle --java "$java_home/bin/java"
       - name: Check edited Tracker round trip
         if: runner.os == 'Linux'

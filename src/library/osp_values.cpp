@@ -219,9 +219,7 @@ ResourceObjectLoader placeholderLoader() noexcept
 {
     return ResourceObjectLoader{
         .function = [](void*, const osp::ObjectView&, const std::string&) -> Result<std::unique_ptr<library::Resource>>
-        {
-            return std::make_unique<library::Resource>();
-        }};
+        { return std::make_unique<library::Resource>(); }};
 }
 
 Result<std::optional<std::string>>
