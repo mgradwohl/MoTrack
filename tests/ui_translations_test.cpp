@@ -42,8 +42,8 @@ struct ShippedLocale
 const std::vector<ShippedLocale>& shippedLocales()
 {
     static const std::vector<ShippedLocale> locales{
-        // Arabic: the sixth form (100, 101, ...) may be spelled like the fifth.
-        {.locale = "ar_EG", .language = "ar", .catalog = "ar", .pluralSamples = {0, 1, 2, 3, 11}},
+        // Samples avoid forms a language may spell alike: Arabic 0, 11-99 and 100+ ("%n صورة"), Ukrainian 1 and 2-4.
+        {.locale = "ar_EG", .language = "ar", .catalog = "ar", .pluralSamples = {1, 2, 3, 11}},
         {.locale = "ca_ES", .language = "ca", .catalog = "ca", .pluralSamples = {1, 5}},
         {.locale = "cs_CZ", .language = "cs", .catalog = "cs", .pluralSamples = {1, 2, 5}},
         {.locale = "da_DK", .language = "da", .catalog = "da", .pluralSamples = {1, 5}},
@@ -70,7 +70,7 @@ const std::vector<ShippedLocale>& shippedLocales()
         {.locale = "sv_SE", .language = "sv", .catalog = "sv", .pluralSamples = {1, 5}},
         {.locale = "th_TH", .language = "th", .catalog = "th", .pluralSamples = {5}},
         {.locale = "tr_TR", .language = "tr", .catalog = "tr", .pluralSamples = {5}},
-        {.locale = "uk_UA", .language = "uk", .catalog = "uk", .pluralSamples = {1, 2, 5}},
+        {.locale = "uk_UA", .language = "uk", .catalog = "uk", .pluralSamples = {2, 5}},
         {.locale = "vi_VN", .language = "vi", .catalog = "vi", .pluralSamples = {5}},
         {.locale = "zh_CN", .language = "zh_CN", .catalog = "zh_CN", .pluralSamples = {5}},
         {.locale = "zh_TW", .language = "zh_TW", .catalog = "zh_TW", .pluralSamples = {5}},
