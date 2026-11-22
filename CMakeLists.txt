@@ -49,6 +49,11 @@ target_include_directories(motrack_osp PUBLIC src)
 # Qt-free dependency evaluation core for dependent Tracker objects (docs/dependency-graph.md).
 add_library(motrack_dependencies STATIC src/model/dependencies/dependency_graph.cpp src/model/dependencies/name_binding.cpp)
 target_include_directories(motrack_dependencies PUBLIC src)
+# Digital Library collections, libraries and ComPADRE responses on motrack_osp; no Qt, network or file I/O.
+add_library(motrack_library STATIC src/library/collection.cpp src/library/compadre.cpp src/library/java_string.cpp src/library/library.cpp
+    src/library/osp_values.cpp src/library/paths.cpp src/library/resource.cpp src/library/xml_dom.cpp)
+target_include_directories(motrack_library PUBLIC src)
+target_link_libraries(motrack_library PUBLIC motrack_osp)
 
 add_library(motrack_project STATIC src/archive_group.cpp src/archive_group_session.cpp src/document_session.cpp src/legacy_project.cpp src/local_media_path.cpp src/paired_save.cpp src/save_state.cpp src/save_observation.cpp src/measurements.cpp src/track_edits.cpp src/track_identity.cpp
     src/tracker_archive.cpp src/tracker_archive_writer.cpp src/tracker_references.cpp src/tracker_rename.cpp src/tracker_writer.cpp src/workspace_document.cpp src/workspace_session.cpp src/workspace_storage.cpp)
@@ -182,7 +187,7 @@ if(MOTRACK_STAGE_DESKTOP)
     install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/motrack)
 endif()
 
-set(motrack_targets motrack_dependencies motrack_osp motrack_expression motrack_ode motrack_fit motrack_analysis motrack_motion motrack_project motrack_input motrack_image_package motrack_media motrack_workspace motrack motrack_java_math)
+set(motrack_targets motrack_dependencies motrack_osp motrack_library motrack_expression motrack_ode motrack_fit motrack_analysis motrack_motion motrack_project motrack_input motrack_image_package motrack_media motrack_workspace motrack motrack_java_math)
 if(MOTRACK_BUILD_BENCHMARKS)
     add_executable(motrack_import_benchmark benchmarks/import_benchmark.cpp)
     target_link_libraries(motrack_import_benchmark PRIVATE motrack_project)
@@ -246,8 +251,9 @@ if(BUILD_TESTING)
         tests/science/decimal_conversion_test.cpp tests/science/expression_reference_test.cpp tests/science/expression_test.cpp tests/science/java_math_test.cpp
         tests/osp_java_text_test.cpp tests/osp_source_test.cpp tests/osp_render_test.cpp tests/osp_corpus_test.cpp
         tests/science/ode_solver_test.cpp tests/science/data_analysis_test.cpp tests/science/fft_test.cpp tests/science/analysis_reference_test.cpp
-        tests/model/dependency_graph_test.cpp tests/model/name_binding_test.cpp)
-    target_link_libraries(motrack_tests PRIVATE motrack_osp motrack_project motrack_dependencies motrack_java_math motrack_expression motrack_ode motrack_analysis
+        tests/model/dependency_graph_test.cpp tests/model/name_binding_test.cpp
+        tests/library_paths_test.cpp tests/library_collection_test.cpp tests/library_compadre_test.cpp tests/library_limits_test.cpp)
+    target_link_libraries(motrack_tests PRIVATE motrack_osp motrack_library motrack_project motrack_dependencies motrack_java_math motrack_expression motrack_ode motrack_analysis
         motrack_image_package GTest::gtest_main motrack_archive Qt6::Xml Qt6::Gui)
     target_compile_definitions(motrack_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
@@ -289,7 +295,7 @@ if(BUILD_TESTING)
     add_executable(motrack_corpus_probe tests/corpus_probe.cpp)
     add_dependencies(motrack_tests motrack_corpus_probe)
     target_compile_definitions(motrack_tests PRIVATE MOTRACK_CORPUS_PROBE="$<TARGET_FILE:motrack_corpus_probe>")
-    target_link_libraries(motrack_corpus_probe PRIVATE motrack_osp motrack_project motrack_input motrack_image_package motrack_media)
+    target_link_libraries(motrack_corpus_probe PRIVATE motrack_osp motrack_library motrack_project motrack_input motrack_image_package motrack_media)
     add_executable(motrack_workspace_tests
         tests/workspace_shell_test.cpp
         tests/workspace_input_test.cpp

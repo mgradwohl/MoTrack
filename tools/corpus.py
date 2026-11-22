@@ -27,8 +27,8 @@ CORPUS = ROOT / "tests/corpus"
 MAX_XML_BYTES = 32 * 1024 * 1024
 
 # Commands that check the reference corpus; kernel oracles register themselves below with @kernel_oracle.
-CORPUS_COMMANDS = ["fetch", "verify", "reference", "check", "session", "roundtrip", "xml-oracle", "state-oracle",
-                   "state-check", "state-diff"]
+CORPUS_COMMANDS = ["fetch", "verify", "reference", "check", "session", "roundtrip", "xml-oracle", "library-oracle",
+                   "state-oracle", "state-check", "state-diff"]
 # Kernel oracle commands -> the name of their check function. Each oracle is defined as
 # `check_<x>_oracle(manifest, cache, java, *, record=False)` and registered where it is defined, so a new
 # kernel adds no lines to main().
@@ -4382,8 +4382,8 @@ def xml_documents(path, label):
 
 
 def xml_oracle_inputs(manifest, cache):
-    """Every corpus case file and XML archive member, the committed fixtures, and the synthetic OSP reader
-    fixtures with their line-ending variants, each distinct byte sequence once."""
+    """Every corpus case file and XML archive member, the committed fixtures (library documents included), and the
+    synthetic OSP reader fixtures with their line-ending variants, each distinct byte sequence once."""
     sources = []
     for case in manifest["cases"]:
         path = local_fixture_path(case) if "local_file" in case else cache / "fixtures" / case["file"]
@@ -4391,6 +4391,9 @@ def xml_oracle_inputs(manifest, cache):
     sources.extend((f"fixtures/{path.name}", path, False) for path in sorted(COMMITTED_FIXTURES.iterdir()) if path.is_file())
     sources.extend((f"osp/{path.name}", path, True) for path in sorted(OSP_FIXTURES.glob("*.xml")))
     sources.extend((f"osp/generated/{path.name}", path, True) for path in sorted((OSP_FIXTURES / "generated").glob("*.xml")))
+    # Library collections and libraries are OSP documents too (the library oracle checks their loaded model).
+    library = COMMITTED_FIXTURES / "library"
+    sources.extend((f"library/{path.relative_to(library).as_posix()}", path, False) for path in sorted(library.rglob("*.xml")))
     documents, seen = [], set()
     for label, path, variants in sources:
         for name, data in xml_documents(path, label):
@@ -4608,6 +4611,165 @@ def compare_ode_reference(expected, actual):
     adaptive = {solver["id"]: solver["adaptive"] for solver in expected["solvers"]}
     for want, got in zip(expected["cases"], actual["cases"]):
         compare(want, got, ode_case_tolerance(want, adaptive), f"ode-reference.{want['id']}")
+
+
+LIBRARY_FIXTURES = COMMITTED_FIXTURES / "library"
+
+
+LIBRARY_DUMP_SCHEMA = "motrack.library-dump/1"
+
+
+LIBRARY_SUFFIXES = {".xml", ".rest"}
+
+
+# Documents where MoTrack deliberately differs from Tracker 6.3.5 (docs/library-collections.md). Each entry must
+# still differ in the stated way, so a stale entry fails instead of hiding a regression.
+LIBRARY_KNOWN_DIFFERENCES = {
+    "collection-resources-arraylist.xml":
+        "Tracker 6.3.5 throws ClassCastException for resources stored as an ArrayList; MoTrack reads them as OSP's "
+        "swingJS tip does",
+}
+
+
+# The deepest nesting motrack_osp's depth limit admits (tests/library_limits_test.cpp derives it from the reader).
+LIBRARY_DEEPEST_NESTING = 85
+
+
+def nested_collections(levels):
+    """Collections nested `levels` deep in OSP's layout, ending in a resource (as in library_limits_test.cpp)."""
+    lines = ['<?xml version="1.0" encoding="UTF-8"?>']
+    indent = ""
+    for level in range(levels):
+        lines += [indent + '<object class="org.opensourcephysics.tools.LibraryCollection">',
+                  indent + f'    <property name="name" type="string">Level {level}</property>',
+                  indent + '    <property name="resources" type="array" class="[Lorg.opensourcephysics.tools.LibraryResource;">',
+                  indent + '        <property name="[0]" type="object">']
+        indent += "        "
+    lines += [indent + '<object class="org.opensourcephysics.tools.LibraryResource">',
+              indent + '    <property name="name" type="string">Leaf</property>',
+              indent + '    <property name="target" type="string">leaf.trk</property>',
+              indent + "</object>"]
+    for _ in range(levels):
+        indent = indent[:-8]
+        lines += [indent + "        </property>", indent + "    </property>", indent + "</object>"]
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
+def library_synthetic_documents():
+    """Documents too large or too regular to commit: the deepest nesting Tracker and MoTrack both open, and an
+    element index that makes Java allocate a large array while MoTrack stores one slot."""
+    yield "synthetic/deep-nesting.xml", nested_collections(LIBRARY_DEEPEST_NESTING)
+    yield "synthetic/large-index.xml", (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<object class="org.opensourcephysics.tools.LibraryCollection">\n'
+        '    <property name="name" type="string">Large index</property>\n'
+        '    <property name="resources" type="array" class="[Lorg.opensourcephysics.tools.LibraryResource;">\n'
+        '        <property name="[200000]" type="object">\n'
+        '        <object class="org.opensourcephysics.tools.LibraryResource">\n'
+        '            <property name="name" type="string">Far away</property>\n'
+        '        </object>\n'
+        '        </property>\n'
+        '    </property>\n'
+        '</object>\n').encode("utf-8")
+
+
+def library_kind(data):
+    """The LibraryDump kind of a document: ComPADRE responses by their element names, OSP documents by root class."""
+    if b"<object class=" not in data[:4096]:
+        return "compadre-tree" if b"<Identify" in data else "compadre-records"
+    return "library" if b'class="org.opensourcephysics.tools.Library"' in data[:4096] else "collection"
+
+
+def library_oracle_inputs(extra=None):
+    """Every committed library fixture in four line-ending variants, plus optional local documents (for example a
+    saved ComPADRE response) as they are."""
+    sources = [(path.relative_to(LIBRARY_FIXTURES).as_posix(), path, True)
+               for path in sorted(LIBRARY_FIXTURES.rglob("*")) if path.is_file() and path.suffix in LIBRARY_SUFFIXES]
+    if extra is not None:
+        sources.extend((f"extra/{path.name}", path, False)
+                       for path in sorted(Path(extra).iterdir()) if path.is_file() and path.suffix in LIBRARY_SUFFIXES)
+    documents, seen = [], set()
+    loaded = [(label, path.read_bytes(), variants) for label, path, variants in sources]
+    loaded += [(label, data, False) for label, data in library_synthetic_documents()]
+    for label, data, variants in loaded:
+        if len(data) > MAX_XML_BYTES:
+            raise ValueError(f"{label}: document exceeds the XML size limit")
+        for variant, payload in (xml_oracle_variants(data).items() if variants else [("", data)]):
+            digest = hashlib.sha256(payload).hexdigest()
+            if digest in seen:
+                continue
+            seen.add(digest)
+            documents.append((label, f"{label}[{variant}]" if variant else label, library_kind(payload), payload))
+            if len(documents) > MAX_XML_ORACLE_DOCUMENTS:
+                raise ValueError("Too many library oracle documents")
+    return documents
+
+
+def check_library_generated(generated):
+    """The committed documents written by OSP's own library loaders must equal a fresh run of the pinned writer."""
+    committed = LIBRARY_FIXTURES / "generated"
+    expected = sorted(path.name for path in committed.glob("*.xml"))
+    actual = sorted(path.name for path in generated.glob("*.xml"))
+    if expected != actual:
+        raise ValueError(f"OSP library documents differ from {committed}: committed {expected}, generated {actual}")
+    for name in actual:
+        if (committed / name).read_bytes() != (generated / name).read_bytes():
+            raise ValueError(f"{committed / name} differs from OSP's writer output; "
+                             "regenerate it with tools/reference/LibraryDump.java --generate")
+
+
+def check_library_oracle(manifest, cache, java, probe, reports=None, extra=None):
+    """Library oracle: MoTrack's collection, Library and ComPADRE models equal what the pinned OSP classes load,
+    MoTrack writes what OSP's writer writes for the loaded objects, and unedited saves are byte-identical."""
+    verify_file(cache / manifest["reference"]["file"], manifest["reference"])
+    documents = library_oracle_inputs(extra)
+    reports = Path(reports if reports is not None else cache / "reports" / "library-oracle").resolve()
+    reports.mkdir(parents=True, exist_ok=True)
+    mismatches, differences, loaded = [], [], 0
+    with tempfile.TemporaryDirectory(prefix="motrack-library-oracle-") as directory:
+        work = Path(directory)
+        home = work / "java-home"
+        home.mkdir()
+        java_command = [java, "-Djava.awt.headless=true", f"-Duser.home={home}", f"-Djava.io.tmpdir={home}", "-Xmx256m",
+                        "--class-path", java_classpath(manifest, cache), str(ROOT / "tools/reference/LibraryDump.java")]
+        run(java_command + ["--generate", str(work / "generated")], timeout=600)
+        check_library_generated(work / "generated")
+        items = []
+        for index, (name, label, kind, data) in enumerate(documents):
+            source = work / f"{index:04d}{Path(name).suffix}"
+            source.write_bytes(data)
+            items.append((name, label, kind, source, work / f"{index:04d}-java.json", work / f"{index:04d}-native.json"))
+        listing = work / "pairs.txt"
+        listing.write_text("".join(f"{kind}\t{source}\t{output}\n" for _, _, kind, source, output, _ in items), encoding="utf-8")
+        run(java_command + [str(listing)], timeout=600)
+        for index, (name, label, kind, source, java_output, native_output) in enumerate(items):
+            run([str(Path(probe).resolve()), "--library-dump", kind, str(source), str(native_output)])
+            expected = json.loads(java_output.read_text(encoding="utf-8"))
+            actual = json.loads(native_output.read_text(encoding="utf-8"))
+            if expected.get("schema") != LIBRARY_DUMP_SCHEMA or actual.get("schema") != LIBRARY_DUMP_SCHEMA:
+                raise ValueError(f"{label}: unexpected library dump schema")
+            expected.pop("error", None)  # Java's exception class; MoTrack reports the location instead.
+            difference = first_json_difference(expected, actual)
+            known = LIBRARY_KNOWN_DIFFERENCES.get(Path(name).name)
+            if known is not None:
+                if difference is None or expected.get("loaded") is not False or actual.get("loaded") is not True:
+                    mismatches.append(f"{label}: stale known difference ({known})")
+                else:
+                    differences.append(f"{label}: {known}")
+                continue
+            if difference:
+                mismatches.append(f"{label}: {difference}")
+                for output in (java_output, native_output):
+                    shutil.copyfile(output, reports / f"{index:04d}-{output.name.split('-', 1)[1]}")
+            else:
+                loaded += expected.get("loaded") is True
+    summary = {"schema": LIBRARY_DUMP_SCHEMA, "documents": len(documents), "loaded_by_both": loaded,
+               "known_differences": differences, "mismatches": mismatches}
+    (reports / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if mismatches:
+        raise ValueError(f"Library oracle failed for {len(mismatches)} of {len(documents)} documents:\n" + "\n".join(mismatches[:20]))
+    print(f"library-oracle: {len(documents)} documents matched the pinned OSP library classes ({loaded} loaded by both, "
+          f"{len(differences)} known differences)")
 
 FIT_REFERENCE = ROOT / "tests/science/fit-reference.json"
 
@@ -5414,7 +5576,8 @@ def main():
     parser.add_argument("--probe", help="Built motrack_corpus_probe executable "
                                         "(check/roundtrip/xml-oracle/state-check/library-census commands)")
     parser.add_argument("--record", action="store_true", help="Explicitly replace committed Java baselines for review")
-    parser.add_argument("--reports", type=Path, help="Report directory for xml-oracle (default: CACHE/reports/xml-oracle)")
+    parser.add_argument("--reports", type=Path, help="Report directory for xml-oracle/library-oracle (default: CACHE/reports/COMMAND)")
+    parser.add_argument("--library-extra", type=Path, help="Directory of further documents for library-oracle (not committed)")
     parser.add_argument("--o2-only", action="store_true", help="xml-oracle without Java: byte-identical renders only")
     parser.add_argument("--source", action="append", help="Limit library commands to this source ID (repeatable)")
     parser.add_argument("--redownload", action="store_true", help="discover-library: re-pin every file instead of reusing verified ones")
@@ -5423,11 +5586,13 @@ def main():
     args = parser.parse_args()
     if args.record and args.command not in {"reference", "state-oracle", "state-check"} and args.command not in KERNEL_ORACLES:
         parser.error("--record is only valid for the reference, state-oracle and state-check commands and the kernel oracles")
-    if args.reports is not None and args.command != "xml-oracle":
-        parser.error("--reports is only valid for the xml-oracle command")
+    if args.reports is not None and args.command not in {"xml-oracle", "library-oracle"}:
+        parser.error("--reports is only valid for the xml-oracle and library-oracle commands")
+    if args.library_extra is not None and args.command != "library-oracle":
+        parser.error("--library-extra is only valid for the library-oracle command")
     if args.o2_only and args.command != "xml-oracle":
         parser.error("--o2-only is only valid for the xml-oracle command")
-    if args.command in {"check", "roundtrip", "xml-oracle", "state-check", "library-census"} and not args.probe:
+    if args.command in {"check", "roundtrip", "xml-oracle", "library-oracle", "state-check", "library-census"} and not args.probe:
         parser.error(f"{args.command} requires --probe")
     if (args.command == "state-diff") != bool(args.dumps) or (args.dumps and len(args.dumps) != 2):
         parser.error("state-diff takes exactly two dump files; other commands take none")
@@ -5462,6 +5627,8 @@ def main():
         check_sessions(manifest, cache, args.java, args.probe if args.command == "roundtrip" else None)
     elif args.command == "xml-oracle":
         check_xml_oracle(manifest, cache, args.java, args.probe, args.reports, args.o2_only)
+    elif args.command == "library-oracle":
+        check_library_oracle(manifest, cache, args.java, args.probe, args.reports, args.library_extra)
     else:
         check_cases(manifest, cache, java=args.java if args.command == "reference" else None,
                     probe=args.probe, record=args.record)

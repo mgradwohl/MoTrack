@@ -1,6 +1,10 @@
 #include "archive_group.hpp"
 #include "archive_group_session.hpp"
 #include "legacy_project.hpp"
+#include "library/collection.hpp"
+#include "library/compadre.hpp"
+#include "library/library.hpp"
+#include "library/resource.hpp"
 #include "measurements.hpp"
 #include "media_vectors.hpp"
 #include "movie_authoring.hpp"
@@ -690,6 +694,171 @@ QJsonObject ospDump(const std::filesystem::path& input)
     return report;
 }
 
+/// One resource in the library oracle schema shared with tools/reference/LibraryDump.java
+/// (docs/library-collections.md). `lineage` ends with the resource.
+QJsonObject libraryResource(std::vector<const motrack::library::Resource*>& lineage)
+{
+    namespace library = motrack::library;
+    const auto& resource = *lineage.back();
+    const auto optionalText = [](const std::optional<std::string>& text)
+    {
+        return text ? ospText(*text) : QJsonValue::Null;
+    };
+    QJsonObject result{{"class", resource.isCollection() ? "LibraryCollection" : "LibraryResource"},
+                       {"name", ospText(resource.name)},
+                       {"description", ospText(resource.description)},
+                       {"base_path", ospText(resource.basePath)},
+                       {"html_path", ospText(resource.htmlPath)},
+                       {"target", ospText(resource.target)},
+                       {"type", ospText(library::resourceTypeName(library::effectiveType(resource)))},
+                       {"type_field", ospText(library::resourceTypeName(resource.type))},
+                       {"thumbnail", optionalText(resource.thumbnail)},
+                       {"absolute_target", ospText(library::absoluteTarget(lineage))},
+                       {"absolute_html", ospText(library::absoluteHtmlPath(lineage))},
+                       {"inherited_base", ospText(library::inheritedBasePath(lineage))},
+                       {"external_html", library::hasExternalHtml(resource)}};
+    QJsonArray metadata;
+    for (const auto& item : resource.metadata)
+        metadata.append(QJsonArray{ospText(item.key), ospText(item.value)});
+    result["metadata"] = metadata;
+    QJsonArray properties;
+    for (const auto& [key, value] : resource.properties)
+        properties.append(QJsonArray{ospText(key), optionalText(value)});
+    result["properties"] = properties;
+    if (resource.isCollection())
+    {
+        QJsonArray children;
+        for (const auto& child : resource.children)
+        {
+            lineage.push_back(&child);
+            children.append(libraryResource(lineage));
+            lineage.pop_back();
+        }
+        result["resources"] = children;
+    }
+    return result;
+}
+
+QJsonValue libraryWritten(const motrack::library::Resource& resource)
+{
+    const auto written = motrack::library::writeCollection(resource);
+    if (!written)
+        throw motrack::ProjectError("MoTrack could not write the collection: " + written.error().message);
+    return ospText(*written);
+}
+
+QJsonArray libraryStrings(const std::vector<std::optional<std::string>>& values)
+{
+    QJsonArray array;
+    for (const auto& value : values)
+        array.append(value ? ospText(*value) : QJsonValue::Null);
+    return array;
+}
+
+QJsonObject libraryObject(const motrack::library::Library& library)
+{
+    const auto optionalText = [](const std::optional<std::string>& text)
+    {
+        return text ? ospText(*text) : QJsonValue::Null;
+    };
+    QJsonArray collections;
+    for (const auto& entry : library.collections)
+        collections.append(QJsonArray{ospText(entry.path), ospText(entry.name)});
+    QJsonArray recent;
+    for (const auto& path : library.recentlyOpened)
+        recent.append(ospText(path));
+    QJsonArray pathNames;
+    for (const auto& [path, name] : library.pathNames)
+        pathNames.append(QJsonArray{ospText(path), optionalText(name)});
+    QJsonArray noSearch;
+    for (const auto& path : library.noSearchPaths)
+        noSearch.append(ospText(path));
+    return {{"name", optionalText(library.name)},
+            {"collections", collections},
+            {"sublibrary_paths", libraryStrings(library.subLibraryPaths)},
+            {"imported_library_paths", libraryStrings(library.importedLibraryPaths)},
+            {"recently_opened", recent},
+            {"path_names", pathNames},
+            {"no_search_paths", noSearch},
+            {"open_tabs", library.openTabs ? QJsonValue(libraryStrings(*library.openTabs)) : QJsonValue::Null},
+            {"chooser_directory", optionalText(library.chooserDirectory)},
+            {"cache", optionalText(library.cache)}};
+}
+
+/// The library oracle: MoTrack's view of a collection, Library or ComPADRE response in LibraryDump's schema.
+/// ComPADRE responses use Tracker 6.3.5's selection (ComPadreMode::Tracker635) so that the dumps can be equal.
+QJsonObject libraryDump(const QString& kind, const std::filesystem::path& input)
+{
+    namespace library = motrack::library;
+    std::ifstream stream(input, std::ios::binary);
+    if (!stream)
+        throw motrack::ProjectError("Could not open the library document.");
+    std::string bytes((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+    QJsonObject report{{"schema", "motrack.library-dump/1"}, {"kind", kind}};
+    if (kind == "collection" || kind == "library")
+    {
+        const auto source = motrack::osp::parse(bytes);
+        report["read"] = source.has_value();
+        if (!source)
+            return report;
+        report["class"] = ospText((*source)->node((*source)->root()).className);
+        if (kind == "collection")
+        {
+            const auto document = library::loadCollection(*source);
+            report["loaded"] = document.has_value();
+            if (!document)
+                return report;
+            // O2 for collections: saving an unedited document reproduces it byte for byte.
+            const auto saved = library::saveCollection(*document);
+            if (!saved)
+                throw motrack::ProjectError("Saving an unedited collection failed: " + saved.error().message);
+            if (*saved != bytes)
+                throw motrack::ProjectError("Saving an unedited collection changed it.");
+            std::vector<const library::Resource*> lineage{&document->root};
+            report["root"] = libraryResource(lineage);
+            report["written"] = libraryWritten(document->root);
+            return report;
+        }
+        const auto document = library::loadLibrary(*source);
+        report["loaded"] = document.has_value();
+        if (!document)
+            return report;
+        const auto saved = library::saveLibrary(*document);
+        if (!saved)
+            throw motrack::ProjectError("Saving an unedited library failed: " + saved.error().message);
+        if (*saved != bytes)
+            throw motrack::ProjectError("Saving an unedited library changed it.");
+        report["library"] = libraryObject(document->library);
+        return report;
+    }
+    if (kind == "compadre-tree")
+    {
+        auto collection = library::makeCollection("tree");
+        report["loaded"] = library::loadComPadreTree(collection, bytes);
+        std::vector<const library::Resource*> lineage{&collection};
+        report["root"] = libraryResource(lineage);
+        report["written"] = libraryWritten(collection);
+        return report;
+    }
+    if (kind == "compadre-records")
+    {
+        auto collection = library::makeCollection("records");
+        library::setDescription(collection, "<p>Loading</p>");
+        library::setTarget(collection, "&OSPSubject=1", {});
+        library::ComPadreOptions options;
+        options.mode = library::ComPadreMode::Tracker635;
+        const auto result = library::loadComPadreRecords(
+            collection, bytes, "https://www.compadre.org/osp/services/REST/osp_tracker.cfm?OSPType=Tracker&OSPSubject=1", options);
+        report["records"] = static_cast<int>(result.records);
+        report["completed"] = result.completed;
+        report["success"] = result.success;
+        std::vector<const library::Resource*> lineage{&collection};
+        report["root"] = libraryResource(lineage);
+        report["written"] = libraryWritten(collection);
+        return report;
+    }
+    throw motrack::ProjectError("Unknown library dump kind.");
+}
 } // namespace
 
 int main(int argc, char** argv)
@@ -711,6 +880,19 @@ try
         QSaveFile output(args[3]);
         if (!output.open(QIODevice::WriteOnly) || output.write(bytes) != bytes.size() || !output.commit())
             throw motrack::ProjectError("Could not write the OSP dump.");
+        return 0;
+    }
+    if (args.size() == 5 && args[1] == "--library-dump")
+    {
+#ifdef _WIN32
+        const std::filesystem::path input(args[3].toStdWString());
+#else
+        const std::filesystem::path input(args[3].toStdString());
+#endif
+        const auto bytes = QJsonDocument(libraryDump(args[2], input)).toJson(QJsonDocument::Compact);
+        QSaveFile output(args[4]);
+        if (!output.open(QIODevice::WriteOnly) || output.write(bytes) != bytes.size() || !output.commit())
+            throw motrack::ProjectError("Could not write the library dump.");
         return 0;
     }
     if (args.size() == 4 && args[1] == "--interrupt-paired-save")
@@ -1580,7 +1762,8 @@ try
     if (args.size() != 3 && !flagged)
     {
         std::fputs("Usage: motrack_corpus_probe [--references|--timing|--state|--osp-dump] input.trk output.json"
-                   " | --open input.trk|.trz output.json | --export-<case> input.trk output.trk\n",
+                   " | --open input.trk|.trz output.json | --library-dump kind input output.json"
+                   " | --export-<case> input.trk output.trk\n",
                    stderr);
         return 1;
     }

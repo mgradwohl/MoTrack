@@ -4667,6 +4667,103 @@ class OdeOracleTests(unittest.TestCase):
                 corpus.validate_ode_reference(document, self.manifest)
 
 
+class LibraryOracleTests(unittest.TestCase):
+    """corpus.py library-oracle without Java or the probe: inputs, generated documents and the comparison."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix="motrack-library-oracle-test-")
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.library = self.root / "library"
+        (self.library / "compadre").mkdir(parents=True)
+        (self.library / "generated").mkdir()
+        self.collection = b'<?xml version="1.0" encoding="UTF-8"?>\n<object class="org.opensourcephysics.tools.LibraryCollection">\n</object>\n'
+        (self.library / "known.xml").write_bytes(self.collection)
+        (self.library / "my-library.xml").write_bytes(b'<object class="org.opensourcephysics.tools.Library">\n</object>\n')
+        (self.library / "compadre" / "tree.rest").write_bytes(b"<x><Identify/></x>\n")
+        (self.library / "compadre" / "records.rest").write_bytes(b"<records><record/></records>\n")
+        (self.library / "notes.txt").write_bytes(b"ignored")
+        self.generated = b'<object class="org.opensourcephysics.tools.LibraryCollection"/>'
+        (self.library / "generated" / "osp-collection.xml").write_bytes(self.generated)
+        for replacement in (patch.object(corpus, "LIBRARY_FIXTURES", self.library), patch.object(corpus, "verify_file"),
+                            patch.object(corpus, "LIBRARY_DEEPEST_NESTING", 2)):
+            replacement.start()
+            self.addCleanup(replacement.stop)
+
+    def test_kinds_follow_the_root_class_or_rest_elements(self):
+        self.assertEqual(corpus.library_kind(self.collection), "collection")
+        self.assertEqual(corpus.library_kind(b'<object class="org.opensourcephysics.tools.Library">'), "library")
+        self.assertEqual(corpus.library_kind(b"<x><Identify/></x>"), "compadre-tree")
+        self.assertEqual(corpus.library_kind(b"<records/>"), "compadre-records")
+
+    def test_inputs_cover_fixtures_variants_extras_and_generated_documents(self):
+        extra = self.root / "extra"
+        extra.mkdir()
+        (extra / "real.rest").write_bytes(b"<records></records>\n")
+        documents = corpus.library_oracle_inputs(extra)
+        labels = [label for _, label, _, _ in documents]
+        self.assertIn("known.xml[lf]", labels)
+        self.assertIn("known.xml[bom-crlf]", labels)
+        self.assertIn("compadre/tree.rest[cr]", labels)
+        self.assertIn("extra/real.rest", labels)
+        self.assertNotIn("notes.txt", " ".join(labels))
+        kinds = {label: kind for _, label, kind, _ in documents}
+        self.assertEqual(kinds["my-library.xml[lf]"], "library")
+        self.assertEqual(kinds["compadre/records.rest[lf]"], "compadre-records")
+        self.assertEqual(kinds["synthetic/deep-nesting.xml"], "collection")
+        deep = next(data for _, label, _, data in documents if label == "synthetic/deep-nesting.xml")
+        self.assertEqual(deep.count(b"org.opensourcephysics.tools.LibraryCollection"), 2)
+        self.assertIn("synthetic/large-index.xml", labels)
+        self.assertEqual(len(labels), len(set(labels)))
+
+    def run_oracle(self, java_dump, native_dump, generated=None):
+        def run(command, timeout=45):
+            if "--generate" in command:
+                output = Path(command[-1])
+                output.mkdir()
+                for name, data in (generated or {"osp-collection.xml": self.generated}).items():
+                    (output / name).write_bytes(data)
+                return
+            if "--library-dump" in command:
+                kind, source, output = command[2], Path(command[3]), Path(command[4])
+                Path(output).write_text(json.dumps(native_dump(kind, source.read_bytes())), encoding="utf-8")
+                return
+            for line in Path(command[-1]).read_text(encoding="utf-8").splitlines():
+                kind, source, output = line.split("\t")
+                Path(output).write_text(json.dumps(java_dump(kind, Path(source).read_bytes())), encoding="utf-8")
+
+        manifest = {"reference": {"file": "tracker.jar"}, "cases": []}
+        with patch.object(corpus, "run", run), redirect_stdout(io.StringIO()) as output:
+            corpus.check_library_oracle(manifest, self.root, "java", "probe", self.root / "reports")
+        return output.getvalue()
+
+    @staticmethod
+    def dump(kind, data, loaded=True):
+        return {"schema": corpus.LIBRARY_DUMP_SCHEMA, "kind": kind, "read": True, "loaded": loaded, "error": "ignored"}
+
+    def test_matching_dumps_pass_and_differences_fail_with_reports(self):
+        summary = self.run_oracle(self.dump, lambda kind, data: {k: v for k, v in self.dump(kind, data).items() if k != "error"})
+        self.assertIn("documents matched", summary)
+        with self.assertRaisesRegex(ValueError, "Library oracle failed"):
+            self.run_oracle(self.dump, lambda kind, data: self.dump(kind, data, loaded=False) | {"extra": 1})
+        self.assertTrue(any((self.root / "reports").glob("*-native.json")))
+
+    def test_generated_documents_must_equal_the_committed_copies(self):
+        with self.assertRaisesRegex(ValueError, "differs from OSP's writer output"):
+            self.run_oracle(self.dump, self.dump, generated={"osp-collection.xml": b"changed"})
+        with self.assertRaisesRegex(ValueError, "OSP library documents differ"):
+            self.run_oracle(self.dump, self.dump, generated={"other.xml": self.generated})
+
+    def test_known_differences_must_still_differ(self):
+        (self.library / "collection-resources-arraylist.xml").write_bytes(self.collection.replace(b"</object>", b"<!-- list --></object>"))
+        java = lambda kind, data: self.dump(kind, data, loaded=b"list" not in data)
+        native = lambda kind, data: {k: v for k, v in self.dump(kind, data).items() if k != "error"}
+        # One fixture in four line-ending variants.
+        self.assertIn("4 known differences", self.run_oracle(java, native))
+        with self.assertRaisesRegex(ValueError, "stale known difference"):
+            self.run_oracle(lambda kind, data: self.dump(kind, data), native)
+
+
 class FitOracleTests(unittest.TestCase):
     """The curve-fit kernel oracle (tools/reference/FitOracle.java) without running Java."""
 

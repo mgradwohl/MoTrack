@@ -214,6 +214,10 @@ jobs:
         shell: bash
         run: python tools/corpus.py xml-oracle --probe build/coverage/motrack_corpus_probe --java "$JAVA_HOME_17_X64/bin/java"
           python tools/corpus.py state-check --probe "$probe"
+      - name: Check library collection model against Java
+        if: runner.os == 'Linux'
+        shell: bash
+        run: python tools/corpus.py library-oracle --probe build/coverage/motrack_corpus_probe --java "$JAVA_HOME_17_X64/bin/java"
       - name: Check ODE solver kernel reference with arm64 Java
         # HotSpot on arm64 computes Math.pow with fdlibm rather than the x86-64 intrinsic.
         if: runner.os == 'macOS'
