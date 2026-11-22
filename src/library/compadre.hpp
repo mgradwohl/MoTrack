@@ -109,7 +109,10 @@ struct ComPadreRecordsResult
 ComPadreRecordsResult
 loadComPadreRecords(Resource& collection, std::string_view xml, std::string_view reloadUrl, const ComPadreOptions& options = {});
 
-/// LibraryResource.getHTMLBody for a ComPADRE record (the arguments LibraryComPADRE.setRecord passes).
+/// LibraryResource.getHTMLBody for a ComPADRE record (the arguments LibraryComPADRE.setRecord passes). Tracker
+/// inserts every value as it is. `ComPadreMode::MoTrack` escapes the title, type, authors, file name and URLs and
+/// keeps only http(s) thumbnails and links; the description stays HTML in both modes, so the browser must render
+/// it without scripts or external resources.
 [[nodiscard]] std::string comPadreHtmlBody(std::string_view title,
                                            std::string_view type,
                                            std::optional<std::string_view> thumbnail,
@@ -117,7 +120,8 @@ loadComPadreRecords(Resource& collection, std::string_view xml, std::string_view
                                            std::string_view authors,
                                            std::optional<std::string_view> informationUrl,
                                            const std::optional<ComPadreAttachment>& attachment,
-                                           const ComPadreLabels& labels);
+                                           const ComPadreLabels& labels,
+                                           ComPadreMode mode = ComPadreMode::MoTrack);
 
 /// The megabyte text of LibraryResource.getHTMLBody: bytes / 1048576 with DecimalFormat "0.0" (HALF_EVEN).
 [[nodiscard]] std::string comPadreMegabytes(std::int32_t bytes, char decimalSeparator);

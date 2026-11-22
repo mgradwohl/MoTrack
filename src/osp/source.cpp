@@ -1,6 +1,8 @@
 #include "osp/source.hpp"
 
 #include <algorithm>
+#include <atomic>
+#include <map>
 #include <ranges>
 #include <stdexcept>
 #include <utility>
@@ -159,39 +161,47 @@ bool utf8Name(std::string_view value) noexcept
     return equals("utf-8") || equals("utf8");
 }
 
-/// OSP ignores the XML declaration and always decodes UTF-8 (ResourceLoader.readerForStream). MoTrack refuses
-/// a declaration naming another encoding rather than misreading it.
-bool declaresOtherEncoding(std::string_view prolog)
+/// The `encoding` value of an XML declaration at the start of the prolog. The declaration ends at "?>" or at the
+/// first '<' or '>' or line break after "<?xml", so text in the root line is never mistaken for it. A
+/// malformed attribute counts as absent: OSP never reads the declaration.
+std::optional<std::string_view> declaredEncoding(std::string_view prolog)
 {
     const auto declaration = prolog.find("<?xml");
     if (declaration == std::string_view::npos)
     {
-        return false;
+        return std::nullopt;
     }
-    const auto close = prolog.find("?>", declaration);
+    const auto close = prolog.find_first_of("?<>\r\n", declaration + 5);
     const auto text = prolog.substr(declaration, close == std::string_view::npos ? std::string_view::npos : close - declaration);
-    const auto key = text.find("encoding");
-    if (key == std::string_view::npos)
+    for (auto key = text.find("encoding"); key != std::string_view::npos; key = text.find("encoding", key + 1))
     {
-        return false;
+        if (key == 0 || (text[key - 1] != ' ' && text[key - 1] != '\t'))
+        {
+            continue;
+        }
+        auto position = text.find_first_not_of(" \t", key + 8);
+        if (position == std::string_view::npos || text[position] != '=')
+        {
+            return std::nullopt;
+        }
+        position = text.find_first_not_of(" \t", position + 1);
+        if (position == std::string_view::npos || (text[position] != '"' && text[position] != '\''))
+        {
+            return std::nullopt;
+        }
+        const auto end = text.find(text[position], position + 1);
+        if (end == std::string_view::npos)
+        {
+            return std::nullopt;
+        }
+        return text.substr(position + 1, end - position - 1);
     }
-    auto position = text.find_first_not_of(" \t\r\n", key + 8);
-    if (position == std::string_view::npos || text[position] != '=')
-    {
-        return true;
-    }
-    position = text.find_first_not_of(" \t\r\n", position + 1);
-    if (position == std::string_view::npos || (text[position] != '"' && text[position] != '\''))
-    {
-        return true;
-    }
-    const auto quote = text[position];
-    const auto end = text.find(quote, position + 1);
-    if (end == std::string_view::npos)
-    {
-        return true;
-    }
-    return !utf8Name(text.substr(position + 1, end - position - 1));
+    return std::nullopt;
+}
+
+bool containsNonAscii(std::string_view bytes) noexcept
+{
+    return std::ranges::any_of(bytes, [](char value) { return static_cast<unsigned char>(value) >= 0x80; });
 }
 
 } // namespace
@@ -241,9 +251,13 @@ class SourceParser
         {
             return fail(ParseError::Code::MissingRoot, 0, "No OSP root object in the first 10 lines.");
         }
-        if (declaresOtherEncoding(bytes.substr(0, m_Source.m_Lines[*rootLine].end)))
+        // OSP always decodes UTF-8 (ResourceLoader.readerForStream). Under another declared encoding only
+        // non-ASCII bytes could be meant differently, so only those documents are refused.
+        if (const auto encoding = declaredEncoding(bytes.substr(0, m_Source.m_Lines[*rootLine].end));
+            encoding && !utf8Name(*encoding) && containsNonAscii(bytes))
         {
-            return fail(ParseError::Code::UnsupportedEncoding, 1, "Only UTF-8 OSP documents are supported.");
+            return fail(
+                ParseError::Code::UnsupportedEncoding, 1, "Non-ASCII text under a declared encoding other than UTF-8 is not supported.");
         }
         const auto version = attribute(text(*rootLine), "version");
         if (version.status == AttributeStatus::Unterminated)
@@ -259,6 +273,10 @@ class SourceParser
         if (version.status == AttributeStatus::Found)
         {
             node.version = std::string(version.value);
+        }
+        if (m_Source.m_Truncated && !m_Limits.acceptTruncated)
+        {
+            return fail(ParseError::Code::Truncated, m_Source.m_Lines.size(), "The document ends before its objects are closed.");
         }
         if (node.className == CRYPTIC_CLASS)
         {
@@ -600,6 +618,8 @@ Expected<std::shared_ptr<const Source>, ParseError> parse(std::string bytes, con
 {
     // The constructor is private so that every Source satisfies the parser's invariants; make_shared cannot use it.
     std::shared_ptr<Source> source(new Source()); // NOLINT(modernize-make-shared)
+    static std::atomic<std::uint64_t> identities{0};
+    source->m_Identity = ++identities;
     source->m_Bytes = std::move(bytes);
     SourceParser parser(*source, limits);
     if (auto result = parser.run(); !result)
@@ -607,6 +627,11 @@ Expected<std::shared_ptr<const Source>, ParseError> parse(std::string bytes, con
         return makeUnexpected(std::move(result.error()));
     }
     return std::shared_ptr<const Source>(std::move(source));
+}
+
+std::uint64_t Source::identity() const noexcept
+{
+    return m_Identity;
 }
 
 std::string_view Source::bytes() const noexcept
@@ -722,22 +747,20 @@ Expected<CompactArray, DecodeError> parseLeaf(std::string_view text, char compon
     return result;
 }
 
-Expected<CompactArray, DecodeError> parseCompact(std::string_view text, std::string_view arrayClass)
+/// One recursion level of arrayValue(String, Class) over `text[begin, end]`, where `text[end]` is the closing
+/// brace. `closing[i]` is the brace that closes `text[i]`, found once for the whole string.
+Expected<CompactArray, DecodeError> parseCompact(
+    std::string_view text, std::size_t begin, std::size_t end, std::string_view arrayClass, const std::vector<std::size_t>& closing)
 {
-    if (!text.starts_with('{') || !text.ends_with('}') || text.size() < 2)
-    {
-        return makeUnexpected(DecodeError::Malformed);
-    }
     if (arrayClass.size() == 2)
     {
-        return parseLeaf(text, arrayClass[1]);
+        return parseLeaf(text.substr(begin, end - begin + 1), arrayClass[1]);
     }
     // Nested: scan the characters between the outer braces (line 2017). The final closing brace is excluded,
-    // so a trailing separator adds no null row.
+    // so a trailing separator, or a trailing null row, adds no row.
     CompactArray result{.kind = CompactArray::Kind::Nested};
-    const auto end = text.size() - 1;
     bool afterRow = false;
-    for (std::size_t position = 1; position < end; ++position)
+    for (std::size_t position = begin + 1; position < end; ++position)
     {
         const auto character = text[position];
         if (character == ',' || character == '}')
@@ -753,31 +776,19 @@ Expected<CompactArray, DecodeError> parseCompact(std::string_view text, std::str
         }
         else if (character == '{')
         {
-            // indexOfClosingBrace (line 2085) searches before the final brace only.
-            std::size_t closing = std::string_view::npos;
-            for (std::size_t depth = 0, scan = position; scan < end; ++scan)
-            {
-                if (text[scan] == '{')
-                {
-                    ++depth;
-                }
-                else if (text[scan] == '}' && --depth == 0)
-                {
-                    closing = scan;
-                    break;
-                }
-            }
-            if (closing == std::string_view::npos)
+            // indexOfClosingBrace (line 2085) only searches before this level's final brace.
+            const auto close = closing[position];
+            if (close >= end)
             {
                 return makeUnexpected(DecodeError::Malformed);
             }
-            auto row = parseCompact(text.substr(position, closing - position + 1), arrayClass.substr(1));
+            auto row = parseCompact(text, position, close, arrayClass.substr(1), closing);
             if (!row)
             {
                 return row;
             }
             result.rows.push_back(std::move(*row));
-            position = closing;
+            position = close;
             afterRow = true;
         }
     }
@@ -837,8 +848,10 @@ void formatCompactInto(std::string& output, const CompactArray& array)
 
 bool isPrimitiveArrayClass(std::string_view arrayClass) noexcept
 {
+    // The JVM allows at most 255 array dimensions; Class.forName fails beyond that, so OSP cannot load them.
+    constexpr std::size_t MAX_DIMENSIONS = 255;
     const auto depth = arrayDepth(arrayClass);
-    return depth != std::string_view::npos && depth > 0 && depth + 1 == arrayClass.size() &&
+    return depth != std::string_view::npos && depth > 0 && depth <= MAX_DIMENSIONS && depth + 1 == arrayClass.size() &&
            (arrayClass.back() == 'I' || arrayClass.back() == 'D' || arrayClass.back() == 'Z');
 }
 
@@ -848,7 +861,26 @@ Expected<CompactArray, DecodeError> parseCompactArray(std::string_view text, std
     {
         return makeUnexpected(DecodeError::Unsupported);
     }
-    return parseCompact(text, arrayClass);
+    if (!text.starts_with('{') || !text.ends_with('}') || text.size() < 2)
+    {
+        return makeUnexpected(DecodeError::Malformed);
+    }
+    // Match every brace in one pass so that nested rows cost linear time; an unmatched '{' keeps npos.
+    std::vector<std::size_t> closing(text.size(), std::string_view::npos);
+    std::vector<std::size_t> open;
+    for (std::size_t position = 0; position < text.size(); ++position)
+    {
+        if (text[position] == '{')
+        {
+            open.push_back(position);
+        }
+        else if (text[position] == '}' && !open.empty())
+        {
+            closing[open.back()] = position;
+            open.pop_back();
+        }
+    }
+    return parseCompact(text, 0, text.size() - 1, arrayClass, closing);
 }
 
 std::string formatCompactArray(const CompactArray& array)
@@ -1011,17 +1043,17 @@ Expected<std::int32_t, DecodeError> PropertyView::elementIndex() const
     return parseJavaInt(std::string_view(*value).substr(1, close - 1));
 }
 
-Expected<std::vector<std::optional<PropertyView>>, DecodeError> PropertyView::indexedElements() const
+Expected<IndexedElements, DecodeError> PropertyView::indexedElements() const
 {
     if (type() != PropertyType::Array)
     {
         return makeUnexpected(DecodeError::WrongType);
     }
     const auto items = elements();
-    std::vector<std::optional<PropertyView>> slots;
+    IndexedElements result;
     if (items.empty())
     {
-        return slots;
+        return result;
     }
     const auto last = items.back().elementIndex();
     if (!last)
@@ -1032,7 +1064,9 @@ Expected<std::vector<std::optional<PropertyView>>, DecodeError> PropertyView::in
     {
         return makeUnexpected(DecodeError::OutOfRange);
     }
-    slots.resize(static_cast<std::size_t>(*last) + 1);
+    // Java allocates the whole array; MoTrack stores only the elements that are present.
+    result.length = static_cast<std::size_t>(*last) + 1;
+    std::map<std::size_t, PropertyView> present;
     for (const auto& item : items)
     {
         const auto position = item.elementIndex();
@@ -1040,13 +1074,24 @@ Expected<std::vector<std::optional<PropertyView>>, DecodeError> PropertyView::in
         {
             return makeUnexpected(position.error());
         }
-        if (*position < 0 || static_cast<std::size_t>(*position) >= slots.size())
+        if (*position < 0 || std::cmp_greater_equal(*position, result.length))
         {
             return makeUnexpected(DecodeError::OutOfRange);
         }
-        slots[static_cast<std::size_t>(*position)] = item;
+        present.insert_or_assign(static_cast<std::size_t>(*position), item);
     }
-    return slots;
+    result.elements.assign(present.begin(), present.end());
+    return result;
+}
+
+std::optional<PropertyView> IndexedElements::at(std::size_t index) const
+{
+    const auto found = std::ranges::lower_bound(elements, index, {}, &std::pair<std::size_t, PropertyView>::first);
+    if (found == elements.end() || found->first != index)
+    {
+        return std::nullopt;
+    }
+    return found->second;
 }
 
 ObjectView::ObjectView(const Source& source, NodeId id) : m_Source(&source), m_Id(id)

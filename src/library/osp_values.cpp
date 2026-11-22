@@ -83,11 +83,7 @@ std::string arrayClassOf(std::string_view component)
 /// successfully, so their elements need no check: the loader fails at the cast either way.
 bool assignable(std::string_view component, const JavaValue& value)
 {
-    if (isPrimitiveCode(component))
-    {
-        return true;
-    }
-    if (value.kind == Kind::Null)
+    if (isPrimitiveCode(component) || value.kind == Kind::Null)
     {
         return true;
     }
@@ -101,7 +97,7 @@ bool assignable(std::string_view component, const JavaValue& value)
     }
     if (component == COLLECTION_CLASS)
     {
-        return value.kind == Kind::Resource && value.resource.isCollection();
+        return value.kind == Kind::Resource && value.resource && value.resource->isCollection();
     }
     if (component.starts_with('['))
     {
@@ -110,8 +106,33 @@ bool assignable(std::string_view component, const JavaValue& value)
     return true;
 }
 
+/// Stores the non-null slots of `assigned` (index, value pairs in file order, so a later duplicate wins) sorted by
+/// index.
+void storeSlots(JavaValue& array, std::vector<std::pair<std::size_t, JavaValue>>& assigned)
+{
+    const auto byIndex = [](const auto& left, const auto& right)
+    {
+        return left.first < right.first;
+    };
+    if (!std::ranges::is_sorted(assigned, byIndex))
+    {
+        std::ranges::stable_sort(assigned, byIndex);
+    }
+    for (std::size_t position = 0; position < assigned.size(); ++position)
+    {
+        auto& [index, value] = assigned[position];
+        const bool replaced = position + 1 < assigned.size() && assigned[position + 1].first == index;
+        if (replaced || value.kind == Kind::Null)
+        {
+            continue;
+        }
+        array.indices.push_back(index);
+        array.values.push_back(std::move(value));
+    }
+}
+
 /// XMLControlElement.arrayValue(String, Class): the compact "{...}" form. Strings and objects are never written
-/// compactly, so their elements stay null.
+/// compactly, so their elements stay null; primitive values only need to parse.
 Result<JavaValue> compactValue(std::string_view text, std::string_view component, const std::string& location)
 {
     if (!(text.starts_with('{') && text.ends_with('}')))
@@ -134,7 +155,7 @@ Result<JavaValue> compactValue(std::string_view text, std::string_view component
                 }
                 else
                 {
-                    array.elements.emplace_back();
+                    ++array.length; // a null row
                 }
             }
             else if (character == '{')
@@ -159,7 +180,8 @@ Result<JavaValue> compactValue(std::string_view text, std::string_view component
                 {
                     return row;
                 }
-                array.elements.push_back(*std::move(row));
+                array.indices.push_back(array.length++);
+                array.values.push_back(*std::move(row));
                 position = close;
                 wasArray = true;
             }
@@ -178,16 +200,10 @@ Result<JavaValue> compactValue(std::string_view text, std::string_view component
         {
             return fail(location, "invalid double in a compact array");
         }
-        array.elements.push_back(isPrimitiveCode(component) ? JavaValue{.kind = Kind::Other} : JavaValue{});
     }
+    array.length = fields.size();
     return array;
 }
-
-std::string elementLocation(const std::string& location, std::string_view name)
-{
-    return location + std::string(name);
-}
-
 } // namespace
 
 bool isKnownJavaClass(std::string_view className) noexcept
@@ -196,8 +212,17 @@ bool isKnownJavaClass(std::string_view className) noexcept
            className.starts_with("javax.");
 }
 
-ValueReader::ValueReader(ResourceObjectLoader loader, std::vector<Failure>* ignored) : m_Loader(std::move(loader)), m_Ignored(ignored)
+ValueReader::ValueReader(ResourceObjectLoader loader, std::vector<Failure>* ignored) : m_Loader(loader), m_Ignored(ignored)
 {}
+
+ResourceObjectLoader placeholderLoader() noexcept
+{
+    return ResourceObjectLoader{
+        .function = [](void*, const osp::ObjectView&, const std::string&) -> Result<std::unique_ptr<library::Resource>>
+        {
+            return std::make_unique<library::Resource>();
+        }};
+}
 
 Result<std::optional<std::string>>
 ValueReader::getString(const osp::ObjectView& object, std::string_view name, const std::string& location) const
@@ -214,36 +239,85 @@ ValueReader::getString(const osp::ObjectView& object, std::string_view name, con
     return std::optional<std::string>{};
 }
 
-Result<JavaValue> ValueReader::getObject(const osp::ObjectView& object, std::string_view name, const std::string& location) const
+namespace
 {
-    const auto property = object.property(name);
-    if (!property)
-    {
-        return JavaValue{};
-    }
-    return propertyValue(*property, location + "." + std::string(name));
+
+// Loading recurses through getObject, elementValue, arrayValue/collectionValue, objectValue, resourceValue and the
+// loader for every nested collection. Debug builds give each temporary its own stack slot, so these functions
+// build failures and other values in the small helpers below and return them directly (guaranteed elision).
+
+Result<JavaValue> failure(const std::string& location, std::string_view message)
+{
+    return fail(location, std::string(message));
 }
 
-Result<JavaValue> ValueReader::propertyValue(const osp::PropertyView& property, const std::string& location) const
+Result<JavaValue> classFailure(const std::string& location, std::string_view before, std::string_view className, std::string_view after)
+{
+    return fail(location, std::string(before) + std::string(className) + std::string(after));
+}
+
+Result<JavaValue> emptyArray(std::string_view className)
+{
+    return JavaValue{.kind = Kind::Array, .arrayClass = std::string(className)};
+}
+
+Result<JavaValue> otherValue(std::string_view className)
+{
+    return JavaValue{.kind = Kind::Other, .arrayClass = std::string(className)};
+}
+
+Result<JavaValue> resourceValue(Result<std::unique_ptr<Resource>>&& loaded)
+{
+    if (!loaded)
+    {
+        return osp::makeUnexpected(std::move(loaded.error()));
+    }
+    return JavaValue{.kind = Kind::Resource, .resource = std::move(*loaded)};
+}
+
+std::optional<Failure> slotFailure(const std::string& location, std::string_view message, std::string_view className)
+{
+    auto text = std::string(message);
+    if (!className.empty())
+    {
+        text += "\"" + std::string(className) + "\"";
+    }
+    return Failure{.location = location, .message = std::move(text)};
+}
+std::string joined(const std::string& location, std::string_view separator, std::string_view name)
+{
+    return location + std::string(separator) + std::string(name);
+}
+
+/// The first element is named "array": XMLControlElement.arrayValue reads its content as a compact string.
+Result<JavaValue> compactElement(const osp::PropertyView& first, std::string_view className, const std::string& location)
+{
+    if (osp::isTextType(first.type()))
+    {
+        return compactValue(first.content(), componentClass(className), location);
+    }
+    if (first.node().children.empty())
+    {
+        return failure(location, "compact array without content");
+    }
+    return {};
+}
+
+/// Scalars and unknown types, which never recurse.
+Result<JavaValue> scalarValue(const osp::PropertyView& property, const std::string& location)
 {
     switch (property.type())
     {
-    case PropertyType::Object:
-        return objectValue(property, location);
-    case PropertyType::Array:
-        return arrayValue(property, location);
-    case PropertyType::Collection:
-        return collectionValue(property, location);
     case PropertyType::Int:
         if (!osp::parseJavaInt(property.content()))
         {
-            return fail(location, "invalid int");
+            return failure(location, "invalid int");
         }
         return JavaValue{.kind = Kind::Other};
     case PropertyType::Double:
         if (!osp::parseJavaDouble(property.content()))
         {
-            return fail(location, "invalid double");
+            return failure(location, "invalid double");
         }
         return JavaValue{.kind = Kind::Other};
     case PropertyType::Boolean:
@@ -253,14 +327,45 @@ Result<JavaValue> ValueReader::propertyValue(const osp::PropertyView& property, 
         auto text = property.stringValue();
         if (!text)
         {
-            return fail(location, "malformed CDATA section");
+            return failure(location, "malformed CDATA section");
         }
         return JavaValue{.kind = Kind::String, .text = *std::move(text)};
     }
-    case PropertyType::Unknown:
-        break;
+    default:
+        return {};
     }
-    return JavaValue{};
+}
+
+} // namespace
+
+Result<JavaValue> ValueReader::getObject(const osp::ObjectView& object, std::string_view name, const std::string& location) const
+{
+    const auto property = object.property(name);
+    if (!property)
+    {
+        return {};
+    }
+    return elementValue(*property, joined(location, ".", name));
+}
+
+Result<JavaValue> ValueReader::propertyValue(const osp::PropertyView& property, const std::string& location) const
+{
+    return elementValue(property, location);
+}
+
+Result<JavaValue> ValueReader::elementValue(const osp::PropertyView& element, const std::string& location) const
+{
+    switch (element.type())
+    {
+    case PropertyType::Object:
+        return objectValue(element, location);
+    case PropertyType::Array:
+        return arrayValue(element, location);
+    case PropertyType::Collection:
+        return collectionValue(element, location);
+    default:
+        return scalarValue(element, location);
+    }
 }
 
 Result<JavaValue> ValueReader::objectValue(const osp::PropertyView& property, const std::string& location) const
@@ -268,27 +373,27 @@ Result<JavaValue> ValueReader::objectValue(const osp::PropertyView& property, co
     const auto object = property.object();
     if (!object)
     {
-        return JavaValue{};
+        return {};
     }
     const auto className = object->className();
     if (className == RESOURCE_CLASS || className == COLLECTION_CLASS)
     {
-        auto resource = m_Loader(*object, location);
-        if (!resource)
-        {
-            return osp::makeUnexpected(resource.error());
-        }
-        return JavaValue{.kind = Kind::Resource, .resource = *std::move(resource)};
+        return resourceValue(m_Loader.function(m_Loader.context, *object, location));
     }
     if (isKnownJavaClass(className))
     {
-        return JavaValue{.kind = Kind::Other, .arrayClass = std::string(className)};
+        return otherValue(className);
     }
+    noteIgnored(location, className);
+    return {};
+}
+
+void ValueReader::noteIgnored(const std::string& location, std::string_view className) const
+{
     if (m_Ignored != nullptr)
     {
         m_Ignored->push_back(Failure{.location = location, .message = "object of class \"" + std::string(className) + "\" ignored"});
     }
-    return JavaValue{};
 }
 
 Result<JavaValue> ValueReader::arrayValue(const osp::PropertyView& property, const std::string& location) const
@@ -296,76 +401,71 @@ Result<JavaValue> ValueReader::arrayValue(const osp::PropertyView& property, con
     const auto className = property.className();
     if (!resolvableArrayClass(className))
     {
-        return fail(location, "array class \"" + std::string(className) + "\" cannot be loaded");
+        return classFailure(location, "array class \"", className, "\" cannot be loaded");
     }
-    const auto component = componentClass(className);
     const auto elements = property.elements();
-    JavaValue array{.kind = Kind::Array, .arrayClass = std::string(className)};
     if (elements.empty())
     {
-        return array;
+        return emptyArray(className);
     }
-    const auto& first = elements.front();
-    if (first.name() == "array")
+    if (elements.front().name() == "array")
     {
-        if (osp::isTextType(first.type()))
-        {
-            return compactValue(first.content(), component, location);
-        }
-        if (first.node().children.empty())
-        {
-            return fail(location, "compact array without content");
-        }
-        return JavaValue{};
+        return compactElement(elements.front(), className, location);
     }
     const auto lastIndex = elements.back().elementIndex();
     if (!lastIndex || *lastIndex < -1)
     {
-        return fail(location, "invalid array element index");
+        return failure(location, "invalid array element index");
     }
-    array.elements.resize(*lastIndex < 0 ? 0 : static_cast<std::size_t>(*lastIndex) + 1);
+    // Java allocates the whole array; MoTrack stores only the slots the file fills.
+    const auto length = *lastIndex < 0 ? std::size_t{0} : static_cast<std::size_t>(*lastIndex) + 1;
+    std::vector<std::pair<std::size_t, JavaValue>> assigned;
+    assigned.reserve(elements.size());
     for (const auto& element : elements)
     {
-        const auto index = element.elementIndex();
-        if (!index)
+        if (auto failed = assign(element, className, location, length, assigned))
         {
-            return fail(location, "invalid array element index");
+            return osp::makeUnexpected(std::move(*failed));
         }
-        const auto itemLocation = elementLocation(location, element.name().value_or(""));
-        Result<JavaValue> value = JavaValue{};
-        switch (element.type())
-        {
-        case PropertyType::Object:
-            value = objectValue(element, itemLocation);
-            break;
-        case PropertyType::Array:
-            value = arrayValue(element, itemLocation);
-            break;
-        case PropertyType::Collection:
-            value = collectionValue(element, itemLocation);
-            break;
-        case PropertyType::Unknown:
-            // XMLControlElement.arrayValue has no case for unknown types: the slot is left as it is.
-            continue;
-        default:
-            value = propertyValue(element, itemLocation);
-            break;
-        }
-        if (!value)
-        {
-            return value;
-        }
-        if (*index < 0 || static_cast<std::size_t>(*index) >= array.elements.size())
-        {
-            return fail(itemLocation, "array index out of bounds");
-        }
-        if (!assignable(component, *value))
-        {
-            return fail(itemLocation, "element type does not match array class \"" + std::string(className) + "\"");
-        }
-        array.elements[static_cast<std::size_t>(*index)] = *std::move(value);
     }
+    auto array = emptyArray(className);
+    array->length = length;
+    storeSlots(*array, assigned);
     return array;
+}
+
+std::optional<Failure> ValueReader::assign(const osp::PropertyView& element,
+                                           std::string_view className,
+                                           const std::string& location,
+                                           std::size_t length,
+                                           std::vector<std::pair<std::size_t, JavaValue>>& assigned) const
+{
+    const auto index = element.elementIndex();
+    if (!index)
+    {
+        return slotFailure(location, "invalid array element index", {});
+    }
+    if (element.type() == PropertyType::Unknown)
+    {
+        // XMLControlElement.arrayValue has no case for unknown types: the slot is left as it is.
+        return std::nullopt;
+    }
+    const auto itemLocation = joined(location, "", element.name().value_or(""));
+    auto value = elementValue(element, itemLocation);
+    if (!value)
+    {
+        return std::move(value.error());
+    }
+    if (*index < 0 || std::cmp_greater_equal(*index, length))
+    {
+        return slotFailure(itemLocation, "array index out of bounds", {});
+    }
+    if (!assignable(componentClass(className), *value))
+    {
+        return slotFailure(itemLocation, "element type does not match array class ", className);
+    }
+    assigned.emplace_back(static_cast<std::size_t>(*index), std::move(*value));
+    return std::nullopt;
 }
 
 Result<JavaValue> ValueReader::collectionValue(const osp::PropertyView& property, const std::string& location) const
@@ -373,90 +473,104 @@ Result<JavaValue> ValueReader::collectionValue(const osp::PropertyView& property
     const auto className = property.className();
     if (std::ranges::find(COLLECTION_CLASSES, className) == COLLECTION_CLASSES.end())
     {
-        return JavaValue{};
+        return {};
     }
-    JavaValue collection{.kind = Kind::Collection, .arrayClass = std::string(className)};
+    auto collection = emptyArray(className);
+    collection->kind = Kind::Collection;
     for (const auto& element : property.elements())
     {
-        const auto itemLocation = location + "." + std::string(element.name().value_or("item"));
-        Result<JavaValue> value = JavaValue{};
-        switch (element.type())
+        const auto type = element.type();
+        // collectionValue adds only objects, strings, arrays and collections.
+        if (type != PropertyType::Object && type != PropertyType::String && type != PropertyType::Array && type != PropertyType::Collection)
         {
-        case PropertyType::Object:
-            value = objectValue(element, itemLocation);
-            break;
-        case PropertyType::String:
-        case PropertyType::Array:
-        case PropertyType::Collection:
-            value = propertyValue(element, itemLocation);
-            break;
-        default:
-            // collectionValue adds only objects, strings, arrays and collections.
             continue;
         }
+        auto value = elementValue(element, joined(location, ".", element.name().value_or("item")));
         if (!value)
         {
             // collectionValue catches every exception and returns null.
-            return JavaValue{};
+            return {};
         }
-        collection.elements.push_back(*std::move(value));
+        const auto position = collection->length++;
+        if (value->kind != Kind::Null)
+        {
+            collection->indices.push_back(position);
+            collection->values.push_back(std::move(*value));
+        }
     }
     return collection;
 }
 
-Result<std::optional<StringList>> castStringArray(const JavaValue& value, const std::string& location)
+const std::string* StringArray::at(std::size_t index) const noexcept
+{
+    const auto found = std::ranges::lower_bound(present, index, {}, &std::pair<std::size_t, std::string>::first);
+    return found != present.end() && found->first == index ? &found->second : nullptr;
+}
+
+Result<StringList> StringArray::dense(std::size_t limit, const std::string& location) const
+{
+    if (length > limit)
+    {
+        return fail(location, "array of " + std::to_string(length) + " entries in a document of " + std::to_string(limit) + " nodes");
+    }
+    StringList list(length);
+    for (const auto& [index, text] : present)
+    {
+        list[index] = text;
+    }
+    return list;
+}
+
+Result<std::optional<StringArray>> castStringArray(const JavaValue& value, const std::string& location)
 {
     if (value.kind == Kind::Null)
     {
-        return std::optional<StringList>{};
+        return std::optional<StringArray>{};
     }
     if (value.kind != Kind::Array || value.arrayClass != "[Ljava.lang.String;")
     {
         return fail(location, "not a String[] array");
     }
-    StringList strings;
-    strings.reserve(value.elements.size());
-    for (const auto& element : value.elements)
+    StringArray strings{.length = value.length};
+    strings.present.reserve(value.values.size());
+    for (std::size_t slot = 0; slot < value.values.size(); ++slot)
     {
-        strings.push_back(element.kind == Kind::String ? std::optional<std::string>(element.text) : std::nullopt);
+        if (value.values[slot].kind == Kind::String)
+        {
+            strings.present.emplace_back(value.indices[slot], value.values[slot].text);
+        }
     }
-    return std::optional<StringList>(std::move(strings));
+    return std::optional<StringArray>(std::move(strings));
 }
 
-Result<std::optional<StringRows>> castStringMatrix(const JavaValue& value, const std::string& location)
+Result<std::optional<StringMatrix>> castStringMatrix(const JavaValue& value, const std::string& location)
 {
     if (value.kind == Kind::Null)
     {
-        return std::optional<StringRows>{};
+        return std::optional<StringMatrix>{};
     }
     if (value.kind != Kind::Array || value.arrayClass != "[[Ljava.lang.String;")
     {
         return fail(location, "not a String[][] array");
     }
-    StringRows rows;
-    rows.reserve(value.elements.size());
-    for (const auto& row : value.elements)
+    StringMatrix rows{.length = value.length};
+    rows.present.reserve(value.values.size());
+    for (std::size_t slot = 0; slot < value.values.size(); ++slot)
     {
-        if (row.kind == Kind::Null)
-        {
-            rows.emplace_back();
-            continue;
-        }
-        auto strings = castStringArray(row, location);
+        auto strings = castStringArray(value.values[slot], location);
         if (!strings)
         {
             return osp::makeUnexpected(strings.error());
         }
-        auto& list = *strings;
-        if (!list)
+        auto& row = *strings;
+        if (!row)
         {
             return fail(location, "not a String[] row");
         }
-        rows.emplace_back(std::move(*list));
+        rows.present.emplace_back(value.indices[slot], std::move(*row));
     }
-    return std::optional<StringRows>(std::move(rows));
+    return std::optional<StringMatrix>(std::move(rows));
 }
-
 osp::PropertyValue stringArrayProperty(std::string name, const StringList& values)
 {
     std::vector<std::optional<osp::PropertyValue>> elements;
@@ -565,6 +679,20 @@ void PatchEditor::removeAll(std::string_view name)
     }
 }
 
+void PatchEditor::insertAfterLast(osp::PropertyValue value)
+{
+    const auto name = value.name.value_or("");
+    const auto& children = m_Source->node(m_Object).children;
+    for (std::size_t index = children.size(); index-- > 0;)
+    {
+        if (m_Source->node(children[index]).name == name)
+        {
+            m_Patch->insert(m_Object, index + 1, std::move(value));
+            return;
+        }
+    }
+    m_Patch->insert(m_Object, insertionIndex(name), std::move(value));
+}
 ValueEditor::ValueEditor(osp::ObjectValue& object, std::span<const std::string_view> order) : m_Object(&object), m_Order(order)
 {}
 
@@ -619,4 +747,12 @@ void ValueEditor::removeAll(std::string_view name)
     std::erase_if(m_Object->properties, [name](const osp::PropertyValue& property) { return property.name == name; });
 }
 
+void ValueEditor::insertAfterLast(osp::PropertyValue value)
+{
+    auto& properties = m_Object->properties;
+    const auto name = value.name.value_or("");
+    const auto position = last(name);
+    const auto index = position ? *position + 1 : insertionIndex(name);
+    properties.insert(properties.begin() + static_cast<std::ptrdiff_t>(index), std::move(value));
+}
 } // namespace motrack::library::detail

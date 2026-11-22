@@ -412,24 +412,47 @@ TEST(LibraryComPadre, HtmlBodyAndSizes)
     const library::ComPadreAttachment attachment{.type = "Main", .url = "u", .fileName = "f.trz", .size = 786432};
     EXPECT_EQ(library::comPadreHtmlBody("", "", std::nullopt, std::nullopt, "", std::nullopt, std::nullopt, labels),
               "\n      <blockquote>\n      </blockquote>");
-    const auto body = library::comPadreHtmlBody("", "Custom", "thumb.png", "a\n\n", "", "mailto:someone@example.org", attachment, labels);
+    constexpr auto TRACKER = ComPadreMode::Tracker635;
+    const auto body =
+        library::comPadreHtmlBody("", "Custom", "thumb.png", "a\n\n", "", "mailto:someone@example.org", attachment, labels, TRACKER);
     EXPECT_EQ(body,
               "\n      <blockquote>\n        <b>Custom</b>\n        <p><img src=\"thumb.png\"></p>\n        <p>a</p>\n"
               "        <p><b>Resource:  </b>f.trz (0,8MB)</p>\n"
               "        <p><b>More information at:  </b><a href=\"mailto:someone@example.org\">mailto:someone@example.org</a></p>\n"
               "      </blockquote>");
-    for (const auto url : {"url:http://example.org", "jar:file:/a.jar!/b", "ftp://host/x", " https://host "})
+    for (const auto url : {"url:http://example.org", "jar:file:/a.jar!/b", "ftp://host/x", " https://host ", "jmod:/x"})
     {
-        EXPECT_NE(library::comPadreHtmlBody("", "", std::nullopt, std::nullopt, "", url, std::nullopt, labels).find("<a href"),
+        EXPECT_NE(library::comPadreHtmlBody("", "", std::nullopt, std::nullopt, "", url, std::nullopt, labels, TRACKER).find("<a href"),
                   std::string::npos)
             << url;
     }
     for (const auto url : {"jar:file:/a.jar", "1http://x", "noscheme", ":x", "/path:x", "gopher://x", "ht~tp://x"})
     {
-        EXPECT_EQ(library::comPadreHtmlBody("", "", std::nullopt, std::nullopt, "", url, std::nullopt, labels).find("<a href"),
+        EXPECT_EQ(library::comPadreHtmlBody("", "", std::nullopt, std::nullopt, "", url, std::nullopt, labels, TRACKER).find("<a href"),
                   std::string::npos)
             << url;
     }
+    // MoTrack escapes the record's text and links only to the web.
+    const library::ComPadreAttachment hostile{.type = "Main", .url = "u", .fileName = "<b>x</b>.trz", .size = 0};
+    const auto escaped = library::comPadreHtmlBody(R"(T" onmouseover="x)",
+                                                   "<i>type</i>",
+                                                   "file:///etc/passwd",
+                                                   "<p>kept HTML</p>",
+                                                   "A & <script>",
+                                                   "javascript:alert(1)",
+                                                   hostile,
+                                                   labels);
+    EXPECT_EQ(escaped,
+              "\n      <h2>T&quot; onmouseover=&quot;x</h2>\n      <blockquote>\n        <b>&lt;i&gt;type&lt;/i&gt;</b>\n"
+              "        <p>kept HTML</p>\n        <p><b>Author:  </b>A &amp; &lt;script&gt;</p>\n"
+              "        <p><b>Resource:  </b>&lt;b&gt;x&lt;/b&gt;.trz (0,0MB)</p>\n      </blockquote>");
+    const auto linked = library::comPadreHtmlBody(
+        "It's", "", "https://host/t.jpg?a=1&b=2", std::nullopt, "", "https://host/i?x=\"y\"", std::nullopt, labels);
+    EXPECT_NE(linked.find(R"(<img src="https://host/t.jpg?a=1&amp;b=2" alt="It&#39;s">)"), std::string::npos);
+    EXPECT_NE(linked.find(R"(<a href="https://host/i?x=&quot;y&quot;">)"), std::string::npos);
+    const auto raw =
+        library::comPadreHtmlBody(R"(T" onmouseover="x)", "", std::nullopt, std::nullopt, "", std::nullopt, std::nullopt, labels, TRACKER);
+    EXPECT_NE(raw.find(R"(<h2>T" onmouseover="x</h2>)"), std::string::npos) << "Tracker inserts the title unchanged";
     EXPECT_EQ(library::comPadreMegabytes(1165166, '.'), "1.1");
     EXPECT_EQ(library::comPadreMegabytes(262144, '.'), "0.2");
     EXPECT_EQ(library::comPadreMegabytes(786432, '.'), "0.8");

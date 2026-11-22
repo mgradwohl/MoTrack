@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Targets that leave a remote collection's origin; the browser must not follow them silently (I6). -->
+<object class="org.opensourcephysics.tools.LibraryCollection">
+    <property name="name" type="string">Paths that leave the base</property>
+    <property name="base_path" type="string">https://example.org/dir/</property>
+    <property name="resources" type="array" class="[Lorg.opensourcephysics.tools.LibraryResource;">
+        <property name="[0]" type="object">
+        <object class="org.opensourcephysics.tools.LibraryResource">
+            <property name="name" type="string">Climbs past the host</property>
+            <property name="target" type="string">../../../../Windows/win.ini</property>
+        </object>
+        </property>
+        <property name="[1]" type="object">
+        <object class="org.opensourcephysics.tools.LibraryResource">
+            <property name="name" type="string">Network share</property>
+            <property name="target" type="string">\\attacker\share\x.trk</property>
+        </object>
+        </property>
+        <property name="[2]" type="object">
+        <object class="org.opensourcephysics.tools.LibraryResource">
+            <property name="name" type="string">File URL</property>
+            <property name="target" type="string">file:/C:/Users/student/x.trk</property>
+            <property name="html_path" type="string">jar:file:/C:/x.jar!/y.html</property>
+        </object>
+        </property>
+        <property name="[3]" type="object">
+        <object class="org.opensourcephysics.tools.LibraryResource">
+            <property name="name" type="string">Another host</property>
+            <property name="target" type="string">https://other.example.org/x.trk</property>
+        </object>
+        </property>
+        <property name="[4]" type="object">
+        <object class="org.opensourcephysics.tools.LibraryCollection">
+            <property name="name" type="string">Query parameters appended raw</property>
+            <property name="base_path" type="string"><![CDATA[https://www.compadre.org/osp/services/REST/osp_tracker.cfm?OSPType=Tracker]]></property>
+            <property name="target" type="string"><![CDATA[&x=../../evil]]></property>
+        </object>
+        </property>
+    </property>
+</object>

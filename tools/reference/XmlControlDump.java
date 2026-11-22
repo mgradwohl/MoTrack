@@ -134,7 +134,8 @@ public final class XmlControlDump {
             List<Object> elements = new ArrayList<>();
             for (Object element : content) elements.add(property((XMLProperty) element));
             result.put("elements", elements);
-            if (type == XMLProperty.TYPE_ARRAY && name.matches("\\[+[IDZ]") && !content.isEmpty()) {
+            // The JVM allows at most 255 array dimensions; MoTrack applies the same bound.
+            if (type == XMLProperty.TYPE_ARRAY && name.matches("\\[{1,255}[IDZ]") && !content.isEmpty()) {
                 XMLProperty first = (XMLProperty) content.get(0);
                 if ("array".equals(first.getPropertyName()) && isText(first.getPropertyType()))
                     result.put("compact", compact((String) first.getPropertyContent().get(0), name));
@@ -188,7 +189,8 @@ public final class XmlControlDump {
         Object value;
         try {
             value = arrayValue.invoke(null, text, Class.forName(arrayClass).getComponentType());
-        } catch (InvocationTargetException error) {
+        } catch (InvocationTargetException | ClassNotFoundException error) {
+            // Java cannot decode this value (or load its class); either way the dump records no array.
             return null;
         }
         return compactValue(value);

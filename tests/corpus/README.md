@@ -135,6 +135,7 @@ python tools/corpus.py reference --java /path/to/jdk-17/bin/java
 python tools/corpus.py session --java /path/to/jdk-17/bin/java
 python tools/corpus.py roundtrip --probe build/coverage/motrack_corpus_probe --java /path/to/jdk-17/bin/java
 python tools/corpus.py xml-oracle --probe build/coverage/motrack_corpus_probe --java /path/to/jdk-17/bin/java
+python tools/corpus.py ode-oracle --java /path/to/jdk-17/bin/java
 python -m unittest discover -s tests -p test_corpus.py
 ```
 
@@ -143,7 +144,14 @@ every case file and XML archive member, the committed fixtures and the synthetic
 line-ending variants) are read by the pinned Java `XMLControlElement` and by MoTrack, and both trees must be
 identical; each unedited MoTrack render must reproduce its input byte for byte. Archive members are read in
 memory and the documents are written to a temporary directory. `--reports PATH` selects where the summary and
-any mismatching dumps are written (default `CACHE/reports/xml-oracle`). It runs headless on any platform.
+any mismatching dumps are written (default `CACHE/reports/xml-oracle`). It runs headless on any platform;
+`--o2-only` skips Java and checks only the byte-identical renders, as CI does on Windows and macOS.
+Documents MoTrack deliberately refuses (registered reasons only, such as `truncated`) still have their
+trees compared with Java's.
+
+`ode-oracle` integrates the [ODE solver kernel](../../docs/ode-solvers.md) test systems with the pinned
+OSP classes and compares them with `tests/science/ode-reference.json`, using that kernel's own
+per-solver tolerances; `--record` replaces the fixture for review.
 
 On Windows, use `build/coverage/motrack_corpus_probe.exe` and the path to `java.exe`. Python 3.10 or newer
 is supported. The reference command uses Java source-file mode and therefore needs a JDK, not just a
@@ -652,8 +660,7 @@ the entire standard XML while allowing only requested timing/range scalars, and 
 inspect native duration and first/last times. Tracker's actual `ClipControl.getMeanFrameDuration()`
 and `VideoPlayer.getFrameTime()` supply separate live values through save/fresh-process reopen.
 Consistently wrong values fail even if all three application snapshots agree. Existing baseline
-files and fixture bytes are unchanged. Local checks pass; current-head Linux application acceptance
-is required before merging this slice.
+files and fixture bytes are unchanged. This slice merged after its Linux actual-Tracker acceptance passed in CI.
 
 This writer requires an existing audited StepperClipControl and a bounded media-free clip. It rejects
 unknown controller/clip fields, media/frame shifts, data time sources, particle models, missing or
@@ -703,7 +710,7 @@ An empty-mass export followed by standard reimport, marking and native save/reop
 mark-only affine-cancellation bypass with the same independently measured coordinates above. Existing
 mass edits now use the coordinate checks even without membership/calibration changes; present-but-
 unparseable calibration also rejects mark-only exports. Regressions verify the destination stays intact.
-Linux actual-application acceptance is required before merging this slice.
+This slice merged after its Linux actual-Tracker acceptance passed in CI.
 
 The historical [Tracker #10 save/load report](https://github.com/OpenSourcePhysics/tracker/issues/10)
 and its discussion were refreshed. [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65) remains
@@ -737,8 +744,7 @@ batch can still be reimported, renamed and extended. Appended metadata and patch
 Negative tests reject consistent wrong geometry/appearance/calibrated data and changes to original content. Native
 tests cover collisions, dangling links, vector sums, unsafe deletion, mixed provider types, origin/tip
 snapping across frames, endpoint precision loss and bounded dense allocation. These cases extend
-R03/R07 without accepting dependent vectors or the known VectorSum resave defect (#63). Current-head
-Linux application acceptance and all-platform CI remain required before merging.
+R03/R07 without accepting dependent vectors or the known VectorSum resave defect (#63). This slice merged after its Linux actual-Tracker acceptance passed in CI.
 
 
 ## Removing unreferenced tracks
@@ -964,7 +970,7 @@ selected XML supplies only prerequisite metadata for dependency readiness; it do
 for opening the archive or repair loaded values. Tracker then saves `.trk`, and a fresh process
 reopens that save while the exported archive remains available for its linked media. This checks
 archive opening and linked standard resave, not Tracker's archive-authoring dialog. Independent
-pixels/timestamps/geometry are required at all three stages. Application acceptance is pending CI.
+pixels/timestamps/geometry are required at all three stages. This slice merged after its Linux actual-Tracker acceptance passed in CI.
 
 Native tests already cover preservation of other `.trk` members. This first application fixture has
 one experiment tab; the following two-experiment case adds a separate phase-3 application gate. New archive

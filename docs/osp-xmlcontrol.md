@@ -57,7 +57,14 @@ exact decoders (`intValue`, `doubleValue`, `booleanValue`, `stringValue`, `compa
 `Integer.MIN_VALUE`, `NaN`, `false` or `null`, so callers can tell a missing value from a malformed one.
 
 Inputs larger than 32 MiB, deeper than 256 levels or with more than two million nodes are refused. Input
-must be valid UTF-8; a byte-order mark is kept as text.
+must be valid UTF-8; a byte-order mark is kept as text. OSP ignores the XML declaration and decodes UTF-8; MoTrack
+reads the `encoding` attribute of the declaration only (up to `?>` or the first `<`, `>` or line break) and
+refuses a document only when it declares another encoding **and** contains non-ASCII bytes, which that
+encoding could mean differently. A document whose objects reach end of file before `</object>` is refused
+with `Truncated` (#243); `ParseLimits::acceptTruncated` reads it as OSP does, for diagnostics and the
+oracle only. Compact arrays are limited to the JVM's 255 dimensions and their braces are matched in one
+linear pass. `indexedElements()` stores only the elements present, so a huge `[n]` index allocates nothing.
+A `Patch` is constructed for one `Source` and `render` refuses it for any other.
 
 ## Editing and writing
 
@@ -71,7 +78,10 @@ A `Patch` holds edits against node ids: set a text value (`setInt`, `setDouble`,
 replaces only the text between the opening line's first `>` and its `</property>`, and new or replaced
 subtrees are written in OSP's layout (an object shares its property's indentation, nested properties add
 four spaces) below the indentation of the replaced line or of a sibling, with the file's first line
-ending. Strings get CDATA when they contain `" < > & '` (`XML.requiresCDATA`). A self-closing object or array
+ending. Strings get CDATA when they contain `" < > & '` (`XML.requiresCDATA`), decided from the logical value
+on every write, so a loaded CDATA string is never written bare as `toXML()` of a loaded control does
+(osp#21). Attribute values may not contain quotes, angle brackets or line breaks, or end in `=` (which would
+form `type="` or `class="` with the closing quote). A self-closing object or array
 that receives children is reopened by replacing its first `/>`. Values OSP could not read back are refused,
 for example names with quotes or angle brackets, `]]></property>` in a string, or a null object directly in
 an object. Every render is re-parsed with the same reader and must produce exactly the intended logical
@@ -126,7 +136,11 @@ Dump schema `motrack.osp-xmlcontrol-dump/1`:
 ```
 
 Only the typed key matching `type` is present; `null` means Java's conversion throws. A document either
-reader rejects is `{"schema": ..., "read": false}`.
+reader rejects is `{"schema": ..., "read": false}`. MoTrack's dump may add `"motrack_rejects": "<reason>"` when
+it deliberately refuses a document that OSP reads; it then dumps the tree it would read with the refusal
+lifted. The runner removes the key, still requires the tree to equal Java's, and accepts only reasons in its
+registry (`truncated`, #243). `xml-oracle --o2-only` runs the probe over the same documents without Java and
+runs in CI on Windows and macOS; O1 needs the Java reference and runs on Linux.
 
 ### Intentional differences
 
@@ -137,14 +151,16 @@ unclosed. Where Java's behavior is unusable, MoTrack reports an error instead an
 the case:
 
 - End of file inside a text value: Java appends `"null"` forever until it runs out of memory; MoTrack returns
-  `UnterminatedValue` ([#195](https://github.com/mgradwohl/MoTrack/issues/195)).
-- OSP writes a two-dimensional primitive array with an empty later row as `{{1,2},{}}`, which its own reader
-  cannot decode (and which turns an empty boolean row into `[false]`). MoTrack's reader mirrors that, but its
-  writer uses the `[j]` element form for such arrays, which OSP reads back exactly
-  ([#193](https://github.com/mgradwohl/MoTrack/issues/193); evidence in `generated/osp-jagged-arrays.xml`).
+  `UnterminatedValue` ([#195](https://github.com/mgradwohl/MoTrack/issues/195), [osp#22](https://github.com/OpenSourcePhysics/osp/issues/22)).
+- OSP writes compact arrays its own reader decodes differently: an empty later row (`{{1,2},{}}` throws, an
+  empty boolean row reads as `[false]`) and a trailing null row (`{{1,2},null}` reads as `[[1,2]]`). MoTrack's
+  reader mirrors that; its writer uses compact text only when that decoder reproduces the values and the
+  `[j]` element form otherwise ([#193](https://github.com/mgradwohl/MoTrack/issues/193),
+  [osp#20](https://github.com/OpenSourcePhysics/osp/issues/20); evidence in `generated/osp-jagged-arrays.xml`).
 - Strings containing `]]></property>` or `<![CDATA[` cannot be represented in OSP's format: OSP writes them
   and then truncates them or fails in `XML.removeCDATA` on reload. MoTrack refuses to write them
-  (`InvalidValue`) ([#194](https://github.com/mgradwohl/MoTrack/issues/194)).
+  (`InvalidValue`), including multi-line values that would inject a property
+  ([#194](https://github.com/mgradwohl/MoTrack/issues/194), [osp#21](https://github.com/OpenSourcePhysics/osp/issues/21)).
 - Invalid UTF-8: Java substitutes U+FFFD; MoTrack refuses the file. A declared encoding other than UTF-8 is
   ignored by OSP but refused by MoTrack.
 - Encrypted (`Cryptic`) roots are refused instead of decrypted.
@@ -154,3 +170,7 @@ the case:
   values. MoTrack writes the JDK 19+ form; both parse to the same double.
 - MoTrack only writes UTF-8 with the chosen line ending and refuses content OSP would misread, where OSP
   would write a file that it cannot read back.
+- A document whose objects reach end of file loads partially in OSP; MoTrack refuses it (#243).
+- For future O7 checks of MoTrack's own writes against Tracker resaves, doubles must be compared by value (or a
+  JDK 17 formatting mode added): MoTrack writes JDK 19+ shortest digits, while Tracker's JDK 17 prints, for
+  example, `2e23` as `1.9999999999999998E23`.

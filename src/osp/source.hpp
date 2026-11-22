@@ -10,6 +10,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 /// Lossless model of Open Source Physics XMLControl files (`.trk`, `.xml`, Data Tool and preference files).
@@ -28,6 +29,9 @@ struct ParseLimits
     std::size_t maxBytes = std::size_t{32} * 1024 * 1024; ///< Same bound as MAX_TRACKER_XML_BYTES.
     std::size_t maxDepth = 256;                           ///< Nested objects and properties.
     std::size_t maxNodes = 2'000'000;
+    /// OSP loads a document that ends before its objects close, keeping whatever it read (#243). MoTrack
+    /// refuses it with ParseError::Code::Truncated unless this is set, for diagnostics and the O1 oracle only.
+    bool acceptTruncated = false;
 };
 
 /// OSP property type codes (XMLProperty.java). `Unknown` is TYPE_UNKNOWN: an unrecognized type attribute,
@@ -125,6 +129,7 @@ struct ParseError
         NullObjectProperty,  ///< ">null</property" directly in an object; setProperty throws (line 1541).
         UnterminatedArray,   ///< End of file inside an array or collection.
         UnterminatedValue,   ///< End of file before a text value's end tag; Java loops until out of memory (#195).
+        Truncated,           ///< End of file before an object's "</object>"; Java loads the partial tree (#243).
         MissingObject,       ///< End of file where an object property's object should start.
         TooDeep,
         TooManyNodes,
@@ -144,6 +149,8 @@ class Source;
 class Source
 {
   public:
+    /// Distinguishes parse results within the process; a Patch is bound to one source by it.
+    [[nodiscard]] std::uint64_t identity() const noexcept;
     [[nodiscard]] std::string_view bytes() const noexcept;
     [[nodiscard]] NodeId root() const noexcept;
     [[nodiscard]] std::size_t nodeCount() const noexcept;
@@ -159,7 +166,7 @@ class Source
     /// Bytes before the root's opening line (declaration, comments) and after its last consumed line.
     [[nodiscard]] std::string_view prolog() const;
     [[nodiscard]] std::string_view epilog() const;
-    /// True when an object reached end of file without "</object>". OSP accepts such files.
+    /// True when an object reached end of file without "</object>"; only possible with acceptTruncated.
     [[nodiscard]] bool truncated() const noexcept;
 
   private:
@@ -167,6 +174,7 @@ class Source
     friend Expected<std::shared_ptr<const Source>, ParseError> parse(std::string bytes, const ParseLimits& limits);
     Source() = default;
 
+    std::uint64_t m_Identity = 0;
     std::string m_Bytes;
     std::vector<LineSpan> m_Lines;
     std::vector<Node> m_Nodes;
@@ -201,10 +209,11 @@ struct CompactArray
 [[nodiscard]] Expected<CompactArray, DecodeError> parseCompactArray(std::string_view text, std::string_view arrayClass);
 /// XMLPropertyElement.getArrayString: `{a,b}` with Java number formatting and "null" for null rows.
 [[nodiscard]] std::string formatCompactArray(const CompactArray& array);
-/// True for "[I", "[D", "[Z" and their multi-dimensional forms.
+/// True for "[I", "[D", "[Z" and their multi-dimensional forms up to the JVM's 255 dimensions.
 [[nodiscard]] bool isPrimitiveArrayClass(std::string_view arrayClass) noexcept;
 
 class ObjectView;
+struct IndexedElements;
 
 /// Borrowed view of a property node; the source must outlive it.
 class PropertyView
@@ -239,11 +248,23 @@ class PropertyView
     [[nodiscard]] Expected<std::int32_t, DecodeError> elementIndex() const;
     /// Indexed array slots as XMLControlElement.arrayValue (line 1913) fills them: the last element's index
     /// sets the length, later duplicates replace earlier ones and absent indices stay empty.
-    [[nodiscard]] Expected<std::vector<std::optional<PropertyView>>, DecodeError> indexedElements() const;
+    [[nodiscard]] Expected<IndexedElements, DecodeError> indexedElements() const;
 
   private:
     const Source* m_Source;
     NodeId m_Id;
+};
+
+/// Elements of an "[n]" array by index. `length` is the Java array length (the last element's index plus one);
+/// absent indices are null in Java and are not stored.
+struct IndexedElements
+{
+    std::size_t length = 0;
+    /// Present elements in increasing index order; for a repeated index only the last element is kept.
+    std::vector<std::pair<std::size_t, PropertyView>> elements;
+
+    /// The element at `index`, or nothing when it is absent (null in Java).
+    [[nodiscard]] std::optional<PropertyView> at(std::size_t index) const;
 };
 
 /// Borrowed view of an object node; the source must outlive it. Accessors mirror XMLControlElement.

@@ -37,6 +37,15 @@ std::string fixture(std::string_view name)
 }
 
 /// Returns a present optional value; tests use it where a missing value is itself a failure.
+template <typename T, typename E> T require(motrack::osp::Expected<T, E> value)
+{
+    if (!value)
+    {
+        throw std::runtime_error("unexpected error value");
+    }
+    return *std::move(value);
+}
+
 template <typename T> T require(std::optional<T> value)
 {
     if (!value)
@@ -46,9 +55,12 @@ template <typename T> T require(std::optional<T> value)
     return *value;
 }
 
-std::shared_ptr<const Source> parsed(std::string bytes)
+/// Quirk fixtures whose objects reach end of file load only with this; OSP loads them silently (#243).
+constexpr motrack::osp::ParseLimits ACCEPT_TRUNCATED{.acceptTruncated = true};
+
+std::shared_ptr<const Source> parsed(std::string bytes, const motrack::osp::ParseLimits& limits = {})
 {
-    auto source = motrack::osp::parse(std::move(bytes));
+    auto source = motrack::osp::parse(std::move(bytes), limits);
     if (!source)
     {
         throw std::runtime_error("parse failed: " + source.error().message);
@@ -160,7 +172,7 @@ TEST(OspReader, BlankLineEndsAnArrayAndLaterElementsJoinTheObject)
 
 TEST(OspReader, ArrayWithoutSelfClosingTagConsumesFollowingLines)
 {
-    const auto source = parsed(fixture("unclosed-array-line.xml"));
+    const auto source = parsed(fixture("unclosed-array-line.xml"), ACCEPT_TRUNCATED);
     EXPECT_EQ(outline(*source),
               "object test.UnclosedArrayLine\n"
               "  empty : array class=[D\n"
@@ -277,7 +289,7 @@ TEST(OspReader, ReadsPrologEpilogAndSameLineQuirks)
     EXPECT_EQ(prolog->epilog(), "<object class=\"test.Ignored\"/>\ntrailing text\n");
     EXPECT_EQ(prolog->rawText(prolog->root()).substr(0, 26), "<object class=\"test.Prolog");
 
-    const auto sameLine = parsed(fixture("same-line.xml"));
+    const auto sameLine = parsed(fixture("same-line.xml"), ACCEPT_TRUNCATED);
     // The version comes from the XML declaration on the root's line; the property's next line is taken as
     // the object's opening tag.
     EXPECT_EQ(outline(*sameLine),
@@ -289,7 +301,7 @@ TEST(OspReader, ReadsPrologEpilogAndSameLineQuirks)
 
     const auto line10 = parsed(fixture("root-line-10.xml"));
     EXPECT_EQ(outline(*line10), "object test.Line10\n  value : int = 10\n");
-    const auto unclosed = parsed(fixture("unclosed-root.xml"));
+    const auto unclosed = parsed(fixture("unclosed-root.xml"), ACCEPT_TRUNCATED);
     EXPECT_EQ(outline(*unclosed),
               "object test.UnclosedRoot\n  value : int = 1\n  child : object\n    object test.Child\n      x : int = 2\n");
     EXPECT_TRUE(unclosed->truncated());
@@ -314,16 +326,16 @@ TEST(OspReader, LineEndingsAndByteOrderMarkDoNotChangeTheTree)
     for (const auto* name : {"blank-line-in-array.xml", "self-closing.xml", "text-values.xml", "same-line.xml", "unicode.xml"})
     {
         const auto lf = fixture(name);
-        const auto expected = motrack::osp::objectValue(*parsed(lf), NodeId{0});
+        const auto expected = motrack::osp::objectValue(*parsed(lf, ACCEPT_TRUNCATED), NodeId{0});
         const auto crlf = replaceAll(lf, "\n", "\r\n");
         const auto cr = replaceAll(lf, "\n", "\r");
-        const auto crlfSource = parsed(crlf);
-        const auto crSource = parsed(cr);
-        const auto bomSource = parsed("\xEF\xBB\xBF" + crlf);
+        const auto crlfSource = parsed(crlf, ACCEPT_TRUNCATED);
+        const auto crSource = parsed(cr, ACCEPT_TRUNCATED);
+        const auto bomSource = parsed("\xEF\xBB\xBF" + crlf, ACCEPT_TRUNCATED);
         EXPECT_EQ(motrack::osp::objectValue(*crlfSource, NodeId{0}), expected) << name;
         EXPECT_EQ(motrack::osp::objectValue(*crSource, NodeId{0}), expected) << name;
         EXPECT_EQ(motrack::osp::objectValue(*bomSource, NodeId{0}), expected) << name;
-        EXPECT_EQ(parsed(lf)->lineEnding(), motrack::osp::LineEnding::Lf);
+        EXPECT_EQ(parsed(lf, ACCEPT_TRUNCATED)->lineEnding(), motrack::osp::LineEnding::Lf);
         EXPECT_EQ(crlfSource->lineEnding(), motrack::osp::LineEnding::CrLf);
         EXPECT_EQ(crSource->lineEnding(), motrack::osp::LineEnding::Cr);
     }
@@ -362,6 +374,23 @@ TEST(OspReader, ReportsTheFailuresJavaReportsAsReadFailures)
               ParseError::Code::Encrypted);
 }
 
+TEST(OspReader, RefusesDocumentsThatEndBeforeTheirObjectsClose)
+{
+    // OSP's readObject treats end of file as a closing tag and loads the partial tree with failedToRead()
+    // false (#243); MoTrack reports the truncation unless explicitly asked to accept it.
+    for (const auto* name : {"unclosed-root.xml", "unclosed-array-line.xml", "same-line.xml"})
+    {
+        const auto bytes = fixture(name);
+        std::size_t line = 0;
+        EXPECT_EQ(failure(bytes, &line), ParseError::Code::Truncated) << name;
+        EXPECT_EQ(line, parsed(bytes, ACCEPT_TRUNCATED)->lines().size()) << name;
+        EXPECT_TRUE(parsed(bytes, ACCEPT_TRUNCATED)->truncated()) << name;
+    }
+    EXPECT_EQ(failure("<object class=\"x\">\n<property name=\"a\" type=\"int\">1</property>\n"), ParseError::Code::Truncated);
+    EXPECT_FALSE(parsed("<object class=\"x\">\n<property name=\"a\" type=\"int\">1</property>\n</object>")->truncated());
+    EXPECT_FALSE(parsed("<object class=\"x\"/>")->truncated());
+}
+
 TEST(OspReader, RequiresUtf8)
 {
     const std::string prefix = "<object class=\"x\">\n<property name=\"a\" type=\"string\">";
@@ -379,15 +408,29 @@ TEST(OspReader, RequiresUtf8)
         EXPECT_EQ(failure(prefix + std::string(bad) + "</property>\n</object>", &line), ParseError::Code::InvalidUtf8);
         EXPECT_EQ(line, 2U);
     }
-    EXPECT_EQ(failure("<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>\n<object class=\"x\"/>"), ParseError::Code::UnsupportedEncoding);
-    EXPECT_EQ(failure("<?xml version='1.0' encoding = 'windows-1252' ?>\n<object class=\"x\"/>"), ParseError::Code::UnsupportedEncoding);
-    EXPECT_EQ(failure("<?xml encoding?>\n<object class=\"x\"/>"), ParseError::Code::UnsupportedEncoding);
-    EXPECT_EQ(failure("<?xml encoding=UTF-8?>\n<object class=\"x\"/>"), ParseError::Code::UnsupportedEncoding);
-    EXPECT_EQ(failure("<?xml encoding=\"UTF-8?>\n<object class=\"x\"/>"), ParseError::Code::UnsupportedEncoding);
-    for (const auto* declaration :
-         {R"(<?xml version="1.0" encoding="utf-8"?>)", "<?xml encoding='UTF8'?>", R"(<?xml version="1.0"?>)", "<!-- no declaration -->"})
+    // OSP decodes every document as UTF-8 whatever it declares; only non-ASCII text could have been meant
+    // differently, so only that is refused under another declared encoding.
+    const std::string latin =
+        "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>\n<object class=\"x\">\n<property name=\"a\" type=\"string\">";
+    EXPECT_EQ(failure(latin + "\xC3\xA9</property>\n</object>"), ParseError::Code::UnsupportedEncoding);
+    EXPECT_TRUE(motrack::osp::parse(latin + "e</property>\n</object>"));
+    EXPECT_EQ(failure("<?xml version='1.0' encoding = 'windows-1252' ?>\n<object class=\"\xC3\xA9\"/>"),
+              ParseError::Code::UnsupportedEncoding);
+    // The scan stays inside the declaration: here "encoding" only occurs in the root's class name.
+    EXPECT_TRUE(motrack::osp::parse("<?xml version=\"1.0\"<object class=\"org.example.encodingTool\"/>\n"));
+    EXPECT_TRUE(motrack::osp::parse("<?xml version=\"1.0\"\n<object class=\"org.example.encodingTool\">\n<property name=\"\xC3\xA9\" "
+                                    "type=\"int\">1</property>\n</object>"));
+    // Malformed encoding attributes are ignored, as OSP ignores the declaration.
+    for (const auto* declaration : {"<?xml encoding?>",
+                                    "<?xml encoding=UTF-8?>",
+                                    "<?xml encoding=\"UTF-8?>",
+                                    "<?xml xencoding=\"latin1\"?>",
+                                    R"(<?xml version="1.0" encoding="utf-8"?>)",
+                                    "<?xml encoding='UTF8'?>",
+                                    R"(<?xml version="1.0"?>)",
+                                    "<!-- no declaration -->"})
     {
-        EXPECT_TRUE(motrack::osp::parse(std::string(declaration) + "\n<object class=\"x\"/>")) << declaration;
+        EXPECT_TRUE(motrack::osp::parse(std::string(declaration) + "\n<object class=\"\xC3\xA9\"/>")) << declaration;
     }
 }
 
@@ -478,6 +521,38 @@ TEST(OspReader, DecodesCompactArraysLikeArrayValue)
     EXPECT_FALSE(motrack::osp::parseCompactArray("{x}", "[D"));
 }
 
+TEST(OspReader, BoundsCompactArrayNesting)
+{
+    // The JVM caps arrays at 255 dimensions (Class.forName fails beyond), so OSP cannot load deeper classes.
+    const auto deepClass = std::string(256, '[') + "I";
+    EXPECT_FALSE(motrack::osp::isPrimitiveArrayClass(deepClass));
+    EXPECT_EQ(motrack::osp::parseCompactArray(std::string(256, '{') + "1" + std::string(256, '}'), deepClass).error(),
+              DecodeError::Unsupported);
+    // 255 dimensions decode, recursing once per dimension.
+    const auto maximum = std::string(255, '[') + "I";
+    EXPECT_TRUE(motrack::osp::isPrimitiveArrayClass(maximum));
+    auto value = require(motrack::osp::parseCompactArray(std::string(255, '{') + "7" + std::string(255, '}'), maximum));
+    for (int level = 0; level < 254; ++level)
+    {
+        ASSERT_EQ(value.rows.size(), 1U);
+        auto row = std::move(value.rows.front());
+        value = std::move(row);
+    }
+    EXPECT_EQ(value.ints, std::vector<std::int32_t>{7});
+    // Many sibling rows are matched in one linear pass (each row once, not once per enclosing level).
+    std::string wide = "{";
+    for (int row = 0; row < 20000; ++row)
+    {
+        wide += row == 0 ? "{1,2}" : ",{1,2}";
+    }
+    wide += '}';
+    EXPECT_EQ(require(motrack::osp::parseCompactArray(wide, "[[I")).rows.size(), 20000U);
+    // An unbalanced row still fails as in Java, which searches only before the enclosing closing brace.
+    EXPECT_EQ(motrack::osp::parseCompactArray("{{1,{2}", "[[[I").error(), DecodeError::Malformed);
+    // A surplus closing brace is skipped like a separator, as Java's scan does.
+    EXPECT_EQ(require(motrack::osp::parseCompactArray("{{1}}}", "[[I")).rows.size(), 1U);
+}
+
 TEST(OspReader, ReadsIndexedArraysLikeArrayValue)
 {
     const auto source = parsed(readFile(std::filesystem::path(MOTRACK_FIXTURES) / "point-mass.trk"));
@@ -488,11 +563,13 @@ TEST(OspReader, ReadsIndexedArraysLikeArrayValue)
     ASSERT_TRUE(mass);
     const auto slots = require(require(mass).property("framedata")).indexedElements();
     ASSERT_TRUE(slots);
-    ASSERT_EQ(slots->size(), 7U);
-    EXPECT_TRUE((*slots)[2] && require((*slots)[2]).object());
-    EXPECT_TRUE((*slots)[4] && require((*slots)[4]).isNull());
-    EXPECT_FALSE((*slots)[5]);
-    EXPECT_EQ(require((*slots)[6]).elementIndex(), 6);
+    ASSERT_EQ(slots->length, 7U);
+    ASSERT_EQ(slots->elements.size(), 3U);
+    EXPECT_TRUE(require(slots->at(2)).object());
+    EXPECT_TRUE(require(slots->at(4)).isNull());
+    EXPECT_FALSE(slots->at(5));
+    EXPECT_FALSE(slots->at(99));
+    EXPECT_EQ(require(slots->at(6)).elementIndex(), 6);
     EXPECT_EQ(require(mass).getDouble("mass"), 125.5);
     EXPECT_TRUE(require(root.property("tracks")).indexedElements().error() == DecodeError::WrongType);
 
@@ -525,10 +602,16 @@ TEST(OspReader, ReadsIndexedArraysLikeArrayValue)
     EXPECT_EQ(require(object.property("later index")).indexedElements().error(), DecodeError::OutOfRange);
     EXPECT_EQ(require(object.property("bad name")).indexedElements().error(), DecodeError::Malformed);
     EXPECT_EQ(require(object.property("negative")).indexedElements().error(), DecodeError::OutOfRange);
-    EXPECT_EQ(require((*require(object.property("duplicate")).indexedElements())[0]).doubleValue(), 2.0);
+    EXPECT_EQ(require(require(require(object.property("duplicate")).indexedElements()).at(0)).doubleValue(), 2.0);
     EXPECT_EQ(require(object.property("unnamed")).indexedElements().error(), DecodeError::Missing);
     EXPECT_EQ(require(object.property("bad first")).indexedElements().error(), DecodeError::Malformed);
-    EXPECT_TRUE(require(object.property("empty")).indexedElements()->empty());
+    EXPECT_EQ(require(object.property("empty")).indexedElements()->length, 0U);
+    // A huge index allocates nothing: only present elements are stored (Java would allocate the whole array).
+    const auto huge = parsed("<object class=\"x\">\n<property name=\"a\" type=\"array\" class=\"[D\">\n"
+                             "<property name=\"[2147483646]\" type=\"double\">1.0</property>\n</property>\n</object>");
+    const auto sparse = require(require(ObjectView(*huge, huge->root()).property("a")).indexedElements());
+    EXPECT_EQ(sparse.length, std::size_t{2147483647});
+    EXPECT_EQ(sparse.elements.size(), 1U);
     EXPECT_EQ(require(object.property("empty")).compactArray().error(), DecodeError::Missing);
     EXPECT_EQ(require(object.property("empty")).elements().size(), 0U);
     EXPECT_FALSE(require(object.property("empty")).object());

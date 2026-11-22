@@ -156,6 +156,59 @@ TEST(LibraryPaths, UrlAndArchiveForms)
     EXPECT_EQ(library::uriPath("", library::UriPlatform::Windows), "");
 }
 
+TEST(LibraryPaths, ClassifiesWhereAResolvedPathPoints)
+{
+    using library::PathKind;
+    EXPECT_EQ(library::classifyPath(""), PathKind::Empty);
+    EXPECT_EQ(library::classifyPath("exp/a.trk"), PathKind::Relative);
+    EXPECT_EQ(library::classifyPath("../a.trk"), PathKind::Relative);
+    EXPECT_EQ(library::classifyPath("HTTPS://host/a"), PathKind::Web);
+    EXPECT_EQ(library::classifyPath("file:/C:/a.trk"), PathKind::FileUrl);
+    EXPECT_EQ(library::classifyPath("jar:file:/a.jar!/b"), PathKind::ArchiveUrl);
+    EXPECT_EQ(library::classifyPath("mailto:x@example.org"), PathKind::OtherScheme);
+    EXPECT_EQ(library::classifyPath("/home/a.trk"), PathKind::LocalAbsolute);
+    EXPECT_EQ(library::classifyPath(R"(C:\a.trk)"), PathKind::LocalAbsolute);
+    EXPECT_EQ(library::classifyPath("C:a.trk"), PathKind::LocalAbsolute);
+    EXPECT_EQ(library::classifyPath(R"(\\server\share\a.trk)"), PathKind::NetworkShare);
+    EXPECT_EQ(library::classifyPath("&OSPSubject=1"), PathKind::ComPadreQuery);
+    EXPECT_EQ(library::classifyPath("dir/x:y.trk"), PathKind::Relative);
+    EXPECT_EQ(library::classifyPath("1x:y"), PathKind::Relative);
+
+    const std::string_view base = "https://example.org/dir/";
+    const auto inside = library::resolvePathChecked("exp/a.trk", base);
+    EXPECT_EQ(inside.path, "https://example.org/dir/exp/a.trk");
+    EXPECT_EQ(inside.kind, PathKind::Web);
+    EXPECT_FALSE(inside.leftBase);
+    EXPECT_FALSE(inside.changedOrigin);
+    const auto sibling = library::resolvePathChecked("../videos/a.mp4", base);
+    EXPECT_TRUE(sibling.leftBase);
+    EXPECT_FALSE(sibling.changedOrigin);
+    // Climbing past the host leaves a relative path: the remote origin is lost.
+    const auto climbed = library::resolvePathChecked("../../../../Windows/win.ini", base);
+    EXPECT_EQ(climbed.path, "Windows/win.ini");
+    EXPECT_EQ(climbed.kind, PathKind::Relative);
+    EXPECT_TRUE(climbed.changedOrigin);
+    const auto share = library::resolvePathChecked(R"(\\attacker\share\x.trk)", base);
+    EXPECT_EQ(share.path, "//attacker/share/x.trk");
+    EXPECT_EQ(share.kind, PathKind::NetworkShare);
+    EXPECT_TRUE(share.changedOrigin);
+    for (const auto* local : {"file:/C:/Users/x.trk", "jar:file:/C:/x.jar!/y.trk", "C:/x.trk", "https://other.example.org/x.trk"})
+    {
+        EXPECT_TRUE(library::resolvePathChecked(local, base).changedOrigin) << local;
+    }
+    const auto query = library::resolvePathChecked("&x=../../evil", "https://www.compadre.org/q?OSPType=Tracker");
+    EXPECT_EQ(query.path, "https://www.compadre.org/q?OSPType=Tracker&x=../../evil") << "parameters are appended raw";
+    EXPECT_FALSE(query.leftBase);
+    EXPECT_FALSE(query.changedOrigin);
+    const auto member = library::resolvePathChecked("a.trz!/b_info.html", R"(C:\lib)");
+    EXPECT_TRUE(member.archiveMember);
+    EXPECT_FALSE(member.changedOrigin);
+    EXPECT_FALSE(library::resolvePathChecked("a.trk", "").changedOrigin);
+    EXPECT_TRUE(library::resolvePathChecked("D:/a.trk", "C:/lib").changedOrigin) << "another drive";
+    EXPECT_FALSE(library::resolvePathChecked("/x", "/home/lib").changedOrigin);
+    EXPECT_EQ(library::resolvePathChecked("x", "//server").kind, PathKind::NetworkShare);
+    EXPECT_TRUE(library::resolvePathChecked("x", "https:").changedOrigin == false);
+}
 TEST(LibraryResource, TypeNames)
 {
     for (const auto type : {ResourceType::Unknown,

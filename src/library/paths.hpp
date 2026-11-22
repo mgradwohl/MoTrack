@@ -50,6 +50,42 @@ namespace motrack::library
 /// "jar!" shortcut is also omitted (it applies to class-path resources, not collections).
 [[nodiscard]] std::string relativePath(std::string_view absolute, std::string_view base);
 
+/// Where a path points, for the browser to decide what a collection may open. Classified after backslashes become
+/// slashes.
+enum class PathKind : unsigned char
+{
+    Empty,
+    Relative,      ///< Resolved against a base path.
+    Web,           ///< http: or https: (any case).
+    FileUrl,       ///< file:
+    ArchiveUrl,    ///< jar:
+    OtherScheme,   ///< Any other "scheme:" such as mailto: or ftp:.
+    LocalAbsolute, ///< "/path", or a drive "C:..." (also the drive-relative "C:x").
+    NetworkShare,  ///< "//server/share": a UNC path, which Windows opens over SMB.
+    ComPadreQuery, ///< "&name=value" parameters appended to a ComPADRE query.
+};
+
+[[nodiscard]] PathKind classifyPath(std::string_view path);
+
+/// The result of `resolvedPath` with its provenance.
+struct PathResolution
+{
+    std::string path;
+    PathKind kind = PathKind::Empty;
+    /// The result lies outside the base directory (a "../" step, or an absolute path). Common in real collections.
+    bool leftBase = false;
+    /// The result has another origin than the base: another scheme, host, drive or share, or none at all (a
+    /// "../" chain that climbed past a URL's host leaves a relative path). A document from the web must not reach
+    /// local files or shares this way.
+    bool changedOrigin = false;
+    bool archiveMember = false; ///< It names a member of an archive ("!/").
+};
+
+/// `resolvedPath` with the classification the Library Browser needs (slice I6): it opens local, UNC, `file:` and
+/// `jar:` results of a remote collection only after confirmation, refuses origin changes it cannot explain, and
+/// percent-encodes the values of ComPADRE parameters before appending them.
+[[nodiscard]] PathResolution resolvePathChecked(std::string_view relative, std::string_view base);
+
 /// ResourceLoader.isHTTP: starts with "http:" or "https:" (case-sensitive).
 [[nodiscard]] bool isHttp(std::string_view path) noexcept;
 

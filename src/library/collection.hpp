@@ -80,14 +80,16 @@ struct SaveError
 /// and every property MoTrack does not model survives; changed fields are rendered with OSP's layout, removed
 /// resources are deleted, and resources added after the existing ones are appended. Other edits to a
 /// collection's list (reordering, inserting before an existing resource) rewrite that `resources` array with
-/// each resource's original logical content. A document without a source is written as `writeCollection`
-/// does, but resources loaded elsewhere keep their unknown properties. The output is reloaded and must equal
-/// the model as OSP would load it.
+/// each resource's original logical content. Any edit writes `resources` ArrayLists as arrays, which Tracker 6.3.5
+/// can read; a list OSP ignores as a whole stays, shadowed, behind a new array. A document without a source is
+/// written as `writeCollection` does, but resources loaded elsewhere keep their unknown properties. The output is
+/// reloaded and must equal the model as OSP would load it.
 [[nodiscard]] osp::Expected<std::string, SaveError> saveCollection(const CollectionDocument& document);
 
 /// The XMLControl tree that LibraryCollection.Loader/LibraryResource.Loader.saveObject write: name always;
 /// description, base path, target and metadata/properties when not empty; the HTML path when it is not empty
-/// and not inside the target archive; the type unless Unknown; `resources` for a non-empty collection.
+/// and not inside the target archive; the type unless Unknown (never for a collection); `resources` for a
+/// non-empty collection.
 [[nodiscard]] osp::ObjectValue collectionObjectValue(const Resource& resource);
 /// `new XMLControlElement(resource).toXML()`. Ignores origins; use `saveCollection` to keep loaded content.
 [[nodiscard]] osp::Expected<std::string, SaveError> writeCollection(const Resource& resource,
@@ -95,7 +97,7 @@ struct SaveError
 
 /// `resource` as OSP's loader would read it back after saving: trimmed text fields, metadata normalized by
 /// addMetadata, a resource with an HTML path but no target typed HTML when it is Unknown, a collection without
-/// children with a trimmed target. `saveCollection` verifies its output against this.
+/// children with a trimmed target. `writeCollection` verifies its output against this.
 [[nodiscard]] Resource reloadedForm(const Resource& resource);
 
 } // namespace motrack::library

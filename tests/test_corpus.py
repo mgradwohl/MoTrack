@@ -2,9 +2,10 @@
 
 import hashlib
 import copy
-from contextlib import nullcontext
+from contextlib import nullcontext, redirect_stdout
 import io
 import json
+import math
 import os
 from pathlib import Path
 import sys
@@ -197,6 +198,66 @@ class CorpusTests(unittest.TestCase):
                 corpus.check_archive_tabs(case, manifest, self.root, "java", self.root / "classes",
                                           self.root / "reference.jar", self.root / "output", ":77")
             run.assert_not_called()
+
+    def test_private_display_waits_for_a_cold_start_and_reports_xvfb_diagnostics(self):
+        output = {"text": b"(EE) Fatal server error: Cannot establish any listening sockets"}
+
+        class Server:
+            def __init__(self, command, *, pass_fds, stdout, stderr):
+                self.command = command
+                stderr.write(output["text"])
+                stderr.flush()
+
+            def poll(self):
+                return None
+
+            def terminate(self):
+                pass
+
+            def wait(self, timeout=None):
+                return 0
+
+        timeouts = []
+
+        def never_ready(readers, writers, errors, timeout):
+            timeouts.append(timeout)
+            return [], [], []
+
+        with patch.object(corpus.sys, "platform", "linux"), patch.object(corpus.shutil, "which", return_value="Xvfb"), \
+                patch.object(corpus.subprocess, "Popen", Server), patch.object(corpus.select, "select", never_ready):
+            with self.assertRaisesRegex(ValueError, r"within 30 s: \(EE\) Fatal server error"):
+                with corpus.private_display():
+                    self.fail("display must not be yielded")
+        self.assertEqual(timeouts, [corpus.XVFB_READY_SECONDS])
+
+        # A server that answers with something other than a display number is reported with its diagnostics.
+        with patch.object(corpus.sys, "platform", "linux"), patch.object(corpus.shutil, "which", return_value="Xvfb"), \
+                patch.object(corpus.subprocess, "Popen", Server), \
+                patch.object(corpus.select, "select", lambda readers, *_: (readers, [], [])), \
+                patch.object(corpus.os, "read", return_value=b"not a display\n"):
+            with self.assertRaisesRegex(ValueError, r"failed to start: \(EE\) Fatal server error"):
+                with corpus.private_display():
+                    self.fail("display must not be yielded")
+
+        # The fatal line comes last after a long preamble of warnings; the error keeps that tail.
+        output["text"] = b"Warning: Could not resolve keysym XF86Example\n" * 80 + b"(EE) Fatal server error: real cause"
+        self.assertGreater(len(output["text"]), corpus.XVFB_LOG_BYTES)
+        with patch.object(corpus.sys, "platform", "linux"), patch.object(corpus.shutil, "which", return_value="Xvfb"), \
+                patch.object(corpus.subprocess, "Popen", Server), patch.object(corpus.select, "select", never_ready):
+            with self.assertRaises(ValueError) as raised:
+                with corpus.private_display():
+                    self.fail("display must not be yielded")
+        message = str(raised.exception)
+        self.assertTrue(message.endswith("(EE) Fatal server error: real cause"), message[-200:])
+        self.assertLessEqual(len(message), corpus.XVFB_LOG_BYTES + 100)
+
+        # Without diagnostics the message has no dangling separator.
+        output["text"] = b""
+        with patch.object(corpus.sys, "platform", "linux"), patch.object(corpus.shutil, "which", return_value="Xvfb"), \
+                patch.object(corpus.subprocess, "Popen", Server), patch.object(corpus.select, "select", never_ready):
+            with self.assertRaisesRegex(ValueError, r"^Private Xvfb display did not become ready within 30 s$"):
+                with corpus.private_display():
+                    self.fail("display must not be yielded")
 
     def test_failed_multitab_session_cleans_its_private_home_and_outputs(self):
         manifest = corpus.load_manifest()
@@ -3427,6 +3488,15 @@ class XmlOracleTests(unittest.TestCase):
             corpus.xml_oracle_inputs(archive_only, self.root)
         with patch.object(corpus, "MAX_XML_ORACLE_DOCUMENTS", 2), self.assertRaisesRegex(ValueError, "Too many"):
             corpus.xml_oracle_inputs(self.manifest, self.root)
+        with patch.object(corpus, "MAX_ARCHIVE_MEMBERS", 4), self.assertRaisesRegex(ValueError, "archive: archive has too many members"):
+            corpus.xml_oracle_inputs(archive_only, self.root)
+        # Two members with one name are ambiguous: which one a reader takes is not defined.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            with zipfile.ZipFile(self.root / "fixtures" / "archive.trz", "a") as archive:
+                archive.writestr("one.trk", '<object class="other"/>')
+        with self.assertRaisesRegex(ValueError, "ambiguous archive member 'one.trk'"):
+            corpus.xml_oracle_inputs(archive_only, self.root)
 
     def test_matching_dumps_pass_and_report_reads_and_shared_rejections(self):
         commands, run = self.runner()
@@ -3444,8 +3514,8 @@ class XmlOracleTests(unittest.TestCase):
         self.assertTrue(java[1][0][-2].endswith("XmlControlDump.java"))
         self.assertEqual(len(commands) - 2, 16)
         summary = json.loads((reports / "summary.json").read_text(encoding="utf-8"))
-        self.assertEqual(summary, {"schema": corpus.XML_DUMP_SCHEMA, "documents": 16, "read_by_both": 12, "rejected_by_both": 4,
-                                   "mismatches": []})
+        self.assertEqual(summary, {"schema": corpus.XML_DUMP_SCHEMA, "oracles": "O1+O2", "documents": 16, "read_by_both": 12,
+                                   "deliberate_differences": [], "rejected_by_both": 4, "mismatches": []})
         self.assertIn("16 documents", printed.call_args.args[0])
         self.assertEqual(sorted(path.name for path in reports.iterdir()), ["summary.json"])
 
@@ -3462,7 +3532,7 @@ class XmlOracleTests(unittest.TestCase):
         with patch.object(corpus, "run", side_effect=run), self.assertRaises(ValueError) as raised:
             corpus.check_xml_oracle(self.manifest, self.root, "java", "probe", reports)
         message = str(raised.exception)
-        self.assertIn("O1 failed for 4 of 16 documents", message)
+        self.assertIn("O1+O2 failed for 4 of 16 documents", message)
         self.assertIn("archive!one.trk: $.root.properties[0].int (1 != 2)", message)
         self.assertIn("osp/fail-quirk.xml[crlf]: $ (keys ['root'])", message)
         summary = json.loads((reports / "summary.json").read_text(encoding="utf-8"))
@@ -3480,6 +3550,48 @@ class XmlOracleTests(unittest.TestCase):
                 corpus.check_xml_oracle(self.manifest, self.root, "java", "probe", self.root / "reports")
             self.assertEqual(len(commands), 1)
 
+    def test_registered_rejections_still_compare_the_tree_and_others_fail(self):
+        def native(data, report):
+            if data == b'<object class="one"/>':
+                report = {**report, "motrack_rejects": "truncated"}
+            if data == b'<object class="two"/>':
+                report = {**report, "motrack_rejects": "something else"}
+            return report
+
+        _, run = self.runner(native)
+        reports = self.root / "reports"
+        with patch.object(corpus, "run", side_effect=run), self.assertRaises(ValueError) as raised:
+            corpus.check_xml_oracle(self.manifest, self.root, "java", "probe", reports)
+        self.assertIn("archive!nested/two.xml: unregistered MoTrack rejection 'something else'", str(raised.exception))
+        summary = json.loads((reports / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary["deliberate_differences"], ["archive!one.trk: truncated"])
+        self.assertEqual(len(summary["mismatches"]), 1)
+
+        # A registered rejection must still produce Java's tree.
+        def wrong_tree(data, report):
+            if data == b'<object class="one"/>':
+                report = {**report, "motrack_rejects": "truncated", "root": {"class": "other"}}
+            return report
+
+        _, run = self.runner(wrong_tree)
+        with patch.object(corpus, "run", side_effect=run), self.assertRaisesRegex(ValueError, "archive!one.trk: \\$.root"):
+            corpus.check_xml_oracle(self.manifest, self.root, "java", "probe", reports)
+
+    def test_o2_only_runs_every_document_through_the_probe_without_java(self):
+        commands, run = self.runner(lambda data, report: {**report, "motrack_rejects": "truncated"} if data == b'<object class="one"/>' else report)
+        reports = self.root / "o2"
+        with patch.object(corpus, "run", side_effect=run), patch("builtins.print") as printed:
+            corpus.check_xml_oracle(self.manifest, self.root, None, "probe", reports, o2_only=True)
+        self.assertTrue(all("--osp-dump" in command for command, _ in commands))
+        self.assertEqual(len(commands), 16)
+        summary = json.loads((reports / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual((summary["oracles"], summary["read_by_both"], summary["rejected_by_both"]), ("O2", 11, 4))
+        self.assertEqual(summary["deliberate_differences"], ["archive!one.trk: truncated"])
+        self.assertIn("--o2-only: 16 documents", printed.call_args.args[0])
+        _, run = self.runner(lambda data, report: {**report, "schema": "other"})
+        with patch.object(corpus, "run", side_effect=run), self.assertRaisesRegex(ValueError, "unexpected XML dump schema"):
+            corpus.check_xml_oracle(self.manifest, self.root, None, "probe", reports, o2_only=True)
+
     def test_unexpected_dump_schema_is_rejected(self):
         _, run = self.runner(lambda data, report: {**report, "schema": "other"})
         with patch.object(corpus, "run", side_effect=run), self.assertRaisesRegex(ValueError, "unexpected XML dump schema"):
@@ -3493,7 +3605,8 @@ class XmlOracleTests(unittest.TestCase):
         self.assertEqual(corpus.first_json_difference([1, [2, "x"]], [1, [2, "y"]]), "$[1][1] ('x' != 'y')")
 
     def test_command_line_requires_a_probe_and_limits_reports_to_the_oracle(self):
-        for arguments in (["corpus.py", "xml-oracle"], ["corpus.py", "check", "--probe", "p", "--reports", "r"]):
+        for arguments in (["corpus.py", "xml-oracle"], ["corpus.py", "check", "--probe", "p", "--reports", "r"],
+                          ["corpus.py", "check", "--probe", "p", "--o2-only"]):
             with self.subTest(arguments=arguments), patch.object(sys, "argv", arguments), \
                     patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit):
                 corpus.main()
@@ -3502,7 +3615,141 @@ class XmlOracleTests(unittest.TestCase):
                 patch.object(corpus, "load_manifest", return_value=self.manifest), \
                 patch.object(corpus, "check_xml_oracle") as check:
             corpus.main()
-        check.assert_called_once_with(self.manifest, self.root, "j", "p", self.root / "out")
+        check.assert_called_once_with(self.manifest, self.root, "j", "p", self.root / "out", False)
+
+
+class OdeOracleTests(unittest.TestCase):
+    """The ODE kernel oracle (tools/reference/OdeOracle.java) without running Java."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name).resolve()
+        self.manifest = corpus.load_manifest()
+        self.fixture = json.loads(corpus.ODE_REFERENCE.read_text(encoding="utf-8"))
+
+    def check(self, document, *, record=False, commands=None):
+        """Run check_ode_oracle with a fake Java process that emits `document`."""
+        def run(command):
+            if commands is not None:
+                commands.append(command)
+            Path(command[-1]).write_text(json.dumps(document), encoding="utf-8")
+
+        with patch.object(corpus, "verify_file") as verify, patch.object(corpus, "run", side_effect=run), \
+                redirect_stdout(io.StringIO()) as output:
+            corpus.check_ode_oracle(self.manifest, self.root, "java", record=record)
+        verify.assert_called_once_with(self.root / self.manifest["reference"]["file"], self.manifest["reference"])
+        return output.getvalue()
+
+    def test_committed_fixture_covers_every_solver_in_its_canonical_layout(self):
+        corpus.validate_ode_reference(self.fixture, self.manifest)
+        classes = {solver["class"].rsplit(".", 1)[1] for solver in self.fixture["solvers"]}
+        self.assertEqual(classes, {"Euler", "EulerRichardson", "Ralston2", "Heun3", "RK4", "Butcher5", "Fehlberg8", "Adams4",
+                                   "Adams5", "Adams6", "Verlet", "LeapFrog", "CashKarp45", "DormandPrince45", "RK45",
+                                   "RK45MultiStep", "ODEMultistepSolver"})
+        self.assertEqual({system["id"] for system in self.fixture["systems"]},
+                         {"oscillator", "drag", "kepler", "stiff", "forced", "nan-rate"})
+        tracker = self.fixture["tracker"]
+        self.assertEqual(tracker["default_solver"], "org.opensourcephysics.numerics.RK4")
+        self.assertEqual(tracker["model_builder_solvers"][0], tracker["default_solver"])
+        self.assertEqual((tracker["trace_points_per_step"], tracker["iterations_per_step"]), (10, 10))
+        self.assertEqual(corpus.ODE_REFERENCE.read_bytes().decode("utf-8"), corpus.ode_reference_text(self.fixture))
+        self.assertLess(corpus.ODE_REFERENCE.stat().st_size, 256 * 1024)
+
+    def test_check_runs_the_pinned_jar_privately_and_accepts_an_identical_regeneration(self):
+        commands = []
+        self.assertIn(f"{len(self.fixture['cases'])} Java solver cases match tests/science/ode-reference.json",
+                      self.check(self.fixture, commands=commands))
+        [command] = commands
+        self.assertEqual(command[0], "java")
+        self.assertIn("-Djava.awt.headless=true", command)
+        self.assertIn("-Xmx256m", command)
+        self.assertEqual(command[command.index("--class-path") + 1], str(self.root / self.manifest["reference"]["file"]))
+        self.assertEqual(Path(command[-2]), corpus.ROOT / "tools/reference/OdeOracle.java")
+        # A private, removed home: OSP preference files never land in the shared reference cache.
+        home = next(arg for arg in command if arg.startswith("-Duser.home=")).split("=", 1)[1]
+        self.assertFalse(Path(home).is_relative_to(self.root))
+        self.assertFalse(Path(home).exists())
+
+    def test_check_rejects_numerical_count_and_non_finite_drift(self):
+        def first(document, predicate):
+            return next(point for case in document["cases"] for point in case["checkpoints"] if predicate(case, point))
+
+        for mutation in ["state", "rates", "error-code", "nan", "taken", "missing-case", "stiff-state", "tracker"]:
+            document = copy.deepcopy(self.fixture)
+            if mutation == "state":
+                point = first(document, lambda case, point: case["solver"] == "rk4" and point["n"] > 1)
+                point["state"][0] = math.nextafter(point["state"][0], math.inf)
+            elif mutation == "rates":
+                first(document, lambda case, point: True)["rates"] += 1
+            elif mutation == "error-code":
+                first(document, lambda case, point: point["error_code"] == 1)["error_code"] = 0
+            elif mutation == "nan":
+                point = first(document, lambda case, point: "NaN" in point["state"])
+                point["state"][point["state"].index("NaN")] = 0.0
+            elif mutation == "taken":
+                first(document, lambda case, point: case["solver"] == "dormandprince45" and point["n"] > 0)["taken"] *= 1 + 1e-7
+            elif mutation == "missing-case":
+                document["cases"].pop()
+            elif mutation == "stiff-state":
+                point = first(document, lambda case, point: case["system"] == "stiff" and case["solver"] == "rk45" and point["n"] > 1)
+                point["state"][0] *= 1 + 1e-5
+            else:
+                document["tracker"]["trace_points_per_step"] = 5
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                self.check(document)
+
+    def test_adaptive_cases_allow_amplified_last_bit_pow_differences(self):
+        # Magnitudes observed with fdlibm's pow (HotSpot on arm64): 4e-10 on the Kepler orbit and
+        # up to 6e-9 at the stiff system's stability limit.
+        document = copy.deepcopy(self.fixture)
+        kepler = next(point for case in document["cases"] if case["id"] == "kepler/dormandprince45/tol=1.0E-6"
+                      for point in case["checkpoints"] if point["n"] > 1)
+        kepler["taken"] *= 1 + 4e-10
+        point = next(point for case in document["cases"] if case["system"] == "stiff" and case["solver"] == "dormandprince45"
+                     for point in case["checkpoints"] if point["n"] > 1)
+        point["state"][0] *= 1 + 1e-8
+        self.check(document)
+        # Fixed-step solvers on the same system must still match to the last bit.
+        fixed = next(point for case in document["cases"] if case["system"] == "stiff" and case["solver"] == "rk4"
+                     for point in case["checkpoints"] if point["n"] > 1)
+        fixed["state"][1] = math.nextafter(fixed["state"][1], math.inf)
+        with self.assertRaisesRegex(ValueError, "stiff/rk4"):
+            self.check(document)
+
+    def test_record_writes_the_canonical_fixture_only_when_requested(self):
+        destination = self.root / "science" / "ode-reference.json"
+        with patch.object(corpus, "ODE_REFERENCE", destination):
+            self.assertIn(f"recorded {len(self.fixture['cases'])} Java solver cases", self.check(self.fixture, record=True))
+        self.assertEqual(destination.read_bytes(), corpus.ode_reference_text(self.fixture).encode("utf-8"))
+        with patch.object(sys, "argv", ["corpus.py", "check", "--probe", "probe", "--record"]), \
+                patch.object(corpus, "check_cases") as check, self.assertRaises(SystemExit), \
+                patch("sys.stderr", new_callable=io.StringIO):
+            corpus.main()
+        check.assert_not_called()
+        with patch.object(sys, "argv", ["corpus.py", "ode-oracle", "--java", "jdk/java", "--record"]), \
+                patch.object(corpus, "check_ode_oracle") as oracle:
+            corpus.main()
+        oracle.assert_called_once()
+        self.assertEqual(oracle.call_args.args[2], "jdk/java")
+        self.assertTrue(oracle.call_args.kwargs["record"])
+
+    def test_validation_rejects_malformed_or_incomplete_documents(self):
+        for mutation in ["version", "schema", "no-cases", "duplicate-case", "unknown-solver", "unknown-system", "checkpoint",
+                         "uncovered-solver", "duplicate-solver", "not-object"]:
+            document = copy.deepcopy(self.fixture)
+            if mutation == "version": document["reference_version"] = "6.3.4"
+            elif mutation == "schema": document["schema_version"] = 2
+            elif mutation == "no-cases": document["cases"] = []
+            elif mutation == "duplicate-case": document["cases"].append(document["cases"][0])
+            elif mutation == "unknown-solver": document["cases"][0]["solver"] = "rk5"
+            elif mutation == "unknown-system": document["cases"][0]["system"] = "pendulum"
+            elif mutation == "checkpoint": document["cases"][0]["checkpoints"][-1]["n"] = document["cases"][0]["steps"] + 1
+            elif mutation == "uncovered-solver": document["cases"] = [c for c in document["cases"] if c["solver"] != "leapfrog"]
+            elif mutation == "duplicate-solver": document["solvers"].append(document["solvers"][0])
+            else: document["cases"][0] = "case"
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                corpus.validate_ode_reference(document, self.manifest)
 
 
 if __name__ == "__main__":

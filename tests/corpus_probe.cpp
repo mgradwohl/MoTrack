@@ -351,7 +351,16 @@ QJsonObject ospDump(const std::filesystem::path& input)
         throw motrack::ProjectError("Could not open the OSP document.");
     std::string bytes((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
     QJsonObject report{{"schema", "motrack.osp-xmlcontrol-dump/1"}};
-    const auto source = motrack::osp::parse(bytes);
+    motrack::osp::ParseLimits limits;
+    auto source = motrack::osp::parse(bytes, limits);
+    if (!source && source.error().code == motrack::osp::ParseError::Code::Truncated)
+    {
+        // Deliberate difference (#243): MoTrack refuses what OSP loads partially. The partial tree is still
+        // dumped so that O1 checks it; the runner requires the rejection to be a registered difference.
+        report["motrack_rejects"] = "truncated";
+        limits.acceptTruncated = true;
+        source = motrack::osp::parse(bytes, limits);
+    }
     report["read"] = source.has_value();
     if (!source)
     {
@@ -359,7 +368,7 @@ QJsonObject ospDump(const std::filesystem::path& input)
         std::fputs(message.c_str(), stderr);
         return report;
     }
-    const auto rendered = motrack::osp::render(**source, motrack::osp::Patch{});
+    const auto rendered = motrack::osp::render(**source, motrack::osp::Patch(**source), limits);
     if (!rendered || *rendered != bytes)
         throw motrack::ProjectError("O2 failed: an unedited render does not reproduce the document byte for byte.");
     report["root"] = ospObject(**source, (*source)->root(), true);

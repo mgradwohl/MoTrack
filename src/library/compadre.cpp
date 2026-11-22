@@ -255,10 +255,16 @@ class RecordMapper
         }
         // Desktop OSP shows its cached copy of the thumbnail; the browser (I6) maps the URL to its cache.
         record.thumbnail = thumbnail ? std::optional<std::string>(*thumbnail) : std::nullopt;
-        setDescription(
-            record,
-            comPadreHtmlBody(
-                title.value_or(""), typeText.value_or(""), thumbnail, description, authors, information, attachment, m_Options->labels));
+        setDescription(record,
+                       comPadreHtmlBody(title.value_or(""),
+                                        typeText.value_or(""),
+                                        thumbnail,
+                                        description,
+                                        authors,
+                                        information,
+                                        attachment,
+                                        m_Options->labels,
+                                        m_Options->mode));
         record.metadata.clear();
         std::vector<std::string> words;
         for (const auto* subject : node.childrenNamed("osp-subject"))
@@ -437,7 +443,7 @@ bool isJavaUrl(std::string_view spec)
     {
         return false;
     }
-    constexpr std::array<std::string_view, 6> HANDLERS = {"http", "https", "ftp", "file", "mailto", "jrt"};
+    constexpr std::array<std::string_view, 7> HANDLERS = {"http", "https", "ftp", "file", "mailto", "jrt", "jmod"};
     if (protocol == "jar")
     {
         return spec.find("!/") != std::string_view::npos;
@@ -445,6 +451,36 @@ bool isJavaUrl(std::string_view spec)
     return std::ranges::find(HANDLERS, protocol) != HANDLERS.end();
 }
 
+/// Text for HTML content or a quoted attribute.
+std::string escapeHtml(std::string_view text)
+{
+    std::string escaped;
+    escaped.reserve(text.size());
+    for (const char character : text)
+    {
+        switch (character)
+        {
+        case '&':
+            escaped += "&amp;";
+            break;
+        case '<':
+            escaped += "&lt;";
+            break;
+        case '>':
+            escaped += "&gt;";
+            break;
+        case '"':
+            escaped += "&quot;";
+            break;
+        case '\'':
+            escaped += "&#39;";
+            break;
+        default:
+            escaped += character;
+        }
+    }
+    return escaped;
+}
 std::string insertLineBreaks(std::string_view text)
 {
     const auto parts = javaSplit(text, "\n");
@@ -587,30 +623,42 @@ std::string comPadreHtmlBody(std::string_view title,
                              std::string_view authors,
                              std::optional<std::string_view> informationUrl,
                              const std::optional<ComPadreAttachment>& attachment,
-                             const ComPadreLabels& labels)
+                             const ComPadreLabels& labels,
+                             ComPadreMode mode)
 {
+    // Tracker inserts the response's text into its HTML unchanged; MoTrack escapes text and keeps only web links.
+    const bool safe = mode == ComPadreMode::MoTrack;
+    const auto text = [safe](std::string_view value)
+    {
+        return safe ? escapeHtml(value) : std::string(value);
+    };
+    const auto linkable = [safe](std::string_view url)
+    {
+        return !safe || isHttp(url);
+    };
     std::string body;
     if (!title.empty())
     {
-        body += "\n      <h2>" + std::string(title) + "</h2>";
+        body += "\n      <h2>" + text(title) + "</h2>";
     }
     body += "\n      <blockquote>";
     if (!type.empty())
     {
         const auto known = resourceTypeFromName(type);
-        body += "\n        <b>" + (known ? labels.types.at(static_cast<std::size_t>(*known)) : std::string(type)) + "</b>";
+        body += "\n        <b>" + (known ? labels.types.at(static_cast<std::size_t>(*known)) : text(type)) + "</b>";
     }
-    if (thumbnail && !thumbnail->empty())
+    if (thumbnail && !thumbnail->empty() && linkable(*thumbnail))
     {
-        auto image = "<p><img src=\"" + std::string(*thumbnail) + "\"";
+        auto image = "<p><img src=\"" + text(*thumbnail) + "\"";
         if (!title.empty())
         {
-            image += " alt=\"" + std::string(title) + "\"";
+            image += " alt=\"" + text(title) + "\"";
         }
         body += "\n        " + image + "></p>";
     }
     if (description && !description->empty())
     {
+        // The description is HTML in both modes; the browser renders it without scripts or external loads (I6).
         std::string paragraph(*description);
         if (!paragraph.starts_with("<p>"))
         {
@@ -620,16 +668,16 @@ std::string comPadreHtmlBody(std::string_view title,
     }
     if (!authors.empty())
     {
-        body += "\n        <p><b>" + labels.author + ":  </b>" + std::string(authors) + "</p>";
+        body += "\n        <p><b>" + labels.author + ":  </b>" + text(authors) + "</p>";
     }
     if (attachment && attachment->fileName)
     {
-        body += "\n        <p><b>" + labels.resource + ":  </b>" + *attachment->fileName + " (" +
+        body += "\n        <p><b>" + labels.resource + ":  </b>" + text(*attachment->fileName) + " (" +
                 comPadreMegabytes(attachment->size, labels.decimalSeparator) + "MB)</p>";
     }
-    if (informationUrl && !informationUrl->empty() && isJavaUrl(*informationUrl))
+    if (informationUrl && !informationUrl->empty() && isJavaUrl(*informationUrl) && linkable(osp::javaTrim(*informationUrl)))
     {
-        const std::string url(*informationUrl);
+        const auto url = text(*informationUrl);
         body += "\n        <p><b>" + labels.moreInformation + "  </b><a href=\"" + url + "\">" + url + "</a></p>";
     }
     body += "\n      </blockquote>";

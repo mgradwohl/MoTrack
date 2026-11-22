@@ -65,7 +65,8 @@ StringList collectionNames(const Library& library)
     return names;
 }
 
-Result<std::optional<StringList>> stringArray(const detail::ValueReader& reader, const osp::ObjectView& root, std::string_view name)
+Result<std::optional<detail::StringArray>>
+stringArray(const detail::ValueReader& reader, const osp::ObjectView& root, std::string_view name)
 {
     auto value = reader.getObject(root, name, "root");
     if (!value)
@@ -75,9 +76,20 @@ Result<std::optional<StringList>> stringArray(const detail::ValueReader& reader,
     return detail::castStringArray(*value, "root." + std::string(name));
 }
 
+/// A String[] list the model keeps whole (with its nulls). An array longer than the document has nodes is
+/// almost all nulls and is refused, where Java would allocate it.
+Result<StringList> denseList(const std::optional<detail::StringArray>& array, const osp::Source& source, std::string_view name)
+{
+    if (!array)
+    {
+        return StringList{};
+    }
+    return array->dense(source.nodeCount(), "root." + std::string(name));
+}
+
 Result<Library> loadFields(const osp::Source& source)
 {
-    const detail::ValueReader reader([](const osp::ObjectView&, const std::string&) -> Result<Resource> { return Resource{}; });
+    const detail::ValueReader reader(detail::placeholderLoader());
     const osp::ObjectView root(source, source.root());
     Library library;
     auto name = reader.getString(root, "name", "root");
@@ -100,29 +112,25 @@ Result<Library> loadFields(const osp::Source& source)
         }
         std::map<std::string, std::string, JavaLess> pathToName;
         std::vector<std::string> pathList;
-        for (std::size_t index = 0; index < (*paths)->size(); ++index)
+        // Null paths are skipped before their names are read.
+        for (const auto& [index, path] : (*paths)->present)
         {
-            const auto& path = (**paths)[index];
-            if (!path)
-            {
-                continue;
-            }
             if (!*names)
             {
                 return detail::fail("root.collection_names", "missing collection names");
             }
-            if (index >= (*names)->size())
+            if (index >= (*names)->length)
             {
                 return detail::fail("root.collection_names", "fewer collection names than paths");
             }
-            const auto& collectionName = (**names)[index];
-            if (!collectionName)
+            const auto* collectionName = (*names)->at(index);
+            if (collectionName == nullptr)
             {
                 continue;
             }
-            pathList.push_back(*path);
-            pathToName.insert_or_assign(*path, *collectionName);
-            library.pathNames.set(*path, *collectionName);
+            pathList.push_back(path);
+            pathToName.insert_or_assign(path, *collectionName);
+            library.pathNames.set(path, *collectionName);
         }
         for (auto& path : pathList)
         {
@@ -135,13 +143,23 @@ Result<Library> loadFields(const osp::Source& source)
     {
         return osp::makeUnexpected(subLibraries.error());
     }
-    library.subLibraryPaths = subLibraries->value_or(StringList{});
+    auto subLibraryPaths = denseList(*subLibraries, source, "sublibrary_paths");
+    if (!subLibraryPaths)
+    {
+        return osp::makeUnexpected(subLibraryPaths.error());
+    }
+    library.subLibraryPaths = *std::move(subLibraryPaths);
     auto imported = stringArray(reader, root, "imported_library_paths");
     if (!imported)
     {
         return osp::makeUnexpected(imported.error());
     }
-    library.importedLibraryPaths = imported->value_or(StringList{});
+    auto importedPaths = denseList(*imported, source, "imported_library_paths");
+    if (!importedPaths)
+    {
+        return osp::makeUnexpected(importedPaths.error());
+    }
+    library.importedLibraryPaths = *std::move(importedPaths);
     auto recent = stringArray(reader, root, "recently_opened");
     if (!recent)
     {
@@ -154,28 +172,25 @@ Result<Library> loadFields(const osp::Source& source)
     }
     if (*recent)
     {
-        for (const auto& path : **recent)
+        for (const auto& [index, path] : (*recent)->present)
         {
-            if (path)
-            {
-                addRecent(library, *path, true);
-            }
+            addRecent(library, path, true);
         }
         if (*recentNamesList)
         {
-            if ((*recentNamesList)->size() > (*recent)->size())
+            if ((*recentNamesList)->length > (*recent)->length)
             {
                 return detail::fail("root.recently_opened_names", "more names than recently opened paths");
             }
-            for (std::size_t index = 0; index < (*recentNamesList)->size(); ++index)
+            // HashMap.put(paths[i], names[i]) for every name; MoTrack has no null key, and the browser never reads one.
+            for (const auto& [index, path] : (*recent)->present)
             {
-                const auto& path = (**recent)[index];
-                if (!path)
+                if (index >= (*recentNamesList)->length)
                 {
-                    // HashMap.put(null, name): MoTrack has no null key, and the browser never reads one.
-                    continue;
+                    break;
                 }
-                library.pathNames.set(*path, (**recentNamesList)[index]);
+                const auto* recentName = (*recentNamesList)->at(index);
+                library.pathNames.set(path, recentName != nullptr ? std::optional<std::string>(*recentName) : std::nullopt);
             }
         }
     }
@@ -186,16 +201,16 @@ Result<Library> loadFields(const osp::Source& source)
     }
     if (*noSearch)
     {
-        for (const auto& path : **noSearch)
+        if ((*noSearch)->present.size() != (*noSearch)->length)
         {
-            if (!path)
+            return detail::fail("root.no_search_paths", "null path");
+        }
+        for (const auto& [index, path] : (*noSearch)->present)
+        {
+            const auto position = std::ranges::lower_bound(library.noSearchPaths, path, JavaLess{});
+            if (position == library.noSearchPaths.end() || *position != path)
             {
-                return detail::fail("root.no_search_paths", "null path");
-            }
-            const auto position = std::ranges::lower_bound(library.noSearchPaths, *path, JavaLess{});
-            if (position == library.noSearchPaths.end() || *position != *path)
-            {
-                library.noSearchPaths.insert(position, *path);
+                library.noSearchPaths.insert(position, path);
             }
         }
     }
@@ -204,7 +219,15 @@ Result<Library> loadFields(const osp::Source& source)
     {
         return osp::makeUnexpected(openTabs.error());
     }
-    library.openTabs = *openTabs;
+    if (*openTabs)
+    {
+        auto tabs = denseList(*openTabs, source, "open_tabs");
+        if (!tabs)
+        {
+            return osp::makeUnexpected(tabs.error());
+        }
+        library.openTabs = *std::move(tabs);
+    }
     auto chooser = reader.getString(root, "chooser_directory", "root");
     if (!chooser)
     {
@@ -481,7 +504,7 @@ osp::Expected<std::string, SaveError> saveLibrary(const LibraryDocument& documen
     {
         return osp::makeUnexpected(SaveError{.code = SaveError::Code::Render, .message = baseline.error().message});
     }
-    osp::Patch patch;
+    osp::Patch patch(*document.source);
     detail::PatchEditor editor(*document.source, document.source->root(), patch, LIBRARY_ORDER);
     applyChanges(editor, *baseline, library);
     return verified(osp::render(*document.source, patch), library);

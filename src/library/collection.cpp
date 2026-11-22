@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <map>
 #include <set>
 #include <string_view>
@@ -59,7 +60,9 @@ bool needsExplicitUnknown(const Resource& resource) noexcept
 
 bool typeWritten(const Resource& resource, HtmlRule rule) noexcept
 {
-    return resource.type != ResourceType::Unknown || (rule == HtmlRule::Keep && needsExplicitUnknown(resource));
+    // LibraryCollection.setType never changes the field, so OSP never writes a collection's type.
+    return !resource.isCollection() &&
+           (resource.type != ResourceType::Unknown || (rule == HtmlRule::Keep && needsExplicitUnknown(resource)));
 }
 
 osp::PropertyValue metadataProperty(const Resource& resource)
@@ -140,61 +143,102 @@ osp::ObjectValue writtenValue(const Resource& resource, HtmlRule rule)
 }
 
 /// Reads LibraryResource/LibraryCollection objects with OSP's loader semantics.
+///
+/// Loading recurses once per nested collection (LibraryCollection.Loader loads its children through
+/// XMLControlElement.getObject). Each level keeps only small values on the stack: resources are built on the heap
+/// and the scalar fields are read in their own frame, so the deepest document motrack_osp accepts loads in a
+/// few hundred kilobytes of stack, also on a worker thread.
 class Loader
 {
   public:
     Loader(std::shared_ptr<const osp::Source> source, std::vector<Diagnostic>* diagnostics)
-        : m_Source(std::move(source)), m_Diagnostics(diagnostics)
+        : m_Source(std::move(source)), m_Diagnostics(diagnostics),
+          m_Reader(detail::ResourceObjectLoader{.function = &Loader::loadNested, .context = this},
+                   diagnostics != nullptr ? &m_Ignored : nullptr)
     {}
 
-    Result<Resource> load(const osp::ObjectView& object, const std::string& location)
+    Loader(const Loader&) = delete;
+    Loader& operator=(const Loader&) = delete;
+    Loader(Loader&&) = delete;
+    Loader& operator=(Loader&&) = delete;
+    ~Loader() = default;
+
+    Result<std::unique_ptr<Resource>> load(const osp::ObjectView& object, const std::string& location)
     {
-        std::vector<Failure> ignored;
-        const detail::ValueReader reader([this](const osp::ObjectView& child, const std::string& childLocation)
-                                         { return loadChild(child, childLocation); },
-                                         m_Diagnostics != nullptr ? &ignored : nullptr);
-        auto resource = loadFields(reader, object, location);
-        if (resource && m_Diagnostics != nullptr)
+        auto resource = std::make_unique<Resource>();
+        resource->kind = object.className() == COLLECTION_CLASS ? ResourceKind::Collection : ResourceKind::Resource;
+        auto failure = loadScalars(m_Reader, object, location, *resource);
+        if (!failure && resource->isCollection())
         {
-            for (auto& note : ignored)
-            {
-                m_Diagnostics->push_back(Diagnostic{.location = std::move(note.location), .message = std::move(note.message)});
-            }
+            failure = loadResources(object, location, *resource);
         }
-        return resource;
+        return finish(std::move(resource), std::move(failure), object.id());
+    }
+
+    /// How OSP reads the object's last `resources` property, with nested objects loaded as the loader does.
+    [[nodiscard]] JavaValue::Kind resourcesKind(const osp::ObjectView& object)
+    {
+        const auto value = m_Reader.getObject(object, "resources", "root");
+        return value ? value->kind : JavaValue::Kind::Null;
+    }
+
+    /// Objects of unknown classes the loads met, as diagnostics.
+    void reportIgnored()
+    {
+        if (m_Diagnostics == nullptr)
+        {
+            return;
+        }
+        for (auto& note : m_Ignored)
+        {
+            m_Diagnostics->push_back(Diagnostic{.location = std::move(note.location), .message = std::move(note.message)});
+        }
+        m_Ignored.clear();
     }
 
   private:
-    Result<Resource> loadChild(const osp::ObjectView& object, const std::string& location)
+    static Result<std::unique_ptr<Resource>> loadNested(void* context, const osp::ObjectView& object, const std::string& location)
     {
-        return load(object, location);
+        return static_cast<Loader*>(context)->load(object, location);
     }
 
-    Result<Resource> loadFields(const detail::ValueReader& reader, const osp::ObjectView& object, const std::string& location)
+    Result<std::unique_ptr<Resource>> finish(std::unique_ptr<Resource> resource, std::optional<Failure> failure, osp::NodeId object)
+    {
+        if (failure)
+        {
+            return osp::makeUnexpected(*std::move(failure));
+        }
+        resource->origin = SourceOrigin{.source = m_Source, .object = object};
+        return resource;
+    }
+
+    /// The fields LibraryResource.Loader reads, in its order; also createObject's name.
+    static std::optional<Failure>
+    loadScalars(const detail::ValueReader& reader, const osp::ObjectView& object, const std::string& location, Resource& resource)
     {
         // createObject: new LibraryResource(control.getString("name")).
         auto name = reader.getString(object, "name", location);
         if (!name)
         {
-            return osp::makeUnexpected(name.error());
+            return name.error();
         }
-        auto resource = object.className() == COLLECTION_CLASS ? makeCollection(name->value_or("")) : makeResource(name->value_or(""));
+        setName(resource, name->value_or(""));
         auto description = reader.getString(object, "description", location);
         if (!description)
         {
-            return osp::makeUnexpected(description.error());
+            return description.error();
         }
         setDescription(resource, description->value_or(""));
         auto basePath = reader.getString(object, "base_path", location);
         if (!basePath)
         {
-            return osp::makeUnexpected(basePath.error());
+            return basePath.error();
         }
         setBasePath(resource, basePath->value_or(""));
         auto target = reader.getString(object, "target", location);
         if (!target)
         {
-            return osp::makeUnexpected(target.error());
+            return target.error();
         }
         if (*target)
         {
@@ -204,13 +248,13 @@ class Loader
         auto htmlPath = reader.getString(object, "html_path", location);
         if (!htmlPath)
         {
-            return osp::makeUnexpected(htmlPath.error());
+            return htmlPath.error();
         }
         setHtmlPath(resource, htmlPath->value_or(""));
         auto type = reader.getString(object, "type", location);
         if (!type)
         {
-            return osp::makeUnexpected(type.error());
+            return type.error();
         }
         if (*type)
         {
@@ -219,156 +263,155 @@ class Loader
                 setType(resource, *known);
             }
         }
-        if (auto loaded = loadMetadata(reader, object, location, resource); !loaded)
+        if (auto failure = loadMetadata(reader, object, location, resource))
         {
-            return osp::makeUnexpected(loaded.error());
+            return failure;
         }
-        if (auto loaded = loadProperties(reader, object, location, resource); !loaded)
-        {
-            return osp::makeUnexpected(loaded.error());
-        }
-        if (resource.isCollection())
-        {
-            if (auto loaded = loadResources(reader, object, location, resource); !loaded)
-            {
-                return osp::makeUnexpected(loaded.error());
-            }
-        }
-        resource.origin = SourceOrigin{.source = m_Source, .object = object.id()};
-        return resource;
+        return loadProperties(reader, object, location, resource);
     }
 
-    static Result<bool>
+    static std::optional<Failure>
     loadMetadata(const detail::ValueReader& reader, const osp::ObjectView& object, const std::string& location, Resource& resource)
     {
         const auto here = location + ".metadata";
         auto value = reader.getObject(object, "metadata", location);
         if (!value)
         {
-            return osp::makeUnexpected(value.error());
+            return value.error();
         }
         auto rows = detail::castStringMatrix(*value, here);
         if (!rows)
         {
-            return osp::makeUnexpected(rows.error());
+            return rows.error();
         }
         if (!*rows)
         {
-            return true;
+            return std::nullopt;
         }
-        for (const auto& row : **rows)
+        const auto& matrix = **rows;
+        // Java iterates every row of the array; a slot the file leaves empty is a null row.
+        if (matrix.present.size() != matrix.length)
         {
-            if (!row)
-            {
-                return detail::fail(here, "null metadata entry");
-            }
-            if (row->size() < 2)
-            {
-                return detail::fail(here, "metadata entry without a value");
-            }
-            addMetadata(resource, Metadata{.key = (*row)[0].value_or(""), .value = (*row)[1].value_or("")});
+            return Failure{.location = here, .message = "null metadata entry"};
         }
-        return true;
+        for (const auto& [index, row] : matrix.present)
+        {
+            if (row.length < 2)
+            {
+                return Failure{.location = here, .message = "metadata entry without a value"};
+            }
+            const auto* key = row.at(0);
+            const auto* text = row.at(1);
+            addMetadata(resource, Metadata{.key = key != nullptr ? *key : std::string{}, .value = text != nullptr ? *text : std::string{}});
+        }
+        return std::nullopt;
     }
 
-    static Result<bool>
+    static std::optional<Failure>
     loadProperties(const detail::ValueReader& reader, const osp::ObjectView& object, const std::string& location, Resource& resource)
     {
         const auto here = location + ".properties";
         auto value = reader.getObject(object, "properties", location);
         if (!value)
         {
-            return osp::makeUnexpected(value.error());
+            return value.error();
         }
         auto rows = detail::castStringMatrix(*value, here);
         if (!rows)
         {
-            return osp::makeUnexpected(rows.error());
+            return rows.error();
         }
         if (!*rows)
         {
-            return true;
+            return std::nullopt;
         }
-        for (const auto& row : **rows)
+        const auto& matrix = **rows;
+        if (matrix.present.size() != matrix.length)
         {
-            if (!row)
-            {
-                return detail::fail(here, "null property entry");
-            }
-            if (row->size() < 2)
-            {
-                return detail::fail(here, "property entry without a value");
-            }
-            const auto& key = (*row)[0];
-            if (!key)
-            {
-                return detail::fail(here, "property without a name");
-            }
-            setProperty(resource, *key, (*row)[1]);
+            return Failure{.location = here, .message = "null property entry"};
         }
-        return true;
+        for (const auto& [index, row] : matrix.present)
+        {
+            if (row.length < 2)
+            {
+                return Failure{.location = here, .message = "property entry without a value"};
+            }
+            const auto* key = row.at(0);
+            if (key == nullptr)
+            {
+                return Failure{.location = here, .message = "property without a name"};
+            }
+            const auto* text = row.at(1);
+            setProperty(resource, *key, text != nullptr ? std::optional<std::string>(*text) : std::nullopt);
+        }
+        return std::nullopt;
     }
 
-    Result<bool>
-    loadResources(const detail::ValueReader& reader, const osp::ObjectView& object, const std::string& location, Resource& collection)
+    /// On the recursion path: only the nested load happens here; adoptResources checks the result.
+    std::optional<Failure> loadResources(const osp::ObjectView& object, const std::string& location, Resource& collection)
+    {
+        return adoptResources(m_Reader.getObject(object, "resources", location), object, location, collection);
+    }
+
+    std::optional<Failure>
+    adoptResources(Result<JavaValue>&& value, const osp::ObjectView& object, const std::string& location, Resource& collection)
     {
         const auto here = location + ".resources";
-        auto value = reader.getObject(object, "resources", location);
         if (!value)
         {
-            return osp::makeUnexpected(value.error());
+            return std::move(value.error());
         }
         switch (value->kind)
         {
         case JavaValue::Kind::Null:
         {
             // Without resources the collection target is set again, which trims it.
-            auto target = reader.getString(object, "target", location);
+            auto target = m_Reader.getString(object, "target", location);
             if (!target)
             {
-                return osp::makeUnexpected(target.error());
+                return target.error();
             }
             setTarget(collection, target->value_or(""), {});
-            return true;
+            return std::nullopt;
         }
         case JavaValue::Kind::Array:
             if (value->arrayClass != RESOURCE_ARRAY_CLASS && value->arrayClass != COLLECTION_ARRAY_CLASS)
             {
-                return detail::fail(here, "not a LibraryResource[] array");
+                return Failure{.location = here, .message = "not a LibraryResource[] array"};
             }
             break;
         case JavaValue::Kind::Collection:
             // OSP's swingJS tip reads an ArrayList; Tracker 6.3.5 throws ClassCastException.
             if (value->arrayClass != "java.util.ArrayList")
             {
-                return detail::fail(here, "not a LibraryResource[] array");
+                return Failure{.location = here, .message = "not a LibraryResource[] array"};
             }
             if (m_Diagnostics != nullptr)
             {
                 m_Diagnostics->push_back(Diagnostic{.location = here,
                                                     .message = "resources are stored as a collection, which Tracker 6.3.5 cannot read; "
-                                                               "saving changes to this list writes an array"});
+                                                               "saving an edit writes an array"});
             }
             break;
         default:
-            return detail::fail(here, "not a LibraryResource[] array");
+            return Failure{.location = here, .message = "not a LibraryResource[] array"};
         }
-        for (auto& element : value->elements)
+        collection.children.reserve(value->values.size());
+        for (auto& element : value->values)
         {
-            if (element.kind == JavaValue::Kind::Resource)
+            if (element.kind != JavaValue::Kind::Resource || !element.resource)
             {
-                collection.children.push_back(std::move(element.resource));
+                return Failure{.location = here, .message = "collection element is not a LibraryResource"};
             }
-            else if (element.kind != JavaValue::Kind::Null)
-            {
-                return detail::fail(here, "collection element is not a LibraryResource");
-            }
+            collection.children.push_back(std::move(*element.resource));
         }
-        return true;
+        return std::nullopt;
     }
 
     std::shared_ptr<const osp::Source> m_Source;
     std::vector<Diagnostic>* m_Diagnostics;
+    std::vector<Failure> m_Ignored;
+    detail::ValueReader m_Reader;
 };
 
 /// The resource an object loads as. Saving compares against it; the object loaded before, so this succeeds
@@ -376,7 +419,12 @@ class Loader
 Result<Resource> baselineLoad(const SourceOrigin& origin)
 {
     Loader loader(origin.source, nullptr);
-    return loader.load(osp::ObjectView(*origin.source, origin.object), "root");
+    auto loaded = loader.load(osp::ObjectView(*origin.source, origin.object), "root");
+    if (!loaded)
+    {
+        return osp::makeUnexpected(loaded.error());
+    }
+    return std::move(**loaded);
 }
 
 /// Whether saving keeps a childless collection's original `resources` property, and OSP reads it as an array or
@@ -392,9 +440,8 @@ bool keepsDeclaredResources(const Resource& collection)
     {
         return false;
     }
-    const detail::ValueReader reader([](const osp::ObjectView&, const std::string&) -> Result<Resource> { return Resource{}; });
-    const auto value = reader.getObject(osp::ObjectView(*collection.origin->source, collection.origin->object), "resources", "root");
-    return value && value->kind != JavaValue::Kind::Null;
+    Loader loader(collection.origin->source, nullptr);
+    return loader.resourcesKind(osp::ObjectView(*collection.origin->source, collection.origin->object)) != JavaValue::Kind::Null;
 }
 
 Resource reloadedForm(const Resource& resource, HtmlRule rule)
@@ -439,20 +486,47 @@ Resource reloadedForm(const Resource& resource, HtmlRule rule)
     return result;
 }
 
-/// Elements of a `resources` array that OSP ignores (objects of other classes); kept when the array is rewritten.
-std::vector<osp::PropertyValue> opaqueElements(const osp::Source& source, osp::NodeId object)
+/// How OSP reads a collection's last `resources` property.
+enum class ResourcesForm : std::uint8_t
+{
+    Absent,  ///< No such property.
+    Ignored, ///< It reads as null (for example an ArrayList with a malformed element): the target is used instead.
+    Array,   ///< A LibraryResource[] array.
+    List,    ///< An ArrayList, which only OSP's tip reads; Tracker 6.3.5 throws ClassCastException.
+};
+
+ResourcesForm resourcesForm(const std::shared_ptr<const osp::Source>& source, osp::NodeId object)
+{
+    const osp::ObjectView view(*source, object);
+    if (!view.property("resources"))
+    {
+        return ResourcesForm::Absent;
+    }
+    Loader loader(source, nullptr);
+    const auto kind = loader.resourcesKind(view);
+    if (kind == JavaValue::Kind::Null)
+    {
+        return ResourcesForm::Ignored;
+    }
+    return kind == JavaValue::Kind::Collection ? ResourcesForm::List : ResourcesForm::Array;
+}
+
+/// Elements of a `resources` array or list that OSP ignores (objects of classes it cannot load); kept when the list
+/// is rewritten. A list OSP ignores as a whole is not rewritten but shadowed, so it needs none.
+std::vector<osp::PropertyValue> opaqueElements(const std::shared_ptr<const osp::Source>& source, osp::NodeId object)
 {
     std::vector<osp::PropertyValue> opaque;
-    const auto property = osp::ObjectView(source, object).property("resources");
-    if (!property || property->type() != osp::PropertyType::Array)
+    const auto form = resourcesForm(source, object);
+    if (form != ResourcesForm::Array && form != ResourcesForm::List)
     {
         return opaque;
     }
-    for (const auto& element : property->elements())
+    const auto property = osp::ObjectView(*source, object).property("resources");
+    for (const auto& element : property->elements()) // NOLINT(bugprone-unchecked-optional-access): the form implies it
     {
         if (const auto child = element.object(); child && !isResourceClass(child->className()))
         {
-            opaque.push_back(osp::propertyValue(source, element.id()));
+            opaque.push_back(osp::propertyValue(*source, element.id()));
         }
     }
     return opaque;
@@ -471,9 +545,15 @@ class Saver
         osp::Expected<std::string, osp::RenderError> output = std::string{};
         const bool bound =
             document.source && root.origin && root.origin->source == document.source && root.origin->object == document.source->root();
+        if (bound)
+        {
+            m_Patch.emplace(*document.source);
+            const auto* baseline = baselineOf(document.source->root());
+            m_Edited = baseline == nullptr || !sameContent(*baseline, root);
+        }
         if (bound && diffInPlace(root, document.source->root()))
         {
-            output = osp::render(*document.source, m_Patch);
+            output = osp::render(*document.source, patch());
         }
         else
         {
@@ -499,6 +579,12 @@ class Saver
     [[nodiscard]] const osp::Source& source() const
     {
         return *m_Document->source;
+    }
+
+    /// Only called while editing a document loaded from m_Document->source, which save() set up.
+    [[nodiscard]] osp::Patch& patch()
+    {
+        return *m_Patch; // NOLINT(bugprone-unchecked-optional-access): set before any in-place edit
     }
 
     /// The baseline of an object of the document's source, from one load of the whole document.
@@ -539,7 +625,7 @@ class Saver
         {
             return false;
         }
-        detail::PatchEditor editor(source(), object, m_Patch, RESOURCE_ORDER);
+        detail::PatchEditor editor(source(), object, patch(), RESOURCE_ORDER);
         applyFields(editor, *baseline, current);
         if (current.isCollection())
         {
@@ -612,27 +698,51 @@ class Saver
 
     void diffChildren(detail::PropertyEditor& editor, const Resource& baseline, const Resource& current, osp::NodeId object)
     {
-        if (current.children.empty())
+        const auto form = resourcesForm(m_Document->source, object);
+        // An edited document must open in Tracker 6.3.5, which cannot read an ArrayList.
+        if (!(m_Edited && form == ResourcesForm::List))
         {
-            if (!baseline.children.empty())
+            if (current.children.empty())
             {
-                editor.removeAll("resources");
+                if (!baseline.children.empty())
+                {
+                    editor.removeAll("resources");
+                }
+                return;
             }
-            return;
-        }
-        if (keepsChildren(baseline, current))
-        {
-            for (const auto& child : current.children)
+            if (keepsChildren(baseline, current))
             {
-                editChild(child);
+                for (const auto& child : current.children)
+                {
+                    editChild(child);
+                }
+                return;
             }
-            return;
+            if (appendInPlace(baseline, current, object))
+            {
+                return;
+            }
         }
-        if (appendInPlace(baseline, current, object))
+        writeResources(editor, current, m_Document->source, object, form);
+    }
+
+    /// Writes a collection's children as a new array: in place of the last `resources` property, or after a list OSP
+    /// ignores, which then stays in the file, shadowed, with its content.
+    void writeResources(detail::PropertyEditor& editor,
+                        const Resource& collection,
+                        const std::shared_ptr<const osp::Source>& origin,
+                        osp::NodeId object,
+                        ResourcesForm form)
+    {
+        auto value = resourcesProperty(collection, origin, object);
+        if (form == ResourcesForm::Ignored)
         {
-            return;
+            editor.insertAfterLast(std::move(value));
         }
-        editor.setProperty(resourcesProperty(current, m_Document->source.get(), object));
+        else
+        {
+            editor.setProperty(std::move(value));
+        }
     }
 
     /// The same children, from the same objects, in the same order: each is edited where it is, whatever form the
@@ -658,7 +768,7 @@ class Saver
         const auto& element = source().node(child.origin->object).parent;
         if (element)
         {
-            m_Patch.replace(*element, osp::objectProperty(source().node(*element).name.value_or(""), merged(child)));
+            patch().replace(*element, osp::objectProperty(source().node(*element).name.value_or(""), merged(child)));
         }
     }
 
@@ -745,7 +855,13 @@ class Saver
                 maxRemaining = std::max(maxRemaining, *index);
             }
         }
-        const bool appends = std::ranges::any_of(bound, [](const auto& slot) { return !slot; });
+        const auto appended = static_cast<std::int32_t>(std::ranges::count_if(bound, [](const auto& slot) { return !slot; }));
+        const bool appends = appended > 0;
+        // New elements take the indices after the largest; past the int range the list is rewritten instead.
+        if (std::int64_t{maxIndex} + appended > std::numeric_limits<std::int32_t>::max())
+        {
+            return false;
+        }
         // OSP sizes the array from the last element in the file, so it must hold the largest remaining index.
         if (!appends && lastRemaining && *lastRemaining < maxRemaining)
         {
@@ -755,10 +871,10 @@ class Saver
         {
             if (removed.contains(element.elementIndex().value()))
             {
-                m_Patch.remove(element.id());
+                patch().remove(element.id());
             }
         }
-        auto next = maxIndex + 1;
+        auto next = std::int64_t{maxIndex} + 1;
         for (std::size_t index = 0; index < current.children.size(); ++index)
         {
             const auto& child = current.children[index];
@@ -767,13 +883,14 @@ class Saver
                 editChild(child);
                 continue;
             }
-            m_Patch.append(property->id(), osp::objectProperty("[" + std::to_string(next++) + "]", merged(child)));
+            patch().append(property->id(), osp::objectProperty("[" + std::to_string(next++) + "]", merged(child)));
         }
         return true;
     }
 
     /// A rewritten `resources` array: every child's logical content, then the elements OSP ignores.
-    osp::PropertyValue resourcesProperty(const Resource& collection, const osp::Source* originSource, osp::NodeId object)
+    osp::PropertyValue
+    resourcesProperty(const Resource& collection, const std::shared_ptr<const osp::Source>& originSource, osp::NodeId object)
     {
         std::vector<std::optional<osp::PropertyValue>> elements;
         elements.reserve(collection.children.size());
@@ -781,9 +898,9 @@ class Saver
         {
             elements.emplace_back(osp::objectProperty("", merged(child)));
         }
-        if (originSource != nullptr)
+        if (originSource)
         {
-            for (auto& opaque : opaqueElements(*originSource, object))
+            for (auto& opaque : opaqueElements(originSource, object))
             {
                 elements.emplace_back(std::move(opaque));
             }
@@ -826,23 +943,23 @@ class Saver
         applyFields(editor, *baseline, resource);
         if (resource.isCollection())
         {
-            if (resource.children.empty())
+            const auto form = resourcesForm(origin.source, origin.object);
+            if (form == ResourcesForm::List || !resource.children.empty())
             {
-                if (!baseline->children.empty())
-                {
-                    editor.removeAll("resources");
-                }
+                // Merged content is always part of an edit, so an ArrayList becomes an array even when empty.
+                writeResources(editor, resource, origin.source, origin.object, form);
             }
-            else
+            else if (!baseline->children.empty())
             {
-                editor.setProperty(resourcesProperty(resource, origin.source.get(), origin.object));
+                editor.removeAll("resources");
             }
         }
         return value;
     }
 
     const CollectionDocument* m_Document;
-    osp::Patch m_Patch;
+    std::optional<osp::Patch> m_Patch{}; ///< Edits of m_Document->source, when the root was loaded from it.
+    bool m_Edited = true;                ///< The model differs from the baseline: every ArrayList becomes an array.
     bool m_Indexed = false;
     Resource m_Baseline{};
     std::map<osp::NodeId, const Resource*> m_Baselines{};
@@ -891,7 +1008,8 @@ osp::Expected<CollectionDocument, LoadError> loadCollection(std::shared_ptr<cons
         return osp::makeUnexpected(
             LoadError{.code = LoadError::Code::Malformed, .location = root.error().location, .message = root.error().message});
     }
-    document.root = *std::move(root);
+    document.root = std::move(**root);
+    loader.reportIgnored();
     return document;
 }
 

@@ -44,9 +44,11 @@ template <typename T> T require(std::optional<T> value)
     return *value;
 }
 
-std::shared_ptr<const Source> parsed(std::string bytes)
+constexpr motrack::osp::ParseLimits ACCEPT_TRUNCATED{.acceptTruncated = true};
+
+std::shared_ptr<const Source> parsed(std::string bytes, const motrack::osp::ParseLimits& limits = {})
 {
-    auto source = motrack::osp::parse(std::move(bytes));
+    auto source = motrack::osp::parse(std::move(bytes), limits);
     if (!source)
     {
         throw std::runtime_error("parse failed: " + source.error().message);
@@ -54,9 +56,9 @@ std::shared_ptr<const Source> parsed(std::string bytes)
     return *source;
 }
 
-std::string rendered(const Source& source, const Patch& patch)
+std::string rendered(const Source& source, const Patch& patch, const motrack::osp::ParseLimits& limits = {})
 {
-    auto output = motrack::osp::render(source, patch);
+    auto output = motrack::osp::render(source, patch, limits);
     if (!output)
     {
         throw std::runtime_error("render failed: " + output.error().message);
@@ -108,15 +110,15 @@ constexpr std::string_view SAMPLE = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
 TEST(OspRender, EmptyPatchReproducesTheSourceByteForByte)
 {
     const auto source = parsed(std::string(SAMPLE));
-    EXPECT_EQ(rendered(*source, Patch{}), SAMPLE);
-    EXPECT_TRUE(Patch{}.empty());
+    EXPECT_EQ(rendered(*source, Patch(*source)), SAMPLE);
+    EXPECT_TRUE(Patch(*source).empty());
 }
 
 TEST(OspRender, SetsTypedValuesInPlaceAndKeepsTheRestOfTheLine)
 {
     const auto source = parsed(std::string(SAMPLE));
     const auto root = source->root();
-    Patch patch;
+    Patch patch(*source);
     patch.setInt(child(*source, root, 0), -7)
         .setString(child(*source, root, 1), "plain")
         .setDouble(child(*source, root, 2), 1.0e7)
@@ -131,7 +133,7 @@ TEST(OspRender, SetsTypedValuesInPlaceAndKeepsTheRestOfTheLine)
 
     // Strings that need CDATA get it; multi-line values use the file's line ending.
     const auto crlf = parsed("<object class=\"x\">\r\n<property name=\"s\" type=\"string\">old</property>\r\n</object>");
-    Patch text;
+    Patch text(*crlf);
     text.setString(child(*crlf, crlf->root(), 0), "first <line>\nsecond\r\nthird");
     EXPECT_EQ(
         rendered(*crlf, text),
@@ -142,7 +144,7 @@ TEST(OspRender, ReplacesMultiLineValuesAndRawContent)
 {
     const auto source = parsed("<object class=\"x\">\n<property name=\"s\" type=\"string\">one\ntwo\nthree</property> tail\n"
                                "<property name=\"u\" type=\"float\">1.5</property>\n</object>");
-    Patch patch;
+    Patch patch(*source);
     patch.setString(child(*source, source->root(), 0), "single").setContent(child(*source, source->root(), 1), "2.5");
     EXPECT_EQ(rendered(*source, patch),
               "<object class=\"x\">\n<property name=\"s\" type=\"string\">single</property> tail\n"
@@ -153,7 +155,7 @@ TEST(OspRender, InsertsPropertiesWithSiblingIndentation)
 {
     const auto source = parsed(std::string(SAMPLE));
     const auto root = source->root();
-    Patch patch;
+    Patch patch(*source);
     patch.insert(root, 0, motrack::osp::intProperty("first", 1))
         .insert(root, 2, motrack::osp::stringProperty("between", "b"))
         .insert(root, 2, motrack::osp::stringProperty("second between", "c"))
@@ -174,7 +176,7 @@ TEST(OspRender, ReopensSelfClosingObjectsAndArrays)
     const auto root = source->root();
     const auto clip = child(*source, child(*source, root, 4), 0);
     const auto none = child(*source, root, 6);
-    Patch patch;
+    Patch patch(*source);
     patch.append(clip, motrack::osp::intProperty("startframe", 2))
         .append(clip, motrack::osp::booleanProperty("playallsteps", true))
         .append(none, motrack::osp::doubleProperty("[0]", 3.0));
@@ -193,7 +195,7 @@ TEST(OspRender, ReopensSelfClosingObjectsAndArrays)
     EXPECT_EQ(rendered(*source, patch), expected);
 
     const auto bare = parsed("\xEF\xBB\xBF<object class=\"root\"/>");
-    Patch first;
+    Patch first(*bare);
     first.append(bare->root(), motrack::osp::intProperty("a", 1));
     EXPECT_EQ(rendered(*bare, first), "\xEF\xBB\xBF<object class=\"root\">\n    <property name=\"a\" type=\"int\">1</property>\n</object>");
 }
@@ -202,7 +204,7 @@ TEST(OspRender, InsertsIntoEmptyNonSelfClosingParents)
 {
     const auto source = parsed("<object class=\"x\">\r\n  <property name=\"list\" type=\"collection\" class=\"java.util.ArrayList\">\r\n  "
                                "</property>\r\n</object>");
-    Patch patch;
+    Patch patch(*source);
     patch.append(child(*source, source->root(), 0), motrack::osp::stringProperty("item", "v"));
     patch.insert(source->root(), 1, motrack::osp::intProperty("n", 1));
     EXPECT_EQ(rendered(*source, patch),
@@ -210,7 +212,7 @@ TEST(OspRender, InsertsIntoEmptyNonSelfClosingParents)
               "      <property name=\"item\" type=\"string\">v</property>\r\n  </property>\r\n"
               "  <property name=\"n\" type=\"int\">1</property>\r\n</object>");
     const auto empty = parsed("<object class=\"x\">\n</object>");
-    Patch fill;
+    Patch fill(*empty);
     fill.append(empty->root(), motrack::osp::intProperty("n", 1));
     EXPECT_EQ(rendered(*empty, fill), "<object class=\"x\">\n    <property name=\"n\" type=\"int\">1</property>\n</object>");
 }
@@ -220,7 +222,7 @@ TEST(OspRender, RemovesAndReplacesWholeProperties)
     const auto source = parsed(std::string(SAMPLE));
     const auto root = source->root();
     const auto data = child(*source, root, 5);
-    Patch patch;
+    Patch patch(*source);
     patch.remove(child(*source, root, 1)).remove(child(*source, data, 0));
     patch.replace(child(*source, root, 4),
                   motrack::osp::objectProperty(
@@ -233,10 +235,10 @@ TEST(OspRender, RemovesAndReplacesWholeProperties)
     EXPECT_NE(output.find("class=\"[Ljava.lang.Object;\">\n    </property>"), std::string::npos);
 
     // Replacing the final, unterminated line keeps the file without a final line break.
-    const auto unterminated = parsed("<object class=\"x\">\n<property name=\"a\" type=\"int\">1</property>");
-    Patch last;
+    const auto unterminated = parsed("<object class=\"x\">\n<property name=\"a\" type=\"int\">1</property>", ACCEPT_TRUNCATED);
+    Patch last(*unterminated);
     last.replace(child(*unterminated, unterminated->root(), 0), motrack::osp::intProperty("b", 2));
-    EXPECT_EQ(rendered(*unterminated, last), "<object class=\"x\">\n<property name=\"b\" type=\"int\">2</property>");
+    EXPECT_EQ(rendered(*unterminated, last, ACCEPT_TRUNCATED), "<object class=\"x\">\n<property name=\"b\" type=\"int\">2</property>");
 }
 
 TEST(OspRender, RejectsInvalidTargetsAndConflicts)
@@ -249,24 +251,25 @@ TEST(OspRender, RejectsInvalidTargetsAndConflicts)
     const auto data = child(*source, root, 5);
     const auto element = child(*source, data, 0);
     using Code = RenderError::Code;
-    EXPECT_EQ(renderFailure(*source, Patch{}.remove(root)), Code::InvalidNode);
-    EXPECT_EQ(renderFailure(*source, Patch{}.setInt(NodeId{999}, 1)), Code::InvalidNode);
-    EXPECT_EQ(renderFailure(*source, Patch{}.insert(NodeId{999}, 0, motrack::osp::intProperty("a", 1))), Code::InvalidNode);
-    EXPECT_EQ(renderFailure(*source, Patch{}.insert(count, 0, motrack::osp::intProperty("a", 1))), Code::InvalidNode);
-    EXPECT_EQ(renderFailure(*source, Patch{}.insert(root, 99, motrack::osp::intProperty("a", 1))), Code::InvalidNode);
-    EXPECT_EQ(renderFailure(*source, Patch{}.setDouble(count, 1.0)), Code::TypeMismatch);
-    EXPECT_EQ(renderFailure(*source, Patch{}.setString(count, "1")), Code::TypeMismatch);
-    EXPECT_EQ(renderFailure(*source, Patch{}.setBoolean(count, true)), Code::TypeMismatch);
-    EXPECT_EQ(renderFailure(*source, Patch{}.setInt(child(*source, root, 2), 1)), Code::TypeMismatch);
-    EXPECT_EQ(renderFailure(*source, Patch{}.setContent(data, "1")), Code::TypeMismatch);
-    EXPECT_EQ(renderFailure(*source, Patch{}.setInt(count, 1).setInt(count, 2)), Code::ConflictingEdits);
-    EXPECT_EQ(renderFailure(*source, Patch{}.remove(count).setInt(count, 2)), Code::ConflictingEdits);
-    EXPECT_EQ(renderFailure(*source, Patch{}.remove(data).setInt(element, 2)), Code::ConflictingEdits);
+    EXPECT_EQ(renderFailure(*source, Patch(*source).remove(root)), Code::InvalidNode);
+    EXPECT_EQ(renderFailure(*source, Patch(*source).setInt(NodeId{999}, 1)), Code::InvalidNode);
+    EXPECT_EQ(renderFailure(*source, Patch(*source).insert(NodeId{999}, 0, motrack::osp::intProperty("a", 1))), Code::InvalidNode);
+    EXPECT_EQ(renderFailure(*source, Patch(*source).insert(count, 0, motrack::osp::intProperty("a", 1))), Code::InvalidNode);
+    EXPECT_EQ(renderFailure(*source, Patch(*source).insert(root, 99, motrack::osp::intProperty("a", 1))), Code::InvalidNode);
+    EXPECT_EQ(renderFailure(*source, Patch(*source).setDouble(count, 1.0)), Code::TypeMismatch);
+    EXPECT_EQ(renderFailure(*source, Patch(*source).setString(count, "1")), Code::TypeMismatch);
+    EXPECT_EQ(renderFailure(*source, Patch(*source).setBoolean(count, true)), Code::TypeMismatch);
+    EXPECT_EQ(renderFailure(*source, Patch(*source).setInt(child(*source, root, 2), 1)), Code::TypeMismatch);
+    EXPECT_EQ(renderFailure(*source, Patch(*source).setContent(data, "1")), Code::TypeMismatch);
+    EXPECT_EQ(renderFailure(*source, Patch(*source).setInt(count, 1).setInt(count, 2)), Code::ConflictingEdits);
+    EXPECT_EQ(renderFailure(*source, Patch(*source).remove(count).setInt(count, 2)), Code::ConflictingEdits);
+    EXPECT_EQ(renderFailure(*source, Patch(*source).remove(data).setInt(element, 2)), Code::ConflictingEdits);
     EXPECT_EQ(
-        renderFailure(*source,
-                      Patch{}.replace(clipProperty, motrack::osp::intProperty("clip", 1)).append(clip, motrack::osp::intProperty("a", 1))),
+        renderFailure(
+            *source,
+            Patch(*source).replace(clipProperty, motrack::osp::intProperty("clip", 1)).append(clip, motrack::osp::intProperty("a", 1))),
         Code::ConflictingEdits);
-    EXPECT_EQ(renderFailure(*source, Patch{}.replace(clipProperty, motrack::osp::intProperty("clip", 1)).remove(clipProperty)),
+    EXPECT_EQ(renderFailure(*source, Patch(*source).replace(clipProperty, motrack::osp::intProperty("clip", 1)).remove(clipProperty)),
               Code::ConflictingEdits);
 }
 
@@ -277,57 +280,91 @@ TEST(OspRender, RejectsValuesOspCannotReadBack)
     const auto label = child(*source, root, 1);
     const auto data = child(*source, root, 5);
     using Code = RenderError::Code;
-    EXPECT_EQ(renderFailure(*source, Patch{}.setString(label, "x<![CDATA[y")), Code::InvalidValue);
-    EXPECT_EQ(renderFailure(*source, Patch{}.setString(label, "a]]></property>")), Code::InvalidValue);
-    EXPECT_EQ(renderFailure(*source, Patch{}.setContent(child(*source, root, 0), "1</property>")), Code::InvalidValue);
-    EXPECT_EQ(renderFailure(*source, Patch{}.append(root, motrack::osp::intProperty("quote\"name", 1))), Code::InvalidValue);
-    EXPECT_EQ(renderFailure(*source, Patch{}.append(root, PropertyValue{.name = "a", .typeName = "in\"t"})), Code::InvalidValue);
-    EXPECT_EQ(renderFailure(*source, Patch{}.append(root, motrack::osp::collectionProperty("c", "bad>class", {}))), Code::InvalidValue);
-    EXPECT_EQ(renderFailure(*source, Patch{}.append(root, motrack::osp::objectProperty("o", ObjectValue{.className = "a\nb"}))),
+    EXPECT_EQ(renderFailure(*source, Patch(*source).setString(label, "x<![CDATA[y")), Code::InvalidValue);
+    EXPECT_EQ(renderFailure(*source, Patch(*source).setString(label, "a]]></property>")), Code::InvalidValue);
+    EXPECT_EQ(renderFailure(*source, Patch(*source).setContent(child(*source, root, 0), "1</property>")), Code::InvalidValue);
+    EXPECT_EQ(renderFailure(*source, Patch(*source).append(root, motrack::osp::intProperty("quote\"name", 1))), Code::InvalidValue);
+    EXPECT_EQ(renderFailure(*source, Patch(*source).append(root, PropertyValue{.name = "a", .typeName = "in\"t"})), Code::InvalidValue);
+    EXPECT_EQ(renderFailure(*source, Patch(*source).append(root, motrack::osp::collectionProperty("c", "bad>class", {}))),
               Code::InvalidValue);
-    EXPECT_EQ(
-        renderFailure(*source, Patch{}.append(root, motrack::osp::objectProperty("o", ObjectValue{.className = "a", .version = "1"}))),
-        Code::InvalidValue);
-    // OSP's setProperty fails to read a null object directly in an object, so it is refused there.
-    EXPECT_EQ(renderFailure(*source, Patch{}.append(root, motrack::osp::nullObjectProperty("video"))), Code::InvalidValue);
-    EXPECT_EQ(renderFailure(*source, Patch{}.replace(label, motrack::osp::nullObjectProperty("label"))), Code::InvalidValue);
-    EXPECT_TRUE(motrack::osp::render(*source, Patch{}.append(data, motrack::osp::nullObjectProperty("[1]"))));
-    // Invalid content nested in arrays and objects is found too.
-    EXPECT_EQ(renderFailure(
-                  *source,
-                  Patch{}.append(root,
-                                 motrack::osp::arrayProperty(
-                                     "a", "[Ljava.lang.Object;", {motrack::osp::intProperty("", 1), PropertyValue{.typeName = "in\"t"}}))),
+    EXPECT_EQ(renderFailure(*source, Patch(*source).append(root, motrack::osp::objectProperty("o", ObjectValue{.className = "a\nb"}))),
               Code::InvalidValue);
     EXPECT_EQ(renderFailure(*source,
-                            Patch{}.append(root,
-                                           motrack::osp::objectProperty(
-                                               "o", ObjectValue{.className = "a", .properties = {motrack::osp::nullObjectProperty("n")}}))),
+                            Patch(*source).append(root, motrack::osp::objectProperty("o", ObjectValue{.className = "a", .version = "1"}))),
+              Code::InvalidValue);
+    // OSP's setProperty fails to read a null object directly in an object, so it is refused there.
+    EXPECT_EQ(renderFailure(*source, Patch(*source).append(root, motrack::osp::nullObjectProperty("video"))), Code::InvalidValue);
+    EXPECT_EQ(renderFailure(*source, Patch(*source).replace(label, motrack::osp::nullObjectProperty("label"))), Code::InvalidValue);
+    EXPECT_TRUE(motrack::osp::render(*source, Patch(*source).append(data, motrack::osp::nullObjectProperty("[1]"))));
+    // Invalid content nested in arrays and objects is found too.
+    EXPECT_EQ(renderFailure(*source,
+                            Patch(*source).append(
+                                root,
+                                motrack::osp::arrayProperty(
+                                    "a", "[Ljava.lang.Object;", {motrack::osp::intProperty("", 1), PropertyValue{.typeName = "in\"t"}}))),
               Code::InvalidValue);
     EXPECT_EQ(renderFailure(
                   *source,
-                  Patch{}.append(
+                  Patch(*source).append(root,
+                                        motrack::osp::objectProperty(
+                                            "o", ObjectValue{.className = "a", .properties = {motrack::osp::nullObjectProperty("n")}}))),
+              Code::InvalidValue);
+    EXPECT_EQ(renderFailure(
+                  *source,
+                  Patch(*source).append(
                       root, motrack::osp::arrayProperty("a", "[Ljava.lang.Object;", {motrack::osp::stringProperty("s", "x<![CDATA[")}))),
               Code::InvalidValue);
+}
+
+TEST(OspRender, RefusesPatchesForAnotherSource)
+{
+    const auto first = parsed(std::string(SAMPLE));
+    const auto second = parsed(std::string(SAMPLE));
+    EXPECT_NE(first->identity(), second->identity());
+    // Same bytes, same node ids: the patch still belongs only to the source it was made for.
+    Patch patch(*first);
+    patch.setInt(child(*first, first->root(), 0), 9);
+    EXPECT_EQ(renderFailure(*second, patch), RenderError::Code::InvalidNode);
+    EXPECT_NE(rendered(*first, patch).find(">9<"), std::string::npos);
+}
+
+TEST(OspRender, RejectsAttributesThatWouldSupplyAnotherAttribute)
+{
+    // A value ending in "type=" forms `type="` with its closing quote, so OSP would read the wrong type.
+    const auto source = parsed(std::string(SAMPLE));
+    const auto root = source->root();
+    for (const auto* name : {"atype=", "xclass=", "name=", "="})
+    {
+        EXPECT_EQ(renderFailure(*source, Patch(*source).append(root, motrack::osp::intProperty(name, 1))), RenderError::Code::InvalidValue)
+            << name;
+    }
+    EXPECT_EQ(renderFailure(*source, Patch(*source).append(root, motrack::osp::collectionProperty("c", "Listclass=", {}))),
+              RenderError::Code::InvalidValue);
+    EXPECT_EQ(motrack::osp::write(ObjectValue{.className = "x", .version = "1version="}).error().code, RenderError::Code::InvalidValue);
+    EXPECT_TRUE(motrack::osp::render(*source, Patch(*source).append(root, motrack::osp::intProperty("type", 1))));
 }
 
 TEST(OspRender, VerifiesTheRenderAgainstTheIntendedTree)
 {
     // The value starts after the first '>' of the line, which here is inside the name attribute.
     const auto source = parsed("<object class=\"x\">\n<property name=\"a>b\" type=\"int\">3</property>\n</object>");
-    EXPECT_EQ(renderFailure(*source, Patch{}.setContent(child(*source, source->root(), 0), "9")), RenderError::Code::VerificationFailed);
+    EXPECT_EQ(renderFailure(*source, Patch(*source).setContent(child(*source, source->root(), 0), "9")),
+              RenderError::Code::VerificationFailed);
     // An insertion at the end of an object that reached end of file unclosed would land in the wrong object.
-    const auto unclosed = parsed("<object class=\"x\">\n<property name=\"o\" type=\"object\">\n<object class=\"y\">\n");
-    EXPECT_EQ(renderFailure(*unclosed, Patch{}.append(unclosed->root(), motrack::osp::intProperty("a", 1))),
+    const auto unclosed = parsed("<object class=\"x\">\n<property name=\"o\" type=\"object\">\n<object class=\"y\">\n", ACCEPT_TRUNCATED);
+    EXPECT_EQ(renderFailure(*unclosed, Patch(*unclosed).append(unclosed->root(), motrack::osp::intProperty("a", 1)), ACCEPT_TRUNCATED),
               RenderError::Code::UnsupportedLayout);
-    EXPECT_EQ(rendered(*unclosed, Patch{}.insert(unclosed->root(), 0, motrack::osp::intProperty("a", 1))),
+    // The default limits refuse to verify a render of a truncated source, as they refuse to parse one.
+    EXPECT_EQ(renderFailure(*unclosed, Patch(*unclosed).insert(unclosed->root(), 0, motrack::osp::intProperty("a", 1))),
+              RenderError::Code::VerificationFailed);
+    EXPECT_EQ(rendered(*unclosed, Patch(*unclosed).insert(unclosed->root(), 0, motrack::osp::intProperty("a", 1)), ACCEPT_TRUNCATED),
               "<object class=\"x\">\n<property name=\"a\" type=\"int\">1</property>\n<property name=\"o\" type=\"object\">\n<object "
               "class=\"y\">\n");
     // Only string properties have a CDATA path, so other types store the marker literally.
     const auto unknown = parsed("<object class=\"x\">\n<property name=\"u\" type=\"float\">1</property>\n</object>");
-    EXPECT_EQ(rendered(*unknown, Patch{}.setContent(child(*unknown, unknown->root(), 0), "<![CDATA[")),
+    EXPECT_EQ(rendered(*unknown, Patch(*unknown).setContent(child(*unknown, unknown->root(), 0), "<![CDATA[")),
               "<object class=\"x\">\n<property name=\"u\" type=\"float\"><![CDATA[</property>\n</object>");
-    EXPECT_EQ(renderFailure(*unknown, Patch{}.append(unknown->root(), motrack::osp::intProperty("big", 1)), {.maxBytes = 70}),
+    EXPECT_EQ(renderFailure(*unknown, Patch(*unknown).append(unknown->root(), motrack::osp::intProperty("big", 1)), {.maxBytes = 70}),
               RenderError::Code::TooLarge);
 }
 
@@ -500,9 +537,66 @@ TEST(OspWriter, AvoidsCompactArraysOspCannotReadBack)
               "</object>");
     const auto reread = parsed(written);
     const auto rows = require(require(ObjectView(*reread, reread->root()).property("ints")).indexedElements());
-    ASSERT_EQ(rows.size(), 2U);
-    EXPECT_EQ(require(require(rows[0]).compactArray()).ints, (std::vector<std::int32_t>{1, 2}));
-    EXPECT_TRUE(require(rows[1]).elements().empty());
+    ASSERT_EQ(rows.length, 2U);
+    EXPECT_EQ(require(require(rows.at(0)).compactArray()).ints, (std::vector<std::int32_t>{1, 2}));
+    EXPECT_TRUE(require(rows.at(1)).elements().empty());
+}
+
+TEST(OspWriter, KeepsTrailingNullRowsOspWouldDrop)
+{
+    using Kind = motrack::osp::CompactArray::Kind;
+    using motrack::osp::CompactArray;
+    // OSP writes {{1,2},null}, and its decoder never reaches the final null row: it reads [[1,2]]
+    // (OpenSourcePhysics/osp#20).
+    EXPECT_EQ(require(motrack::osp::parseCompactArray("{{1,2},null}", "[[I")).rows.size(), 1U);
+    const CompactArray values{.kind = Kind::Nested, .rows = {CompactArray{.kind = Kind::Int, .ints = {1, 2}}, CompactArray{}}};
+    const auto property = require(motrack::osp::primitiveArrayProperty("rows", "[[I", values));
+    ASSERT_EQ(property.elements.size(), 2U);
+    EXPECT_EQ(property.elements[0].name, "[0]");
+    EXPECT_EQ(property.elements[1].name, "[1]");
+    EXPECT_EQ(property.elements[1].type(), motrack::osp::PropertyType::Object);
+    const auto reread = parsed(require(motrack::osp::write(ObjectValue{.className = "x", .properties = {property}})));
+    EXPECT_EQ(require(require(ObjectView(*reread, reread->root()).property("rows")).indexedElements()).length, 2U);
+    // A null row before the last one is read back, so the compact form stays.
+    const CompactArray leading{.kind = Kind::Nested, .rows = {CompactArray{}, CompactArray{.kind = Kind::Int, .ints = {1}}}};
+    EXPECT_EQ(require(motrack::osp::primitiveArrayProperty("rows", "[[I", leading)).elements.at(0).content, "{null,{1}}");
+    // NaN and -0.0 survive the compact form.
+    const CompactArray special{.kind = Kind::Double, .doubles = {std::numeric_limits<double>::quiet_NaN(), -0.0}};
+    EXPECT_EQ(require(motrack::osp::primitiveArrayProperty("d", "[D", special)).elements.at(0).content, "{NaN,-0.0}");
+}
+
+TEST(OspWriter, RefusesStringsThatWouldInjectProperties)
+{
+    // A CDATA value ending in "]]></property>" would let the following line become a real property in OSP
+    // (getInt("injected") returned 7 in Tracker 6.3.5; OpenSourcePhysics/osp#21).
+    const std::string injection =
+        "x]]></property>\n<property name=\"injected\" type=\"int\">7</property>\n<property name=\"rest\" type=\"string\"><![CDATA[y";
+    const auto source = parsed(std::string(SAMPLE));
+    EXPECT_EQ(renderFailure(*source, Patch(*source).setString(child(*source, source->root(), 1), injection)),
+              RenderError::Code::InvalidValue);
+    EXPECT_EQ(motrack::osp::write(ObjectValue{.className = "x", .properties = {motrack::osp::stringProperty("s", injection)}}).error().code,
+              RenderError::Code::InvalidValue);
+    // Without the CDATA terminator, multi-line text cannot leave its property.
+    const auto multiline =
+        rendered(*source, Patch(*source).setString(child(*source, source->root(), 1), "a\n<property name=\"injected\" type=\"int\">7"));
+    const auto reread = parsed(multiline);
+    const ObjectView root(*reread, reread->root());
+    EXPECT_FALSE(root.property("injected"));
+    EXPECT_EQ(root.getString("label"), "a\n<property name=\"injected\" type=\"int\">7");
+}
+
+TEST(OspWriter, RewritesLoadedCdataStringsWithCdata)
+{
+    // OSP keeps a loaded string without its CDATA markers and XMLControlElement.toXML then writes it bare
+    // (`a<b`, OpenSourcePhysics/osp#21). MoTrack decides CDATA from the logical value whenever it writes one.
+    const auto source = parsed("<object class=\"x\">\n<property name=\"s\" type=\"string\"><![CDATA[a<b]]></property>\n</object>");
+    const auto property = child(*source, source->root(), 0);
+    const auto replaced = rendered(*source, Patch(*source).replace(property, motrack::osp::propertyValue(*source, property)));
+    EXPECT_EQ(replaced, "<object class=\"x\">\n<property name=\"s\" type=\"string\"><![CDATA[a<b]]></property>\n</object>");
+    const auto copied =
+        require(motrack::osp::write(ObjectValue{.className = "x", .properties = {motrack::osp::propertyValue(*source, property)}}));
+    EXPECT_NE(copied.find("<![CDATA[a<b]]>"), std::string::npos);
+    EXPECT_EQ(rendered(*source, Patch(*source).setContent(property, "a<b")), replaced);
 }
 
 TEST(OspWriter, WritesPrimitiveArraysAsOspDoes)

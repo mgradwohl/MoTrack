@@ -44,6 +44,16 @@ file sets the length), an element of the wrong type, or malformed CDATA. Element
 read as null; MoTrack treats every class except the library classes and `java.*`/`javax.*` that way, keeps the
 element, and reports a `Diagnostic`.
 
+Java allocates every array at the length its last element's index gives. MoTrack stores only the slots a file fills,
+so `[2000000000]` costs one slot; metadata or property arrays with empty slots still fail, as Java's null rows do.
+The `Library` lists that the model keeps whole (open tabs, sub-library and imported paths) are refused when they
+are longer than the document has nodes. A document that ends before its objects close is refused, as motrack_osp
+refuses it by default (#243), where OSP loads the part it read.
+
+Loading recurses once per nested collection, as OSP's does. At motrack_osp's depth limit (85 nested collections)
+a Windows Debug build needs about 470 KiB of stack to parse the document and about 300 KiB to load the parsed
+document; `LibraryLimits` loads, edits, saves and writes it on a 512 KiB thread, a macOS worker's default.
+
 ## Paths
 
 `absoluteTarget` and `absoluteHtmlPath` resolve against the first non-empty base path from the resource up to
@@ -61,7 +71,12 @@ the root, with `XML.getResolvedPath` (`resolvedPath`):
 | `&OSPSubject=223` | ComPADRE records query | concatenated without `/` |
 | `pendulum.trz!/html/info.html` | `https://host/exp/` | `https://host/exp/pendulum.trz!/html/info.html` |
 
-Spaces, `%20` and non-ASCII text are kept as written. An archive member is `archive!/member`
+Spaces, `%20` and non-ASCII text are kept as written. `resolvePathChecked` adds the result's `PathKind` (relative,
+web, `file:`, `jar:`, other scheme, local absolute, network share, ComPADRE query), whether it left the base
+directory, and whether it changed origin (scheme and host, drive or share). The Library Browser (I6) opens local,
+UNC, `file:` and `jar:` targets of a remote collection only after confirmation and percent-encodes ComPADRE
+parameters (#301): OSP resolves `../../../../Windows/win.ini` against `https://example.org/dir/` to the relative
+`Windows/win.ini`, turns `\\attacker\share\x.trk` into a UNC path and passes `file:` URLs through. An archive member is `archive!/member`
 (`splitArchiveMember`); `isJarZipTrz` tests `.jar`, `.zip` and `.trz` case-sensitively. The Library Browser
 (`browserAbsoluteTarget`, `browserHtmlPath`) falls back to the directory of the collection file or URL when no
 ancestor has a base path, and appends a populated collection's target to its base path without a separator.
@@ -82,6 +97,11 @@ with the next indices. Reordering or inserting earlier rewrites that `resources`
 logical content, keeping elements Java ignores. A changed class replaces the element, or rewrites the document at
 the root. Resources copied from another document keep their unknown properties. Each output is reloaded and must
 equal the model as OSP loads it.
+
+A `resources` ArrayList (below) survives an unedited save. Any edit rewrites every readable ArrayList in the
+document as an array, so the result opens in Tracker 6.3.5; elements of unknown classes are kept as array elements.
+A list OSP ignores as a whole (an ArrayList with a malformed element reads as null) is not rewritten: when children
+are added, the new array follows it, and the old list stays in the file, shadowed, with everything in it.
 
 Two choices keep MoTrack's saves lossless where OSP's writer is not: an HTML path inside the target archive,
 which OSP drops and derives again from the archive, is kept; and a resource whose type is Unknown but which has an
@@ -107,7 +127,10 @@ declarations and encodings other than UTF-8 are refused.
 `file-identifier` before Tracker's Main/Primary, then Supplemental order, so records whose own file is a
 supplemental movie or a Source Code TRZ open correctly (#213); and a record without an identifier, file size,
 contributors or text no longer ends the list or loses its description (#266). `ComPadreMode::Tracker635`
-reproduces Tracker for the oracle. Desktop Tracker shows a cached thumbnail; the browser maps the URL to its cache.
+reproduces Tracker for the oracle. It also escapes the title, type, authors, file name and URLs in the description
+and links only http(s) thumbnails and pages, where Tracker inserts the response's text unchanged; descriptions stay
+HTML, so the browser renders them without scripts or external resources (#301). Desktop Tracker shows a cached
+thumbnail; the browser maps the URL to its cache.
 
 ## Libraries
 
@@ -116,6 +139,8 @@ name is skipped, fewer names than paths fails (as does a names list longer than 
 opened paths go through `addRecent` (no duplicates, at most six), and `no_search_paths` is sorted. MoTrack keeps
 declared sub-library and imported paths instead of opening them, and a missing name stays null instead of
 "<home folder> Library". `saveLibrary` rewrites only changed lists and derives `recently_opened_names` as OSP does.
+Tracker overflows its stack on a library that lists itself as a sub-library (#300); the browser opens
+sub-libraries and imports with a visited set, and honors `cache` only in the user's own library (#301).
 
 ## Oracle
 
@@ -126,20 +151,23 @@ by `toXML`. `motrack_corpus_probe --library-dump KIND input output.json` writes 
 (`motrack.library-dump/1`) and also requires an unedited save to be byte-identical. `python tools/corpus.py
 library-oracle --java JAVA --probe PROBE [--library-extra DIR]` compares them for every file in
 [`tests/fixtures/library`](../tests/fixtures/library) in LF, CRLF, CR and BOM+CRLF variants; `--library-extra`
-adds local documents such as a saved ComPADRE response. It runs on Linux CI after the build.
+adds local documents such as a saved ComPADRE response. Two generated inputs join them: the deepest nesting both
+readers accept and an element index of 200000. It runs on Linux CI after the build.
 `LibraryDump.java --generate` writes a collection and a library with OSP's own API; the committed copies in
 `tests/fixtures/library/generated` must equal a fresh run, and MoTrack's writers reproduce them byte for byte.
 The known-difference list in `corpus.py` holds the ArrayList case, which must keep failing in Tracker 6.3.5.
 
 The fixtures are synthetic. The ComPADRE samples follow the schema of the REST responses fetched on 2026-11-22
 with invented records. The real responses and OSP's CAB collections and libraries were compared once locally with
-`--library-extra` (91 documents with the fixtures, all equal); they are not committed.
+`--library-extra` (97 documents with the fixtures, all equal); they are not committed.
 
 ## Deliberate differences
 
-- `resources` stored as an ArrayList loads, as on OSP's tip; Tracker 6.3.5 throws `ClassCastException`. Saving
-  such a list unchanged keeps it; changing its membership rewrites it as an array.
-- `relativePath` matches whole segments (#265). ComPADRE's default mode: #213 and #266.
+- `resources` stored as an ArrayList loads, as on OSP's tip; Tracker 6.3.5 throws `ClassCastException`. An
+  unedited save keeps it; any edit writes arrays.
+- `relativePath` matches whole segments (#265). ComPADRE's default mode: #213, #266 and escaped HTML text.
+- Sparse arrays: a huge element index costs nothing (Java allocates it); whole `Library` lists longer than the
+  document has nodes are refused. Truncated documents are refused (#243).
 - Saves keep HTML paths inside archives and write an explicit Unknown type when needed (above).
 - Unknown classes are recognized by name, not by loading Java classes; a known Java class of the wrong type is
   `Malformed`, as the Java cast is.

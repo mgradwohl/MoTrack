@@ -177,6 +177,108 @@ std::string relativePath(std::string_view absolute, std::string_view base)
     return path;
 }
 
+PathKind classifyPath(std::string_view path)
+{
+    const auto text = forwardSlash(path);
+    if (text.empty())
+    {
+        return PathKind::Empty;
+    }
+    if (text.starts_with('&'))
+    {
+        return PathKind::ComPadreQuery;
+    }
+    if (text.starts_with("//"))
+    {
+        return PathKind::NetworkShare;
+    }
+    if (text.starts_with('/'))
+    {
+        return PathKind::LocalAbsolute;
+    }
+    const auto isLetter = [](char c)
+    {
+        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+    };
+    if (text.size() >= 2 && isLetter(text[0]) && text[1] == ':')
+    {
+        return PathKind::LocalAbsolute;
+    }
+    const auto colon = text.find(':');
+    const auto slash = text.find('/');
+    if (colon != std::string::npos && colon > 0 && (slash == std::string::npos || colon < slash) && isLetter(text[0]) &&
+        std::all_of(text.begin(),
+                    text.begin() + static_cast<std::ptrdiff_t>(colon),
+                    [&isLetter](char c) { return isLetter(c) || (c >= '0' && c <= '9') || c == '+' || c == '.' || c == '-'; }))
+    {
+        const auto scheme = asciiLower(std::string_view(text).substr(0, colon));
+        if (scheme == "http" || scheme == "https")
+        {
+            return PathKind::Web;
+        }
+        if (scheme == "file")
+        {
+            return PathKind::FileUrl;
+        }
+        return scheme == "jar" ? PathKind::ArchiveUrl : PathKind::OtherScheme;
+    }
+    return PathKind::Relative;
+}
+
+namespace
+{
+
+/// The part of a path that says where it lives: scheme and host, drive, share or root; "" for relative paths.
+std::string origin(std::string_view path)
+{
+    const auto text = forwardSlash(path);
+    switch (classifyPath(text))
+    {
+    case PathKind::Web:
+    {
+        const auto colon = text.find(':');
+        auto result = asciiLower(std::string_view(text).substr(0, colon + 1));
+        if (std::string_view(text).substr(colon + 1).starts_with("//"))
+        {
+            const auto end = text.find('/', colon + 3);
+            result += asciiLower(std::string_view(text).substr(colon + 1, end == std::string::npos ? std::string::npos : end - colon - 1));
+        }
+        return result;
+    }
+    case PathKind::FileUrl:
+    case PathKind::ArchiveUrl:
+    case PathKind::OtherScheme:
+        return asciiLower(std::string_view(text).substr(0, text.find(':') + 1));
+    case PathKind::LocalAbsolute:
+        return text.starts_with('/') ? std::string("/") : asciiLower(std::string_view(text).substr(0, 2));
+    case PathKind::NetworkShare:
+    {
+        const auto server = text.find('/', 2);
+        const auto share = server == std::string::npos ? std::string::npos : text.find('/', server + 1);
+        return asciiLower(std::string_view(text).substr(0, share));
+    }
+    default:
+        return {};
+    }
+}
+
+} // namespace
+
+PathResolution resolvePathChecked(std::string_view relative, std::string_view base)
+{
+    PathResolution resolution{.path = resolvedPath(relative, base)};
+    resolution.kind = classifyPath(resolution.path);
+    resolution.archiveMember = resolution.path.find("!/") != std::string::npos;
+    auto directory = forwardSlash(base);
+    if (directory.ends_with('/'))
+    {
+        directory.pop_back();
+    }
+    const bool query = classifyPath(relative) == PathKind::ComPadreQuery;
+    resolution.leftBase = !directory.empty() && !query && !resolution.path.starts_with(directory + "/");
+    resolution.changedOrigin = origin(resolution.path) != origin(directory);
+    return resolution;
+}
 bool isHttp(std::string_view path) noexcept
 {
     return path.starts_with("http:") || path.starts_with("https:");

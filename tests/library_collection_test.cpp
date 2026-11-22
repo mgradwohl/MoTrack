@@ -379,26 +379,31 @@ TEST(LibraryCollection, MalformedValuesNeverCrash)
         </property>
     </property>)",
     };
-    std::size_t loaded = 0;
-    for (const auto body : bodies)
+    // Whether Java's loader returns (true) or throws (false) for each body, worked out from XMLControlElement and
+    // the library loaders (see the comments in osp_values.cpp).
+    const std::vector<bool> loads = {false, false, false, false, false, false, true,  false, true,  false, true,  false,
+                                     false, false, true,  true,  false, false, true,  false, false, false, false, false,
+                                     false, true,  false, false, true,  false, true,  false, false, false, true,  false,
+                                     false, true,  false, false, false, false, false, false, false, false};
+    ASSERT_EQ(loads.size(), bodies.size());
+    for (std::size_t index = 0; index < bodies.size(); ++index)
     {
+        const auto body = bodies[index];
         std::string text(resource);
         text.replace(text.find("%s"), 2, body);
         const auto document = library::loadCollection(text);
+        ASSERT_EQ(document.has_value(), loads[index]) << "body " << index + 1 << ": " << body;
         if (document)
         {
-            ++loaded;
             const auto output = library::saveCollection(*document);
             ASSERT_TRUE(output) << body;
             EXPECT_EQ(*output, text) << body;
         }
         else
         {
-            EXPECT_TRUE(document.error().code == LoadError::Code::Malformed || document.error().code == LoadError::Code::Parse) << body;
+            EXPECT_EQ(document.error().code, LoadError::Code::Malformed) << body;
         }
     }
-    EXPECT_GT(loaded, 5U);
-    EXPECT_LT(loaded, bodies.size());
 }
 
 TEST(LibraryCollection, UneditedSavesAreByteIdentical)
@@ -429,7 +434,7 @@ TEST(LibraryCollection, UneditedSavesAreByteIdentical)
             }
         }
     }
-    EXPECT_EQ(checked, 24U) << "five collections and three libraries in three line-ending variants";
+    EXPECT_EQ(checked, 27U) << "six collections and three libraries in three line-ending variants";
 }
 
 TEST(LibraryCollection, EditsChangeOnlyTheirProperties)
@@ -672,11 +677,13 @@ TEST(LibraryCollection, WriterMatchesOsp)
     EXPECT_EQ(reloaded.htmlPath, "");
     EXPECT_EQ(reloaded.type, ResourceType::Tracker);
 
-    // A document without a source is written in OSP's layout.
+    // A document without a source is written in OSP's layout, except that saving keeps the page in the archive.
     library::CollectionDocument fresh{.root = root};
-    const auto output = saved(fresh);
-    EXPECT_TRUE(library::sameContent(load(output).root, library::reloadedForm(root)) ||
-                load(output).root.children[0].htmlPath == "experiments/run.trz!/run_info.html");
+    const auto reopened = load(saved(fresh)).root;
+    EXPECT_EQ(reopened.children[0].htmlPath, "experiments/run.trz!/run_info.html");
+    auto expected = library::reloadedForm(root);
+    expected.children[0].htmlPath = "experiments/run.trz!/run_info.html";
+    EXPECT_TRUE(library::sameContent(reopened, expected));
 }
 
 TEST(LibraryCollection, ReloadedFormNormalizesLikeTheLoader)
@@ -698,6 +705,95 @@ TEST(LibraryCollection, ReloadedFormNormalizesLikeTheLoader)
     EXPECT_EQ(library::reloadedForm(collection).target, "  query  ");
 }
 
+TEST(LibraryCollection, EditedSavesWriteArraysThatTracker635Reads)
+{
+    const auto original = readFixture("collection-resources-arraylist.xml");
+    auto unedited = load(original);
+    EXPECT_EQ(saved(unedited), original) << "an unedited save keeps the ArrayList";
+
+    // Editing a child, or anything else in the document, turns the list into an array.
+    auto document = load(original);
+    library::setName(document.root.children[1], "Second, renamed");
+    const auto output = saved(document);
+    EXPECT_EQ(output.find("java.util.ArrayList"), std::string::npos);
+    EXPECT_NE(output.find(R"(<property name="resources" type="array" class="[Lorg.opensourcephysics.tools.LibraryResource;">)"),
+              std::string::npos);
+    const auto reopened = load(output);
+    ASSERT_EQ(reopened.root.children.size(), 2U);
+    EXPECT_EQ(reopened.root.children[1].name, "Second, renamed");
+    EXPECT_TRUE(reopened.diagnostics.empty());
+    auto renamed = load(original);
+    library::setName(renamed.root, "Renamed collection");
+    EXPECT_EQ(saved(renamed).find("java.util.ArrayList"), std::string::npos);
+
+    // An ArrayList that OSP ignores (a malformed element makes collectionValue return null) is kept, shadowed,
+    // when children are added: every element survives and the new array is the one OSP reads.
+    const std::string ignored = R"(<?xml version="1.0" encoding="UTF-8"?>
+<object class="org.opensourcephysics.tools.LibraryCollection">
+    <property name="name" type="string">Ignored list</property>
+    <property name="resources" type="collection" class="java.util.ArrayList">
+        <property name="item" type="object">
+        <object class="org.opensourcephysics.tools.LibraryResource">
+            <property name="name" type="string">Hidden but valid</property>
+        </object>
+        </property>
+        <property name="item" type="object">
+        <object class="org.opensourcephysics.tools.LibraryResource">
+            <property name="name" type="string"><![CDATA[a<![CDATA[b]]></property>
+        </object>
+        </property>
+    </property>
+</object>
+)";
+    auto hidden = load(ignored);
+    EXPECT_TRUE(hidden.root.children.empty());
+    hidden.root.children.push_back(library::makeResource("Added"));
+    const auto shadowed = saved(hidden);
+    EXPECT_NE(shadowed.find("Hidden but valid"), std::string::npos);
+    EXPECT_NE(shadowed.find("java.util.ArrayList"), std::string::npos);
+    const auto reread = load(shadowed);
+    ASSERT_EQ(reread.root.children.size(), 1U);
+    EXPECT_EQ(reread.root.children[0].name, "Added");
+
+    // Unknown-class elements of a rewritten ArrayList are kept as array elements.
+    const std::string withUnknown = R"(<?xml version="1.0" encoding="UTF-8"?>
+<object class="org.opensourcephysics.tools.LibraryCollection">
+    <property name="name" type="string">List with an unknown element</property>
+    <property name="resources" type="collection" class="java.util.ArrayList">
+        <property name="item" type="object">
+        <object class="org.example.FutureResource">
+            <property name="name" type="string">Future</property>
+        </object>
+        </property>
+        <property name="item" type="object">
+        <object class="org.opensourcephysics.tools.LibraryResource">
+            <property name="name" type="string">Known</property>
+        </object>
+        </property>
+    </property>
+</object>
+)";
+    auto future = load(withUnknown);
+    ASSERT_EQ(future.root.children.size(), 1U);
+    library::setName(future.root, "Edited");
+    const auto kept = saved(future);
+    EXPECT_NE(kept.find("org.example.FutureResource"), std::string::npos);
+    EXPECT_EQ(kept.find("java.util.ArrayList"), std::string::npos);
+    EXPECT_EQ(load(kept).root.children.size(), 1U);
+}
+
+TEST(LibraryCollection, CollectionsNeverGetAType)
+{
+    auto collection = library::makeCollection("c");
+    collection.type = ResourceType::Tracker; // set directly, which LibraryCollection.setType would refuse
+    for (const auto& property : library::collectionObjectValue(collection).properties)
+    {
+        EXPECT_NE(property.name, "type");
+    }
+    const auto written = library::writeCollection(collection);
+    ASSERT_TRUE(written);
+    EXPECT_EQ(written->find(R"(name="type")"), std::string::npos);
+}
 library::LibraryDocument loadLibraryFixture(std::string_view name)
 {
     auto document = library::loadLibrary(readFixture(name));
