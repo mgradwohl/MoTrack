@@ -639,10 +639,7 @@ TEST(TrackEdits, RefusesInvalidOrUnrepresentableTimingWithoutHistoryChanges)
                                                                        clip.stepSize = std::numeric_limits<int>::max();
                                                                    },
                                                                    [](auto& clip) { clip.sourceFrameCount = 3; },
-                                                                   [](auto& clip)
-                                                                   {
-                                                                       clip.mediaReferences = {"frames/one.png"};
-                                                                   }};
+                                                                   [](auto& clip) { clip.mediaReferences = {"frames/one.png"}; }};
     for (const auto& change : changes)
     {
         project = original;
