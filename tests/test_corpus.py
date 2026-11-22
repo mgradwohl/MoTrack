@@ -3535,5 +3535,172 @@ class OdeOracleTests(unittest.TestCase):
                 corpus.validate_ode_reference(document, self.manifest)
 
 
+class FitOracleTests(unittest.TestCase):
+    """The curve-fit kernel oracle (tools/reference/FitOracle.java) without running Java."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name).resolve()
+        self.manifest = corpus.load_manifest()
+        self.fixture = json.loads(corpus.FIT_REFERENCE.read_text(encoding="utf-8"))
+
+    def check(self, document, *, record=False, commands=None):
+        """Run check_fit_oracle with a fake Java process that emits `document`."""
+        def run(command, **options):
+            if commands is not None:
+                commands.append((command, options))
+            Path(command[-1]).write_text(json.dumps(document), encoding="utf-8")
+
+        with patch.object(corpus, "verify_file") as verify, patch.object(corpus, "run", side_effect=run), \
+                redirect_stdout(io.StringIO()) as output:
+            corpus.check_fit_oracle(self.manifest, self.root, "java", record=record)
+        verify.assert_called_once_with(self.root / self.manifest["reference"]["file"], self.manifest["reference"])
+        return output.getvalue()
+
+    def case(self, document, case_id):
+        return next(case for case in document["cases"] if case["id"] == case_id)
+
+    def test_committed_fixture_covers_every_fit_defect_and_agreement_class(self):
+        corpus.validate_fit_reference(self.fixture, self.manifest)
+        self.assertEqual([fit["id"] for fit in self.fixture["fits"]], corpus.FIT_BUILT_INS)
+        self.assertEqual([fit["name"] for fit in self.fixture["fits"]],
+                         ["Poly1", "Poly2", "Poly3", "Gaussian", "Exponential", "Sinusoid", "DampedSine", "Power", "Log"])
+        cases = self.fixture["cases"]
+        self.assertEqual({case["agreement"] for case in cases}, corpus.FIT_AGREEMENTS)
+        self.assertEqual({case["defect"] for case in cases if "defect" in case}, corpus.FIT_DEFECTS)
+        self.assertEqual({case["java"]["method"] for case in cases}, corpus.FIT_METHODS)
+        for fit in corpus.FIT_BUILT_INS:
+            groups = {case["group"] for case in cases if case["fit"] == fit}
+            self.assertTrue({"exact", "noisy", "outlier", "duplicate-x", "fixed", "current", "manual", "random"} <= groups, fit)
+        self.assertGreaterEqual(sum("expect" in case for case in cases), 70)
+        self.assertEqual(len(self.fixture["minimizers"]), 14)
+        self.assertEqual(corpus.FIT_REFERENCE.read_bytes().decode("utf-8"), corpus.fit_reference_text(self.fixture))
+        self.assertLess(corpus.FIT_REFERENCE.stat().st_size, 400 * 1024)
+
+    def test_check_runs_the_pinned_jar_privately_and_accepts_an_identical_regeneration(self):
+        commands = []
+        output = self.check(self.fixture, commands=commands)
+        self.assertIn(f"{len(self.fixture['cases'])} Java curve-fit cases and 14 minimizer runs match", output)
+        [(command, options)] = commands
+        self.assertEqual(command[0], "java")
+        self.assertIn("-Djava.awt.headless=true", command)
+        self.assertIn("-Xmx256m", command)
+        self.assertGreater(options["timeout"], 45)
+        self.assertEqual(command[command.index("--class-path") + 1], str(self.root / self.manifest["reference"]["file"]))
+        self.assertEqual(Path(command[-2]), corpus.ROOT / "tools/reference/FitOracle.java")
+        # A private, removed home: OSP preference files never land in the shared reference cache.
+        home = next(arg for arg in command if arg.startswith("-Duser.home=")).split("=", 1)[1]
+        self.assertFalse(Path(home).is_relative_to(self.root))
+        self.assertFalse(Path(home).exists())
+
+    def test_check_rejects_drift_beyond_each_agreement_class(self):
+        def mutate(document, case_id, change):
+            change(self.case(document, case_id))
+
+        mutations = {
+            "exact-parameter": ("line/noisy", lambda c: c["java"]["parameters"].__setitem__(
+                0, math.nextafter(c["java"]["parameters"][0], math.inf))),
+            "polynomial-parameter": ("cubic/noisy", lambda c: c["java"]["parameters"].__setitem__(
+                1, math.nextafter(c["java"]["parameters"][1], math.inf))),
+            "transcendental-parameter": ("gaussian/noisy", lambda c: c["java"]["parameters"].__setitem__(
+                0, c["java"]["parameters"][0] * (1 + 1e-5))),
+            "uncertainty": ("gaussian/noisy", lambda c: c["java"]["uncertainties"].__setitem__(
+                0, c["java"]["uncertainties"][0] * (1 + 1e-2))),
+            "band": ("sinusoid/noisy", lambda c: c["java"]["band"][0].__setitem__(0, c["java"]["band"][0][0] * 1.01)),
+            "method": ("user-line/noisy", lambda c: c["java"].__setitem__("method", "levenberg-marquardt")),
+            "points": ("line/nan-x", lambda c: c["java"].__setitem__("points", c["java"]["points"] - 1)),
+            "correlation": ("gaussian/noisy", lambda c: c["java"].__setitem__(
+                "correlation", math.nextafter(c["java"]["correlation"], 0))),
+            "nan": ("power/negative-x", lambda c: c["java"].__setitem__("rms", 0.5)),
+            "input": ("log/noisy", lambda c: c["y"].__setitem__(0, c["y"][0] + 1)),
+            "expect": ("exponential/noisy", lambda c: c["expect"]["parameters"].__setitem__(
+                0, c["expect"]["parameters"][0] * (1 + 1e-6))),
+            "text": ("line/noisy", lambda c: c["java"]["formatted"].__setitem__(0, "1 ± 1")),
+        }
+        for name, (case_id, change) in mutations.items():
+            document = copy.deepcopy(self.fixture)
+            mutate(document, case_id, change)
+            with self.subTest(mutation=name), self.assertRaises(ValueError):
+                self.check(document)
+        for name, change in {
+            "minimizer": lambda d: d["minimizers"][0]["parameters"].__setitem__(0, d["minimizers"][0]["parameters"][0] + 1e-15),
+            "minimizer-iterations": lambda d: d["minimizers"][1].__setitem__("iterations", 7),
+            "fit-definition": lambda d: d["fits"][3].__setitem__("expression", "A*exp(-(x-B)^2/C)"),
+            "format-probe": lambda d: d["format"][0].__setitem__("text", "2.0 ± 0.0"),
+            "case-order": lambda d: d["cases"].reverse(),
+        }.items():
+            document = copy.deepcopy(self.fixture)
+            change(document)
+            with self.subTest(mutation=name), self.assertRaises(ValueError):
+                self.check(document)
+
+    def test_sensitive_and_chaotic_quantities_are_not_compared(self):
+        document = copy.deepcopy(self.fixture)
+        chaotic = self.case(document, "user-charge/default-start")
+        chaotic["java"]["parameters"] = [value * 2 for value in chaotic["java"]["parameters"]]
+        chaotic["java"]["method"] = "none"
+        sensitive = next(case for case in document["cases"]
+                         if case["java"].get("sensitivity", {}).get("uncertainties", 0) > corpus.FIT_SENSITIVITY_LIMIT
+                         and case["java"]["uncertainties"])
+        sensitive["java"]["uncertainties"] = [value * 3 for value in sensitive["java"]["uncertainties"]]
+        # Within 100 times the measured last-bit sensitivity, a transcendental parameter may move.
+        relaxed = self.case(document, "sinusoid/duplicate-x")
+        moved = relaxed["java"]["sensitivity"]["parameters"]
+        self.assertGreater(moved, 1e-10)
+        relaxed["java"]["parameters"][1] *= 1 + 50 * moved
+        self.check(document)
+        # The data handling of a chaotic case still compares exactly.
+        chaotic["java"]["points"] += 1
+        with self.assertRaisesRegex(ValueError, "user-charge/default-start"):
+            self.check(document)
+
+    def test_record_writes_the_canonical_fixture_only_when_requested(self):
+        destination = self.root / "science" / "fit-reference.json"
+        with patch.object(corpus, "FIT_REFERENCE", destination):
+            self.assertIn(f"recorded {len(self.fixture['cases'])}", self.check(self.fixture, record=True))
+        self.assertEqual(destination.read_bytes(), corpus.fit_reference_text(self.fixture).encode("utf-8"))
+        with patch.object(sys, "argv", ["corpus.py", "session", "--record"]), patch.object(corpus, "check_sessions") as sessions, \
+                self.assertRaises(SystemExit), patch("sys.stderr", new_callable=io.StringIO):
+            corpus.main()
+        sessions.assert_not_called()
+        with patch.object(sys, "argv", ["corpus.py", "fit-oracle", "--java", "jdk/java", "--record"]), \
+                patch.object(corpus, "check_fit_oracle") as oracle:
+            corpus.main()
+        oracle.assert_called_once()
+        self.assertEqual(oracle.call_args.args[2], "jdk/java")
+        self.assertTrue(oracle.call_args.kwargs["record"])
+
+    def test_validation_rejects_malformed_or_incomplete_documents(self):
+        mutations = {
+            "version": lambda d: d.__setitem__("reference_version", "6.3.4"),
+            "schema": lambda d: d.__setitem__("schema_version", 2),
+            "fits": lambda d: d["fits"].pop(),
+            "no-cases": lambda d: d.__setitem__("cases", []),
+            "duplicate-case": lambda d: d["cases"].append(d["cases"][0]),
+            "unknown-fit": lambda d: d["cases"][0].__setitem__("fit", "spline"),
+            "agreement": lambda d: d["cases"][0].__setitem__("agreement", "approximate"),
+            "defect": lambda d: d["cases"][0].__setitem__("defect", "unknown"),
+            "method": lambda d: d["cases"][0]["java"].__setitem__("method", "simplex"),
+            "result-keys": lambda d: d["cases"][0]["java"].pop("band"),
+            "sensitivity": lambda d: self.case(d, "gaussian/noisy")["java"].pop("sensitivity"),
+            "unpaired": lambda d: d["cases"][0]["y"].pop(),
+            "data": lambda d: d["cases"][0].pop("x"),
+            "intended": lambda d: self.case(d, "user-cos/fixed-text").pop("intended"),
+            "uncovered-fit": lambda d: d.__setitem__("cases", [c for c in d["cases"] if c["fit"] != "log"]),
+            "not-object": lambda d: d["cases"].__setitem__(0, "case"),
+            "not-a-number": lambda d: d.__setitem__("minimizers", "none"),
+        }
+        for name, change in mutations.items():
+            document = copy.deepcopy(self.fixture)
+            change(document)
+            with self.subTest(mutation=name), self.assertRaises(ValueError):
+                corpus.validate_fit_reference(document, self.manifest)
+        with self.assertRaises(ValueError):
+            corpus.fit_number("1.5")
+        self.assertTrue(math.isnan(corpus.fit_number("NaN")))
+        self.assertEqual(corpus.fit_number("-Infinity"), -math.inf)
+
+
 if __name__ == "__main__":
     unittest.main()

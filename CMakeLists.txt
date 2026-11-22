@@ -64,6 +64,12 @@ add_library(motrack_media STATIC src/template_tracker.cpp src/video_reader.cpp)
 target_include_directories(motrack_media PUBLIC src)
 target_link_libraries(motrack_media PUBLIC Qt6::Gui PRIVATE motrack_ffmpeg)
 
+# Qt-free port of the Data Tool curve fitter and its minimizers (docs/curve-fitting.md).
+add_library(motrack_fit STATIC src/science/fit/curve_fit.cpp src/science/fit/built_in_fits.cpp src/science/fit/fit_format.cpp
+    src/science/fit/minimizers.cpp)
+target_include_directories(motrack_fit PUBLIC src)
+target_compile_options(motrack_fit PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
+
 # Input adaptation may probe/index media; keep Qt Gui and FFmpeg outside the document model.
 add_library(motrack_input STATIC src/workspace_input.cpp)
 target_include_directories(motrack_input PUBLIC src)
@@ -114,7 +120,7 @@ if(MOTRACK_STAGE_DESKTOP)
     install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/motrack)
 endif()
 
-set(motrack_targets motrack_ode motrack_project motrack_input motrack_image_package motrack_media motrack_workspace motrack)
+set(motrack_targets motrack_ode motrack_fit motrack_project motrack_input motrack_image_package motrack_media motrack_workspace motrack)
 if(MOTRACK_BUILD_BENCHMARKS)
     add_executable(motrack_import_benchmark benchmarks/import_benchmark.cpp)
     target_link_libraries(motrack_import_benchmark PRIVATE motrack_project)
@@ -166,13 +172,15 @@ if(BUILD_TESTING)
 
     add_executable(motrack_tests tests/workspace_session_test.cpp tests/archive_group_session_test.cpp tests/archive_group_save_test.cpp tests/archive_group_test.cpp tests/paired_save_test.cpp tests/legacy_project_test.cpp tests/measurements_test.cpp tests/track_edits_test.cpp
         tests/tracker_archive_test.cpp tests/tracker_archive_writer_test.cpp tests/tracker_image_package_test.cpp tests/tracker_movie_package_test.cpp tests/tracker_references_test.cpp tests/tracker_writer_test.cpp
-        tests/science/ode_solver_test.cpp)
-    target_link_libraries(motrack_tests PRIVATE motrack_project motrack_image_package motrack_ode GTest::gtest_main motrack_archive Qt6::Xml Qt6::Gui)
+        tests/science/ode_solver_test.cpp tests/science/curve_fit_api_test.cpp tests/science/curve_fit_test.cpp)
+    target_link_libraries(motrack_tests PRIVATE motrack_project motrack_image_package motrack_ode motrack_fit GTest::gtest_main motrack_archive Qt6::Xml Qt6::Gui)
     target_compile_definitions(motrack_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
-        MOTRACK_ODE_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/ode-reference.json")
-    # The test rate functions must round like the Java oracle's.
-    set_source_files_properties(tests/science/ode_solver_test.cpp PROPERTIES COMPILE_OPTIONS "${MOTRACK_JAVA_FP_OPTIONS}")
+        MOTRACK_ODE_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/ode-reference.json"
+        MOTRACK_FIT_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/fit-reference.json")
+    # The test rate functions and fit models must round like the Java oracles'.
+    set_source_files_properties(tests/science/ode_solver_test.cpp tests/science/curve_fit_test.cpp PROPERTIES
+        COMPILE_OPTIONS "${MOTRACK_JAVA_FP_OPTIONS}")
     add_test(NAME legacy_project COMMAND motrack_tests)
     add_executable(motrack_corpus_probe tests/corpus_probe.cpp)
     add_dependencies(motrack_tests motrack_corpus_probe)
