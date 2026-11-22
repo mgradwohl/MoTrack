@@ -46,6 +46,16 @@ add_library(motrack_image_package STATIC src/tracker_image_package.cpp)
 target_include_directories(motrack_image_package PUBLIC src)
 target_link_libraries(motrack_image_package PUBLIC motrack_project PRIVATE Qt6::Gui motrack_archive motrack_media)
 
+# Java evaluates a*b+c with two roundings; Clang may otherwise fuse it where FMA exists (arm64).
+# Science kernels checked against OSP/Tracker, and code that computes their callbacks (such as
+# model rate functions), compile with these options so that results match Java bit for bit.
+set(MOTRACK_JAVA_FP_OPTIONS -ffp-contract=off)
+
+# Qt-free ports of the OSP ODE solvers used by Tracker's dynamic models (docs/ode-solvers.md).
+add_library(motrack_ode STATIC src/science/ode/ode_solver.cpp src/science/ode/ode_fixed_step.cpp src/science/ode/ode_adaptive.cpp)
+target_include_directories(motrack_ode PUBLIC src)
+target_compile_options(motrack_ode PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
+
 qt_add_executable(motrack src/main.cpp)
 add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp src/movie_worker.cpp src/position_plot.cpp
     src/video_canvas.cpp src/workspace_services.cpp src/workspace_context.cpp src/bound_workspace.cpp src/workspace_window.cpp)
@@ -104,7 +114,7 @@ if(MOTRACK_STAGE_DESKTOP)
     install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/motrack)
 endif()
 
-set(motrack_targets motrack_project motrack_input motrack_image_package motrack_media motrack_workspace motrack)
+set(motrack_targets motrack_ode motrack_project motrack_input motrack_image_package motrack_media motrack_workspace motrack)
 if(MOTRACK_BUILD_BENCHMARKS)
     add_executable(motrack_import_benchmark benchmarks/import_benchmark.cpp)
     target_link_libraries(motrack_import_benchmark PRIVATE motrack_project)
@@ -145,18 +155,24 @@ if(BUILD_TESTING)
     include(FetchContent)
     set(gtest_force_shared_crt ON CACHE BOOL "Match the application CRT on Windows")
     set(INSTALL_GTEST OFF CACHE BOOL "Build tests without installing GoogleTest")
+    # SYSTEM keeps GoogleTest headers out of MoTrack's warnings and clang-tidy header filter.
     FetchContent_Declare(googletest
         GIT_REPOSITORY https://github.com/google/googletest.git
         GIT_TAG v1.17.0
         GIT_SHALLOW TRUE
+        SYSTEM
     )
     FetchContent_MakeAvailable(googletest)
 
     add_executable(motrack_tests tests/workspace_session_test.cpp tests/archive_group_session_test.cpp tests/archive_group_save_test.cpp tests/archive_group_test.cpp tests/paired_save_test.cpp tests/legacy_project_test.cpp tests/measurements_test.cpp tests/track_edits_test.cpp
-        tests/tracker_archive_test.cpp tests/tracker_archive_writer_test.cpp tests/tracker_image_package_test.cpp tests/tracker_movie_package_test.cpp tests/tracker_references_test.cpp tests/tracker_writer_test.cpp)
-    target_link_libraries(motrack_tests PRIVATE motrack_project motrack_image_package GTest::gtest_main motrack_archive Qt6::Xml Qt6::Gui)
+        tests/tracker_archive_test.cpp tests/tracker_archive_writer_test.cpp tests/tracker_image_package_test.cpp tests/tracker_movie_package_test.cpp tests/tracker_references_test.cpp tests/tracker_writer_test.cpp
+        tests/science/ode_solver_test.cpp)
+    target_link_libraries(motrack_tests PRIVATE motrack_project motrack_image_package motrack_ode GTest::gtest_main motrack_archive Qt6::Xml Qt6::Gui)
     target_compile_definitions(motrack_tests PRIVATE
-        MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+        MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
+        MOTRACK_ODE_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/ode-reference.json")
+    # The test rate functions must round like the Java oracle's.
+    set_source_files_properties(tests/science/ode_solver_test.cpp PROPERTIES COMPILE_OPTIONS "${MOTRACK_JAVA_FP_OPTIONS}")
     add_test(NAME legacy_project COMMAND motrack_tests)
     add_executable(motrack_corpus_probe tests/corpus_probe.cpp)
     add_dependencies(motrack_tests motrack_corpus_probe)
