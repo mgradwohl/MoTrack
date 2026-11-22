@@ -58,6 +58,9 @@ struct WorkspaceDocument
     /// Runtime: the typed values follow an earlier reading of the source and could not be migrated without overwriting
     /// edits or losing marks, so standard export is unavailable (#313/#314). Re-derived on every open.
     bool trackerReadingOutdated = false;
+    /// Runtime: opening migrated values of an earlier reading to the current one and so changed measurements; a native
+    /// save records the current reading. Never serialized.
+    bool trackerReadingMigrated = false;
     std::shared_ptr<const MovieTimeline> movieTimeline = {};
 };
 

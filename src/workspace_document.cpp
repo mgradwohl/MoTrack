@@ -488,6 +488,7 @@ void migrateTrackerReading(WorkspaceDocument& document, const detail::ImportedTr
         document.trackerReadingOutdated = true;
         return;
     }
+    document.trackerReadingMigrated = migrated != project;
     document.project = std::move(migrated);
     document.trackerReading = CURRENT_TRACKER_READING;
 }
@@ -587,7 +588,12 @@ WorkspaceDocument detail::decodeWorkspaceDocument(const QJsonObject& input, std:
     if (const auto reading = input.value("trackerReading"); !reading.isUndefined())
     {
         const auto revision = integer(reading, static_cast<int>(TrackerReading::SavedIndices));
-        require(revision <= static_cast<int>(CURRENT_TRACKER_READING));
+        if (revision > static_cast<int>(CURRENT_TRACKER_READING))
+        {
+            // Its values follow a reading this build does not know, so it cannot check or migrate them.
+            throw ProjectError("This project was saved by a newer MoTrack (Tracker reading revision " + std::to_string(revision) +
+                               "). Open it with that version.");
+        }
         result.trackerReading = static_cast<TrackerReading>(revision);
     }
     else

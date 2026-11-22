@@ -542,6 +542,7 @@ TEST(WorkspaceDocument, MigratesValuesTheFirstReaderSavedForFrameShiftsAndDuplic
     ASSERT_TRUE(stored.value("calibration").isNull());
     const auto document = motrack::readWorkspaceDocument(path);
     EXPECT_FALSE(document.trackerReadingOutdated);
+    EXPECT_TRUE(document.trackerReadingMigrated);
     EXPECT_EQ(document.trackerReading, motrack::CURRENT_TRACKER_READING);
     ASSERT_TRUE(document.trackerSource && document.trackerSource->bindings);
     const auto& project = document.project;
@@ -582,10 +583,22 @@ TEST(WorkspaceDocument, MigratesValuesTheFirstReaderSavedForFrameShiftsAndDuplic
     // A native save records the current reading, so its values are taken as they are on the next open.
     const auto native = temporary.filePath("migrated.motrack");
     motrack::writeWorkspaceDocument(native, document);
-    EXPECT_EQ(QJsonDocument::fromJson(readBytes(native)).object().value("trackerReading"), 1);
+    EXPECT_EQ(QJsonDocument::fromJson(readBytes(native)).object().value("trackerReading"),
+              static_cast<int>(motrack::CURRENT_TRACKER_READING));
     const auto reopened = motrack::readWorkspaceDocument(native);
     EXPECT_EQ(reopened.project, project);
     EXPECT_FALSE(reopened.trackerReadingOutdated);
+    EXPECT_FALSE(reopened.trackerReadingMigrated);
+
+    // The window says once that the measurements changed; the saved project opens without the note.
+    motrack::MainWindow window;
+    ASSERT_TRUE(window.loadProject(path));
+    const auto* notice = window.findChild<QLabel*>("sourceNotice");
+    ASSERT_NE(notice, nullptr);
+    EXPECT_FALSE(notice->isHidden());
+    EXPECT_TRUE(notice->text().startsWith("Measurements an earlier MoTrack saved were updated")) << notice->text().toStdString();
+    ASSERT_TRUE(window.loadProject(native));
+    EXPECT_TRUE(notice->isHidden());
 }
 
 TEST(WorkspaceDocument, KeepsEditedOrLossyFirstReadingValuesAndExplainsWhy)
@@ -658,14 +671,16 @@ TEST(WorkspaceDocument, KeepsEditedOrLossyFirstReadingValuesAndExplainsWhy)
     EXPECT_FALSE(notice->isHidden());
 }
 
-/// A native file as MoTrack's first reader saved it: its values are that reading of `xml` (optionally edited) and it
-/// records no `trackerReading`. FirstReaderDocumentsMatchThePreFixFixtures checks this against real pre-fix files.
-QString firstReaderDocument(const QTemporaryDir& directory,
-                            const QString& name,
-                            const std::string& xml,
-                            const std::function<void(motrack::WorkspaceDocument&)>& edit = {})
+/// A native file as MoTrack's reader of `revision` saved it: its values are that reading of `xml` (optionally edited)
+/// and it records that revision, or nothing for revision 0. FirstReaderDocumentsMatchThePreFixFixtures checks this
+/// against real pre-fix files.
+QString earlierReaderDocument(const QTemporaryDir& directory,
+                              const QString& name,
+                              const std::string& xml,
+                              motrack::TrackerReading revision,
+                              const std::function<void(motrack::WorkspaceDocument&)>& edit = {})
 {
-    const auto earlier = motrack::detail::importTracker(motrack::detail::parseTrackerXml(xml), motrack::TrackerReading::SavedIndices);
+    const auto earlier = motrack::detail::importTracker(motrack::detail::parseTrackerXml(xml), revision);
     motrack::WorkspaceDocument document{.project = earlier.project,
                                         .movieFrameTimes = {},
                                         .trackerSource = motrack::TrackerSource{.xml = xml, .bindings = earlier.bindings}};
@@ -674,11 +689,21 @@ QString firstReaderDocument(const QTemporaryDir& directory,
     const auto path = directory.filePath(name);
     motrack::writeWorkspaceDocument(path, document);
     auto root = QJsonDocument::fromJson(readBytes(path)).object();
-    root.remove("trackerReading");
+    if (revision == motrack::TrackerReading::SavedIndices)
+        root.remove("trackerReading");
+    else
+        root.insert("trackerReading", static_cast<int>(revision));
     EXPECT_TRUE(writeBytes(path, QJsonDocument(root).toJson()));
     return path;
 }
 
+QString firstReaderDocument(const QTemporaryDir& directory,
+                            const QString& name,
+                            const std::string& xml,
+                            const std::function<void(motrack::WorkspaceDocument&)>& edit = {})
+{
+    return earlierReaderDocument(directory, name, xml, motrack::TrackerReading::SavedIndices, edit);
+}
 TEST(WorkspaceDocument, FirstReaderDocumentsMatchThePreFixFixtures)
 {
     QTemporaryDir temporary;
@@ -821,13 +846,76 @@ TEST(WorkspaceDocument, KeepsEditsOfTheCurrentReadingAndRejectsUnknownReadings)
     EXPECT_TRUE(reopened.trackerSource && reopened.trackerSource->bindings);
 
     const auto root = QJsonDocument::fromJson(readBytes(native)).object();
-    for (const auto& invalid : {QJsonValue(-1), QJsonValue(2), QJsonValue("1"), QJsonValue(1.5)})
+    for (const auto& invalid : {QJsonValue(-1), QJsonValue("1"), QJsonValue(1.5)})
     {
         auto changed = root;
         changed.insert("trackerReading", invalid);
         ASSERT_TRUE(writeBytes(native, QJsonDocument(changed).toJson()));
         EXPECT_THROW(static_cast<void>(motrack::readWorkspaceDocument(native)), motrack::ProjectError);
     }
+    // A revision this build does not know names the newer MoTrack instead of failing as invalid.
+    auto newer = root;
+    newer.insert("trackerReading", static_cast<int>(motrack::CURRENT_TRACKER_READING) + 1);
+    ASSERT_TRUE(writeBytes(native, QJsonDocument(newer).toJson()));
+    try
+    {
+        static_cast<void>(motrack::readWorkspaceDocument(native));
+        ADD_FAILURE() << "A newer reading revision was accepted.";
+    }
+    catch (const motrack::ProjectError& error)
+    {
+        EXPECT_TRUE(std::string_view(error.what()).starts_with("This project was saved by a newer MoTrack")) << error.what();
+    }
+}
+
+TEST(WorkspaceDocument, MigratesTrackSlotsOfRevisionOneOnlyWhenNoMarkIsDropped)
+{
+    QTemporaryDir temporary;
+    // Revision 1 kept file order, so [2] then a null [2] left a mark that Java's slots remove: never dropped on open.
+    const auto overwritten = std::string(R"(<?xml version="1.0" encoding="UTF-8"?>
+<object class="org.opensourcephysics.cabrillo.tracker.TrackerPanel">
+    <property name="tracks" type="collection" class="java.util.ArrayList">
+        <property name="item" type="object">
+        <object class="org.opensourcephysics.cabrillo.tracker.PointMass">
+            <property name="framedata" type="array" class="[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;">
+                <property name="[0]" type="object">
+                <object class="org.opensourcephysics.cabrillo.tracker.PointMass$FrameData">
+                    <property name="x" type="double">0.0</property>
+                    <property name="y" type="double">0.0</property>
+                </object>
+                </property>
+                <property name="[2]" type="object">
+                <object class="org.opensourcephysics.cabrillo.tracker.PointMass$FrameData">
+                    <property name="x" type="double">2.0</property>
+                    <property name="y" type="double">2.0</property>
+                </object>
+                </property>
+                <property name="[2]" type="object">null</property>
+                <property name="[4]" type="object">
+                <object class="org.opensourcephysics.cabrillo.tracker.PointMass$FrameData">
+                    <property name="x" type="double">4.0</property>
+                    <property name="y" type="double">4.0</property>
+                </object>
+                </property>
+            </property>
+        </object>
+        </property>
+    </property>
+</object>
+)");
+    const auto kept = motrack::readWorkspaceDocument(
+        earlierReaderDocument(temporary, "overwritten.motrack", overwritten, motrack::TrackerReading::FrameShift));
+    EXPECT_TRUE(kept.trackerReadingOutdated);
+    EXPECT_EQ(kept.trackerReading, motrack::TrackerReading::FrameShift);
+    EXPECT_EQ(markFrames(kept.project.pointMasses.front()), (std::vector<int>{0, 2, 4}));
+    EXPECT_EQ(markFrames(motrack::parseLegacyProject(overwritten).pointMasses.front()), (std::vector<int>{0, 4}));
+    // Where the readings agree, a revision-1 file simply takes the current revision and nothing changes.
+    const auto agreed = motrack::readWorkspaceDocument(earlierReaderDocument(
+        temporary, "agreed.motrack", shiftedSource(3, 2, trackXml("PointMass", "35")), motrack::TrackerReading::FrameShift));
+    EXPECT_FALSE(agreed.trackerReadingOutdated);
+    EXPECT_FALSE(agreed.trackerReadingMigrated);
+    EXPECT_EQ(agreed.trackerReading, motrack::CURRENT_TRACKER_READING);
+    EXPECT_EQ(markFrames(agreed.project.pointMasses.front()), (std::vector<int>{1, 3}));
 }
 
 TEST(WorkspaceDocument, RejectsInvalidOptionalFrameDurationsBeforeReplacingExistingFile)

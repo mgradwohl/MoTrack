@@ -204,8 +204,12 @@ TEST(LegacyProject, RejectsInvalidMarks)
 {
     const std::string position = "<object><property name='x'>1</property>"
                                  "<property name='y'>2</property></object>";
+    // Duplicate indices resolve as Java's slots do (ReadsTrackArraysAsJavaAssignsTheirSlots); in an array Java cannot
+    // place, MoTrack's file-order reading still refuses them.
     const auto duplicate = "<property name='[1]'>" + position + "</property>";
-    EXPECT_THROW(motrack::parseLegacyProject(projectWithMarks(duplicate + duplicate)), motrack::ProjectError);
+    EXPECT_NO_THROW(static_cast<void>(motrack::parseLegacyProject(projectWithMarks(duplicate + duplicate))));
+    EXPECT_THROW(motrack::parseLegacyProject(projectWithMarks(duplicate + duplicate + "<property name='[0]'>" + position + "</property>")),
+                 motrack::ProjectError);
     EXPECT_THROW(motrack::parseLegacyProject(projectWithMarks("<property name='invalid'>" + position + "</property>")),
                  motrack::ProjectError);
     EXPECT_THROW(motrack::parseLegacyProject(projectWithMarks("<property name='[1]'><object/></property>")), motrack::ProjectError);
@@ -351,6 +355,46 @@ TEST(LegacyProject, LeavesFramesWhereTrackersLoaderIgnoresTheFrameShift)
         projectXml(shiftedClip(start(3), shift) + "<property name='tracks'>" +
                    massTrack("mass", massFrame(2, 2, 2) + "<property name='[x]'>null</property>") + "</property>"));
     EXPECT_EQ(frames(unreadable.pointMasses.front().marks), (std::vector<int>{2}));
+}
+
+TEST(LegacyProject, CountsATrailingNullElementInTheArrayLengthTheShiftUses)
+{
+    // A null [1] after [0] makes the Java array two slots long, so a shift of 1 drops [0]; alone, [0] is length 1 and stays.
+    const auto load = [](std::string_view frames)
+    {
+        return motrack::parseLegacyProject(projectXml(
+            shiftedClip("<property name='startframe' type='int'>3</property>", "<property name='frameshift' type='int'>1</property>") +
+            "<property name='tracks'>" + massTrack("mass", frames) + "</property>"));
+    };
+    EXPECT_TRUE(load(massFrame(0, 1, 1) + "<property name='[1]'>null</property>").pointMasses.front().marks.empty());
+    EXPECT_EQ(frames(load(massFrame(0, 1, 1)).pointMasses.front().marks), (std::vector<int>{0}));
+}
+
+TEST(LegacyProject, ReadsTrackArraysAsJavaAssignsTheirSlots)
+{
+    // OSP's array loader lets a later element replace an earlier one with the same index, a null one included.
+    const auto load = [](std::string_view frames)
+    {
+        return motrack::parseLegacyProject(projectXml("<property name='tracks'>" + massTrack("mass", frames) + "</property>"));
+    };
+    const auto overwritten =
+        load(massFrame(0, 0, 0) + massFrame(2, 2, 2) + "<property name='[2]'>null</property>" + massFrame(4, 4, 4)).pointMasses.front();
+    EXPECT_EQ(frames(overwritten.marks), (std::vector<int>{0, 4}));
+    const auto duplicate = load(massFrame(1, 10, 10) + massFrame(1, 11, 12)).pointMasses.front();
+    EXPECT_EQ(duplicate.marks, (std::vector<motrack::Mark>{{.frame = 1, .x = 11, .y = 12}}));
+    // Java cannot place an out-of-order index; MoTrack keeps reading such an array in file order, as before (#315).
+    EXPECT_EQ(frames(load(massFrame(4, 4, 4) + massFrame(2, 2, 2)).pointMasses.front().marks), (std::vector<int>{2, 4}));
+    // Vectors follow the same slots.
+    const auto vectors = motrack::parseLegacyProject(projectXml(R"(<property name='tracks'><property name='item'>
+        <object class='org.opensourcephysics.cabrillo.tracker.Vector'><property name='framedata'>
+          <property name='[3]'><object><property name='xtail'>1</property><property name='ytail'>2</property>
+            <property name='xcomponent'>3</property><property name='ycomponent'>4</property></object></property>
+          <property name='[3]'><object><property name='xtail'>5</property><property name='ytail'>6</property>
+            <property name='xcomponent'>7</property><property name='ycomponent'>8</property></object></property>
+        </property></object></property></property>)"));
+    ASSERT_EQ(vectors.vectors.size(), 1u);
+    EXPECT_EQ(vectors.vectors.front().samples,
+              (std::vector<motrack::VectorSample>{{.frame = 3, .tailX = 5, .tailY = 6, .componentX = 7, .componentY = 8}}));
 }
 
 TEST(LegacyProject, KeepsTheLastOfDuplicateCalibrationKeysAsTrackerDoes)

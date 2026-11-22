@@ -190,21 +190,56 @@ std::optional<int> loadedFrame(const tracker::ArrayElement& element, std::option
     return dropped && index >= *dropped ? std::optional(index - *dropped) : std::nullopt;
 }
 
-PointMass readPointMass(const tracker::PointMassLoad& loaded, int frameShift)
+/// A track's object elements as Tracker's array loader keeps them (TrackerReading::LastTrackSlot): in index order, with
+/// a later element of the same index replacing an earlier one, a null one included, as XMLControlElement.arrayValue
+/// assigns Java array slots. Java cannot load an array whose indices it cannot place; MoTrack then keeps reading every
+/// object element in file order, as before, rather than refuse a file it opened before (#315 decides refusals).
+template <typename Data>
+std::vector<const tracker::Frame<Data>*>
+trackFrames(const osp::Source& source, const tracker::FrameArray<Data>& array, TrackerReading reading)
+{
+    std::vector<const tracker::Frame<Data>*> result;
+    if (reading >= TrackerReading::LastTrackSlot)
+    {
+        if (const auto indexed = osp::PropertyView(source, array.property).indexedElements())
+        {
+            std::map<osp::NodeId, const tracker::Frame<Data>*> decoded;
+            for (const auto& frame : array.frames)
+            {
+                decoded.emplace(frame.element.property, &frame);
+            }
+            for (const auto& [index, element] : indexed->elements)
+            {
+                if (const auto* frame = decoded.at(element.id()); frame->element.object)
+                {
+                    result.push_back(frame);
+                }
+            }
+            return result;
+        }
+    }
+    for (const auto& frame : array.frames)
+    {
+        if (frame.element.object)
+        {
+            result.push_back(&frame);
+        }
+    }
+    return result;
+}
+
+PointMass readPointMass(const osp::Source& source, const tracker::PointMassLoad& loaded, int frameShift, TrackerReading reading)
 {
     const auto mass = std::max(MIN_POINT_MASS, std::abs(finiteNumber(loaded.mass).value_or(1.0)));
     PointMass track{.name = text(loaded.name), .marks = {}, .mass = mass};
     if (loaded.frames)
     {
         const auto dropped = droppedSlots(*loaded.frames, frameShift);
-        for (const auto& frame : loaded.frames->frames)
+        for (const auto* frame : trackFrames(source, *loaded.frames, reading))
         {
-            if (frame.element.object)
+            if (const auto number = loadedFrame(frame->element, dropped))
             {
-                if (const auto number = loadedFrame(frame.element, dropped))
-                {
-                    track.marks.push_back({.frame = *number, .x = coordinate(frame.data.x), .y = coordinate(frame.data.y)});
-                }
+                track.marks.push_back({.frame = *number, .x = coordinate(frame->data.x), .y = coordinate(frame->data.y)});
             }
         }
     }
@@ -216,25 +251,21 @@ PointMass readPointMass(const tracker::PointMassLoad& loaded, int frameShift)
     return track;
 }
 
-VectorTrack readVector(const tracker::VectorLoad& loaded, int frameShift)
+VectorTrack readVector(const osp::Source& source, const tracker::VectorLoad& loaded, int frameShift, TrackerReading reading)
 {
     VectorTrack track{.name = text(loaded.name), .samples = {}};
     if (loaded.frames)
     {
         const auto dropped = droppedSlots(*loaded.frames, frameShift);
-        for (const auto& frame : loaded.frames->frames)
+        for (const auto* frame : trackFrames(source, *loaded.frames, reading))
         {
-            if (!frame.element.object)
-            {
-                continue;
-            }
-            if (const auto number = loadedFrame(frame.element, dropped))
+            if (const auto number = loadedFrame(frame->element, dropped))
             {
                 track.samples.push_back({.frame = *number,
-                                         .tailX = coordinate(frame.data.xtail),
-                                         .tailY = coordinate(frame.data.ytail),
-                                         .componentX = coordinate(frame.data.xcomponent),
-                                         .componentY = coordinate(frame.data.ycomponent)});
+                                         .tailX = coordinate(frame->data.xtail),
+                                         .tailY = coordinate(frame->data.ytail),
+                                         .componentX = coordinate(frame->data.xcomponent),
+                                         .componentY = coordinate(frame->data.ycomponent)});
             }
         }
     }
@@ -245,7 +276,6 @@ VectorTrack readVector(const tracker::VectorLoad& loaded, int frameShift)
     }
     return track;
 }
-
 using CoordFrame = tracker::Frame<tracker::CoordFrameData>;
 
 CalibrationKey calibrationKey(int frame, const CoordFrame& data)
@@ -409,7 +439,7 @@ detail::ImportedTracker detail::importTracker(std::shared_ptr<const osp::Source>
         }
         if (item.className == tracker::POINT_MASS_CLASS)
         {
-            project.pointMasses.push_back(readPointMass(tracker::loadPointMass(xml, *item.object), result.trackFrameShift));
+            project.pointMasses.push_back(readPointMass(xml, tracker::loadPointMass(xml, *item.object), result.trackFrameShift, reading));
             project.pointMasses.back().id = allocateTrackId(project);
             result.bindings.push_back(
                 {.trackId = project.pointMasses.back().id, .sourceIndex = item.ordinal, .kind = TrackKind::PointMass});
@@ -418,7 +448,7 @@ detail::ImportedTracker detail::importTracker(std::shared_ptr<const osp::Source>
         {
             try
             {
-                project.vectors.push_back(readVector(tracker::loadVector(xml, *item.object), result.trackFrameShift));
+                project.vectors.push_back(readVector(xml, tracker::loadVector(xml, *item.object), result.trackFrameShift, reading));
                 project.vectors.back().id = allocateTrackId(project);
                 result.bindings.push_back({.trackId = project.vectors.back().id, .sourceIndex = item.ordinal, .kind = TrackKind::Vector});
             }

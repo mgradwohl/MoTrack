@@ -132,8 +132,11 @@ enum class TrackerReading : std::uint8_t
     SavedIndices = 0,
     /// Tracker 6.3.5's loader: the clip frame shift applies and the last of duplicate coordinate keys wins.
     FrameShift = 1,
+    /// Track `framedata` slots as Java's array loader assigns them too: the last of duplicate indices wins, a null one
+    /// included (part of #315).
+    LastTrackSlot = 2,
 };
-inline constexpr auto CURRENT_TRACKER_READING = TrackerReading::FrameShift;
+inline constexpr auto CURRENT_TRACKER_READING = TrackerReading::LastTrackSlot;
 
 /// Immutable import baseline, kept separately from editable measurements. Bytes retain the XML encoding,
 /// comments, unknown objects and properties. This is not a serialization of subsequent edits.
