@@ -159,9 +159,14 @@ WorkspaceWindow::WorkspaceWindow(std::shared_ptr<WorkspaceContext> context)
             this,
             [this]
             {
-                if (auto* item = m_Pending->currentItem())
-                    if (m_Context->cancelOpen(item->data(Qt::UserRole).toUuid()))
-                        item->setText(tr("Canceling %1…").arg(item->data(Qt::UserRole + 1).toString()));
+                auto* item = m_Pending->currentItem();
+                if (!item)
+                    return;
+                // A chosen file that has not started opening is only queued or being checked, so it is dropped now.
+                if (const auto id = item->data(Qt::UserRole).toUuid(); m_Chosen.contains(id))
+                    cancelChosenFile(id);
+                else if (m_Context->cancelOpen(id))
+                    item->setText(tr("Canceling %1…").arg(item->data(Qt::UserRole + 1).toString()));
             });
     connect(m_Pending->model(), &QAbstractItemModel::rowsInserted, cancelOpen, [cancelOpen] { cancelOpen->show(); });
     connect(m_Pending->model(),
@@ -512,13 +517,12 @@ void WorkspaceWindow::finishOpen(QUuid request, const QString& problem, bool can
         batch.request.reset();
         if (!problem.isEmpty() && !batch.chosen)
             batch.problems.push_back(tr("%1 could not be opened: %2").arg(batch.current, problem));
-        // Canceling one requested file stops its batch, which is otherwise not visible to cancel.
-        if (cancelled && !batch.chosen && !batch.files.isEmpty())
-        {
-            batch.problems.push_back(
-                tr("Opening was canceled; %n remaining file(s) were not opened.", nullptr, static_cast<int>(batch.files.size())));
-            batch.files.clear();
-        }
+        // Canceling one requested file stops the rest of its batch, which is otherwise not visible to cancel. Files chosen
+        // in the menu meanwhile are the user's own choices, each with its own pending entry, and stay queued.
+        if (cancelled && !batch.chosen)
+            if (const auto stopped = batch.files.removeIf([](const QueuedFile& file) { return !file.chosen; }); stopped > 0)
+                batch.problems.push_back(
+                    tr("Opening was canceled; %n remaining file(s) were not opened.", nullptr, static_cast<int>(stopped)));
     }
     // Any completion may free the input slot the batch is waiting for; continue after this notification returns.
     QTimer::singleShot(0, this, &WorkspaceWindow::continueRequestedFiles);
@@ -1119,8 +1123,58 @@ void WorkspaceWindow::openChosenFile(const QString& path, LaunchFileKind entry)
     // free slot. A second open of a file would let a later save silently replace the earlier one (#255).
     if (!m_Requested)
         m_Requested = RequestedBatch{};
-    m_Requested->files.push_back({.path = path, .chosen = entry});
+    const auto id = QUuid::createUuid();
+    m_Requested->files.push_back({.path = path, .chosen = entry, .id = id});
+    // Shown at once: the check may wait for an unresponsive share or for files queued before it, and Cancel selected
+    // open drops it meanwhile. Opening replaces it with the open's own entry.
+    const auto name = QFileInfo(path).fileName();
+    auto* item = new QListWidgetItem(tr("Checking %1…").arg(name), m_Pending);
+    item->setData(Qt::UserRole, id);
+    item->setData(Qt::UserRole + 1, name);
+    m_Chosen.insert(id, item);
+    m_Pending->setCurrentItem(item);
+    m_Pending->show();
     refreshLabels(); // Save tabset waits for it too, since a chosen project may be a tabset.
+    QTimer::singleShot(0, this, &WorkspaceWindow::continueRequestedFiles);
+}
+
+void WorkspaceWindow::releaseChosenItem(const QueuedFile& file)
+{
+    if (file.id.isNull())
+        return;
+    delete m_Chosen.take(file.id);
+    m_Pending->setVisible(m_Pending->count() > 0);
+}
+
+void WorkspaceWindow::cancelChosenFile(QUuid id)
+{
+    if (m_Requested)
+    {
+        auto& batch = *m_Requested;
+        const auto matches = [id](const QueuedFile& file)
+        {
+            return file.id == id;
+        };
+        batch.files.removeIf(matches);
+        // A checked file no longer counts as requested: it did not open.
+        if (batch.ready && matches(*batch.ready))
+        {
+            batch.started.removeOne(batch.ready->path);
+            batch.ready.reset();
+        }
+        if (batch.select && matches(batch.select->second))
+        {
+            batch.started.removeOne(batch.select->second.path);
+            batch.select.reset();
+        }
+        // The batch goes on; the worker's late answer no longer matches its check and is ignored.
+        if (batch.check != 0 && matches(m_CheckedFile))
+            batch.check = 0;
+    }
+    delete m_Chosen.take(id);
+    m_Pending->setVisible(m_Pending->count() > 0);
+    statusBar()->showMessage(tr("Opening canceled."));
+    refreshLabels();
     QTimer::singleShot(0, this, &WorkspaceWindow::continueRequestedFiles);
 }
 
@@ -1156,6 +1210,7 @@ void WorkspaceWindow::continueRequestedFiles()
             const auto visible = std::ranges::find_if(documents, [this](QUuid document) { return m_Pages.contains(document); });
             (void)showDocument(visible != documents.end() ? *visible : documents.front());
             statusBar()->showMessage(tr("%1 is already open.").arg(QFileInfo(file.path).fileName()));
+            releaseChosenItem(file);
         }
         else
             batch.ready = std::move(file); // Released since the worker looked; open it again.
@@ -1257,11 +1312,14 @@ void WorkspaceWindow::applyRequestedFileCheck(std::uint64_t check, const QueuedF
     {
     case RequestedFileState::Missing:
         report(tr("%1 was not found.").arg(shown));
+        releaseChosenItem(file);
         break;
     case RequestedFileState::Folder:
         report(tr("%1 is a folder. Use Open images… to choose its images.").arg(shown));
+        releaseChosenItem(file);
         break;
     case RequestedFileState::Repeated:
+        releaseChosenItem(file);
         break;
     case RequestedFileState::AlreadyOpen:
         // Another open of the same file would let a later save silently replace the earlier one (#255).
@@ -1280,6 +1338,7 @@ void WorkspaceWindow::applyRequestedFileCheck(std::uint64_t check, const QueuedF
 
 void WorkspaceWindow::startRequestedOpen(RequestedBatch& batch, const QueuedFile& file)
 {
+    releaseChosenItem(file); // The open's own entry replaces it.
     const auto& path = file.path;
     std::optional<QUuid> request;
     // A file chosen in the menu opens through the entry point the user chose, whatever its suffix.
@@ -1306,6 +1365,13 @@ void WorkspaceWindow::stopRequestedFiles()
         return;
     auto& batch = *m_Requested;
     const auto stopped = batch.files.size() + (batch.ready ? 1 : 0) + (batch.check != 0 ? 1 : 0);
+    for (const auto& file : std::as_const(batch.files))
+        releaseChosenItem(file);
+    for (const auto* waiting : {batch.ready ? &*batch.ready : nullptr,
+                                batch.select ? &batch.select->second : nullptr,
+                                batch.check != 0 ? &m_CheckedFile : nullptr})
+        if (waiting)
+            releaseChosenItem(*waiting);
     batch.files.clear();
     batch.ready.reset();
     batch.select.reset();

@@ -66,8 +66,9 @@ class WorkspaceWindow final : public QMainWindow
     /// Open a file chosen with Open project… or Open video… through that entry point. It joins the requested files'
     /// queue and gets their checks, so a file an open source owns is selected, with a status message, instead of
     /// opened a second time whose later save would replace the first (#255). It waits for an input slot, a tabset
-    /// that is opening and any save, revert or close prompt. Its problems are shown in the status bar, as for menu
-    /// opens, rather than in the batch summary, and canceling it stops only this file.
+    /// that is opening and any save, revert or close prompt. Until it starts opening, a pending "Checking…" entry
+    /// shows it and Cancel selected open drops it. Its problems are shown in the status bar, as for menu opens,
+    /// rather than in the batch summary, and canceling it stops only this file.
     void openChosenFile(const QString& path, LaunchFileKind entry);
 
   Q_SIGNALS:
@@ -145,6 +146,7 @@ class WorkspaceWindow final : public QMainWindow
     QHash<QUuid, MainWindow*> m_Views; // Qt parent-owned; views hold their own shared context lease.
     QHash<QUuid, QWidget*> m_Pages;    // Lightweight placeholders until an experiment is first selected.
     QHash<QUuid, QListWidgetItem*> m_Opening;
+    QHash<QUuid, QListWidgetItem*> m_Chosen; // Pending entries of chosen files that have not started opening.
     /// The window's one ordered open queue. Tracker opens a tabset's files one at a time, so tabs keep the listed
     /// order within the two-input bound. A queued file that turns out to be a tabset itself (a located file)
     /// expands in place through expandInPlace: its files open next, before the rest of the queue. Other ordered
@@ -188,13 +190,18 @@ class WorkspaceWindow final : public QMainWindow
     std::vector<ExpandedTabset> m_ExpandedTabsets;
     bool m_TabsetPrompting = false;
     QHash<QUuid, QList<UnreadableProject>> m_Unreadable; // Per source, listed in the Experiments menu.
-    /// A file waiting in the batch. A file chosen in the File menu keeps the entry point it was chosen with; a
-    /// requested file has none and is routed by launchFileKind.
+    /// A file waiting in the batch. A file chosen in the File menu keeps the entry point it was chosen with, and the
+    /// id of its pending entry in m_Chosen; a requested file has neither and is routed by launchFileKind.
     struct QueuedFile
     {
         QString path;
         std::optional<LaunchFileKind> chosen;
+        QUuid id;
     };
+    /// Drop a chosen file that has not started opening, wherever it waits; its running check's answer is then ignored.
+    void cancelChosenFile(QUuid id);
+    /// Remove a chosen file's pending entry once it opens, is selected or reported, or leaves the batch.
+    void releaseChosenItem(const QueuedFile& file);
     /// Files requested from outside the menus, and files chosen with Open project… or Open video…, opened one at a
     /// time in their order. Each file is first checked on a worker; `check` identifies the running check, `ready` a
     /// checked file awaiting a slot and `select` an already-open source to show, both deferred while a modal prompt

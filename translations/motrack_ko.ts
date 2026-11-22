@@ -118,6 +118,7 @@
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>로컬이 아닌 파일에 대한 링크 %n개를 건너뜁니다.</numerusform></translation></message>
     <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">요청한 파일 중 일부를 제한된 상태로 열었습니다.</translation></message>
     <message><source>%1 is already open.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">%1이(가) 이미 열려 있습니다.</translation></message>
+    <message><source>Checking %1…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">%1 확인 중…</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>

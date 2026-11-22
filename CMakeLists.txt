@@ -383,12 +383,14 @@ if(BUILD_TESTING)
         MOTRACK_EXECUTABLE="$<TARGET_FILE:motrack>")
     # Keep every case while bounding UI saving, persistence and session groups independently.
     add_test(NAME workspace COMMAND motrack_workspace_tests
-        "--gtest_filter=-PairedWorkspace.*:DocumentSession.*:WorkspaceDocument.*:ImagePackageWorkspace.*:WorkspaceShell.*:UiTranslations.*:CameraCapture.*:NonAsciiRoundTrip.*:WorkspaceLocale.*:DesktopLaunch.*")
+        "--gtest_filter=-PairedWorkspace.*:DocumentSession.*:WorkspaceDocument.*:ImagePackageWorkspace.*:WorkspaceShell.*:UiTranslations.*:CameraCapture.*:NonAsciiRoundTrip.*:WorkspaceLocale.*:DesktopLaunch.*:MenuOpen.*")
     # The shell's save/revert flows take seconds each and slow down most on loaded runners (#283).
     add_test(NAME workspace_shell COMMAND motrack_workspace_tests --gtest_filter=WorkspaceShell.*)
     add_test(NAME camera_capture COMMAND motrack_workspace_tests --gtest_filter=CameraCapture.*)
     # Command-line, drop and operating-system opening, including child launches of the real executable.
     add_test(NAME desktop_launch COMMAND motrack_workspace_tests --gtest_filter=DesktopLaunch.*)
+    # Files chosen through the real File menu dialogs, in their own time budget.
+    add_test(NAME menu_open COMMAND motrack_workspace_tests --gtest_filter=MenuOpen.*)
     add_test(NAME workspace_saving COMMAND motrack_workspace_tests
         "--gtest_filter=PairedWorkspace.*:ImagePackageWorkspace.*")
     # Non-ASCII paths and locale-dependent display, in their own time budget.
@@ -400,7 +402,7 @@ if(BUILD_TESTING)
     add_test(NAME document_session COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*-DocumentSession.*Journal*")
     add_test(NAME document_session_journals COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*Journal*")
     set_tests_properties(workspace workspace_shell workspace_saving workspace_document ui_translations document_session
-        document_session_journals camera_capture workspace_text desktop_launch PROPERTIES TIMEOUT 60)
+        document_session_journals camera_capture workspace_text desktop_launch menu_open PROPERTIES TIMEOUT 60)
     add_executable(motrack_media_tests tests/capture_encoder_test.cpp tests/template_tracker_test.cpp tests/video_frame_conversion_test.cpp
         tests/video_reader_test.cpp)
     # The tests encode synthetic movies and drive swscale with FFmpeg's own types.
@@ -434,7 +436,7 @@ if(BUILD_TESTING)
     add_test(NAME desktop_invalid_project COMMAND motrack --smoke-test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/missing.trk")
     set_tests_properties(workspace workspace_shell workspace_saving workspace_document ui_translations document_session
-        document_session_journals camera_capture workspace_text desktop_launch desktop_smoke desktop_invalid_project PROPERTIES
+        document_session_journals camera_capture workspace_text desktop_launch menu_open desktop_smoke desktop_invalid_project PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     set_tests_properties(desktop_invalid_project PROPERTIES WILL_FAIL TRUE)
     # The application's own locale setup and, on Windows, its manifest's UTF-8 code page: the CI runners' system

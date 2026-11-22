@@ -767,6 +767,11 @@
         <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
         <translation type="unfinished">%1 ya está abierto.</translation>
     </message>
+    <message>
+        <source>Checking %1…</source>
+        <translatorcomment>Machine translation; review before marking finished.</translatorcomment>
+        <translation type="unfinished">Comprobando %1…</translation>
+    </message>
 </context>
 
 <context>

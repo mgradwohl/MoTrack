@@ -118,6 +118,7 @@
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>%n koppeling naar niet-lokale bestanden wordt overgeslagen.</numerusform><numerusform>%n koppelingen naar niet-lokale bestanden worden overgeslagen.</numerusform></translation></message>
     <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Sommige gevraagde bestanden zijn slechts beperkt geopend.</translation></message>
     <message><source>%1 is already open.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">%1 is al geopend.</translation></message>
+    <message><source>Checking %1…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">%1 controleren…</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>

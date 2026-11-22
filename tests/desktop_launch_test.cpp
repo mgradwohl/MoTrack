@@ -603,7 +603,7 @@ QString statusMessage(motrack::WorkspaceWindow& window)
 
 } // namespace
 
-TEST(DesktopLaunch, TheMenuSelectsAnOpenProjectThroughEverySpellingAndShowsAHiddenView)
+TEST(MenuOpen, SelectsAnOpenProjectThroughEverySpellingAndShowsAHiddenView)
 {
     QTemporaryDir temporary;
     const auto folder = unicodeFolder(temporary);
@@ -694,7 +694,7 @@ TEST(DesktopLaunch, TheMenuSelectsAnOpenProjectThroughEverySpellingAndShowsAHidd
     EXPECT_FALSE(window.findChild<QMessageBox*>("workspaceRequestedFileProblems"));
 }
 
-TEST(DesktopLaunch, TheMenuSelectsAProjectByTheFileItWasSavedTo)
+TEST(MenuOpen, SelectsAProjectByTheFileItWasSavedTo)
 {
     QTemporaryDir temporary;
     const auto folder = unicodeFolder(temporary);
@@ -725,7 +725,7 @@ TEST(DesktopLaunch, TheMenuSelectsAProjectByTheFileItWasSavedTo)
     EXPECT_EQ(session.sources(), std::vector<QUuid>{source});
 }
 
-TEST(DesktopLaunch, TheMenuSelectsAnOpenMovie)
+TEST(MenuOpen, SelectsAnOpenMovie)
 {
     QTemporaryDir temporary;
     const auto folder = unicodeFolder(temporary);
@@ -753,7 +753,7 @@ TEST(DesktopLaunch, TheMenuSelectsAnOpenMovie)
     EXPECT_EQ(statusMessage(window), QString::fromUtf8("clip ñ.mov is already open."));
 }
 
-TEST(DesktopLaunch, AMenuOpenDuringASavePromptWaitsAndHoldsTheTabsetSave)
+TEST(MenuOpen, WaitsDuringASavePromptAndHoldsTheTabsetSave)
 {
     QTemporaryDir temporary;
     const auto folder = unicodeFolder(temporary);
@@ -787,6 +787,90 @@ TEST(DesktopLaunch, AMenuOpenDuringASavePromptWaitsAndHoldsTheTabsetSave)
     EXPECT_TRUE(nextBatch(finished, 2).isEmpty());
     EXPECT_EQ(session.sources().size(), 2u);
     EXPECT_TRUE(session.isModified(session.sourceId(session.tabs().front())));
+}
+
+TEST(MenuOpen, CancelingARequestedFileKeepsFilesChosenMeanwhileQueued)
+{
+    QTemporaryDir temporary;
+    const auto folder = unicodeFolder(temporary);
+    const auto requested = nativeCopy(folder, "requested.motrack");
+    const auto later = nativeCopy(folder, "requested later.motrack");
+    const auto chosen = nativeCopy(folder, QString::fromUtf8("chosen ü.motrack"));
+    auto context = std::make_shared<motrack::WorkspaceContext>();
+    motrack::WorkspaceWindow window(context);
+    window.show();
+    QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
+    auto* pending = window.findChild<QListWidget*>("pendingWorkspaceInputs");
+    auto* cancel = window.findChild<QPushButton*>("cancelWorkspaceOpen");
+    ASSERT_TRUE(pending && cancel);
+    {
+        BlockedInputs blocked(*context);
+        window.openFiles({.files = {requested, later}});
+        // The first requested file starts opening and waits for an analysis worker.
+        ASSERT_TRUE(QTest::qWaitFor([&] { return pending->count() == 1 && pending->item(0)->text().contains("requested.motrack"); }));
+        window.openChosenFile(chosen, motrack::LaunchFileKind::Project);
+        ASSERT_EQ(pending->count(), 2);
+        pending->setCurrentRow(0);
+        cancel->click();
+    }
+    // Canceling the requested file stops the requested file after it, but not the file chosen in the menu meanwhile.
+    EXPECT_EQ(nextBatch(finished), QStringList{"Opening was canceled; 1 remaining file(s) were not opened."});
+    EXPECT_EQ(tabSources(window), canonicalPaths({chosen}));
+    EXPECT_EQ(pending->count(), 0);
+}
+
+TEST(MenuOpen, ShowsAChoiceWaitingForItsCheckAndCancelDropsIt)
+{
+    QTemporaryDir temporary;
+    const auto folder = unicodeFolder(temporary);
+    const auto name = QString::fromUtf8("on a sleeping share ü.motrack");
+    (void)nativeCopy(folder, name);
+    const auto next = nativeCopy(folder, "chosen next.motrack");
+    auto context = std::make_shared<motrack::WorkspaceContext>();
+    motrack::WorkspaceWindow window(context);
+    window.show();
+    QSignalSpy finished(&window, &motrack::WorkspaceWindow::filesOpened);
+    auto* pending = window.findChild<QListWidget*>("pendingWorkspaceInputs");
+    auto* cancel = window.findChild<QPushButton*>("cancelWorkspaceOpen");
+    ASSERT_TRUE(pending && cancel);
+    // Occupy the request worker as a share that does not answer would.
+    QSemaphore entered;
+    QSemaphore release;
+    auto& pool = context->services()->requestPool();
+    pool.start(
+        [&]
+        {
+            entered.release();
+            (void)release.tryAcquire(1, 10000);
+        });
+    ASSERT_TRUE(entered.tryAcquire(1, 5000));
+    const auto cleanup = qScopeGuard(
+        [&]
+        {
+            release.release();
+            (void)pool.waitForDone(10000);
+        });
+    ASSERT_TRUE(chooseInMenu(window, "workspaceOpenProject", folder.path(), name));
+    // The choice is shown at once, before the worker has looked at it.
+    ASSERT_EQ(pending->count(), 1);
+    EXPECT_EQ(pending->item(0)->text(), QString::fromUtf8("Checking on a sleeping share ü.motrack…"));
+    EXPECT_TRUE(cancel->isVisible());
+    // Events are delivered in order, so once this runs the queue has handed the choice's check to the blocked worker.
+    bool checking = false;
+    QTimer::singleShot(0, &window, [&] { checking = true; });
+    ASSERT_TRUE(QTest::qWaitFor([&] { return checking; }, 5000));
+    window.openChosenFile(next, motrack::LaunchFileKind::Project);
+    ASSERT_EQ(pending->count(), 2);
+    pending->setCurrentRow(0);
+    cancel->click();
+    EXPECT_EQ(pending->count(), 1);
+    EXPECT_EQ(statusMessage(window), "Opening canceled.");
+    // The later choice checks once the worker answers; the canceled check's late answer opens nothing.
+    release.release();
+    EXPECT_TRUE(nextBatch(finished).isEmpty());
+    EXPECT_EQ(tabSources(window), canonicalPaths({next}));
+    EXPECT_EQ(context->session().sources().size(), 1u);
+    EXPECT_EQ(pending->count(), 0);
 }
 
 TEST(DesktopLaunch, AStaleCheckResultAfterTheWindowClosedOpensNothing)

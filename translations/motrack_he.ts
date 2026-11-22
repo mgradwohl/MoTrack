@@ -118,6 +118,7 @@
     <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>%n קישור לקבצים שאינם מקומיים ידולג.</numerusform><numerusform>%n קישורים לקבצים שאינם מקומיים ידולגו.</numerusform></translation></message>
     <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">חלק מהקבצים המבוקשים נפתחו עם מגבלות.</translation></message>
     <message><source>%1 is already open.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">%1 כבר פתוח.</translation></message>
+    <message><source>Checking %1…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">בודק את %1…</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>
