@@ -50,8 +50,8 @@ PRs on disjoint components may be open at once. Installers, signing/notarization
 publication (R27) are outside the current completion contract; local staging remains. Every UI locale
 that Tracker ships is in scope: catalogs are seeded from Tracker's own translations where strings
 correspond, remaining strings are machine-translated and marked `unfinished` for later human review.
-On 2026-11-22 the maintainer decided that these machine translations ship visible without a label. Tracker's
-unlisted `fil_PH`, `sn` and `sr` catalogs are outside this scope ([Translations](../CONTRIBUTING.md#translations)).
+Tracker's unlisted `fil_PH`, `sn` and `sr` catalogs are outside this scope
+([Translations](../CONTRIBUTING.md#translations)).
 
 **Maintainer decisions of 2026-11-22.** Machine-translated strings ship visible, without a label; they stay
 `unfinished` in the catalogs for review, so builds must not pass `-nounfinished`. The interface keeps every
