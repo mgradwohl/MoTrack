@@ -165,7 +165,7 @@ PREFERRED_KEYS = {
 # MoTrack string on 2026-11-21. Other keys with the same English text may still match.
 LOCALE_REJECTED = {
     "ca": {("Edit", "Edia")},  # Typo.
-    "da": {("Redo", "Fortryd fortryd")},  # "Undo undo".
+    "da": {("Redo", "Fortryd fortryd"), ("Track", "Markeringer")},  # "Undo undo"; "markings" (MoTrack's marks).
     "fi": {("New Point Mass", "Uusi paikka")},  # "New place".
     "he": {("Pause", "דום")},  # "Freeze!" (command).
     "hu": {("Length Unit", "Hosszúság")},  # "Length".

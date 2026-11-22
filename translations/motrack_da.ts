@@ -80,7 +80,7 @@
     <message><source>Export &amp;plot data…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Eksporter graf&amp;data…</translation></message>
     <message><source>&amp;Edit</source><translatorcomment>Tracker exact: tracker_da.properties TMenuBar.Menu.Edit</translatorcomment><translation>&amp;Rediger</translation></message>
     <message><source>&amp;Undo</source><translatorcomment>Tracker exact: tracker_da.properties TMenuBar.MenuItem.Undo</translatorcomment><translation>&amp;Fortryd</translation></message>
-    <message><source>&amp;Redo</source><translatorcomment>Tracker exact: tools_da.properties DataFunctionPanel.Button.Redo (2 differing Tracker translations)</translatorcomment><translation type="unfinished">Omgø&amp;r</translation></message>
+    <message><source>&amp;Redo</source><translatorcomment>Tracker exact: tools_da.properties DataFunctionPanel.Button.Redo (2 differing Tracker translations)</translatorcomment><translation type="unfinished">&amp;Omgør</translation></message>
     <message><source>&amp;View</source><translatorcomment>Tracker exact: tracker_da.properties TFrame.View.Unknown (2 differing Tracker translations)</translatorcomment><translation type="unfinished">&amp;Vis</translation></message>
     <message><source>Show coordinate &amp;axes</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Vis koordinat&amp;akser</translation></message>
     <message><source>Zoom &amp;in</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Zoom &amp;ind</translation></message>
@@ -108,7 +108,7 @@
     <message><source>Previous frame</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Forrige billede</translation></message>
     <message><source>Next frame</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Næste billede</translation></message>
     <message><source>Clip position</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Position i klip</translation></message>
-    <message><source>Track</source><translatorcomment>Tracker exact: tracker_da.properties TMenuBar.Menu.Tracks</translatorcomment><translation>Markeringer</translation></message>
+    <message><source>Track</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Spor</translation></message>
     <message><source>Frame</source><translatorcomment>Tracker exact: video_da.properties VideoPlayer.Readout.MenuItem.Frame (2 differing Tracker translations)</translatorcomment><translation>Billede</translation></message>
     <message><source>Image x (px)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Billed-x (px)</translation></message>
     <message><source>Image y (px)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Billed-y (px)</translation></message>
