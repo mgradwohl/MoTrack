@@ -181,14 +181,17 @@ The census is a report, not acceptance evidence.
 - A platform with no committed native results publishes them instead. They are written to
   `<cache>/library/library-census.json`, which CI uploads, so the maintainer can commit them as that platform's
   baseline.
-- Experiments listed under the manifest's `known_issues` are compared only by their marker, because their
-  outcome is undefined behaviour that may differ between runs. They are the 12 experiments affected by #211.
+- Experiments listed under the manifest's `known_issues` are compared only by their marker, for defects
+  whose outcome is undefined behaviour and may differ between runs. The list is empty now: it held the 12
+  experiments affected by #211 until that fix landed (#295). The mechanism stays for future undefined-behaviour
+  defects.
 
 Give `--check` the same options the committed census was recorded with; a census recorded with `--java`
 cannot be checked without it.
 
-A fix for #211, #212, #224 or #229 changes the committed Windows results. Regenerate the census locally on
-Windows with `--java` in the same PR, and drop fixed experiments from `known_issues`.
+A fix for #212, #224 or #229, or any change to MoTrack's open path, changes the committed results. Regenerate
+the census locally on Windows with `--java` in the same PR, run the workflow once for the `linux` results, and
+drop fixed experiments from `known_issues`.
 
 `corpus_library.library_projects(manifest, cache)` and the `library-projects` index give each project's
 experiment ID, archive member, private path, size and SHA-256, so corpus oracles such as A1's O1/O2 checks
@@ -208,8 +211,9 @@ Ordinary PR CI runs only the network-free unit tests in `test_corpus_library.py`
 
 Findings from the first census:
 
-- [#211](https://github.com/mgradwohl/MoTrack/issues/211): movie indexing writes past the converted frame
-  buffer for H.264 widths that are not multiples of 16. The Windows debug CRT reports heap corruption.
+- [#211](https://github.com/mgradwohl/MoTrack/issues/211) (fixed by #269 in #295): movie indexing wrote past
+  the converted frame buffer for H.264 widths that are not multiples of 16. The Windows debug CRT reported heap
+  corruption and Linux glibc aborted on four files. All 12 affected experiments now open.
 - [#212](https://github.com/mgradwohl/MoTrack/issues/212): archives that Tracker's own export filled with
   absolute-path members, or that contain macOS `Icon\r` or `__MACOSX/._*.trk` AppleDouble files, are rejected as a whole.
   The census excludes AppleDouble files from project and tab counts, which leaves 11 experiments with 2–4
@@ -217,7 +221,7 @@ Findings from the first census:
 - [#213](https://github.com/mgradwohl/MoTrack/issues/213): Tracker's Library Browser cannot reach ComPADRE
   `Source Code` TRZ attachments (OSP reference defect).
 - [#224](https://github.com/mgradwohl/MoTrack/issues/224): `.zip` experiments open in Tracker but are rejected
-  by extension. Renamed to `.trz`, 32 of the 33 open.
+  by extension. Renamed to `.trz`, all 33 open.
 - [#229](https://github.com/mgradwohl/MoTrack/issues/229): a Tracker 4.88 step saved as `NaN` rejects the whole experiment.
 - [#196](https://github.com/mgradwohl/MoTrack/issues/196): a track name with control characters that XML
   forbids is accepted by OSP's line reader but rejected by MoTrack's QDom importer.
@@ -231,11 +235,11 @@ Findings from the first census:
   Tracker files.
 
 The committed census holds two native baselines. The `windows` baseline was generated locally on Windows 11
-with the `dev` (debug) build. The `linux` baseline comes from the workflow's validation run
-[44978631660](https://github.com/mgradwohl/MoTrack/actions/runs/44978631660) on Ubuntu 24.04 (`dev` build,
-cold fetch of all 514 files). Every experiment outside the known issues gives the same outcome on both
-platforms. The #211 experiments show why they are known issues: Windows' debug CRT stops all 12, while on
-Linux glibc aborts on four (`double free or corruption`) and the rest open. macOS has no baseline.
+with the `dev` (debug) build. The `linux` baseline comes from the workflow's validation run on Ubuntu 24.04
+with the pinned toolchain from `tools/toolchain.env`. macOS has no baseline. Before the #211 fix, the first
+validation run ([44978631660](https://github.com/mgradwohl/MoTrack/actions/runs/44978631660)) showed why
+undefined behaviour needs `known_issues`: Windows' debug CRT stopped all 12 affected experiments, while
+Linux glibc aborted on four (`double free or corruption`) and opened the rest.
 
 <!-- library-census:start -->
 
@@ -253,14 +257,10 @@ Generated from manifest refresh 2026-11-21 by `python tools/corpus.py library-ce
 | Data functions | 1057 in 133 projects |
 | Archive member types (experiments) | trk (492), html (295), png (295), mp4 (245), pdf (77), jpg (63), mov (13), docx (8), … 13 more |
 | Tabs per experiment (experiments) | 1 (480), 2 (6), 3 (3), 4 (2), 0 (1) |
-| MoTrack desktop open, linux (experiments) | opened (434), rejected (46), known issue #211 (12) |
-| MoTrack open failures, linux (excluding known issues) | Choose a Tracker or MoTrack project file. (32), Invalid or unsupported Tracker archive. (6), Invalid Tracker XML. (4), Expected a TrackerPanel project. (2), Invalid Tracker numeric property. (2) |
-| Unsupported tracks reported, linux (experiments) | CoordAxes (433), TapeMeasure (397), DynamicParticle (188), AnalyticParticle (74), Protractor (26), DynamicParticlePolar (23), Calibration (21), LineProfile (18), CenterOfMass (7), PerspectiveTrack (5), … 5 more |
-| ZIP experiments renamed .trz, linux | opened (32) |
-| MoTrack desktop open, windows (experiments) | opened (434), rejected (46), known issue #211 (12) |
-| MoTrack open failures, windows (excluding known issues) | Choose a Tracker or MoTrack project file. (32), Invalid or unsupported Tracker archive. (6), Invalid Tracker XML. (4), Expected a TrackerPanel project. (2), Invalid Tracker numeric property. (2) |
-| Unsupported tracks reported, windows (experiments) | CoordAxes (433), TapeMeasure (397), DynamicParticle (188), AnalyticParticle (74), Protractor (26), DynamicParticlePolar (23), Calibration (21), LineProfile (18), CenterOfMass (7), PerspectiveTrack (5), … 5 more |
-| ZIP experiments renamed .trz, windows | opened (32) |
+| MoTrack desktop open, windows (experiments) | opened (445), rejected (47) |
+| MoTrack open failures, windows (excluding known issues) | Choose a Tracker or MoTrack project file. (33), Invalid or unsupported Tracker archive. (6), Invalid Tracker XML. (4), Expected a TrackerPanel project. (2), Invalid Tracker numeric property. (2) |
+| Unsupported tracks reported, windows (experiments) | CoordAxes (444), TapeMeasure (408), DynamicParticle (191), AnalyticParticle (74), Protractor (28), Calibration (23), DynamicParticlePolar (23), LineProfile (18), CenterOfMass (9), PerspectiveTrack (5), … 5 more |
+| ZIP experiments renamed .trz, windows | opened (33) |
 | Java 6.3.5 XML/coordinate vs MoTrack import (projects) | match (491), differs (14), both_rejected (4), native_rejected (1) |
 
 <!-- library-census:end -->
