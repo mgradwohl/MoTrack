@@ -236,8 +236,9 @@ if(BUILD_TESTING)
     add_test(NAME document_session COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*-DocumentSession.*Journal*")
     add_test(NAME document_session_journals COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*Journal*")
     set_tests_properties(workspace workspace_shell workspace_saving workspace_document document_session document_session_journals PROPERTIES TIMEOUT 60)
-    add_executable(motrack_media_tests tests/template_tracker_test.cpp tests/video_reader_test.cpp)
-    target_link_libraries(motrack_media_tests PRIVATE motrack_media GTest::gtest_main)
+    add_executable(motrack_media_tests tests/template_tracker_test.cpp tests/video_frame_conversion_test.cpp tests/video_reader_test.cpp)
+    # The tests encode synthetic movies and drive swscale with FFmpeg's own types.
+    target_link_libraries(motrack_media_tests PRIVATE motrack_media motrack_ffmpeg GTest::gtest_main)
     target_compile_definitions(motrack_media_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
     add_test(NAME video_reader COMMAND motrack_media_tests)
