@@ -2842,16 +2842,139 @@ def check_sessions(manifest, cache, java, probe=None):
                 json.dumps(saved_report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+FILTER_REFERENCE = ROOT / "tests/science/video-filter-reference.json"
+FILTER_CLASSES = ["DeinterlaceFilter", "GhostFilter", "StrobeFilter", "DarkGhostFilter", "NegativeFilter", "GrayScaleFilter",
+                  "LogFilter", "BrightnessFilter", "BaselineFilter", "SumFilter", "ResizeFilter", "RotateFilter", "PerspectiveFilter",
+                  "RadialDistortionFilter"]
+FILTER_PATTERNS = {"gradient", "noise", "checker", "blob", "darkblob", "argb"}
+FILTER_OPS = {"apply", "step", "set", "enable", "clear", "baseline", "replace_source"}
+FILTER_LINE_KEYS = ("frames", "cases")
+MAX_FILTER_CASES = 500
+MAX_FILTER_SIDE = 4096
+FULL_FILTER_IMAGE_PIXELS = 48
+SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+
+
+def validate_filter_reference(document, manifest):
+    """Check the video-filter oracle schema before comparing or recording it."""
+    if (not isinstance(document, dict) or document.get("schema_version") != 1
+            or document.get("reference_version") != manifest["reference"]["version"]):
+        raise ValueError("Unexpected video filter oracle schema or reference version")
+    registry = ["org.opensourcephysics.media.core." + name for name in FILTER_CLASSES]
+    if document.get("registry") != registry:
+        raise ValueError("The video filter registry differs from Tracker 6.3.5's")
+    frames, cases = document.get("frames"), document.get("cases")
+    if (not isinstance(frames, list) or not frames or not isinstance(cases, list) or not cases
+            or len(cases) > MAX_FILTER_CASES or not isinstance(document.get("math"), dict)
+            or not isinstance(document.get("composites"), list) or not isinstance(document.get("persistence"), list)
+            or not isinstance(document.get("failures"), list)):
+        raise ValueError("Invalid video filter oracle frame, case or probe lists")
+
+    def frame_spec(frame, with_hash):
+        if (not isinstance(frame, dict) or frame.get("pattern") not in FILTER_PATTERNS
+                or any(type(frame.get(key)) is not int for key in ("width", "height", "seed", "t"))
+                or not 0 < frame["width"] <= MAX_FILTER_SIDE or not 0 < frame["height"] <= MAX_FILTER_SIDE
+                or (with_hash and not SHA256_HEX.fullmatch(str(frame.get("sha256", ""))))):
+            raise ValueError(f"Invalid video filter frame {frame!r}")
+        return frame["pattern"], frame["width"], frame["height"], frame["seed"], frame["t"]
+
+    known = {frame_spec(frame, True) for frame in frames}
+    if len(known) != len(frames):
+        raise ValueError("Duplicate video filter frame")
+    seen, covered = set(), set()
+    for case in cases:
+        if not isinstance(case, dict) or not isinstance(case.get("id"), str) or case["id"] in seen:
+            raise ValueError(f"Invalid or duplicate video filter case {case.get('id') if isinstance(case, dict) else case!r}")
+        seen.add(case["id"])
+        filters, case_frames, ops, results = (case.get(key) for key in ("filters", "frames", "ops", "results"))
+        if (not isinstance(filters, list) or not filters or not isinstance(case_frames, list) or not case_frames
+                or not isinstance(ops, list) or not isinstance(results, list)
+                or any(not isinstance(f, dict) or f.get("class") not in registry or not isinstance(f.get("params"), dict)
+                       for f in filters)
+                or any(frame_spec(frame, False) not in known for frame in case_frames)):
+            raise ValueError(f"Invalid video filter case {case['id']!r}")
+        covered.update(f["class"] for f in filters)
+        applies = 0
+        for op in ops:
+            if (not isinstance(op, dict) or op.get("op") not in FILTER_OPS
+                    or ("frame" in op and not (type(op["frame"]) is int and 0 <= op["frame"] < len(case_frames)))
+                    or ("filter" in op and not (type(op["filter"]) is int and 0 <= op["filter"] < len(filters)))):
+                raise ValueError(f"Invalid video filter operation in {case['id']!r}: {op!r}")
+            applies += op["op"] == "apply"
+        if len(results) != applies:
+            raise ValueError(f"{case['id']}: expected one result per evaluation")
+        for result in results:
+            if (not isinstance(result, dict) or type(result.get("width")) is not int or type(result.get("height")) is not int
+                    or not SHA256_HEX.fullmatch(str(result.get("sha256", "")))
+                    or ("rgb" in result) != (result["width"] * result["height"] <= FULL_FILTER_IMAGE_PIXELS)
+                    or ("rgb" in result and not re.fullmatch(r"[0-9a-f]{%d}" % (6 * result["width"] * result["height"]),
+                                                             str(result["rgb"])))):
+                raise ValueError(f"{case['id']}: invalid evaluation result {result!r}")
+    if covered != set(registry):
+        raise ValueError("Every registered video filter needs an oracle case")
+    if {entry.get("class") for entry in document["persistence"] if isinstance(entry, dict)} != set(registry):
+        raise ValueError("Every registered video filter needs a persistence probe")
+
+
+def filter_reference_text(document):
+    """Render the fixture with one frame and one case per line so that review diffs stay readable."""
+    compact = {"separators": (",", ":"), "ensure_ascii": False}
+    lines = ["{"]
+    keys = list(document)
+    for index, key in enumerate(keys):
+        comma = "," if index + 1 < len(keys) else ""
+        if key in FILTER_LINE_KEYS:
+            items = document[key]
+            lines.append(f"  {json.dumps(key)}: [")
+            lines.extend(f"    {json.dumps(item, **compact)}{',' if i + 1 < len(items) else ''}" for i, item in enumerate(items))
+            lines.append(f"  ]{comma}")
+        else:
+            lines.append(f"  {json.dumps(key)}: {json.dumps(document[key], **compact)}{comma}")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def check_filter_oracle(manifest, cache, java, *, record=False):
+    """Run the pinned OSP video filters on the synthetic cases and diff the committed fixture exactly."""
+    verify_file(cache / manifest["reference"]["file"], manifest["reference"])
+    # A private home keeps OSP preference files out of the shared reference cache.
+    with tempfile.TemporaryDirectory(prefix="filter-oracle-") as temporary:
+        home = Path(temporary) / "home"
+        home.mkdir()
+        output = Path(temporary) / "filter-java.json"
+        run([java, "-Djava.awt.headless=true", f"-Duser.home={home}", f"-Djava.io.tmpdir={home}",
+             "-Xmx512m", "--class-path", java_classpath(manifest, cache),
+             str(ROOT / "tools/reference/FilterOracle.java"), str(output)])
+        actual = json.loads(output.read_text(encoding="utf-8"))
+    validate_filter_reference(actual, manifest)
+    location = FILTER_REFERENCE.relative_to(ROOT).as_posix() if FILTER_REFERENCE.is_relative_to(ROOT) else str(FILTER_REFERENCE)
+    if record:
+        FILTER_REFERENCE.parent.mkdir(parents=True, exist_ok=True)
+        FILTER_REFERENCE.write_text(filter_reference_text(actual), encoding="utf-8", newline="\n")
+        print(f"filter-oracle: recorded {len(actual['cases'])} Java filter cases in {location}")
+        return
+    expected = json.loads(FILTER_REFERENCE.read_text(encoding="utf-8"))
+    validate_filter_reference(expected, manifest)
+    exact = {"relative": 0.0, "absolute": 0.0}
+    compare({key: value for key, value in expected.items() if key != "cases"},
+            {key: value for key, value in actual.items() if key != "cases"}, exact, "video-filter-reference")
+    if [case["id"] for case in expected["cases"]] != [case["id"] for case in actual["cases"]]:
+        raise ValueError("video-filter-reference: the Java case list differs from the fixture")
+    for want, got in zip(expected["cases"], actual["cases"]):
+        compare(want, got, exact, f"video-filter-reference.{want['id']}")
+    print(f"filter-oracle: {len(actual['cases'])} Java filter cases match {location} pixel for pixel")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["fetch", "verify", "reference", "check", "session", "roundtrip"])
+    parser.add_argument("command", choices=["fetch", "verify", "reference", "check", "session", "roundtrip", "filter-oracle"])
     parser.add_argument("--cache", type=Path, default=ROOT / ".dev-tools/tracker-reference")
-    parser.add_argument("--java", default="java", help="Java 17+ JDK executable (reference/session/roundtrip commands)")
+    parser.add_argument("--java", default="java", help="Java 17+ JDK executable (reference/session/roundtrip/filter-oracle commands)")
     parser.add_argument("--probe", help="Built motrack_corpus_probe executable (check/roundtrip commands)")
     parser.add_argument("--record", action="store_true", help="Explicitly replace committed Java baselines for review")
     args = parser.parse_args()
-    if args.record and args.command != "reference":
-        parser.error("--record is only valid for the reference command")
+    if args.record and args.command not in {"reference", "filter-oracle"}:
+        parser.error("--record is only valid for the reference and filter-oracle commands")
     if args.command in {"check", "roundtrip"} and not args.probe:
         parser.error(f"{args.command} requires --probe")
     manifest = load_manifest()
@@ -2862,6 +2985,8 @@ def main():
         print(f"Verified {len(manifest['cases'])} cases and Tracker {manifest['reference']['version']}")
     elif args.command in {"session", "roundtrip"}:
         check_sessions(manifest, cache, args.java, args.probe if args.command == "roundtrip" else None)
+    elif args.command == "filter-oracle":
+        check_filter_oracle(manifest, cache, args.java, record=args.record)
     else:
         check_cases(manifest, cache, java=args.java if args.command == "reference" else None,
                     probe=args.probe, record=args.record)

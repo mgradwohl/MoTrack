@@ -134,8 +134,12 @@ python tools/corpus.py check --probe build/coverage/motrack_corpus_probe
 python tools/corpus.py reference --java /path/to/jdk-17/bin/java
 python tools/corpus.py session --java /path/to/jdk-17/bin/java
 python tools/corpus.py roundtrip --probe build/coverage/motrack_corpus_probe --java /path/to/jdk-17/bin/java
+python tools/corpus.py filter-oracle --java /path/to/jdk-17/bin/java
 python -m unittest discover -s tests -p test_corpus.py
 ```
+
+`filter-oracle` runs the pinned OSP [video filters](../../docs/video-filters.md) on synthetic frames and compares
+the result with `tests/science/video-filter-reference.json` exactly; `--record` replaces the fixture for review.
 
 On Windows, use `build/coverage/motrack_corpus_probe.exe` and the path to `java.exe`. Python 3.10 or newer
 is supported. The reference command uses Java source-file mode and therefore needs a JDK, not just a

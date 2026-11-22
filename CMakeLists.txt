@@ -58,6 +58,14 @@ target_link_libraries(motrack_media PUBLIC Qt6::Gui PRIVATE motrack_ffmpeg)
 add_library(motrack_input STATIC src/workspace_input.cpp)
 target_include_directories(motrack_input PUBLIC src)
 target_link_libraries(motrack_input PUBLIC motrack_project PRIVATE motrack_media)
+
+# Qt-free ports of Tracker's video filters (docs/video-filters.md).
+add_library(motrack_filters STATIC src/science/filters/filter_image.cpp src/science/filters/java_arithmetic.cpp src/science/filters/video_filter.cpp
+    src/science/filters/point_filters.cpp src/science/filters/temporal_filters.cpp src/science/filters/geometric_filters.cpp)
+target_include_directories(motrack_filters PUBLIC src)
+# Java rounds a*b+c twice; Clang may otherwise fuse it where FMA exists (arm64).
+target_compile_options(motrack_filters PRIVATE -ffp-contract=off)
+
 target_link_libraries(motrack_workspace PUBLIC motrack_project motrack_input Qt6::Widgets PRIVATE motrack_media motrack_image_package Qt6::Concurrent)
 target_link_libraries(motrack PRIVATE motrack_workspace)
 qt_add_translations(motrack
@@ -105,6 +113,7 @@ if(MOTRACK_STAGE_DESKTOP)
 endif()
 
 set(motrack_targets motrack_project motrack_input motrack_image_package motrack_media motrack_workspace motrack)
+list(APPEND motrack_targets motrack_filters)
 if(MOTRACK_BUILD_BENCHMARKS)
     add_executable(motrack_import_benchmark benchmarks/import_benchmark.cpp)
     target_link_libraries(motrack_import_benchmark PRIVATE motrack_project)
@@ -157,6 +166,10 @@ if(BUILD_TESTING)
     target_link_libraries(motrack_tests PRIVATE motrack_project motrack_image_package GTest::gtest_main motrack_archive Qt6::Xml Qt6::Gui)
     target_compile_definitions(motrack_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+    target_sources(motrack_tests PRIVATE tests/science/video_filter_test.cpp)
+    target_link_libraries(motrack_tests PRIVATE motrack_filters)
+    target_compile_definitions(motrack_tests PRIVATE
+        MOTRACK_FILTER_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/video-filter-reference.json")
     add_test(NAME legacy_project COMMAND motrack_tests)
     add_executable(motrack_corpus_probe tests/corpus_probe.cpp)
     add_dependencies(motrack_tests motrack_corpus_probe)
