@@ -652,8 +652,7 @@ the entire standard XML while allowing only requested timing/range scalars, and 
 inspect native duration and first/last times. Tracker's actual `ClipControl.getMeanFrameDuration()`
 and `VideoPlayer.getFrameTime()` supply separate live values through save/fresh-process reopen.
 Consistently wrong values fail even if all three application snapshots agree. Existing baseline
-files and fixture bytes are unchanged. Local checks pass; current-head Linux application acceptance
-is required before merging this slice.
+files and fixture bytes are unchanged. This slice merged after its Linux actual-Tracker acceptance passed in CI.
 
 This writer requires an existing audited StepperClipControl and a bounded media-free clip. It rejects
 unknown controller/clip fields, media/frame shifts, data time sources, particle models, missing or
@@ -703,7 +702,7 @@ An empty-mass export followed by standard reimport, marking and native save/reop
 mark-only affine-cancellation bypass with the same independently measured coordinates above. Existing
 mass edits now use the coordinate checks even without membership/calibration changes; present-but-
 unparseable calibration also rejects mark-only exports. Regressions verify the destination stays intact.
-Linux actual-application acceptance is required before merging this slice.
+This slice merged after its Linux actual-Tracker acceptance passed in CI.
 
 The historical [Tracker #10 save/load report](https://github.com/OpenSourcePhysics/tracker/issues/10)
 and its discussion were refreshed. [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65) remains
@@ -737,8 +736,7 @@ batch can still be reimported, renamed and extended. Appended metadata and patch
 Negative tests reject consistent wrong geometry/appearance/calibrated data and changes to original content. Native
 tests cover collisions, dangling links, vector sums, unsafe deletion, mixed provider types, origin/tip
 snapping across frames, endpoint precision loss and bounded dense allocation. These cases extend
-R03/R07 without accepting dependent vectors or the known VectorSum resave defect (#63). Current-head
-Linux application acceptance and all-platform CI remain required before merging.
+R03/R07 without accepting dependent vectors or the known VectorSum resave defect (#63). This slice merged after its Linux actual-Tracker acceptance passed in CI.
 
 
 ## Removing unreferenced tracks
@@ -964,7 +962,7 @@ selected XML supplies only prerequisite metadata for dependency readiness; it do
 for opening the archive or repair loaded values. Tracker then saves `.trk`, and a fresh process
 reopens that save while the exported archive remains available for its linked media. This checks
 archive opening and linked standard resave, not Tracker's archive-authoring dialog. Independent
-pixels/timestamps/geometry are required at all three stages. Application acceptance is pending CI.
+pixels/timestamps/geometry are required at all three stages. This slice merged after its Linux actual-Tracker acceptance passed in CI.
 
 Native tests already cover preservation of other `.trk` members. This first application fixture has
 one experiment tab; the following two-experiment case adds a separate phase-3 application gate. New archive
