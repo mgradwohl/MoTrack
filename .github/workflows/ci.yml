@@ -49,7 +49,23 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          # The image's MSVC STL (14.52+) refuses Clang older than 22, and the preinstalled LLVM is 20.
+          # Install the pinned official LLVM 23 MSI (LLVM 23 ships MSI, not NSIS), verified by the release
+          # asset's SHA-256, into the default location this step already uses; the same pin as TaskSmack.
+          $version = '23.1.5'
+          $name = "LLVM-$version-win64.msi"
+          $installer = Join-Path $env:RUNNER_TEMP $name
+          Invoke-WebRequest "https://github.com/llvm/llvm-project/releases/download/llvmorg-$version/$name" -OutFile $installer -MaximumRetryCount 3 -RetryIntervalSec 10
+          $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne '288ab326377157a9e02e6fb9724914cc2b55963882d493a405f31dc66e837c12') { throw "Unexpected $name SHA-256 $hash" }
+          $log = Join-Path $env:RUNNER_TEMP 'llvm-msi.log'
+          $process = Start-Process msiexec.exe -ArgumentList "/i `"$installer`" /qn /norestart /l*v `"$log`"" -Wait -PassThru
+          # 3010 means "succeeded, restart needed", which a CI runner never needs.
+          if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) { Get-Content -LiteralPath $log -Tail 40; exit $process.ExitCode }
           $llvm = Join-Path $env:ProgramFiles 'LLVM/bin'
+          $reported = & (Join-Path $llvm 'clang++.exe') --version | Select-Object -First 1
+          if ($reported -notmatch "version $([regex]::Escape($version))\b") { throw "Expected clang $version, found: $reported" }
+          $reported
           $llvm | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
           "LLVM_BIN=$llvm" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
           choco install ccache --yes --no-progress
