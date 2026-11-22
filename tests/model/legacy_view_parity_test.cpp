@@ -160,6 +160,8 @@ TEST(LegacyViewParity, EveryCorpusFileAndFixtureReadsAsB1ImportsIt)
     // The comparison covers the corpus, not a vacuous subset: Tracker experiments and the reader's refusals.
     EXPECT_GT(accepted, 50u) << accepted;
     EXPECT_GT(refused, 5u) << refused;
+    RecordProperty("accepted", static_cast<int>(accepted));
+    RecordProperty("refused", static_cast<int>(refused));
 }
 
 TEST(LegacyViewParity, TheCacheIsKeyedByOwnerAndRevisionAndNeverSharedBetweenCopies)
