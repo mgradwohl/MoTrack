@@ -83,21 +83,6 @@ std::size_t ArgbImage::index(int x, int y) const noexcept
     return (static_cast<std::size_t>(y) * m_Stride) + static_cast<std::size_t>(x);
 }
 
-int redOf(std::uint32_t argb) noexcept
-{
-    return static_cast<int>((argb >> 16U) & 0xffU);
-}
-
-int greenOf(std::uint32_t argb) noexcept
-{
-    return static_cast<int>((argb >> 8U) & 0xffU);
-}
-
-int blueOf(std::uint32_t argb) noexcept
-{
-    return static_cast<int>(argb & 0xffU);
-}
-
 double trackerLuma(double red, double green, double blue) noexcept
 {
     return (0.299 * red) + (0.587 * green) + (0.114 * blue);
