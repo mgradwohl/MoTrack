@@ -211,17 +211,26 @@ Time scaling depends on where the times come from:
     - *True variable frame rate:* positions follow the recorded times. Beyond one tick from the grid the
       time-aware estimates are exact, where Tracker's stencils invent acceleration for steady motion, for
       example −0.26 m/s² at 2 m/s on 0, 33, 67, 100, 133 ms with a nanosecond time base. Within one tick the
-      timestamps cannot tell jitter from rounding, so Tracker's stencils apply. A sample displaced by up to one
-      tick moves the acceleration by at most (2/7) v × tick / Δ², the resolution such timestamps allow. That
-      is 1.4 m/s² at 3.3 m/s for 1/600 s ticks at 30 fps, and 0.008 m/s² for 1/90000 s.
+      timestamps cannot tell jitter from rounding, so Tracker's stencils apply, within the resolution such
+      timestamps allow:
+      - *Per sample:* one sample displaced by up to one tick moves the acceleration by at most
+        (2/7) v × tick / Δ² (the largest stencil weight).
+      - *Per window:* all three interior samples can be displaced by a tick at once, for example intervals of
+        21, 20, 20 and 19 ticks. The window's acceleration then moves by up to (4/7) v × tick / Δ², the sum of
+        the interior weights.
+      - At 3.3 m/s that is 1.4 and 2.8 m/s² for 1/600 s ticks at 30 fps, and 0.009 and 0.019 m/s² for
+        1/90000 s.
     - *Unknown time base* (a document saved before #331, until its movie is indexed again, which happens on
       opening): nanosecond resolution is assumed. Constant-rate video with coarse timestamps then gets the
       five-point fit on its rounded times: up to 0.26 m/s² at 30 fps and 1.0 m/s² at 60 fps for 2 m/s.
+    - *A declared time base finer than the timestamps:* MKV or WebM remuxed to MP4 without re-encoding (for
+      example by OBS) declares 1/16000 s while its timestamps stay whole milliseconds. The 33/34 ms intervals
+      then count as unequal, with the same 0.26 and 1.0 m/s² as above. Detecting the real precision is #335.
   - **Tests:** `MeasurementPlot.ConstantRateCaptureWithMillisecondTimestampsUsesTrackersStencils` and
     `MeasurementPlot.AMixedClipOnACoarseTimeBaseHasNoEstimatorDiscontinuity`. The mixed clip is 30 fps on
     1/600 s with free fall and ±1 mm noise, one frame one to three ticks late. It stays within the five-point
     noise band (±0.51 m/s²) when the frame is two or three ticks late, including where the estimator changes;
-    the three-point estimates swung by ±3.6 m/s² there. One tick late, it stays within the one-tick bound
+    the three-point estimates swung by ±3.6 m/s² there. One tick late, it stays within the per-sample bound
     above.
 
 `MotionReference.MeasurementPlotMatchesTrackersDefaultDerivatives` checks `measurementPlot` against every
