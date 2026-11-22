@@ -382,12 +382,13 @@ PlotSeries measurementPlot(const LegacyProject& project,
         {
             points.push_back(mark.position);
             positions.emplace_back(mark.position);
-            // Tracker's step time is (start + k * stride * duration) / 1000. Omitting the start time shifts every
-            // step alike, so intervals are unchanged (bit for bit when the start is 0) and a large time origin
-            // cannot distort them by rounding. Decoded frame times are used as they are.
-            times.push_back(frameTimes.empty()
-                                ? static_cast<double>(std::int64_t{mark.frame} - project.clip.firstFrame) * frameDurationMs / 1000.0
-                                : frameTime(mark.frame));
+            // Tracker's media-free step time is (k * duration * stride + start) / 1000 for clip step k, in that
+            // operand order (StepperClipControl.getStepTime, VideoPlayer.getStepTime). Omitting the start time
+            // shifts every step alike, so intervals are unchanged (bit for bit when the start is 0) and a large
+            // time origin cannot distort them by rounding. Decoded frame times are used as they are.
+            const auto clipStep = (std::int64_t{mark.frame} - project.clip.firstFrame) / stride;
+            times.push_back(frameTimes.empty() ? static_cast<double>(clipStep) * frameDurationMs * static_cast<double>(stride) / 1000.0
+                                               : frameTime(mark.frame));
         }
         const science::ClipLattice lattice{.firstFrame = begin->frame, .stepSize = stride, .stepCount = static_cast<int>(points.size())};
         const auto motion = science::pointMassDerivatives(science::TRACKER_DEFAULT_DERIVATIVE_ALGORITHM, lattice, positions, times);

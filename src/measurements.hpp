@@ -93,7 +93,8 @@ struct LinearFit
 /// by the mean step interval (motrack_motion's pointMassDerivatives). A value needs every clip step of its
 /// window (three for velocity, five for acceleration); missing values stay absent, never zero. Decoded frame
 /// times whose intervals are unequal (beyond nanosecond rounding) keep MoTrack's time-aware three-point
-/// estimates instead, within the same windows (#87; docs/motion-kernels.md).
+/// estimates instead, within the same windows. Those are exact for true variable frame rates but misread
+/// coarse timestamps of constant-rate video, such as whole milliseconds, as jitter (#87; docs/motion-kernels.md).
 [[nodiscard]] PlotSeries measurementPlot(const LegacyProject& project,
                                          std::size_t track,
                                          PlotQuantity quantity,

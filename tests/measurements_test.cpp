@@ -1,13 +1,19 @@
 #include "measurements.hpp"
 
+#include "science/motion/motion_derivatives.hpp"
+#include "science/motion/motion_types.hpp"
+
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <numbers>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -447,24 +453,133 @@ TEST(MeasurementPlot, KeepsTimeAwareEstimatesForUnequalDecodedFrameIntervals)
     ASSERT_EQ(accelerationY.samples.size(), 1u);
     EXPECT_EQ(accelerationY.samples.front().vertical, 0.0);
 
-    // Constant velocity on millisecond-rounded frame times: the time-aware estimate invents no acceleration,
-    // where Tracker's stencil would report one of about -0.26 m/s² at step 2.
-    const std::array rounded{0.0, 0.033, 0.067, 0.1, 0.133, 0.167};
+    // True variable frame rate: steady motion captured at the recorded, unevenly spaced times (positions follow
+    // those times, x = 2t). The time-aware estimate gives no acceleration, where Tracker's stencil reports about
+    // -0.26 m/s² at step 2. Constant-rate capture with coarse timestamps is the opposite case (next test).
+    const std::array recorded{0.0, 0.033, 0.067, 0.1, 0.133, 0.167};
     motrack::LegacyProject steady;
     motrack::PointMass cart{.name = "cart"};
     for (int frame = 0; frame < 6; ++frame)
     {
-        cart.marks.push_back({.frame = frame, .x = 2.0 * rounded.at(static_cast<std::size_t>(frame)), .y = 0.0});
+        cart.marks.push_back({.frame = frame, .x = 2.0 * recorded.at(static_cast<std::size_t>(frame)), .y = 0.0});
     }
     steady.pointMasses.push_back(cart);
     const auto trackerStencil = (2 * cart.marks[0].x - cart.marks[1].x - 2 * cart.marks[2].x - cart.marks[3].x + 2 * cart.marks[4].x) / 7 /
-                                std::pow((rounded[4] - rounded[0]) / 4, 2);
+                                std::pow((recorded[4] - recorded[0]) / 4, 2);
     EXPECT_LT(trackerStencil, -0.2);
-    const auto steadyAcceleration = motrack::measurementPlot(steady, 0, motrack::PlotQuantity::AccelerationX, rounded);
+    const auto steadyAcceleration = motrack::measurementPlot(steady, 0, motrack::PlotQuantity::AccelerationX, recorded);
     ASSERT_EQ(steadyAcceleration.samples.size(), 2u);
     for (const auto& sample : steadyAcceleration.samples)
     {
         EXPECT_NEAR(sample.vertical, 0.0, 1e-9) << sample.frame;
+    }
+}
+
+TEST(MeasurementPlot, ConstantRateCaptureWithMillisecondTimestampsKeepsTheTimeAwareError)
+{
+    // KNOWN LIMITATION, pinned so that the #87 follow-up notices the change. Constant-rate capture whose
+    // decoded times are whole milliseconds (the Matroska/WebM time base): positions follow the true times,
+    // x = 2 m/s × k / rate, but the 33/34 ms intervals count as unequal, so MoTrack's time-aware estimates
+    // turn the timestamp rounding into acceleration and a 1–2% velocity error. Tracker's uniform stencils,
+    // given the same inputs, are accurate to about 1e-13. Values over one second (31 frames, steady 2 m/s).
+    struct Rate
+    {
+        double numerator;
+        double denominator;
+        double maximumAcceleration;
+        double maximumVelocityError;
+    };
+    for (const auto& rate :
+         {Rate{.numerator = 1.0, .denominator = 30.0, .maximumAcceleration = 1.773663, .maximumVelocityError = 0.010101},
+          Rate{.numerator = 1001.0, .denominator = 30000.0, .maximumAcceleration = 1.775437, .maximumVelocityError = 0.011111},
+          Rate{.numerator = 1.0, .denominator = 60.0, .maximumAcceleration = 7.427213, .maximumVelocityError = 0.019608}})
+    {
+        constexpr int FRAMES = 31;
+        std::vector<double> times;
+        std::vector<std::optional<motrack::science::PlanarValue>> positions;
+        motrack::LegacyProject project;
+        motrack::PointMass mass{.name = "cart"};
+        for (int frame = 0; frame < FRAMES; ++frame)
+        {
+            const double t = frame * rate.numerator / rate.denominator;
+            times.push_back(std::round(frame * 1000.0 * rate.numerator / rate.denominator) / 1000.0);
+            mass.marks.push_back({.frame = frame, .x = 2.0 * t, .y = 0.0});
+            positions.emplace_back(motrack::science::PlanarValue{.x = 2.0 * t, .y = 0.0});
+        }
+        project.pointMasses.push_back(mass);
+        double acceleration = 0.0;
+        for (const auto& sample : motrack::measurementPlot(project, 0, motrack::PlotQuantity::AccelerationX, times).samples)
+        {
+            acceleration = std::max(acceleration, std::abs(sample.vertical));
+        }
+        double velocityError = 0.0;
+        for (const auto& sample : motrack::measurementPlot(project, 0, motrack::PlotQuantity::VelocityX, times).samples)
+        {
+            velocityError = std::max(velocityError, std::abs(sample.vertical - 2.0) / 2.0);
+        }
+        EXPECT_NEAR(acceleration, rate.maximumAcceleration, 1e-5) << rate.denominator;
+        EXPECT_NEAR(velocityError, rate.maximumVelocityError, 1e-5) << rate.denominator;
+
+        const auto tracker = motrack::science::pointMassDerivatives(motrack::science::TRACKER_DEFAULT_DERIVATIVE_ALGORITHM,
+                                                                    {.firstFrame = 0, .stepSize = 1, .stepCount = FRAMES},
+                                                                    positions,
+                                                                    times);
+        for (const auto& value : tracker.acceleration)
+        {
+            if (value)
+            {
+                EXPECT_LT(std::abs(value->x), 1e-11) << rate.denominator;
+            }
+        }
+    }
+}
+
+TEST(MeasurementPlot, ConstantTimingOnAStrideUsesTrackersStepTimeOperandOrder)
+{
+    // Tracker's media-free step time is k × duration × stride (StepperClipControl.getStepTime), which for a
+    // stride of 3 and 1000/30 ms frames differs from (k × stride) × duration in the last bit at some steps.
+    // With a zero start the plot equals Tracker's derivatives on Tracker's step times bit for bit.
+    constexpr double DURATION = 1000.0 / 30.0;
+    constexpr int STRIDE = 3;
+    constexpr int COUNT = 16;
+    std::vector<double> trackerTimes;
+    std::vector<double> reorderedTimes;
+    std::vector<std::optional<motrack::science::PlanarValue>> positions;
+    motrack::LegacyProject project;
+    project.clip = {.firstFrame = 0, .stepSize = STRIDE, .stepCount = COUNT, .frameDurationMs = DURATION, .startTimeMs = 0.0};
+    motrack::PointMass mass{.name = "ball"};
+    for (int step = 0; step < COUNT; ++step)
+    {
+        trackerTimes.push_back(step * DURATION * STRIDE / 1000.0);
+        reorderedTimes.push_back((step * STRIDE) * DURATION / 1000.0);
+        const double t = trackerTimes.back();
+        const motrack::science::PlanarValue point{.x = 0.3 + 1.7 * t + 0.001 * ((step * 7) % 5 - 2), .y = 2.0 - 4.9 * t * t};
+        positions.emplace_back(point);
+        mass.marks.push_back({.frame = step * STRIDE, .x = point.x, .y = point.y});
+    }
+    project.pointMasses.push_back(mass);
+    const motrack::science::ClipLattice lattice{.firstFrame = 0, .stepSize = STRIDE, .stepCount = COUNT};
+    const auto tracker =
+        motrack::science::pointMassDerivatives(motrack::science::TRACKER_DEFAULT_DERIVATIVE_ALGORITHM, lattice, positions, trackerTimes);
+    const auto reordered =
+        motrack::science::pointMassDerivatives(motrack::science::TRACKER_DEFAULT_DERIVATIVE_ALGORITHM, lattice, positions, reorderedTimes);
+    // The operand order is observable in this case, so the comparison below can tell them apart.
+    EXPECT_TRUE(tracker.velocity != reordered.velocity || tracker.acceleration != reordered.acceleration);
+    using enum motrack::PlotQuantity;
+    for (const auto quantity : {VelocityX, VelocityY, AccelerationX, AccelerationY})
+    {
+        const bool second = quantity == AccelerationX || quantity == AccelerationY;
+        const bool vertical = quantity == VelocityY || quantity == AccelerationY;
+        const auto plotted = valuesByFrame(motrack::measurementPlot(project, 0, quantity));
+        const auto& expected = second ? tracker.acceleration : tracker.velocity;
+        ASSERT_EQ(std::ssize(plotted), std::ranges::count_if(expected, [](const auto& value) { return value.has_value(); }));
+        for (int step = 0; step < COUNT; ++step)
+        {
+            if (const auto& value = expected[static_cast<std::size_t>(step)])
+            {
+                EXPECT_EQ(plotted.at(step * STRIDE), vertical ? value->y : value->x) << step;
+            }
+        }
     }
 }
 

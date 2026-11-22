@@ -462,9 +462,9 @@ TEST(MotionReference, MeasurementPlotMatchesTrackersDefaultDerivatives)
         ASSERT_TRUE(timing.has_value()) << id;
         for (int step = 0; step < clip.stepCount; ++step)
         {
-            // VideoPlayer.getStepTime(k) / 1000 in Java's operand order: the table holds the oracle's arguments.
-            EXPECT_EQ((timing->startMs + static_cast<double>(step * clip.stepSize) * timing->durationMs) / 1000.0,
-                      times[static_cast<std::size_t>(step)])
+            // VideoPlayer.getStepTime(k) / 1000 in Tracker's operand order (k * duration * stride + start): the
+            // table holds the oracle's arguments.
+            EXPECT_EQ((step * timing->durationMs * clip.stepSize + timing->startMs) / 1000.0, times[static_cast<std::size_t>(step)])
                 << id << " step " << step;
         }
         project.clip.frameDurationMs = timing->durationMs;
