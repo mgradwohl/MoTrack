@@ -238,6 +238,105 @@ def run(command, *, display=None):
         raise ValueError(f"Probe failed ({result.returncode}):\n{(result.stdout + result.stderr)[-5000:]}")
 
 
+MATCH_REFERENCE = ROOT / "tests/science/match-reference.json"
+MATCH_LISTS = ("composite", "masks", "search_points", "matches", "sequences")
+MATCH_EXACT = {"relative": 0.0, "absolute": 0.0}
+# One-dimensional cases build the line with Math.tan and convert the subpixel offset with Math.cos and
+# Math.sin, which Java specifies only to within 1 ulp; positions derived from them get this slack.
+MATCH_TRIG_TOLERANCE = {"relative": 0.0, "absolute": 1e-9}
+MAX_MATCH_ENTRIES = 1000
+MATCH_HASH = re.compile(r"[0-9a-f]{16}")
+
+
+def validate_match_reference(document, manifest):
+    """Check the template-matching oracle schema before comparing or recording it."""
+    if (not isinstance(document, dict) or document.get("schema_version") != 1
+            or document.get("reference_version") != manifest["reference"]["version"]):
+        raise ValueError("Unexpected template-matching oracle schema or reference version")
+    if set(document) != {"schema_version", "reference_version", "evolution", *MATCH_LISTS}:
+        raise ValueError("Unexpected template-matching oracle sections")
+    for section in MATCH_LISTS:
+        entries = document[section]
+        if (not isinstance(entries, list) or not entries or len(entries) > MAX_MATCH_ENTRIES
+                or not all(isinstance(entry, dict) for entry in entries)):
+            raise ValueError(f"Invalid template-matching oracle section {section}")
+    composite = document["composite"]
+    if ([entry.get("alpha") for entry in composite] != list(range(1, 256))
+            or not all(isinstance(entry.get(key), str) and MATCH_HASH.fullmatch(entry[key])
+                       for entry in composite for key in ("opaque", "translucent"))):
+        raise ValueError("The compositing oracle must hash every alpha from 1 to 255")
+    for section in ("masks", "matches", "sequences"):
+        ids = [entry.get("id") for entry in document[section]]
+        if not all(isinstance(value, str) for value in ids) or len(set(ids)) != len(ids):
+            raise ValueError(f"Missing or duplicate template-matching oracle id in {section}")
+    if any(not isinstance(case.get("result"), dict) for case in document["matches"]):
+        raise ValueError("Every template-matching oracle case needs a result")
+    evolution = document["evolution"]
+    if not isinstance(evolution, dict) or not isinstance(evolution.get("steps"), list) or not evolution["steps"]:
+        raise ValueError("Invalid template-evolution oracle case")
+    for sequence in document["sequences"]:
+        steps = sequence.get("steps")
+        if (type(sequence.get("frames")) is not int or not isinstance(steps, list)
+                or [step.get("k") if isinstance(step, dict) else None for step in steps] != list(range(sequence["frames"]))):
+            raise ValueError(f"Template-matching sequence {sequence['id']!r} must record every frame")
+
+
+def match_reference_text(document):
+    """Render the fixture with one case per line so that review diffs stay readable."""
+    compact = {"separators": (",", ":"), "ensure_ascii": False}
+    lines = ["{"]
+    keys = list(document)
+    for index, key in enumerate(keys):
+        separator = "," if index + 1 < len(keys) else ""
+        value = document[key]
+        if key in MATCH_LISTS:
+            lines.append(f"  {json.dumps(key)}: [")
+            lines.extend(f"    {json.dumps(entry, **compact)}{',' if position + 1 < len(value) else ''}"
+                         for position, entry in enumerate(value))
+            lines.append(f"  ]{separator}")
+        else:
+            lines.append(f"  {json.dumps(key)}: {json.dumps(value, **compact)}{separator}")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def match_tolerance(section, entry):
+    one_dimensional = (section == "matches" and entry.get("line") is not None) or (
+        section == "sequences" and entry.get("angle") is not None)
+    return MATCH_TRIG_TOLERANCE if one_dimensional else MATCH_EXACT
+
+
+def check_match_oracle(manifest, cache, java, *, record=False):
+    """Run the pinned TemplateMatcher on the synthetic template-matching scenes and diff the fixture."""
+    verify_file(cache / manifest["reference"]["file"], manifest["reference"])
+    # A private home keeps OSP preference files out of the shared reference cache.
+    with tempfile.TemporaryDirectory(prefix="match-oracle-") as temporary:
+        home = Path(temporary) / "home"
+        home.mkdir()
+        output = Path(temporary) / "match-java.json"
+        run([java, "-Djava.awt.headless=true", f"-Duser.home={home}", f"-Djava.io.tmpdir={home}",
+             "-Xmx256m", "--class-path", java_classpath(manifest, cache),
+             str(ROOT / "tools/reference/MatchOracle.java"), str(output)])
+        actual = json.loads(output.read_text(encoding="utf-8"))
+    validate_match_reference(actual, manifest)
+    location = MATCH_REFERENCE.relative_to(ROOT).as_posix() if MATCH_REFERENCE.is_relative_to(ROOT) else str(MATCH_REFERENCE)
+    count = sum(len(actual[section]) for section in MATCH_LISTS) + 1
+    if record:
+        MATCH_REFERENCE.parent.mkdir(parents=True, exist_ok=True)
+        MATCH_REFERENCE.write_text(match_reference_text(actual), encoding="utf-8", newline="\n")
+        print(f"match-oracle: recorded {count} Java template-matching cases in {location}")
+        return
+    expected = json.loads(MATCH_REFERENCE.read_text(encoding="utf-8"))
+    validate_match_reference(expected, manifest)
+    compare(expected["evolution"], actual["evolution"], MATCH_EXACT, "match-reference.evolution")
+    for section in MATCH_LISTS:
+        if len(expected[section]) != len(actual[section]):
+            raise ValueError(f"match-reference.{section}: the Java case list differs from the fixture")
+        for index, (want, got) in enumerate(zip(expected[section], actual[section])):
+            compare(want, got, match_tolerance(section, want), f"match-reference.{section}[{index}]")
+    print(f"match-oracle: {count} Java template-matching cases match {location}")
+
+
 def session_file_diagnostic(path):
     """Observe a failed reference input without changing it or retrying the loader."""
     try:
@@ -2867,14 +2966,14 @@ def check_sessions(manifest, cache, java, probe=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["fetch", "verify", "reference", "check", "session", "roundtrip"])
+    parser.add_argument("command", choices=["fetch", "verify", "reference", "check", "session", "roundtrip", "match-oracle"])
     parser.add_argument("--cache", type=Path, default=ROOT / ".dev-tools/tracker-reference")
-    parser.add_argument("--java", default="java", help="Java 17+ JDK executable (reference/session/roundtrip commands)")
+    parser.add_argument("--java", default="java", help="Java 17+ JDK executable (reference/session/roundtrip/match-oracle commands)")
     parser.add_argument("--probe", help="Built motrack_corpus_probe executable (check/roundtrip commands)")
     parser.add_argument("--record", action="store_true", help="Explicitly replace committed Java baselines for review")
     args = parser.parse_args()
-    if args.record and args.command != "reference":
-        parser.error("--record is only valid for the reference command")
+    if args.record and args.command not in {"reference", "match-oracle"}:
+        parser.error("--record is only valid for the reference and match-oracle commands")
     if args.command in {"check", "roundtrip"} and not args.probe:
         parser.error(f"{args.command} requires --probe")
     manifest = load_manifest()
@@ -2885,6 +2984,8 @@ def main():
         print(f"Verified {len(manifest['cases'])} cases and Tracker {manifest['reference']['version']}")
     elif args.command in {"session", "roundtrip"}:
         check_sessions(manifest, cache, args.java, args.probe if args.command == "roundtrip" else None)
+    elif args.command == "match-oracle":
+        check_match_oracle(manifest, cache, args.java, record=args.record)
     else:
         check_cases(manifest, cache, java=args.java if args.command == "reference" else None,
                     probe=args.probe, record=args.record)

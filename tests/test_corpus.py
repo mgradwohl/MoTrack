@@ -28,6 +28,132 @@ class Download(io.BytesIO):
         return self.url
 
 
+class MatchOracleTests(unittest.TestCase):
+    """The template-matching kernel oracle (tools/reference/MatchOracle.java) without running Java."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name).resolve()
+        self.manifest = corpus.load_manifest()
+        self.fixture = json.loads(corpus.MATCH_REFERENCE.read_text(encoding="utf-8"))
+
+    def check(self, document, *, record=False, commands=None):
+        """Run check_match_oracle with a fake Java process that emits `document`."""
+        def run(command):
+            if commands is not None:
+                commands.append(command)
+            Path(command[-1]).write_text(json.dumps(document), encoding="utf-8")
+
+        with patch.object(corpus, "verify_file") as verify, patch.object(corpus, "run", side_effect=run), \
+                patch("sys.stdout", new_callable=io.StringIO) as output:
+            corpus.check_match_oracle(self.manifest, self.root, "java", record=record)
+        verify.assert_called_once_with(self.root / self.manifest["reference"]["file"], self.manifest["reference"])
+        return output.getvalue()
+
+    def test_committed_fixture_covers_every_case_family_in_its_canonical_layout(self):
+        corpus.validate_match_reference(self.fixture, self.manifest)
+        self.assertEqual([entry["alpha"] for entry in self.fixture["composite"]], list(range(1, 256)))
+        self.assertTrue({"ellipse-empty", "ellipse-key-default", "rectangle-9", "ellipse-max"} <= {m["id"] for m in self.fixture["masks"]})
+        ids = {case["id"] for case in self.fixture["matches"]}
+        self.assertTrue({"exact", "uniform", "outside-right", "line(0.0)", "line-misses-area", "line-outside-trimmed-area"} <= ids)
+        self.assertTrue(any(case["id"].startswith("beyond(") for case in self.fixture["matches"]))
+        self.assertEqual({s["id"] for s in self.fixture["sequences"]} & {"clean", "occlusion", "evolving", "line-tilted"},
+                         {"clean", "occlusion", "evolving", "line-tilted"})
+        # The reference defects the C++ tests rely on are recorded, not hidden.
+        outside = next(case for case in self.fixture["matches"] if case["id"] == "line-outside-trimmed-area")
+        self.assertEqual(outside["result"]["exception"], "ArrayIndexOutOfBoundsException")
+        self.assertIn("NegativeArraySizeException", {row.get("exception") for row in self.fixture["search_points"]})
+        self.assertEqual(corpus.MATCH_REFERENCE.read_bytes().decode("utf-8"), corpus.match_reference_text(self.fixture))
+        self.assertLess(corpus.MATCH_REFERENCE.stat().st_size, 256 * 1024)
+
+    def test_check_runs_the_pinned_jar_privately_and_accepts_an_identical_regeneration(self):
+        commands = []
+        count = sum(len(self.fixture[section]) for section in corpus.MATCH_LISTS) + 1
+        self.assertIn(f"{count} Java template-matching cases match tests/science/match-reference.json",
+                      self.check(self.fixture, commands=commands))
+        [command] = commands
+        self.assertEqual(command[0], "java")
+        self.assertIn("-Djava.awt.headless=true", command)
+        self.assertIn("-Xmx256m", command)
+        self.assertEqual(command[command.index("--class-path") + 1], str(self.root / self.manifest["reference"]["file"]))
+        self.assertEqual(Path(command[-2]), corpus.ROOT / "tools/reference/MatchOracle.java")
+        home = next(arg for arg in command if arg.startswith("-Duser.home=")).split("=", 1)[1]
+        self.assertFalse(Path(home).is_relative_to(self.root))
+        self.assertFalse(Path(home).exists())
+
+    def test_check_rejects_hash_score_position_and_case_drift(self):
+        import math  # local: keeps this class independent of the module's shared import lines
+
+        def first_point(document, line):
+            return next(case for case in document["matches"]
+                        if (case["line"] is not None) == line and case["result"].get("point"))["result"]["point"]
+
+        for mutation in ["composite", "mask", "evolution", "points", "score", "position", "line-position", "sequence", "missing"]:
+            document = copy.deepcopy(self.fixture)
+            if mutation == "composite":
+                document["composite"][7]["opaque"] = "0" * 16
+            elif mutation == "mask":
+                document["masks"][0]["template"]["trim"] = [0, 0]
+            elif mutation == "evolution":
+                document["evolution"]["steps"][0]["template"]["hash"] = "f" * 16
+            elif mutation == "points":
+                next(row for row in document["search_points"] if row.get("points"))["points"][0][0] += 1
+            elif mutation == "score":
+                next(case for case in document["matches"] if case["id"] == "shift(0.25,0.0)")["result"]["height"] *= 1 + 1e-15
+            elif mutation == "position":
+                point = first_point(document, False)
+                point[0] = math.nextafter(point[0], math.inf)
+            elif mutation == "line-position":
+                first_point(document, True)[1] += 1e-6
+            elif mutation == "sequence":
+                document["sequences"][0]["steps"][3]["good"] = not document["sequences"][0]["steps"][3]["good"]
+            else:
+                document["matches"].pop()
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                self.check(document)
+
+    def test_one_dimensional_positions_allow_last_bit_trigonometric_differences(self):
+        document = copy.deepcopy(self.fixture)
+        case = next(case for case in document["matches"] if case["id"] == "line(0.3)")
+        case["result"]["point"][0] += 1e-12
+        self.check(document)
+
+    def test_record_writes_the_canonical_fixture_only_when_requested(self):
+        destination = self.root / "science" / "match-reference.json"
+        with patch.object(corpus, "MATCH_REFERENCE", destination):
+            self.assertIn("recorded", self.check(self.fixture, record=True))
+        self.assertEqual(destination.read_bytes(), corpus.match_reference_text(self.fixture).encode("utf-8"))
+        with patch.object(sys, "argv", ["corpus.py", "session", "--record"]), patch.object(corpus, "check_sessions") as sessions, \
+                self.assertRaises(SystemExit), patch("sys.stderr", new_callable=io.StringIO):
+            corpus.main()
+        sessions.assert_not_called()
+        with patch.object(sys, "argv", ["corpus.py", "match-oracle", "--java", "jdk/java", "--record"]), \
+                patch.object(corpus, "check_match_oracle") as oracle:
+            corpus.main()
+        oracle.assert_called_once()
+        self.assertEqual(oracle.call_args.args[2], "jdk/java")
+        self.assertTrue(oracle.call_args.kwargs["record"])
+
+    def test_validation_rejects_malformed_or_incomplete_documents(self):
+        for mutation in ["version", "schema", "section", "empty", "alphas", "hash", "duplicate", "no-result", "evolution",
+                         "frames", "not-object"]:
+            document = copy.deepcopy(self.fixture)
+            if mutation == "version": document["reference_version"] = "6.3.4"
+            elif mutation == "schema": document["schema_version"] = 2
+            elif mutation == "section": document["extra"] = []
+            elif mutation == "empty": document["masks"] = []
+            elif mutation == "alphas": document["composite"].pop(0)
+            elif mutation == "hash": document["composite"][0]["translucent"] = "xyz"
+            elif mutation == "duplicate": document["matches"].append(document["matches"][0])
+            elif mutation == "no-result": del document["matches"][0]["result"]
+            elif mutation == "evolution": document["evolution"]["steps"] = []
+            elif mutation == "frames": document["sequences"][0]["steps"].pop()
+            else: document["sequences"][0] = "sequence"
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                corpus.validate_match_reference(document, self.manifest)
+
+
 class CorpusTests(unittest.TestCase):
     def test_multitab_manifest_requires_independent_bounded_member_expectations(self):
         original = corpus.load_manifest()

@@ -137,6 +137,11 @@ python tools/corpus.py roundtrip --probe build/coverage/motrack_corpus_probe --j
 python -m unittest discover -s tests -p test_corpus.py
 ```
 
+`python tools/corpus.py match-oracle --java /path/to/jdk-17/bin/java` runs the pinned `TemplateMatcher` on the
+[template-matching kernel](../../docs/template-matching.md)'s synthetic scenes and compares the result with
+`tests/science/match-reference.json` (exactly, except 1D positions within 1e-9 px); `--record` replaces the
+fixture for review.
+
 On Windows, use `build/coverage/motrack_corpus_probe.exe` and the path to `java.exe`. Python 3.10 or newer
 is supported. The reference command uses Java source-file mode and therefore needs a JDK, not just a
 JRE. The first `fetch` needs network access; later checks are offline against verified cached files.
