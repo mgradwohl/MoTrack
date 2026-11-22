@@ -5,6 +5,11 @@ Qt comes from aqtinstall (PyPI) when it is reachable. When PyPI or aqt fails, or
 online repository: the package list and each archive's SHA-256 are read from download.qt.io itself
 (never through a mirror redirect), every archive is checked before it is extracted with a
 libarchive ``bsdtar`` (7z support), and the result is moved into the prefix ``qt-prefix`` prints.
+
+Both ways also install the add-on modules in ``QT_MODULES`` (Qt Multimedia, for camera capture). A
+prefix installed before a module was added gets just that module: its verified archives are added
+without replacing or deleting any file already in the prefix (``--qt-source aqt`` uses aqt's
+``--noarchives`` amendment instead).
 """
 
 import argparse
@@ -40,6 +45,9 @@ def toolchain():
 
 
 QT_VERSION = toolchain()["MOTRACK_QT_VERSION"]
+# Qt add-on modules beyond the essentials, by aqt module name, with the CMake package each provides.
+# Qt Multimedia (camera preview and frames) bundles its own FFmpeg for its backend; see README.md.
+QT_MODULES = {"qtmultimedia": "lib/cmake/Qt6Multimedia/Qt6MultimediaConfig.cmake"}
 
 
 def platform_config():
@@ -96,11 +104,12 @@ def repository_url(repository_os, version):
     return f"{QT_REPOSITORY}/{repository_os}/desktop/qt6_{compact}/qt6_{compact}/"
 
 
-def essential_archives(updates, package, version, directory):
+def package_archives(updates, package, version, directory):
     """[(archive file name, target relative to the qt directory)] for package's archives.
 
     Qt 6.8 archives carry no '<version>/<directory>' prefix; the repository's Extract operations name
     each archive's target (d3dcompiler_47 and opengl32sw go to bin/), and the prefix is the default.
+    The essentials and add-on module packages (qt.qt6.683.addons.<module>.<arch>) share this layout.
     """
     record = next((p for p in ET.fromstring(updates).iter("PackageUpdate") if p.findtext("Name") == package), None)
     if record is None:
@@ -150,55 +159,142 @@ def mark_open_source(prefix):
         qconfig.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def install_qt_direct(root, archive, directory, repository_os, version=QT_VERSION, extract=None):
-    """Install Qt's essential archives for archive (win64_msvc2022_64, ...) from download.qt.io."""
+class QtPrefixConflict(SystemExit):
+    """A module archive would replace a file in the installed prefix; nothing was added."""
+
+
+def missing_modules(prefix):
+    """The QT_MODULES whose CMake package the Qt prefix lacks, in QT_MODULES order."""
+    return [module for module, config in QT_MODULES.items() if not (Path(prefix) / config).is_file()]
+
+
+def module_package(version, module, archive):
+    return f"qt.qt6.{version.replace('.', '')}.addons.{module}.{archive}"
+
+
+def stage_packages(root, packages, repository_os, version, directory, extract):
+    """Download, verify and extract each package's archives under root/qt.partial; the archive count.
+
+    Every archive's SHA-256 must match the value download.qt.io publishes before it is extracted.
+    """
     base = repository_url(repository_os, version)
     updates = fetch_trusted(base + "Updates.xml")
     expected = published_sha256(base + "Updates.xml")
     if hashlib.sha256(updates).hexdigest() != expected:
         raise SystemExit("Qt's Updates.xml does not match its published SHA-256.")
-    package = f"qt.qt6.{version.replace('.', '')}.{archive}"
-    archives = essential_archives(updates, package, version, directory)
     downloads = root / "qt-downloads"
     staging = root / "qt.partial"
     downloads.mkdir(parents=True, exist_ok=True)
     shutil.rmtree(staging, ignore_errors=True)
     tar = None if extract else find_bsdtar()
-    for name, target in archives:
-        url = f"{base}{package}/{name}"
-        checksum = published_sha256(url)
-        path = downloads / name
-        if not path.is_file() or sha256(path) != checksum:
-            print(f"Downloading {name}", flush=True)
-            download(url, path)
-        if (actual := sha256(path)) != checksum:
-            path.unlink()
-            raise SystemExit(f"{name} has SHA-256 {actual}, but download.qt.io publishes {checksum}.")
-        destination = staging / target
-        destination.mkdir(parents=True, exist_ok=True)
-        print(f"Extracting {name}", flush=True)
-        if extract:
-            extract(path, destination)
-        else:
-            subprocess.run([tar, "-xf", path, "-C", destination], check=True)
+    count = 0
+    for package in packages:
+        for name, target in package_archives(updates, package, version, directory):
+            url = f"{base}{package}/{name}"
+            checksum = published_sha256(url)
+            path = downloads / name
+            if not path.is_file() or sha256(path) != checksum:
+                print(f"Downloading {name}", flush=True)
+                download(url, path)
+            if (actual := sha256(path)) != checksum:
+                path.unlink()
+                raise SystemExit(f"{name} has SHA-256 {actual}, but download.qt.io publishes {checksum}.")
+            destination = staging / target
+            destination.mkdir(parents=True, exist_ok=True)
+            print(f"Extracting {name}", flush=True)
+            if extract:
+                extract(path, destination)
+            else:
+                subprocess.run([tar, "-xf", path, "-C", destination], check=True)
+            count += 1
+    return count
+
+
+def install_qt_direct(root, archive, directory, repository_os, version=QT_VERSION, extract=None, modules=tuple(QT_MODULES)):
+    """Install Qt's essential archives and modules for archive (win64_msvc2022_64, ...) from download.qt.io."""
+    packages = [f"qt.qt6.{version.replace('.', '')}.{archive}"] + [module_package(version, m, archive) for m in modules]
+    count = stage_packages(root, packages, repository_os, version, directory, extract)
+    staging = root / "qt.partial"
     staged = staging / version / directory
-    if not (staged / "lib/cmake/Qt6/Qt6Config.cmake").is_file():
-        raise SystemExit(f"The Qt archives did not provide lib/cmake/Qt6/Qt6Config.cmake under {staged}.")
+    for config in ["lib/cmake/Qt6/Qt6Config.cmake"] + [QT_MODULES[m] for m in modules]:
+        if not (staged / config).is_file():
+            raise SystemExit(f"The Qt archives did not provide {config} under {staged}.")
     mark_open_source(staged)
     prefix = root / "qt" / version / directory
     shutil.rmtree(prefix, ignore_errors=True)
     prefix.parent.mkdir(parents=True, exist_ok=True)
     staged.replace(prefix)
     shutil.rmtree(staging, ignore_errors=True)
-    shutil.rmtree(downloads, ignore_errors=True)
-    print(f"Installed Qt {version} ({len(archives)} verified archives) in {prefix}", flush=True)
+    shutil.rmtree(root / "qt-downloads", ignore_errors=True)
+    print(f"Installed Qt {version} ({count} verified archives) in {prefix}", flush=True)
 
 
-def install_qt_aqt(python, root, host, archive):
+def add_qt_modules_direct(root, archive, directory, repository_os, modules, version=QT_VERSION, extract=None):
+    """Add modules' verified archives to an installed prefix without replacing or deleting its files.
+
+    A staged file that already exists in the prefix with other content stops the amendment before
+    anything is added; identical files are left as they are.
+    """
+    prefix = root / "qt" / version / directory
+    count = stage_packages(root, [module_package(version, m, archive) for m in modules], repository_os, version, directory, extract)
+    staging = root / "qt.partial"
+    staged = staging / version / directory
+    for module in modules:
+        if not (staged / QT_MODULES[module]).is_file():
+            raise SystemExit(f"The Qt archives did not provide {QT_MODULES[module]} under {staged}.")
+    additions = []
+    # Links (macOS framework Versions/Current, Linux library sonames) move as links, never followed.
+    entries = []
+    for directory_path, directories, files in os.walk(staged):
+        entries += [Path(directory_path) / name for name in files]
+        entries += [Path(directory_path) / name for name in directories if (Path(directory_path) / name).is_symlink()]
+    for source in sorted(entries):
+        target = prefix / source.relative_to(staged)
+        if target.is_symlink() or target.exists():
+            same_link = source.is_symlink() and target.is_symlink() and os.readlink(source) == os.readlink(target)
+            same_file = not source.is_symlink() and not target.is_symlink() and target.is_file() and sha256(target) == sha256(source)
+            if same_link or same_file:
+                continue
+            raise QtPrefixConflict(f"{target} already exists with other content; the {', '.join(modules)} archives were not added.")
+        additions.append((source, target))
+    for source, target in additions:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source.replace(target)
+    shutil.rmtree(staging, ignore_errors=True)
+    shutil.rmtree(root / "qt-downloads", ignore_errors=True)
+    print(f"Added {', '.join(modules)} ({count} verified archives, {len(additions)} new files) to {prefix}", flush=True)
+
+
+def install_qt_aqt(python, root, host, archive, modules=tuple(QT_MODULES), amend=False):
+    """aqt install-qt with the modules; amend adds only the modules to an existing prefix (--noarchives)."""
     subprocess.run([python, "-m", "pip", "install", "--disable-pip-version-check", f"aqtinstall=={AQT_VERSION}"],
                    check=True)
-    subprocess.run([python, "-m", "aqt", "install-qt", host, "desktop", QT_VERSION, archive, "-O", root / "qt"],
-                   cwd=root, check=True)
+    command = [python, "-m", "aqt", "install-qt", host, "desktop", QT_VERSION, archive, "-O", root / "qt"]
+    if modules:
+        command += ["-m", *modules]
+    if amend:
+        command.append("--noarchives")
+    subprocess.run(command, cwd=root, check=True)
+
+
+def amend(python, root, host, archive, directory, repository_os, source, prefix):
+    """Add the modules an existing prefix lacks: verified add-only archives first (aqt with --qt-source aqt)."""
+    modules = missing_modules(prefix)
+    if not modules:
+        return
+    print(f"Adding {', '.join(modules)} to {prefix}", flush=True)
+    if source == "aqt":
+        install_qt_aqt(python, root, host, archive, modules, amend=True)
+        return
+    try:
+        add_qt_modules_direct(root, archive, directory, repository_os, modules)
+    except QtPrefixConflict:
+        raise
+    except (OSError, SystemExit) as error:
+        if source == "direct":
+            raise
+        print(f"The download.qt.io amendment failed ({error}); trying aqtinstall instead.", flush=True)
+        install_qt_aqt(python, root, host, archive, modules, amend=True)
 
 
 def install(root, host, archive, directory, repository_os, source):
@@ -212,18 +308,21 @@ def install(root, host, archive, directory, repository_os, source):
     prefix = root / "qt" / QT_VERSION / directory
     qt_config = prefix / "lib/cmake/Qt6/Qt6Config.cmake"
     if qt_config.is_file():
-        return
-    if source in {"auto", "aqt"}:
-        try:
-            install_qt_aqt(python, root, host, archive)
-        except subprocess.CalledProcessError as error:
-            if source == "aqt":
-                raise
-            print(f"aqtinstall failed ({error}); installing Qt from download.qt.io instead.", flush=True)
-    if not qt_config.is_file():
-        install_qt_direct(root, archive, directory, repository_os)
+        amend(python, root, host, archive, directory, repository_os, source, prefix)
+    else:
+        if source in {"auto", "aqt"}:
+            try:
+                install_qt_aqt(python, root, host, archive)
+            except subprocess.CalledProcessError as error:
+                if source == "aqt":
+                    raise
+                print(f"aqtinstall failed ({error}); installing Qt from download.qt.io instead.", flush=True)
+        if not qt_config.is_file() or missing_modules(prefix):
+            install_qt_direct(root, archive, directory, repository_os)
     if not qt_config.is_file():
         raise SystemExit(f"Qt installation is missing {qt_config}.")
+    if modules := missing_modules(prefix):
+        raise SystemExit(f"Qt installation in {prefix} is missing {', '.join(modules)}.")
 
 
 def main():

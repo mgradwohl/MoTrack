@@ -5,9 +5,10 @@
 #          clang++ must compile against libstdc++ from GCC 14 or newer (never libc++).
 #   macOS: clang and clang++ must be Apple Clang 17+ with its llvm-cov and llvm-profdata;
 #          clang-format and clang-tidy must be LLVM 23 (Homebrew's llvm@23).
-#   Both:  CMake, Ninja, Python, Git and Qt must meet their floors; ccache is recommended.
+#   Both:  CMake, Ninja, Python, Git and Qt must meet their floors, and Qt must include Qt Multimedia
+#          (on Linux with the PulseAudio client library it links); ccache is recommended.
 #
-# Usage: tools/check-prereqs.sh [--tools-only]   (--tools-only skips the probe; a missing Qt only warns)
+# Usage: tools/check-prereqs.sh [--tools-only]   (--tools-only skips the probe; a missing Qt or Qt Multimedia only warns)
 set -euo pipefail
 
 repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -125,6 +126,32 @@ check_minimum() {
     fi
 }
 
+# A row for Qt Multimedia (camera capture) in Qt prefix $1 (version $2); "optional" as $3 makes a miss a warning.
+check_qt_multimedia() {
+    local prefix="$1" version="$2" bad=fail required="Qt $MOTRACK_QT_MIN+ module"
+    local fix="python3 tools/dev_sdk.py install adds Qt Multimedia to the .dev-tools Qt; another Qt prefix needs its qtmultimedia module (aqt install-qt ... -m qtmultimedia)."
+    if [[ "${3:-}" == optional ]]; then bad=warn; fi
+    if [[ -z "$prefix" ]]; then
+        add_row "$bad" "Qt Multimedia" '' "$required" '(no Qt)' "$fix"
+    elif [[ -f "$prefix/lib/cmake/Qt6Multimedia/Qt6MultimediaConfig.cmake" ]]; then
+        add_row ok "Qt Multimedia" "$version" "$required" "$prefix/lib/cmake/Qt6Multimedia" ''
+    else
+        add_row "$bad" "Qt Multimedia" '' "$required" "(not in $prefix)" "$fix"
+    fi
+}
+
+# Linux: Qt Multimedia links the PulseAudio client library, so building and starting MoTrack need it.
+check_libpulse() {
+    local dir
+    for dir in /usr/lib/x86_64-linux-gnu /usr/lib64 /usr/lib; do
+        if [[ -e "$dir/libpulse.so.0" ]]; then
+            add_row ok libpulse so.0 installed "$dir/libpulse.so.0" ''
+            return
+        fi
+    done
+    add_row fail libpulse '' installed '(not found)' 'Qt Multimedia needs the PulseAudio client library: sudo apt-get install libpulse0.'
+}
+
 # The Qt prefix CMake finds first and its version, tab-separated, or nothing.
 find_qt() {
     local candidate qtpaths prefixes candidates=()
@@ -204,6 +231,8 @@ main() {
     check_minimum Qt "${qt%%$'\t'*}" "${qt#*$'\t'}" "$MOTRACK_QT_MIN" \
         "python3 tools/dev_sdk.py install puts Qt $MOTRACK_QT_VERSION in .dev-tools; or add a Qt $MOTRACK_QT_MIN+ prefix to CMAKE_PREFIX_PATH." \
         "$($tools_only && echo optional || true)"
+    check_qt_multimedia "${qt%%$'\t'*}" "${qt#*$'\t'}" "$($tools_only && echo optional || true)"
+    if [[ "$(uname -s)" == Linux ]]; then check_libpulse; fi
     if [[ "$(uname -s)" == Linux ]] && ! command -v bsdtar >/dev/null 2>&1; then
         add_row warn bsdtar '' '' '(not found)' "Only needed when aqtinstall is unreachable and Qt comes from download.qt.io: sudo apt-get install libarchive-tools."
     fi

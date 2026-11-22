@@ -44,6 +44,8 @@ jobs:
       - uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
         with:
           version: ${{ env.MOTRACK_QT_VERSION }}
+          # Camera capture; the same add-on tools/dev_sdk.py installs (its QT_MODULES).
+          modules: qtmultimedia
       - name: Set up Windows SDK
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
@@ -86,7 +88,8 @@ jobs:
           apt=(sudo apt-get -o Acquire::Retries=5)
           "${apt[@]}" update
           "${apt[@]}" install -y ccache "clang-$MOTRACK_LLVM_MAJOR" "clang-format-$MOTRACK_LLVM_MAJOR" "clang-tidy-$MOTRACK_LLVM_MAJOR" \
-            "llvm-$MOTRACK_LLVM_MAJOR" "libclang-rt-$MOTRACK_LLVM_MAJOR-dev" "g++-$MOTRACK_GCC_MAJOR" libgl1-mesa-dev libxkbcommon-dev
+            "llvm-$MOTRACK_LLVM_MAJOR" "libclang-rt-$MOTRACK_LLVM_MAJOR-dev" "g++-$MOTRACK_GCC_MAJOR" libgl1-mesa-dev libxkbcommon-dev \
+            libpulse0
           "${apt[@]}" install -y build-essential pkg-config autoconf automake libtool nasm patchelf libxcb-cursor0
           llvm="/usr/lib/llvm-$MOTRACK_LLVM_MAJOR/bin"
           echo "$llvm" >> "$GITHUB_PATH"
@@ -213,9 +216,14 @@ jobs:
           if [[ "$RUNNER_OS" == macOS ]]; then
             bundle=build/stage/installed/motrack.app/Contents
             test -f "$bundle/Frameworks/QtXml.framework/QtXml"
+            # Camera capture: Qt Multimedia, its FFmpeg backend and the camera usage string.
+            test -f "$bundle/Frameworks/QtMultimedia.framework/QtMultimedia"
+            test -f "$bundle/PlugIns/multimedia/libffmpegmediaplugin.dylib"
+            /usr/libexec/PlistBuddy -c "Print :NSCameraUsageDescription" "$bundle/Info.plist"
             app="$bundle/MacOS/motrack"
           else
             test -f build/stage/installed/plugins/platforms/libqxcb.so
+            test -f build/stage/installed/plugins/multimedia/libffmpegmediaplugin.so
             export QT_QPA_PLATFORM=offscreen
           fi
           PATH=/usr/bin:/bin "$app" --smoke-test tests/fixtures/image-sequence.trk

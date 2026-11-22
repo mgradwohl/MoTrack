@@ -4,7 +4,7 @@ MoTrack is a planned desktop application for measuring motion in video, plotting
 
 ## Project status
 
-MoTrack is in early development. The desktop prototype opens local movies directly or imports Tracker `.trk` files with attached local movies and image sequences. It displays point-mass marks on the frame and in a table, draws imported Tracker vectors as arrows, imports saved image calibration, supports distance calibration and manual marking with undo, plots position and velocity, and exports the selected clip's measurements to CSV. See the [migration plan](docs/migration-plan.md) for scope and acceptance criteria.
+MoTrack is in early development. The desktop prototype opens local movies directly, records new clips from a camera, or imports Tracker `.trk` files with attached local movies and image sequences. It displays point-mass marks on the frame and in a table, draws imported Tracker vectors as arrows, imports saved image calibration, supports distance calibration and manual marking with undo, plots position and velocity, and exports the selected clip's measurements to CSV. See the [migration plan](docs/migration-plan.md) for scope and acceptance criteria.
 
 ## Development
 
@@ -12,7 +12,7 @@ The [full-port plan](docs/migration-plan.md) records requirements, current compl
 architecture, implementation dependencies, and the tests required before claiming Tracker parity.
 
 - C++23 and CMake, with Clang/LLVM on Windows, macOS, and Linux.
-- Qt 6 Widgets for the desktop interface, FFmpeg for video decoding, and libarchive for Tracker experiment archives.
+- Qt 6 Widgets for the desktop interface, Qt Multimedia for cameras, FFmpeg for video decoding and recording, and libarchive for Tracker experiment archives.
 - GoogleTest and CTest, with a 90% minimum line coverage gate for handwritten production C++ from the first code change.
 - [TaskSmack](https://github.com/mgradwohl/tasksmack) is the reference for build presets, test organization, and LLVM coverage reporting.
 - See [Contributing](CONTRIBUTING.md) for coding conventions and LLVM checks.
@@ -61,6 +61,29 @@ reload externally changed files.
 Choose Tracks → New vector to create an independent vector track, or select an imported vector in the toolbar. Shift-click the tail, then Shift-click the tip to create or replace its arrow on the current frame and advance one clip step. Escape cancels a pending tail; switching frames, tracks, or tools also cancels it. Shift+Enter copies the preceding arrow to the current frame. Rename track, Delete track, Delete mark on this frame, and Undo/Redo work with vectors as well as point masses. Vector tails and components are saved in image pixels and survive reopening a `.motrack` project. Motion plots and measurement CSV export still cover point masses; dependent vector sums are not yet supported.
 
 New Tracker imports also keep their original XML inside the saved `.motrack` file, including settings MoTrack cannot yet edit. Supported imported projects can also be saved back to standard Tracker files as described below; full interchange coverage remains unfinished. Standalone movies and images still use external files. Older native projects still open; archive-backed ones need their original `.trz` until resaved with this version. Data discarded by earlier versions cannot be recovered. See [native document compatibility](docs/native-format.md).
+
+### Record a clip from a camera
+
+Choose **File → Capture from camera…** to record a new movie experiment. Pick the camera and, where it
+reports them, a resolution and frame-rate range (**Camera default** lets the camera choose). **Record**
+starts and **Stop** ends a recording while the window previews the camera and shows the elapsed time
+and frame count. **Save and open…** then asks where to keep the clip, a QuickTime `.mov` file, and opens
+it as a new experiment, as **Open video** does. **Discard recording** returns to the preview; **Cancel**,
+or closing the window or the workspace, stops any recording and deletes its temporary file. If the
+camera stops during a recording, the frames recorded so far are kept to save or discard. A failed
+recording, a camera error or a failed save leaves the workspace unchanged.
+
+Each frame keeps the time the camera gave it, so an uneven camera rate shows as uneven frame times;
+MoTrack never assigns a nominal frame rate. A camera without frame times is timed by when frames reach
+MoTrack, and the summary says so, along with any frames dropped because they arrived faster than they
+could be recorded. Clips are Motion JPEG, every frame stored separately at a fixed high quality.
+
+macOS asks for camera permission the first time (change it later in System Settings → Privacy &
+Security → Camera). On Windows, a camera turned off under Settings → Privacy & security → Camera fails
+to start with a message. On Linux, MoTrack needs `libpulse0` and access to `/dev/video*`. Capture uses no
+network connection or browser, unlike Tracker's **Video → Capture…**, and opens a new experiment instead
+of replacing the current tab's video. [Camera capture](docs/camera-capture.md) covers timing, platform
+backends and the other differences from Tracker.
 
 ### Save a Tracker project and its MoTrack companion
 

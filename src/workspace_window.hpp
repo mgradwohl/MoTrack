@@ -1,8 +1,12 @@
 #pragma once
 
+#include "capture_dialog.hpp"
 #include "workspace_context.hpp"
 
 #include <QMainWindow>
+#include <QPointer>
+
+#include <functional>
 
 class QAction;
 class QLabel;
@@ -23,6 +27,8 @@ class WorkspaceWindow final : public QMainWindow
     Q_OBJECT
 
   public:
+    using CameraSourceFactory = std::function<std::unique_ptr<CameraSource>()>;
+
     explicit WorkspaceWindow(std::shared_ptr<WorkspaceContext> context = {});
     ~WorkspaceWindow() override;
     [[nodiscard]] const std::shared_ptr<WorkspaceContext>& context() const;
@@ -35,6 +41,10 @@ class WorkspaceWindow final : public QMainWindow
     bool revertDocument(QUuid document);
     bool saveAll();
     bool closeSource(QUuid source);
+    /// Cameras for Capture from camera; Qt Multimedia's by default. Tests supply cameras without hardware.
+    void setCameraSourceFactory(CameraSourceFactory factory);
+    /// Opens the capture window, or raises the open one. A clip it saves opens as a new movie experiment.
+    CaptureDialog* captureFromCamera();
 
   protected:
     void closeEvent(QCloseEvent* event) override;
@@ -65,6 +75,8 @@ class WorkspaceWindow final : public QMainWindow
     QAction* m_Revert = nullptr;
     QAction* m_CloseSource = nullptr;
     QAction* m_Quit = nullptr;
+    CameraSourceFactory m_CameraSources;
+    QPointer<CaptureDialog> m_Capture; // Qt parent-owned; deletes itself when closed.
     QHash<QUuid, MainWindow*> m_Views; // Qt parent-owned; views hold their own shared context lease.
     QHash<QUuid, QWidget*> m_Pages;    // Lightweight placeholders until an experiment is first selected.
     QHash<QUuid, QListWidgetItem*> m_Opening;

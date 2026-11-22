@@ -59,12 +59,14 @@ case "$(uname -s)" in
         run "${apt[@]}" update
         # libclang-rt has the coverage and sanitizer runtimes (only a Recommends of clang); g++-14 brings
         # libstdc++-14-dev; libarchive-tools' bsdtar extracts Qt's 7z archives if aqtinstall is unavailable.
+        # Qt Multimedia links libpulse; its FFmpeg camera backend loads libEGL, libX11, libXext and libXrandr.
         run "${apt[@]}" install -y git cmake ninja-build ccache python3 python3-venv \
             "clang-$llvm" "clang-format-$llvm" "clang-tidy-$llvm" "clangd-$llvm" "llvm-$llvm" "lld-$llvm" \
             "libclang-rt-$llvm-dev" "g++-$MOTRACK_GCC_MAJOR" libarchive-tools \
             libgl1-mesa-dev libxkbcommon-dev build-essential pkg-config autoconf automake libtool nasm patchelf \
             libxcb-cursor0 libxcb-xinerama0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
-            libxcb-render-util0 libxcb-xkb1 libxkbcommon-x11-0 libfontconfig1 libfreetype6
+            libxcb-render-util0 libxcb-xkb1 libxkbcommon-x11-0 libfontconfig1 libfreetype6 \
+            libpulse0 libegl1 libx11-6 libxext6 libxrandr2
         ;;
     Darwin)
         if ! $dry_run && ! xcode-select -p >/dev/null 2>&1; then

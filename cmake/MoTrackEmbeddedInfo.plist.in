@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Linked into the __TEXT,__info_plist section of a non-bundle macOS motrack (developer builds), so
+     camera permission requests have the usage string macOS requires. Bundles use MoTrackInfo.plist.in. -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>@MOTRACK_BUNDLE_IDENTIFIER@</string>
+	<key>CFBundleName</key>
+	<string>MoTrack</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@PROJECT_VERSION@</string>
+	<key>NSCameraUsageDescription</key>
+	<string>@MOTRACK_CAMERA_USAGE@</string>
+</dict>
+</plist>

@@ -384,6 +384,194 @@
         <source>Experiment restored. Other experiments retain their edits.</source>
         <translation type="unfinished" />
     </message>
+    <message>
+        <source>Capture from &amp;camera…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Record a clip with a camera and open it as a new experiment.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Recording saved as %1. Opening it as a new experiment…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Recording saved as %1. Open it with Open video once the current files finish opening.</source>
+        <translation type="unfinished" />
+    </message>
+</context>
+
+<context>
+    <name>motrack::CaptureDialog</name>
+    <message>
+        <source>%1 fps</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1–%2 fps</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1, %2</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1 (%2)</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Capture from camera</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>&amp;Camera:</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>&amp;Format:</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>&amp;Record</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>&amp;Save and open…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Save the clip to a permanent file and open it as a new experiment.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>&amp;Discard recording</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The recording failed: %1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>MoTrack cannot read this camera format (%1). Choose another format.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The camera could not be used: %1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Another application may be using it, or camera access may be turned off in the system privacy settings.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Camera default</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>No camera was found. Connect a camera; it appears here when the system reports it.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>MoTrack is not allowed to use the camera. Allow camera access for MoTrack in the system privacy settings, then open this window again.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Waiting for permission to use the camera…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Starting the camera…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Finishing the recording…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The previous recording is still closing. Try again in a moment.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not create a temporary folder for the recording.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Camera capture %1.mov</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Save recording</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>QuickTime movies (*.mov)</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Saving the recording…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not save the recording: %1</source>
+        <translation type="unfinished" />
+    </message>
+    <message numerus="yes">
+        <source>Time %1 · Frames %n</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message numerus="yes">
+        <source>Dropped %n</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message numerus="yes">
+        <source>Recorded %n frames in %1 s, an average of %2 frames per second.</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message>
+        <source>Recorded a single frame.</source>
+        <translation type="unfinished" />
+    </message>
+    <message numerus="yes">
+        <source>Camera frames dropped because they could not be recorded in time: %n. The clip keeps the real times of the frames it contains.</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message>
+        <source>The camera supplied no frame times, so each frame is timed by when it reached MoTrack.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Save the clip to open it as a new experiment.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>&amp;Stop</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Discard and close</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The camera stopped during the recording; the clip ends at its last frame.</source>
+        <translation type="unfinished" />
+    </message>
+</context>
+
+<context>
+    <name>motrack::QtCameraSource</name>
+    <message>
+        <source>The camera is no longer connected.</source>
+        <translation type="unfinished" />
+    </message>
 </context>
 
 </TS>
