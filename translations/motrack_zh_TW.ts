@@ -103,6 +103,20 @@
     <message><source>Saved tabset %1, with notes.</source><translation type="unfinished"></translation></message>
     <message><source>%1: closed, so the tabset no longer lists it.</source><translation type="unfinished"></translation></message>
     <message><source>%1: listed more than once, so one of its entries was removed.</source><translation type="unfinished"></translation></message>
+    <message><source>%1 could not be opened: %2</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">無法開啟 %1：%2</translation></message>
+    <message numerus="yes"><source>Opening was canceled; %n remaining file(s) were not opened.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>已取消開啟；其餘 %n 個檔案未開啟。</numerusform></translation></message>
+    <message><source>%1 is not a local file. Download it, then open the downloaded copy.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">%1 不是本機檔案。請先下載，再開啟下載的副本。</translation></message>
+    <message numerus="yes"><source>Only %n files can be requested at a time; the others were not opened.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>一次最多只能要求 %n 個檔案；其他檔案未開啟。</numerusform></translation></message>
+    <message numerus="yes"><source>…and %n more problem(s).</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>…以及另外 %n 個問題。</numerusform></translation></message>
+    <message><source>Open files</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">開啟檔案</translation></message>
+    <message><source>Some requested files could not be opened, or opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">部分要求的檔案無法開啟，或以受限方式開啟。</translation></message>
+    <message><source>%1 was not found.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">找不到 %1。</translation></message>
+    <message><source>%1 is a folder. Use Open images… to choose its images.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">%1 是資料夾。請使用「開啟影像…」選擇其中的影像。</translation></message>
+    <message numerus="yes"><source>Closing the window stopped %n requested file(s) from opening.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>關閉視窗後，%n 個要求的檔案未開啟。</numerusform></translation></message>
+    <message><source>Only local files can be dropped here. Download a linked file first.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">這裡只能放置本機檔案。請先下載連結的檔案。</translation></message>
+    <message numerus="yes"><source>Drop to open %n file(s)</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>放開以開啟 %n 個檔案</numerusform></translation></message>
+    <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished"><numerusform>將略過 %n 個指向非本機檔案的連結。</numerusform></translation></message>
+    <message><source>Some requested files opened with limits.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">部分要求的檔案以受限方式開啟。</translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>

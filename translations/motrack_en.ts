@@ -10,6 +10,12 @@
     <message numerus="yes"><source>Could not read %1 and %n other Tracker project(s); see the Experiments menu.</source><translation><numerusform>Could not read %1 and %n other Tracker project; see the Experiments menu.</numerusform><numerusform>Could not read %1 and %n other Tracker projects; see the Experiments menu.</numerusform></translation></message>
     <message numerus="yes"><source>…and %n more.</source><translation><numerusform>…and %n more.</numerusform><numerusform>…and %n more.</numerusform></translation></message>
     <message numerus="yes"><source>Only the first %n files were opened.</source><translation><numerusform>Only the first %n file was opened.</numerusform><numerusform>Only the first %n files were opened.</numerusform></translation></message>
+    <message numerus="yes"><source>Opening was canceled; %n remaining file(s) were not opened.</source><translation><numerusform>Opening was canceled; %n remaining file was not opened.</numerusform><numerusform>Opening was canceled; %n remaining files were not opened.</numerusform></translation></message>
+    <message numerus="yes"><source>Only %n files can be requested at a time; the others were not opened.</source><translation><numerusform>Only %n file can be requested at a time; the others were not opened.</numerusform><numerusform>Only %n files can be requested at a time; the others were not opened.</numerusform></translation></message>
+    <message numerus="yes"><source>…and %n more problem(s).</source><translation><numerusform>…and %n more problem.</numerusform><numerusform>…and %n more problems.</numerusform></translation></message>
+    <message numerus="yes"><source>Closing the window stopped %n requested file(s) from opening.</source><translation><numerusform>Closing the window stopped %n requested file from opening.</numerusform><numerusform>Closing the window stopped %n requested files from opening.</numerusform></translation></message>
+    <message numerus="yes"><source>Drop to open %n file(s)</source><translation><numerusform>Drop to open %n file</numerusform><numerusform>Drop to open %n files</numerusform></translation></message>
+    <message numerus="yes"><source>%n link(s) to files that are not local will be skipped.</source><translation><numerusform>%n link to a file that is not local will be skipped.</numerusform><numerusform>%n links to files that are not local will be skipped.</numerusform></translation></message>
   </context>
   <context>
     <name>MainWindow</name>

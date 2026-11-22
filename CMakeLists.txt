@@ -125,7 +125,8 @@ if(APPLE)
     endif()
 endif()
 add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp src/movie_worker.cpp src/position_plot.cpp
-    src/video_canvas.cpp src/workspace_services.cpp src/workspace_context.cpp src/bound_workspace.cpp src/workspace_window.cpp src/ui_translations.cpp)
+    src/video_canvas.cpp src/workspace_services.cpp src/workspace_context.cpp src/bound_workspace.cpp src/workspace_window.cpp src/ui_translations.cpp
+    src/desktop_launch.cpp)
 set_target_properties(motrack_workspace PROPERTIES AUTOMOC ON)
 add_library(motrack_media STATIC src/capture_encoder.cpp src/template_tracker.cpp src/video_reader.cpp)
 target_include_directories(motrack_media PUBLIC src)
@@ -185,10 +186,18 @@ if(MOTRACK_STAGE_DESKTOP)
     include(GNUInstallDirs)
     if(APPLE)
         # macdeployqt uses the SDK runpath to locate frameworks and rewrites it for the bundle.
+        # The bundle's Info.plist declares the project types Finder, Open With and the Dock may send (#68).
+        # LSMinimumSystemVersion is the deployment target; without one, Clang targets the SDK's version.
+        set(MOTRACK_MACOS_MINIMUM "${CMAKE_OSX_DEPLOYMENT_TARGET}")
+        if(NOT MOTRACK_MACOS_MINIMUM)
+            execute_process(COMMAND xcrun --sdk macosx --show-sdk-version OUTPUT_VARIABLE MOTRACK_MACOS_MINIMUM
+                OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+        endif()
         set_target_properties(motrack PROPERTIES
             MACOSX_BUNDLE TRUE
             MACOSX_BUNDLE_BUNDLE_NAME MoTrack
             MACOSX_BUNDLE_GUI_IDENTIFIER "${MOTRACK_BUNDLE_IDENTIFIER}"
+            MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
             MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
             MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/cmake/MoTrackInfo.plist.in"
             INSTALL_RPATH "@executable_path/../Frameworks;${QT6_INSTALL_PREFIX}/${QT6_INSTALL_LIBS}")
@@ -207,6 +216,13 @@ if(MOTRACK_STAGE_DESKTOP)
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         set_target_properties(motrack PROPERTIES INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
         qt_import_plugins(motrack INCLUDE Qt6::QXcbIntegrationPlugin Qt6::QOffscreenIntegrationPlugin)
+        # Desktop entry and shared-mime-info types for per-user registration of this staged build (#68).
+        # The entry names the installed binary, so it is written for the prefix chosen at install time.
+        install(FILES desktop/linux/com.github.mgradwohl.motrack.xml DESTINATION ${CMAKE_INSTALL_DATADIR}/mime/packages)
+        install(CODE "set(MOTRACK_DESKTOP_TEMPLATE [==[${CMAKE_CURRENT_SOURCE_DIR}/desktop/linux/com.github.mgradwohl.motrack.desktop.in]==])
+            set(MOTRACK_DESKTOP_OUTPUT [==[${CMAKE_INSTALL_DATADIR}/applications/com.github.mgradwohl.motrack.desktop]==])
+            set(MOTRACK_DESKTOP_BINARY [==[${CMAKE_INSTALL_BINDIR}/motrack]==])")
+        install(SCRIPT cmake/MoTrackDesktopEntry.cmake)
     endif()
     install(TARGETS motrack BUNDLE DESTINATION . RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     if(APPLE)
@@ -332,6 +348,7 @@ if(BUILD_TESTING)
     target_compile_definitions(motrack_tests PRIVATE MOTRACK_CORPUS_PROBE="$<TARGET_FILE:motrack_corpus_probe>")
     target_link_libraries(motrack_corpus_probe PRIVATE motrack_osp motrack_library motrack_project motrack_input motrack_image_package motrack_media motrack_locale)
     add_executable(motrack_workspace_tests
+        tests/desktop_launch_test.cpp
         tests/workspace_shell_test.cpp
         tests/workspace_tabset_test.cpp
         tests/workspace_input_test.cpp
@@ -350,13 +367,16 @@ if(BUILD_TESTING)
     target_compile_definitions(motrack_workspace_tests PRIVATE
         MOTRACK_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
         MOTRACK_TRANSLATIONS="${CMAKE_CURRENT_BINARY_DIR}"
-        MOTRACK_TS_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/translations")
+        MOTRACK_TS_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/translations"
+        MOTRACK_EXECUTABLE="$<TARGET_FILE:motrack>")
     # Keep every case while bounding UI saving, persistence and session groups independently.
     add_test(NAME workspace COMMAND motrack_workspace_tests
-        "--gtest_filter=-PairedWorkspace.*:DocumentSession.*:WorkspaceDocument.*:ImagePackageWorkspace.*:WorkspaceShell.*:UiTranslations.*:CameraCapture.*:NonAsciiRoundTrip.*:WorkspaceLocale.*")
+        "--gtest_filter=-PairedWorkspace.*:DocumentSession.*:WorkspaceDocument.*:ImagePackageWorkspace.*:WorkspaceShell.*:UiTranslations.*:CameraCapture.*:NonAsciiRoundTrip.*:WorkspaceLocale.*:DesktopLaunch.*")
     # The shell's save/revert flows take seconds each and slow down most on loaded runners (#283).
     add_test(NAME workspace_shell COMMAND motrack_workspace_tests --gtest_filter=WorkspaceShell.*)
     add_test(NAME camera_capture COMMAND motrack_workspace_tests --gtest_filter=CameraCapture.*)
+    # Command-line, drop and operating-system opening, including child launches of the real executable.
+    add_test(NAME desktop_launch COMMAND motrack_workspace_tests --gtest_filter=DesktopLaunch.*)
     add_test(NAME workspace_saving COMMAND motrack_workspace_tests
         "--gtest_filter=PairedWorkspace.*:ImagePackageWorkspace.*")
     # Non-ASCII paths and locale-dependent display, in their own time budget.
@@ -368,7 +388,7 @@ if(BUILD_TESTING)
     add_test(NAME document_session COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*-DocumentSession.*Journal*")
     add_test(NAME document_session_journals COMMAND motrack_workspace_tests "--gtest_filter=DocumentSession.*Journal*")
     set_tests_properties(workspace workspace_shell workspace_saving workspace_document ui_translations document_session
-        document_session_journals camera_capture workspace_text PROPERTIES TIMEOUT 60)
+        document_session_journals camera_capture workspace_text desktop_launch PROPERTIES TIMEOUT 60)
     add_executable(motrack_media_tests tests/capture_encoder_test.cpp tests/template_tracker_test.cpp tests/video_frame_conversion_test.cpp
         tests/video_reader_test.cpp)
     # The tests encode synthetic movies and drive swscale with FFmpeg's own types.
@@ -402,7 +422,7 @@ if(BUILD_TESTING)
     add_test(NAME desktop_invalid_project COMMAND motrack --smoke-test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/missing.trk")
     set_tests_properties(workspace workspace_shell workspace_saving workspace_document ui_translations document_session
-        document_session_journals camera_capture workspace_text desktop_smoke desktop_invalid_project PROPERTIES
+        document_session_journals camera_capture workspace_text desktop_launch desktop_smoke desktop_invalid_project PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     set_tests_properties(desktop_invalid_project PROPERTIES WILL_FAIL TRUE)
     # The application's own locale setup and, on Windows, its manifest's UTF-8 code page: the CI runners' system

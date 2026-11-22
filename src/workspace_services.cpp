@@ -23,6 +23,7 @@ WorkspaceServices::WorkspaceServices() : m_MovieWorker(std::make_shared<MovieWor
     m_FramePool.setExpiryTimeout(-1); // Live decoders stay on the same thread until explicitly closed.
     m_AnalysisPool.setMaxThreadCount(2);
     m_SavePool.setMaxThreadCount(1);
+    m_RequestPool.setMaxThreadCount(1);
     connect(&m_FrameWatcher,
             &QFutureWatcher<MovieFrameResult>::finished,
             this,
@@ -55,6 +56,7 @@ WorkspaceServices::~WorkspaceServices()
     m_FramePool.waitForDone();
     m_AnalysisPool.waitForDone();
     m_SavePool.waitForDone();
+    m_RequestPool.waitForDone();
 }
 
 QThreadPool& WorkspaceServices::analysisPool()
@@ -65,6 +67,11 @@ QThreadPool& WorkspaceServices::analysisPool()
 QThreadPool& WorkspaceServices::savePool()
 {
     return m_SavePool;
+}
+
+QThreadPool& WorkspaceServices::requestPool()
+{
+    return m_RequestPool;
 }
 
 void WorkspaceServices::requestFrame(const MovieFrameRequest& request)

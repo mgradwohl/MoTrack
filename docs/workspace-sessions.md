@@ -263,6 +263,87 @@ interrupted-save refusal; appended/replaced members; desktop Cancel/Discard, hid
 modal destruction; preserved movie extent; and an older save callback arriving after recovery.
 Merged in [#165](https://github.com/mgradwohl/MoTrack/pull/165).
 
+## Opening from the desktop
+
+Command-line arguments, drops and macOS `QFileOpenEvent`s all call `WorkspaceWindow::openFiles`, which
+uses the same context entry points as the menus. `launchFileKind` routes by suffix on the owner thread:
+`.trk`/`.trz`/`.motrack` in any case are projects, suffixes Qt can read are one-image sequences with
+unknown timing, and every other file is a movie whose indexer reports unsupported formats.
+
+- **Order and the input bound.** One requested file prepares at a time, so tabs appear in request order
+  while a menu open can still use the other slot. When menu opens hold both slots, the batch waits
+  for a completion instead of reporting a busy workspace. Requests arriving during a batch join it,
+  up to 256 files. While any tabset is queued, prompting for a missing file or opening its files, the batch
+  waits, so a requested `.trk` tabset's files keep its place; a file the batch had already checked is checked
+  again afterwards. Save tabset waits for requested files.
+- **File checks off the GUI thread.** Before opening, `checkRequestedFile` runs on the services' single
+  request worker, because an offline share or sleeping NAS can block any file query: existence, folders
+  and file-system identity (`localFileIdentity`: the volume and file id, so case variants, aliases, hard links
+  and short names of one file match). A zero volume or file id, which some network redirectors answer for every
+  file, counts as no identity, so such files compare by name rather than as one file. `sameLocalFile` and the
+  tabset's `tabsetIdentityKey` use the same identity. A repeat of an earlier request in the batch is skipped, as in
+  Tracker. A source is identified by the file it was opened from and by its native and standard save
+  destinations, so a file saved with Save As or a paired save also names it. Such a file is selected, and
+  a hidden view shown (after any modal prompt), instead of opening a second copy whose later save would
+  replace the first ([#255](https://github.com/mgradwohl/MoTrack/issues/255)). The tabset queue checks each
+  file the same way before opening it, whether the tabset was requested or opened from the menu: an open
+  file's tab is reused (and selected if it is the first listed experiment), and a saved tabset still lists
+  it. **Open project…** and **Open video…** in the menu do not check yet and open a second copy
+  ([#338](https://github.com/mgradwohl/MoTrack/issues/338)). A check blocked by an
+  unresponsive share cannot be interrupted: closing the window stops the batch and ignores the check's
+  late answer, but its worker waits for the file system.
+- **Problems and notices.** Missing files, folders, web links, failed opens and unreadable archive member
+  projects (an incomplete import) are problems. Skipped unsafe archive members and copies a standard save
+  omits are notices: the file opened. Both are listed under the file's name in one window-modal summary
+  after the batch, without a nested event loop, because the batch's next open replaces the status
+  message. Canceling a requested
+  open stops its remaining files. Batches wait while a save, revert or close prompt runs its nested
+  event loop. Closing the window stops queued files before the close prompts run, and again before the
+  window closes, so a request that arrived during the prompts opens only if the close is canceled.
+  A hidden window shows no summary.
+- **Paths.** Arguments are not split or canonicalized. Relative paths use the launch directory, local
+  `file:` URLs become paths, and Windows `\\?\` and `\\?\UNC\` prefixes are removed because Qt adds its
+  own prefix to long paths. Other URLs are reported, never fetched, and their user information is omitted.
+  `--` ends option parsing, unknown options are reported on standard error and the legacy macOS `-psn_`
+  argument is ignored. On macOS, Cocoa's `-NS…`/`-Apple…` user defaults are skipped with their value,
+  so `-AppleLanguages (de)` still selects the interface language.
+- **Drops.** A drag needs at least one local file and a copy or link action. The window always reports a
+  copy (or link), never a move, because a file manager deletes the source after a move. A dashed
+  overlay in the current palette shows how many files will open and links will be skipped.
+  Experiment views do not take file drags: their `QMainWindow` base accepts only dock-widget drags,
+  so Qt offers the drag to the workspace window.
+- **macOS open requests.** `FileOpenRequests` is installed as an application event filter right after
+  `QApplication` is created. It keeps requests in order until a window is attached, including those
+  delivered while launching, and again after that window is destroyed.
+- **Instances.** There is no single-instance mode, as in Tracker. Each process has independent records
+  and unique archive extraction directories. Saves keep the destination lock and atomic replacement,
+  so two processes never interleave a file, but a later save replaces an earlier one without warning
+  ([#255](https://github.com/mgradwohl/MoTrack/issues/255)).
+- **Smoke tests.** `--smoke-test FILE…` prints `opened<TAB>path` for each tab after the batch, problems as
+  `MoTrack: …` and notices as `MoTrack notice: …` on standard error. It exits with 1 when any problem was
+  reported (a file did not open, or an archive member project was unreadable) and with 0 otherwise,
+  notices included. With no files it waits for an operating-system open request.
+
+Staged builds declare the file types: the macOS bundle's `cmake/MoTrackInfo.plist.in` (shared with the camera usage string), and Linux
+installs a desktop entry with `Exec=… %F` and a shared-mime-info package. The desktop entry quotes the
+binary path chosen at install time following the Desktop Entry Specification. An install path containing
+`%` is refused: the specification spells it `%%`, but GLib looks up the Exec program before expanding
+`%%` and then refuses to load the entry. The bundle's `LSMinimumSystemVersion` is the deployment
+target, or the SDK version Clang then targets. Installers that register
+the types, including Windows ProgIDs, are deferred with R27.
+
+Tests: `DesktopLaunch.*` covers parsing, routing, request order within the input bound, duplicates and
+case variants, selecting an already-open or hidden file, checks held by a blocked worker, requests during
+a canceled or completed close, a stale check after the window closed, selecting a project by its Save As
+file, archive problems and notices kept for the summary and the launch exit code, missing/folder/failed/remote problems, the 256-file bound, cancel and
+close, drops on the workspace and
+an experiment view through Qt's propagation, refused drags, file-open events before and after a window,
+child launches with spaces, Unicode, relative and long (Windows `\\?\`) paths, and a second process opening
+a file that the first is editing. CI's staged check validates the plist and desktop files, asks
+LaunchServices and GIO which application opens each type, and opens a file through `open -a` and GLib's
+desktop-entry expansion, including an install prefix with quotes, `$` and backticks, and checks that a
+prefix containing `%` is refused.
+
 ## Saving and recovery
 
 `beginSave(document)` captures an owned snapshot and checkpoint of its source. For a group member,
@@ -350,8 +431,10 @@ of an archive. An entry is rewritten only when its relative path no longer finds
 example after the tabset moved alone. Entries whose files are not open keep their place: a file that failed to open,
 was not found, was not opened because an open was canceled or the window closed, or names an archive member (#325)
 stays listed, and the summary says so. Only entries of files the user closed are removed, unless a tabset opened
-since then lists the file again; a repeat that does not follow its file's entry is removed too, since each file opens
-once. The summary names every removed entry. A nested tabset whose files are open stays one entry. Saving an
+since then lists the file again. A file id names a file only while it exists, so the window keeps each closed file's
+name and id from the moment it closed, and an entry is removed only while its file still has both: a later file given
+a deleted file's id, or a file another program saved over by renaming a new one into place, keeps its entry. A repeat
+that does not follow its file's entry is removed too, since each file opens once. The summary names every removed entry. A nested tabset whose files are open stays one entry. Saving an
 unchanged set therefore leaves the file byte for byte, except entries whose relative path no longer finds their file,
 which are repaired. Otherwise only the changed paths, removed entries and new entries differ; new entries follow the
 kept ones, and other properties and line breaks stay. Entries that Tracker cannot read because of their index order are rewritten in order whenever
@@ -393,7 +476,7 @@ archive with selection and independent histories; locating and skipping missing 
 tabsets arriving together; a listed file that fails, with B1's diagnostic; a native file with reset Tracker links;
 canceling partway; destroying the window during a prompt; Yes/No/Cancel for unsaved changes; saving an unchanged set
 back byte for byte and adding a tab; keeping entries of files that failed to open or were not found and dropping one
-the user closed; listing a file as last saved; saving refused while any file opens, including one started during a
+the user closed, but not one saved over since it closed; listing a file as last saved; saving refused while any file opens, including one started during a
 save prompt; Tracker's `.trk` name; refusal to replace open project files, an unopened experiment or an unreadable
 tabset; unsupported sources; and saving then reopening after the whole folder moves. In Linux CI the pinned Tracker
 opens MoTrack's tabset through its normal loader after the folder is moved (so only relative paths resolve), must load
