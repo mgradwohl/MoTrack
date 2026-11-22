@@ -54,6 +54,11 @@
     <message numerus="yes"><source>Could not read %1 and %n other Tracker project(s); see the Experiments menu.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform><numerusform></numerusform></translation></message>
     <message><source>%1 — %2 (could not be read)</source><translation type="unfinished"></translation></message>
     <message><source>Could not read %1: %2</source><translation type="unfinished"></translation></message>
+    <message><source>Capture from &amp;camera…</source><translation type="unfinished"></translation></message>
+    <message><source>Record a clip with a camera and open it as a new experiment.</source><translation type="unfinished"></translation></message>
+    <message><source>Recording saved as %1. Opening it as a new experiment…</source><translation type="unfinished"></translation></message>
+    <message><source>Recording saved as %1. Open it with Open video once the current files finish opening.</source><translation type="unfinished"></translation></message>
+    <message><source>The camera recording is kept: it opens as a new experiment once it is saved.</source><translation type="unfinished"></translation></message>
   </context>
   <context>
     <name>TrackerImagePackage</name>
@@ -150,7 +155,6 @@
     <message><source>Shift-click the vector tail, then its tip. Escape cancels.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Klikněte se Shiftem na počátek vektoru, potom na jeho hrot. Klávesa Esc akci zruší.</translation></message>
     <message><source>Click the first calibration endpoint.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Klikněte na první koncový bod kalibrační tyče.</translation></message>
     <message><source>Click the coordinate origin.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Klikněte na počátek souřadnic.</translation></message>
-    <message><source>Could not open this project.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Tento projekt nelze otevřít.</translation></message>
     <message><source>Reading project…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Načítání projektu…</translation></message>
     <message><source>Open Tracker archive</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Otevřít archiv Tracker</translation></message>
     <message><source>Choose a Tracker tab</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Vyberte kartu Tracker</translation></message>
@@ -260,6 +264,8 @@
     <message><source>Decoding frame…</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Dekódování snímku…</translation></message>
     <message numerus="yes"><source>The Tracker archive omits %n duplicate member(s) with unsafe names.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform><numerusform></numerusform></translation></message>
     <message numerus="yes"><source>The Tracker archive keeps %n unextracted member(s) whose names may show the author's folder or user names.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform><numerusform></numerusform></translation></message>
+    <message><source>Could not open this project: %1</source><translation type="unfinished"></translation></message>
+    <message><source>Tracker export unavailable: the links to this project's Tracker tracks could not be restored. Measurements are unchanged.</source><translation type="unfinished"></translation></message>
   </context>
   <context>
     <name>WorkspaceInput</name>
@@ -270,5 +276,81 @@
     <message><source>This Tracker archive contains a project with an unsafe member name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
     <message><source>This Tracker project refers to an archive member with an unsafe name, which MoTrack does not extract.</source><translation type="unfinished"></translation></message>
     <message><source>A member name in this Tracker archive is not valid UTF-8 text, so the archive cannot be opened. Tracker cannot open it either.</source><translatorcomment>Machine translation; review before marking finished.</translatorcomment><translation type="unfinished">Název položky v tomto archivu Tracker není platný text UTF-8, takže archiv nelze otevřít. Tracker jej také nedokáže otevřít.</translation></message>
+  </context>
+  <context>
+    <name>motrack::QtCameraSource</name>
+    <message><source>The camera is no longer connected.</source><translation type="unfinished"></translation></message>
+    <message><source>The camera stopped delivering frames.</source><translation type="unfinished"></translation></message>
+  </context>
+  <context>
+    <name>motrack::CapturePipeline</name>
+    <message><source>Could not read a camera frame.</source><translation type="unfinished"></translation></message>
+    <message><source>Could not decode a Motion JPEG camera frame.</source><translation type="unfinished"></translation></message>
+    <message><source>system error %1</source><translation type="unfinished"></translation></message>
+    <message><source>Could not read the recording.</source><translation type="unfinished"></translation></message>
+    <message><source>Could not create %1.</source><translation type="unfinished"></translation></message>
+    <message><source>Saving the recording was canceled.</source><translation type="unfinished"></translation></message>
+    <message><source>Could not copy the recording to %1.</source><translation type="unfinished"></translation></message>
+    <message><source>No frames were recorded.</source><translation type="unfinished"></translation></message>
+    <message><source>The recording is no longer available.</source><translation type="unfinished"></translation></message>
+    <message><source>The folder %1 does not exist.</source><translation type="unfinished"></translation></message>
+    <message><source>Could not save %1: %2</source><translation type="unfinished"></translation></message>
+    <message><source>Could not find a free file name in %1.</source><translation type="unfinished"></translation></message>
+  </context>
+  <context>
+    <name>motrack::CaptureDialog</name>
+    <message><source>%1, %2</source><translation type="unfinished"></translation></message>
+    <message><source>%1 fps</source><translation type="unfinished"></translation></message>
+    <message><source>%1–%2 fps</source><translation type="unfinished"></translation></message>
+    <message><source>%1 (%2)</source><translation type="unfinished"></translation></message>
+    <message><source>Capture from camera</source><translation type="unfinished"></translation></message>
+    <message><source>&amp;Camera:</source><translation type="unfinished"></translation></message>
+    <message><source>&amp;Format:</source><translation type="unfinished"></translation></message>
+    <message><source>&amp;Ask where to save each recording</source><translation type="unfinished"></translation></message>
+    <message><source>Otherwise each recording is saved in the MoTrack captures folder and opens at once.</source><translation type="unfinished"></translation></message>
+    <message><source>&amp;Record</source><translation type="unfinished"></translation></message>
+    <message><source>&amp;Save as…</source><translation type="unfinished"></translation></message>
+    <message><source>Choose where to save the clip; it then opens as a new experiment.</source><translation type="unfinished"></translation></message>
+    <message><source>&amp;Discard recording</source><translation type="unfinished"></translation></message>
+    <message><source>Close</source><translation type="unfinished"></translation></message>
+    <message><source>The recording failed: %1</source><translation type="unfinished"></translation></message>
+    <message><source>MoTrack cannot read this camera format (%1). Choose another format.</source><translation type="unfinished"></translation></message>
+    <message><source>The camera could not be used: %1</source><translation type="unfinished"></translation></message>
+    <message><source>Another application may be using it, or camera access may be turned off in the system privacy settings.</source><translation type="unfinished"></translation></message>
+    <message><source>No frames have arrived from the camera for %1 s. Check the camera, or stop the recording.</source><translation type="unfinished"></translation></message>
+    <message><source>The camera was disconnected.</source><translation type="unfinished"></translation></message>
+    <message><source>Camera default</source><translation type="unfinished"></translation></message>
+    <message><source>No camera was found. Connect a camera; it appears here when the system reports it.</source><translation type="unfinished"></translation></message>
+    <message><source>MoTrack is not allowed to use the camera. Allow camera access for MoTrack in the system privacy settings, then open this window again.</source><translation type="unfinished"></translation></message>
+    <message><source>Waiting for permission to use the camera…</source><translation type="unfinished"></translation></message>
+    <message><source>Starting the camera…</source><translation type="unfinished"></translation></message>
+    <message><source>Finishing the recording…</source><translation type="unfinished"></translation></message>
+    <message><source>The previous recording is still closing. Try again in a moment.</source><translation type="unfinished"></translation></message>
+    <message><source>Could not create a temporary folder for the recording.</source><translation type="unfinished"></translation></message>
+    <message><source>The camera changed its frame size, so the recording ended at the last frame of the original size.</source><translation type="unfinished"></translation></message>
+    <message><source>The camera stopped during the recording; the clip ends at its last frame.</source><translation type="unfinished"></translation></message>
+    <message><source>Could not create the captures folder %1. Choose where to save the clip.</source><translation type="unfinished"></translation></message>
+    <message><source>Save recording</source><translation type="unfinished"></translation></message>
+    <message><source>QuickTime movies (*.mov)</source><translation type="unfinished"></translation></message>
+    <message><source>Saving the recording…</source><translation type="unfinished"></translation></message>
+    <message><source>Saving the recording in %1…</source><translation type="unfinished"></translation></message>
+    <message><source>Could not save the recording: %1</source><translation type="unfinished"></translation></message>
+    <message><source>Could not save the recording in %1: %2. Choose where to save it.</source><translation type="unfinished"></translation></message>
+    <message><source>Saved as %1.</source><translation type="unfinished"></translation></message>
+    <message><source>Keep the recording?</source><translation type="unfinished"></translation></message>
+    <message><source>Discard the recording?</source><translation type="unfinished"></translation></message>
+    <message><source>A recording is in progress. Stop it and keep the clip, or discard it?</source><translation type="unfinished"></translation></message>
+    <message><source>The recording has not been saved. Discard it?</source><translation type="unfinished"></translation></message>
+    <message><source>Stop and &amp;keep</source><translation type="unfinished"></translation></message>
+    <message><source>Finishing the recording; the window closes once it is saved…</source><translation type="unfinished"></translation></message>
+    <message numerus="yes"><source>Time %1 · Frames %n</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform><numerusform></numerusform></translation></message>
+    <message numerus="yes"><source>Dropped %n</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform><numerusform></numerusform></translation></message>
+    <message numerus="yes"><source>Recorded %n frames in %1 s, an average of %2 frames per second.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform><numerusform></numerusform></translation></message>
+    <message><source>Recorded a single frame.</source><translation type="unfinished"></translation></message>
+    <message numerus="yes"><source>Camera frames dropped because they could not be recorded in time: %n. The clip keeps the real times of the frames it contains.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform><numerusform></numerusform></translation></message>
+    <message numerus="yes"><source>Frame intervals longer than 1.5 times the median (%1 ms): %n, the longest %2 ms. The camera or its driver may have skipped frames there.</source><translation type="unfinished"><numerusform></numerusform><numerusform></numerusform><numerusform></numerusform></translation></message>
+    <message><source>The camera supplied no frame times, so each frame is timed by when it reached MoTrack.</source><translation type="unfinished"></translation></message>
+    <message><source>&amp;Stop</source><translation type="unfinished"></translation></message>
+    <message><source>Discard and close</source><translation type="unfinished"></translation></message>
   </context>
 </TS>

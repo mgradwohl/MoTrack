@@ -4,6 +4,8 @@
 #include "local_media_path.hpp"
 #include "track_identity.hpp"
 #include "tracker_archive.hpp"
+#include "tracker_import.hpp"
+#include "tracker_loaders.hpp"
 #include "workspace_document_codec.hpp"
 #include "workspace_storage.hpp"
 
@@ -21,6 +23,8 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
+#include <string>
 #include <utility>
 
 namespace motrack
@@ -422,6 +426,22 @@ WorkspaceDocument detail::decodeWorkspaceDocument(const QJsonObject& input, std:
     {
         result.archiveReference = string(archive);
     }
+    // Read the preserved source once with the current reader. A source saved by an earlier MoTrack that this
+    // reader refuses cannot be exported or re-associated, so explain that instead of a bare XML error.
+    std::optional<detail::ImportedTracker> preserved;
+    if (result.trackerSource)
+    {
+        try
+        {
+            preserved = detail::importTracker(detail::parseTrackerXml(result.trackerSource->xml));
+        }
+        catch (const ProjectError& error)
+        {
+            throw ProjectError(std::string("The copy of the original Tracker file kept in this MoTrack project can no longer be read (") +
+                               error.what() +
+                               ") Open the project with the MoTrack version that saved it, or import the original Tracker file again.");
+        }
+    }
     auto& project = result.project;
     project.version = string(input.value("trackerVersion"));
     project.description = string(input.value("description"));
@@ -434,10 +454,10 @@ WorkspaceDocument detail::decodeWorkspaceDocument(const QJsonObject& input, std:
     {
         project.timeUnit = string(unit);
     }
-    else if (result.trackerSource)
+    else if (preserved)
     {
         // Earlier native files retained this label only in the original Tracker XML.
-        project.timeUnit = parseLegacyProject(result.trackerSource->xml).timeUnit;
+        project.timeUnit = preserved->project.timeUnit;
     }
     project.unsupportedTrackTypes = strings(input.value("unsupportedTrackTypes"));
     project.calibration = readCalibration(input.value("calibration"));
@@ -463,9 +483,14 @@ WorkspaceDocument detail::decodeWorkspaceDocument(const QJsonObject& input, std:
         }
     }
     validateTrackIdentities(project);
-    if (result.trackerSource)
+    if (preserved && result.trackerSource && result.trackerSource->bindings &&
+        !detail::trackerBindingsMatch(*result.trackerSource->bindings, project, *preserved))
     {
-        validateTrackerSource(*result.trackerSource, project);
+        // Bindings written before B1 hold ordinals from MoTrack's former DOM reader. Where OSP's reader sees other
+        // track objects they are stale: keep the measurements and the source, but drop the associations rather than
+        // guess them. Standard export then refuses, as for a native file that never recorded them.
+        result.trackerSource->bindings.reset();
+        result.trackerBindingsReset = true;
     }
     const auto clip = input.value("clip").toObject();
     project.clip.firstFrame = integer(clip.value("firstFrame"), 0);
@@ -495,6 +520,24 @@ WorkspaceDocument detail::decodeWorkspaceDocument(const QJsonObject& input, std:
         const auto time = number(entry);
         require(result.movieFrameTimes.empty() ? time == 0.0 : time > result.movieFrameTimes.back());
         result.movieFrameTimes.push_back(time);
+    }
+    if (preserved && (project.lengthUnit.empty() || (!project.clip.frameDurationMs && project.clip.mediaReferences.empty())))
+    {
+        // Native files written before MoTrack applied Tracker's loader defaults (#214) stored the unset values
+        // for sources that save neither label nor clip control. Edits cannot produce an empty length unit or
+        // clear a clip duration (calibration requires a Tracker unit label), so take the defaults the source now
+        // loads with; otherwise the next standard export would refuse to "clear" them. A file from an earlier
+        // MoTrack that accepted an empty calibration unit also adopts "m", which Tracker would show for it.
+        const auto& loaded = preserved->project;
+        if (project.lengthUnit.empty() && loaded.lengthUnit == tracker::DEFAULT_LENGTH_UNIT)
+        {
+            project.lengthUnit = loaded.lengthUnit;
+        }
+        if (!project.clip.frameDurationMs && project.clip.mediaReferences.empty() && !result.movie && loaded.clip.mediaReferences.empty() &&
+            loaded.clip.frameDurationMs == tracker::DEFAULT_STEPPER_FRAME_DURATION_MS)
+        {
+            project.clip.frameDurationMs = loaded.clip.frameDurationMs;
+        }
     }
     validateArchive(result);
     return result;

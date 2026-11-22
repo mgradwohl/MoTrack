@@ -3,9 +3,9 @@
 `motrack_osp` reads and writes Open Source Physics XMLControl documents, the format of every Tracker `.trk`
 and of OSP preference, Data Tool and library files. It is wave 0 slice A1 of the
 [migration plan](migration-plan.md#implementation-order-and-exit-gates): a lossless foundation for the
-typed Tracker model. It does not yet replace the QDom readers and writers in `motrack_project`; that is
-slice B1. The library has no Qt, media or operating-system dependencies (`src/osp/`, namespace
-`motrack::osp`).
+typed Tracker model. Since slice B1, Tracker import and standard export use it exclusively (see
+[Tracker import and export](#tracker-import-and-export)). The library has no Qt, media or operating-system
+dependencies (`src/osp/`, namespace `motrack::osp`).
 
 The reference is OSP [`d56207b`](https://github.com/OpenSourcePhysics/osp/tree/d56207b0ae737458a31365d368f1c28e4bd3202a)
 (Tracker 6.3.5). The `swingJS` branch changes nothing that affects reading or writing: it adds
@@ -98,6 +98,38 @@ libstdc++ hides `<expected>` from Clang 18 (it requires `__cpp_concepts >= 20200
 [`expected.hpp`](../src/osp/expected.hpp) supplies the small subset the library uses on that toolchain; the
 unit tests pass with both forms.
 
+## Tracker import and export
+
+Slice B1 moved `motrack_project` off QDom; QtXml is now only a test dependency.
+
+- **Typed loaders** ([`tracker_loaders.hpp`](../src/tracker_loaders.hpp)) read the classes MoTrack models
+  (the TrackerPanel subset, VideoClip and its video, ClipControl, ImageCoordSystem, PointMass, Vector) with
+  OSP's property names, `getInt`/`getDouble`/`getBoolean`/`getString` and array conversions, and the media
+  class remap. Each load keeps its object node. `LegacyProject` keeps its API and its import policy
+  (refusals, sorting, duplicate checks) on top of them, so files read as Tracker reads them: entities stay
+  literal, a blank line ends an array (so the file in [#196](https://github.com/mgradwohl/MoTrack/issues/196)
+  is refused with the reader's line and reason), the last duplicate wins, a document type is inert text,
+  content on an object's opening line is not read and a document that ends before its objects close is
+  refused (#243). Non-UTF-8 encodings are refused (see the intentional differences below). Tracker's loader defaults apply to unsaved values: `length_unit` "m" and, without media,
+  StepperClipControl's 100 ms frame duration ([#214](https://github.com/mgradwohl/MoTrack/issues/214)).
+  Native files written before #214 that stored the unset values take these defaults when they reopen.
+- **Standard export** composes its edits in `SourceEdits` ([`source_edits.hpp`](../src/source_edits.hpp)),
+  an overlay that lets later decisions refine earlier ones (a deletion renumbering an array a rename touched)
+  and renders them as one `Patch`. Unedited bytes are copied verbatim; a value that already decodes to the
+  intended one keeps its text. New objects use OSP's writer: doubles as `Double.toString`, CDATA only when
+  `XML.requiresCDATA` says so, and created tracks in Tracker's `saveObject` order (PointMass: `mass`, then
+  TTrack's `name`, `color`, `footprint`, `visible`, `trail`; `locked` only when true; then `framedata` and
+  `keyFrames`).
+- **O8 on every export.** `SourceEdits::render` re-parses the output and walks both trees: every node outside
+  the edit set must keep its raw bytes and logical value, every edited value must decode to the intended one
+  and every insertion or renamed subtree must read back as written. A mismatch refuses the export.
+- **Guards.** Guards for Tracker behavior stay: numeric and timing checks, dense-array budgets, snapping,
+  coordinate inversion, table formats (#64), vector sums (#63), schemas audited for identity edits and the
+  name codec; the audited schemas still refuse duplicate fields. QDom layout guards are gone: unique-property
+  checks on plain value edits (MoTrack and Tracker read the last duplicate), attribute-count checks, the
+  document-type refusal, whitespace and comment rules inside values and arrays, and class-attribute repair. An
+  array or frame object without its class attribute is now refused for edits, because Tracker cannot load it.
+
 ## Oracles
 
 **O2** — rendering an unedited parse reproduces the input byte for byte. `motrack_tests` checks it for every
@@ -161,7 +193,10 @@ the case:
   and then truncates them or fails in `XML.removeCDATA` on reload. MoTrack refuses to write them
   (`InvalidValue`), including multi-line values that would inject a property
   ([#194](https://github.com/mgradwohl/MoTrack/issues/194), [osp#21](https://github.com/OpenSourcePhysics/osp/issues/21)).
-- Invalid UTF-8: Java substitutes U+FFFD; MoTrack refuses the file. A declared encoding other than UTF-8 is
+- Invalid UTF-8: Java substitutes U+FFFD; MoTrack refuses the file. When the bytes read as Windows-1252, which
+  Tracker's File > Export > Tracker file can write under a UTF-8 declaration
+  ([#277](https://github.com/mgradwohl/MoTrack/issues/277)), the refusal names that encoding; opening such a file
+  with a warning is [#302](https://github.com/mgradwohl/MoTrack/issues/302). A declared encoding other than UTF-8 is
   ignored by OSP but refused by MoTrack.
 - Encrypted (`Cryptic`) roots are refused instead of decrypted.
 - `Integer.parseInt` accepts non-ASCII Unicode decimal digits; MoTrack reports them as `Unsupported`.

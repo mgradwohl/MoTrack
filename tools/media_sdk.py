@@ -7,8 +7,13 @@ import platform
 import subprocess
 import sys
 
+# tools/, for dev_sdk: python -I leaves the script's directory off sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from dev_sdk import dev_tools_root  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[1] / ".dev-tools" / "vcpkg"
+
+# In the .dev-tools a checkout shares with its linked worktrees.
+ROOT = dev_tools_root() / "vcpkg"
 VCPKG_RELEASE = "2026.10.16"
 VCPKG_COMMIT = "9eec002df1cd109f8f104cd966a763daf9751489"
 FFMPEG_FEATURES = "ffmpeg[core,avcodec,avformat,swscale]"

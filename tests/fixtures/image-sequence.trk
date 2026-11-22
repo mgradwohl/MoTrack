@@ -9,7 +9,7 @@
       <property name="video" type="object">
         <object class="org.opensourcephysics.media.core.ImageVideo">
           <property name="delta_t" type="double">250</property>
-          <property name="paths" type="array">
+          <property name="paths" type="array" class="[Ljava.lang.String;">
             <property name="[0]" type="string">frames/frame00.ppm</property>
             <property name="[1]" type="string">frames/skipped.ppm</property>
             <property name="[2]" type="string">frames/frame02.ppm</property>
@@ -24,30 +24,36 @@
       <property name="fixedorigin" type="boolean">true</property>
       <property name="fixedangle" type="boolean">true</property>
       <property name="fixedscale" type="boolean">true</property>
-      <property name="framedata" type="array">
-        <property name="[0]" type="object"><object>
-          <property name="xorigin" type="double">0</property>
-          <property name="yorigin" type="double">4</property>
-          <property name="angle" type="double">0</property>
-          <property name="xscale" type="double">2</property>
-          <property name="yscale" type="double">4</property>
-        </object></property>
+      <property name="framedata" type="array" class="[Lorg.opensourcephysics.media.core.ImageCoordSystem$FrameData;">
+        <property name="[0]" type="object">
+          <object class="org.opensourcephysics.media.core.ImageCoordSystem$FrameData">
+            <property name="xorigin" type="double">0</property>
+            <property name="yorigin" type="double">4</property>
+            <property name="angle" type="double">0</property>
+            <property name="xscale" type="double">2</property>
+            <property name="yscale" type="double">4</property>
+          </object>
+        </property>
       </property>
     </object>
   </property>
-  <property name="tracks" type="collection">
+  <property name="tracks" type="collection" class="java.util.ArrayList">
     <property name="item" type="object">
       <object class="org.opensourcephysics.cabrillo.tracker.PointMass">
         <property name="name" type="string">Ball</property>
-        <property name="framedata" type="array">
-          <property name="[0]" type="object"><object>
-            <property name="x" type="double">1.5</property>
-            <property name="y" type="double">1.5</property>
-          </object></property>
-          <property name="[2]" type="object"><object>
-            <property name="x" type="double">2.5</property>
-            <property name="y" type="double">2.5</property>
-          </object></property>
+        <property name="framedata" type="array" class="[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;">
+          <property name="[0]" type="object">
+            <object class="org.opensourcephysics.cabrillo.tracker.PointMass$FrameData">
+              <property name="x" type="double">1.5</property>
+              <property name="y" type="double">1.5</property>
+            </object>
+          </property>
+          <property name="[2]" type="object">
+            <object class="org.opensourcephysics.cabrillo.tracker.PointMass$FrameData">
+              <property name="x" type="double">2.5</property>
+              <property name="y" type="double">2.5</property>
+            </object>
+          </property>
         </property>
       </object>
     </property>

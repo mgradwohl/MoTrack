@@ -139,7 +139,8 @@
     <message><source>Reading project…</source><translation>Projekt wird gelesen…</translation></message>
     <message><source>Choose a Tracker tab</source><translation>Wählen Sie einen Tracker-Tab</translation></message>
     <message><source>Opened %1 marks. Unsupported tracks: %2.</source><translation>%1 Markierungen geladen. Nicht unterstützte Tracks: %2.</translation></message>
-    <message><source>Could not open this project.</source><translation>Dieses Projekt konnte nicht geöffnet werden.</translation></message>
+    <message><source>Could not open this project: %1</source><translation type="unfinished">Dieses Projekt konnte nicht geöffnet werden: %1</translation></message>
+    <message><source>Tracker export unavailable: the links to this project's Tracker tracks could not be restored. Measurements are unchanged.</source><translation type="unfinished">Tracker-Export nicht verfügbar: Die Verknüpfungen zu den Tracker-Tracks dieses Projekts konnten nicht wiederhergestellt werden. Die Messungen sind unverändert.</translation></message>
     <message><source>%1[*] — MoTrack</source><translation>%1[*] — MoTrack</translation></message>
     <message><source>Previous frame</source><translation>Vorheriges Bild</translation></message>
     <message><source>Next frame</source><translation>Nächstes Bild</translation></message>
@@ -472,6 +473,311 @@
     <message>
         <source>Could not read %1: %2</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Capture from &amp;camera…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Record a clip with a camera and open it as a new experiment.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Recording saved as %1. Opening it as a new experiment…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Recording saved as %1. Open it with Open video once the current files finish opening.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The camera recording is kept: it opens as a new experiment once it is saved.</source>
+        <translation type="unfinished" />
+    </message>
+</context>
+
+<context>
+    <name>motrack::CaptureDialog</name>
+    <message>
+        <source>%1 fps</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1–%2 fps</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1, %2</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1 (%2)</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Capture from camera</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>&amp;Camera:</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>&amp;Format:</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>&amp;Record</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>&amp;Discard recording</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The recording failed: %1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>MoTrack cannot read this camera format (%1). Choose another format.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The camera could not be used: %1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Another application may be using it, or camera access may be turned off in the system privacy settings.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Camera default</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>No camera was found. Connect a camera; it appears here when the system reports it.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>MoTrack is not allowed to use the camera. Allow camera access for MoTrack in the system privacy settings, then open this window again.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Waiting for permission to use the camera…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Starting the camera…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Finishing the recording…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The previous recording is still closing. Try again in a moment.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not create a temporary folder for the recording.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Save recording</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>QuickTime movies (*.mov)</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Saving the recording…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not save the recording: %1</source>
+        <translation type="unfinished" />
+    </message>
+    <message numerus="yes">
+        <source>Time %1 · Frames %n</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message numerus="yes">
+        <source>Dropped %n</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message numerus="yes">
+        <source>Recorded %n frames in %1 s, an average of %2 frames per second.</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message>
+        <source>Recorded a single frame.</source>
+        <translation type="unfinished" />
+    </message>
+    <message numerus="yes">
+        <source>Camera frames dropped because they could not be recorded in time: %n. The clip keeps the real times of the frames it contains.</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message>
+        <source>The camera supplied no frame times, so each frame is timed by when it reached MoTrack.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>&amp;Stop</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Discard and close</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The camera stopped during the recording; the clip ends at its last frame.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The camera changed its frame size, so the recording ended at the last frame of the original size.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>No frames have arrived from the camera for %1 s. Check the camera, or stop the recording.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The camera was disconnected.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Discard the recording?</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The recording has not been saved. Discard it?</source>
+        <translation type="unfinished" />
+    </message>
+    <message numerus="yes">
+        <source>Frame intervals longer than 1.5 times the median (%1 ms): %n, the longest %2 ms. The camera or its driver may have skipped frames there.</source>
+        <translation type="unfinished">
+            <numerusform /><numerusform /></translation>
+    </message>
+    <message>
+        <source>&amp;Ask where to save each recording</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Otherwise each recording is saved in the MoTrack captures folder and opens at once.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>&amp;Save as…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Choose where to save the clip; it then opens as a new experiment.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Close</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not create the captures folder %1. Choose where to save the clip.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Saving the recording in %1…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not save the recording in %1: %2. Choose where to save it.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Saved as %1.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Keep the recording?</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>A recording is in progress. Stop it and keep the clip, or discard it?</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Stop and &amp;keep</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Finishing the recording; the window closes once it is saved…</source>
+        <translation type="unfinished" />
+    </message>
+</context>
+
+<context>
+    <name>motrack::QtCameraSource</name>
+    <message>
+        <source>The camera is no longer connected.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The camera stopped delivering frames.</source>
+        <translation type="unfinished" />
+    </message>
+</context>
+
+<context>
+    <name>motrack::CapturePipeline</name>
+    <message>
+        <source>Could not read a camera frame.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not decode a Motion JPEG camera frame.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>system error %1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not read the recording.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not create %1.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Saving the recording was canceled.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not copy the recording to %1.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>No frames were recorded.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The recording is no longer available.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>The folder %1 does not exist.</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not save %1: %2</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Could not find a free file name in %1.</source>
+        <translation type="unfinished" />
     </message>
 </context>
 

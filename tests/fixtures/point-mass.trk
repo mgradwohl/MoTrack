@@ -15,7 +15,7 @@
       </property>
     </object>
   </property>
-  <property name="tracks" type="collection">
+  <property name="tracks" type="collection" class="java.util.ArrayList">
     <property name="item" type="object">
       <object class="org.opensourcephysics.cabrillo.tracker.CoordAxes"/>
     </property>
@@ -23,7 +23,7 @@
       <object class="org.opensourcephysics.cabrillo.tracker.PointMass">
         <property name="name" type="string">Péndulo</property>
         <property name="mass" type="double">125.5</property>
-        <property name="framedata" type="array">
+        <property name="framedata" type="array" class="[Lorg.opensourcephysics.cabrillo.tracker.PointMass$FrameData;">
           <property name="[2]" type="object">
             <object class="org.opensourcephysics.cabrillo.tracker.PointMass$FrameData">
               <property name="x" type="double">120.5</property>

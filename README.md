@@ -4,7 +4,7 @@ MoTrack is a planned desktop application for measuring motion in video, plotting
 
 ## Project status
 
-MoTrack is in early development. The desktop prototype opens local movies directly or imports Tracker `.trk` files with attached local movies and image sequences. It displays point-mass marks on the frame and in a table, draws imported Tracker vectors as arrows, imports saved image calibration, supports distance calibration and manual marking with undo, plots position and velocity, and exports the selected clip's measurements to CSV. See the [migration plan](docs/migration-plan.md) for scope and acceptance criteria.
+MoTrack is in early development. The desktop prototype opens local movies directly, records new clips from a camera, or imports Tracker `.trk` files with attached local movies and image sequences. It displays point-mass marks on the frame and in a table, draws imported Tracker vectors as arrows, imports saved image calibration, supports distance calibration and manual marking with undo, plots position and velocity, and exports the selected clip's measurements to CSV. See the [migration plan](docs/migration-plan.md) for scope and acceptance criteria.
 
 ## Development
 
@@ -12,7 +12,7 @@ The [full-port plan](docs/migration-plan.md) records requirements, current compl
 architecture, implementation dependencies, and the tests required before claiming Tracker parity.
 
 - C++23 and CMake, with Clang/LLVM on Windows, macOS, and Linux.
-- Qt 6 Widgets for the desktop interface, FFmpeg for video decoding, and libarchive for Tracker experiment archives.
+- Qt 6 Widgets for the desktop interface, Qt Multimedia for cameras, FFmpeg for video decoding and recording, and libarchive for Tracker experiment archives.
 - GoogleTest and CTest, with a 90% minimum line coverage gate for handwritten production C++ from the first code change.
 - [TaskSmack](https://github.com/mgradwohl/tasksmack) is the reference for build presets, test organization, and LLVM coverage reporting.
 - See [Contributing](CONTRIBUTING.md) for coding conventions and LLVM checks.
@@ -25,9 +25,15 @@ it is not shipped with MoTrack or used to read and write experiments.
 
 ### Build the prototype
 
-Run the setup script after cloning. It installs the [pinned toolchain](CONTRIBUTING.md#pinned-toolchain) that CI uses (LLVM 23, with Apple Clang as the macOS compiler) through the platform package manager, installs Qt, FFmpeg, and libarchive in the checkout's ignored `.dev-tools` directory, checks the result, and builds and tests the app. Add `-DryRun` or `--dry-run` to see what it would install first.
+Run the setup script after cloning. It installs the [pinned toolchain](CONTRIBUTING.md#pinned-toolchain) that CI uses (LLVM 23, with Apple Clang as the macOS compiler) through the platform package manager, installs Qt, FFmpeg, and libarchive in the checkout's ignored `.dev-tools` directory ([shared with its worktrees](CONTRIBUTING.md#developer-setup)), checks the result, and builds and tests the app. Add `-DryRun` or `--dry-run` to see what it would install first.
 
-**Windows x64** (PowerShell with WinGet available)
+**Windows x64** (PowerShell 7 with WinGet available)
+
+Windows includes only Windows PowerShell 5.1. If `pwsh` is not installed, install PowerShell 7 first, then run setup from a new PowerShell 7 window:
+
+```powershell
+winget install --id Microsoft.PowerShell --exact --source winget
+```
 
 ```powershell
 .\tools\setup-dev.ps1 -Build
@@ -38,6 +44,9 @@ Run the setup script after cloning. It installs the [pinned toolchain](CONTRIBUT
 ```sh
 ./tools/setup-dev.sh --build
 ```
+
+On Linux, MoTrack needs the PulseAudio client library (`libpulse0`, which setup installs) to start at
+all, because Qt Multimedia links it.
 
 Run `build/dev/motrack` (`motrack.exe` on Windows) from an [activated developer shell](CONTRIBUTING.md#developer-setup) and open `tests/fixtures/image-sequence.trk` or `tests/fixtures/movie.trk` from the File menu. Use the controls below the image to play, pause, or step through the clip. The interface follows the system's [preferred languages](#languages). Numbers are shown with the decimal mark of your regional format settings; Tracker instead follows the interface language chosen in it, or its own decimal-separator preference, so with German regional formats and Tracker set to English, MoTrack shows `0,75` where Tracker shows `0.75`. Saved files and CSV exports always use `.`.
 
@@ -61,6 +70,37 @@ reload externally changed files.
 Choose Tracks → New vector to create an independent vector track, or select an imported vector in the toolbar. Shift-click the tail, then Shift-click the tip to create or replace its arrow on the current frame and advance one clip step. Escape cancels a pending tail; switching frames, tracks, or tools also cancels it. Shift+Enter copies the preceding arrow to the current frame. Rename track, Delete track, Delete mark on this frame, and Undo/Redo work with vectors as well as point masses. Vector tails and components are saved in image pixels and survive reopening a `.motrack` project. Motion plots and measurement CSV export still cover point masses; dependent vector sums are not yet supported.
 
 New Tracker imports also keep their original XML inside the saved `.motrack` file, including settings MoTrack cannot yet edit. Supported imported projects can also be saved back to standard Tracker files as described below; full interchange coverage remains unfinished. Standalone movies and images still use external files. Older native projects still open; archive-backed ones need their original `.trz` until resaved with this version. Data discarded by earlier versions cannot be recovered. See [native document compatibility](docs/native-format.md).
+
+### Record a clip from a camera
+
+Choose **File → Capture from camera…** to record a new movie experiment. Pick the camera and, where it
+reports them, a resolution and frame-rate range (**Camera default** lets the camera choose). **Record**
+starts and **Stop** ends a recording while the window previews the camera and shows the elapsed time
+and frame count. After **Stop**, the clip is saved as a QuickTime `.mov` file named
+`Capture <date> <time>.mov` in a `MoTrack` folder inside your Videos folder (Movies on macOS; Documents
+if that folder cannot be used), then opens at once as a new experiment, as **Open video** does. The window
+stays open for the next take. To rename or move a clip, tick **Ask where to save each recording**,
+which offers **Save as…** before the clip opens. If the captures folder cannot be created or written,
+MoTrack says so and asks where to save instead; **Discard recording** then drops the clip.
+
+Closing the capture window or the workspace during a recording asks whether to stop and keep the clip
+(it is saved and opened, then the window closes) or to discard it. A clip waiting for a location asks
+before it is discarded. If the camera stops, disconnects or changes its frame size during a recording,
+the frames recorded so far are kept and saved. A failed recording or a camera error leaves the
+workspace unchanged.
+
+Each frame keeps the time the camera gave it, so an uneven camera rate shows as uneven frame times;
+MoTrack never assigns a nominal frame rate. A camera without frame times is timed by when frames reach
+MoTrack, and the summary says so, along with any frames dropped because they arrived faster than they
+could be recorded and any unusually long frame intervals. Clips are Motion JPEG, every frame stored
+separately at a fixed high quality.
+
+macOS asks for camera permission the first time (change it later in System Settings → Privacy &
+Security → Camera). On Windows, a camera turned off under Settings → Privacy & security → Camera fails
+to start with a message. On Linux, capture needs access to `/dev/video*`. Capture uses no
+network connection or browser, unlike Tracker's **Video → Capture…**, and opens a new experiment instead
+of replacing the current tab's video. [Camera capture](docs/camera-capture.md) covers timing, platform
+backends and the other differences from Tracker.
 
 ### Save a Tracker project and its MoTrack companion
 
@@ -111,7 +151,7 @@ standalone media projects remain unfinished.
 
 ### Analyze motion
 
-Choose position, velocity, speed, acceleration, momentum, or kinetic energy above the plot. Set the selected point mass’s value in the Tracks menu. Select a plotted point to jump to its video frame. Enable Linear fit to see the slope, intercept, and R² for the plotted samples. Position uses the frame number when the project has no known timebase. Derived quantities use frame timestamps or saved image-sequence timing, and are left blank at the clip edges and across gaps in the marks. Acceleration currently uses a three-point estimate rather than Tracker's default five-point estimate, so its values differ and it reports values one step closer to clip edges and gaps than Tracker does; [#207](https://github.com/mgradwohl/MoTrack/issues/207) tracks aligning it. Imported movies are indexed in the background and keep Tracker’s saved clip start time.
+Choose position, velocity, speed, acceleration, momentum, or kinetic energy above the plot. Set the selected point mass’s value in the Tracks menu. Select a plotted point to jump to its video frame. Enable Linear fit to see the slope, intercept, and R² for the plotted samples. Position uses the frame number when the project has no known timebase. Derived quantities use frame timestamps or saved image-sequence timing, and are left blank at the clip edges and across gaps in the marks. Velocity and acceleration use Tracker's default Finite Difference algorithm: velocity from the neighbouring steps, and acceleration from Tracker's five-point estimate, so acceleration is blank within two steps of a clip edge or gap. When a movie's frame times are unevenly spaced, MoTrack still uses its earlier estimates that account for the spacing, so it differs from Tracker. They are exact when the timestamps are the true capture times of variable-frame-rate video. But they are wrong for constant-rate video with coarse timestamps, such as the 1 ms timestamps of Matroska/WebM files. There, for an object moving steadily at 2 m/s, they report up to 1.8 m/s² of acceleration at 30 fps (7.4 m/s² at 60 fps) and a 1–2% velocity error, where Tracker's results are accurate. [#87](https://github.com/mgradwohl/MoTrack/issues/87) tracks the fix; see [motion kernels](docs/motion-kernels.md#workspace-measurements). Imported movies are indexed in the background and keep Tracker’s saved clip start time.
 
 Use Clip Settings to choose the starting frame, ending frame, and frame interval for an experiment. Existing marks keep their original frame numbers when the clip changes.
 

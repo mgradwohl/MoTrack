@@ -1,5 +1,6 @@
 #include "model/dependencies/name_binding.hpp"
 
+#include "../osp_layout.hpp"
 #include "tracker_references.hpp"
 
 #include <gtest/gtest.h>
@@ -364,8 +365,11 @@ TEST(NameBinding, MatchesTheSourceReferenceIndexClassification)
     {
         items += item;
     }
-    const auto xml = "<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'><property name='tracks'>" + items +
-                     "</property>" + property("selectedtrack", "duplicate") + property("referenceframe", "same") + "</object>";
+    // Written in OSP's layout, so the document reads in MoTrack exactly as in Tracker (B1 imports through motrack_osp).
+    const auto xml = motrack::test::ospLayout("<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'><property "
+                                              "name='tracks' type='collection' class='java.util.ArrayList'>" +
+                                              items + "</property>" + property("selectedtrack", "duplicate") +
+                                              property("referenceframe", "same") + "</object>");
     const auto imported = motrack::parseTrackerProject(xml);
     const auto source = motrack::indexTrackerReferences(imported.source, imported.project);
     ASSERT_EQ(source.malformedPaths, (std::vector<std::string>{"/tracks/11/name"}));

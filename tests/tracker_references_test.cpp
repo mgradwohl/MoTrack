@@ -1,5 +1,6 @@
 #include "tracker_references.hpp"
 
+#include "osp_layout.hpp"
 #include "track_edits.hpp"
 #include "workspace_document.hpp"
 
@@ -27,10 +28,12 @@ std::string point(std::string_view name)
     return track("org.opensourcephysics.cabrillo.tracker.PointMass", name);
 }
 
+/// A compact panel snippet written in OSP's layout, so it reads in MoTrack exactly as in Tracker.
 std::string project(std::string_view tracks, std::string_view fields = {})
 {
-    return "<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'><property name='tracks'>" + std::string(tracks) +
-           "</property>" + std::string(fields) + "</object>";
+    return motrack::test::ospLayout("<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'><property name='tracks' "
+                                    "type='collection' class='java.util.ArrayList'>" +
+                                    std::string(tracks) + "</property>" + std::string(fields) + "</object>");
 }
 
 motrack::TrackerReferenceIndex index(const std::string& xml)
@@ -194,16 +197,15 @@ TEST(TrackerReferences, RejectsInvalidBindingsAndXmlBeforeIndexing)
 
 TEST(TrackerReferences, ReportsMalformedNamesObjectsAndDuplicateContainers)
 {
+    // Elements mixed with text or several objects in one property are not representable in OSP's line-oriented
+    // format; these are the malformed shapes Tracker's reader can produce.
     const std::vector<std::string> entries{
         "<property name='item'>null</property>",
         "<property name='item'><object/></property>",
-        "<property name='item'><other/><object class='Future'/></property>",
-        "<property name='item'><object class='Future'/><object class='Future'/></property>",
         "<property name='item' type='string'><object class='Future'>" + property("name", "A") + "</object></property>",
-        "<property name='item'>garbage<object class='Future'>" + property("name", "A") + "</object></property>",
         "<property name='item'><object class='Future'/></property>",
         "<property name='item'><object class='Future'>" + property("name", "A") + property("name", "B") + "</object></property>",
-        "<property name='item'><object class='Future'><property name='name' type='string'><object/></property></object></property>"};
+        "<property name='item'><object class='Future'><property name='name' type='int'>1</property></object></property>"};
     for (const auto& entry : entries)
     {
         const auto result = index(project(entry, property("selectedtrack", "A")));
@@ -223,24 +225,28 @@ TEST(TrackerReferences, DistinguishesMalformedContainersFromAbsentOrEmptyCollect
     for (const auto& container : {"<property name='tracks' type='string'>garbage</property>",
                                   "<property name='tracks' type='string'/>",
                                   "<property name='tracks'><object class='Future'/></property>",
-                                  "<property name='tracks'><unexpected/></property>",
                                   "<property name='tracks'><![CDATA[garbage]]></property>",
                                   "<property name='tracks'>\xE2\x80\x83</property>"})
     {
-        const auto result =
-            index("<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>" + std::string(container) + "</object>");
+        const auto result = index(motrack::test::ospLayout("<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>" +
+                                                           std::string(container) + "</object>"));
         EXPECT_TRUE(result.tracks.empty());
         EXPECT_EQ(result.malformedPaths, (std::vector<std::string>{"/tracks"}));
     }
-    const auto mixed = index(project("garbage" + point("A"), property("selectedtrack", "A")));
+    // OSP ends a collection at its first line without "<property"; the following elements become panel
+    // properties, so Tracker loads no tracks and the selection names a missing track.
+    auto interrupted = project(point("A"), property("selectedtrack", "A"));
+    interrupted.insert(interrupted.find("    <property name=\"item\""), "garbage\n");
+    const auto mixed = index(interrupted);
     EXPECT_TRUE(mixed.tracks.empty());
-    EXPECT_EQ(mixed.malformedPaths, (std::vector<std::string>{"/tracks"}));
+    EXPECT_TRUE(mixed.malformedPaths.empty());
     EXPECT_EQ(mixed.references[0].resolution, Resolution::Missing);
-    const auto valid = index(project(" \t\r\n<!-- retained --><?note retained?><![CDATA[\n]]>" + point("A")));
+    const auto valid = index(project(point("A")));
     EXPECT_TRUE(valid.malformedPaths.empty());
     EXPECT_EQ(valid.tracks.size(), 1u);
-    const auto empty = index("<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>"
-                             "<property name='tracks' type='collection' class='java.util.ArrayList'> \n</property></object>");
+    const auto empty =
+        index(motrack::test::ospLayout("<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'>"
+                                       "<property name='tracks' type='collection' class='java.util.ArrayList'> \n</property></object>"));
     EXPECT_TRUE(empty.tracks.empty());
     EXPECT_TRUE(empty.malformedPaths.empty());
 }
@@ -263,9 +269,8 @@ TEST(TrackerReferences, RejectsMalformedPackedStringsWithoutPartialReferenceResu
     }
     for (const auto& field : {"selectedtrack", "referenceframe", "selected_track_views"})
     {
-        for (const auto& invalid : {property(field, "A") + property(field, "B"),
-                                    "<property name='" + std::string(field) + "' type='int'>1</property>",
-                                    "<property name='" + std::string(field) + "' type='string'>A<!-- unknown --></property>"})
+        for (const auto& invalid :
+             {property(field, "A") + property(field, "B"), "<property name='" + std::string(field) + "' type='int'>1</property>"})
         {
             const auto result = index(project(point("A"), invalid));
             EXPECT_TRUE(result.references.empty());
@@ -276,7 +281,7 @@ TEST(TrackerReferences, RejectsMalformedPackedStringsWithoutPartialReferenceResu
 
 TEST(TrackerReferences, HandlesAbsentFieldsExactNamesAndBoundedTrackInventories)
 {
-    const auto empty = index("<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'/>");
+    const auto empty = index(motrack::test::ospLayout("<object class='org.opensourcephysics.cabrillo.tracker.TrackerPanel'/>"));
     EXPECT_TRUE(empty.tracks.empty());
     EXPECT_TRUE(empty.references.empty());
     EXPECT_TRUE(empty.malformedPaths.empty());
@@ -664,9 +669,6 @@ TEST(TrackerReferences, RejectsMalformedAttachmentsWithoutPartialSlotLists)
           stringRow("attachments", property("[10000]", "A")),
           stringRow("attachments", property("[0]", "A") + property("[0]", "A")),
           stringRow("attachments", property("[0]", "A") + "<property name='[1]' type='object'><object class='Unknown'/></property>"),
-          stringRow("attachments", property("[0]", "A") + "<property name='[1]' type='object'>null<other/></property>"),
-          stringRow("attachments", property("[0]", "A") + "<property name='[1]' type='object' class='Other'>null</property>"),
-          stringRow("attachments", property("[0]", "A") + "<property name='[1]' type='object'/>"),
           stringRow("attachments", property("[0]", "A") + "<property name='[1]' type='int'>0</property>"),
           stringRow("attachments", property("[0]", "A") + property("[1]", std::string(4097, 'a')))})
     {
@@ -830,7 +832,7 @@ TEST(TrackerReferences, RejectsMalformedModelDependenciesWithoutPartialMemberLis
                                stringRow("particles", member + "<property name='[1]' type='object'>null</property>"),
                                stringRow("particles", member + property("[1]", std::string(4097, 'a'))),
                                property("booster", "A") + property("booster", "A"),
-                               std::string("<property name='booster' type='object'>null</property>")})
+                               std::string("<property name='booster' type='int'>1</property>")})
     {
         SCOPED_TRACE(fields);
         const auto result = index(project(dependent("DynamicSystem", fields)));
@@ -895,17 +897,15 @@ TEST(TrackerReferences, RejectsMalformedViewContainersIndicesAndObjects)
     for (const auto& field : {property("views", "A"),
                               valid + valid,
                               arrayXml("views", "wrong", ""),
-                              arrayXml("views", "[[Lorg.opensourcephysics.cabrillo.tracker.TView;", "<other/>"),
                               savedViews(viewXml("TableTView", {}), "[4]"),
                               savedViews(viewXml("TableTView", {}), "[01]"),
                               savedViews(viewXml("TableTView", {}), "[-1]"),
                               savedViews(viewXml("TableTView", {}), "garbage"),
                               savedViews(viewXml("TableTView", {}, "[0]")),
                               savedViews(viewXml("PlotTView", {}, "[1]")),
-                              savedViews("<property name='[1]' type='object'><object class='Future'/><object class='Future'/></property>"),
                               savedViews(viewXml("TableTView", {}) + viewXml("TableTView", {})),
                               arrayXml("views", "[[Lorg.opensourcephysics.cabrillo.tracker.TView;", property("[0]", "A")),
-                              savedViews("<property name='[0]' type='object'>text<object class='Future'/></property>")})
+                              savedViews("<property name='[0]' type='object'><object/></property>")})
     {
         SCOPED_TRACE(field);
         const auto result = index(project(point("A"), field));
@@ -955,14 +955,12 @@ TEST(TrackerReferences, RejectsMalformedTableRowsWithoutInventingPartialOwners)
 
 TEST(TrackerReferences, RejectsMalformedPlotOwnerCollectionsAndRequiredNames)
 {
-    for (const auto& fields :
-         {property("track_views", "A"),
-          std::string("<property name='track_views' type='collection' class='java.util.ArrayList'><other/></property>"),
-          std::string("<property name='track_views' type='collection' class='wrong'/>"),
-          std::string("<property name='track_views' type='collection' class='java.util.ArrayList'>") +
-              viewXml("PlotTrackView", {}, "item") + "</property>",
-          std::string("<property name='track_views' type='collection' class='java.util.ArrayList'>") +
-              viewXml("Future", property("track", "A"), "item") + "</property>"})
+    for (const auto& fields : {property("track_views", "A"),
+                               std::string("<property name='track_views' type='collection' class='wrong'/>"),
+                               std::string("<property name='track_views' type='collection' class='java.util.ArrayList'>") +
+                                   viewXml("PlotTrackView", {}, "item") + "</property>",
+                               std::string("<property name='track_views' type='collection' class='java.util.ArrayList'>") +
+                                   viewXml("Future", property("track", "A"), "item") + "</property>"})
     {
         const auto result = index(project(point("A"), savedViews(viewXml("PlotTView", fields, "[0]"))));
         EXPECT_TRUE(result.references.empty());
@@ -1072,9 +1070,8 @@ TEST(TrackerReferences, RejectsMalformedConstituentListsWithoutPartialMembers)
                                property("vectors", "A"),
                                good + good,
                                std::string("<property name='vectors' type='collection' class='java.util.LinkedList'/>"),
-                               membersXml("vectors", "unexpected"),
                                membersXml("vectors", property("item", "A") + "<property name='item' type='object'>null</property>"),
-                               membersXml("vectors", property("item", "A") + "<property name='item' type='string'><object/></property>"),
+                               membersXml("vectors", property("item", "A") + "<property name='item' type='int'>1</property>"),
                                membersXml("vectors", property("item", std::string(4097, 'a')))})
     {
         const auto result = index(project(track("org.opensourcephysics.cabrillo.tracker.Vector", "A") + dependent("VectorSum", fields)));

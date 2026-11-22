@@ -49,6 +49,9 @@ struct WorkspaceDocument
     std::optional<std::string> archiveMember = std::nullopt;
     // Runtime source locations captured when opening a desktop document. Never serialized.
     QHash<QString, QString> mediaLocations = {};
+    /// Runtime: opening dropped source bindings that no longer name the preserved source's tracks, so standard
+    /// export is unavailable until the original Tracker file is imported again. Never serialized.
+    bool trackerBindingsReset = false;
     std::shared_ptr<const MovieTimeline> movieTimeline = {};
 };
 

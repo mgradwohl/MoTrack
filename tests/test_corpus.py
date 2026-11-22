@@ -429,11 +429,11 @@ class CorpusTests(unittest.TestCase):
                     if info.filename == "experiment.trk" and edited:
                         root = ET.fromstring(data)
                         mass = root.find(".//object[@class='org.opensourcephysics.cabrillo.tracker.PointMass']")
-                        mass.find("property[@name='mass']").text = "6" if mutation == "xml" else "5"
+                        mass.find("property[@name='mass']").text = "6.0" if mutation == "xml" else "5.0"
                         frames = mass.find("property[@name='framedata']")
                         step = ET.Element("property", name="[1]", type="object")
                         obj = ET.SubElement(step, "object", {"class": "org.opensourcephysics.cabrillo.tracker.PointMass$FrameData"})
-                        for name, value in [("x", "8"), ("y", "12")]:
+                        for name, value in [("x", "8.0"), ("y", "12.0")]:
                             ET.SubElement(obj, "property", name=name, type="double").text = value
                         frames.insert(1, step)
                         keys = mass.find("property[@name='keyFrames']")
@@ -596,7 +596,7 @@ class CorpusTests(unittest.TestCase):
                 corpus.patch_expected_linked_media(document, movie=True, packaged=packaged)
                 frame = next(node for node in document.getElementsByTagName("object")
                              if node.getAttribute("class") == "org.opensourcephysics.media.core.ImageCoordSystem$FrameData")
-                for name, value in [("xorigin", "10"), ("yorigin", "18"), ("angle", "90"), ("xscale", "4"), ("yscale", "8")]:
+                for name, value in [("xorigin", "10.0"), ("yorigin", "18.0"), ("angle", "90.0"), ("xscale", "4.0"), ("yscale", "8.0")]:
                     prop = next(node for node in frame.getElementsByTagName("property") if node.getAttribute("name") == name)
                     prop.firstChild.data = value
                 unit = next(node for node in document.documentElement.childNodes
@@ -1857,11 +1857,11 @@ class CorpusTests(unittest.TestCase):
         original.write_text(source, encoding="utf-8")
         new = ('<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.Vector">'
                '<property name="name" type="string"><![CDATA[vecteur β & <C>]]></property>'
-               '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
-               '<property name="locked" type="boolean">false</property><property name="footprint" type="string"><![CDATA[Footprint.BoldArrow]]></property>'
                '<property name="color" type="object"><object class="java.awt.Color">'
                '<property name="red" type="int">255</property><property name="green" type="int">0</property>'
                '<property name="blue" type="int">255</property><property name="alpha" type="int">255</property></object></property>'
+               '<property name="footprint" type="string">Footprint.BoldArrow</property>'
+               '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
                '</object></property>')
         point = source.rfind('</property>')
         valid = source[:point] + new + source[point:]
@@ -1871,7 +1871,7 @@ class CorpusTests(unittest.TestCase):
             corpus.verify_create_vector_export_xml(original, exported, False)
         for old, replacement in [('>vector A<', '>lost original<'), ('<![CDATA[vecteur β & <C>]]>', '<![CDATA[wrong]]>'),
                                  ('name="xcomponent" type="double">3.0', 'name="xcomponent" type="double">7.0'),
-                                 ('<![CDATA[Footprint.BoldArrow]]>', '<![CDATA[Footprint.Arrow]]>'),
+                                 ('>Footprint.BoldArrow</property><property name="visible"', '>Footprint.Arrow</property><property name="visible"'),
                                  ('<![CDATA[vecteur β & <C>]]></property>',
                                   '<![CDATA[vecteur β & <C>]]></property><property name="keyFrames" type="array" class="[I"/>')]:
             self.assertIn(old, valid)
@@ -1923,12 +1923,12 @@ class CorpusTests(unittest.TestCase):
                   '<property name="description" type="string">old words</property>'
                   '<property name="tracks" type="collection" class="java.util.ArrayList"></property></object>')
         new = ('<property name="item" type="object"><object class="org.opensourcephysics.cabrillo.tracker.PointMass">'
-               '<property name="name" type="string"><![CDATA[nouvelle β & <C>]]></property><property name="mass" type="double">3</property>'
-               '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
-               '<property name="locked" type="boolean">false</property><property name="footprint" type="string"><![CDATA[Footprint.Diamond]]></property>'
+               '<property name="mass" type="double">3.0</property><property name="name" type="string"><![CDATA[nouvelle β & <C>]]></property>'
                '<property name="color" type="object"><object class="java.awt.Color">'
                '<property name="red" type="int">255</property><property name="green" type="int">0</property>'
                '<property name="blue" type="int">0</property><property name="alpha" type="int">255</property></object></property>'
+               '<property name="footprint" type="string">Footprint.Diamond</property>'
+               '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
                '</object></property>')
         original, exported = self.root / "creation-source.trk", self.root / "creation-export.trk"
         original.write_text(source, encoding="utf-8")
@@ -1937,12 +1937,34 @@ class CorpusTests(unittest.TestCase):
         corpus.verify_create_mass_export_xml(original, exported, True)
         with self.assertRaises(ValueError):
             corpus.verify_create_mass_export_xml(original, exported, False)
-        for old, replacement in [('old words', 'lost words'), ('<!-- keep -->', ''), ('>3</property>', '>1</property>'),
+        for old, replacement in [('old words', 'lost words'), ('<!-- keep -->', ''), ('>3.0</property>', '>1.0</property>'),
                                  ('name="visible" type="boolean">true', 'name="visible" type="boolean">false'),
                                  ('<property name="item"', new + '<property name="item"')]:
             exported.write_text(valid.replace(old, replacement, 1), encoding="utf-8")
             with self.subTest(change=old), self.assertRaises(ValueError):
                 corpus.verify_create_mass_export_xml(original, exported, True)
+
+    def test_created_track_fixpoint_compares_modeled_properties_with_trackers_resave(self):
+        def document(mass="3.0", extra="", order=("mass", "name")):
+            fields = {"mass": '<property name="mass" type="double">' + mass + '</property>',
+                      "name": '<property name="name" type="string"><![CDATA[nouvelle β & <C>]]></property>'}
+            return ('<object class="org.opensourcephysics.cabrillo.tracker.TrackerPanel">'
+                    '<property name="tracks" type="collection" class="java.util.ArrayList"><property name="item" type="object">'
+                    '<object class="org.opensourcephysics.cabrillo.tracker.PointMass">' + "".join(fields[key] for key in order) +
+                    '<property name="color" type="object"><object class="java.awt.Color"><property name="red" type="int">255</property>'
+                    '</object></property><property name="footprint" type="string">Footprint.Diamond</property>'
+                    '<property name="visible" type="boolean">true</property><property name="trail" type="boolean">true</property>'
+                    + extra + '</object></property></property></object>')
+        exported, resaved = self.root / "created.trk", self.root / "resaved.trk"
+        exported.write_text(document(), encoding="utf-8")
+        mode = corpus.CREATED_TRACK_MODES["create-mass"]
+        # Tracker's extra state (velocity footprints, its own frame arrays) is outside the modeled properties.
+        resaved.write_text(document(extra='<property name="velocity_footprint" type="string">x</property>'), encoding="utf-8")
+        corpus.verify_created_track_fixpoint(exported, resaved, mode)
+        for changed in [document(mass="3"), document(order=("name", "mass"))]:
+            resaved.write_text(changed, encoding="utf-8")
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                corpus.verify_created_track_fixpoint(exported, resaved, mode)
 
     def test_rename_oracle_preserves_unrelated_text_and_every_selection(self):
         def source(first="mass A", second="mass B", selected="mass B"):
@@ -2836,7 +2858,7 @@ class CorpusTests(unittest.TestCase):
                 nodes = [obj.find(f"property[@name='{name}']") for name in ["xorigin", "yorigin", "angle", "xscale", "yscale"]]
                 if added_key or [float(node.text) for node in nodes] != values:
                     for node, value in zip(nodes, values):
-                        node.text = format(value, ".17g")
+                        node.text = corpus.java_double(value)
             exported = self.root / "mixed.trk"
             tree.write(exported, encoding="utf-8", xml_declaration=True)
             corpus.verify_mixed_calibration_export_xml(case, source, exported)
@@ -2883,14 +2905,14 @@ class CorpusTests(unittest.TestCase):
         original = corpus.local_fixture_path(case)
         xml = original.read_text(encoding="utf-8")
         edited = xml
-        for name, before, after in [("xorigin", "100.0", "120"), ("yorigin", "120.0", "140"),
-                                   ("angle", "90.0", "0"), ("xscale", "4.0", "8"), ("yscale", "8.0", "16")]:
+        for name, before, after in [("xorigin", "100.0", "120.0"), ("yorigin", "120.0", "140.0"),
+                                   ("angle", "90.0", "0.0"), ("xscale", "4.0", "8.0"), ("yscale", "8.0", "16.0")]:
             edited = edited.replace(f'name="{name}" type="double">{before}<', f'name="{name}" type="double">{after}<', 1)
         added = ('<property name="[3]" type="object">'
                  '<object class="org.opensourcephysics.media.core.ImageCoordSystem$FrameData">'
-                 '<property name="xorigin" type="double">80</property><property name="yorigin" type="double">90</property>'
-                 '<property name="angle" type="double">-90</property><property name="xscale" type="double">2</property>'
-                 '<property name="yscale" type="double">4</property></object></property>\n')
+                 '<property name="xorigin" type="double">80.0</property><property name="yorigin" type="double">90.0</property>'
+                 '<property name="angle" type="double">-90.0</property><property name="xscale" type="double">2.0</property>'
+                 '<property name="yscale" type="double">4.0</property></object></property>\n')
         pos = edited.index('<property name="[4]"')
         edited = edited[:pos] + added + edited[pos:]
         output = self.root / "keyed.trk"
@@ -3044,14 +3066,14 @@ class CorpusTests(unittest.TestCase):
                '<property name="delta_t" type="double">100.0</property></object><!-- keep --></object>')
         original.write_text(xml, encoding="utf-8")
         for ranged in [False, True]:
-            edited = xml.replace('>0.0<', '>-500<').replace('>100.0<', '>250<')
+            edited = xml.replace('>0.0<', '>-500.0<').replace('>100.0<', '>250.0<')
             if ranged:
                 edited = edited.replace('name="startframe" type="int">0<', 'name="startframe" type="int">2<')
                 edited = edited.replace('name="stepsize" type="int">1<', 'name="stepsize" type="int">2<')
                 edited = edited.replace('name="stepcount" type="int">10<', 'name="stepcount" type="int">4<')
             exported.write_text(edited, encoding="utf-8")
             corpus.verify_clip_timing_export_xml(original, exported, ranged)
-            for invalid in [xml, edited.replace('>250<', '>500<'), edited.replace('>-500<', '>0<'),
+            for invalid in [xml, edited.replace('>250.0<', '>500.0<'), edited.replace('>-500.0<', '>0.0<'),
                             edited.replace('>1.25<', '>1<'), edited.replace('<!-- keep -->', ''),
                             edited.replace('name="frame" type="int">0<', 'name="frame" type="int">2<')]:
                 with self.subTest(ranged=ranged, invalid=invalid):
@@ -3142,9 +3164,8 @@ class CorpusTests(unittest.TestCase):
         expected = json.loads(corpus.expected_path(case).read_text(encoding="utf-8"))["project"]
         xml = original.read_text(encoding="utf-8")
         expected["vectors"][0]["samples"][0]["tail"][0] = 22.5
+        # Only the changed component is rewritten; the others keep their Tracker text.
         edited = xml.replace('name="xtail" type="double">10.0', 'name="xtail" type="double">22.5', 1)
-        for name, before, after in [("ytail", "20.0", "20"), ("xcomponent", "3.0", "3"), ("ycomponent", "-4.0", "-4")]:
-            edited = edited.replace(f'name="{name}" type="double">{before}', f'name="{name}" type="double">{after}', 1)
         exported.write_text(edited, encoding="utf-8")
         corpus.verify_vector_export_xml(original, exported, expected)
         for invalid in [xml, edited.replace('>22.5<', '>23.5<', 1),
@@ -3160,8 +3181,8 @@ class CorpusTests(unittest.TestCase):
         exported = self.root / "calibration.trk"
         xml = original.read_text(encoding="utf-8")
         edited = xml
-        for name, before, after in [("xorigin", "320.0", "100"), ("yorigin", "240.0", "120"),
-                                     ("angle", "0.0", "90"), ("xscale", "2.0", "4"), ("yscale", "4.0", "8")]:
+        for name, before, after in [("xorigin", "320.0", "100.0"), ("yorigin", "240.0", "120.0"),
+                                     ("angle", "0.0", "90.0"), ("xscale", "2.0", "4.0"), ("yscale", "4.0", "8.0")]:
             edited = edited.replace(f'name="{name}" type="double">{before}', f'name="{name}" type="double">{after}', 1)
         exported.write_text(edited, encoding="utf-8")
         corpus.verify_calibration_export_xml(original, exported)
@@ -3243,23 +3264,23 @@ class CorpusTests(unittest.TestCase):
         def project(first, second):
             return "<!-- before --><object><property name='tracks' type='collection'>" + first + second + "</property></object>"
         original, exported = self.root / "original.trk", self.root / "exported.trk"
-        original.write_text(project(mass(frame(0, 1, 2), "0"), mass(frame(0, 3, 4), "0")), encoding="utf-8")
+        original.write_text(project(mass(frame(0, "1.0", "2.0"), "0"), mass(frame(0, "3.0", "4.0"), "0")), encoding="utf-8")
         x, y = expected["point_masses"][0]["samples"][0]["image"]
-        edited = project(mass(frame(0, format(x, '.17g'), format(y, '.17g')) + frame(3, 100.125, 200.5), "0,3"),
-                         mass(frame(7, 50, 60), "7"))
+        edited = project(mass(frame(0, corpus.java_double(x), corpus.java_double(y)) + frame(3, 100.125, 200.5), "0,3"),
+                         mass(frame(7, "50.0", "60.0"), "7"))
         exported.write_text(edited, encoding="utf-8")
         corpus.verify_mark_export_xml(original, exported, expected)
         for invalid in [edited.replace("{0,3}", "{0}"), edited.replace("[7]", "[6]"),
-                        edited.replace(">50<", ">51<"), edited.replace("  keep  ", "keep"),
+                        edited.replace(">50.0<", ">51.0<"), edited.replace("  keep  ", "keep"),
                         edited.replace("<!-- before -->", "")]:
             exported.write_text(invalid, encoding="utf-8")
             with self.assertRaises(ValueError):
                 corpus.verify_mark_export_xml(original, exported, expected)
-        empty = project(mass("\n ", None), mass(frame(0, 3, 4), "0"))
+        empty = project(mass("\n ", None), mass(frame(0, "3.0", "4.0"), "0"))
         exported.write_text(empty, encoding="utf-8")
         corpus.verify_mark_export_xml(original, exported, corpus.mark_roundtrip_expected(case, "empty-marks"), "empty-marks")
         original.write_text(empty, encoding="utf-8")
-        first = project(mass(frame(4, 11.25, 22.5), "4"), mass(frame(0, 3, 4), "0"))
+        first = project(mass(frame(4, 11.25, 22.5), "4"), mass(frame(0, "3.0", "4.0"), "0"))
         exported.write_text(first, encoding="utf-8")
         corpus.verify_mark_export_xml(original, exported, corpus.mark_roundtrip_expected(case, "first-mark"), "first-mark")
         exported.write_text(first.replace("{4}", "{}"), encoding="utf-8")
@@ -3760,21 +3781,23 @@ class TrackerStateTests(unittest.TestCase):
         for gap, tracker_doc, motrack_doc, reason in [
                 ("track class CoordAxes", tracker, motrack, "unmodeled-class"),
                 ("PointMass.data.θ_{v}", tracker, motrack, "unmodeled-column"),
-                ("PointMass.data.v_{x}", tracker, untimed, "default-timing"),
                 ("PointMass.data.t", movie, untimed, "probe-media-timing"),
                 ("clip.steps.time", movie, untimed, "probe-media-timing"),
                 ("PointMass.data.x", tracker, uncalibrated, "uncalibrated"),
-                ("units.length", tracker, motrack, "default-length-unit"),
                 ("coords.frames after 12", tracker, motrack, "coords-range"),
                 ("known defect x-row.t", movie, untimed, "probe-media-timing"),
-                ("known defect x-step-11[2]", tracker, untimed, "default-timing"),
                 ("known defect x", tracker, motrack, "known-defect-unmodeled"),
-                ("views", tracker, motrack, "unmodeled-field")]:
-            with self.subTest(gap=gap):
+                ("views", tracker, motrack, "unmodeled-field"),
+                # MoTrack applies Tracker's media-free defaults (#214): losing them is not a probe limitation.
+                ("PointMass.data.v_{x}", tracker, untimed, "unmodeled-column"),
+                ("clip.steps.time", tracker, untimed, "unmodeled-field"),
+                ("units.length", tracker, motrack, "unmodeled-field"),
+                ("known defect x-step-11[2]", tracker, untimed, "known-defect-unmodeled")]:
+            with self.subTest(gap=gap, video=tracker_doc["panel"]["video"]):
                 self.assertEqual(corpus.classify_gap(gap, tracker_doc, motrack_doc), reason)
         self.assertEqual(set(corpus.STATE_GAP_REASONS), {"unmodeled-class", "unmodeled-field", "unmodeled-column",
-                                                         "probe-media-timing", "default-timing", "default-length-unit",
-                                                         "uncalibrated", "coords-range", "known-defect-unmodeled"})
+                                                         "probe-media-timing", "uncalibrated", "coords-range",
+                                                         "known-defect-unmodeled"})
 
     def registry(self, *entries):
         return {"schema_version": 1, "reference_version": "6.3.5", "entries": list(entries)}
@@ -4157,8 +4180,10 @@ class TrackerStateTests(unittest.TestCase):
         baseline = corpus.load_gap_baseline(self.manifest)
         self.assertEqual(set(baseline), {case["id"] for case in self.manifest["cases"]})
         self.assertEqual(baseline["ball-toss"]["PointMass.data.t"], "probe-media-timing")
-        self.assertEqual(baseline["center-of-mass"]["PointMass.data.t"], "default-timing")
-        self.assertEqual(baseline["independent-vectors"]["units.length"], "default-length-unit")
+        # Tracker's media-free default timing and length unit are compared (#214), as are derivatives (#207).
+        self.assertNotIn("PointMass.data.t", baseline["center-of-mass"])
+        self.assertNotIn("units.length", baseline["independent-vectors"])
+        self.assertNotIn("PointMass.data.a_{x}", baseline["attachments"])
         self.assertNotIn("PointMass.data.x", baseline["ball-toss"])  # Calibrated positions are compared.
         self.assertEqual(corpus.STATE_GAPS.read_bytes().decode("utf-8"),
                          corpus.gap_baseline_text(corpus.gap_baseline(baseline)))
