@@ -134,9 +134,14 @@ python tools/corpus.py check --probe build/coverage/motrack_corpus_probe
 python tools/corpus.py reference --java /path/to/jdk-17/bin/java
 python tools/corpus.py session --java /path/to/jdk-17/bin/java
 python tools/corpus.py roundtrip --probe build/coverage/motrack_corpus_probe --java /path/to/jdk-17/bin/java
+python tools/corpus.py ode-oracle --java /path/to/jdk-17/bin/java
 python tools/corpus.py sampling-oracle --java /path/to/jdk-17/bin/java
 python -m unittest discover -s tests -p test_corpus.py
 ```
+
+`ode-oracle` integrates the [ODE solver kernel](../../docs/ode-solvers.md) test systems with the pinned
+OSP classes and compares them with `tests/science/ode-reference.json`, using that kernel's own
+per-solver tolerances; `--record` replaces the fixture for review.
 
 `sampling-oracle` measures the [image sampling kernel](../../docs/image-sampling.md) frames with the pinned
 `RGBStep`/`LineProfileStep` classes and compares them with `tests/science/sampling-reference.json`: exactly,

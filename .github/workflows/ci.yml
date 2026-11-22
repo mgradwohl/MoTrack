@@ -34,6 +34,9 @@ jobs:
           python tools/corpus.py fetch
           python tools/corpus.py reference --java "$JAVA_HOME_17_X64/bin/java"
           python tools/corpus.py session --java "$JAVA_HOME_17_X64/bin/java"
+      - name: Check ODE solver kernel reference
+        if: runner.os == 'Linux'
+        run: python tools/corpus.py ode-oracle --java "$JAVA_HOME_17_X64/bin/java"
       - name: Check image sampling kernel reference
         if: runner.os == 'Linux'
         run: python tools/corpus.py sampling-oracle --java "$JAVA_HOME_17_X64/bin/java"
@@ -154,6 +157,13 @@ jobs:
           probe=build/coverage/motrack_corpus_probe
           if [[ "$RUNNER_OS" == Windows ]]; then probe="$probe.exe"; fi
           python tools/corpus.py check --probe "$probe"
+      - name: Check ODE solver kernel reference with arm64 Java
+        # HotSpot on arm64 computes Math.pow with fdlibm rather than the x86-64 intrinsic.
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          java_home="${JAVA_HOME_17_arm64:-$(/usr/libexec/java_home -v 17)}"
+          python tools/corpus.py ode-oracle --java "$java_home/bin/java"
       - name: Check edited Tracker round trip
         if: runner.os == 'Linux'
         shell: bash
