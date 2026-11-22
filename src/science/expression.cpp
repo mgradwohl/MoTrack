@@ -53,8 +53,30 @@ struct Instruction
 {
     OpCode op = OpCode::Number;
     BuiltinFunction function = BuiltinFunction::Sin;
-    std::uint32_t operand = 0; ///< Variable index or instruction count to skip.
+    std::uint32_t operand = 0; ///< Variable index, literal index or instruction count to skip.
     double value = 0.0;
+};
+
+/// A run of compiled code. `width` counts SuryonoParser postfix codes, including jump displacements.
+struct Segment
+{
+    std::vector<Instruction> code;
+    std::size_t width = 0;
+};
+
+/// Everything a successful compile contributes to a program.
+struct Compilation
+{
+    Segment segment;
+    TrackerDifferences differences;
+    std::size_t correctedOnlyCodes = 0; ///< Negations Tracker would drop; not part of its code size.
+    std::vector<std::string> literals;  ///< Source text of each number and constant.
+};
+
+struct ExpressionBuilder
+{
+    static Expression
+    build(std::string_view text, std::span<const std::string_view> variables, ExpressionDialect dialect, Compilation compilation);
 };
 
 } // namespace detail
@@ -63,6 +85,8 @@ struct Expression::Program
 {
     std::string text;
     std::vector<detail::Instruction> code;
+    std::vector<std::string> literals;
+    std::vector<std::string> variableNames;
     std::vector<std::size_t> variables;
     std::vector<BuiltinFunction> functions;
     std::size_t variableCount = 0;
@@ -74,6 +98,7 @@ struct Expression::Program
 
     double evaluate(std::span<const double> values, RandomSource* random) const;
     double run(std::span<const double> values, RandomSource* random, std::span<double> stack) const;
+    [[nodiscard]] std::string render(std::size_t begin, std::size_t end) const;
 };
 
 namespace
@@ -81,6 +106,7 @@ namespace
 
 using detail::Instruction;
 using detail::OpCode;
+using detail::Segment;
 
 /// SuryonoParser compiles into an int[100] whose first entry holds the code count.
 constexpr std::size_t TRACKER_CODE_LIMIT = 99;
@@ -209,13 +235,6 @@ class ParseStop : public std::exception
     ExpressionErrorCode m_Code;
 };
 
-/// A run of compiled code. `width` counts SuryonoParser postfix codes, including jump displacements.
-struct Segment
-{
-    std::vector<Instruction> code;
-    std::size_t width = 0;
-};
-
 /// A structural port of SuryonoParser's recursive descent, including its global boolean/relation flags,
 /// error codes and positions. The corrected dialect differs only where noted in TrackerDifferences.
 class Compiler
@@ -230,6 +249,16 @@ class Compiler
     [[nodiscard]] const TrackerDifferences& differences() const noexcept
     {
         return m_Differences;
+    }
+
+    [[nodiscard]] std::size_t correctedOnlyCodes() const noexcept
+    {
+        return m_CorrectedOnlyCodes;
+    }
+
+    [[nodiscard]] std::vector<std::string> takeLiterals() noexcept
+    {
+        return std::move(m_Literals);
     }
 
   private:
@@ -290,6 +319,8 @@ class Compiler
     std::size_t m_Depth = 0;
     Segment m_Segment;
     TrackerDifferences m_Differences;
+    std::size_t m_CorrectedOnlyCodes = 0;
+    std::vector<std::string> m_Literals;
 };
 
 std::variant<Segment, ExpressionError> Compiler::compile(std::u16string_view text)
@@ -548,6 +579,7 @@ void Compiler::arithmeticLevel1()
             if (corrected())
             {
                 emit({.op = OpCode::Negate});
+                ++m_CorrectedOnlyCodes;
             }
         }
         emit({.op = op});
@@ -722,7 +754,8 @@ void Compiler::scanNumber()
         m_Position = m_Start;
         throw ParseStop(ExpressionErrorCode::SyntaxError);
     }
-    emit({.op = OpCode::Number, .value = *value});
+    m_Literals.push_back(std::move(text));
+    emit({.op = OpCode::Number, .operand = static_cast<std::uint32_t>(m_Literals.size() - 1), .value = *value});
 }
 
 void Compiler::scanNonNumeric()
@@ -739,12 +772,14 @@ void Compiler::scanNonNumeric()
     } while (!isDelimiter(m_Ch));
     if (name == u"pi")
     {
-        emit({.op = OpCode::Number, .value = std::numbers::pi});
+        m_Literals.emplace_back("pi");
+        emit({.op = OpCode::Number, .operand = static_cast<std::uint32_t>(m_Literals.size() - 1), .value = std::numbers::pi});
         return;
     }
     if (name == u"e")
     {
-        emit({.op = OpCode::Number, .value = std::numbers::e});
+        m_Literals.emplace_back("e");
+        emit({.op = OpCode::Number, .operand = static_cast<std::uint32_t>(m_Literals.size() - 1), .value = std::numbers::e});
         return;
     }
     if (name == u"if")
@@ -855,7 +890,7 @@ double call(BuiltinFunction function, double a, double b, ExpressionDialect dial
     case BuiltinFunction::Ln:
         return std::log(a);
     case BuiltinFunction::Log:
-        return std::log(a) / std::numbers::ln10; // OSP divides by Math.log(10), not Math.log10.
+        return tracker ? std::log(a) / std::numbers::ln10 : std::log10(a); // OSP divides by Math.log(10).
     case BuiltinFunction::Abs:
         return std::fabs(a);
     case BuiltinFunction::Int:
@@ -1028,7 +1063,7 @@ RandomSource::~RandomSource() = default;
 
 bool TrackerDifferences::any() const noexcept
 {
-    return negatedExponent || powerProductInSum || droppedNegation || inverseHyperbolic;
+    return negatedExponent || powerProductInSum || droppedNegation || inverseHyperbolic || commonLogarithm;
 }
 
 ExpressionResult::ExpressionResult(Expression expression) noexcept : m_Value(std::move(expression))
@@ -1138,6 +1173,104 @@ const std::string& Expression::text() const noexcept
     return m_Program->text;
 }
 
+std::string Expression::trackerText() const
+{
+    return m_Program->render(0, m_Program->code.size());
+}
+
+std::string Expression::Program::render(std::size_t begin, std::size_t end) const
+{
+    // Every operation gets its own parentheses and every sign wraps its operand, so Tracker's descent
+    // never meets `^-`, a power followed by * or / inside a sum, or a signed addend.
+    std::vector<std::string> operands;
+    const auto binary = [&](std::string_view symbol)
+    {
+        auto right = std::move(operands.back());
+        operands.pop_back();
+        operands.back() = "(" + operands.back() + std::string(symbol) + right + ")";
+    };
+    for (std::size_t pc = begin; pc < end; ++pc)
+    {
+        const Instruction& instruction = code[pc];
+        switch (instruction.op)
+        {
+        case OpCode::Number:
+            operands.push_back(literals[instruction.operand]);
+            break;
+        case OpCode::Variable:
+            operands.push_back(variableNames[instruction.operand]);
+            break;
+        case OpCode::Negate:
+            operands.back() = "(-" + operands.back() + ")";
+            break;
+        case OpCode::Not:
+            operands.back() = "!(" + operands.back() + ")";
+            break;
+        case OpCode::Unary:
+            operands.back() = std::string(functionName(instruction.function)) + "(" + operands.back() + ")";
+            break;
+        case OpCode::Binary:
+        {
+            auto second = std::move(operands.back());
+            operands.pop_back();
+            operands.back() = std::string(functionName(instruction.function)) + "(" + operands.back() + "," + second + ")";
+            break;
+        }
+        case OpCode::JumpIfZero:
+        {
+            // The true branch ends with the Jump that skips the false branch.
+            const auto jump = pc + instruction.operand;
+            const auto falseEnd = jump + 1 + code[jump].operand;
+            operands.back() = "if(" + operands.back() + "," + render(pc + 1, jump) + "," + render(jump + 1, falseEnd) + ")";
+            pc = falseEnd - 1;
+            break;
+        }
+        case OpCode::Jump:
+            break; // Consumed by JumpIfZero.
+        case OpCode::Add:
+            binary("+");
+            break;
+        case OpCode::Subtract:
+            binary("-");
+            break;
+        case OpCode::Multiply:
+            binary("*");
+            break;
+        case OpCode::Divide:
+            binary("/");
+            break;
+        case OpCode::Power:
+            binary("^");
+            break;
+        case OpCode::Less:
+            binary("<");
+            break;
+        case OpCode::Greater:
+            binary(">");
+            break;
+        case OpCode::LessEqual:
+            binary("<=");
+            break;
+        case OpCode::GreaterEqual:
+            binary(">=");
+            break;
+        case OpCode::Equal:
+            binary("=");
+            break;
+        case OpCode::NotEqual:
+            binary("<>");
+            break;
+        case OpCode::And:
+            binary("&");
+            break;
+        case OpCode::Or:
+            binary("|");
+            break;
+        }
+    }
+    return operands.back();
+}
+
 std::string_view errorMessage(ExpressionErrorCode code) noexcept
 {
     switch (code)
@@ -1217,13 +1350,29 @@ ExpressionResult parseExpression(std::string_view text, std::span<const std::str
     {
         return *error;
     }
-    auto& segment = std::get<Segment>(compiled);
+    return detail::ExpressionBuilder::build(text,
+                                            variables,
+                                            options.dialect,
+                                            {.segment = std::move(std::get<Segment>(compiled)),
+                                             .differences = compiler.differences(),
+                                             .correctedOnlyCodes = compiler.correctedOnlyCodes(),
+                                             .literals = compiler.takeLiterals()});
+}
+
+Expression detail::ExpressionBuilder::build(std::string_view text,
+                                            std::span<const std::string_view> variables,
+                                            ExpressionDialect dialect,
+                                            Compilation compilation)
+{
+    auto& segment = compilation.segment;
     auto program = std::make_shared<Expression::Program>();
     program->text = std::string(text);
+    program->literals = std::move(compilation.literals);
+    program->variableNames.assign(variables.begin(), variables.end());
     program->variableCount = variables.size();
-    program->trackerCodeSize = segment.width;
-    program->differences = compiler.differences();
-    program->dialect = options.dialect;
+    program->trackerCodeSize = segment.width - compilation.correctedOnlyCodes;
+    program->differences = compilation.differences;
+    program->dialect = dialect;
     std::size_t depth = 0;
     std::vector<std::size_t> branches;
     for (const auto& instruction : segment.code)
@@ -1283,6 +1432,7 @@ ExpressionResult parseExpression(std::string_view text, std::span<const std::str
         program->functions,
         [](BuiltinFunction function)
         { return function == BuiltinFunction::Asinh || function == BuiltinFunction::Acosh || function == BuiltinFunction::Atanh; });
+    program->differences.commonLogarithm = std::ranges::binary_search(program->functions, BuiltinFunction::Log);
     return Expression(std::move(program));
 }
 

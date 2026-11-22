@@ -90,7 +90,9 @@ enum class ExpressionDialect : std::uint8_t
 {
     /// Tracker's grammar and values, with the OSP defects described in TrackerDifferences fixed.
     Corrected,
-    /// Bit-for-bit OSP SuryonoParser behavior as shipped in Tracker 6.3.5 (unchanged on upstream swingJS).
+    /// OSP SuryonoParser's values and errors as shipped in Tracker 6.3.5 (unchanged on upstream swingJS),
+    /// bit for bit except: NaN is returned instead of 0 plus a flag, a wrong value count returns NaN, the
+    /// 99-code overflow is TrackerCodeLimit rather than an exception, and ExpressionOptions bounds apply.
     Tracker,
 };
 
@@ -101,6 +103,7 @@ struct TrackerDifferences
     bool powerProductInSum = false; ///< `a+b^c*d`: Tracker computes (a+b^c)*d.
     bool droppedNegation = false;   ///< `a+-b`, `a--b`: Tracker ignores the sign unless ^, * or / follows b.
     bool inverseHyperbolic = false; ///< asinh/acosh/atanh: Tracker's formulas lose precision or overflow.
+    bool commonLogarithm = false;   ///< log(x): Tracker divides ln(x) by ln(10), so log(1000) < 3.
 
     [[nodiscard]] bool any() const noexcept;
 
@@ -122,6 +125,11 @@ class RandomSource
 
     [[nodiscard]] virtual double next() = 0;
 };
+
+namespace detail
+{
+struct ExpressionBuilder;
+} // namespace detail
 
 /// An immutable compiled expression. Copies share the compiled program; evaluation is const, allocates
 /// only for unusually deep programs, and is safe to call concurrently from any thread.
@@ -145,18 +153,25 @@ class Expression
     /// True if `random` is called, so results must not be cached as a pure function of the inputs.
     [[nodiscard]] bool usesRandom() const noexcept;
     [[nodiscard]] TrackerDifferences trackerDifferences() const noexcept;
-    /// Number of SuryonoParser postfix codes for this text; Tracker cannot parse more than 99.
+    /// Number of postfix codes SuryonoParser compiles for this text in either dialect; Tracker cannot parse
+    /// more than 99.
     [[nodiscard]] std::size_t trackerCodeSize() const noexcept;
     [[nodiscard]] bool fitsTrackerLimits() const noexcept;
+    /// Fully parenthesized text that Tracker 6.3.5 parses into this expression's operations (for the
+    /// corrected dialect, its corrected meaning), for writing an expression to a Tracker file: no precedence
+    /// defect applies to it. Literals and names are kept; spaces are not. Tracker still computes its own
+    /// asinh, acosh, atanh and log (trackerDifferences()), and the explicit negations the corrected dialect
+    /// adds can push it past Tracker's code limit; parse the result with the Tracker dialect to check.
+    [[nodiscard]] std::string trackerText() const;
     [[nodiscard]] ExpressionDialect dialect() const noexcept;
     /// The UTF-8 text as given to parseExpression.
     [[nodiscard]] const std::string& text() const noexcept;
 
-    /// Compiled form; only parseExpression can create one.
+  private:
     struct Program;
+    friend struct detail::ExpressionBuilder; // The only code that creates programs.
     explicit Expression(std::shared_ptr<const Program> program) noexcept;
 
-  private:
     std::shared_ptr<const Program> m_Program;
 };
 

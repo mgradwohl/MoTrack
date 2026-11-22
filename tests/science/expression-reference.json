@@ -360,6 +360,15 @@
     {"id": "defect-both", "group": "defect", "expression": "1+2^-1*4", "variables": [], "compare": "ulp", "defect": "negated-exponent,power-product-in-sum", "error": null, "exception": null, "evaluations": [
       {"values": [], "result": "-4.0", "result_bits": "c010000000000000", "intended": "3.0", "intended_bits": "4008000000000000"}
     ]},
+    {"id": "defect-log-thousand", "group": "defect", "expression": "log(1000)", "variables": [], "compare": "ulp", "defect": "common-logarithm", "error": null, "exception": null, "evaluations": [
+      {"values": [], "result": "2.9999999999999996", "result_bits": "4007ffffffffffff", "intended": "3.0", "intended_bits": "4008000000000000"}
+    ]},
+    {"id": "defect-log-floor", "group": "defect", "expression": "floor(log(1e6))", "variables": [], "compare": "ulp", "defect": "common-logarithm", "error": null, "exception": null, "evaluations": [
+      {"values": [], "result": "5.0", "result_bits": "4014000000000000", "intended": "6.0", "intended_bits": "4018000000000000"}
+    ]},
+    {"id": "defect-log-equality", "group": "defect", "expression": "if(log(1000)=3,1,0)", "variables": [], "compare": "ulp", "defect": "common-logarithm", "error": null, "exception": null, "evaluations": [
+      {"values": [], "result": "0.0", "result_bits": "0000000000000000", "intended": "1.0", "intended_bits": "3ff0000000000000"}
+    ]},
     {"id": "defect-negated-addend", "group": "defect", "expression": "2+-3", "variables": [], "compare": "exact", "defect": "dropped-negation", "error": null, "exception": null, "evaluations": [
       {"values": [], "result": "5.0", "result_bits": "4014000000000000", "intended": "-1.0", "intended_bits": "bff0000000000000"}
     ]},
@@ -922,12 +931,6 @@
     {"id": "call-ln-e", "group": "call", "expression": "ln(e)", "variables": [], "compare": "ulp", "defect": null, "error": null, "exception": null, "evaluations": [
       {"values": [], "result": "1.0", "result_bits": "3ff0000000000000"}
     ]},
-    {"id": "call-log-thousand", "group": "call", "expression": "log(1000)", "variables": [], "compare": "ulp", "defect": null, "error": null, "exception": null, "evaluations": [
-      {"values": [], "result": "2.9999999999999996", "result_bits": "4007ffffffffffff"}
-    ]},
-    {"id": "call-log-hundred", "group": "call", "expression": "log(100)", "variables": [], "compare": "ulp", "defect": null, "error": null, "exception": null, "evaluations": [
-      {"values": [], "result": "2.0", "result_bits": "4000000000000000"}
-    ]},
     {"id": "call-exp-one", "group": "call", "expression": "exp(1)", "variables": [], "compare": "ulp", "defect": null, "error": null, "exception": null, "evaluations": [
       {"values": [], "result": "2.718281828459045", "result_bits": "4005bf0a8b145769"}
     ]},
@@ -1040,6 +1043,12 @@
     ]},
     {"id": "variable-unicode-error", "group": "variable", "expression": "\u03b8+\u03c9", "variables": ["\u03b8"], "compare": "exact", "defect": null, "error": {"code": 5, "position": 3, "message": "unknown identifier"}, "exception": null, "evaluations": [
       {"values": ["1.0"]}
+    ]},
+    {"id": "variable-astral", "group": "variable", "expression": "\ud83d\ude00*2", "variables": ["\ud83d\ude00"], "compare": "exact", "defect": null, "error": null, "exception": null, "evaluations": [
+      {"values": ["3.0"], "result": "6.0", "result_bits": "4018000000000000"}
+    ]},
+    {"id": "variable-astral-error", "group": "variable", "expression": "\ud83d\ude00+*", "variables": ["\ud83d\ude00"], "compare": "exact", "defect": null, "error": {"code": 1, "position": 4, "message": "syntax error"}, "exception": null, "evaluations": [
+      {"values": ["3.0"]}
     ]},
     {"id": "limit-fifty-ones", "group": "limit", "expression": "1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1", "variables": [], "compare": "exact", "defect": null, "error": null, "exception": null, "evaluations": [
       {"values": [], "result": "50.0", "result_bits": "4049000000000000"}
@@ -1284,45 +1293,45 @@
       {"values": ["Infinity"], "result": "Infinity", "result_bits": "7ff0000000000000"},
       {"values": ["-Infinity"], "result": "NaN", "result_bits": "7ff8000000000000"}
     ]},
-    {"id": "function-log", "group": "function", "expression": "log(x)", "variables": ["x"], "compare": "ulp", "defect": null, "error": null, "exception": null, "evaluations": [
+    {"id": "function-log", "group": "function", "expression": "log(x)", "variables": ["x"], "compare": "ulp", "defect": "common-logarithm", "error": null, "exception": null, "evaluations": [
       {"values": ["0.0"], "result": "-Infinity", "result_bits": "fff0000000000000"},
       {"values": ["-0.0"], "result": "-Infinity", "result_bits": "fff0000000000000"},
-      {"values": ["0.5"], "result": "-0.30102999566398114", "result_bits": "bfd34413509f79fe"},
+      {"values": ["0.5"], "result": "-0.30102999566398114", "result_bits": "bfd34413509f79fe", "intended": "-0.3010299956639812", "intended_bits": "bfd34413509f79ff"},
       {"values": ["-0.5"], "result": "NaN", "result_bits": "7ff8000000000000"},
       {"values": ["1.0"], "result": "0.0", "result_bits": "0000000000000000"},
       {"values": ["-1.0"], "result": "NaN", "result_bits": "7ff8000000000000"},
       {"values": ["1.5"], "result": "0.17609125905568124", "result_bits": "3fc68a288b60b7fc"},
       {"values": ["2.5"], "result": "0.3979400086720376", "result_bits": "3fd977d95ec10c02"},
       {"values": ["-2.5"], "result": "NaN", "result_bits": "7ff8000000000000"},
-      {"values": ["3.5"], "result": "0.5440680443502756", "result_bits": "3fe1690163290f3f"},
-      {"values": ["2.0"], "result": "0.30102999566398114", "result_bits": "3fd34413509f79fe"},
+      {"values": ["3.5"], "result": "0.5440680443502756", "result_bits": "3fe1690163290f3f", "intended": "0.5440680443502757", "intended_bits": "3fe1690163290f40"},
+      {"values": ["2.0"], "result": "0.30102999566398114", "result_bits": "3fd34413509f79fe", "intended": "0.3010299956639812", "intended_bits": "3fd34413509f79ff"},
       {"values": ["10.0"], "result": "1.0", "result_bits": "3ff0000000000000"},
       {"values": ["100.0"], "result": "2.0", "result_bits": "4000000000000000"},
-      {"values": ["0.1"], "result": "-0.9999999999999998", "result_bits": "bfeffffffffffffe"},
+      {"values": ["0.1"], "result": "-0.9999999999999998", "result_bits": "bfeffffffffffffe", "intended": "-1.0", "intended_bits": "bff0000000000000"},
       {"values": ["1.0E-20"], "result": "-20.0", "result_bits": "c034000000000000"},
       {"values": ["-1.0E-20"], "result": "NaN", "result_bits": "7ff8000000000000"},
       {"values": ["1.0E-8"], "result": "-8.0", "result_bits": "c020000000000000"},
       {"values": ["1.0E8"], "result": "8.0", "result_bits": "4020000000000000"},
       {"values": ["-1.0E8"], "result": "NaN", "result_bits": "7ff8000000000000"},
       {"values": ["1.0E200"], "result": "200.0", "result_bits": "4069000000000000"},
-      {"values": ["1.0E300"], "result": "299.99999999999994", "result_bits": "4072bfffffffffff"},
+      {"values": ["1.0E300"], "result": "299.99999999999994", "result_bits": "4072bfffffffffff", "intended": "300.0", "intended_bits": "4072c00000000000"},
       {"values": ["-1.0E300"], "result": "NaN", "result_bits": "7ff8000000000000"},
-      {"values": ["0.49999999999999994"], "result": "-0.3010299956639812", "result_bits": "bfd34413509f79ff"},
-      {"values": ["4.5035996273704955E15"], "result": "15.65355977452702", "result_bits": "402f4e9f6303263d"},
-      {"values": ["4.503599627370497E15"], "result": "15.65355977452702", "result_bits": "402f4e9f6303263d"},
-      {"values": ["9.223372036854776E18"], "result": "18.964889726830812", "result_bits": "4032f703035cfc16"},
+      {"values": ["0.49999999999999994"], "result": "-0.3010299956639812", "result_bits": "bfd34413509f79ff", "intended": "-0.30102999566398125", "intended_bits": "bfd34413509f7a00"},
+      {"values": ["4.5035996273704955E15"], "result": "15.65355977452702", "result_bits": "402f4e9f6303263d", "intended": "15.653559774527022", "intended_bits": "402f4e9f6303263e"},
+      {"values": ["4.503599627370497E15"], "result": "15.65355977452702", "result_bits": "402f4e9f6303263d", "intended": "15.653559774527022", "intended_bits": "402f4e9f6303263e"},
+      {"values": ["9.223372036854776E18"], "result": "18.964889726830812", "result_bits": "4032f703035cfc16", "intended": "18.964889726830815", "intended_bits": "4032f703035cfc17"},
       {"values": ["-9.3E18"], "result": "NaN", "result_bits": "7ff8000000000000"},
       {"values": ["1.0E19"], "result": "19.0", "result_bits": "4033000000000000"},
       {"values": ["3.141592653589793"], "result": "0.4971498726941338", "result_bits": "3fdfd14db31ba3ba"},
       {"values": ["1.5707963267948966"], "result": "0.19611987703015263", "result_bits": "3fc91a74c4f85377"},
-      {"values": ["2.718281828459045"], "result": "0.43429448190325176", "result_bits": "3fdbcb7b1526e50d"},
-      {"values": ["0.9999999999999999"], "result": "-4.821637332766435E-17", "result_bits": "bc8bcb7b1526e50d"},
+      {"values": ["2.718281828459045"], "result": "0.43429448190325176", "result_bits": "3fdbcb7b1526e50d", "intended": "0.4342944819032518", "intended_bits": "3fdbcb7b1526e50e"},
+      {"values": ["0.9999999999999999"], "result": "-4.821637332766435E-17", "result_bits": "bc8bcb7b1526e50d", "intended": "-4.8216373327664354E-17", "intended_bits": "bc8bcb7b1526e50e"},
       {"values": ["1.0000000000000002"], "result": "9.64327466553287E-17", "result_bits": "3c9bcb7b1526e50d"},
-      {"values": ["710.0"], "result": "2.851258348719075", "result_bits": "4006cf6089819029"},
+      {"values": ["710.0"], "result": "2.851258348719075", "result_bits": "4006cf6089819029", "intended": "2.8512583487190755", "intended_bits": "4006cf608981902a"},
       {"values": ["-746.0"], "result": "NaN", "result_bits": "7ff8000000000000"},
-      {"values": ["4.9E-324"], "result": "-323.30621534311575", "result_bits": "c07434e6420f4373"},
-      {"values": ["2.2250738585072014E-308"], "result": "-307.6526555685887", "result_bits": "c0733a7146f72a41"},
-      {"values": ["1.7976931348623157E308"], "result": "308.2547155599167", "result_bits": "40734413509f79fe"},
+      {"values": ["4.9E-324"], "result": "-323.30621534311575", "result_bits": "c07434e6420f4373", "intended": "-323.3062153431158", "intended_bits": "c07434e6420f4374"},
+      {"values": ["2.2250738585072014E-308"], "result": "-307.6526555685887", "result_bits": "c0733a7146f72a41", "intended": "-307.6526555685888", "intended_bits": "c0733a7146f72a42"},
+      {"values": ["1.7976931348623157E308"], "result": "308.2547155599167", "result_bits": "40734413509f79fe", "intended": "308.25471555991675", "intended_bits": "40734413509f79ff"},
       {"values": ["NaN"], "result": "NaN", "result_bits": "7ff8000000000000"},
       {"values": ["Infinity"], "result": "Infinity", "result_bits": "7ff0000000000000"},
       {"values": ["-Infinity"], "result": "NaN", "result_bits": "7ff8000000000000"}

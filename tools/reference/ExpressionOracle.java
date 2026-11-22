@@ -164,6 +164,11 @@ public final class ExpressionOracle {
         constant("defect-negated-power-product", "defect", "1--2^2*3").defect(product, "1-(-(2^2)*3)");
         add("defect-kinematics", "defect", "x0+t^2*a/2", "x0", "t", "a").at(1, 2, 3).defect(product, "x0+(t^2*a/2)");
         constant("defect-both", "defect", "1+2^-1*4").defect("negated-exponent,power-product-in-sum", "1+(2^(-1)*4)");
+        // OSP's log(x) is Math.log(x) / Math.log(10), which misses exact powers of ten.
+        String logarithm = "common-logarithm";
+        constant("defect-log-thousand", "defect", "log(1000)").defect(logarithm, v -> StrictMath.log10(1000));
+        constant("defect-log-floor", "defect", "floor(log(1e6))").defect(logarithm, v -> Math.floor(StrictMath.log10(1e6)));
+        constant("defect-log-equality", "defect", "if(log(1000)=3,1,0)").defect(logarithm, v -> 1);
         // OSP drops the sign of a +/- operand unless the operand is followed by ^, * or /.
         String negation = "dropped-negation";
         constant("defect-negated-addend", "defect", "2+-3").defect(negation, "2+(-3)");
@@ -223,8 +228,8 @@ public final class ExpressionOracle {
             "^2", "double-power", "2^^3", "double-times", "2**3", "double-divide", "2//3", "factorial", "3!", "bang", "!",
             "number-call", "1(2)", "parenthesized-call", "(1)(2)", "spaced-call", "1 (2)", "tab", "1\t+2",
             "escaped", "1\\+2", "only-escape", "\\", "escaped-name", "p\\i", "trailing-space", "1 ", "leading-space", " 1",
-            "inner-spaces", "  1  +  2  ", "space-dot", "1 . 5", "plus-times", "1+*2", "unicode-name", "θ",
-            "astral-name", "1+😀", "times-unknown", "2*ω", "null-character", "1+\u0000");
+            "inner-spaces", "  1  +  2  ", "space-dot", "1 . 5", "plus-times", "1+*2", "unicode-name", "\u03b8",
+            "astral-name", "1+\ud83d\ude00", "times-unknown", "2*\u03c9", "null-character", "1+\u0000");
         constants("reference", "definition", "x;a:1", "missing-colon", "x;a", "missing-name", "x;:1", "blank-name",
             "x; :1", "used", "a;a:2", "bad-reference-body", "x;a:1+", "spaced-segment", "x;  a", "two", "x;a:1;b:2",
             "trailing", "1;", "empty-reference-expression", "x;a:", "padded-name", "x; a :1");
@@ -233,14 +238,14 @@ public final class ExpressionOracle {
             "sin(1,2)", "min-one", "min(1)", "min-three", "min(1,2,3)", "sin-spaced", "sin (1)", "upper-sin", "Sin(1)",
             "all-upper", "SIN(1)", "sin-power", "sin(1)^2", "sqr", "sqr(3)", "no-separator", "sin1", "nested",
             "sin(sin(sin(1)))", "nested-extended", "max(min(1,2),3)", "atan2", "atan2(1,1)", "mod-negative", "mod(7,-3)",
-            "ln-e", "ln(e)", "log-thousand", "log(1000)", "log-hundred", "log(100)", "exp-one", "exp(1)", "pow-unknown",
+            "ln-e", "ln(e)", "exp-one", "exp(1)", "pow-unknown",
             "pow(2,3)", "sin-bare", "sin", "max-bare", "max", "min-missing-second", "max(1,)", "min-unclosed",
             "min(1,2", "max-spaced", "max ( 1 , 2 )", "comma-in-single", "abs(1,2)", "random-zero", "random(0)",
             "boolean-extended", "max(1<2,2)", "power-argument", "sqrt(2^2)", "negative-argument", "abs(-3)");
 
         add("variable-sum", "variable", "x+y", "x", "y").at(1, 2).at(-0.0, 0.0).at(NAN, 1);
         add("variable-difference", "variable", "y-x", "x", "y").at(1, 2);
-        add("variable-unicode", "variable", "θ*ω", "θ", "ω").at(2, 3);
+        add("variable-unicode", "variable", "\u03b8*\u03c9", "\u03b8", "\u03c9").at(2, 3);
         add("variable-braces", "variable", "v_{x}*t", "v_{x}", "t").at(2, 3);
         add("variable-primes", "variable", "x'*x@", "x'", "x@").at(2, 3);
         add("variable-duplicate", "variable", "x", "x", "x").at(1, 2);
@@ -261,7 +266,9 @@ public final class ExpressionOracle {
         add("variable-many", "variable", "m1*m2-k", "m1", "m2", "k").at(2, 3, 4);
         add("variable-special-values", "variable", "x*y", "x", "y").at(INF, 0).at(-INF, -2).at(1e308, 10).at(Double.MIN_VALUE, 0.5);
         add("variable-empty-name", "variable", "x+1", "", "x").at(5, 2);
-        add("variable-unicode-error", "variable", "θ+ω", "θ").at(1);
+        add("variable-unicode-error", "variable", "\u03b8+\u03c9", "\u03b8").at(1);
+        add("variable-astral", "variable", "\ud83d\ude00*2", "\ud83d\ude00").at(3);
+        add("variable-astral-error", "variable", "\ud83d\ude00+*", "\ud83d\ude00").at(3);
 
         String sum50 = "1" + "+1".repeat(49);
         add("limit-fifty-ones", "limit", sum50).at();
@@ -303,6 +310,7 @@ public final class ExpressionOracle {
                 for (double point : POINTS) c.at(point);
             }
             switch (name) {
+            case "log" -> c.defect("common-logarithm", v -> StrictMath.log10(v[0]));
             case "asinh" -> c.defect("inverse-hyperbolic-precision", v -> asinh(v[0]));
             case "acosh" -> c.defect("inverse-hyperbolic-precision", v -> acosh(v[0]));
             case "atanh" -> c.defect("inverse-hyperbolic-precision", v -> atanh(v[0]));

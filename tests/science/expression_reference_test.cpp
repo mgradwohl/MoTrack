@@ -129,6 +129,7 @@ void checkDefects(const QJsonObject& item, const Expression& expression)
     EXPECT_EQ(differences.powerProductInSum, defect.contains(QStringLiteral("power-product-in-sum")));
     EXPECT_EQ(differences.droppedNegation, defect.contains(QStringLiteral("dropped-negation")));
     EXPECT_EQ(differences.inverseHyperbolic, defect.contains(QStringLiteral("inverse-hyperbolic-precision")));
+    EXPECT_EQ(differences.commonLogarithm, defect.contains(QStringLiteral("common-logarithm")));
 }
 
 void checkRandom(const Expression& expression, const QJsonObject& evaluation)
@@ -254,6 +255,60 @@ TEST(ExpressionReference, BothDialectsMatchJavaOrTheIndependentIntendedValue)
         checkCase(item, ExpressionDialect::Tracker, maxUlps);
         checkCase(item, ExpressionDialect::Corrected, maxUlps);
     }
+}
+
+/// trackerText() must make Tracker compute the corrected values. The Tracker dialect is checked against
+/// Java above, so parsing the rendering with it shows what Tracker 6.3.5 computes from the exported text.
+TEST(ExpressionReference, TrackerTextKeepsCorrectedValuesInTracker)
+{
+    int rendered = 0;
+    for (const auto& entry : reference()[QStringLiteral("cases")].toArray())
+    {
+        const auto item = entry.toObject();
+        SCOPED_TRACE(item[QStringLiteral("id")].toString().toStdString());
+        std::vector<std::string> variables;
+        for (const auto& name : item[QStringLiteral("variables")].toArray())
+        {
+            variables.push_back(name.toString().toStdString());
+        }
+        const auto text = item[QStringLiteral("expression")].toString().toStdString();
+        const auto corrected = motrack::science::parseExpression(text, variables);
+        const auto tracker = motrack::science::parseExpression(text, variables, {.dialect = ExpressionDialect::Tracker});
+        if (!corrected)
+        {
+            continue;
+        }
+        if (tracker)
+        {
+            EXPECT_EQ(corrected->trackerCodeSize(), tracker->trackerCodeSize());
+        }
+        const auto differences = corrected->trackerDifferences();
+        const auto exported =
+            motrack::science::parseExpression(corrected->trackerText(), variables, {.dialect = ExpressionDialect::Tracker});
+        if (!exported)
+        {
+            // Only the explicit negations of a near-limit expression can exceed Tracker's code limit.
+            EXPECT_EQ(exported.error().code, ExpressionErrorCode::TrackerCodeLimit) << corrected->trackerText();
+            EXPECT_TRUE(!corrected->fitsTrackerLimits() || differences.droppedNegation);
+            continue;
+        }
+        EXPECT_FALSE(exported->trackerDifferences().negatedExponent || exported->trackerDifferences().powerProductInSum ||
+                     exported->trackerDifferences().droppedNegation)
+            << corrected->trackerText();
+        EXPECT_EQ(std::vector(exported->functions().begin(), exported->functions().end()),
+                  std::vector(corrected->functions().begin(), corrected->functions().end()));
+        if (differences.inverseHyperbolic || differences.commonLogarithm || corrected->usesRandom())
+        {
+            continue;
+        }
+        ++rendered;
+        for (const auto& evaluation : item[QStringLiteral("evaluations")].toArray())
+        {
+            const auto input = values(evaluation.toObject());
+            EXPECT_TRUE(sameValue(corrected->evaluate(input), exported->evaluate(input), false, 0)) << corrected->trackerText();
+        }
+    }
+    EXPECT_GT(rendered, 300);
 }
 
 } // namespace

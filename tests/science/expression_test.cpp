@@ -191,6 +191,9 @@ TEST(Expression, CorrectsTrackerPrecedenceDefects)
     EXPECT_EQ(compiled("1+2^2/3", NO_VARIABLES, TRACKER).trackerDifferences(), (TrackerDifferences{.powerProductInSum = true}));
     EXPECT_EQ(compiled("1+-2").trackerDifferences(), (TrackerDifferences{.droppedNegation = true}));
     EXPECT_EQ(compiled("asinh(1)").trackerDifferences(), (TrackerDifferences{.inverseHyperbolic = true}));
+    // The corrected program adds the negation Tracker drops; Tracker's code count for the text does not.
+    EXPECT_EQ(compiled("1+-2").trackerCodeSize(), 3U);
+    EXPECT_EQ(compiled("1+-2", NO_VARIABLES, TRACKER).trackerCodeSize(), 3U);
     EXPECT_FALSE(compiled("1-(-2)+-3*4+2^2").trackerDifferences().any());
 }
 
@@ -200,7 +203,7 @@ TEST(Expression, KeepsTrackerConventions)
     EXPECT_EQ(value("0/0"), 0.0);
     EXPECT_EQ(value("int(2.5)"), 2.0);
     EXPECT_EQ(value("mod(5,3)"), -1.0);
-    EXPECT_EQ(value("log(1000)"), std::log(1000.0) / std::numbers::ln10);
+    EXPECT_EQ(value("log(1000)", TRACKER), std::log(1000.0) / std::numbers::ln10);
     EXPECT_EQ(value("(1<0)&(1<0)|(0<1)"), 0.0); // & and | share one precedence and group to the right.
     EXPECT_EQ(value("if(0/0*sqrt(-1), 1, 2)"), 1.0);
     EXPECT_EQ(value("step(-0)"), 1.0);
@@ -265,6 +268,53 @@ TEST(Expression, BoundsLengthAndNesting)
     EXPECT_EQ(failure(std::string(1000, '(')).code, ExpressionErrorCode::TooDeep);
 }
 
+TEST(Expression, CommonLogarithmIsExactForPowersOfTen)
+{
+    EXPECT_EQ(value("log(1000)"), 3.0);
+    EXPECT_EQ(value("log(1000)", TRACKER), 2.9999999999999996);
+    EXPECT_EQ(value("floor(log(1e6))"), 6.0);
+    EXPECT_EQ(value("floor(log(1e6))", TRACKER), 5.0);
+    EXPECT_EQ(value("if(log(100)=2, 1, 0)"), 1.0);
+    EXPECT_EQ(compiled("log(x)", XY).trackerDifferences(), (TrackerDifferences{.commonLogarithm = true}));
+}
+
+TEST(Expression, CompilesEachTextIndependently)
+{
+    // OSP's setFunction("0") and ("1") on a reused parser append to the previous code (osp#17); here every
+    // parse owns a new program, so earlier expressions cannot leak into later ones.
+    const auto sine = compiled("sin(x)", XY);
+    for (const auto& [text, expected] : {std::pair{"0", 0.0}, std::pair{"0.0", 0.0}, std::pair{"1", 1.0}, std::pair{"1.0", 1.0}})
+    {
+        const auto constant = compiled(text, XY);
+        EXPECT_EQ(constant.evaluate(std::array{1.0, 0.0}), expected) << text;
+        EXPECT_EQ(sine.evaluate(std::array{1.0, 0.0}), std::sin(1.0));
+    }
+}
+
+TEST(Expression, TrackerTextIsFullyParenthesized)
+{
+    constexpr std::array<std::string_view, 4> NAMES{"x", "y", "v_{x}", "\xCE\xB8"};
+    const auto rendered = [&](std::string_view text)
+    {
+        return compiled(text, NAMES).trackerText();
+    };
+    EXPECT_EQ(rendered("2^-3"), "(2^(-3))");
+    EXPECT_EQ(rendered("1+2^2*3"), "(1+((2^2)*3))");
+    EXPECT_EQ(rendered("2--3"), "(2-(-3))");
+    EXPECT_EQ(rendered("-x^2"), "(-(x^2))");
+    EXPECT_EQ(rendered(".5e1 + pi*e"), "(0.5e1+(pi*e))");
+    EXPECT_EQ(rendered("if(x<0, -x, max(x, y))"), "if((x<0),(-x),max(x,y))");
+    EXPECT_EQ(rendered("!(x<1)&(y>=2)|(x<>y)"), "(!((x<1))&((y>=2)|(x<>y)))");
+    EXPECT_EQ(rendered("if(x<=0,if(y=1,1,2),sqr(v_{x}))"), "if((x<=0),if((y=1),1,2),sqr(v_{x}))");
+    EXPECT_EQ(rendered("\xCE\xB8/x"), "(\xCE\xB8/x)");
+    // A Tracker-dialect expression renders its own (defective) operations, which Tracker then reproduces.
+    EXPECT_EQ(compiled("2^-3", NO_VARIABLES, TRACKER).trackerText(), "(-(2^3))");
+    const auto exported = parseExpression(rendered("x--y*2+2^-x"), NAMES, TRACKER);
+    ASSERT_TRUE(exported.hasValue());
+    EXPECT_FALSE(exported->trackerDifferences().any());
+    EXPECT_EQ(exported->evaluate(std::array{3.0, 2.0, 0.0, 0.0}), compiled("x--y*2+2^-x", NAMES).evaluate(std::array{3.0, 2.0, 0.0, 0.0}));
+}
+
 TEST(Expression, ReportsOspErrorPositions)
 {
     EXPECT_EQ(failure(""), (ExpressionError{.code = ExpressionErrorCode::ExpressionExpected, .position = 0}));
@@ -279,6 +329,10 @@ TEST(Expression, ReportsOspErrorPositions)
     EXPECT_EQ(failure("θ+ω+😀", greek), (ExpressionError{.code = ExpressionErrorCode::UnknownIdentifier, .position = 5}));
     EXPECT_EQ(failure("😀+x", XY), (ExpressionError{.code = ExpressionErrorCode::UnknownIdentifier, .position = 1}));
     EXPECT_EQ(failure("x+😀*", XY), (ExpressionError{.code = ExpressionErrorCode::UnknownIdentifier, .position = 3}));
+    // Positions count UTF-16 code units, so the astral name occupies two.
+    const std::array<std::string_view, 1> astral{"😀"};
+    EXPECT_EQ(failure("😀+*", astral), (ExpressionError{.code = ExpressionErrorCode::SyntaxError, .position = 4}));
+    EXPECT_EQ(compiled("😀*2", astral).evaluate(std::array{3.0}), 6.0);
 }
 
 TEST(Expression, RejectsInvalidUtf8)
