@@ -664,6 +664,14 @@
         <source>Saved tabset %1, with notes.</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>%1: closed, so the tabset no longer lists it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1: listed more than once, so one of its entries was removed.</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 
 <context>

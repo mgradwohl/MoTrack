@@ -349,10 +349,12 @@ listed file in Tracker's search order keeps its bytes, together with the repeats
 of an archive. An entry is rewritten only when its relative path no longer finds the file from the base, for
 example after the tabset moved alone. Entries whose files are not open keep their place: a file that failed to open,
 was not found, was not opened because an open was canceled or the window closed, or names an archive member (#325)
-stays listed, and the summary says so. Only entries of files the user closed are removed. A nested tabset whose
-files are open stays one entry. Saving an unchanged set therefore leaves the file byte for byte, and otherwise only
-the changed paths, removed entries and new entries differ; new entries follow the kept ones, and other properties and
-line breaks stay. Entries that Tracker cannot read because of their index order are rewritten in order whenever
+stays listed, and the summary says so. Only entries of files the user closed are removed, unless a tabset opened
+since then lists the file again; a repeat that does not follow its file's entry is removed too, since each file opens
+once. The summary names every removed entry. A nested tabset whose files are open stays one entry. Saving an
+unchanged set therefore leaves the file byte for byte, except entries whose relative path no longer finds their file,
+which are repaired. Otherwise only the changed paths, removed entries and new entries differ; new entries follow the
+kept ones, and other properties and line breaks stay. Entries that Tracker cannot read because of their index order are rewritten in order whenever
 anything changes. A tabset MoTrack cannot read is not replaced.
 
 **Deliberate differences from Tracker 6.3.5.**
@@ -389,16 +391,16 @@ entry reuse, `basepath`, relative paths on each platform, resolution order, nest
 cancellation, atomic writes and Unicode paths. Desktop tests cover ordered opening of a movie, an experiment and an
 archive with selection and independent histories; locating and skipping missing files, including a located tabset; two
 tabsets arriving together; a listed file that fails, with B1's diagnostic; a native file with reset Tracker links;
-canceling partway; destroying the window during a prompt; Save/Skip/Cancel; saving an unchanged set back byte for byte
-and adding a tab; keeping entries of files that failed to open or were not found and dropping one the user closed;
-listing a file as last saved; saving refused while any file opens, including one started during a save prompt;
-Tracker's `.trk` name; refusal to replace open project files, an unopened experiment or an unreadable tabset;
-unsupported sources; and saving then reopening after the whole folder moves. In Linux CI the pinned Tracker opens
-MoTrack's tabset through its normal loader after the folder is moved (so only relative paths resolve), must load all
-three experiments in order with their independently expected masses and samples, and writes its own tabset. MoTrack
-must resolve that to the same two files after everything moves again and save the same files over it without changing
-a byte. MoTrack then edits its own tabset in place (the archive first, another experiment added), and Tracker must
-reopen every tab of the edited set, in Tracker's own order, with its data.
+canceling partway; destroying the window during a prompt; Yes/No/Cancel for unsaved changes; saving an unchanged set
+back byte for byte and adding a tab; keeping entries of files that failed to open or were not found and dropping one
+the user closed; listing a file as last saved; saving refused while any file opens, including one started during a
+save prompt; Tracker's `.trk` name; refusal to replace open project files, an unopened experiment or an unreadable
+tabset; unsupported sources; and saving then reopening after the whole folder moves. In Linux CI the pinned Tracker
+opens MoTrack's tabset through its normal loader after the folder is moved (so only relative paths resolve), must load
+all three experiments in order with their independently expected masses and samples, and writes its own tabset.
+MoTrack must resolve that to the same two files after everything moves again and save the same files over it without
+changing a byte. MoTrack then edits its own tabset in place (the archive first, another experiment added), and Tracker
+must reopen every tab of the edited set, in Tracker's own order, with its data.
 
 ## Remaining integration
 

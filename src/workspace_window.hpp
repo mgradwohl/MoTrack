@@ -122,7 +122,7 @@ class WorkspaceWindow final : public QMainWindow
     };
     /// Queue the resolved files of a tabset that the queue's current request turned out to be, ahead of the
     /// remaining files, and record the others as problems. No prompts: they run only for the tabset the user opened.
-    void expandInPlace(OrderedOpens& queue, const std::vector<TabsetItem>& items) const;
+    void expandInPlace(OrderedOpens& queue, const std::vector<TabsetItem>& items);
     /// A file or tabset is opening, or a tabset is prompting or opening its files; saving a tabset waits for it.
     [[nodiscard]] bool tabsetOpening() const;
     std::optional<OrderedOpens> m_Tabset;

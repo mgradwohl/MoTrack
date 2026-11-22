@@ -527,6 +527,8 @@ void WorkspaceWindow::beginTabset(const QString& tabset, const std::vector<Tabse
         {
             pending.files.push_back(item.file);
             pending.listed.insert(tabsetIdentityKey(item.file));
+            // A file closed earlier but listed again is not dropped by a later save, even if it fails to open.
+            m_ClosedFiles.remove(tabsetIdentityKey(item.file));
         }
         else if (item.status != TabsetItemStatus::Missing)
         {
@@ -555,7 +557,10 @@ void WorkspaceWindow::beginTabset(const QString& tabset, const std::vector<Tabse
             if (key.isEmpty())
                 pending.problems.push_back(describeTabsetProblem(item).value_or(listed));
             else if (!resolved.contains(key) && insertNew(pending.listed, key))
+            {
                 pending.files.push_back(canonical);
+                m_ClosedFiles.remove(key);
+            }
         }
     }
     m_Tabset = std::move(pending);
@@ -568,12 +573,14 @@ bool WorkspaceWindow::tabsetOpening() const
     return !m_Opening.isEmpty() || m_Tabset.has_value() || !m_ExpandedTabsets.empty() || m_TabsetPrompting;
 }
 
-void WorkspaceWindow::expandInPlace(OrderedOpens& queue, const std::vector<TabsetItem>& items) const
+void WorkspaceWindow::expandInPlace(OrderedOpens& queue, const std::vector<TabsetItem>& items)
 {
     QStringList nested;
     for (const auto& item : items)
         if (item.status == TabsetItemStatus::Resolved)
         {
+            // A file closed earlier but listed again is not dropped by a later save, even if it fails to open.
+            m_ClosedFiles.remove(tabsetIdentityKey(item.file));
             // Skip files this queue already listed or opened, including earlier tabs.
             if (insertNew(queue.listed, tabsetIdentityKey(item.file)))
                 nested.push_back(item.file);
@@ -932,8 +939,16 @@ bool WorkspaceWindow::saveTabset(const QString& path)
     case TabsetSave::Status::Saved:
         break;
     }
-    for (const auto& entry : result.unopened)
-        notices.push_back(tr("%1: not open, so the tabset still lists it as before.").arg(QString::fromStdString(entry.relative)));
+    const auto listed = [](const TabsetEntry& entry)
+    {
+        return QString::fromStdString(entry.relative);
+    };
+    for (const auto& entry : result.changes.unopened)
+        notices.push_back(tr("%1: not open, so the tabset still lists it as before.").arg(listed(entry)));
+    for (const auto& entry : result.changes.closed)
+        notices.push_back(tr("%1: closed, so the tabset no longer lists it.").arg(listed(entry)));
+    for (const auto& entry : result.changes.repeated)
+        notices.push_back(tr("%1: listed more than once, so one of its entries was removed.").arg(listed(entry)));
     finish(tr("Saved tabset %1.").arg(name));
     if (!problems.isEmpty() || !notices.isEmpty())
         showProblems(this,

@@ -75,6 +75,13 @@ TabsetEntry absoluteEntry(const QString& path)
     return {.absolute = file, .relative = file};
 }
 
+/// The entry MoTrack itself writes for `path` in the tabset `set`, so that saving the set back keeps it wherever the
+/// checkout and the temporary folder are.
+TabsetEntry listedEntry(const QString& path, const QString& set)
+{
+    return motrack::tabsetEntry(canonical(path), canonical(QFileInfo(set).absolutePath()));
+}
+
 /// Answer the expected modal dialogs in order; any other or late dialog is rejected after a bound.
 class DialogScript
 {
@@ -256,7 +263,7 @@ TEST(WorkspaceTabset, MissingFilesCanBeLocatedOrSkippedAndOtherProblemsAreReport
     writeTabset(set,
                 {
                     {.absolute = "/nowhere/moved.trk", .relative = "moved.trk"},
-                    absoluteEntry(experiment),
+                    listedEntry(experiment, set),
                     {.absolute = std::nullopt, .relative = "set.trk"},
                     {.absolute = std::nullopt, .relative = "gone.trk"},
                 });
@@ -496,7 +503,7 @@ TEST(WorkspaceTabset, FailedFilesAreReportedWhileTheOthersOpen)
     ASSERT_GT(file.write("not Tracker XML"), 0);
     file.close();
     const auto set = temporary.filePath("set.trk");
-    writeTabset(set, {absoluteEntry(broken), absoluteEntry(fixture("linked-images/linked-images.trk"))});
+    writeTabset(set, {listedEntry(broken, set), listedEntry(fixture("linked-images/linked-images.trk"), set)});
     motrack::WorkspaceWindow window;
     window.show();
     ASSERT_TRUE(openTabset(window, set, 1));
@@ -623,8 +630,8 @@ TEST(WorkspaceTabset, SavingOverTheOpenedTabsetKeepsItsBytesAndAddsOnlyNewTabs)
     ASSERT_TRUE(temporary.isValid());
     const auto set = temporary.filePath("lesson.trk");
     // As Tracker on Windows writes a tabset (CRLF, no final line break), with a property Tracker ignores.
-    auto xml = motrack::writeTrackerTabset(
-        std::vector{absoluteEntry(fixture("linked-images/linked-images.trk")), absoluteEntry(fixture("linked-mov/constant-rate.mov"))});
+    auto xml = motrack::writeTrackerTabset(std::vector{listedEntry(fixture("linked-images/linked-images.trk"), set),
+                                                       listedEntry(fixture("linked-mov/constant-rate.mov"), set)});
     ASSERT_TRUE(xml.has_value());
     auto original = QByteArray::fromStdString(*xml).replace("\n", "\r\n");
     original.replace("    <property name=\"tabs\"",
@@ -682,6 +689,11 @@ TEST(WorkspaceTabset, SavingOverTheOpenedTabsetKeepsItsBytesAndAddsOnlyNewTabs)
     ASSERT_NE(movie, open.end());
     ASSERT_TRUE(window.closeSource(*movie));
     ASSERT_TRUE(window.saveTabset(set));
+    auto* box = problems(window);
+    ASSERT_NE(box, nullptr);
+    EXPECT_TRUE(box->informativeText().contains("constant-rate.mov: closed, so the tabset no longer lists it."))
+        << box->informativeText().toStdString();
+    dismiss(window, box);
     const auto closed = motrack::readTrackerTabset(set);
     ASSERT_TRUE(closed.has_value()) << closed.error();
     ASSERT_EQ(closed->entries.size(), 2U);
@@ -802,6 +814,44 @@ TEST(WorkspaceTabset, SavingWaitsForEveryOpenIncludingOnesStartedDuringItsPrompt
     EXPECT_TRUE(started);
     EXPECT_EQ(readBytes(set), bytes);
     ASSERT_TRUE(QTest::qWaitFor([&] { return finished.count() == 2; }, 20000));
+}
+
+TEST(WorkspaceTabset, AFileClosedEarlierStaysInASetThatListsItEvenIfItThenFailsToOpen)
+{
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    const auto clip = temporary.filePath("clip.mov");
+    ASSERT_TRUE(QFile::copy(fixture("linked-mov/constant-rate.mov"), clip));
+    ASSERT_TRUE(QFile::setPermissions(clip, QFileDevice::ReadOwner | QFileDevice::WriteOwner));
+    motrack::WorkspaceWindow window;
+    window.show();
+    QSignalSpy opened(window.context().get(), &motrack::WorkspaceContext::inputOpened);
+    ASSERT_TRUE(window.openMovie(clip));
+    ASSERT_TRUE(QTest::qWaitFor([&] { return opened.count() == 1; }));
+    auto& session = window.context()->session();
+    ASSERT_TRUE(window.closeSource(session.sources().front()));
+    // The movie is damaged after it was closed; a set that lists it then cannot open it.
+    {
+        QFile file(clip);
+        ASSERT_TRUE(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        ASSERT_GT(file.write("not a movie"), 0);
+    }
+    const auto set = temporary.filePath("set.trk");
+    writeTabset(set, {listedEntry(clip, set), listedEntry(fixture("linked-images/linked-images.trk"), set)});
+    const auto bytes = readBytes(set);
+    ASSERT_TRUE(openTabset(window, set, 1));
+    auto* box = problems(window);
+    ASSERT_NE(box, nullptr);
+    EXPECT_TRUE(box->informativeText().contains("clip.mov")) << box->informativeText().toStdString();
+    dismiss(window, box);
+    // Saving the set back keeps the movie's entry: listing it again undid the earlier close.
+    ASSERT_TRUE(window.saveTabset(set));
+    box = problems(window);
+    ASSERT_NE(box, nullptr);
+    EXPECT_TRUE(box->informativeText().contains("clip.mov: not open, so the tabset still lists it as before."))
+        << box->informativeText().toStdString();
+    dismiss(window, box);
+    EXPECT_EQ(readBytes(set), bytes);
 }
 
 } // namespace

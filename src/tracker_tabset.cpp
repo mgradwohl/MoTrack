@@ -554,7 +554,7 @@ std::vector<TabsetEntry> tabsetEntries(std::span<const QString> files,
                                        const QString& workingDirectory,
                                        const TrackerTabset* existing,
                                        std::span<const QString> closed,
-                                       std::vector<TabsetEntry>* unopened)
+                                       TabsetChanges* changes)
 {
     const auto base = existing ? tabsetBase(*existing, tabsetPath) : QFileInfo(tabsetPath).absolutePath();
     QSet<QString> listed;
@@ -615,8 +615,8 @@ std::vector<TabsetEntry> tabsetEntries(std::span<const QString> files,
             {
                 used[next] = true;
                 result.push_back(existing->entries[next]);
-                if (unopened && !nested[next])
-                    unopened->push_back(existing->entries[next]);
+                if (changes && !nested[next])
+                    changes->unopened.push_back(existing->entries[next]);
             }
     };
     const auto find = [&](const QString& key, std::size_t begin, std::size_t end) -> std::optional<std::size_t>
@@ -668,6 +668,11 @@ std::vector<TabsetEntry> tabsetEntries(std::span<const QString> files,
     }
     passTo(named.size());
     flush();
+    // Every other existing entry is dropped: one for a file the user closed, or a repeat of a listed file.
+    if (changes)
+        for (std::size_t index = 0; index < named.size(); ++index)
+            if (!used[index])
+                (dropped.contains(named[index]) ? changes->closed : changes->repeated).push_back(existing->entries[index]);
     return result;
 }
 
@@ -705,12 +710,12 @@ TabsetSave saveTrackerTabsetFiles(const QString& path,
         existing = std::move(*read);
     }
     const auto* baseline = existing ? &*existing : nullptr;
-    const auto entries = tabsetEntries(files, path, workingDirectory, baseline, closed, &result.unopened);
+    const auto entries = tabsetEntries(files, path, workingDirectory, baseline, closed, &result.changes);
     if (auto written = saveTrackerTabset(path, entries, baseline); !written)
     {
         result.status = TabsetSave::Status::Failed;
         result.diagnostic = std::move(written).error();
-        result.unopened.clear();
+        result.changes = {};
         return result;
     }
     result.status = TabsetSave::Status::Saved;
