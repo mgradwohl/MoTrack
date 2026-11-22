@@ -21,6 +21,8 @@ struct MovieFrame
 {
     std::uint64_t ordinal;
     std::optional<std::chrono::nanoseconds> presentationTime;
+    /// The decoded timestamp in ticks of VideoReader::timeBase(), from which presentationTime is rescaled.
+    std::optional<std::int64_t> presentationTicks;
     QImage image;
 };
 
@@ -41,7 +43,8 @@ struct MovieIndex
     int frameCount = 0;
     std::vector<double> frameTimes;
     std::vector<std::chrono::nanoseconds> presentationTimes;
-    /// The video stream's time base, to which frameTimes were quantized before rescaling to nanoseconds.
+    /// The video stream's time base, to which frameTimes were quantized before rescaling to nanoseconds, with the
+    /// precision inferred from the timestamps themselves (#335). Known exactly when frameTimes are.
     FrameTimeBase timeBase = {};
 };
 
@@ -61,7 +64,8 @@ class VideoReader
     [[nodiscard]] std::optional<MovieFrame> readNext();
     /// Decodes a frame and returns its ordinal and timestamp without converting its pixels.
     [[nodiscard]] std::optional<MovieFrame> skipNext();
-    /// The video stream's time base (seconds per timestamp tick), or unknown when the container reports none.
+    /// The video stream's time base (seconds per timestamp tick), or unknown when the container reports none. The
+    /// timestamps' precision is inferred only by buildMovieIndex, so it is not inferred here.
     [[nodiscard]] FrameTimeBase timeBase() const noexcept;
 
   private:

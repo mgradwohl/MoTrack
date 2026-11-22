@@ -326,8 +326,9 @@ PlotSeries measurementPlot(const LegacyProject& project,
         }
         const science::ClipLattice lattice{.firstFrame = begin->frame, .stepSize = stride, .stepCount = static_cast<int>(positions.size())};
         // Constant timing is evenly spaced by definition: Tracker's values. Decoded frame times get Tracker's
-        // values wherever a window is evenly spaced within the stream's time base, and a time-aware five-point
-        // fit elsewhere (#87, #331; docs/motion-kernels.md).
+        // values wherever a window is evenly spaced within the timestamps' precision (the stream's time base, or
+        // 1 ms for whole-millisecond timestamps in finer ticks), and a time-aware five-point fit elsewhere (#87,
+        // #331, #335; docs/motion-kernels.md).
         const auto motion = frameTimes.empty()
                                 ? science::pointMassDerivatives(science::TRACKER_DEFAULT_DERIVATIVE_ALGORITHM, lattice, positions, times)
                                 : science::measuredTimeDerivatives(lattice, positions, times, frameTimeBase.resolutionSeconds());
