@@ -183,7 +183,9 @@ def launch_linux(stage, root):
         ],
         check=True,
     )
-    unusual = prefix / f"{APP_ID}.desktop"
+    # desktop-file-validate cannot open a file by this path; the entry's content is what needs validating.
+    unusual = root / "unusual-prefix.desktop"
+    shutil.copy2(prefix / f"{APP_ID}.desktop", unusual)
     subprocess.run(["desktop-file-validate", str(unusual)], check=True)
     # GLib expands Exec and %F exactly as a file manager does; only --smoke-test is added so the app exits.
     for entry in (data / "applications" / f"{APP_ID}.desktop", unusual):
