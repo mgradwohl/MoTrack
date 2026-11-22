@@ -713,7 +713,13 @@ TEST(WorkspaceDocument, FirstReaderDocumentsMatchThePreFixFixtures)
         const auto source = QByteArray::fromBase64(authentic.value("trackerSource").toObject().value("xmlBase64").toString().toLatin1());
         const auto reproduced =
             QJsonDocument::fromJson(readBytes(firstReaderDocument(temporary, "first.motrack", source.toStdString()))).object();
-        EXPECT_EQ(reproduced, authentic) << name;
+        // Every field the pre-fix writer saved is equal; fields added to version 5 since (such as #331's movieTimeBase)
+        // are absent from the fixture and must be unset here.
+        for (const auto& key : authentic.keys())
+            EXPECT_EQ(reproduced.value(key), authentic.value(key)) << name << ' ' << key.toStdString();
+        for (const auto& key : reproduced.keys())
+            if (!authentic.contains(key))
+                EXPECT_TRUE(reproduced.value(key).isNull()) << name << ' ' << key.toStdString();
     }
 }
 
