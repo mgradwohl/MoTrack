@@ -310,7 +310,7 @@ an experiment view through Qt's propagation, refused drags, file-open events bef
 child launches with spaces, Unicode, relative and long (Windows `\\?\`) paths, and a second process opening
 a file that the first is editing. CI's staged check validates the plist and desktop files, asks
 LaunchServices and GIO which application opens each type, and opens a file through `open -a` and GLib's
-desktop-entry expansion, including a prefix that needs every Exec escape.
+desktop-entry expansion, including an install prefix with quotes, `$`, backticks and `%`.
 
 ## Saving and recovery
 

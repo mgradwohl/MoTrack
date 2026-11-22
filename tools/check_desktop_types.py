@@ -166,8 +166,9 @@ def launch_linux(stage, root):
         require(f"standard::fast-content-type: {mime_type}" in info, f"{probe.name} is not {mime_type}: {info}")
         handlers = subprocess.run(["gio", "mime", mime_type], env=environment, check=True, capture_output=True, text=True).stdout
         require(f"{APP_ID}.desktop" in handlers, f"{mime_type} is not registered to MoTrack: {handlers}")
-    # Write the entry again for a prefix that needs every Exec escape, reaching the staged binary via a link.
-    prefix = root / 'Odd "prefix" $HOME `tick` \\ 100% ü'
+    # Write the entry again for a prefix that needs the Exec escapes, reaching the staged binary via a link.
+    # CMake turns a backslash into a path separator, so an install prefix cannot contain one.
+    prefix = root / 'Odd "prefix" $HOME `tick` 100% ü'
     prefix.mkdir()
     (prefix / "bin").symlink_to(stage / "bin", target_is_directory=True)
     source = Path(__file__).resolve().parents[1]
