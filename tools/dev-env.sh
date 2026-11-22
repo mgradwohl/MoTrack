@@ -59,10 +59,10 @@ motrack_dev_env() {
             motrack_path_prepend "${apple%/*}"
             # Xcode's toolchain has its own, older clang-format, so links to just clang-format and
             # clang-tidy from Homebrew's keg-only llvm@23 go ahead of it; the rest of llvm@23, its
-            # clang++ included, stays off PATH.
+            # clang++ included, stays off PATH. The links go in the shared .dev-tools (tools-root).
             if command -v brew >/dev/null 2>&1; then
                 llvm="$(brew --prefix "llvm@$llvm_major" 2>/dev/null)/bin"
-                links="$repo/.dev-tools/macos/llvm-$llvm_major-tools"
+                links="${tools:-$repo/.dev-tools/macos}/llvm-$llvm_major-tools"
                 if [[ -x "$llvm/clang-format" ]] && mkdir -p "$links"; then
                     for tool in clang-format clang-tidy clang-apply-replacements run-clang-tidy; do
                         if [[ -x "$llvm/$tool" ]]; then ln -sf "$llvm/$tool" "$links/$tool"; fi
