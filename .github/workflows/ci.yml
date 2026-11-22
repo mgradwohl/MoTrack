@@ -48,6 +48,9 @@ jobs:
       - name: Check image sampling kernel reference
         if: runner.os == 'Linux'
         run: python tools/corpus.py sampling-oracle --java "$JAVA_HOME_17_X64/bin/java"
+      - name: Check motion kernel reference
+        if: runner.os == 'Linux'
+        run: python tools/corpus.py motion-oracle --java "$JAVA_HOME_17_X64/bin/java"
       - uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
         with:
           version: ${{ env.MOTRACK_QT_VERSION }}

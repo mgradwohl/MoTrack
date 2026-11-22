@@ -4003,6 +4003,158 @@ class OdeOracleTests(unittest.TestCase):
                 corpus.validate_ode_reference(document, self.manifest)
 
 
+
+class MotionOracleTests(unittest.TestCase):
+    """The motion kernel oracle (tools/reference/MotionOracle.java) without running Java."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name).resolve()
+        self.manifest = corpus.load_manifest()
+        self.fixture = json.loads(corpus.MOTION_REFERENCE.read_text(encoding="utf-8"))
+
+    def check(self, document, *, record=False, commands=None):
+        """Run check_motion_oracle with a fake Java process that emits `document`."""
+        def run(command):
+            if commands is not None:
+                commands.append(command)
+            Path(command[-1]).write_text(json.dumps(document), encoding="utf-8")
+
+        with patch.object(corpus, "verify_file") as verify, patch.object(corpus, "run", side_effect=run), \
+                patch("sys.stdout", new_callable=io.StringIO) as output:
+            corpus.check_motion_oracle(self.manifest, self.root, "java", record=record)
+        verify.assert_called_once_with(self.root / self.manifest["reference"]["file"], self.manifest["reference"])
+        return output.getvalue()
+
+    def result(self, document, case_id, algorithm):
+        case = next(case for case in document["derivative_cases"] if case["id"] == case_id)
+        return next(result for result in case["results"] if result["algorithm"] == algorithm)
+
+    def test_committed_fixture_is_canonical_and_covers_every_kernel(self):
+        corpus.validate_motion_reference(self.fixture, self.manifest)
+        self.assertEqual(self.fixture["tracker"]["algorithm_codes"], {"FINITE_DIFF": 0, "BOUNCE_DETECT": 1, "FINITE_DIFF_VSPILL2": 2})
+        self.assertEqual(self.fixture["tracker"]["spills"], {"vDerivSpill": 1, "aDerivSpill": 2, "bounceDerivsSpill": 3})
+        self.assertEqual([check["name"] for check in self.fixture["self_test"]], list(corpus.MOTION_SELF_TESTS))
+        failures = sorted((case["id"], result["error"]) for case in self.fixture["derivative_cases"] for result in case["results"]
+                          if result["error"])
+        self.assertEqual(failures, [("huge", "java.lang.StackOverflowError"), ("stride-2", "java.lang.NullPointerException"),
+                                    ("stride-3-variable-time", "java.lang.NullPointerException")])
+        self.assertEqual({case["type"] for case in self.fixture["filter_cases"]}, set(corpus.MOTION_FILTER_TYPES))
+        methods = {case["method"] for case in self.fixture["numerical_cases"]}
+        self.assertTrue({"first", "forward", "backward", "second", "partial", "romberg", "benchmark-sum"} <= methods)
+        self.assertEqual(corpus.MOTION_REFERENCE.read_bytes().decode("utf-8"), corpus.motion_reference_text(self.fixture))
+        self.assertLess(corpus.MOTION_REFERENCE.stat().st_size, 256 * 1024)
+
+    def test_check_runs_the_pinned_jar_privately_and_accepts_an_identical_regeneration(self):
+        commands = []
+        self.assertIn("Java motion cases match tests/science/motion-reference.json", self.check(self.fixture, commands=commands))
+        [command] = commands
+        self.assertEqual(command[0], "java")
+        self.assertIn("-Djava.awt.headless=true", command)
+        self.assertIn("-Xmx256m", command)
+        self.assertEqual(command[command.index("--class-path") + 1], str(self.root / self.manifest["reference"]["file"]))
+        self.assertEqual(Path(command[-2]), corpus.ROOT / "tools/reference/MotionOracle.java")
+        # A private, removed home: OSP preference files never land in the shared reference cache.
+        home = next(arg for arg in command if arg.startswith("-Duser.home=")).split("=", 1)[1]
+        self.assertFalse(Path(home).is_relative_to(self.root))
+        self.assertFalse(Path(home).exists())
+
+    def test_check_rejects_numerical_missing_value_and_count_drift(self):
+        import math
+
+        for mutation in ["velocity", "missing", "moving-average", "savitzky-golay", "butterworth", "angle", "romberg-status",
+                         "error", "tracker", "case-count", "self-test-metric"]:
+            document = copy.deepcopy(self.fixture)
+            if mutation == "velocity":
+                point = next(p for p in self.result(document, "free-fall", "finite_difference")["velocity"] if p)
+                point[1] = math.nextafter(point[1], math.inf)
+            elif mutation == "missing":
+                result = self.result(document, "noisy-gaps", "bounce_detection")
+                index = next(i for i, p in enumerate(result["first"]) if p)
+                result["first"][index] = None
+            elif mutation in {"moving-average", "savitzky-golay", "butterworth"}:
+                prefix = {"moving-average": "ma-", "savitzky-golay": "sg-", "butterworth": "bw-default"}[mutation]
+                case = next(c for c in document["filter_cases"] if c["id"].startswith(prefix) and any(c["output"]))
+                index = next(i for i, value in enumerate(case["output"]) if value)
+                # Butterworth allows a last-bit intrinsic change, not a 1e-9 one.
+                factor = 1 + 1e-9 if mutation == "butterworth" else None
+                case["output"][index] = case["output"][index] * factor if factor else math.nextafter(case["output"][index], math.inf)
+            elif mutation == "angle":
+                case = document["angular_cases"][0]
+                index = next(i for i, value in enumerate(case["angle"]) if value)
+                case["angle"][index] = math.nextafter(case["angle"][index], -math.inf)
+            elif mutation == "romberg-status":
+                next(c for c in document["numerical_cases"] if c.get("status") == "converged")["status"] = "not_converged"
+            elif mutation == "error":
+                self.result(document, "stride-2", "bounce_detection")["error"] = "java.lang.IllegalStateException"
+            elif mutation == "tracker":
+                document["tracker"]["spills"]["aDerivSpill"] = 1
+            elif mutation == "case-count":
+                document["filter_cases"].pop()
+            else:
+                document["self_test"][0]["rms_in"] *= 1 + 1e-6
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                self.check(document)
+
+    def test_intrinsic_cases_allow_last_bit_differences_only(self):
+        import math
+
+        document = copy.deepcopy(self.fixture)
+        case = next(c for c in document["filter_cases"] if c["type"] == "butterworth" and any(c["output"]))
+        index = next(i for i, value in enumerate(case["output"]) if value)
+        case["output"][index] = math.nextafter(case["output"][index], math.inf)
+        numerical = next(c for c in document["numerical_cases"] if c["function"] == "x-log-sin-cos")
+        numerical["value"] = math.nextafter(numerical["value"], -math.inf)
+        self.check(document)
+
+    def test_record_writes_the_canonical_fixture_only_when_requested(self):
+        destination = self.root / "science" / "motion-reference.json"
+        with patch.object(corpus, "MOTION_REFERENCE", destination):
+            self.assertIn("recorded", self.check(self.fixture, record=True))
+        self.assertEqual(destination.read_bytes(), corpus.motion_reference_text(self.fixture).encode("utf-8"))
+        with patch.object(sys, "argv", ["corpus.py", "session", "--record"]), patch.object(corpus, "check_sessions") as sessions, \
+                self.assertRaises(SystemExit), patch("sys.stderr", new_callable=io.StringIO):
+            corpus.main()
+        sessions.assert_not_called()
+        with patch.object(sys, "argv", ["corpus.py", "motion-oracle", "--java", "jdk/java", "--record"]), \
+                patch.object(corpus, "check_motion_oracle") as oracle:
+            corpus.main()
+        oracle.assert_called_once()
+        self.assertEqual(oracle.call_args.args[2], "jdk/java")
+        self.assertTrue(oracle.call_args.kwargs["record"])
+
+    def test_validation_rejects_malformed_or_incomplete_documents(self):
+        for mutation in ["version", "schema", "not-object", "no-tracker", "self-test-order", "self-test-failed", "empty-section",
+                         "duplicate-id", "missing-algorithm", "series-length", "positions-length", "filter-type",
+                         "filter-signal", "filter-coverage", "no-failures", "case-not-object"]:
+            document = copy.deepcopy(self.fixture)
+            if mutation == "version": document["reference_version"] = "6.3.4"
+            elif mutation == "schema": document["schema_version"] = 2
+            elif mutation == "not-object": document = []
+            elif mutation == "no-tracker": del document["tracker"]
+            elif mutation == "self-test-order": document["self_test"].reverse()
+            elif mutation == "self-test-failed": document["self_test"][2]["passed"] = False
+            elif mutation == "empty-section": document["angular_cases"] = []
+            elif mutation == "duplicate-id": document["filter_cases"].append(document["filter_cases"][0])
+            elif mutation == "missing-algorithm": document["derivative_cases"][0]["results"].pop()
+            elif mutation == "series-length": document["derivative_cases"][0]["results"][0]["velocity"].pop()
+            elif mutation == "positions-length": document["derivative_cases"][0]["positions"].pop()
+            elif mutation == "filter-type": document["filter_cases"][0]["type"] = "kalman"
+            elif mutation == "filter-signal": document["filter_cases"][0]["signal"] = "unknown"
+            elif mutation == "filter-coverage":
+                document["filter_cases"] = [c for c in document["filter_cases"] if c["type"] != "savitzky_golay"]
+            elif mutation == "no-failures":
+                for case in document["derivative_cases"]:
+                    case["results"] = [dict(result, error=None, first=[None] * case["clip"]["step_count"],
+                                            second=[None] * case["clip"]["step_count"],
+                                            velocity=[None] * case["clip"]["step_count"],
+                                            acceleration=[None] * case["clip"]["step_count"]) for result in case["results"]]
+            else: document["difference_cases"][0] = "case"
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                corpus.validate_motion_reference(document, self.manifest)
+
+
 class SamplingOracleTests(unittest.TestCase):
     """The sampling kernel oracle (tools/reference/SamplingOracle.java) without running Java."""
 

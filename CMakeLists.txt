@@ -67,6 +67,12 @@ target_include_directories(motrack_ode PUBLIC src)
 target_compile_options(motrack_ode PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
 target_compile_options(motrack_expression PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
 
+# Qt-free ports of Tracker's point-mass derivatives and motion filters (docs/motion-kernels.md).
+add_library(motrack_motion STATIC src/science/motion/motion_derivatives.cpp src/science/motion/bounce_derivatives.cpp
+    src/science/motion/motion_filters.cpp src/science/motion/numerical_derivative.cpp)
+target_include_directories(motrack_motion PUBLIC src)
+target_compile_options(motrack_motion PRIVATE ${MOTRACK_JAVA_FP_OPTIONS})
+
 qt_add_executable(motrack src/main.cpp)
 add_library(motrack_workspace STATIC src/image_sequence.cpp src/main_window.cpp src/movie_worker.cpp src/position_plot.cpp
     src/video_canvas.cpp src/workspace_services.cpp src/workspace_context.cpp src/bound_workspace.cpp src/workspace_window.cpp)
@@ -131,7 +137,7 @@ if(MOTRACK_STAGE_DESKTOP)
     install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/motrack)
 endif()
 
-set(motrack_targets motrack_osp motrack_expression motrack_ode motrack_project motrack_input motrack_image_package motrack_media motrack_workspace motrack)
+set(motrack_targets motrack_osp motrack_expression motrack_ode motrack_motion motrack_project motrack_input motrack_image_package motrack_media motrack_workspace motrack)
 if(MOTRACK_BUILD_BENCHMARKS)
     add_executable(motrack_import_benchmark benchmarks/import_benchmark.cpp)
     target_link_libraries(motrack_import_benchmark PRIVATE motrack_project)
@@ -210,6 +216,13 @@ if(BUILD_TESTING)
     # Independent expectations repeat the kernel's Java-ordered arithmetic (see motrack_sampling).
     set_source_files_properties(tests/science/sampling_test.cpp tests/science/sampling_reference_test.cpp
         PROPERTIES COMPILE_OPTIONS "${MOTRACK_JAVA_FP_OPTIONS}")
+    # Motion kernels: FilterSelfTest, analytic expectations and the Java reference fixture.
+    set(motrack_motion_tests tests/science/filter_self_test.cpp tests/science/motion_kernels_test.cpp tests/science/motion_reference_test.cpp)
+    target_sources(motrack_tests PRIVATE ${motrack_motion_tests})
+    target_link_libraries(motrack_tests PRIVATE motrack_motion)
+    target_compile_definitions(motrack_tests PRIVATE MOTRACK_MOTION_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/motion-reference.json")
+    # Test signals must round like the Java oracle's (see motrack_motion above).
+    set_source_files_properties(${motrack_motion_tests} PROPERTIES COMPILE_OPTIONS "${MOTRACK_JAVA_FP_OPTIONS}")
     add_executable(motrack_corpus_probe tests/corpus_probe.cpp)
     add_dependencies(motrack_tests motrack_corpus_probe)
     target_compile_definitions(motrack_tests PRIVATE MOTRACK_CORPUS_PROBE="$<TARGET_FILE:motrack_corpus_probe>")

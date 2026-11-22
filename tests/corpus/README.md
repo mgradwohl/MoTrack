@@ -138,6 +138,8 @@ python tools/corpus.py expression-oracle --java /path/to/jdk-17/bin/java
 python tools/corpus.py xml-oracle --probe build/coverage/motrack_corpus_probe --java /path/to/jdk-17/bin/java
 python tools/corpus.py ode-oracle --java /path/to/jdk-17/bin/java
 python tools/corpus.py sampling-oracle --java /path/to/jdk-17/bin/java
+
+python tools/corpus.py motion-oracle --java /path/to/jdk-17/bin/java
 python -m unittest discover -s tests -p test_corpus.py
 ```
 
@@ -170,6 +172,11 @@ fixture for review.
 `sampling-oracle` measures the [image sampling kernel](../../docs/image-sampling.md) frames with the pinned
 `RGBStep`/`LineProfileStep` classes and compares them with `tests/science/sampling-reference.json`: exactly,
 except tilted profiles within 10⁻⁹. `--record` replaces the fixture for review.
+
+`motion-oracle` runs the [motion kernel](../../docs/motion-kernels.md) cases with the pinned Tracker
+derivative and filter classes and compares them with `tests/science/motion-reference.json`, exactly except
+for the Butterworth cases, OSP's test function and the FilterSelfTest metrics, which use JDK intrinsics;
+`--record` replaces the fixture for review.
 
 On Windows, use `build/coverage/motrack_corpus_probe.exe` and the path to `java.exe`. Python 3.10 or newer
 is supported. The reference command uses Java source-file mode and therefore needs a JDK, not just a

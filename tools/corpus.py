@@ -3351,6 +3351,141 @@ def compare_ode_reference(expected, actual):
         compare(want, got, ode_case_tolerance(want, adaptive), f"ode-reference.{want['id']}")
 
 
+MOTION_REFERENCE = ROOT / "tests/science/motion-reference.json"
+
+
+# Java-to-fixture agreement for the motion kernel oracle (tools/reference/MotionOracle.java). Its inputs
+# are built with IEEE arithmetic only, and the kernels are arithmetic, sqrt and StrictMath.atan2, so
+# results must be identical. Butterworth designs and OSP's x log x sin x cos x test function call
+# Math.tan/sin/cos/log, and FilterSelfTest's signals Math.sin, which HotSpot implements with intrinsics
+# specified only to within 1 ulp; those allow a last-bit change from a different JDK build.
+MOTION_EXACT = {"relative": 0.0, "absolute": 0.0}
+
+
+MOTION_INTRINSIC_TOLERANCE = {"relative": 1e-12, "absolute": 1e-14}
+
+
+MOTION_CASE_SECTIONS = ("derivative_cases", "difference_cases", "angular_cases", "filter_signals", "filter_cases",
+                        "numerical_cases")
+
+
+MOTION_ALGORITHMS = ("finite_difference", "smooth_finite_difference", "bounce_detection")
+
+
+MOTION_FILTER_TYPES = ("moving_average", "butterworth", "savitzky_golay")
+
+
+MOTION_SELF_TESTS = ("moving_average_reduces_noise", "moving_average_handles_invalid_gap",
+                     "butterworth_attenuates_above_cutoff", "butterworth_preserves_dc", "butterworth_zero_phase",
+                     "savitzky_golay_preserves_quadratic")
+
+
+MAX_MOTION_CASES = 1000
+
+
+def motion_case_tolerance(section, case):
+    if section == "filter_cases" and case.get("type") == "butterworth":
+        return MOTION_INTRINSIC_TOLERANCE
+    if section == "numerical_cases" and case.get("function") == "x-log-sin-cos":
+        return MOTION_INTRINSIC_TOLERANCE
+    return MOTION_EXACT
+
+
+def validate_motion_reference(document, manifest):
+    """Check the motion-oracle schema and its coverage before comparing or recording it."""
+    if (not isinstance(document, dict) or document.get("schema_version") != 1
+            or document.get("reference_version") != manifest["reference"]["version"]
+            or not isinstance(document.get("tracker"), dict)):
+        raise ValueError("Unexpected motion oracle schema or reference version")
+    self_test = document.get("self_test")
+    if (not isinstance(self_test, list) or [check.get("name") for check in self_test if isinstance(check, dict)]
+            != list(MOTION_SELF_TESTS) or any(check.get("passed") is not True for check in self_test)):
+        raise ValueError("The motion oracle must record all six passing FilterSelfTest checks")
+    for section in MOTION_CASE_SECTIONS:
+        cases = document.get(section)
+        if not isinstance(cases, list) or not cases or len(cases) > MAX_MOTION_CASES:
+            raise ValueError(f"Invalid motion oracle section {section}")
+        if any(not isinstance(case, dict) for case in cases):
+            raise ValueError(f"Invalid motion oracle case in {section}")
+        ids = [case.get("id") for case in cases if section != "numerical_cases"]
+        if any(not isinstance(case_id, str) for case_id in ids) or len(set(ids)) != len(ids):
+            raise ValueError(f"Missing or duplicate motion oracle case id in {section}")
+    for case in document["derivative_cases"]:
+        clip, results = case.get("clip"), case.get("results")
+        count = clip.get("step_count") if isinstance(clip, dict) else None
+        if (type(count) is not int or not isinstance(results, list) or len(case.get("positions", ())) != count
+                or len(case.get("times", ())) != count):
+            raise ValueError(f"Invalid motion derivative case {case.get('id')!r}")
+        expected = list(MOTION_ALGORITHMS) + (["bounce_detection_compacted"] if clip.get("step_size", 1) > 1 else [])
+        if [result.get("algorithm") for result in results if isinstance(result, dict)] != expected:
+            raise ValueError(f"Motion derivative case {case['id']!r} lacks an algorithm result")
+        for result in results:
+            series = ("first", "second", "velocity", "acceleration")
+            if result["error"] is None and any(len(result.get(name, ())) != count for name in series):
+                raise ValueError(f"Invalid motion derivative result in {case['id']!r}")
+    signals = {signal["id"] for signal in document["filter_signals"]}
+    for case in document["filter_cases"]:
+        if case.get("type") not in MOTION_FILTER_TYPES or case.get("signal") not in signals:
+            raise ValueError(f"Invalid motion filter case {case.get('id')!r}")
+    if {case["type"] for case in document["filter_cases"]} != set(MOTION_FILTER_TYPES):
+        raise ValueError("Every motion filter needs an oracle case")
+    if not any(result["error"] for case in document["derivative_cases"] for result in case["results"]):
+        raise ValueError("The motion oracle must record Tracker's Bounce Detection failures")
+
+
+def motion_reference_text(document):
+    """Render the fixture with one case per line so that review diffs stay readable."""
+    compact = {"separators": (",", ":"), "ensure_ascii": False}
+    keys = [key for key in document if key not in MOTION_CASE_SECTIONS]
+    lines = ["{"]
+    lines.extend(f"  {json.dumps(key)}: {json.dumps(document[key], **compact)}," for key in keys)
+    for number, section in enumerate(MOTION_CASE_SECTIONS):
+        cases = document[section]
+        lines.append(f"  {json.dumps(section)}: [")
+        lines.extend(f"    {json.dumps(case, **compact)}{',' if index + 1 < len(cases) else ''}" for index, case in enumerate(cases))
+        lines.append("  ]" + ("," if number + 1 < len(MOTION_CASE_SECTIONS) else ""))
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+@kernel_oracle("motion-oracle")
+def check_motion_oracle(manifest, cache, java, *, record=False):
+    """Run the motion kernel cases with the pinned Tracker classes and diff the committed fixture."""
+    verify_file(cache / manifest["reference"]["file"], manifest["reference"])
+    # A private home keeps OSP preference files out of the shared reference cache.
+    with tempfile.TemporaryDirectory(prefix="motion-oracle-") as temporary:
+        home = Path(temporary) / "home"
+        home.mkdir()
+        output = Path(temporary) / "motion-java.json"
+        run([java, "-Djava.awt.headless=true", f"-Duser.home={home}", f"-Djava.io.tmpdir={home}",
+             "-Xmx256m", "--class-path", java_classpath(manifest, cache),
+             str(ROOT / "tools/reference/MotionOracle.java"), str(output)])
+        actual = json.loads(output.read_text(encoding="utf-8"))
+    validate_motion_reference(actual, manifest)
+    location = MOTION_REFERENCE.relative_to(ROOT).as_posix() if MOTION_REFERENCE.is_relative_to(ROOT) else str(MOTION_REFERENCE)
+    total = sum(len(actual[section]) for section in MOTION_CASE_SECTIONS)
+    if record:
+        MOTION_REFERENCE.parent.mkdir(parents=True, exist_ok=True)
+        MOTION_REFERENCE.write_text(motion_reference_text(actual), encoding="utf-8", newline="\n")
+        print(f"motion-oracle: recorded {total} Java motion cases in {location}")
+        return
+    expected = json.loads(MOTION_REFERENCE.read_text(encoding="utf-8"))
+    validate_motion_reference(expected, manifest)
+    for key in expected:
+        if key in MOTION_CASE_SECTIONS:
+            continue
+        compare(expected[key], actual.get(key), MOTION_INTRINSIC_TOLERANCE if key == "self_test" else MOTION_EXACT,
+                f"motion-reference.{key}")
+    if set(expected) != set(actual):
+        raise ValueError("motion-reference: the Java sections differ from the fixture")
+    for section in MOTION_CASE_SECTIONS:
+        if len(expected[section]) != len(actual[section]):
+            raise ValueError(f"motion-reference: the Java {section} list differs from the fixture")
+        for index, (want, got) in enumerate(zip(expected[section], actual[section])):
+            compare(want, got, motion_case_tolerance(section, want), f"motion-reference.{section}[{want.get('id', index)}]")
+    print(f"motion-oracle: {total} Java motion cases match {location}")
+
+
 SAMPLING_REFERENCE = ROOT / "tests/science/sampling-reference.json"
 SAMPLING_FRAME_KINDS = {"noise", "bright", "sparse", "gradient", "checker", "edge", "vedge", "band", "white"}
 SAMPLING_SHAPES = {"ellipse", "rectangle", "polygon"}
