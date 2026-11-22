@@ -558,6 +558,75 @@ TEST(CurveFitReference, CorrectedDialectMatchesIndependentExpectations)
     EXPECT_GE(checked, 70);
 }
 
+double deviationOf(const FitResult& result)
+{
+    return result.rmsDeviation * result.rmsDeviation * static_cast<double>(result.points);
+}
+
+TEST(CurveFitReference, CorrectedFitsAreMinima)
+{
+    // A minimized Corrected fit reported as Fitted is a minimum: refitting from its result finds nothing
+    // lower. This covers the chaotic cases, which carry no independent expectation.
+    int checked = 0;
+    for (const QJsonObject& c : cases())
+    {
+        const std::string id = text(c[QStringLiteral("id")]);
+        SCOPED_TRACE(id);
+        const FitResult result = runCase(c, FitDialect::Corrected, text(c[QStringLiteral("fit")]));
+        if (result.status == FitStatus::NotConverged)
+        {
+            // gaussian/valley: a Gaussian without offset fits a valley on a plateau best as its width grows
+            // without bound, so there is no minimum to reach.
+            EXPECT_EQ(id, "gaussian/valley");
+            EXPECT_TRUE(
+                std::ranges::none_of(result.uncertaintyStatus, [](UncertaintyStatus s) { return s == UncertaintyStatus::Estimated; }));
+            EXPECT_TRUE(result.uncertaintyBand.empty());
+            continue;
+        }
+        if (result.status != FitStatus::Fitted || (result.method != FitMethod::Hessian && result.method != FitMethod::LevenbergMarquardt))
+        {
+            continue;
+        }
+        FitFunction f = caseFunction(text(c[QStringLiteral("fit")]));
+        for (std::size_t i = 0; i < f.parameters.size(); ++i)
+        {
+            f.parameters[i].value = result.parameters[i];
+        }
+        FitOptions again;
+        again.start = FitStart::FromCurrent;
+        if (c[QStringLiteral("fixed")].isArray())
+        {
+            again.fixed = flags(c[QStringLiteral("fixed")]);
+        }
+        const CaseData data = caseData(c);
+        const FitResult refit = motrack::science::fitCurve(f, data.x, data.y, again);
+        double scale = 0;
+        for (const double value : data.y)
+        {
+            scale += std::isfinite(value) ? value * value : 0.0;
+        }
+        // Exact data end at rounding-level deviations, which a refit may lower by a few ulps of sum y^2.
+        EXPECT_GE(deviationOf(refit), (deviationOf(result) * (1 - 1e-6)) - (1e-12 * scale)) << id;
+        ++checked;
+    }
+    EXPECT_GE(checked, 80);
+}
+
+TEST(CurveFitReference, CorrectedDampedSineWithAnOutlierReachesTheMinimum)
+{
+    // Java restores its start (a chaotic case, so this port's Tracker dialect may differ); the first
+    // Corrected port stopped at a deviation of 17.06 while 0.393 is reachable, and still reported four
+    // uncertainties.
+    const std::vector<QJsonObject> all = cases();
+    const auto found =
+        std::ranges::find_if(all, [](const QJsonObject& c) { return text(c[QStringLiteral("id")]) == "dampedsine/outlier"; });
+    ASSERT_NE(found, all.end());
+    const FitResult result = runCase(*found, FitDialect::Corrected, "dampedsine");
+    EXPECT_EQ(result.status, FitStatus::Fitted);
+    EXPECT_LT(deviationOf(result), 0.3933);
+    EXPECT_EQ(result.uncertaintyStatus, std::vector<UncertaintyStatus>(5, UncertaintyStatus::Estimated));
+}
+
 TEST(CurveFitReference, CorrectedBandRefitsTheOtherParameters)
 {
     int checked = 0;

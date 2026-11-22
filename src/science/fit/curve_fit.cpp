@@ -36,6 +36,9 @@ constexpr int UNCERTAINTY_TRIES = 10;
 constexpr double SMALLEST_CURVATURE = 0.001;
 /// Model evaluations between two calls of the cancellation callback.
 constexpr std::size_t CANCEL_POLL_EVALUATIONS = 4096;
+/// Corrected restarts LevenbergMarquardt from its best point while it keeps lowering the deviation
+/// without reaching its tolerance (each run stops after about three accepted steps), at most this often.
+constexpr int LEVENBERG_MARQUARDT_RUNS = 100;
 
 struct Points
 {
@@ -243,6 +246,8 @@ struct UserFitOutcome
     bool skipped = false;
     bool restored = false;
     bool levenbergMarquardt = false;
+    /// Corrected: the deviation decreased, but the minimizer whose result is kept did not reach its tolerance.
+    bool unconverged = false;
 };
 
 /// The UserFunction branch of fit(): HessianMinimize, then LevenbergMarquardt from the Hessian result
@@ -250,9 +255,11 @@ struct UserFitOutcome
 ///
 /// Tracker compares and keeps the last vector each minimizer evaluated, often one it rejected, and counts
 /// an undefined model value as zero deviation. Corrected keeps each minimizer's best vector, makes a vector
-/// undefined anywhere on the data undefined, falls back to LevenbergMarquardt whenever Newton stopped short
-/// of its tolerance or did not lower the deviation, and keeps a result only when it lowered the deviation
-/// or LevenbergMarquardt's shrinking steps found nothing lower around the start (a minimum already).
+/// undefined anywhere on the data undefined, and falls back to LevenbergMarquardt whenever Newton stopped
+/// short of its tolerance, kept an earlier vector or did not lower the deviation, restarting it from its best point while it keeps
+/// lowering the deviation without reaching its tolerance. It keeps a result that lowered the deviation, or
+/// one at the start when LevenbergMarquardt's shrinking steps found nothing lower (a minimum already), and
+/// marks it unconverged unless the minimizer it came from reached its tolerance.
 UserFitOutcome minimizeUserFunction(Curve& curve, double previousDeviation, Session& session)
 {
     const std::size_t count = curve.free().size();
@@ -287,20 +294,37 @@ UserFitOutcome minimizeUserFunction(Curve& curve, double previousDeviation, Sess
         curve.setFreeValues(params);
         double deviation = deviationSquared(curve, session);
         bool usedLevenbergMarquardt = false;
-        bool stationary = false;
-        if (!hessian.reachedTolerance || !(deviation < previousDeviation))
+        // Newton converged only if the vector it kept is its last iterate, not the start or the crude guess.
+        bool converged = hessian.reachedTolerance && hessian.keptLastIterate;
+        if (!converged || !(deviation < previousDeviation))
         {
             usedLevenbergMarquardt = true;
-            stationary = levenbergMarquardtMinimize(objective, params, TRACKER_FIT_ITERATIONS, TRACKER_FIT_TOLERANCE).reachedTolerance;
-            curve.setFreeValues(params);
-            deviation = deviationSquared(curve, session);
+            for (int run = 0; run < LEVENBERG_MARQUARDT_RUNS && !session.stopped; ++run)
+            {
+                const double before = deviation;
+                converged = levenbergMarquardtMinimize(objective, params, TRACKER_FIT_ITERATIONS, TRACKER_FIT_TOLERANCE).reachedTolerance;
+                curve.setFreeValues(params);
+                deviation = deviationSquared(curve, session);
+                if (converged || !(deviation < before))
+                {
+                    break;
+                }
+            }
         }
-        if (deviation < previousDeviation || (deviation == previousDeviation && stationary))
+        if (deviation < previousDeviation || (deviation == previousDeviation && converged))
         {
-            return {.deviation = deviation, .skipped = false, .restored = false, .levenbergMarquardt = usedLevenbergMarquardt};
+            return {.deviation = deviation,
+                    .skipped = false,
+                    .restored = false,
+                    .levenbergMarquardt = usedLevenbergMarquardt,
+                    .unconverged = !converged};
         }
         curve.setFreeValues(previous);
-        return {.deviation = previousDeviation, .skipped = false, .restored = true, .levenbergMarquardt = usedLevenbergMarquardt};
+        return {.deviation = previousDeviation,
+                .skipped = false,
+                .restored = true,
+                .levenbergMarquardt = usedLevenbergMarquardt,
+                .unconverged = false};
     }
     double deviation = deviationSquared(curve, session);
     bool success = true;
@@ -767,15 +791,20 @@ FitResult fitCurve(const FitFunction& function, std::span<const double> x, std::
                     return cancelledResult();
                 }
                 deviation = outcome.deviation;
-                result.status = outcome.skipped ? FitStatus::TooFewPoints : outcome.restored ? FitStatus::NotImproved : FitStatus::Fitted;
+                result.status = outcome.skipped       ? FitStatus::TooFewPoints
+                                : outcome.restored    ? FitStatus::NotImproved
+                                : outcome.unconverged ? FitStatus::NotConverged
+                                                      : FitStatus::Fitted;
                 result.method = outcome.skipped              ? FitMethod::None
                                 : outcome.levenbergMarquardt ? FitMethod::LevenbergMarquardt
                                                              : FitMethod::Hessian;
             }
             // With nothing fixed the "original" function is the fitted one; otherwise it still holds the
             // values from before the fit, which Tracker's band therefore uses. Corrected estimates no
-            // uncertainty around starting values the minimizers could not improve.
-            uncertainties = dialect == FitDialect::Corrected && result.status == FitStatus::NotImproved
+            // uncertainty away from a minimum: around starting values the minimizers could not improve, or
+            // where they stopped short of their tolerance.
+            const bool atMinimum = result.status != FitStatus::NotImproved && result.status != FitStatus::NotConverged;
+            uncertainties = dialect == FitDialect::Corrected && !atMinimum
                                 ? undeterminedUncertainties(fitted, session)
                                 : curvatureUncertainties(fitted, anyFixed ? std::span<const double>(original) : fitted.values(), session);
             if (session.stopped)

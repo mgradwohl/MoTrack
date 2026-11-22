@@ -293,24 +293,24 @@ double sum(std::span<const double> values)
     return total;
 }
 
-/// check_rmsd: keeps the better of the remembered vector and `x`, never one whose sum is NaN.
-void keepBetter(const MultiVarObjective& objective, std::vector<double>& remembered, double& rememberedValue, std::span<double> x)
+/// check_rmsd: keeps the better of the remembered vector and `x`, never one whose sum is NaN. Returns
+/// whether `x` was kept.
+bool keepBetter(const MultiVarObjective& objective, std::vector<double>& remembered, double& rememberedValue, std::span<double> x)
 {
     if (std::isnan(sum(x)))
     {
         std::ranges::copy(remembered, x.begin());
-        return;
+        return false;
     }
     const double value = objective(x);
     if (value <= rememberedValue)
     {
         rememberedValue = value;
         std::ranges::copy(x, remembered.begin());
+        return true;
     }
-    else
-    {
-        std::ranges::copy(remembered, x.begin());
-    }
+    std::ranges::copy(remembered, x.begin());
+    return false;
 }
 
 /// One Newton update shared by both minimizers: x becomes x + H^-1 D, returning OSP's squared step
@@ -354,7 +354,7 @@ HessianMinimizeResult hessianMinimize(const MultiVarObjective& objective, std::s
     std::vector<double> hessian;
     double rememberedValue = objective(x);
     crudeGuess(objective, x);
-    keepBetter(objective, remembered, rememberedValue, x);
+    static_cast<void>(keepBetter(objective, remembered, rememberedValue, x));
     for (std::size_t i = 0; i < m; ++i)
     {
         dx[i] = (std::abs(x[i]) + 1.0) / 1e5;
@@ -370,7 +370,7 @@ HessianMinimizeResult hessianMinimize(const MultiVarObjective& objective, std::s
         error = std::sqrt(squared);
         relative = error / (norm + tolerance);
     }
-    keepBetter(objective, remembered, rememberedValue, x);
+    result.keptLastIterate = keepBetter(objective, remembered, rememberedValue, x);
     result.error = error;
     result.reachedTolerance = error <= threshold || relative <= threshold;
     return result;
@@ -431,7 +431,7 @@ levenbergMarquardtMinimize(const MultiVarObjective& objective, std::span<double>
     {
         return result;
     }
-    keepBetter(objective, start, startValue, x);
+    static_cast<void>(keepBetter(objective, start, startValue, x));
     result.converged = true;
     return result;
 }

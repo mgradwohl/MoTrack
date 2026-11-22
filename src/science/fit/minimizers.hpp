@@ -25,6 +25,8 @@ struct HessianMinimizeResult
     int iterations = 0;
     /// The last Newton step met the tolerance (a NaN step, after a singular Hessian, does not).
     bool reachedTolerance = false;
+    /// `x` holds the last Newton iterate; false when the start or the crude guess was better and kept.
+    bool keptLastIterate = false;
 };
 
 /// Ports `org.opensourcephysics.numerics.HessianMinimize.minimize` (OSP d56207b, Tracker 6.3.5).

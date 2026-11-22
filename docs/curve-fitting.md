@@ -121,15 +121,24 @@ half-up boundary can, rarely, round differently; none of the 36 probes or the or
 defects below and otherwise runs the same algorithms. Neither dialect reproduces the text substitution, which
 is a defect of how OSP builds functions rather than of the fit.
 
-Corrected minimizes in three steps:
+Corrected minimizes in four steps:
 
 1. It keeps Newton's best vector.
-2. It runs Levenberg-Marquardt from that vector whenever Newton stopped short of its tolerance or did not
-   lower the deviation. A singular Hessian, for example, leaves Newton at the start.
-3. It accepts the result when the deviation decreased. It also accepts it when Levenberg-Marquardt's
-   shrinking steps reached their tolerance without finding anything lower: the start is already a minimum.
+2. It runs Levenberg-Marquardt from that vector unless Newton reached its tolerance with its last iterate
+   kept and a lower deviation. A singular Hessian, for example, leaves Newton at the start. A rejected
+   final iterate means the crude guess was kept, which is not a converged point.
+3. Each Levenberg-Marquardt run stops after about three accepted steps, so Corrected restarts it from its
+   best point while it keeps lowering the deviation without reaching its tolerance, at most 100 times. The
+   damped-sine fits that Tracker abandons converge this way (`dampedsine/outlier`: deviation 0.393, where
+   one run stops at 17.06).
+4. It reports `Fitted` only when the minimizer whose result it keeps reached its tolerance: either the
+   deviation decreased, or Levenberg-Marquardt's shrinking steps found nothing lower around the start (a
+   minimum already).
 
-Otherwise the start is kept (`FitStatus::NotImproved`) and no uncertainty is estimated around it.
+Otherwise Corrected keeps the start (`FitStatus::NotImproved`), or the lower values reached without
+convergence (`FitStatus::NotConverged`, such as a Gaussian fitted to a valley, whose best width is
+unbounded). In both cases it estimates no uncertainty. The finite-difference derivatives (steps
+(|p|+1)/1e5) still limit both dialects in valleys whose curvatures differ by more than about 10⁸.
 
 | Tracker 6.3.5 | Corrected | Issue |
 | --- | --- | --- |
@@ -139,7 +148,7 @@ Otherwise the start is kept (`FitStatus::NotImproved`) and no uncertainty is est
 | Polynomial normal equations in powers of x: digits lost for offset or narrow x; arbitrary or NaN results for repeated x | Normal equations in x scaled to [−1, 1]; covariance in closed form; `DegenerateData` for fewer distinct x than coefficients | [#244](https://github.com/mgradwohl/MoTrack/issues/244) |
 | The last vector each minimizer evaluated, often a rejected one, is kept and decides whether the fit improved, so a worse vector is reported or an improvement is reverted | Each minimizer's best vector is kept, with the Levenberg-Marquardt fallback described above | [#306](https://github.com/mgradwohl/MoTrack/issues/306) |
 | An undefined model value counts as zero deviation and a NaN deviation as no worse, so a fit can end where the function is undefined on the data | A vector undefined at any valid point is rejected; a fit is never reported for an undefined function | [#307](https://github.com/mgradwohl/MoTrack/issues/307) |
-| A singular Newton step keeps the start as the fit; any positive χ² curvature, rounding noise included, gives an uncertainty, also around a start that was not improved | Levenberg-Marquardt continues; σ is undetermined below a curvature of 0.001 after ten tries and for `NotImproved` | [#307](https://github.com/mgradwohl/MoTrack/issues/307) |
+| A singular Newton step keeps the start as the fit, and an unconverged improvement is reported as a fit; any positive χ² curvature, rounding noise included, gives an uncertainty, also around a start that was not improved | Levenberg-Marquardt continues, restarting while it improves, and an improvement without convergence is `NotConverged`; σ is undetermined below a curvature of 0.001 after ten tries and for `NotImproved` or `NotConverged` | [#307](https://github.com/mgradwohl/MoTrack/issues/307) |
 | NaN or infinite x and infinite y rows repeat the last rows; only the last 524 288 rows are fitted (a deliberate capacity limit) | Rows with any non-finite value are dropped; no row limit | [#230](https://github.com/mgradwohl/MoTrack/issues/230), [#247](https://github.com/mgradwohl/MoTrack/issues/247) |
 | The band stays drawn when constant x or y discards the uncertainties | The band is dropped with them | — |
 | The warning reflects the last deviation computed, often an uncertainty refit | It reflects the final parameters | — |
@@ -233,7 +242,8 @@ fixed-offset fits, which do not converge from Tracker's own initial guess.
   from scratch on selection or when Autofit is switched on; clear uncertainties when a fit is skipped.
 - **Warnings.** Show Tracker's "non-real values" warning from `nonRealValues`, `trackerSubstitutionCollisions()`
   for an opened experiment, and that rows outside the fit selection or with missing values are not fitted.
-  Explain `FitStatus::NotImproved`: the start was kept because no defined parameters lowered the deviation.
+  Explain `FitStatus::NotImproved` (the start was kept because no defined parameters lowered the
+  deviation) and `FitStatus::NotConverged` (lower values, but not a minimum, so no uncertainties).
 - **Threads.** Run fits on a worker and cancel through an atomic flag or `std::stop_token` read by
   `FitOptions::cancelled`; discard a result whose inputs changed meanwhile.
 - **Display.** Use `formatUncertainParameter` with the locale's decimal separator, "rms dev" with pattern

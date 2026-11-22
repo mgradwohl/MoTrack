@@ -518,6 +518,28 @@ TEST(CurveFit, TrackerKeepsTrackersRowCapacity)
     const FitResult corrected = fitCurve(line, x, y, manual);
     EXPECT_EQ(corrected.points, CAPACITY + 10);
     EXPECT_GT(corrected.rmsDeviation, 0.0);
+    // Fitted, Corrected's line is the least-squares line through every row, the first ten included. With
+    // x = 0 ... n - 1 and y = 2x + 1 + d, slope = 2 + sum (x - mean x) d / Sxx with Sxx = n (n^2 - 1) / 12,
+    // and intercept = 1 + mean d - (slope - 2) mean x (exactly 1.9999999912693367 and 1.003051655188007).
+    const auto n = static_cast<double>(x.size());
+    const double meanX = (n - 1) / 2;
+    double moment = 0;
+    double offsets = 0;
+    for (std::size_t i = 0; i < 10; ++i)
+    {
+        const double d = y[i] - ((2 * x[i]) + 1);
+        moment += (x[i] - meanX) * d;
+        offsets += d;
+    }
+    const double tilt = moment / (n * ((n * n) - 1) / 12);
+    const FitResult fitted = fitCurve(line, x, y, options(FitDialect::Corrected));
+    EXPECT_EQ(fitted.status, FitStatus::Fitted);
+    ASSERT_EQ(fitted.parameters.size(), 2U);
+    EXPECT_NEAR(fitted.parameters[0], 2 + tilt, 1e-13);
+    // The intercept cancels terms of size slope * mean x (5e5) when it leaves the scaled coordinates.
+    EXPECT_NEAR(fitted.parameters[1], 1 + (offsets / n) - (tilt * meanX), 1e-8);
+    EXPECT_LT(fitted.parameters[0], 2 - 1e-9);
+    EXPECT_GT(fitted.parameters[1], 1.003);
 }
 
 TEST(CurveFit, CorrectedNeverFitsIntoUndefinedValues)
@@ -699,6 +721,89 @@ TEST(CurveFit, DegenerateDirectionsAreUndetermined)
     EXPECT_TRUE(factors.uncertaintyBand.empty());
 }
 
+TEST(CurveFit, CorrectedReportsAnUnconvergedImprovement)
+{
+    // A Rosenbrock valley 10^6 times narrower than long, as two residuals: the finite-difference minimizers
+    // lower the deviation but cannot follow the valley to its minimum at (1, 1).
+    FitFunction valley;
+    valley.expression = "valley";
+    valley.parameters = {parameter("a", -1.2), parameter("b", 1.0)};
+    valley.model = [](double x, std::span<const double> p)
+    {
+        return x == 0 ? 1e6 * (p[1] - (p[0] * p[0])) : p[0];
+    };
+    const std::vector<double> x = {0, 1, 0, 1};
+    const std::vector<double> y = {0, 1, 0, 1};
+    const FitResult tracker = fitCurve(valley, x, y, options(FitDialect::Tracker, FitStart::FromCurrent));
+    EXPECT_EQ(tracker.status, FitStatus::NotImproved);
+    const FitResult result = fitCurve(valley, x, y, options(FitDialect::Corrected, FitStart::FromCurrent));
+    EXPECT_EQ(result.status, FitStatus::NotConverged);
+    EXPECT_EQ(result.method, FitMethod::LevenbergMarquardt);
+    EXPECT_LT(result.rmsDeviation, tracker.rmsDeviation);
+    EXPECT_GT(std::abs(result.parameters[0] - 1), 0.1);
+    EXPECT_EQ(result.uncertainties, (std::vector<double>{0, 0}));
+    EXPECT_EQ(result.uncertaintyStatus, (std::vector<UncertaintyStatus>{UncertaintyStatus::Undetermined, UncertaintyStatus::Undetermined}));
+    EXPECT_TRUE(result.uncertaintyBand.empty());
+}
+
+TEST(CurveFit, CorrectedRunsLevenbergMarquardtFromNewtonsBestVector)
+{
+    // From (0.5, 0, 1) Newton improves this Lorentzian without converging, so Corrected restarts
+    // Levenberg-Marquardt from Newton's best vector until it reaches its tolerance. The same calls,
+    // made here directly (this file rounds like the kernel), give the same parameters bit for bit.
+    const auto x = grid(-1, 0.125, 25);
+    const std::vector<double> y = {
+        0.073834932435113562, 0.097634224398582589, 0.083520924240653646, 0.097707775081886133, 0.15304091926405597,
+        0.18467131683080823,  0.20394454633902812,  0.28522120115729394,  0.41944015002789953,  0.57245210274895919,
+        0.82706333490795148,  1.2829975441932591,   1.8192230544900421,   1.9782557828892955,   1.5828258599478016,
+        1.0991691532725893,   0.73398480063310179,  0.47632726273449993,  0.3413526922959863,   0.27915648457650644,
+        0.20509364665688071,  0.13797264210921989,  0.1274513914546983,   0.12474903249116806,  0.082676884656120248};
+    FitFunction lorentz;
+    lorentz.expression = "A/(1+((x-B)/C)^2)";
+    lorentz.parameters = {parameter("A", 0.5), parameter("B", 0), parameter("C", 1)};
+    lorentz.model = [](double xi, std::span<const double> p)
+    {
+        const double u = (xi - p[1]) / p[2];
+        return p[0] / (1 + (u * u));
+    };
+    const auto objective = [&](std::span<const double> p)
+    {
+        double sum = 0;
+        for (std::size_t i = 0; i < x.size(); ++i)
+        {
+            const double deviation = y[i] - lorentz.model(x[i], p);
+            sum += deviation * deviation;
+        }
+        return sum;
+    };
+    using motrack::science::TRACKER_FIT_ITERATIONS;
+    using motrack::science::TRACKER_FIT_TOLERANCE;
+    const std::vector<double> start = {0.5, 0, 1};
+    std::vector<double> p = start;
+    const auto newton = motrack::science::hessianMinimize(objective, p, TRACKER_FIT_ITERATIONS, TRACKER_FIT_TOLERANCE);
+    ASSERT_FALSE(newton.reachedTolerance && newton.keptLastIterate);
+    ASSERT_NE(p, start);
+    double deviation = objective(p);
+    bool converged = false;
+    for (int run = 0; run < 100 && !converged; ++run)
+    {
+        const double before = deviation;
+        converged =
+            motrack::science::levenbergMarquardtMinimize(objective, p, TRACKER_FIT_ITERATIONS, TRACKER_FIT_TOLERANCE).reachedTolerance;
+        deviation = objective(p);
+        if (!(deviation < before))
+        {
+            break;
+        }
+    }
+    ASSERT_TRUE(converged);
+    const FitResult result = fitCurve(lorentz, x, y, options(FitDialect::Corrected, FitStart::FromCurrent));
+    EXPECT_EQ(result.status, FitStatus::Fitted);
+    EXPECT_EQ(result.method, FitMethod::LevenbergMarquardt);
+    EXPECT_EQ(result.parameters, p);
+    expectNear(std::vector<double>{2, 0.6, 0.3}, result.parameters, 0.01);
+}
+
 TEST(CurveFit, CorrectedKeepsAnUnimprovableStartWithoutUncertainties)
 {
     // Every move of the exponent leaves Power undefined at negative x, so nothing lowers the deviation.
@@ -707,10 +812,7 @@ TEST(CurveFit, CorrectedKeepsAnUnimprovableStartWithoutUncertainties)
     FitFunction power = builtInFit(BuiltInFit::Power);
     const FitResult result =
         fitCurve(withValues(power, std::vector<double>{1, 2}), x, y, options(FitDialect::Corrected, FitStart::FromCurrent));
-    if (result.status != FitStatus::NotImproved)
-    {
-        GTEST_SKIP() << "the exponent found a defined improvement";
-    }
+    ASSERT_EQ(result.status, FitStatus::NotImproved);
     EXPECT_EQ(result.parameters, (std::vector<double>{1, 2}));
     EXPECT_EQ(result.uncertainties, (std::vector<double>{0, 0}));
     EXPECT_EQ(result.uncertaintyStatus, (std::vector<UncertaintyStatus>{UncertaintyStatus::Undetermined, UncertaintyStatus::Undetermined}));

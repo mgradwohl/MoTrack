@@ -189,8 +189,8 @@ if(BUILD_TESTING)
         MOTRACK_ODE_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/ode-reference.json"
         MOTRACK_FIT_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/science/fit-reference.json")
     # The test rate functions and fit models must round like the Java oracles'.
-    set_source_files_properties(tests/science/ode_solver_test.cpp tests/science/curve_fit_test.cpp PROPERTIES
-        COMPILE_OPTIONS "${MOTRACK_JAVA_FP_OPTIONS}")
+    set_source_files_properties(tests/science/ode_solver_test.cpp tests/science/curve_fit_test.cpp
+        tests/science/curve_fit_api_test.cpp PROPERTIES COMPILE_OPTIONS "${MOTRACK_JAVA_FP_OPTIONS}")
     add_test(NAME legacy_project COMMAND motrack_tests)
     add_executable(motrack_corpus_probe tests/corpus_probe.cpp)
     add_dependencies(motrack_tests motrack_corpus_probe)

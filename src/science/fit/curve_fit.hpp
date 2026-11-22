@@ -148,6 +148,10 @@ enum class FitStatus : std::uint8_t
     /// start. Corrected: no defined vector lowered the deviation and the start is not a minimum; there is
     /// then no uncertainty estimate.
     NotImproved,
+    /// Corrected only: the minimizers lowered the deviation, but stopped (after up to 100 restarts of
+    /// Levenberg-Marquardt) without reaching their tolerance. The values are an improvement, not a
+    /// minimum, so no uncertainty is estimated. Tracker reports such a fit as Fitted or restores the start.
+    NotConverged,
     /// Autofit is off: the given parameters were evaluated.
     Manual,
     /// Every parameter is fixed (or there are none).
@@ -173,7 +177,8 @@ enum class FitMethod : std::uint8_t
     /// `HessianMinimize` alone. Tracker: its last vector did not increase the deviation. Corrected: it
     /// reached its tolerance with a lower deviation.
     Hessian,
-    /// `LevenbergMarquardt` from the Hessian result ran; with `FitStatus::NotImproved` it failed too.
+    /// `LevenbergMarquardt` from the Hessian result ran (Corrected: restarted while it kept improving); with
+    /// `FitStatus::NotImproved` it failed too.
     LevenbergMarquardt,
 };
 
@@ -184,7 +189,7 @@ enum class UncertaintyStatus : std::uint8_t
     Fixed,
     /// The chi-squared curvature was not positive (Tracker's 0, shown without an uncertainty). Corrected also
     /// leaves sigma undetermined for a curvature below 0.001 after ten tries, which is rounding noise along a
-    /// direction the data do not determine, and for every parameter of a `NotImproved` fit.
+    /// direction the data do not determine, and for every parameter of a `NotImproved` or `NotConverged` fit.
     Undetermined,
 };
 
