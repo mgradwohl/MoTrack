@@ -46,9 +46,12 @@ template <typename T> T require(std::optional<T> value)
     return *value;
 }
 
-std::shared_ptr<const Source> parsed(std::string bytes)
+/// Quirk fixtures whose objects reach end of file load only with this; OSP loads them silently (#243).
+constexpr motrack::osp::ParseLimits ACCEPT_TRUNCATED{.acceptTruncated = true};
+
+std::shared_ptr<const Source> parsed(std::string bytes, const motrack::osp::ParseLimits& limits = {})
 {
-    auto source = motrack::osp::parse(std::move(bytes));
+    auto source = motrack::osp::parse(std::move(bytes), limits);
     if (!source)
     {
         throw std::runtime_error("parse failed: " + source.error().message);
@@ -160,7 +163,7 @@ TEST(OspReader, BlankLineEndsAnArrayAndLaterElementsJoinTheObject)
 
 TEST(OspReader, ArrayWithoutSelfClosingTagConsumesFollowingLines)
 {
-    const auto source = parsed(fixture("unclosed-array-line.xml"));
+    const auto source = parsed(fixture("unclosed-array-line.xml"), ACCEPT_TRUNCATED);
     EXPECT_EQ(outline(*source),
               "object test.UnclosedArrayLine\n"
               "  empty : array class=[D\n"
@@ -277,7 +280,7 @@ TEST(OspReader, ReadsPrologEpilogAndSameLineQuirks)
     EXPECT_EQ(prolog->epilog(), "<object class=\"test.Ignored\"/>\ntrailing text\n");
     EXPECT_EQ(prolog->rawText(prolog->root()).substr(0, 26), "<object class=\"test.Prolog");
 
-    const auto sameLine = parsed(fixture("same-line.xml"));
+    const auto sameLine = parsed(fixture("same-line.xml"), ACCEPT_TRUNCATED);
     // The version comes from the XML declaration on the root's line; the property's next line is taken as
     // the object's opening tag.
     EXPECT_EQ(outline(*sameLine),
@@ -289,7 +292,7 @@ TEST(OspReader, ReadsPrologEpilogAndSameLineQuirks)
 
     const auto line10 = parsed(fixture("root-line-10.xml"));
     EXPECT_EQ(outline(*line10), "object test.Line10\n  value : int = 10\n");
-    const auto unclosed = parsed(fixture("unclosed-root.xml"));
+    const auto unclosed = parsed(fixture("unclosed-root.xml"), ACCEPT_TRUNCATED);
     EXPECT_EQ(outline(*unclosed),
               "object test.UnclosedRoot\n  value : int = 1\n  child : object\n    object test.Child\n      x : int = 2\n");
     EXPECT_TRUE(unclosed->truncated());
@@ -314,16 +317,16 @@ TEST(OspReader, LineEndingsAndByteOrderMarkDoNotChangeTheTree)
     for (const auto* name : {"blank-line-in-array.xml", "self-closing.xml", "text-values.xml", "same-line.xml", "unicode.xml"})
     {
         const auto lf = fixture(name);
-        const auto expected = motrack::osp::objectValue(*parsed(lf), NodeId{0});
+        const auto expected = motrack::osp::objectValue(*parsed(lf, ACCEPT_TRUNCATED), NodeId{0});
         const auto crlf = replaceAll(lf, "\n", "\r\n");
         const auto cr = replaceAll(lf, "\n", "\r");
-        const auto crlfSource = parsed(crlf);
-        const auto crSource = parsed(cr);
-        const auto bomSource = parsed("\xEF\xBB\xBF" + crlf);
+        const auto crlfSource = parsed(crlf, ACCEPT_TRUNCATED);
+        const auto crSource = parsed(cr, ACCEPT_TRUNCATED);
+        const auto bomSource = parsed("\xEF\xBB\xBF" + crlf, ACCEPT_TRUNCATED);
         EXPECT_EQ(motrack::osp::objectValue(*crlfSource, NodeId{0}), expected) << name;
         EXPECT_EQ(motrack::osp::objectValue(*crSource, NodeId{0}), expected) << name;
         EXPECT_EQ(motrack::osp::objectValue(*bomSource, NodeId{0}), expected) << name;
-        EXPECT_EQ(parsed(lf)->lineEnding(), motrack::osp::LineEnding::Lf);
+        EXPECT_EQ(parsed(lf, ACCEPT_TRUNCATED)->lineEnding(), motrack::osp::LineEnding::Lf);
         EXPECT_EQ(crlfSource->lineEnding(), motrack::osp::LineEnding::CrLf);
         EXPECT_EQ(crSource->lineEnding(), motrack::osp::LineEnding::Cr);
     }
@@ -360,6 +363,23 @@ TEST(OspReader, ReportsTheFailuresJavaReportsAsReadFailures)
     EXPECT_EQ(failure("<object class=\"org.opensourcephysics.controls.Cryptic\">\n<property name=\"cryptic\" "
                       "type=\"string\">abc</property>\n</object>"),
               ParseError::Code::Encrypted);
+}
+
+TEST(OspReader, RefusesDocumentsThatEndBeforeTheirObjectsClose)
+{
+    // OSP's readObject treats end of file as a closing tag and loads the partial tree with failedToRead()
+    // false (#243); MoTrack reports the truncation unless explicitly asked to accept it.
+    for (const auto* name : {"unclosed-root.xml", "unclosed-array-line.xml", "same-line.xml"})
+    {
+        const auto bytes = fixture(name);
+        std::size_t line = 0;
+        EXPECT_EQ(failure(bytes, &line), ParseError::Code::Truncated) << name;
+        EXPECT_EQ(line, parsed(bytes, ACCEPT_TRUNCATED)->lines().size()) << name;
+        EXPECT_TRUE(parsed(bytes, ACCEPT_TRUNCATED)->truncated()) << name;
+    }
+    EXPECT_EQ(failure("<object class=\"x\">\n<property name=\"a\" type=\"int\">1</property>\n"), ParseError::Code::Truncated);
+    EXPECT_FALSE(parsed("<object class=\"x\">\n<property name=\"a\" type=\"int\">1</property>\n</object>")->truncated());
+    EXPECT_FALSE(parsed("<object class=\"x\"/>")->truncated());
 }
 
 TEST(OspReader, RequiresUtf8)

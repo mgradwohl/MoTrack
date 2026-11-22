@@ -35,6 +35,9 @@ using motrack::osp::PropertyValue;
 using motrack::osp::Source;
 
 constexpr std::size_t MAX_MEMBER_BYTES = std::size_t{32} * 1024 * 1024;
+/// Quirk fixtures and fuzzed inputs include documents whose objects reach end of file (#243).
+constexpr motrack::osp::ParseLimits ACCEPT_TRUNCATED{.acceptTruncated = true};
+constexpr motrack::osp::ParseLimits FUZZ_LIMITS{.maxDepth = 64, .maxNodes = 100000, .acceptTruncated = true};
 
 struct Document
 {
@@ -219,19 +222,26 @@ TEST(OspCorpus, EveryFixtureRendersByteForByteInEveryLineEnding)
     for (const auto& document : corpus())
     {
         const auto lf = replaceAll(replaceAll(document.bytes, "\r\n", "\n"), "\r", "\n");
-        const auto source = motrack::osp::parse(document.bytes);
+        const auto source = motrack::osp::parse(document.bytes, ACCEPT_TRUNCATED);
         ASSERT_EQ(source.has_value(), !expectedFailure(document)) << document.label;
         if (!source)
         {
             continue;
         }
+        // By default a document whose objects reach end of file is refused (#243); nothing else is.
+        const auto strict = motrack::osp::parse(document.bytes);
+        EXPECT_EQ(strict.has_value(), !(*source)->truncated()) << document.label;
+        if (!strict)
+        {
+            EXPECT_EQ(strict.error().code, motrack::osp::ParseError::Code::Truncated) << document.label;
+        }
         const auto expected = motrack::osp::objectValue(**source, (*source)->root());
         for (const auto& variant : {document.bytes, lf, replaceAll(lf, "\n", "\r\n"), replaceAll(lf, "\n", "\r")})
         {
-            const auto variantSource = motrack::osp::parse(variant);
+            const auto variantSource = motrack::osp::parse(variant, ACCEPT_TRUNCATED);
             ASSERT_TRUE(variantSource) << document.label;
             checkInvariants(**variantSource);
-            const auto output = motrack::osp::render(**variantSource, Patch{});
+            const auto output = motrack::osp::render(**variantSource, Patch{}, ACCEPT_TRUNCATED);
             ASSERT_TRUE(output) << document.label << ": " << output.error().message;
             EXPECT_EQ(*output, variant) << document.label;
             EXPECT_EQ(motrack::osp::objectValue(**variantSource, (*variantSource)->root()), expected) << document.label;
@@ -669,7 +679,7 @@ TEST(OspCorpus, ByteMutationsKeepTheReaderInvariants)
                     break;
                 }
             }
-            const auto source = motrack::osp::parse(bytes, {.maxDepth = 64, .maxNodes = 100000});
+            const auto source = motrack::osp::parse(bytes, FUZZ_LIMITS);
             if (!source)
             {
                 EXPECT_FALSE(source.error().message.empty());
@@ -677,7 +687,7 @@ TEST(OspCorpus, ByteMutationsKeepTheReaderInvariants)
             }
             ++parsedCount;
             checkInvariants(**source);
-            EXPECT_EQ(*motrack::osp::render(**source, Patch{}), bytes);
+            EXPECT_EQ(*motrack::osp::render(**source, Patch{}, FUZZ_LIMITS), bytes);
             (void)motrack::osp::objectValue(**source, (*source)->root());
             // Any edit either renders into exactly the intended tree or is refused; it never mis-renders.
             const auto& root = (*source)->node((*source)->root());
@@ -687,10 +697,10 @@ TEST(OspCorpus, ByteMutationsKeepTheReaderInvariants)
             {
                 patch.replace(root.children.front(), motrack::osp::intProperty("first", 1));
             }
-            const auto output = motrack::osp::render(**source, patch);
+            const auto output = motrack::osp::render(**source, patch, FUZZ_LIMITS);
             if (output)
             {
-                ASSERT_TRUE(motrack::osp::parse(*output, {.maxDepth = 64, .maxNodes = 100000}));
+                ASSERT_TRUE(motrack::osp::parse(*output, FUZZ_LIMITS));
             }
         }
     }

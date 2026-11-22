@@ -44,9 +44,11 @@ template <typename T> T require(std::optional<T> value)
     return *value;
 }
 
-std::shared_ptr<const Source> parsed(std::string bytes)
+constexpr motrack::osp::ParseLimits ACCEPT_TRUNCATED{.acceptTruncated = true};
+
+std::shared_ptr<const Source> parsed(std::string bytes, const motrack::osp::ParseLimits& limits = {})
 {
-    auto source = motrack::osp::parse(std::move(bytes));
+    auto source = motrack::osp::parse(std::move(bytes), limits);
     if (!source)
     {
         throw std::runtime_error("parse failed: " + source.error().message);
@@ -54,9 +56,9 @@ std::shared_ptr<const Source> parsed(std::string bytes)
     return *source;
 }
 
-std::string rendered(const Source& source, const Patch& patch)
+std::string rendered(const Source& source, const Patch& patch, const motrack::osp::ParseLimits& limits = {})
 {
-    auto output = motrack::osp::render(source, patch);
+    auto output = motrack::osp::render(source, patch, limits);
     if (!output)
     {
         throw std::runtime_error("render failed: " + output.error().message);
@@ -233,10 +235,10 @@ TEST(OspRender, RemovesAndReplacesWholeProperties)
     EXPECT_NE(output.find("class=\"[Ljava.lang.Object;\">\n    </property>"), std::string::npos);
 
     // Replacing the final, unterminated line keeps the file without a final line break.
-    const auto unterminated = parsed("<object class=\"x\">\n<property name=\"a\" type=\"int\">1</property>");
+    const auto unterminated = parsed("<object class=\"x\">\n<property name=\"a\" type=\"int\">1</property>", ACCEPT_TRUNCATED);
     Patch last;
     last.replace(child(*unterminated, unterminated->root(), 0), motrack::osp::intProperty("b", 2));
-    EXPECT_EQ(rendered(*unterminated, last), "<object class=\"x\">\n<property name=\"b\" type=\"int\">2</property>");
+    EXPECT_EQ(rendered(*unterminated, last, ACCEPT_TRUNCATED), "<object class=\"x\">\n<property name=\"b\" type=\"int\">2</property>");
 }
 
 TEST(OspRender, RejectsInvalidTargetsAndConflicts)
@@ -317,10 +319,12 @@ TEST(OspRender, VerifiesTheRenderAgainstTheIntendedTree)
     const auto source = parsed("<object class=\"x\">\n<property name=\"a>b\" type=\"int\">3</property>\n</object>");
     EXPECT_EQ(renderFailure(*source, Patch{}.setContent(child(*source, source->root(), 0), "9")), RenderError::Code::VerificationFailed);
     // An insertion at the end of an object that reached end of file unclosed would land in the wrong object.
-    const auto unclosed = parsed("<object class=\"x\">\n<property name=\"o\" type=\"object\">\n<object class=\"y\">\n");
-    EXPECT_EQ(renderFailure(*unclosed, Patch{}.append(unclosed->root(), motrack::osp::intProperty("a", 1))),
+    const auto unclosed = parsed("<object class=\"x\">\n<property name=\"o\" type=\"object\">\n<object class=\"y\">\n", ACCEPT_TRUNCATED);
+    EXPECT_EQ(renderFailure(*unclosed, Patch{}.append(unclosed->root(), motrack::osp::intProperty("a", 1)), ACCEPT_TRUNCATED),
               RenderError::Code::UnsupportedLayout);
-    EXPECT_EQ(rendered(*unclosed, Patch{}.insert(unclosed->root(), 0, motrack::osp::intProperty("a", 1))),
+    // The default limits refuse to verify a render of a truncated source, as they refuse to parse one.
+    EXPECT_EQ(renderFailure(*unclosed, Patch{}.insert(unclosed->root(), 0, motrack::osp::intProperty("a", 1))), RenderError::Code::VerificationFailed);
+    EXPECT_EQ(rendered(*unclosed, Patch{}.insert(unclosed->root(), 0, motrack::osp::intProperty("a", 1)), ACCEPT_TRUNCATED),
               "<object class=\"x\">\n<property name=\"a\" type=\"int\">1</property>\n<property name=\"o\" type=\"object\">\n<object "
               "class=\"y\">\n");
     // Only string properties have a CDATA path, so other types store the marker literally.
@@ -503,6 +507,59 @@ TEST(OspWriter, AvoidsCompactArraysOspCannotReadBack)
     ASSERT_EQ(rows.size(), 2U);
     EXPECT_EQ(require(require(rows[0]).compactArray()).ints, (std::vector<std::int32_t>{1, 2}));
     EXPECT_TRUE(require(rows[1]).elements().empty());
+}
+
+TEST(OspWriter, KeepsTrailingNullRowsOspWouldDrop)
+{
+    using Kind = motrack::osp::CompactArray::Kind;
+    using motrack::osp::CompactArray;
+    // OSP writes {{1,2},null}, and its decoder never reaches the final null row: it reads [[1,2]]
+    // (OpenSourcePhysics/osp#20).
+    EXPECT_EQ(require(motrack::osp::parseCompactArray("{{1,2},null}", "[[I")).rows.size(), 1U);
+    const CompactArray values{.kind = Kind::Nested, .rows = {CompactArray{.kind = Kind::Int, .ints = {1, 2}}, CompactArray{}}};
+    const auto property = require(motrack::osp::primitiveArrayProperty("rows", "[[I", values));
+    ASSERT_EQ(property.elements.size(), 2U);
+    EXPECT_EQ(property.elements[0].name, "[0]");
+    EXPECT_EQ(property.elements[1].name, "[1]");
+    EXPECT_EQ(property.elements[1].type(), motrack::osp::PropertyType::Object);
+    const auto reread = parsed(require(motrack::osp::write(ObjectValue{.className = "x", .properties = {property}})));
+    EXPECT_EQ(require(require(ObjectView(*reread, reread->root()).property("rows")).indexedElements()).size(), 2U);
+    // A null row before the last one is read back, so the compact form stays.
+    const CompactArray leading{.kind = Kind::Nested, .rows = {CompactArray{}, CompactArray{.kind = Kind::Int, .ints = {1}}}};
+    EXPECT_EQ(require(motrack::osp::primitiveArrayProperty("rows", "[[I", leading)).elements.at(0).content, "{null,{1}}");
+    // NaN and -0.0 survive the compact form.
+    const CompactArray special{.kind = Kind::Double, .doubles = {std::numeric_limits<double>::quiet_NaN(), -0.0}};
+    EXPECT_EQ(require(motrack::osp::primitiveArrayProperty("d", "[D", special)).elements.at(0).content, "{NaN,-0.0}");
+}
+
+TEST(OspWriter, RefusesStringsThatWouldInjectProperties)
+{
+    // A CDATA value ending in "]]></property>" would let the following line become a real property in OSP
+    // (getInt("injected") returned 7 in Tracker 6.3.5; OpenSourcePhysics/osp#21).
+    const std::string injection = "x]]></property>\n<property name=\"injected\" type=\"int\">7</property>\n<property name=\"rest\" type=\"string\"><![CDATA[y";
+    const auto source = parsed(std::string(SAMPLE));
+    EXPECT_EQ(renderFailure(*source, Patch{}.setString(child(*source, source->root(), 1), injection)), RenderError::Code::InvalidValue);
+    EXPECT_EQ(motrack::osp::write(ObjectValue{.className = "x", .properties = {motrack::osp::stringProperty("s", injection)}}).error().code,
+              RenderError::Code::InvalidValue);
+    // Without the CDATA terminator, multi-line text cannot leave its property.
+    const auto multiline = rendered(*source, Patch{}.setString(child(*source, source->root(), 1), "a\n<property name=\"injected\" type=\"int\">7"));
+    const auto reread = parsed(multiline);
+    const ObjectView root(*reread, reread->root());
+    EXPECT_FALSE(root.property("injected"));
+    EXPECT_EQ(root.getString("label"), "a\n<property name=\"injected\" type=\"int\">7");
+}
+
+TEST(OspWriter, RewritesLoadedCdataStringsWithCdata)
+{
+    // OSP keeps a loaded string without its CDATA markers and XMLControlElement.toXML then writes it bare
+    // (`a<b`, OpenSourcePhysics/osp#21). MoTrack decides CDATA from the logical value whenever it writes one.
+    const auto source = parsed("<object class=\"x\">\n<property name=\"s\" type=\"string\"><![CDATA[a<b]]></property>\n</object>");
+    const auto property = child(*source, source->root(), 0);
+    const auto replaced = rendered(*source, Patch{}.replace(property, motrack::osp::propertyValue(*source, property)));
+    EXPECT_EQ(replaced, "<object class=\"x\">\n<property name=\"s\" type=\"string\"><![CDATA[a<b]]></property>\n</object>");
+    const auto copied = require(motrack::osp::write(ObjectValue{.className = "x", .properties = {motrack::osp::propertyValue(*source, property)}}));
+    EXPECT_NE(copied.find("<![CDATA[a<b]]>"), std::string::npos);
+    EXPECT_EQ(rendered(*source, Patch{}.setContent(property, "a<b")), replaced);
 }
 
 TEST(OspWriter, WritesPrimitiveArraysAsOspDoes)

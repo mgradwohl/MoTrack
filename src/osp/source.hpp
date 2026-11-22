@@ -28,6 +28,9 @@ struct ParseLimits
     std::size_t maxBytes = std::size_t{32} * 1024 * 1024; ///< Same bound as MAX_TRACKER_XML_BYTES.
     std::size_t maxDepth = 256;                           ///< Nested objects and properties.
     std::size_t maxNodes = 2'000'000;
+    /// OSP loads a document that ends before its objects close, keeping whatever it read (#243). MoTrack
+    /// refuses it with ParseError::Code::Truncated unless this is set, for diagnostics and the O1 oracle only.
+    bool acceptTruncated = false;
 };
 
 /// OSP property type codes (XMLProperty.java). `Unknown` is TYPE_UNKNOWN: an unrecognized type attribute,
@@ -125,6 +128,7 @@ struct ParseError
         NullObjectProperty,  ///< ">null</property" directly in an object; setProperty throws (line 1541).
         UnterminatedArray,   ///< End of file inside an array or collection.
         UnterminatedValue,   ///< End of file before a text value's end tag; Java loops until out of memory (#195).
+        Truncated,           ///< End of file before an object's "</object>"; Java loads the partial tree (#243).
         MissingObject,       ///< End of file where an object property's object should start.
         TooDeep,
         TooManyNodes,
@@ -159,7 +163,7 @@ class Source
     /// Bytes before the root's opening line (declaration, comments) and after its last consumed line.
     [[nodiscard]] std::string_view prolog() const;
     [[nodiscard]] std::string_view epilog() const;
-    /// True when an object reached end of file without "</object>". OSP accepts such files.
+    /// True when an object reached end of file without "</object>"; only possible with acceptTruncated.
     [[nodiscard]] bool truncated() const noexcept;
 
   private:

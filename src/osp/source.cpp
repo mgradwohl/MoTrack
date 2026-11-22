@@ -260,6 +260,10 @@ class SourceParser
         {
             node.version = std::string(version.value);
         }
+        if (m_Source.m_Truncated && !m_Limits.acceptTruncated)
+        {
+            return fail(ParseError::Code::Truncated, m_Source.m_Lines.size(), "The document ends before its objects are closed.");
+        }
         if (node.className == CRYPTIC_CLASS)
         {
             return fail(ParseError::Code::Encrypted, *rootLine + 1, "Password-protected OSP documents are not supported.");

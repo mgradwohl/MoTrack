@@ -1,5 +1,8 @@
 #include "osp/value.hpp"
 
+#include <bit>
+#include <cmath>
+#include <cstdint>
 #include <utility>
 
 namespace motrack::osp
@@ -48,20 +51,44 @@ bool matchesClass(const CompactArray& values, std::string_view className) noexce
     return true;
 }
 
-/// A nested array with an empty leaf row. OSP's arrayValue reads "{}" through "".split(","), which yields one
-/// empty field: Integer.parseInt and Double.parseDouble throw and Boolean.parseBoolean adds a false element
-/// (XMLControlElement line 2049). OSP still writes such arrays compactly when the first row is not empty.
-bool hasEmptyLeafRow(const CompactArray& values) noexcept
+bool sameDouble(double left, double right) noexcept
 {
-    for (const auto& row : values.rows)
+    // Double.toString writes every NaN as "NaN"; any other value must keep its exact bits, including -0.0.
+    return (std::isnan(left) && std::isnan(right)) || std::bit_cast<std::uint64_t>(left) == std::bit_cast<std::uint64_t>(right);
+}
+
+bool sameValues(const CompactArray& left, const CompactArray& right) noexcept
+{
+    if (left.kind != right.kind || left.ints != right.ints || left.booleans != right.booleans || left.doubles.size() != right.doubles.size() ||
+        left.rows.size() != right.rows.size())
     {
-        if ((row.kind == CompactArray::Kind::Nested && hasEmptyLeafRow(row)) ||
-            (row.kind != CompactArray::Kind::Nested && row.kind != CompactArray::Kind::Null && compactLength(row) == 0))
+        return false;
+    }
+    for (std::size_t position = 0; position < left.doubles.size(); ++position)
+    {
+        if (!sameDouble(left.doubles[position], right.doubles[position]))
         {
-            return true;
+            return false;
         }
     }
-    return false;
+    for (std::size_t position = 0; position < left.rows.size(); ++position)
+    {
+        if (!sameValues(left.rows[position], right.rows[position]))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// OSP's arrayValue (XMLControlElement line 2002) does not read every compact string OSP writes: an empty row
+/// "{}" yields one empty field ("".split(",")), so numbers throw and booleans gain a false element, and a final
+/// null row is dropped because the closing brace is never scanned. Compact text is used only when that
+/// decoder returns exactly the values (MoTrack #193, OpenSourcePhysics/osp#20).
+bool readsBack(std::string_view text, std::string_view className, const CompactArray& values)
+{
+    const auto decoded = parseCompactArray(text, className);
+    return decoded && sameValues(*decoded, values);
 }
 
 PropertyValue primitiveArray(std::string name, std::string_view className, const CompactArray& values, bool writeNullFinalElement)
@@ -81,12 +108,16 @@ PropertyValue primitiveArray(std::string name, std::string_view className, const
         count *= compactLength(*current);
     }
     PropertyValue property{.name = std::move(name), .typeName = "array", .className = std::string(className)};
-    // Deliberate difference: with an empty leaf row MoTrack writes the element form, which OSP reads back,
-    // instead of the compact string OSP writes but cannot read (MoTrack #193).
-    if (remainingLevels == 0 && count > 0 && !hasEmptyLeafRow(values))
+    // Deliberate difference: where OSP would write a compact string that it reads differently, MoTrack writes
+    // the element form, which OSP reads back exactly.
+    if (remainingLevels == 0 && count > 0)
     {
-        property.elements.push_back(stringProperty("array", formatCompactArray(values)));
-        return property;
+        auto compact = formatCompactArray(values);
+        if (readsBack(compact, className, values))
+        {
+            property.elements.push_back(stringProperty("array", std::move(compact)));
+            return property;
+        }
     }
     // Element form: only nested arrays have elements; an empty leaf array has none.
     const auto length = values.kind == CompactArray::Kind::Nested ? values.rows.size() : 0;
