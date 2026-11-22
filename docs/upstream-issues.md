@@ -8,7 +8,7 @@ This is a dated issue/discussion audit, not a claim that every attached experime
 historical environment was reproduced. Refresh live status and comments before implementing a case.
 
 The [full-port plan](migration-plan.md) owns requirements and dependency order. This audit supplies
-regressions and feature decisions for that plan; it does not expand the frozen baseline to include every
+regressions and feature decisions for that plan; it does not expand the parity baseline to include every
 upstream request. The 32 corresponding MoTrack issues are **24 bug/regression tasks, two investigations
 and six accepted feature/workflow tasks**. They cover 44 distinct upstream reports plus two defects
 observed in our reference tests. Related reports share a filing only when they feed one native
@@ -42,79 +42,22 @@ record the test evidence and update the plan. The broader post-port review in
 [MoTrack #39](https://github.com/mgradwohl/MoTrack/issues/39) remains separate from correctness and
 compatibility work that must happen during the port.
 
-On **2026-11-09**, Tracker #12/#13 and their complete discussions were refreshed for the fixed-movie
-calibration save slice. #12 remains a confirmed upstream two-click workflow; #13 remains open with the
-historical second-endpoint report unreproduced by its maintainer. The native desktop regression now
-places axes and both distance endpoints through the existing input controller, checks undo/redo, and
-saves/reopens fixed calibration in both file formats. Those four independent movie save/reference modes
-passed actual Tracker acceptance in [PR #142](https://github.com/mgradwohl/MoTrack/pull/142), reviewed at
-`9c864e0` with all six checks passing in [CI 42591194102](https://github.com/mgradwohl/MoTrack/actions/runs/42591194102).
-The current varying/partly fixed extension refreshes the same discussions and adds seven flag combinations,
-frame-specific desktop placement/undo/save tests and 28 application cases, all accepted in
-[PR #143](https://github.com/mgradwohl/MoTrack/pull/143) at `7e7ace4` with
-[CI 42602902771](https://github.com/mgradwohl/MoTrack/actions/runs/42602902771). This is scoped phase-3 persistence evidence;
-[MoTrack #78](https://github.com/mgradwohl/MoTrack/issues/78) stays open for the full phase-5 tool,
-selection/dragging, zoom/DPI and cancellation acceptance. The original reported bug is not claimed reproduced.
+Upstream discussions are refreshed before each related slice; the PR records the refresh. Current
+native dispositions from those refreshes:
 
-Tracker #10 and its complete discussion were refreshed on **2026-11-09** for movie track authoring.
-The report remains open with no attached sample; the 2022 comment reports success through Open Recent.
-The new two-mass fixture covers creation, naming, deletion and same-name replacement through four
-standard save routes. All 28 cases passed actual Tracker acceptance in
-[PR #144](https://github.com/mgradwohl/MoTrack/pull/144), reviewed at `951d92a` with
-[CI 42610128356](https://github.com/mgradwohl/MoTrack/actions/runs/42610128356) passing all six checks.
-[MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65) remains open for the broader workflow.
-This preventive coverage does not establish reproduction or resolution of the 4.97/Windows 7 report.
-
-The independent media-vector extension refreshed [MoTrack #63](https://github.com/mgradwohl/MoTrack/issues/63)
-and its discussion on **2026-11-09**. Its vector-sum reproduction and strict export refusal remain
-unchanged. Six image/MOV vector-authoring scenarios passed all 48 actual-Tracker save routes in
-[PR #145](https://github.com/mgradwohl/MoTrack/pull/145), with reviewed head `23b3a10` and all six checks
-passing in [CI 42620528465](https://github.com/mgradwohl/MoTrack/actions/runs/42620528465). The following
-varying-coordinate extension refreshes the same issue and Tracker #10 discussion; its 28 baseline
-sessions and 56 edited modes passed actual Tracker acceptance in [PR #147](https://github.com/mgradwohl/MoTrack/pull/147), reviewed at `dc8fed8`, with all six checks passing in [CI 42655960136](https://github.com/mgradwohl/MoTrack/actions/runs/42655960136). This does not resolve the dependent-member loss or mixed-track
-snapping model, and does not close #63 or the broader media persistence issue #65.
-
-For the multi-member archive foundation, Tracker #18 and its complete discussion were refreshed on **2026-11-09**. The report remains open: switching/closing another tab pauses AutoTracker and leaves inconsistent controls. Its maintainer linked the pause to video stepping. [MoTrack #69](https://github.com/mgradwohl/MoTrack/issues/69) remained open at that milestone; the storage writer does not address job ownership or desktop tab switching. Separate workspace sessions must retain active tracking when another tab is selected or closed.
-
-The workspace-registry foundation now has local regressions for that ownership policy: switching,
-reordering or hiding a different member preserves the first member's AutoTracker token, and cancelling
-one member does not cancel another in the same archive. Group image/MOV corpus routes exercise this
-policy while saving hidden members. Those routes passed all current-head checks, review and actual
-Tracker acceptance in merged #160. The next shared-services slice additionally exercises two actual
-desktop windows with one continuing AutoTracker after the other closes, bounded pools/cache, and
-isolated frame cancellation. All six current-head checks and review passed in merged #161, with
-96.35% combined coverage and all 237 edited Tracker cases; that revision did not yet include
-tabbed controls or registry-bound views. The following retained-editor slice additionally
-tests actual registry-bound views while saving and closing another experiment: tracking continues
-with independent timing/units, and hidden archive edits remain in whole-source saves. Its local
-regressions pass. Review also reproduced a Stop-only state after explicit cancellation while waiting
-for a match or movie frame. Run-level tokens and independently queued cancellation notifications now
-reset the owning controls, preserve unrelated jobs and permit restart without stale notices stopping
-the new run. This editor foundation merged in #162 with all-six-green CI, approved review and all 237 edited Tracker cases; the visible shell is the next acceptance layer.
-#69 remained open at that foundation milestone. See
-[workspace ownership and routing](workspace-sessions.md).
-
-The discussion was refreshed again on **2026-11-10** for complete input preparation; Tracker #18
-remains open with the same video-stepping explanation. New local regressions confirm that opening a
-complete archive, refusing a third queued input, cancelling one open or failing another preserves an
-existing dirty document and its tracking token. They also exercise bound editors after asynchronous
-archive loading. Review reproduced a whole-source save failure when a movie member had no editor;
-the input adapter now prepares missing movie metadata before adoption. The new mixed-archive test
-saves image edits with the unopened movie intact, and extended corpus modes use the same initial
-preparation path. All 14 input cases and the full serial Windows suite pass locally. PR #163 merged
-with all six checks passing, approved review, 96.29% combined coverage and the same 237 edited Tracker
-cases. The current shell adds real tab-switch/reorder/close-other-project AutoTracker regressions,
-independent histories/playheads/timing, explicit close decisions and bounded input cancellation.
-All 17 final shell cases and the full serial Windows suite pass (96.08% local coverage). Those checks
-are preventive coverage informed by Tracker #18. PR #164 merged at reviewed `0b772d0`, with all six
-checks passing in [CI 42787438966](https://github.com/mgradwohl/MoTrack/actions/runs/42787438966),
-96.13% combined coverage and all 237 unchanged edited Tracker cases. Independent Codex review
-approved the exact head after the user authorized that reviewer when Copilot's quota was exhausted.
-[MoTrack #69](https://github.com/mgradwohl/MoTrack/issues/69) is closed with complete native acceptance
-evidence: tracking survives actual other-tab switch/reorder/close, cancelled or replaced jobs reject
-late results, and controls reset/restart independently. This does not claim an upstream fix.
-#150 remains open:
-the new dispatcher handles experiment files and archives, not `TFrame` tabsets.
+- Tracker #12/#13 (calibration placement): persistence of axes/stick edits across all calibration
+  forms passed actual Tracker acceptance in #142/#143. [MoTrack #78](https://github.com/mgradwohl/MoTrack/issues/78)
+  stays open for the phase-5 tool, selection/dragging, zoom/DPI and cancellation acceptance; the
+  original second-endpoint report is not reproduced.
+- Tracker #10 (save/load loss): movie track authoring through four save routes passed in #144 as
+  preventive coverage; [MoTrack #65](https://github.com/mgradwohl/MoTrack/issues/65) stays open for the broader workflow.
+- [MoTrack #63](https://github.com/mgradwohl/MoTrack/issues/63) (vector sums): image/MOV vector authoring
+  (#145, #147) does not change the reproduction or the strict export refusal, and does not resolve the
+  dependent-member loss or the mixed-track snapping model.
+- Tracker #18 (AutoTracker stops when another tab closes): native
+  [MoTrack #69](https://github.com/mgradwohl/MoTrack/issues/69) is closed with regression evidence from
+  the workspace shell (#160–#164): tracking survives another tab's switch, reorder and close, and
+  cancelled or replaced jobs reject late results. This does not claim an upstream fix.
 
 The baseline tabset workflow is now tracked explicitly in [MoTrack #150](https://github.com/mgradwohl/MoTrack/issues/150); moving reference frames discovered in the real Diabolo archive are tracked in [MoTrack #148](https://github.com/mgradwohl/MoTrack/issues/148). Neither discovery is an accepted full round trip.
 
@@ -144,13 +87,14 @@ tolerances and deliberately unaccepted reference results.
 
 ## Feature-request decisions
 
-Accepted rows cover existing baseline workflows or applicable native release requirements. Partial
+Accepted rows cover existing baseline workflows or applicable native release requirements. Installer
+and packaging rows wait on R27, which the maintainer deferred on 2026-11-21. Partial
 acceptance explicitly separates the useful baseline from a proposed extension. Features already fixed
 upstream still require native regression coverage. No legal conclusion is inferred from issue comments.
 
 | Original | Decision | Priority / order | Scope, tracking and reason |
 | --- | --- | --- | --- |
-| [Tracker #7](https://github.com/OpenSourcePhysics/tracker/issues/7) | Required port | P1 / phase 12 | Non-root/native installation acceptance; [MoTrack #83](https://github.com/mgradwohl/MoTrack/issues/83). Verify supported package privileges; do not port Xuggle. |
+| [Tracker #7](https://github.com/OpenSourcePhysics/tracker/issues/7) | Required port; deferred with R27 | P1 when R27 resumes | Non-root/native installation acceptance; [MoTrack #83](https://github.com/mgradwohl/MoTrack/issues/83). Verify supported package privileges; do not port Xuggle. |
 | [Tracker #12](https://github.com/OpenSourcePhysics/tracker/issues/12) | Required port; upstream fixed | P1 / phase 5 | Two-click calibration and visible endpoints; [MoTrack #78](https://github.com/mgradwohl/MoTrack/issues/78). Preserve the existing workflow and its regression. |
 | [Tracker #14](https://github.com/OpenSourcePhysics/tracker/issues/14) | Partially accepted | P1 / phases 5, 8 | Center-of-mass total momentum and Data Tool column combination; [MoTrack #89](https://github.com/mgradwohl/MoTrack/issues/89). Defer new arbitrary cross-track expressions until dependency, gap and persistence semantics are designed. |
 | [Tracker #19](https://github.com/OpenSourcePhysics/tracker/issues/19) | Required port | P1 / phase 7 | Live/fast AutoTracker modes; [MoTrack #90](https://github.com/mgradwohl/MoTrack/issues/90). Decouple rendering from processing; identical scientific results and responsive cancellation. |
@@ -159,9 +103,9 @@ upstream still require native regression coverage. No legal conclusion is inferr
 | [Tracker #30](https://github.com/OpenSourcePhysics/tracker/issues/30) | Existing foundation plus planned help | Ongoing / R25 | Installation and user guidance; README / R25. Finish baseline help/diagnostics; do not claim current docs are complete. |
 | [Tracker #46](https://github.com/OpenSourcePhysics/tracker/issues/46) | Applicable portion accepted | P1 / phase 11 | Robust desktop library URLs; [MoTrack #92](https://github.com/mgradwohl/MoTrack/issues/92). Extensionless/query-bearing media and archives; browser execution stays outside scope. |
 | [Tracker #51](https://github.com/OpenSourcePhysics/tracker/issues/51) | Required port | P1 / phases 5, 8 | Cumulative traveled distance; [MoTrack #91](https://github.com/mgradwohl/MoTrack/issues/91). Independent segment-sum expectations, units, gaps, editing and persistence. |
-| [Tracker #58](https://github.com/OpenSourcePhysics/tracker/issues/58) | Applicable portion accepted | P1 / phase 12 | Accessible installer/license notices; [MoTrack #93](https://github.com/mgradwohl/MoTrack/issues/93). Inspect actual UX; keep approved license. Disputed legal arguments and dual licensing are not accepted. |
-| [Tracker #70](https://github.com/OpenSourcePhysics/tracker/issues/70) | Required native install workflow | P1 / phase 12 | Windows per-user installation; [MoTrack #83](https://github.com/mgradwohl/MoTrack/issues/83). Verify without elevation; deployment must not alter unrelated runtimes. |
-| [Tracker #29](https://github.com/OpenSourcePhysics/tracker/issues/29) | Packaging decision pending | P1 decision / before phase 12 | Reliable supported Linux package; [MoTrack #95](https://github.com/mgradwohl/MoTrack/issues/95). Choose distribution/format after clean-machine tests; AppImage and Flatpak are candidates, not both commitments. This decision is separate from #82's root-XDG installation regression. |
+| [Tracker #58](https://github.com/OpenSourcePhysics/tracker/issues/58) | Applicable portion accepted; deferred with R27 | P1 when R27 resumes | Accessible installer/license notices; [MoTrack #93](https://github.com/mgradwohl/MoTrack/issues/93). Inspect actual UX; keep approved license. Disputed legal arguments and dual licensing are not accepted. |
+| [Tracker #70](https://github.com/OpenSourcePhysics/tracker/issues/70) | Required native install workflow; deferred with R27 | P1 when R27 resumes | Windows per-user installation; [MoTrack #83](https://github.com/mgradwohl/MoTrack/issues/83). Verify without elevation; deployment must not alter unrelated runtimes. |
+| [Tracker #29](https://github.com/OpenSourcePhysics/tracker/issues/29) | Packaging decision pending; deferred with R27 | Decision when R27 resumes | Reliable supported Linux package; [MoTrack #95](https://github.com/mgradwohl/MoTrack/issues/95). Choose distribution/format after clean-machine tests; AppImage and Flatpak are candidates, not both commitments. This decision is separate from #82's root-XDG installation regression. |
 | [Tracker #27](https://github.com/OpenSourcePhysics/tracker/issues/27) | Deferred proposal | P2 / after full data export | Direct XLSX export; No implementation issue. Useful classroom improvement. First complete column/text/precision/locale export; then assess a maintained native writer and round-trip spreadsheet tests. |
 | [Tracker #53](https://github.com/OpenSourcePhysics/tracker/issues/53) | Deferred proposal | P2 / after task lifecycle/recovery | Optional sleep inhibition; No implementation issue. Use a scoped OS lease only during active work; release on all completion paths, respect manual sleep and test resume. No global power-setting changes. |
 | [Tracker #16](https://github.com/OpenSourcePhysics/tracker/issues/16) | Deferred proposal | P3 / after AutoTracker parity | Stop when a target remains still; No implementation issue. Upstream declined. Need thresholds in defined units, noise/gap behavior and false-stop tests; clip limits already address a simpler workflow. |
@@ -172,7 +116,7 @@ upstream still require native regression coverage. No legal conclusion is inferr
 | [Tracker #60](https://github.com/OpenSourcePhysics/tracker/issues/60) | Deferred distribution proposal | P2 / after native Linux packaging | Nix package; No implementation issue. Needs a tested package/upgrade path and an identified maintenance owner; does not block desktop parity. |
 | [Tracker #37](https://github.com/OpenSourcePhysics/tracker/issues/37) | Deferred distribution proposal | P2 / after release readiness | Microsoft Store; No implementation issue. Depends on clean packages, signing, update policy, store review and explicit publication authority. |
 | [Tracker #63](https://github.com/OpenSourcePhysics/tracker/issues/63) | Deferred distribution proposal | P2 / after release readiness | Apple Store; No implementation issue. Depends on clean packages/signing, sandbox and licensing review, and explicit publication authority; no compatibility claim yet. |
-| [Tracker #31](https://github.com/OpenSourcePhysics/tracker/issues/31) | Outside frozen scope | Separate product/platform decision | Browser/Chromebook execution; No implementation issue. The port is native desktop. A browser build or Chromebook-specific support needs an explicit scope decision. |
+| [Tracker #31](https://github.com/OpenSourcePhysics/tracker/issues/31) | Outside desktop scope | Separate product/platform decision | Browser/Chromebook execution; No implementation issue. The port is native desktop. A browser build or Chromebook-specific support needs an explicit scope decision. |
 
 The automatic uncertainty proposal in Tracker #75 is broader than the baseline Data Tool/Fit Builder
 uncertainty work in R17. Deferring that proposal does not remove existing Tracker uncertainty workflows
