@@ -456,6 +456,20 @@ def validate_known_session_issue(case, report, manifest, saved):
             "tracker_session": report}
 
 
+XVFB_READY_SECONDS = 30
+XVFB_LOG_BYTES = 2000
+
+
+def file_tail(file, limit):
+    """Last `limit` bytes of a file another process may still append to, without moving the shared offset."""
+    fd = file.fileno()
+    start = max(0, os.fstat(fd).st_size - limit)
+    if hasattr(os, "pread"):
+        return os.pread(fd, limit, start)
+    file.seek(start)  # Windows has no pread; Xvfb itself only runs on Linux.
+    return file.read(limit)
+
+
 @contextmanager
 def private_display():
     if sys.platform != "linux":
@@ -463,31 +477,40 @@ def private_display():
     executable = shutil.which("Xvfb")
     if not executable:
         raise ValueError("Install Xvfb to run the isolated session checks")
-    reader, writer = os.pipe()
-    server = None
-    try:
+    # Xvfb writes its diagnostics for the whole session here; the fatal (EE) line comes last, so
+    # startup errors quote the bounded tail (#208). Opened first so no descriptor leaks on any path.
+    with tempfile.TemporaryFile() as log:
+
+        def failure(message):
+            detail = file_tail(log, XVFB_LOG_BYTES).decode("utf-8", "replace").strip()
+            return ValueError(f"{message}: {detail}" if detail else message)
+
+        reader, writer = os.pipe()
+        server = None
         try:
-            server = subprocess.Popen([executable, "-displayfd", str(writer), "-screen", "0", "1280x800x24",
-                                       "-nolisten", "tcp"], pass_fds=(writer,),
-                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        finally:
-            os.close(writer)
-        if not select.select([reader], [], [], 5)[0]:
-            raise ValueError("Private Xvfb display did not become ready")
-        number = os.read(reader, 32).decode("ascii")
-        if not re.fullmatch(r"[0-9]+\n", number) or server.poll() is not None:
-            raise ValueError("Private Xvfb display failed to start")
-        yield ":" + number.strip()
-    finally:
-        os.close(reader)
-        if server is not None:
-            if server.poll() is None:
-                server.terminate()
             try:
-                server.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                server.kill()
-                server.wait(timeout=5)
+                server = subprocess.Popen([executable, "-displayfd", str(writer), "-screen", "0", "1280x800x24",
+                                           "-nolisten", "tcp"], pass_fds=(writer,),
+                                          stdout=subprocess.DEVNULL, stderr=log)
+            finally:
+                os.close(writer)
+            # A cold start on a loaded runner can exceed a few seconds; a healthy server answers at once.
+            if not select.select([reader], [], [], XVFB_READY_SECONDS)[0]:
+                raise failure(f"Private Xvfb display did not become ready within {XVFB_READY_SECONDS} s")
+            number = os.read(reader, 32).decode("ascii")
+            if not re.fullmatch(r"[0-9]+\n", number) or server.poll() is not None:
+                raise failure("Private Xvfb display failed to start")
+            yield ":" + number.strip()
+        finally:
+            os.close(reader)
+            if server is not None:
+                if server.poll() is None:
+                    server.terminate()
+                try:
+                    server.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    server.kill()
+                    server.wait(timeout=5)
 
 
 MOVIE_TRACK_SCENARIOS = ("selected-name", "unselected-name", "create", "delete-selected", "delete-unselected", "delete-all", "replace")
