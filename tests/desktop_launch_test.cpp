@@ -558,9 +558,10 @@ TEST(DesktopLaunch, ProcessArgumentsKeepSpacesUnicodeRelativePathsAndOrder)
     const auto second = nativeCopy(folder, QString::fromUtf8("second ✓ copy.motrack"));
     const auto relative = QString::fromUtf8("third ő 測定.trk");
     const auto third = copied(fixture("point-mass.trk"), folder, relative);
-    auto result = runSmokeLaunch({first, second, relative}, folder.path());
+    auto result = runSmokeLaunch({"--no-such-option", first, second, relative}, folder.path());
     EXPECT_EQ(result.exitCode, 0) << result.errors.toStdString();
     EXPECT_EQ(result.opened, canonicalPaths({first, second, third}));
+    EXPECT_TRUE(result.errors.contains("ignoring unknown option --no-such-option")) << result.errors.toStdString();
     // A missing file fails the launch without preventing the others from opening.
     result = runSmokeLaunch({folder.filePath("missing ü.trk"), second}, folder.path());
     EXPECT_EQ(result.exitCode, 1);
